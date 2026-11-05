@@ -16,7 +16,7 @@ enum LiveCallText {
     static var thinking: String { String(localized: "chiefLive.status.thinking", defaultValue: "Thinking…", bundle: .module) }
     static var muted: String { String(localized: "chiefLive.status.muted", defaultValue: "Muted", bundle: .module) }
     static var yourTurn: String { String(localized: "chiefLive.status.yourTurn", defaultValue: "Go ahead", bundle: .module) }
-    static var hint: String { String(localized: "chiefLive.hint", defaultValue: "Talk to Chief like a colleague. Ask what your agents are doing, or have Chief start work on your Macs.", bundle: .module) }
+    static var hint: String { String(localized: "chiefLive.hint", defaultValue: "Ask Chief what your agents are doing or start work on your Macs.", bundle: .module) }
     static var typePlaceholder: String { String(localized: "chiefLive.typePlaceholder", defaultValue: "Type to Chief", bundle: .module) }
     static var send: String { String(localized: "chiefLive.button.send", defaultValue: "Send", bundle: .module) }
     static var tryAgain: String { String(localized: "chiefLive.button.tryAgain", defaultValue: "Try Again", bundle: .module) }
@@ -40,6 +40,8 @@ enum LiveCallText {
     static var failModel: String { String(localized: "chiefLive.fail.model", defaultValue: "This voice model isn’t available to your key", bundle: .module) }
     static var failRefused: String { String(localized: "chiefLive.fail.refused", defaultValue: "OpenAI couldn’t start the call", bundle: .module) }
     static var failNetwork: String { String(localized: "chiefLive.fail.network", defaultValue: "Couldn’t connect", bundle: .module) }
+    static func failServerDetail(status: Int) -> String { String(localized: "chiefLive.fail.serverDetail", defaultValue: "OpenAI had a server error (HTTP \(status)). Try again in a moment.", bundle: .module) }
+    static func requestID(_ id: String) -> String { String(localized: "chiefLive.requestID", defaultValue: "Request ID: \(id)", bundle: .module) }
     static var failDropped: String { String(localized: "chiefLive.fail.dropped", defaultValue: "The call dropped", bundle: .module) }
     static var failDroppedDetail: String { String(localized: "chiefLive.fail.droppedDetail", defaultValue: "The connection to OpenAI was lost. Try again when you have a better connection.", bundle: .module) }
 }

@@ -1,0 +1,13 @@
+{
+  "title": "Workspace hover tabs card",
+  "settings": {"appearance": {"theme": "light:Soft Blue Light,dark:Soft Blue"}},
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "Create a workspace", "cmux": ["workspace", "new", "--name", "Hover tab demo", "--cwd", "/tmp", "--shell", "printf ready; sleep 600"], "wait": 3, "shot": false},
+    {"title": "Focus the workspace", "rpc": {"method": "debug.mouse", "params": {"row": "Hover tab demo", "action": "click"}}, "wait": 2, "shot": false},
+    {"title": "Add a second inner tab", "cmux": ["action", "run", "newSurface"], "wait": 2, "shot": false},
+    {"title": "Add a third inner tab", "cmux": ["action", "run", "newSurface"], "wait": 2, "shot": false},
+    {"title": "Hover the workspace row", "rpc": {"method": "debug.mouse", "params": {"row": "Hover tab demo", "action": "move"}}, "wait": 2},
+    {"title": "Card is showing", "rpc": {"method": "debug.hover_cards"}, "wait": 0, "expect": {"method": "debug.hover_cards", "fields": {"card_showing": "true"}}}
+  ]
+}

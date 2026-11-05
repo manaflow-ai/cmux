@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextSidebar
@@ -13,16 +14,19 @@ extension AppActions {
         let registry = services.registry
         registry.bind("newTab", invoke: { newWorkspace(services, $0) })
         registry.bind("closeWorkspace", invoke: { closeWorkspace(services, $0) })
-        registry.bind("renameWorkspace", invoke: { invocation in
-            guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
+        registry.bindEffect("renameWorkspace", effect: { invocation in
+            guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return .done }
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
-                // The daemon that owns the workspace (a remote host's row too), not the active window's.
+                // The daemon that owns the workspace (a remote host's row too), not the active window's. The name
+                // shows in its store now; a failure takes it back and says why, as the inline rename does (#26382).
                 let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon
-                daemon.send("rename-workspace") { _ = try await $0.renameWorkspace(key, to: name) }
-                return
+                return daemon.intentEffect("rename-workspace", .renameWorkspace(key: key, name: name)) { _ = try await $0.renameWorkspace(key, to: name) }
             }
             guard let window = renameRowWindow(workspace, services) else {
-                if let reason = renameRowReason(workspace, services) { return services.registry.refuse(reason) }
+                if let reason = renameRowReason(workspace, services) {
+                    services.registry.refuse(reason)
+                    return .done
+                }
                 // No list row to edit (a pinned workspace draws as a tile or top row): a Cmd-Shift-P step,
                 // pinned to this workspace, as Rename Screen does off the screen bar.
                 var asking = invocation
@@ -30,11 +34,12 @@ extension AppActions {
                 if !services.registry.ask("renameWorkspace", asking, ActionArgumentAsk(argument: "name", initialText: workspace.displayName)) {
                     services.registry.refuse(RefusalStrings.workspaceNotInSidebar)
                 }
-                return
+                return .done
             }
             // The name field opens on the row in the window that lists it, which comes forward.
             if window !== services.windows.active { services.windows.bringToFront(window) }
             window.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace.id))
+            return .done
         })
         AppActionContext(services: services).setTargetReason("renameWorkspace") { [weak services] invocation in
             guard let services, invocation["name"]?.stringValue?.isEmpty ?? true, let workspace = scope(services, invocation).workspace else { return nil }
@@ -46,7 +51,7 @@ extension AppActions {
         // only while its Debug tunable is on.
         registry.bind("nextSidebarTab", invoke: { SidebarNavigation.step(by: 1, scope: $0["scope"]?.stringValue, services) })
         registry.bind("prevSidebarTab", invoke: { SidebarNavigation.step(by: -1, scope: $0["scope"]?.stringValue, services) })
-        registry.includesWorkspaceTabKeys = { SidebarTunables.workspacesAsTabs.value }
+        registry.includesWorkspaceTabKeys = { SidebarTunables.workspacesAsTabsOn }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue else { return }
             SidebarNavigation.select(number: number, services)
@@ -93,10 +98,8 @@ extension AppActions {
         bindHomeConversations(services)
         bindHomeGroups(services)
         bindHomeMessaging(services)
-        // Debug > Save Last 10 Seconds (DEV and NIGHTLY): MessagesLab's flight recorder dump.
-        registry.bind("home.saveFlightRecording") {
-            if HomeFlightRecording.saveLastSeconds() == nil { services.registry.refuse(RefusalStrings.homeFlightRecorderOff) }
-        }
+        // Debug > Save Last 10 Seconds (DEV and NIGHTLY) and, in DEV, Agent Messages Playground; All Themes Playground (HomeDebugActions).
+        HomeDebugActions(flightRecorderOff: RefusalStrings.homeFlightRecorderOff, themeFolders: Bundle.main.resourceURL.map { [$0.appending(path: "ghostty/themes")] } ?? []).bind(into: registry)
                 registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
@@ -124,23 +127,31 @@ extension AppActions {
     /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
+        // Who asked: the run's own origin (a script's nested run is not the person's, though its handed invocation says user).
+        let byPerson = (ActionRunScope.current?.origin ?? invocation.origin) == .user
         var spawn = WorkspaceSpawn(invocation)
-        spawn.followClassicMode(services) // before the key hold below, which waits only for a page
+        if !byPerson { spawn.opensNewTabPage = false } // only the person's own run opens the New Tab page and its key hold
+        let windows = services.windows
+        let sourceID = invocation.target.flatMap { $0.kind == .window ? $0.id : nil }
+        let sourceWindow = sourceID.flatMap(windows.controller(for:)) ?? windows.active
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
         // A person's Cmd-N starts where they work: the focused terminal's folder or the focused
         // agent chat's exact folder, unless `window-inherit-working-directory = false`.
-        if invocation.origin == .user, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
-           let focused = services.windows.active?.focusedPane, focused.daemon === services.daemon {
+        if byPerson, invocation["machine"] == nil, NewTerminalStart.inherits(.window),
+           let focused = sourceWindow?.focusedPane, focused.daemon === services.daemon {
             spawn.inheritedCwd = NewTerminalStart.inherited(besides: focused.selectedTab, in: focused.pane, services: services)
         }
+        // The Cloud toggle (#26062): a person's new workspace gets its own new Cloud machine.
+        // Only a window shows the machine's progress; without one, or without Cloud, it opens here and says so.
+        let cloudRoute = CloudHandlers.startNewWorkspaceInCloud(invocation, cwd: spawn.cwd ?? spawn.inheritedCwd, window: focus.shows ? sourceWindow?.state : nil, services)
+        guard case .thisMac(let cloudNotice) = cloudRoute else { return }
 
-        let windows = services.windows
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new
         // window when none is open (a workspace never lives in no window).
         let hasOpenWindow = !windows.registry.value.openWindows.isEmpty
-        let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: windows.active?.state.id) : nil
+        let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: sourceID ?? sourceWindow?.state.id) : nil
         // `machine` (App machine id; the CLI's `--session`): born on that
         // session's daemon (plans/cmux-next/data-model.md 1.3).
         let daemon = (invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue).flatMap(services.machines.daemon(machine:))
@@ -153,17 +164,45 @@ extension AppActions {
         let input = services.keyRouter.newTabInputCoordinator
         let opensPage = show && hasOpenWindow && spawn.opensNewTabPage && spawn.command == nil && spawn.firstChat == nil
             && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? services.daemon)
-        let keys = opensPage && target == windows.active?.state.id ? input.beginIncoming(in: windows.active?.window) : nil
+        let keys = opensPage && target == sourceWindow?.state.id ? input.beginIncoming(in: sourceWindow?.window) : nil
         spawn.inputToken = keys
+        // The person's own new workspace with a terminal in the window they type in: every key from now is that terminal's
+        // and waits for it, and the keyboard stays its until their next intent (dogfood v2.2.3: the keys went to the Chief).
+        let terminalWindow = byPerson && show && hasOpenWindow && target == sourceWindow?.state.id
+            && !WorkspaceCreation.opensPage(spawn, on: daemon ?? services.daemon, tabs: services.agentTabs) ? sourceWindow : nil
+        let creationKeys = services.keyRouter.creationInputCoordinator, terminalKeys = creationKeys.beginWorkspace(in: terminalWindow), keyWindow = terminalWindow?.window
+        // Automation never competes with the person (CLAUDE.md, "Go past Chrome where cmux is scripted"): a script's, the
+        // CLI's, MCP's or the socket's workspace with focus is made and listed without being shown (its create and tasks run
+        // without view change), and shown once it exists only if no text input has the person's keyboard then.
+        let quiet = !byPerson && show && hasOpenWindow ? ActionRunScope(origin: ActionRunScope.current?.origin ?? invocation.origin, allowsViewChange: false) : nil
         // In this turn: the row, and for Cmd-N's page the workspace itself, show before any daemon reply.
-        let create = BenchSpans.measure("cmdN.start") { windows.startWorkspace(spawn, on: daemon, into: target) }
-        services.registry.track(Task {
+        let start = { BenchSpans.measure("cmdN.start") { windows.startWorkspace(spawn, on: daemon, into: target) } }
+        let create = quiet.map { ActionRunScope.carrying($0, start) } ?? start()
+        let run = { services.registry.trackOrReport(Task {
             var pageMade = false
-            defer { input.endIncoming(keys, pageMade: pageMade) }
+            var made: String?
+            defer {
+                input.endIncoming(keys, pageMade: pageMade)
+                creationKeys.resolve(terminalKeys, landed: made != nil, workspace: made, in: keyWindow)
+            }
             do {
-                _ = try await create(); BenchSpans.mark("cmdN.created")
+                made = try await create(); BenchSpans.mark("cmdN.created")
                 pageMade = true
-                if focus.activatesApp, let target { focusWindow(windows, target) }
+                // A window with no controller yet (a launch window to build, a new one) has nobody typing in it: it shows.
+                if let quiet, let made, let target, windows.controller(for: target)?.window?.hasTextInputKeyboard != true {
+                    windows.claims.quiet.remove(made) // claimed again, out loud: shown now if listed, else when listed (reconcile)
+                    // --activate runs inside the show's scope, so a window awaiting its content is raised too.
+                    ActionRunScope.carrying(ActionRunScope(origin: quiet.origin, allowsViewChange: true)) {
+                        windows.claimNew(workspaceID: made, window: target)
+                        if focus.activatesApp { focusWindow(windows, target) }
+                    }
+                } else if quiet == nil, focus.activatesApp, let target {
+                    focusWindow(windows, target)
+                }
+                // In the window the workspace opened in (with every window closed, the new one).
+                if let cloudNotice, let window = target.flatMap(windows.controller(for:))?.window ?? windows.active?.window {
+                    CmuxToastCenter.shared.show(CmuxToast(id: "cloud-new-workspace-here", message: cloudNotice, duration: .seconds(8)), in: window)
+                }
                 return nil
             } catch is CancellationError {
                 return nil // a close took it before it started (WorkspaceLanes)
@@ -171,7 +210,8 @@ extension AppActions {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new workspace", error)
             }
-        })
+        }, as: "newTab") }
+        if let quiet { ActionRunScope.carrying(quiet, run) } else { run() } // a script's tasks keep its quiet scope
     }
 
     /// Close Workspace. With no target, a close pressed while the window's
@@ -187,7 +227,7 @@ extension AppActions {
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
            lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }, taken: PendingWorkspaceRows.shared.remove) { return }
-        guard let workspace = scope(services, invocation).workspace, let key = workspace.key, WorkspaceSelectionCloseFlow.canStart(workspace.id)
+        guard let workspace = scope(services, invocation).workspace, let key = workspace.key, services.selectionCloses.canStart(workspace.id)
         else { return } // a second press during the close sends nothing
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
         if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
@@ -199,6 +239,8 @@ extension AppActions {
         let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
         let id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
+        // The unpinned group this close may empty (cx-rcby), read before the workspace leaves; `deleteIfEmpty` rechecks.
+        let personalGroup = PersonalGroupLife(machines: services.machines).groupsClosing([id]).first
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
@@ -231,12 +273,15 @@ extension AppActions {
                 let close: @MainActor () async -> ActionWorkFailure? = {
                     let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
-                        try await WorkspaceClose.close(key, terminals: terminals, on: connection)
+                        try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon)
+                    }
+                    // Wait for the close event before deciding whether its personal group is empty.
+                    if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
+                    if failure == nil, let personalGroup {
+                        PersonalGroupLife(machines: services.machines).deleteIfEmpty(personalGroup, failed: { _ in controller?.sidebar.resync() })
                     }
                     guard hidden else { return failure }
-                    // A close that went through stays hidden until the store has applied its events (the row is gone there).
-                    if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
-                    ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
+                    ClosingWorkspaces.shared.end(id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure), in: controller?.window)
                     return failure
                 }
                 return !offline ? lanes.run(in: window, close) : hidden ? Task { await close() } : Task { services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)); return nil }

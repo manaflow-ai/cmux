@@ -5,8 +5,8 @@ import Testing
 /// `/btw` side sessions at the pane boundary. A side session (`_acpmux/btw`) goes out like a prompt:
 /// only on a gesture, only about a chat in the pane's scope, and only with the params the page
 /// sends; its reply makes the new session the pane's, so `chat.sideChat` opens it beside the chat.
-/// Side sessions then share one right pane (Leo 2026-10-14): the first opens a split right of the
-/// chat, each later one a tab in that pane, focused, never a new split each time.
+/// Side sessions then open where ``RightColumnPlacement`` says: a split right of the chat, one split
+/// below what is on the right, then tabs in the lower pane, focused, never a new split each time.
 @Suite(.serialized)
 @MainActor
 struct AgentSideSessionPaneTests {
@@ -65,43 +65,32 @@ struct AgentSideSessionPaneTests {
         #expect(opened == ["chat-1>side-1"])
     }
 
-    /// A window's panes as the app keeps them: tab key to pane. A split's move lands later, as the
-    /// daemon's does, so an open asked for meanwhile has to wait for it.
+    /// A window's panes as the app keeps them (``RightColumnWindow``). A split's move lands later,
+    /// as the daemon's does, so an open asked for meanwhile has to wait for it.
     @MainActor final class Layout {
-        var panes: [String: String] = ["chat": "left"]
+        let window = RightColumnWindow()
         var focused: String?
-        var events: [String] = []
         var moves: [@MainActor () -> Void] = []
-        private var count = 0
-
-        private func newTab(_ session: String) -> String {
-            count += 1
-            return "tab-\(session)"
-        }
 
         func hooks() -> AgentSidePanes.Hooks {
-            AgentSidePanes.Hooks(pane: { [weak self] in self?.panes[$0] }, addTab: { [unowned self] anchor, session, created, finished in
-                guard let pane = panes[anchor] else { return false }
-                let key = newTab(session)
-                panes[key] = pane
-                created(key)
-                focused = key
-                events.append("tab \(session) in \(pane)")
-                finished()
-                return true
-            }, split: { [unowned self] session, created, finished in
-                let key = newTab(session)
-                panes[key] = panes["chat"]
+            AgentSidePanes.Hooks(pane: { [weak self] in self?.window.paneOf[$0] }, column: { [unowned self] _ in window.measured }) { [unowned self] decision, session, created, finished in
+                let key = "tab-\(session)"
+                if case .tab = decision {
+                    window.place(decision, key: key)
+                    created(key)
+                    focused = key
+                    finished()
+                    return true
+                }
+                window.paneOf[key] = "moving"
                 created(key)
                 moves.append { [unowned self] in
-                    let pane = "right-\(count)"
-                    panes[key] = pane
+                    window.place(decision, key: key)
                     focused = key
-                    events.append("split \(session) to \(pane)")
                     finished()
                 }
                 return true
-            })
+            }
         }
 
         func landMoves() {
@@ -120,12 +109,16 @@ struct AgentSideSessionPaneTests {
         _ = AgentSidePanes.chat("other-\(UUID().uuidString)")
         #expect(AgentSidePanes.chat(chat) === first, "a tracker with an open side tab was dropped")
 
-        layout.panes["tab-s1"] = nil
+        layout.window.close("tab-s1")
         _ = AgentSidePanes.chat("other-\(UUID().uuidString)")
         #expect(AgentSidePanes.chat(chat) !== first, "a chat with no open side tab kept its tracker")
     }
 
-    @Test func laterSideSessionsOfAChatOpenAsTabsInItsOneRightPane() {
+    /// Side sessions open where ``RightColumnPlacement`` puts anything opened on the right: a split
+    /// right of the chat, one split below it, then tabs in the lower pane (leo-workspace
+    /// design/pane-placement.md; Leo 2026-10-30: "if there's already a thing on the right, there
+    /// should be logic for just putting it on the lower pane of the right").
+    @Test func sideSessionsSplitRightThenOnceBelowThenAreTabsInTheLowerPane() {
         let layout = Layout()
         let panes = AgentSidePanes()
 
@@ -133,23 +126,32 @@ struct AgentSideSessionPaneTests {
         #expect(panes.open("s1", chat: "chat", hooks: layout.hooks()))
         #expect(panes.open("s2", chat: "chat", hooks: layout.hooks()))
         layout.landMoves()
-        #expect(layout.events == ["split s1 to right-1", "tab s2 in right-1"])
+        #expect(layout.window.events == ["split right", "split below right1"])
         #expect(layout.focused == "tab-s2")
 
-        // A third lands there too, focused.
+        // A third is a tab in the lower pane, focused: never another split.
         panes.open("s3", chat: "chat", hooks: layout.hooks())
         layout.landMoves()
-        #expect(layout.events.last == "tab s3 in right-1")
+        #expect(layout.window.events.last == "tab in right2")
         #expect(layout.focused == "tab-s3")
-        #expect(Set(["tab-s1", "tab-s2", "tab-s3"].compactMap { layout.panes[$0] }) == ["right-1"],
-                "side sessions spread over more than one pane: \(layout.panes)")
+        #expect(layout.window.live == ["right1", "right2"])
 
-        // Side tabs moved back into the chat's pane, or closed, leave no side pane: the next splits.
-        layout.panes["tab-s3"] = "left"
-        layout.panes["tab-s1"] = nil
-        layout.panes["tab-s2"] = nil
+        // Closing the lower pane's tabs collapses it: the next splits below again.
+        layout.window.close("tab-s2")
+        layout.window.close("tab-s3")
+        #expect(layout.window.live == ["right1"])
         panes.open("s4", chat: "chat", hooks: layout.hooks())
         layout.landMoves()
-        #expect(layout.events.last == "split s4 to right-4")
+        #expect(layout.window.events.last == "split below right1")
+    }
+
+    @Test func withSomethingAlreadyOnTheRightASideSessionSplitsBelowIt() {
+        let layout = Layout()
+        let panes = AgentSidePanes()
+        layout.window.occupy("terminal")
+        #expect(panes.open("s1", chat: "chat", hooks: layout.hooks()))
+        layout.landMoves()
+        #expect(layout.window.events == ["split below right1"])
+        #expect(layout.window.paneOf["terminal"] == "right1", "what was on the right stays")
     }
 }

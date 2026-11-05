@@ -107,8 +107,8 @@ extension ScreenContentView {
             ? host.setStripClip(nil)
             : host.setStripClip(visible.isNull ? .zero : visible, cutouts: cutouts)
         // A clip can change while the pane stays put (a dock growing over it): the window's
-        // Chromium pages re-read their clip shapes, which carry this mask.
-        if changed { context.stripClipsDidChange() }
+        // Chromium pages re-read their clip shapes, which carry this mask, once per overlay sync.
+        if changed { context.stripClipsChanged = true }
         return changed
     }
 
@@ -145,7 +145,9 @@ extension ScreenContentView {
             if host.pane == zoomMotion.pane { return 10 }
             // A zoom's covered panes stay under every pane.
             if covered.contains(host.pane) { return -1 }
-            return geometry.scrolls(pane: host.pane) ? 0 : 3 + cornerRank(geometry.dockFrame(containing: host.pane))
+            // A closing pane keeps the rank it had when it closed (FRAME OWNER S3c; under that rank's live hosts, `ensureStacking`).
+            if let closing = closingPanes.entries[host.pane] { return closing.rank }
+            return liveRank(of: host.pane, in: geometry)
         case let divider as DividerHandleView:
             guard !scrolls(divider.kind) else { return 1 }
             if case let .columnEdge(id) = divider.kind { return 4 + cornerRank(geometry.dock.first { $0.column == id }) }
@@ -157,10 +159,15 @@ extension ScreenContentView {
         }
     }
 
+    /// A live pane host's rank in `layout`: a strip pane's, or a docked one's.
+    func liveRank(of pane: PaneID, in layout: ScreenGeometry) -> Int {
+        layout.scrolls(pane: pane) ? 0 : 3 + cornerRank(layout.dockFrame(containing: pane), in: layout)
+    }
+
     /// 3 for a dock that owns the frame's corners, else 0.
-    private func cornerRank(_ entry: DockColumnFrame?) -> Int {
+    private func cornerRank(_ entry: DockColumnFrame?, in layout: ScreenGeometry? = nil) -> Int {
         guard let entry else { return 0 }
-        return DockStripGeometry.ownsCorners(entry.dock.edge, orientation: geometry.frameOrientation) ? 3 : 0
+        return DockStripGeometry.ownsCorners(entry.dock.edge, orientation: (layout ?? geometry).frameOrientation) ? 3 : 0
     }
 
     private func dock(containing rect: CGRect) -> DockColumnFrame? {
@@ -170,8 +177,13 @@ extension ScreenContentView {
     /// Reorders subviews only when the order is wrong. `sortSubviews`
     /// keeps every view in the window (no detach), so terminal surfaces and
     /// page windows are not torn down.
+    /// A closing pane's host (FRAME OWNER S3c) goes under every live view of its rank: a live pane that moves over its
+    /// place draws above its ground.
     func ensureStacking() {
-        let ranks = subviews.enumerated().map { rank($1) * 100_000 + $0 }
+        let ranks = subviews.enumerated().map { index, view in
+            let closing = (view as? PaneHostView).map { closingPanes.entries[$0.pane] != nil } ?? false
+            return (rank(view) * 2 + (closing ? 0 : 1)) * 100_000 + index
+        }
         guard ranks != ranks.sorted() else { return }
         let table = StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(subviews.map(ObjectIdentifier.init), ranks)))
         withExtendedLifetime(table) {

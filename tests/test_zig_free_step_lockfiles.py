@@ -30,6 +30,23 @@ class ZigFreeStepLockfilesTest(unittest.TestCase):
             found = guard.ghostty_crates(path.read_text())
             self.assertEqual(found, [], f"{mode}: {rel} now has {found}; remove {mode} from ZigFreeModes in cmuxterm-hq first")
 
+    def test_exempt_mode_packages_reach_no_ghostty_crate(self) -> None:
+        for mode, (rel, package) in guard.EXEMPT_MODE_PACKAGES.items():
+            text = (ROOT / rel).read_text()
+            self.assertIn(f'name = "{package}"', text, f"{mode}: {package} is gone from {rel}; revisit the hq exemption")
+            found = guard.ghostty_crates_reached(text, package)
+            self.assertEqual(found, [], f"{mode}: {package} now reaches {found}; it needs ghostty-next and zig (hq toolchain.go)")
+
+    def test_a_package_reaching_ghostty_is_caught(self) -> None:
+        lock = (
+            'version = 4\n\n[[package]]\nname = "a"\nversion = "0.1.0"\ndependencies = ["b"]\n\n'
+            '[[package]]\nname = "b"\nversion = "0.1.0"\ndependencies = ["ghostty-vt 0.1.0"]\n\n'
+            '[[package]]\nname = "c"\nversion = "0.1.0"\n\n'
+            '[[package]]\nname = "ghostty-vt"\nversion = "0.1.0"\n'
+        )
+        self.assertEqual(guard.ghostty_crates_reached(lock, "a"), ["ghostty-vt"])
+        self.assertEqual(guard.ghostty_crates_reached(lock, "c"), [])
+
     def test_a_lockfile_with_ghostty_is_caught(self) -> None:
         lock = (
             'version = 4\n\n[[package]]\nname = "anyhow"\nversion = "1.0.0"\n'

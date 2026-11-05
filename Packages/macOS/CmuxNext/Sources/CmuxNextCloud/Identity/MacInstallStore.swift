@@ -1,4 +1,5 @@
 public import CmuxInstallAuthCore
+public import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
@@ -9,7 +10,7 @@ public import Foundation
 ///   keys and the records in 0600 files in a 0700 directory, so a rebuild
 ///   never raises a Keychain prompt (the same known DEV gap as the P8
 ///   frontend key, identity.md).
-/// - ``enclave(service:directory:)``: every other build: keys in the Secure
+/// - ``enclave(service:directory:loginKeychain:)``: every other build: keys in the Secure
 ///   Enclave (only the encrypted blob is stored, in the Keychain); records
 ///   (user and install ids, not secrets) in the 0600 file.
 public struct MacInstallStore: Sendable {
@@ -23,16 +24,16 @@ public struct MacInstallStore: Sendable {
                         records: directory.appendingPathComponent("install-records.json"), usesSecureEnclave: false)
     }
 
-    public static func enclave(service: String, directory: URL) -> MacInstallStore {
-        MacInstallStore(makeSigner: { account in EnclaveInstallSigner(service: service, account: account) },
+    public static func enclave(service: String, directory: URL, loginKeychain: LoginKeychain) -> MacInstallStore {
+        MacInstallStore(makeSigner: { account in EnclaveInstallSigner(service: service, account: account, loginKeychain: loginKeychain) },
                         records: directory.appendingPathComponent("install-records.json"), usesSecureEnclave: true)
     }
 
     /// The store for this process. Only a debug build with no Team ID uses
     /// files; a release build, or a build whose Team ID could not be read,
-    /// uses the Secure Enclave (fails closed).
-    public static func forApp(directory: URL, service: String, team: String?, isDebugBuild: Bool) -> MacInstallStore {
-        isDebugBuild && team == nil ? .files(directory: directory) : .enclave(service: service, directory: directory)
+    /// uses the Secure Enclave (fails closed), its Keychain reads behind the app's one `loginKeychain`.
+    public static func forApp(directory: URL, service: String, team: String?, isDebugBuild: Bool, loginKeychain: LoginKeychain) -> MacInstallStore {
+        isDebugBuild && team == nil ? .files(directory: directory) : .enclave(service: service, directory: directory, loginKeychain: loginKeychain)
     }
 
     /// The key of `user`: `install-key-<first 16 hex of SHA-256(user)>`.

@@ -57,7 +57,7 @@ final class DaemonAppsTransport: AppsTransport {
             inventory.handle(envelope)
             guard case .unknown(let name, let payload) = envelope.event, DaemonSideEvents.isAppsEvent(name) else { return }
             if provider.handle(envelope) { return }
-            if let decoded = AppsWireDecoding.event(name: name, payload: payload) { onEvent?(decoded) }
+            if let decoded = AppsWireDecoding().event(name: name, payload: payload) { onEvent?(decoded) }
         }
         let daemon = daemon
         update(daemon.store.connectionState, storeEpoch: daemon.store.connectionEpoch)
@@ -96,14 +96,6 @@ final class DaemonAppsTransport: AppsTransport {
         return capabilities.contains(capability) ? nil : .needsNewerDaemon
     }
 
-    /// The `apps-run` origin: `user` only for a user origin on a connection
-    /// the daemon verified as the cmux app (`client-hello`
-    /// `user_origin_allowed`, P8), as `CloudAppLinks.wireOrigin` does;
-    /// `script` for everything else.
-    nonisolated static func wireOrigin(_ origin: AppOrigin, userOriginAllowed: Bool) -> AppsRunRequest.Origin {
-        origin == .user && userOriginAllowed ? .user : .script
-    }
-
     // MARK: Commands
 
     private func send<R: DaemonRequest>(_ request: R, timeout: Duration? = nil,
@@ -126,8 +118,10 @@ final class DaemonAppsTransport: AppsTransport {
     }
 
     func list() async throws(AppsTransportError) -> AppsListReply {
-        AppsWireDecoding.list(try await send(AppsListRequest()))
+        AppsWireDecoding().list(try await send(AppsListRequest()))
     }
+
+    func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] { try await AppSessionInfoPanel.list(AppJSON(send(AppsStoreRequest.panelsList))) }
 
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
         let request = AppsSetRequest(idempotencyKey: idempotencyKey, app: app, origin: origin.rawValue, installed: change.installed,
@@ -153,13 +147,13 @@ final class DaemonAppsTransport: AppsTransport {
 
     func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON {
         let userAllowed = await daemon.connection?.userOriginAllowed == true
-        let wire = Self.wireOrigin(origin, userOriginAllowed: userAllowed)
+        let wire = origin.wire(userOriginAllowed: userAllowed)
         Self.logger.info("apps-run \(app, privacy: .public) \(op, privacy: .public) origin=\(wire.rawValue, privacy: .public)")
         let request = AppsRunRequest(app: app, op: op, args: args.daemonValue, idempotencyKey: idempotencyKey, origin: wire)
         return AppJSON(try await send(request, timeout: Self.runTimeout).value)
     }
 
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] {
-        AppsWireDecoding.logs(try await send(AppsLogsRequest(app: app, follow: follow)))
+        AppsWireDecoding().logs(try await send(AppsLogsRequest(app: app, follow: follow)))
     }
 }

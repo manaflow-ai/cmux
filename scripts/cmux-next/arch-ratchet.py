@@ -20,8 +20,11 @@ Two rules refuse a push:
    (arch_rules/layer_gate.py): the layer rows hold the total only, and the unit of a layer row's rise that
    a gate refusal answers is not refused again (one refusal, one dated entry per edge). Rows: layer_hard, layer_soft,
    layer_upward, layer_unplaced, stateful_singletons, global_mutable_statics,
-   assume_isolated_outside_adapters, app_broadcast_names, observer_sites, blocking_allow_escapes. Report only:
-   assume_isolated_total and app_lines (the app-size rule owns that refusal).
+   assume_isolated_outside_adapters, app_broadcast_names, observer_sites, blocking_allow_escapes, app_lines
+   (CmuxNextApp physical lines; ratcheted since the reward-hacking audit of 2026-10-30, cmux-ad: it rose
+   143,610 -> 164,014 while it was report only). Report only: assume_isolated_total.
+   A new or edited blocking_allow_escapes site (a (file, line text) the base does not have) is refused unless the
+   head's json has a reviewed `escape_reviews` entry for it (escape_rule), whatever exception covers the count.
 2. Record: the push raises a ratcheted total in plans/cmux-next/arch-ratchet.json (or deletes the file)
    beyond what the exceptions it newly applies cover, changes or drops an applied exception, or changes
    method_version without changing arch_counts.py to that METHOD_VERSION. `--update` is the only writer,
@@ -34,8 +37,18 @@ Two rules refuse a push:
    most both the commits' rises and the net rise where the new measured_sha meets origin/feat-cmux-next. A
    hand-written or copied generated entry therefore lets the totals take no rise the record missed.
 
-The one escape: a dated entry the push adds to the json's `exceptions`
-({"date": "YYYY-MM-DD", "row": "<row>", "allow": <n>, "why": "..."}) lets that push raise the row by n
+The one escape: a dated entry the push adds as a new file plans/cmux-next/arch-exceptions/<id>.json (<id> a
+short unique slug, such as the PR number; the file holds one entry)
+({"date": "YYYY-MM-DD", "row": "<row>", "allow": <n>, "why": "...", "author": "<who wrote it>",
+"owner": "<who removes it>", "receipt": "Review (<reviewer>): SHIP at <40-hex sha>", "expiry": "YYYY-MM-DD"})
+lets that push raise the row by n. One file per entry, so two pushes that each add one never conflict (they all
+appended to the end of one json list before, and every second PR had to merge feat again). The entries already in
+the json's `exceptions` list keep working and keep their meaning: the ratchet reads the list and the directory as
+one list (exceptions_with_files), at every rev and in --update, which writes `applied_sha` into the entry's own
+file. Do not add new entries to the list. The receipt is an independent review: its reviewer is not the author, and an
+entry without author, owner, such a receipt or an expiry (not before its date) allows nothing, in a push and in
+--update (reward-hacking audit 2026-10-30: the 19 blocking escapes were allowed by entries their own authors
+wrote). The rule reads the fields; it cannot prove who wrote them, so the receipt also goes in the landing record
 (counted as sums per row against the base's pending entries: editing a pending entry gives nothing; the
 base of a push that merges origin/feat-cmux-next in is where HEAD meets it, so an exception upstream landed
 is in the base and allows the push nothing). The next --update folds every pending entry into the
@@ -99,6 +112,9 @@ RULES_DIR = HERE / "arch_rules"
 UPSTREAM = "origin/feat-cmux-next"
 UPDATE_HINT = "lower plans/cmux-next/arch-ratchet.json: scripts/cmux-next/arch-ratchet.py --update"
 RECORD_ROW = "arch_ratchet_json"  # the refusal id of rule 2 (the record's own totals)
+# One dated exception per file (<id>.json), read with the json's `exceptions` list as one list: two pushes that each
+# add an exception add two files and never conflict.
+EXCEPTIONS_DIR = "plans/cmux-next/arch-exceptions"
 
 # The right pattern per row, printed with each refusal (repo CLAUDE.md "Refactor architecture",
 # "Modern Swift concurrency"; plans/cmux-next/perf-lead.md "Architecture targets").
@@ -126,7 +142,12 @@ FIX = {
                       "helper) is still an observer at each use that configures it",
     "blocking_allow_escapes": "move the blocking call off the main thread (an actor, a detached task) instead of "
                               "allowing it; an allowance is for a call that must block, with its reason",
+    "app_lines": "put new code in its own target, not CmuxNextApp (plans/cmux-next/code-quality.md SW14), or remove "
+                 "as many App lines as the push adds; a move out of the App lowers the row",
 }
+ESCAPE_ROW = "blocking_allow_escapes"
+# An independent review receipt (repo CLAUDE.md, risk tiers): the reviewer named, the exact head it passed.
+RECEIPT = re.compile(r"Review \((?P<who>[^()]+)\): SHIP at (?P<sha>[0-9a-f]{40})")
 
 
 def load_counts():
@@ -187,7 +208,8 @@ class Changes:
         return self.counts.Git(self.repo).read(items)
 
     def record(self, rev: str) -> dict | None:
-        """plans/cmux-next/arch-ratchet.json at REV as a dict, or None; read once per push."""
+        """plans/cmux-next/arch-ratchet.json at REV as a dict, or None; read once per push. Its `exceptions` are
+        the json's list and then the entries of EXCEPTIONS_DIR at REV (exceptions_with_files)."""
         if rev not in self.cache:
             self._load([rev])
         return self.cache[rev]
@@ -201,9 +223,11 @@ class Changes:
 
     def _load(self, revs: list[str]) -> None:
         rel = self.counts.RATCHET_JSON
-        texts = self.read([(rev, rel) for rev in revs])
+        listed = {rev: exception_paths(self.repo, rev) for rev in revs}
+        texts = self.read([(rev, rel) for rev in revs] + [(rev, path) for rev in revs for path in listed[rev]])
         for rev in revs:
-            self.cache[rev] = parse_record(texts[(rev, rel)])
+            self.cache[rev] = exceptions_with_files(parse_record(texts[(rev, rel)]),
+                                                    [(path, texts[(rev, path)]) for path in listed[rev]])
 
 
 def parse_record(text: str | None) -> dict | None:
@@ -214,6 +238,49 @@ def parse_record(text: str | None) -> dict | None:
     except ValueError:
         return None
     return data if isinstance(data, dict) else None
+
+
+def exception_file(path: str) -> bool:
+    """Whether PATH (repo-relative) is an exception file: EXCEPTIONS_DIR/<id>.json, not in a subdirectory."""
+    return path.startswith(EXCEPTIONS_DIR + "/") and path.endswith(".json") and "/" not in path[len(EXCEPTIONS_DIR) + 1:]
+
+
+def exception_paths(repo: Path, rev: str) -> list[str]:
+    """The exception files at REV, sorted (one `git ls-tree`; none when the directory is absent)."""
+    code, out = git(repo, "ls-tree", "-z", rev, "--", EXCEPTIONS_DIR + "/")
+    if code != 0:
+        return []
+    paths = []
+    for item in out.split("\0"):
+        meta, _, path = item.partition("\t")
+        if meta.split()[1:2] == ["blob"] and exception_file(path):
+            paths.append(path)
+    return sorted(paths)
+
+
+def file_entry(path: str, text: str | None):
+    """The one exception of the file at PATH: its JSON value (an object when well formed). A file that does not
+    parse is the string "unparsable PATH", an entry that allows nothing and is reported as ignored."""
+    try:
+        return json.loads(text or "")
+    except ValueError:
+        return f"unparsable {path}"
+
+
+def exceptions_with_files(record: dict | None, files: list[tuple[str, str | None]]) -> dict | None:
+    """RECORD with the entries of FILES ([(path, text)], EXCEPTIONS_DIR's files) after its `exceptions` list.
+
+    Every rule reads this one list: an entry means the same in the json's list and in a file of its own, so an
+    entry moved verbatim from the list to a file (or back) changes nothing (the rules compare entries verbatim
+    as a multiset). No record (the json missing or broken at that rev) stays None: the files alone are no record."""
+    if record is None:
+        return None
+    return dict(record, exceptions=exceptions_of(record) + [file_entry(path, text) for path, text in files])
+
+
+def touches_exceptions(changes: "Changes") -> bool:
+    """Whether CHANGES' range changes the json or an exception file: the rules that read exceptions run only then."""
+    return any(path == changes.counts.RATCHET_JSON or exception_file(path) for _, path in changes.files)
 
 
 def git(repo: Path, *args: str) -> tuple[int, str]:
@@ -302,12 +369,37 @@ def valid_exception(entry, known) -> bool:
         return False
     n = entry.get("allow")
     return (entry.get("row") in known and isinstance(n, int) and not isinstance(n, bool) and n > 0
-            and bool(str(entry.get("why", "")).strip()))
+            and bool(str(entry.get("why", "")).strip()) and (generated(entry) or not review_problems(entry)))
+
+
+def review_problems(entry: dict, since: str | None = None) -> list[str]:
+    """What ENTRY (an exception, or an escape_reviews entry) lacks for an independent review, [] when nothing:
+    a non-empty `author` and `owner`, a `receipt` `Review (<reviewer>): SHIP at <40-hex sha>` whose reviewer is not
+    the author, and an `expiry` date not before SINCE (default: the entry's own `date`, else no lower bound).
+
+    A generated `raised_by` entry is --update's record of an upstream rise and is not judged here."""
+    counts = load_counts()
+    problems = [f"`{key}`" for key in ("author", "owner")
+                if not isinstance(entry.get(key), str) or not entry[key].strip()]
+    found = RECEIPT.fullmatch(str(entry.get("receipt") or "").strip())
+    if not found:
+        problems.append("`receipt` (Review (<reviewer>): SHIP at <40-hex sha>)")
+    elif isinstance(entry.get("author"), str) and found.group("who").strip().casefold() == entry["author"].strip().casefold():
+        problems.append("a receipt from a reviewer who is not the author")
+    expiry = entry.get("expiry")
+    floor = since if since is not None else entry.get("date")
+    if not counts.valid_date(expiry):
+        problems.append("`expiry` (YYYY-MM-DD)")
+    elif counts.valid_date(floor) and expiry < floor:
+        problems.append(f"an `expiry` not before {floor}")
+    return problems
 
 
 def exception_form(row: str, n: int) -> str:
     today = datetime.date.today().isoformat()
-    return f'{{"date": "{today}", "row": "{row}", "allow": {n}, "why": "<the reviewed reason>"}}'
+    return (f'{{"date": "{today}", "row": "{row}", "allow": {n}, "why": "<the reviewed reason>", '
+            '"author": "<you>", "owner": "<who removes it>", '
+            '"receipt": "Review (<an independent reviewer>): SHIP at <full head sha>", "expiry": "YYYY-MM-DD"}')
 
 
 def generated(entry) -> bool:
@@ -336,7 +428,10 @@ def added_exceptions(old: dict | None, new: dict | None, known) -> tuple[dict[st
             seen[key] -= 1
             continue
         if not valid_exception(entry, known):
-            notes.append(f"arch-ratchet: ignored exception {entry!r}: it needs date (YYYY-MM-DD), a row, allow > 0 and why")
+            lacks = review_problems(entry) if isinstance(entry, dict) and not generated(entry) else []
+            notes.append(f"arch-ratchet: ignored exception {entry!r}: it needs date (YYYY-MM-DD), a row, allow > 0, why, "
+                         "author, owner, an independent receipt and an expiry"
+                         + (f" (it lacks {', '.join(lacks)})" if lacks else ""))
             continue
         given = allow.get(entry["row"], 0)
         notes.append(f"arch-ratchet: exception {entry['date']} ({entry['row']} +{entry['allow']}): "
@@ -426,13 +521,79 @@ def count_rule(changes: Changes, answered: dict[str, int] | None = None) -> tupl
             lines.append(f"  {place}: {site.text}")
         lines.append(f"  Right pattern: {FIX.get(row.id, 'see arch_counts.py')}.")
         lines.append(f"  The only escape (a reviewed reason, never to pass the hook): add "
-                     f"{exception_form(row.id, rise - by_module - allowed)} to the exceptions of {counts.RATCHET_JSON} "
-                     "in this push.")
+                     f"{exception_form(row.id, rise - by_module - allowed)} as a new file {EXCEPTIONS_DIR}/<id>.json "
+                     "(<id>: a short unique slug, such as the PR number) in this push.")
         refusals.append((row.id, "\n".join(lines)))
     stale = set(stale_rows(changes, dropped))
     if stale:
         notes.append(f"arch-ratchet: {UPDATE_HINT} ({', '.join(r for r in counts.ROW_IDS if r in stale)})")
     return refusals, notes
+
+
+def escape_reviews_of(record: dict | None) -> list:
+    entries = (record or {}).get("escape_reviews", [])
+    return [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+
+
+def escape_key(path: str, text: str) -> tuple[str, str]:
+    """A blocking escape site's identity in `escape_reviews`: its file and its trimmed line (lines move)."""
+    return str(path), " ".join(str(text).split())
+
+
+def reviewed_escapes(record: dict | None) -> collections.Counter:
+    """{(path, text): n} of RECORD's escape_reviews entries in state `reviewed` with an independent receipt, an
+    owner, an author and an expiry (review_problems)."""
+    return collections.Counter(escape_key(e.get("path", ""), e.get("text", "")) for e in escape_reviews_of(record)
+                               if e.get("state") == "reviewed" and not review_problems(e))
+
+
+def escape_rule(changes: Changes) -> list[tuple[str, str]]:
+    """A blocking_allow_escapes site the push adds or edits (a (file, line) the base does not have as often) needs as
+    many reviewed `escape_reviews` entries for that (file, line) in the head's json as the head has sites there.
+    Whatever exception covers the count, an escape nobody but its author reviewed is refused."""
+    delta = changes.delta
+    if ESCAPE_ROW in delta.before.unknown or ESCAPE_ROW in delta.after.unknown:
+        return []
+    before = collections.Counter(escape_key(s.path, s.text) for s in delta.before.sites[ESCAPE_ROW])
+    after = collections.Counter(escape_key(s.path, s.text) for s in delta.after.sites[ESCAPE_ROW])
+    added = [key for key, n in after.items() if n > before.get(key, 0)]
+    if not added:
+        return []
+    reviewed = reviewed_escapes(changes.records()[1])
+    missing = [(key, after[key] - reviewed[key]) for key in sorted(added) if reviewed[key] < after[key]]
+    if not missing:
+        return []
+    lines = [f"arch-ratchet: [{ESCAPE_ROW}] {sum(n for _, n in missing)} blocking escape site(s) this push adds or "
+             f"edits have no reviewed escape_reviews entry in {changes.counts.RATCHET_JSON}:"]
+    for (path, text), n in missing[:12]:
+        lines.append(f"  {path}: {text}" + (f" (x{n})" if n > 1 else ""))
+    lines.append('  Add one entry per site: {"path": "<file>", "text": "<the line, trimmed>", "state": "reviewed", '
+                 '"author": "<who wrote it>", "owner": "<who removes it>", "receipt": "Review (<a reviewer who is not '
+                 'the author>): SHIP at <full sha>", "expiry": "YYYY-MM-DD", "note": "<what the review proved>"}. '
+                 f"Right pattern: {FIX[ESCAPE_ROW]}.")
+    return [(ESCAPE_ROW, "\n".join(lines))]
+
+
+def escape_audit(record: dict | None, sites: list, today: str) -> list[str]:
+    """Report lines (never a gate) on RECORD's escape_reviews against the counted SITES: sites with no entry,
+    entries left unreviewed, entries past their expiry, and entries whose site is gone."""
+    entries = escape_reviews_of(record)
+    have = collections.Counter(escape_key(s.path, s.text) for s in sites)
+    listed = collections.Counter(escape_key(e.get("path", ""), e.get("text", "")) for e in entries)
+    out = []
+    for key, n in sorted(have.items()):
+        if listed[key] < n:
+            out.append(f"no escape_reviews entry: {key[0]}: {key[1]}" + (f" ({n - listed[key]} of {n})" if n > 1 else ""))
+    for e in entries:
+        key = escape_key(e.get("path", ""), e.get("text", ""))
+        where = f"{key[0]}: {key[1]} (owner {e.get('owner') or '?'})"
+        if e.get("state") != "reviewed" or review_problems(e):
+            out.append(f"unreviewed: {where}, expiry {e.get('expiry') or 'none'}")
+        elif str(e.get("expiry")) < today:
+            out.append(f"expired {e.get('expiry')}: {where}")
+        if not have[key]:
+            out.append(f"no such site any more (remove the entry): {where}")
+    return out
 
 
 def stale_rows(changes: Changes, dropped: dict[str, int]) -> list[str]:
@@ -575,7 +736,8 @@ def generated_allowance(old: dict, new: dict, entries: list, derivation: Derivat
 
     def holds(entry: dict) -> bool:
         shas, row = entry.get("raised_by"), entry.get("row")
-        if (row not in counts.ROW_IDS or not valid_exception(entry, counts.ROW_IDS) or not isinstance(shas, list)
+        if (row not in counts.ROW_IDS or row == ESCAPE_ROW or not valid_exception(entry, counts.ROW_IDS)
+                or not isinstance(shas, list)
                 or not shas or not all(isinstance(x, str) and counts.SHA.fullmatch(x) for x in shas)):
             return False
         return all(named[(row, x)] == 1 and x not in named_before and derivation.parents(x) == 1
@@ -607,7 +769,7 @@ def record_rule(changes: Changes, upstream_ref: str = UPSTREAM) -> tuple[list[tu
     already on UPSTREAM_REF) covers only what generated_allowance re-derives for it."""
     counts = changes.counts
     rel = counts.RATCHET_JSON
-    if not any(path == rel for _, path in changes.files):
+    if not touches_exceptions(changes):
         return [], []
     known = set(counts.ROW_IDS)
     old, new = changes.records()
@@ -620,8 +782,8 @@ def record_rule(changes: Changes, upstream_ref: str = UPSTREAM) -> tuple[list[tu
     changed = changed_applied(old, new)
     if changed:
         return [(RECORD_ROW, f"arch-ratchet: [{RECORD_ROW}] this push changes or removes an applied exception of {rel}: "
-                             + "; ".join(changed) + ". An applied entry is the record of a reviewed rise: keep it "
-                             "verbatim and add a new dated entry instead.")], []
+                             + "; ".join(changed) + f" (its json list or a file of {EXCEPTIONS_DIR}). An applied entry "
+                             "is the record of a reviewed rise: keep it verbatim and add a new dated entry instead.")], []
     if old.get("method_version") != new.get("method_version"):
         if not method_change_made(changes, new):
             return [(RECORD_ROW, f"arch-ratchet: [{RECORD_ROW}] {rel} changes method_version "
@@ -644,7 +806,8 @@ def record_rule(changes: Changes, upstream_ref: str = UPSTREAM) -> tuple[list[tu
                                          "scripts/cmux-next/arch-ratchet.py --update writes the totals, and it refuses "
                                          "a rise no pending exception covers (a generated `raised_by` entry covers only "
                                          "the rise its commits made on origin/feat-cmux-next after the old record): add "
-                                         f"{exception_form(row.id, now - was - allowed)} to its exceptions and rerun it."))
+                                         f"{exception_form(row.id, now - was - allowed)} as a new file "
+                                         f"{EXCEPTIONS_DIR}/<id>.json and rerun it."))
     return refusals, []
 
 
@@ -670,8 +833,8 @@ def module_ids(loaded) -> dict[str, str]:
 def push_allowance(changes: Changes, known, notes: list[str]) -> dict[str, int]:
     """{row or rule id: n} the exceptions the push adds allow, for every rule (count, module), over the push's
     one range: the json where HEAD meets origin/feat-cmux-next holds every exception upstream landed, so a merge
-    push gets nothing from one. A range that leaves the json alone adds none. NOTES gets one line per entry."""
-    if not any(path == changes.counts.RATCHET_JSON for _, path in changes.files):
+    push gets nothing from one. A range that changes neither the json nor an exception file adds none. NOTES gets one line per entry."""
+    if not touches_exceptions(changes):
         return {}
     allow, extra = added_exceptions(*changes.records(), known)
     notes += extra
@@ -715,6 +878,7 @@ def check_own(repo: Path, base: str, head: str, rules=None,
         module_refusals += allow_module_refusals([(row, text) for row, text, _ in kept], changes.allow, ids, notes)
     refusals, extra = count_rule(changes, dict(answered))
     notes += extra
+    refusals += escape_rule(changes)
     got, extra = record_rule(changes, upstream_ref)
     refusals += got
     notes += extra
@@ -819,7 +983,8 @@ def audit(repo: Path, rev: str = "HEAD") -> dict:
     counts = load_counts()
     sha, now, _ = counts.full_count(repo, rev)
     record = parse_record(counts.Git(repo).read([(sha, counts.RATCHET_JSON)])[(sha, counts.RATCHET_JSON)])
-    result = {"sha": sha, "recorded_sha": None, "over": {}, "note": None}
+    result = {"sha": sha, "recorded_sha": None, "over": {}, "note": None,
+              "escapes": escape_audit(record, now.sites[ESCAPE_ROW], datetime.date.today().isoformat())}
     if record is None:
         result["note"] = f"no {counts.RATCHET_JSON} at {sha[:11]}"
         return result
@@ -840,12 +1005,13 @@ def audit(repo: Path, rev: str = "HEAD") -> dict:
 
 
 def audit_lines(result: dict) -> list[str]:
+    escapes = [f"arch-ratchet audit at {result['sha'][:11]}: {ESCAPE_ROW} {line}" for line in result.get("escapes", [])]
     if result["note"]:
-        return [f"arch-ratchet audit at {result['sha'][:11]}: {result['note']}"]
+        return [f"arch-ratchet audit at {result['sha'][:11]}: {result['note']}"] + escapes
     if not result["over"]:
         return [f"arch-ratchet audit at {result['sha'][:11]}: every ratcheted row is at or under arch-ratchet.json "
-                f"(recorded at {str(result['recorded_sha'])[:11]})"]
-    lines = []
+                f"(recorded at {str(result['recorded_sha'])[:11]})"] + escapes
+    lines = escapes
     for row_id, entry in sorted(result["over"].items()):
         by = "; ".join(f"{c['sha']} +{c['rise']} ({c['commit'][:60]})" for c in entry["raised_by"]) or "no single commit"
         lines.append(f"arch-ratchet audit at {result['sha'][:11]}: {row_id} {entry['now']} over the recorded "
@@ -896,7 +1062,9 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM) -> int:
     rise that commits already on UPSTREAM_REF made (a GitHub merge, --no-verify: debt the person running this
     did not add) is a warning: it is recorded with a generated, applied entry that names those commits
     (`raised_by`; the record rule re-checks it, and it allows no rise in any push's code). Any other rise is
-    refused with the commits that raised it. Every pending exception is folded in (applied_sha).
+    refused with the commits that raised it. Every pending exception is folded in (applied_sha): an entry of
+    the json's list in the json, an entry of EXCEPTIONS_DIR in its own file (the worktree's files, as the json is
+    the worktree's). A generated entry goes to the json's list, as before.
     """
     counts = load_counts()
     path = repo / counts.RATCHET_JSON
@@ -907,8 +1075,12 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM) -> int:
     totals = now.totals()
     # A rule module's entry is folded in too: it allowed the refusals of the push that added it.
     known = set(counts.ROW_IDS) | set(module_ids(load_rules()[0]))
-    exceptions = [dict(e) if isinstance(e, dict) else e for e in old.get("exceptions", [])]
-    pending = [e for e in exceptions if valid_exception(e, known) and not e.get("applied_sha") and not generated(e)]
+    exceptions = [dict(e) if isinstance(e, dict) else e for e in exceptions_of(old)]
+    folder = repo / EXCEPTIONS_DIR
+    filed = [(path, file_entry(f"{EXCEPTIONS_DIR}/{path.name}", path.read_text()))
+             for path in (sorted(folder.glob("*.json")) if folder.is_dir() else []) if path.is_file()]
+    pending = [e for e in exceptions + [e for _, e in filed]
+               if valid_exception(e, known) and not e.get("applied_sha") and not generated(e)]
     allow: dict[str, int] = {}
     for e in pending:
         allow[e["row"]] = allow.get(e["row"], 0) + e["allow"]
@@ -921,7 +1093,9 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM) -> int:
                  if row.ratchet and isinstance(before.get(row.id), int)
                  and totals[row.id] - before[row.id] > allow.get(row.id, 0)}
     since = old.get("measured_sha")
-    landed, named = upstream_rises(repo, since, sha, set(uncovered), before, upstream_ref) if uncovered else ({}, {})
+    # A blocking escape is never recorded as someone else's debt: a rise needs a reviewed exception, wherever it landed.
+    upstream_rows = set(uncovered) - {ESCAPE_ROW}
+    landed, named = upstream_rises(repo, since, sha, upstream_rows, before, upstream_ref) if upstream_rows else ({}, {})
     excess = {row_id: n - was - allow.get(row_id, 0) for row_id, (was, n) in uncovered.items()}
     local = {row_id: e - landed.get(row_id, 0) for row_id, e in excess.items() if e > landed.get(row_id, 0)}
     if local:
@@ -935,8 +1109,8 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM) -> int:
                   + ")")
             for c, r, t in culprits.get(row_id, []):
                 print(f"    raised by {c[:11]} +{r} {t}")
-            print(f"    fix the code, or (a reviewed reason only) add {exception_form(row_id, n)} to exceptions and "
-                  "rerun --update")
+            print(f"    fix the code, or (a reviewed reason only) add {exception_form(row_id, n)} as a new file "
+                  f"{EXCEPTIONS_DIR}/<id>.json and rerun --update")
         return 1
     for e in pending:
         e["applied_sha"] = sha
@@ -949,8 +1123,12 @@ def update(repo: Path, rev: str = "HEAD", upstream_ref: str = UPSTREAM) -> int:
         exceptions.append({"date": today, "row": row_id, "allow": n,
                            "why": f"generated by --update: the rise landed on {upstream_ref} past the hook",
                            "raised_by": shas, "applied_sha": sha})
-    data = counts.record(sha, now, lay, exceptions)
+    data = counts.record(sha, now, lay, exceptions, escape_reviews_of(old))
     counts.write_record(repo, data)
+    applied = {id(e) for e in pending}
+    for file, entry in filed:
+        if id(entry) in applied:
+            file.write_text(json.dumps(entry, indent=2) + "\n")
     for row in counts.ROWS:
         was, new = before.get(row.id), data["totals"][row.id]
         print(f"  {row.id:34} {was if was is not None else '-':>8} -> {new}")

@@ -30,6 +30,12 @@ export class FakeAcpmux {
   rejectPrompts = 0;
   /** The most records one `_acpmux/events` page holds, as the daemon's byte limit ends a page. */
   pageEvents = Number.MAX_SAFE_INTEGER;
+  /** The most rows one `_acpmux/sessions` reply holds before its `nextCursor`, as the daemon's largest reply ends a list. */
+  pageSessions = Number.MAX_SAFE_INTEGER;
+  /** A daemon that misbehaves: every `_acpmux/sessions` page names the cursor it was asked with. */
+  repeatSessionsCursor = false;
+  /** Replies `_acpmux/sessions` answers in turn, as sent, before it lists its own sessions again. */
+  readonly sessionReplies: unknown[] = [];
   private server!: Server;
   private readonly clients = new Set<Socket>();
   private readonly watchers = new Set<Socket>();
@@ -143,8 +149,15 @@ export class FakeAcpmux {
     switch (method) {
       case "initialize":
         return reply({ protocolVersion: 1, agentCapabilities: {} });
-      case "_acpmux/sessions":
-        return reply({ sessions: [...this.sessions.values()].map((s) => s.summary) });
+      case "_acpmux/sessions": {
+        if (this.sessionReplies.length > 0) return reply(this.sessionReplies.shift());
+        // Like the daemon, a list past its largest reply (`pageSessions` rows here) ends with a cursor.
+        const all = [...this.sessions.values()].map((s) => s.summary);
+        const from = Number(params.cursor ?? 0);
+        const end = Math.min(from + this.pageSessions, all.length);
+        const next = this.repeatSessionsCursor && params.cursor !== undefined ? String(params.cursor) : String(end);
+        return reply({ sessions: all.slice(from, end), ...(end < all.length ? { nextCursor: next } : {}) });
+      }
       case "_acpmux/watch":
         if (params.enabled === false) this.watchers.delete(socket);
         else this.watchers.add(socket);

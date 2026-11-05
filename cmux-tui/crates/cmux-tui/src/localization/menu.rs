@@ -65,6 +65,9 @@ pub(crate) struct MenuMessages {
     pub sidebar_profiles: &'static str,
     pub show_sidebar_view: &'static str,
     pub hide_sidebar_view: &'static str,
+    pub docked_workspaces: &'static str,
+    pub docked_workspaces_off: &'static str,
+    pub docked_workspace_none: &'static str,
 }
 
 pub(super) const ENGLISH: MenuMessages = MenuMessages {
@@ -129,6 +132,9 @@ pub(super) const ENGLISH: MenuMessages = MenuMessages {
     sidebar_profiles: "Layouts",
     show_sidebar_view: "Show {view}",
     hide_sidebar_view: "Hide {view}",
+    docked_workspaces: "Docked workspaces",
+    docked_workspaces_off: "Docked workspaces are off. Set viewport.docked_workspaces to true in cmux-tui.json",
+    docked_workspace_none: "This workspace is not docked",
 };
 
 pub(super) const JAPANESE: MenuMessages = MenuMessages {
@@ -193,4 +199,7 @@ pub(super) const JAPANESE: MenuMessages = MenuMessages {
     sidebar_profiles: "レイアウト",
     show_sidebar_view: "{view}を表示",
     hide_sidebar_view: "{view}を非表示",
+    docked_workspaces: "ドッキングしたワークスペース",
+    docked_workspaces_off: "ドッキングしたワークスペースはオフです。cmux-tui.json で viewport.docked_workspaces を true に設定してください",
+    docked_workspace_none: "このワークスペースはドッキングされていません",
 };

@@ -9,7 +9,7 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -22,6 +22,8 @@ use super::mirror::{self, Effect, Mirror, Op, Origin, Record, SetOp};
 use super::storage::Storage;
 use super::timer::{TimerId, Timers};
 use crate::backoff::Backoff;
+use crate::panic_free::RecoverPoison;
+use cmux_json::JsonSet as _;
 
 /// Writes one event or response to a control client; false when it is gone.
 pub type Sink = Arc<dyn Fn(&Value) -> bool + Send + Sync>;
@@ -70,6 +72,24 @@ pub trait OpRouter: Send + Sync {
         idempotency_key: Option<String>,
         origin: Origin,
     ) -> Result<Value, Value>;
+    /// Places installed app sections through the sidebar document's transaction.
+    /// Automatic placement preserves every previous placement decision.
+    fn place_sidebar_sections(
+        &self,
+        sections: &[cmux_layout_reducer::sidebar_doc::Section],
+        automatic: bool,
+    ) -> Result<Value, ApiError> {
+        let _ = (sections, automatic);
+        Err(ApiError::new("apps.sidebar.unavailable", "no sidebar document"))
+    }
+    /// On upgrade, receipt existing installs without changing the layout.
+    fn initialize_sidebar_placements(
+        &self,
+        sections: &[cmux_layout_reducer::sidebar_doc::Section],
+    ) -> Result<(), ApiError> {
+        let _ = sections;
+        Err(ApiError::new("apps.sidebar.unavailable", "no sidebar document"))
+    }
     /// Starts delivering daemon change events as stream names
     /// (`workspace.changed`, `agent.changed`, …). Called once, on the first
     /// app subscription.
@@ -134,6 +154,9 @@ impl MountKey {
 
 pub(super) struct Mount {
     pub host: HostKey,
+    /// The interface it renders (`cmux.section/1`), to find its export again
+    /// when the package is saved.
+    pub interface: String,
     pub export: String,
     pub context: Value,
     /// The next scene batch starts a fresh tree (after a host restart).
@@ -207,8 +230,18 @@ pub(super) struct Inner {
     /// Open tokens minted for user runs of server ops (`servers.rs`).
     pub open_tokens: HashMap<String, super::open_tokens::OpenToken>,
     pub server_crashes: HashMap<String, super::servers::Crashes>,
+    /// The kept-server count ([`Supervisor::kept_servers`]) as the last
+    /// emit read it: compared and stored under this lock, so it follows the
+    /// lock order and no stale read is stored after a newer one.
+    pub kept_servers_told: usize,
     /// Run callers and the ops they wait for (`cancel.rs`).
     pub calls: super::cancel::Calls,
+    /// The customize app's read scopes offered so far (granted by a save that
+    /// first declared them), seeded on the first reload from the catalog
+    /// read at start. Only grows (except scopes whose grant failed to save),
+    /// so within a daemon run a read the person turned off is never granted
+    /// again by a broken save or one that drops and re-adds it.
+    pub customize_reads_offered: Option<BTreeSet<String>>,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -237,7 +270,20 @@ pub struct Supervisor {
     transactions: AtomicU64,
     /// `apps-link-changed` coalescing: (one runs, another came meanwhile).
     pub(super) link_changed: Mutex<(bool, bool)>,
+    /// Deployed instances of apps with a `deploy` block (`deploy.rs`).
+    pub(super) deployments: super::deploy::Deployments,
+    /// The owner's keepers observers (`AppsSlot::add_server_observer`),
+    /// told outside the lock when [`Self::kept_servers`] changes.
+    server_observers: OnceLock<super::ServerObservers>,
+    /// Test hook: the emit on this thread runs this right after its locked
+    /// read, before it tells the observers (a race of two emits).
+    #[cfg(test)]
+    pub(super) emit_pause: Mutex<Option<EmitPause>>,
 }
+
+/// The test pause of one emit: the thread it is armed for, and what it runs.
+#[cfg(test)]
+pub(super) type EmitPause = (std::thread::ThreadId, Box<dyn FnOnce() + Send>);
 
 pub(super) fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or_default()
@@ -245,8 +291,31 @@ pub(super) fn now_ms() -> u64 {
 
 impl Supervisor {
     pub fn new(config: Config, router: Box<dyn OpRouter>, fetcher: Box<dyn Fetcher>) -> Arc<Self> {
+        let config_state_dir = config.state_dir.clone();
+        // Taken before the read (see `PrintsBefore`): a local app saved
+        // during it is read again once the watch starts.
+        let local_before = super::local_reload::PrintsBefore::take(&config.sources);
         let catalog = catalog::load(&config.sources);
+        let local_prints = local_before.of(&config.sources, &catalog);
         let mut mirror = load_mirror(config.state_dir.as_deref());
+        // Snapshot before startup seeds: an existing install must not change the
+        // person's layout on upgrade, but a newly appearing customize app may.
+        let existing_sections = catalog
+            .packages
+            .values()
+            .filter(|package| {
+                // If initialization failed on an earlier start, installs
+                // created since then still need their first placement.
+                !mirror.sidebar_auto_place.contains(&package.id)
+                    && mirror.apps.get(&package.id).is_some_and(|record| record.installed)
+            })
+            .flat_map(super::sidebar::sections)
+            .collect::<Vec<_>>();
+        if let Err(error) = router.initialize_sidebar_placements(&existing_sections) {
+            // Automatic placement refuses to run without the durable migration
+            // marker, so a failed initialization cannot mutate the old layout.
+            eprintln!("cmux-tui: initialize app sidebar placement: {}", error.message);
+        }
         let mut logs: HashMap<String, VecDeque<LogLine>> = HashMap::new();
         for (dir, issue) in &catalog.rejected {
             logs.entry("cmux/supervisor".into()).or_default().push_back(LogLine {
@@ -306,7 +375,9 @@ impl Supervisor {
                 servers: HashMap::new(),
                 open_tokens: HashMap::new(),
                 server_crashes: HashMap::new(),
+                kept_servers_told: 0,
                 calls: Default::default(),
+                customize_reads_offered: None,
             }),
             config,
             router,
@@ -317,12 +388,17 @@ impl Supervisor {
             terminals: Default::default(),
             transactions: AtomicU64::new(1),
             link_changed: Mutex::new((false, false)),
+            deployments: super::deploy::Deployments::load(config_state_dir.as_deref()),
+            server_observers: OnceLock::new(),
+            #[cfg(test)]
+            emit_pause: Mutex::new(None),
         });
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);
         }
+        supervisor.reconcile_sidebar();
         supervisor.start_always_servers();
-        supervisor.start_local_watch();
+        supervisor.start_local_watch(local_prints);
         supervisor
     }
 
@@ -366,7 +442,11 @@ impl Supervisor {
         ids.extend(inner.mirror.apps.iter().filter(|(_, r)| r.installed).map(|(id, _)| id));
         let apps: Vec<Value> = ids
             .into_iter()
-            .map(|id| entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id)))
+            .map(|id| {
+                let mut row = entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id));
+                row.set("instance", self.instance_json(id));
+                row
+            })
             .collect();
         json!({ "revision": inner.mirror.revision, "apps": apps })
     }
@@ -384,7 +464,7 @@ impl Supervisor {
                 let mut record =
                     entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
                 // Lets a client drop list replies older than this commit.
-                record["revision"] = json!(inner.mirror.revision);
+                record.set("revision", json!(inner.mirror.revision));
                 record
             });
             outs.push(Out::Client(client, json!({ "event": "request-settled", "transaction": transaction, "sequence": inner.mirror.revision })));
@@ -488,14 +568,76 @@ impl Supervisor {
             .collect()
     }
 
+    /// App servers that keep the daemon's owner (server/owner_keepers.rs):
+    /// the running ones, and each `always` server that crashed and waits for
+    /// its restart (`schedule_server_restart_locked`; it starts again with
+    /// no request).
+    pub(super) fn kept_servers(&self) -> usize {
+        Self::kept_servers_locked(&self.inner.lock().recover_poison())
+    }
+
+    fn kept_servers_locked(inner: &Inner) -> usize {
+        let restarting = inner
+            .server_crashes
+            .iter()
+            .filter(|(app, crashes)| crashes.restart.is_some() && !inner.servers.contains_key(*app))
+            .count();
+        inner.servers.len().saturating_add(restarting)
+    }
+
+    /// Hands over the owner's keepers observers (`AppsSlot`), once.
+    pub(super) fn observe_kept_servers(&self, observers: super::ServerObservers) {
+        let _ = self.server_observers.set(observers);
+    }
+
+    /// Tells the observers that the kept count changed. Every change of the
+    /// count (a start, an exit, a restart scheduled, fired or cancelled, a
+    /// disable) is made under the lock by work that ends in [`Self::emit`],
+    /// which compares it with the last one it read, under the same lock.
+    fn notify_kept_servers(&self) {
+        if let Some(observers) = self.server_observers.get() {
+            for observer in observers.lock().recover_poison().iter() {
+                observer();
+            }
+        }
+    }
+
+    /// Runs the test's pause when it is armed for this thread.
+    #[cfg(test)]
+    fn run_emit_pause(&self) {
+        let pause = {
+            let mut armed = self.emit_pause.lock().recover_poison();
+            match armed.as_ref() {
+                Some((thread, _)) if *thread == std::thread::current().id() => armed.take(),
+                _ => None,
+            }
+        };
+        if let Some((_, pause)) = pause {
+            pause();
+        }
+    }
+
     pub(super) fn emit(&self, mut outs: Vec<Out>) {
-        let sinks = {
+        let (sinks, kept_changed) = {
             let mut inner = self.inner.lock().unwrap();
             outs.extend(Self::inventory_demand_locked(&mut inner));
-            inner.sinks.clone()
+            let kept = Self::kept_servers_locked(&inner);
+            let changed = std::mem::replace(&mut inner.kept_servers_told, kept) != kept;
+            (inner.sinks.clone(), changed)
         };
+        #[cfg(test)]
+        self.run_emit_pause();
+        if kept_changed {
+            self.notify_kept_servers();
+        }
         if outs.is_empty() {
             return;
+        }
+        if outs
+            .iter()
+            .any(|out| matches!(out, Out::Broadcast(value) if value["event"] == "apps-changed"))
+        {
+            self.reconcile_sidebar();
         }
         for out in outs {
             match out {

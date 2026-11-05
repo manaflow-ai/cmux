@@ -1,7 +1,7 @@
 //! The authoritative parser worker of one terminal host. It applies PTY
 //! output and lifecycle commands to the host's Ghostty terminal in order and
-//! flushes the terminal's own replies (queries, clipboard reads) to the PTY
-//! after every command.
+//! hands the terminal's own replies (queries, clipboard reads) to the PTY
+//! reply writer (`pty_replies`) after every command.
 
 use crate::panic_free::RecoverPoison;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,6 +15,7 @@ use super::super::*;
 use super::clipboard_read::*;
 use super::host_shared::HostShared;
 use super::host_state::*;
+use super::pty_replies::{PtyReplies, write_to_pty};
 
 /// State the parser shares with the terminal's callbacks.
 pub(crate) struct ParserSignals {
@@ -135,13 +136,15 @@ pub(crate) fn run_host_parser(
     // after PTY output, so lifecycle operations (for example resize
     // during a Pi reload) cannot leave replies queued in memory and
     // deliver them to a later TUI write.
+    // The answers go to the PTY on their own thread (`pty_replies`): a
+    // program that stops reading its input must never stop this parser.
+    let replies = PtyReplies::start({
+        let host = parser_host.clone();
+        move |bytes| write_to_pty(&host.writer, bytes)
+    });
     let flush_pending_responses = || {
         let responses = std::mem::take(&mut *pending_responses.lock().recover_poison());
-        if !responses.is_empty() {
-            let mut writer = parser_host.writer.lock().recover_poison();
-            let _ = writer.write_all(&responses);
-            let _ = writer.flush();
-        }
+        replies.send(responses, |bytes| write_to_pty(&parser_host.writer, bytes));
     };
     while let Ok(command) = parser_command_receiver.recv() {
         match command {

@@ -12,7 +12,7 @@ extension MainPaneGutterSuites {
     /// default flush, divided panes; "separate" keeps the old look, where the sidebar and the
     /// chrome around the curved main pane are shaded darker than the pane. The setting applies live,
     /// from cmux.json through the settings applier to the open window.
-    @MainActor @Suite(.serialized) struct SidebarSurfaceTests {
+    @MainActor struct SidebarSurfaceTests {
         /// A window root in a titled, full-size-content window, as the app shows it, sidebar shown.
         func openRoot() -> (NSWindow, WindowRootView) {
             _ = NSApplication.shared

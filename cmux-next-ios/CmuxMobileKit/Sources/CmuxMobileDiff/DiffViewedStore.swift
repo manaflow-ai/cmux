@@ -35,6 +35,12 @@ public final class DiffViewedStore {
         marks.contains(Self.key(for: file))
     }
 
+    /// Whether the file with this `key(for:)` is viewed: O(1) for a caller that keeps the key
+    /// (the key hashes every line of the file).
+    public func isViewed(key: String) -> Bool {
+        marks.contains(key)
+    }
+
     public func setViewed(_ viewed: Bool, _ file: DiffFile) {
         let key = Self.key(for: file)
         guard viewed != marks.contains(key) else { return }
@@ -57,27 +63,16 @@ public final class DiffViewedStore {
         setViewed(!isViewed(file), file)
     }
 
-    /// Ids (paths) of the change set's files that are viewed.
+    /// Ids (paths) of the change set's files that are viewed: one set lookup per file.
     public func viewedIDs(in changeSet: DiffChangeSet) -> Set<String> {
-        Set(changeSet.files.filter(isViewed).map(\.id))
+        var ids = Set<String>()
+        for file in changeSet.files where marks.contains(Self.key(for: file)) { ids.insert(file.id) }
+        return ids
     }
 
-    /// `path#fingerprint`: FNV-1a over the diff lines (stable across launches, unlike `hashValue`).
-    public static func key(for file: DiffFile) -> String {
-        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
-        func mix(_ string: String) {
-            for byte in string.utf8 {
-                hash ^= UInt64(byte)
-                hash = hash &* 0x0000_0100_0000_01B3
-            }
-            hash ^= 0x0A
-            hash = hash &* 0x0000_0100_0000_01B3
-        }
-        mix(file.status.rawValue)
-        for line in file.lines {
-            mix("\(line.kind)")
-            mix(line.text)
-        }
-        return file.path + "#" + String(hash, radix: 16)
+    /// `path#fingerprint`: FNV-1a over the diff lines (stable across launches, unlike `hashValue`),
+    /// hashed once when the file's content is set (`DiffFile.contentHash`).
+    public nonisolated static func key(for file: DiffFile) -> String {
+        file.path + "#" + String(file.contentHash, radix: 16)
     }
 }

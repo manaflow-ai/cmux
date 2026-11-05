@@ -25,8 +25,9 @@ final class FocusCoordinator {
     private var reduced = FocusState()
     /// Topologies their owners marked changed, built when next needed (`setNeedsTopology`).
     private var pendingTopologies: [(owner: ObjectIdentifier, build: @MainActor () -> FocusTopology?)] = []
-    /// The state and rules (`cmux-focus-core`); the view above mirrors it.
-    private let machine = FocusMachine()
+    /// The state and rules (`cmux-focus-core`, in the app's one input router); the view above mirrors it.
+    private let machine: FocusMachine
+    init(machine: FocusMachine) { self.machine = machine }
     private var appliedCloseFocus: CloseFocusPolicy?
     /// The close-focus setting (tests inject one).
     var closeFocus: () -> CloseFocusPolicy = { DesignSettings.shared.closeFocus }
@@ -35,13 +36,13 @@ final class FocusCoordinator {
     weak var window: NSWindow?
     private var queue: [FocusEvent] = []
     private var isRunning = false
-    /// Tabs left while their address bar had the keyboard (Chrome restores it on return).
-    private var omnibarMemory = OmnibarFocusMemory()
+    /// The applier runs the address-bar focus of a return to the tab (``FocusMachine/Reduction``).
+    private(set) var isReturningToOmnibar = false
     private(set) var isApplying = false
     /// The last events, newest last (for `debug.focus`).
     private(set) var recent: [String] = []
     /// The pane a Close Tab press is aimed at after a close emptied a pane (``PaneCloseAim``).
-    private(set) var closeAim = PaneCloseAim()
+    private(set) lazy var closeAim = PaneCloseAim(machine: machine)
     /// Calls its body with the time (system uptime) the frame carrying this turn's changes is
     /// presented: the next Core Animation commit plus one refresh of `window`'s screen. Tests pass their own.
     var framePresented: @MainActor (NSWindow?, @escaping @MainActor (TimeInterval) -> Void) -> Void = FocusCoordinator.nextFramePresented
@@ -64,6 +65,8 @@ final class FocusCoordinator {
     var observer: ((Observation) -> Void)?
     /// Called once the queue drained and every effect ran (notifications).
     var settledObserver: ((FocusState) -> Void)?
+    /// The person's own focus or selection moves here (mouse, keyboard, palette): a keyboard claim ends at the next one.
+    private(set) var personIntents: (count: UInt64, input: TimeInterval?) = (0, nil)
 
     func send(_ event: FocusEvent) {
         // An action run that may not change this client's view (a CLI,
@@ -75,6 +78,8 @@ final class FocusCoordinator {
             observer?(.refusedByRun(event))
             return
         }
+        // The input dispatched now (nil between dispatches), the same stamp the claim took (`dispatchingInputEvent`).
+        if event.isPersonsOwn, event.changesView { personIntents = (personIntents.count &+ 1, (NSApp as? CmuxApplication)?.inputDispatch?.event?.timestamp) }
         // A changed topology goes first: the event (and its effects) see the current panes and tabs.
         if case .topology = event {} else { reducePendingTopologies() }
         queue.append(event)
@@ -105,7 +110,7 @@ final class FocusCoordinator {
                     machine.setCloseFocus(mostRecent: policy == .mostRecent)
                 }
                 let previous = reduced
-                guard let result = machine.send(event, into: &reduced) else {
+                guard let result = machine.send(event, into: &reduced, menuPick: ActionRunScope.current?.menuPick == true) else {
                     // The ABI refused the event: a wire mismatch between the app
                     // and the linked FFI. Keep the state rather than lose focus.
                     assertionFailure("focus machine refused \(event)")
@@ -114,14 +119,16 @@ final class FocusCoordinator {
                 let effects = result.effects
                 DebugPaneFocus.mark(self, "reduced")
                 record(event)
-                if omnibarMemory.note(event, before: previous.resolved, after: reduced.resolved) {
+                if result.omnibarReturn {
                     // Runs after this event's effects moved the responder to the page.
-                    queue.append(.focusTarget(.addressBar, source: .programmatic))
+                    queue.append(FocusMachine.returnToOmnibar)
                 }
                 observer?(.reduced(event, before: previous, after: reduced, changed: result.changed || !effects.isEmpty))
                 guard !effects.isEmpty, let applier else { continue }
                 isApplying = true
+                isReturningToOmnibar = result.returnsToOmnibar
                 applier.apply(effects, state: reduced)
+                isReturningToOmnibar = false
                 isApplying = false
                 DebugPaneFocus.mark(self, "applied")
             }
@@ -190,7 +197,7 @@ final class FocusCoordinator {
 
     /// Stamps the focused pane's move with the presentation of the frame that shows it (``closeAim``).
     private func paneMoved(from before: String?) {
-        let serial = closeAim.paneMoved(from: before, to: reduced.pane)
+        let serial = closeAim.paneMoved(from: before)
         framePresented(window) { [weak self] time in self?.closeAim.presented(serial, at: time) }
     }
 
@@ -201,8 +208,8 @@ final class FocusCoordinator {
 
     /// Whether `press` is aimed at a pane a close emptied, not at the focused pane (``PaneCloseAim``).
     func aimsAtEmptiedPane(_ press: PaneCloseAim.Press) -> Bool {
-        let focused = currentState().pane
-        return closeAim.aimsAtEmptiedPane(press, focused: focused)
+        reducePendingTopologies()
+        return closeAim.aimsAtEmptiedPane(press)
     }
 
     /// ``framePresented`` in the app. A commit reaches the screen at the display's next refresh, so

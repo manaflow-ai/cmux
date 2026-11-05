@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Testing
 
 /// PANE-FOCUS (user 2026-10-20, "monaco editor on focus does not get focus"): the app gives a page's
@@ -9,6 +10,7 @@ import Testing
 /// becomes first responder, and the page focuses its primary input (Monaco's text area) when nothing
 /// in it has focus (plans/cmux-next/pane-focus-DESIGN.md row P1).
 @MainActor
+@Suite(.closesItsWindows)
 struct PageFocusContentTests {
     /// Every page kind takes `focusContent`: the shared commands carry it.
     @Test(arguments: ["editor", "markdown", "diff", "plain"])
@@ -34,6 +36,7 @@ struct PageFocusContentTests {
     @Test func webViewBecomingFirstResponderReportsIt() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         let other = NSTextField(frame: NSRect(x: 0, y: 0, width: 50, height: 20))
         let web = PageWKWebView(frame: NSRect(x: 0, y: 40, width: 200, height: 160), configuration: .init())
         window.contentView?.addSubview(other)

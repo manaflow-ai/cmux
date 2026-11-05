@@ -34,7 +34,7 @@
         },
         {
           "key": "sidebar.hoverCards.delay",
-          "note": "Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). While a card shows, or within 500 ms after it went, the next one opens at once.",
+          "note": "Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). 400 ms (Leo 2026-11-01: hover previews must appear a lot faster); it was Chrome's 1300 ms at standard tab width (Lawrence 2026-10-28 msg 15729). While a card shows, or within 300 ms after it went, the next one opens at once.",
           "title": {
             "key": "settings.sidebar.hoverCards.delay",
             "text": "Hover Card Delay"
@@ -50,7 +50,7 @@
             "step": 100,
             "unit": "milliseconds"
           },
-          "default": 250,
+          "default": 400,
           "keywords": [
             "hover",
             "card",
@@ -320,7 +320,7 @@
             "step": 100,
             "unit": "milliseconds"
           },
-          "default": 600,
+          "default": 1500,
           "keywords": [
             "hover",
             "card",

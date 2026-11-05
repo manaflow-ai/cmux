@@ -4,14 +4,31 @@
 // either place (Leo 2026-10-20: one style for the tray, the chip and the popover). Its icon
 // (summary.css `.acpmux-lineage__icon`) is in the theme's accent while it runs, never a brand color,
 // and carries no corner dot, since the line says its state in words; then its name, a dim detail (what it does now, or its kind), its time and
-// its state. A click opens it. With a `card` (the Inspector's Subagents) a hover card names it and
+// its state. A click opens it. With a `card` (Session Info's Subagents) a hover card names it and
 // says its state, as Claude Code desktop's session panel does, in place of the plain tooltip.
 //
-// In the tray a line also says what kind of thing it is before its name, "Command" or "Subagent"
-// (Leo 2026-10-21 on a tray line that showed a raw shell line: "is that a command or a
-// subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
+// In the tray a line also says what kind of thing it is before its name (Leo 2026-10-21 on a tray
+// line that showed a raw shell line: "is that a command or a subagent?"): "Command" in words, a
+// subagent by its own icon, never the word on every line under a header that says it already (Leo,
+// 2026-10-29: "why are you saying sub-agent so many fucking times? Like, you can just add the icon
+// when it's in here"). A line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
-import type { ReactNode } from "react";
+//
+// In the tray a line has one anatomy, after Claude desktop's and Claude Code's subagent rows (Leo,
+// 2026-10-31: "why is this still so ass in latest nightly", and earlier "eg a lot of these
+// subtitles are bad"): one leading glyph (its own icon or its harness's mark; the spinner only on
+// a working line that shows no time, or retries), never a second kind glyph beside it; the title;
+// one muted trailing meta (what it spent, a state worth reading, its time); the chevron. No agent-type subtitle on the line (the
+// tooltip and the hover card keep it). The state word and then the time ("Done · 36s") end the line
+// as one cluster right beside the chevron (or beside Stop on a line that has one), never floating
+// mid-row (cmux#31492); Stop and the chevron keep their fixed columns.
+//
+// A running tray line that shows its time draws no running symbol: no spinner and no "Running"
+// word, only its own glyph, its time and its Stop (Leo, 2026-11-03: "do we really need a running
+// symbol vs just having the time and a square stop button?"), as Claude Desktop's Background tasks
+// read. Screen readers still hear "Running". A line with no time, a retry and a waiting line keep
+// their words.
+import type { CSSProperties, ReactNode } from "react";
 import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
@@ -19,23 +36,31 @@ import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/SubagentStatusList";
+import type { Subagent } from "./subagentFold";
+import { TonedIcon } from "./TonedIcon";
+import { useAgentProgress } from "./agentProgressStore";
+import { Tick } from "./trayMotion";
 
 const ROW_ICON = rowIconSize(12);
 
 export function AgentLine({
   name,
   detail,
+  progress,
+  progressAgent,
   status,
   state,
   time,
   icon = "agent.session",
   mark,
+  tone,
   iconSize = ROW_ICON,
   depth = 0,
   current = false,
   title,
   label,
   kind,
+  kindIcon,
   chevron = false,
   onOpen,
   after,
@@ -43,10 +68,18 @@ export function AgentLine({
   wave,
   working = false,
   expanded,
+  trayColumns = false,
+  quiet = false,
+  progressAt = "below",
+  latest,
+  latestAt = "below",
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
   detail?: string;
+  /// Reported agent counts, warnings and usage; separate from the current action.
+  progress?: string;
+  progressAgent?: Subagent;
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
@@ -56,6 +89,9 @@ export function AgentLine({
   icon?: string;
   /// The harness of an agent of another family (`codex`), whose mark replaces the icon.
   mark?: string;
+  /// Its stable color (agentTones.ts `agentTone`), for the icon when no harness mark replaces it, so
+  /// lines without a mark still tell apart (Leo, 2026-10-29: "you can just randomize the colors").
+  tone?: number;
   iconSize?: number;
   /// How far it sits under the agent that spawned it.
   depth?: number;
@@ -65,8 +101,11 @@ export function AgentLine({
   title?: string;
   /// The accessible name, when the visible text is not enough ("Open Reviewer").
   label?: string;
-  /// What kind of thing it is, before its name ("Command", "Subagent"); the tray's lines say it.
+  /// What kind of thing it is, before its name ("Command"); the tray's lines say it.
   kind?: string;
+  /// The kind as an icon before its name in place of the word (a subagent's), with `kind` as its
+  /// accessible name.
+  kindIcon?: string;
   /// A trailing chevron when a click opens it (the tray's lines).
   chevron?: boolean;
   onOpen?: () => void;
@@ -81,18 +120,46 @@ export function AgentLine({
   working?: boolean;
   /// A command row's live-tail disclosure state.
   expanded?: boolean;
+  /// Use the running tray's fixed trailing columns; other AgentLine consumers keep their flow.
+  trayColumns?: boolean;
+  /// Its state needs no word on the line (done, or running under the spinner): screen readers
+  /// still read it. Tray lines only.
+  quiet?: boolean;
+  /// Where `progress` sits on a tray line: in the trailing meta before the time (`meta`), or on a
+  /// line under the title (`below`, every other consumer's place).
+  progressAt?: "meta" | "below";
+  /// What it did last (trayDetail.ts `latestLine`): a quiet second line under the title, cut to one
+  /// line so a change never moves the line (`below`), or dim after the title (`inline`). Leo,
+  /// 2026-11-03: "Tray only, richer" (trayLatest.experiment.ts).
+  latest?: string;
+  latestAt?: "below" | "inline";
 }) {
+  const liveProgress = useAgentProgress(progressAgent);
+  progress = liveProgress ?? progress;
   const shimmer = waveProps(wave);
+  // Running with its time shown: the time and Stop say it runs (Leo, 2026-11-03).
+  const timed = trayColumns && quiet && status === "running" && time !== undefined;
   const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
+  const glyph = <TonedIcon name={icon} size={iconSize} tone={tone} row />;
   const button = (
     <button
       type="button"
       className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent acpmux-agent-line__button"
-      style={depth > 0 ? { paddingLeft: 8 + Math.min(depth, 3) * 14 } : undefined}
+      style={
+        depth > 0
+          ? trayColumns
+            ? ({ "--acpmux-tray-indent": `${Math.min(depth, 3) * 14}px` } as CSSProperties)
+            : { paddingLeft: 8 + Math.min(depth, 3) * 14 }
+          : undefined
+      }
       data-status={status}
       aria-current={current ? "true" : undefined}
       aria-expanded={expanded}
-      aria-label={label}
+      // A quiet line names its state here too: an aria-label overrides the line's own text, its
+      // screen-reader state word included.
+      aria-label={
+        label ? [label, trayColumns && quiet ? state : undefined, progress].filter(Boolean).join(" · ") : undefined
+      }
       /* tooltip-allow: the line shows the name; the task appears nowhere else */
       title={card ? undefined : title}
       disabled={!onOpen}
@@ -103,30 +170,91 @@ export function AgentLine({
         style={shimmer.style}
         data-state={status}
       >
-        {working ? (
+        {working && !timed ? (
           <Spinner size={iconSize} loading />
         ) : brand ? (
-          <AgentMark agent={brand} size={iconSize} />
+          <AgentMark agent={brand} size={iconSize} fallback={glyph} />
         ) : (
-          <Icon name={icon} size={iconSize} row />
+          glyph
         )}
       </span>
       <span className="acpmux-summary-text">
-        {kind && <span className="acpmux-agent-line__kind">{kind}</span>}
+        {kindIcon ? (
+          <span className="acpmux-agent-line__kind-icon">
+            <Icon name={kindIcon} size={iconSize} title={kind} row />
+          </span>
+        ) : (
+          kind && <span className="acpmux-agent-line__kind">{kind}</span>
+        )}
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
+        {latest && latest !== name && latestAt === "inline" && (
+          <span className="acpmux-agent-line__latest-inline">{latest}</span>
+        )}
+        {latest && latest !== name && latestAt === "below" && (
+          <span className="acpmux-agent-line__latest">{latest}</span>
+        )}
+        {progress && trayColumns && progressAt === "meta" && (
+          <span className="acpmux-agent-line__stats">{progress}</span>
+        )}
+        {progress && !(trayColumns && progressAt === "meta") && (
+          <span className="acpmux-agent-line__progress">{progress}</span>
+        )}
       </span>
-      {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
-      <span className="acpmux-summary-meta acpmux-summary-agent__state">{state}</span>
-      {chevron && onOpen && (
-        <span className="acpmux-agent-line__chevron" aria-hidden="true">
-          <Icon name="disclosure.collapsed" size={12} />
-        </span>
+      {trayColumns ? (
+        <>
+          {/* The state word, then the time ("Done · 36s"), one muted trailing cluster set against
+              the line's end: right beside the chevron, or beside Stop on a line that has one
+              (cmux#31492: the time and "Done" floated mid-row). State first, as Claude Code's and
+              ChatGPT's task rows read (Leo, 2026-11-02, on "36s Done": "this running thing now looks
+              mildly awkward"). The time ends the cluster, so a tick never moves its right edge. */}
+          <span className="acpmux-agent-line__trail">
+            <span className="acpmux-summary-meta acpmux-agent-line__meta" data-tray-status>
+              {timed ? (
+                // Running says itself by its ticking time and Stop; the word is for screen readers.
+                <span className="acpmux-agent-line__sr">{state}</span>
+              ) : (
+                <>
+                  <Tick className="acpmux-summary-agent__state" text={state} />
+                  {time !== undefined && (
+                    <span className="acpmux-agent-line__sep" aria-hidden="true">
+                      ·
+                    </span>
+                  )}
+                </>
+              )}
+            </span>
+            <span className="acpmux-summary-meta acpmux-agent-line__time" aria-hidden={time === undefined}>
+              {time}
+            </span>
+          </span>
+          {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
+              last at the line's end: the column the header's chevron ends in. */}
+          <span className="acpmux-agent-line__stop-track" aria-hidden="true" />
+          {chevron && onOpen ? (
+            <span className="acpmux-agent-line__chevron" aria-hidden="true">
+              <Icon name="disclosure.collapsed" size={ROW_ICON} row />
+            </span>
+          ) : (
+            <span className="acpmux-agent-line__chevron-track" aria-hidden="true" />
+          )}
+        </>
+      ) : (
+        <>
+          {time !== undefined && <span className="acpmux-summary-meta acpmux-agent-line__time">{time}</span>}
+          {/* Running turns to Waiting or Done with a tick, never a jump (trayMotion.tsx). */}
+          <Tick className="acpmux-summary-meta acpmux-summary-agent__state" text={state} />
+          {chevron && onOpen && (
+            <span className="acpmux-agent-line__chevron" aria-hidden="true">
+              <Icon name="disclosure.collapsed" size={ROW_ICON} row />
+            </span>
+          )}
+        </>
       )}
     </button>
   );
   return (
-    <div className="acpmux-agent-line" data-status={status}>
+    <div className="acpmux-agent-line" data-status={status} data-timed={timed || undefined}>
       {card ? (
         // tooltip-allow: the hover card says what the line cuts (its whole name, what it does, its task)
         <Tooltip label={card} side="top" className="ui-card acpmux-agent-card__popup">
@@ -135,7 +263,7 @@ export function AgentLine({
       ) : (
         button
       )}
-      {after}
+      {trayColumns ? <span className="acpmux-agent-line__stop-slot">{after}</span> : after}
     </div>
   );
 }

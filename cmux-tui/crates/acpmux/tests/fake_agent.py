@@ -9,6 +9,11 @@ Behaviour per prompt text:
   "until-cancel" -> streams "running", then waits for session/cancel
   "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
+  "cancel-ends-turn" -> streams "running", then answers session/cancel with end_turn, not cancelled
+  "cancel-errors" -> streams "running", then answers session/cancel with an error
+  "works-through-cancel" -> a tool call every 100 ms, titled "step N pid P", through every
+                 session/cancel; answers end_turn after 60 s
+  "works-through-cancel-beside-background" -> the same after starting background subagent bg-1
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
@@ -23,7 +28,8 @@ Its "slow-stop" turn runs until session/cancel and takes 5 s more to stop.
 FAKE_CLAUDE_STEER=1: steering as Claude Code (claude-stdio) does it. The agent
 advertises steering; a prompt while a turn runs is read into that turn and
 answered at once with stopReason "steered"; the turn runs on and its own
-prompt is answered when it ends.
+prompt is answered when it ends. With FAKE_STEER_STEP=<fifo> a steer is
+answered only once the test writes to that FIFO (the agent's next tool step).
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
@@ -55,6 +61,13 @@ FAKE_ASK_MODE=1: the sample harness of `cmux harness add sample` (cx-00p) as a r
 start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` entry
 {"sample": ["ask"]} lists it), and a prompt naming "hostname" runs `hostname` as a tool
 call through the ACP permission flow: announced, asked, run only after an allow.
+
+CPU class (macOS, tests/cpu_class.rs; `ps -o pri=` is 4 at background class):
+FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri"} (its own, as it starts) to <path>.
+"class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid} to <path>.
+FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
+has another process put it in background class (an outside cause, not its own call), answers that
+`initialize` with an error and stays alive, as a harness that fails its start at background class.
 """
 import base64
 import hashlib
@@ -67,6 +80,7 @@ import time
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()
+cap_failures = {}
 failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
@@ -79,6 +93,9 @@ known = set()
 
 
 LAST_MCP_SERVERS = None
+# The additionalDirectories of the last session/new, load or fork ("dirs" replies with them).
+LAST_DIRS = None
+RUNNING_MCP = []
 # Whether the client asked for native subagent sessions the way codex-acp 1.10.0
 # reads it: the JetBrains AIR capability in clientCapabilities._meta (its ACP
 # schema strips the draft `subagents` field, so that one does not count).
@@ -144,11 +161,56 @@ def codex_load(sid):
     return False
 
 
+def prompt_text(params):
+    """Match fixture commands on the request; opt in to echoing cmux guidance."""
+    blocks = params.get("prompt", [])
+    if os.environ.get("FAKE_ECHO_GUIDANCE") != "1":
+        blocks = [b for b in blocks if not is_cmux_guidance(b)]
+    return "".join(b.get("text", "") for b in blocks)
+
+
+# The hidden guidance blocks (`context_inventory::override_block`), and only those: the
+# forum's rules, a side question's chat and a message's attachments are cmux-*-context
+# blocks too, and the agent must read them, so their tests read them in the echo.
+GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>")
+
+
+def guidance_text(text):
+    """Recognize a guidance wrapper after an adapter dropped its metadata."""
+    return isinstance(text, str) and text.lstrip().startswith(GUIDANCE_TAGS)
+
+
+def is_cmux_guidance(block):
+    """Identify cmux's hidden first-turn guidance after an adapter drops metadata."""
+    if not isinstance(block, dict):
+        return False
+    source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
+    if source in {"cmux-default", "cmux-user", "cmux-project"}:
+        return True
+    return guidance_text(block.get("text", ""))
+
+
+def codex_transcript_content(params):
+    """Keep the harness's raw context blocks while keeping ordinary fixtures compact."""
+    blocks = [b for b in params.get("prompt", []) if isinstance(b, dict)]
+    if not any(is_cmux_guidance(b) for b in blocks):
+        return [{"type": "input_text", "text": prompt_text(params)}]
+    return [{"type": "input_text", "text": b.get("text", "")} for b in blocks
+            if isinstance(b.get("text"), str)]
+
+
+def codex_visible_text(payload):
+    """Read a fixture rollout like adopt_replay: context is not a person prompt."""
+    content = payload.get("content", [])
+    return "".join(item.get("text", "") for item in content
+                   if isinstance(item, dict) and not guidance_text(item.get("text", "")))
+
+
 def codex_store_prompt(rid, params):
     sid = params["sessionId"]
-    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    text = prompt_text(params)
     codex_write(sid, "event_msg", {"type": "task_started"})
-    codex_write(sid, "response_item", {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]})
+    codex_write(sid, "response_item", {"type": "message", "role": "user", "content": codex_transcript_content(params)})
     # A turn takes time: it never ends in the millisecond it started.
     time.sleep(0.02)
     reply = "ok: " + text
@@ -156,11 +218,13 @@ def codex_store_prompt(rid, params):
         with open(rollouts[sid]) as f:
             records = [json.loads(line) for line in f if line.strip()]
         reply = json.dumps({
-            "prompts": [r["payload"]["content"][0]["text"] for r in records
+            "prompts": [codex_visible_text(r["payload"]) for r in records
                         if r["type"] == "response_item" and r["payload"].get("role") == "user"
-                        and r["payload"]["content"][0]["text"] != "history-probe"],
+                        and codex_visible_text(r["payload"]) != "history-probe"],
             "sessions": sorted({r["payload"]["id"] for r in records if r["type"] == "session_meta"}),
         })
+    # Native rollouts retain the assistant reply as well as the user's prompt.
+    codex_write(sid, "response_item", {"type": "message", "role": "assistant", "phase": "final_answer", "content": [{"type": "output_text", "text": reply}]})
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
     # Codex's rollout writer flushes a turn's last records after the turn
@@ -181,7 +245,7 @@ def codex_prompt(rid, params):
     """codex-acp: the first prompt runs the turn; a prompt during it joins it.
     At the turn's end only the last joined prompt is answered."""
     sid = params["sessionId"]
-    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    text = prompt_text(params)
     with lock:
         running = codex_turns.get(sid)
         if running is not None:
@@ -218,18 +282,36 @@ def codex_prompt(rid, params):
 
 # FAKE_CLAUDE_STEER: sessions with a running turn.
 claude_turns = set()
+# FAKE_CLAUDE_STEER with FAKE_STEER_STEP: steers not read yet, by their hub promptId, and those
+# taken back (`_acpmux/steer_withdraw`, as Claude Code's cancel_async_message drops one).
+claude_unread = set()
+claude_withdrawn = set()
 
 
 def claude_prompt(rid, params):
     """Claude Code: a prompt during a turn is a steer, answered "steered" at once."""
     sid = params["sessionId"]
-    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    text = prompt_text(params)
     with lock:
         steer = sid in claude_turns
         if not steer:
             claude_turns.add(sid)
     if steer:
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "steer: " + text}})
+        # FAKE_STEER_STEP=<fifo>: the steer is read at the agent's next tool step, which the
+        # test makes by writing to the FIFO, as Claude Code answers a steer only there.
+        step = os.environ.get("FAKE_STEER_STEP")
+        prompt_id = (params.get("_meta") or {}).get("promptId")
+        if step:
+            with lock:
+                claude_unread.add(prompt_id)
+            with open(step) as gate:
+                gate.read()
+            with lock:
+                claude_unread.discard(prompt_id)
+                if prompt_id in claude_withdrawn:
+                    send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": "steer: withdrawn before the agent read it"}})
+                    return
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "steered"}})
         return
     try:
@@ -295,8 +377,11 @@ def run_gh_pr_create(rid, sid):
 
 def handle_prompt(rid, params):
     sid = params["sessionId"]
+    # Model a harness that scopes an interrupt to the prompt it is processing.
+    if os.environ.get("FAKE_RESET_CANCEL_ON_PROMPT") == "1":
+        cancelled.discard(sid)
     blocks = params.get("prompt", [])
-    text = "".join(b.get("text", "") for b in blocks)
+    text = prompt_text(params)
     if text.startswith("envs:"):
         names = [name.strip() for name in text[5:].split(",") if name.strip()]
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
@@ -317,10 +402,22 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         time.sleep(0.05)
         os._exit(0)
-    # "net-refused-later" waits a moment, then fails with a refused connection.
-    if text == "net-refused-later":
-        time.sleep(0.5)
+    # "net-refused-gate: PATH" blocks on the FIFO at PATH (as "gate:"), then fails with a refused
+    # connection: the test's open of the FIFO returns once the agent has the prompt, and the
+    # answer waits until the test closes it.
+    if text.startswith("net-refused-gate:"):
+        with open(text[len("net-refused-gate:"):].split("<", 1)[0].strip()) as gate:
+            gate.read()
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "connection refused: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    # A harness-level RPC failure whose wording resembles a dead daemon must
+    # remain an agent error; the CLI must not replay the prompt.
+    if text == "agent-daemon-closed-error":
+        marker = os.environ.get("FAKE_AGENT_DAEMON_CLOSED_MARKER")
+        if marker:
+            with open(marker, "a") as f:
+                f.write("attempt\n")
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "daemon connection closed while the model was running"}})
         return
     # "net-fail-on-cancel" runs until session/cancel, then fails with that transport error, as
     # an agent stopped mid-stream may.
@@ -346,11 +443,24 @@ def handle_prompt(rid, params):
         net_flaky.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         return
+    # Recovery fixtures: preserve the session, fail the first turn with the supplied
+    # provider error, then answer the continuation normally.
+    if text.startswith("recover-once: ") and sid not in failed_once:
+        failed_once.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": text.removeprefix("recover-once: ")}})
+        return
     # "cap-fail-once: X" fails that prompt once per session with the SR2 gateway's capacity
     # error (every pooled account exhausted for a moment); the session's next prompt runs.
     if text.startswith("cap-fail-once:") and sid not in failed_once:
         failed_once.add(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (127.0.0.1:4016). (error type server_error, HTTP 503)"}})
+        return
+    # "cap-fail-three: X" keeps the SR2 capacity error across the first three
+    # turns.  The fourth prompt succeeds so liveness tests can verify that a
+    # successful turn clears a session's stuck state.
+    if (text.startswith("cap-fail-three:") or sid in cap_failures) and cap_failures.get(sid, 0) < 3:
+        cap_failures[sid] = cap_failures.get(sid, 0) + 1
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check https://user:secret@example.invalid/inference. (error type server_error, HTTP 503)"}})
         return
     if text.startswith("net-down"):
         net_down.add(sid)
@@ -791,6 +901,16 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "class-probe: <path>": a tool the turn runs, its pid to <path> (module docs).
+    if text.startswith("class-probe:"):
+        import subprocess
+        sleeper = subprocess.Popen(["sleep", "120"], stdin=subprocess.DEVNULL)
+        out = text[len("class-probe:"):].strip()
+        with open(f"{out}.tmp", "w") as f:
+            f.write(json.dumps({"sleeper": sleeper.pid}))
+        os.replace(f"{out}.tmp", out)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "env: NAME" replies with that environment variable, for spawn-time checks.
     if text.startswith("env:"):
         name = text[4:].strip()
@@ -817,6 +937,11 @@ def handle_prompt(rid, params):
     # "mcp" replies with the mcpServers of the last session/new, load or fork.
     if text == "mcp":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "dirs" replies with the additionalDirectories of the last session/new, load or fork.
+    if text == "dirs":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_DIRS)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "argv" replies with this process's arguments as JSON, for spawn-time checks.
@@ -865,8 +990,11 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: 503 no non-exhausted claude accounts available. (error type server_error, HTTP 503)"}})
         time.sleep(0.05)
         os._exit(0)
+    # "limit:": a usage limit (a sign-in failure with FAKE_AUTH_FAIL=1, which fails over where a
+    # usage limit waits for its reset, #27924).
     if text.startswith("limit:"):
-        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+        message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
         return
     # "big-output:N" answers with one message of N MiB: one update too large for a frame.
     if text.startswith("big-output:"):
@@ -903,6 +1031,21 @@ def handle_prompt(rid, params):
             update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "child-1", "state": "completed"})
         update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {"message": "Reconnecting... 1", "willRetry": True, "additionalDetails": "stream disconnected"}}}})
         update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m2", "content": {"type": "text", "text": "partial answer"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if text == "orchestration-fields":
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": [
+            {"id": "reasoning_effort", "name": "Reasoning", "type": "select", "category": "thought_level",
+             "currentValue": "high", "options": [{"value": "high", "name": "High"}]}]})
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "orch-child",
+                     "model": "gpt-6", "effort": "high", "name": "Review"})
+        update("orch-child", {"sessionUpdate": "agent_message_chunk", "messageId": "first",
+                             "content": {"type": "text", "text": "old answer"}})
+        update("orch-child", {"sessionUpdate": "agent_message_chunk", "messageId": "last",
+                             "content": {"type": "text", "text": "é" * 300}})
+        # A real cumulative total (`totalTokens`); `used` is context occupancy, never tokens.
+        update("orch-child", {"sessionUpdate": "usage_update", "totalTokens": 1234, "used": 99, "size": 200000})
+        update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "orch-child", "state": "completed"})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "codex-subagents" starts two subagents as codex-acp 1.10.0 does: with native
@@ -1018,6 +1161,44 @@ def handle_prompt(rid, params):
             time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "cancel-ends-turn" streams "running" and answers session/cancel with end_turn: an adapter
+    # that stops on a cancel but does not say its turn was cancelled (bounded at 30 s).
+    if text == "cancel-ends-turn":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                break
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "cancel-errors" streams "running" and answers session/cancel with an error, as an adapter
+    # whose interrupt fails the turn (bounded at 30 s).
+    if text == "cancel-errors":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                break
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "turn interrupted: request aborted"}})
+        return
+    # "works-through-cancel" ignores every session/cancel and keeps calling tools, as a harness
+    # that went on working after Stop (2026-10-29): a tool call every 100 ms, each titled with
+    # its number and this process's pid, until it ends its turn by itself 60 s later.
+    # "works-through-cancel-beside-background" does the same after starting background subagent
+    # bg-1, which outlives the turn (a Claude Agent call with run_in_background).
+    if text in ("works-through-cancel", "works-through-cancel-beside-background"):
+        if text == "works-through-cancel-beside-background":
+            update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "bg-1", "name": "Background",
+                         "task": "Background audit", "background": True, "capabilities": {}})
+        for n in range(600):
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"work-{os.getpid()}-{n}",
+                         "title": f"step {n} pid {os.getpid()}", "kind": "execute", "status": "in_progress"})
+            time.sleep(0.1)
+        cancelled.discard(sid)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "deaf-to-cancel" streams "running" and never takes a cancel: an agent
     # that is idle as far as it knows while acpmux's turn is still open.
     if text == "deaf-to-cancel":
@@ -1084,12 +1265,14 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tdh-1", "status": "completed"})
         time.sleep(3600)
         return
-    # "slow-limit": a usage limit after a second, then on the fallback profile (FAKE_FALLBACK=1)
-    # an answer (`hub/full_access_bound.rs`, a family message that fails over).
+    # "slow-limit": a usage limit after a second (a sign-in failure with FAKE_AUTH_FAIL=1, which
+    # fails over where a usage limit now waits for its reset), then on the fallback profile
+    # (FAKE_FALLBACK=1) an answer (`hub/full_access_bound.rs`, a family message that fails over).
     if text == "slow-limit":
         if os.environ.get("FAKE_FALLBACK") != "1":
             time.sleep(1)
-            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
             return
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
@@ -1097,7 +1280,8 @@ def handle_prompt(rid, params):
     # and nothing more (`hub/stalled_turn.rs`, a stalled turn after a failover).
     if text == "limit-then-hang":
         if os.environ.get("FAKE_FALLBACK") != "1":
-            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            message = "Not logged in" if os.environ.get("FAKE_AUTH_FAIL") == "1" else "You've reached your usage limit for this account"
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": message}})
             return
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
         time.sleep(3600)
@@ -1135,6 +1319,8 @@ def handle_prompt(rid, params):
     if os.environ.get("FAKE_SHORT_ECHO") == "1" and text.strip():
         text = text.strip().splitlines()[-1]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
+    if text == "reply-then-thought":
+        update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "done"}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
@@ -1169,8 +1355,15 @@ def stdin_lines(early):
     yield from sys.stdin
 
 
+def own_pri():
+    """This process's scheduler base priority (`ps -o pri=`): 4 at background class."""
+    import subprocess
+    out = subprocess.run(["ps", "-o", "pri=", "-p", str(os.getpid())], capture_output=True, text=True)
+    return int(out.stdout.strip() or "0")
+
+
 def main():
-    global LAST_MCP_SERVERS
+    global LAST_MCP_SERVERS, LAST_DIRS
     # `--fake-login` (the terminal sign-in): sign in and exit.
     if "--fake-login" in sys.argv[1:]:
         open(os.environ["FAKE_AUTH_FILE"], "w").close()
@@ -1211,12 +1404,25 @@ def main():
         # FAKE_SET_MODE_SILENT=1: never answer session/set_mode, while staying alive.
         if m == "session/set_mode" and os.environ.get("FAKE_SET_MODE_SILENT") == "1":
             continue
+        bg_once = os.environ.get("FAKE_BG_ONCE")
+        if m == "initialize" and bg_once and not os.path.exists(bg_once):
+            import subprocess
+            open(bg_once, "w").close()
+            # PRIO_DARWIN_PROCESS (4), PRIO_DARWIN_BG (0x1000), set from another process.
+            lower = "import ctypes, sys; sys.exit(ctypes.CDLL(None).setpriority(4, int(sys.argv[1]), 0x1000))"
+            subprocess.run([sys.executable, "-c", lower, str(os.getpid())], check=True)
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "start failed at background class"}})
+            continue
         if m == "initialize" and os.environ.get("FAKE_DIE_AT_START"):
             sys.stderr.write(os.environ["FAKE_DIE_AT_START"] + "\n")
             sys.stderr.flush()
             sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+            LAST_DIRS = params.get("additionalDirectories")
+        if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
+            with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
+                log.write(json.dumps({"pid": os.getpid(), "pri": own_pri()}) + "\n")
         # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model
         # option), as Claude Code and Codex are; FAKE_CALLS=<path> logs each model and
         # effort set as one JSON line {method, params}; FAKE_REFUSE_ID=<id> refuses that model.
@@ -1268,6 +1474,26 @@ def main():
                 effort["currentValue"] = params.get("value")
                 send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": options}})
             continue
+        # FAKE_RUN_MCP=<path>: on session/new, run each stdio MCP server the daemon gave, as a
+        # harness does (its stdin held open, so it serves until the harness ends), and write
+        # their pids to <path>.<this harness pid>.
+        if m == "session/new" and os.environ.get("FAKE_RUN_MCP"):
+            import subprocess
+            pids = []
+            for srv in params.get("mcpServers") or []:
+                if not srv.get("command"):
+                    continue
+                env = dict(os.environ)
+                env.update({e["name"]: e["value"] for e in srv.get("env") or []})
+                proc = subprocess.Popen([srv["command"], *srv.get("args", [])], env=env,
+                                        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL)
+                RUNNING_MCP.append(proc)
+                pids.append(str(proc.pid))
+            out = f"{os.environ['FAKE_RUN_MCP']}.{os.getpid()}"
+            with open(f"{out}.tmp", "w") as f:
+                f.write("\n".join(pids))
+            os.replace(f"{out}.tmp", out)
         # FAKE_SETSID_CHILD=<path>: on session/new, start a child that leaves this
         # process group (setsid), as a harness that daemonizes a helper does, and
         # write its pid to <path>.<this harness pid>. Every harness with the env
@@ -1483,8 +1709,22 @@ def main():
                     update(params.get("sessionId"), {"sessionUpdate": "config_option_update", "configOptions": was})
                 if params.get("configId") == "mode":
                     MODE_OPTION[params.get("sessionId")] = v
-                # FAKE_BARE_OPTION_ANSWER=1: the answer carries no configOptions; =null: a null.
-                if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "1":
+                    # FAKE_OPTION_HOLD=<path>: a mode option change writes its value to
+                    # <path>.held and holds its answer while <path> exists (at most 30 s).
+                    hold = os.environ.get("FAKE_OPTION_HOLD")
+                    if hold and os.path.exists(hold):
+                        import time as pause  # main() binds `time` locally
+                        with open(hold + ".held.tmp", "w") as f:
+                            f.write(f"{v}\n")
+                        os.replace(hold + ".held.tmp", hold + ".held")
+                        until = pause.monotonic() + 30
+                        while os.path.exists(hold) and pause.monotonic() < until:
+                            pause.sleep(0.05)
+                # FAKE_BARE_OPTION_ANSWER=1: the answer carries no configOptions; =null: a null;
+                # =mode: none for a mode option change only.
+                bare = os.environ.get("FAKE_BARE_OPTION_ANSWER")
+                bare_mode = bare == "mode" and params.get("configId") == "mode"
+                if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "1" or bare_mode:
                     send({"jsonrpc": "2.0", "id": rid, "result": {}})
                     continue
                 if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "null":
@@ -1507,12 +1747,21 @@ def main():
             # file exists: a long answer then waits in the agent host's stdin writer, as it does
             # for a harness that stopped reading.
             hold = os.environ.get("FAKE_ASK_HOLDS_STDIN")
-            if hold and "".join(b.get("text", "") for b in params.get("prompt", [])).startswith("ask:"):
+            if hold and prompt_text(params).startswith("ask:"):
                 import time as clock  # main() binds `time` locally
                 while not os.path.exists(hold):
                     clock.sleep(0.02)
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
+        elif m == "_acpmux/steer_withdraw" and os.environ.get("FAKE_CLAUDE_STEER") == "1":
+            # A steer still unread is dropped; one read already (or none) stays.
+            with lock:
+                prompt_id = params.get("promptId")
+                # FAKE_STEER_KEEP=1: it cannot take one back (codex-acp; a batched line).
+                dropped = prompt_id in claude_unread and os.environ.get("FAKE_STEER_KEEP") != "1"
+                if dropped:
+                    claude_withdrawn.add(prompt_id)
+            send({"jsonrpc": "2.0", "id": rid, "result": {"withdrawn": dropped}})
         elif rid is not None:
             send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": "no such method"}})
 

@@ -9,7 +9,10 @@ import { ContextRing } from "./ComposerPickers";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { SummaryCard } from "./summary/SummaryCard";
 
-type Props = { harness: "claude" | "codex" | "opencode"; overlays?: boolean };
+/** `launch`: a Claude chat as acpmux's session detail fills it from the agent's launch
+ * (`session_status.rs`): an SR2 launcher with no limit reported yet, or an API key, whose
+ * account has no plan limits, so the row is hidden. */
+type Props = { harness: "claude" | "codex" | "opencode"; overlays?: boolean; launch?: "sr2" | "api-key" };
 
 const details: Record<Props["harness"], { version: string; model: string; effort: string; route: string }> = {
   claude: {
@@ -32,7 +35,47 @@ const details: Record<Props["harness"], { version: string; model: string; effort
   },
 };
 
-function snapshot(harness: Props["harness"]): AcpmuxSnapshot["summary"] {
+// acpmux's own shape for a Claude Code chat's plan limits (claude_stdio/usage_limits.rs). The weekly
+// window has no reset time, as when Claude Code does not report one. A fixed instant keeps captures stable.
+const CLAUDE_USAGE_LIMITS = {
+  windows: [
+    { id: "session", usedPercent: 38, resetsAt: Date.UTC(2026, 9, 31, 22, 0, 0) / 1000 },
+    { id: "weekly", usedPercent: 12.5 },
+  ],
+};
+
+// What acpmux's session detail sets for these launches: top-level fields, no agentInfo labels.
+const LAUNCHES = {
+  sr2: {
+    machine: "studio-mac",
+    authSource: "SR2 token (sr2 claude)",
+    route: "SR2 (sr2 claude)",
+    settingsSources: ["~/.claude/settings.json", "~/src/atlas-web/.claude/settings.json", "autocompact at 400K"],
+  },
+  "api-key": {
+    machine: "build-box",
+    authSource: "API key (ANTHROPIC_API_KEY, from the environment)",
+    route: "Direct (Anthropic)",
+    settingsSources: ["~/.claude/settings.json", "autocompact at 400K"],
+    usageLimitsApply: false,
+  },
+} as const;
+
+function launched(launch: NonNullable<Props["launch"]>): AcpmuxSnapshot["summary"] {
+  return {
+    sessionId: `gallery-claude-${launch}-status`,
+    cwd: "/Users/you/src/atlas-web",
+    harness: launch === "sr2" ? "claude-sr2" : "claude",
+    family: "claude",
+    model: "claude-opus-5-5",
+    effort: "medium",
+    usage: { used: 337_540, size: 399_094 },
+    ...LAUNCHES[launch],
+  };
+}
+
+function snapshot(harness: Props["harness"], launch?: Props["launch"]): AcpmuxSnapshot["summary"] {
+  if (launch) return launched(launch);
   const detail = details[harness];
   return {
     sessionId: `gallery-${harness}-status`,
@@ -45,17 +88,19 @@ function snapshot(harness: Props["harness"]): AcpmuxSnapshot["summary"] {
     model: detail.model,
     effort: detail.effort,
     usage: { used: 132_000, size: 400_000 },
+    // acpmux reports limits only for Claude Code; Codex's are not mapped yet.
+    ...(harness === "claude" ? { usageLimits: CLAUDE_USAGE_LIMITS } : {}),
     agentInfo: {
       version: detail.version,
       authSource: harness === "opencode" ? "environment route" : "managed login",
       routeName: detail.route,
       settingsSources: ["user", "project", "acpmux policy"],
-      usageLimits: harness === "opencode" ? "Not reported by ACP" : "Weekly: 62% remaining",
+      ...(harness === "opencode" ? { usageLimits: "Not reported by ACP" } : {}),
     },
   };
 }
 
-function GalleryStatusCard({ harness, overlays }: Props) {
+function GalleryStatusCard({ harness, overlays, launch }: Props) {
   const [open, setOpen] = useState(true);
   const [imageOpen, setImageOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -67,7 +112,7 @@ function GalleryStatusCard({ harness, overlays }: Props) {
     >
       {open ? (
         <HarnessStatusCard
-          summary={snapshot(harness)}
+          summary={snapshot(harness, launch)}
           rows={[row("sessionStart", 0, { sessionStart: { agent: "claude", version: details[harness].version } })]}
           onDismiss={() => setOpen(false)}
         />
@@ -192,8 +237,16 @@ export default componentEntry<Props>({
   load: async () => GalleryStatusCard,
   variants: {
     claude: {
-      note: "Claude status uses the same quiet two-column card for the real harness version, route label, settings sources and usage limit.",
+      note: "Claude status uses the same quiet two-column card for the real harness version, route label, settings sources and the usage limits acpmux reports: each window's share used, and its reset time with time zone only when reported.",
       props: { harness: "claude" },
+    },
+    "claude-sr2": {
+      note: "A Claude chat on the SR2 launcher, as acpmux fills it: the machine, the launcher's sign-in and route, the settings files in force with the autocompact window, and a plain No limit reported yet until Claude Code reports one.",
+      props: { harness: "claude", launch: "sr2" },
+    },
+    "claude-api-key": {
+      note: "An API key has no plan usage limits, so acpmux says the row does not apply and the card leaves it out; Routing for a direct login reads Direct.",
+      props: { harness: "claude", launch: "api-key" },
     },
     codex: {
       note: "Codex reports the model and xhigh effort through ACP; auth is identified by name and its value is never displayed.",

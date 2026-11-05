@@ -26,7 +26,13 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         case grace(token: Int)
     }
 
-    public private(set) var phase: Phase = .idle
+    public private(set) var phase: Phase = .idle {
+        didSet { if let shown = shownTarget { lastShownID = shown.id } }
+    }
+    /// The target whose card showed last (kept through its hide): a quick return to it is the same card
+    /// again, which shows with no crossfade of its own content (Leo 2026-11-02: "THE HOVER PREVIEW SHOULD
+    /// NOT MAKE THE SIDEBAR FLICKER ... THEN I LEAVE IT THEN I GO BACK AND IT RE-RENDERS THE SPINNER VIEW").
+    public private(set) var lastShownID: HoverTargetID?
     /// Active suppressions; no card is pending or shown while any lasts.
     public private(set) var suppressions: Set<HoverSuppression> = []
     /// What the last hit test found under the pointer.
@@ -102,8 +108,10 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
         case .deadline(let token):
             switch phase {
             case .pending(let target, let armed) where armed == token:
+                // A card still fading out for another target fades this one's content in over it.
+                let other = lastShownID.map { $0 != target.id } ?? false
                 phase = .shown(target)
-                return [.show(target, sliding: false)]
+                return [.show(target, sliding: other)]
             case .grace(let armed) where armed == token:
                 phase = .idle
                 return []
@@ -213,8 +221,10 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
             return arm(target, moved: moved)
         case .grace:
             guard let target else { return [] }
+            // Back on the card that just hid: the same content, no crossfade; another target's content fades in.
+            let returning = target.id == lastShownID
             phase = .shown(target)
-            return [.cancelTimer, .show(target, sliding: false)]
+            return [.cancelTimer, .show(target, sliding: !returning)]
         case .shown(let shown):
             if case .hides(let reshow) = shown.leave, target?.id != shown.id {
                 guard let target else {
@@ -229,7 +239,15 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
                     phase = .grace(token: grace)
                     return [.hide, .schedule(token: grace, after: reshow)]
                 }
-                // Swaps at once, never held by a pointer heading for the card.
+                if aiming {
+                    // Heading into a card beside its row across another row (the safe
+                    // triangle): that row takes the card only if the pointer stops on it
+                    // (Leo 2026-11-01: "for my mouse to be able to reliably go across them").
+                    let token = takeToken()
+                    phase = .leaving(shown, token: token)
+                    return [.schedule(token: token, after: aimWindow)]
+                }
+                // Otherwise it swaps at once.
                 phase = .shown(target)
                 return [.show(target, sliding: true)]
             }
@@ -261,6 +279,12 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
                     let grace = takeToken()
                     phase = .grace(token: grace)
                     return [.hide, .schedule(token: grace, after: reshow)]
+                }
+                if aiming, target.id != shown.id {
+                    // Still heading into the card: the aim restarts.
+                    let token = takeToken()
+                    phase = .leaving(shown, token: token)
+                    return [.schedule(token: token, after: aimWindow)]
                 }
                 phase = .shown(target)
                 return target.id == shown.id ? [.cancelTimer] : [.cancelTimer, .show(target, sliding: true)]

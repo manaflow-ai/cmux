@@ -20,6 +20,8 @@ nonisolated struct InternalPageID: RawRepresentable, Hashable, Sendable {
 
     static let settings = InternalPageID(rawValue: "settings")
     static let debugSettings = InternalPageID(rawValue: "debug-settings")
+    /// The Automations page (docs/automations-platonic-ideal.md section 8): `automations.show`, the sidebar item.
+    static let automations = InternalPageID(rawValue: "automations")
 }
 
 /// Ids of internal page tabs.

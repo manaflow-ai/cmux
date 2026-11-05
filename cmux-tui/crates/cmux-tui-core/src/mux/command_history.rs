@@ -120,6 +120,10 @@ impl Mux {
         if !self.terminal_command_history_enabled() {
             return;
         }
+        // An incognito terminal's commands are not kept (incognito_terminals.rs).
+        if self.output_store.is_private(self, &terminal) {
+            return;
+        }
         let Some(sender) = self.command_history_sender() else {
             self.report_internal_diagnostic("terminal command history worker not started");
             return;

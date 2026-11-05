@@ -565,6 +565,24 @@ async fn a_family_prompt_from_an_agent_after_a_web_turn_runs_as_a_web_turn() {
     assert_eq!(app.turn_controls(&child).await, ["web"]);
 }
 
+#[tokio::test]
+async fn an_agent_after_a_web_turn_cannot_enqueue_mesh_controls() {
+    let s = Scratch::new("webmesh");
+    let own = s.dir("own");
+    let (hub, parent) = web_family(&s, &own).await;
+    assert!(hub.resolve(&parent).unwrap().turn().is_none());
+    let mut caller = Client::as_session(&hub, &parent).await;
+    let error = caller
+        .refused(
+            "_acpmux/mesh_control",
+            json!({"op": "stop", "to": {"name": "remote"}, "idempotencyKey": "web-control-1"}),
+        )
+        .await;
+    // Checked before the absent relay: the previous Web turn stays restrictive.
+    assert_eq!(error["data"]["reason"], "mesh.local_only", "{error}");
+    hub.shutdown_all().await;
+}
+
 /// An agent a remote device drives never sends files with a message: `send_message` asks the
 /// daemon before it reads any path (`attachCheck`), and a send that carries files anyway, inline
 /// or by upload reference, is refused before the daemon reads or resolves them.
@@ -632,9 +650,7 @@ async fn an_agent_a_web_turn_drove_sends_no_files_from_its_shell_or_its_tools() 
     for (file, wait) in [(&small, true), (&big, true), (&small, false)] {
         let mut cmd = daemon_env::tokio_command(&s.root, daemon_env::Agents::Deny);
         cmd.arg("send").arg("--attach").arg(file);
-        if !wait {
-            cmd.arg("--no-wait");
-        }
+        cmd.arg(if wait { "--wait" } else { "--no-wait" });
         cmd.arg(&child).arg("see this");
         as_parent(&mut cmd);
         let out = tokio::time::timeout(Duration::from_secs(60), cmd.output()).await.unwrap();

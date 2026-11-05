@@ -72,6 +72,26 @@ describe("migration 0004", () => {
 });
 
 describe("mesh store", () => {
+  it("leaves a deleted VM out of the members, even when its member row was never detached", async () => {
+    const meshId = newMeshId();
+    const live = newVmId();
+    const gone = newVmId();
+    const base = { tenantId: A, createdBy: "key:test", createdAt: at, displayName: null, labels: {} };
+    const members = await run(
+      Effect.gen(function* () {
+        const owned = yield* OwnershipStore;
+        const store = yield* MeshStore;
+        yield* owned.record({ ...base, kind: "vm", cmuxId: live, upstreamId: UpstreamId.make("vm-live") });
+        yield* owned.record({ ...base, kind: "vm", cmuxId: gone, upstreamId: UpstreamId.make("vm-gone") });
+        yield* store.attachMember(A, { meshId, vmId: live, ipv4: "10.128.0.5", attachedAt: at });
+        yield* store.attachMember(A, { meshId, vmId: gone, ipv4: "10.128.0.6", attachedAt: at });
+        yield* owned.markDeleted(A, "vm", gone, at);
+        return yield* store.listMembers(A, meshId);
+      }),
+    );
+    expect(members.map((member) => member.vmId)).toEqual([live]);
+  });
+
   it("gives each /20 slot to one mesh only", async () => {
     const first = newMeshId();
     const second = newMeshId();
@@ -319,3 +339,76 @@ describe("mesh store", () => {
   });
 });
 
+
+it("refreshes only the same live tenant attachment and refuses a stale address observation", async () => {
+  const member = { meshId: newMeshId(), vmId: newVmId(), ipv4: null, attachedAt: at };
+  await run(Effect.flatMap(MeshStore, (store) => store.attachMember(A, member)));
+  const update = (tenant: typeof A, prior: Omit<typeof member, "ipv4"> & { ipv4: string | null }, ipv4: string | null) =>
+    run(Effect.flatMap(MeshStore, (store) => store.updateMemberAddress(tenant, prior, ipv4)));
+  expect(await update(B, member, "10.128.0.3")).toBe(false);
+  expect(await update(A, member, "10.128.0.3")).toBe(true);
+  expect(await update(A, member, "10.128.0.4")).toBe(false);
+  const current = { ...member, ipv4: "10.128.0.3" };
+  expect(await update(A, current, null)).toBe(true);
+  await run(Effect.flatMap(MeshStore, (store) => store.detachMember(A, member.meshId, member.vmId, new Date(at.getTime() + 1))));
+  expect(await update(A, member, "10.128.0.5")).toBe(false);
+});
+
+describe("batched reads and writes of an ACL apply", () => {
+  it("findMany returns the tenant's own live resources of a kind among the ids, and recordRules records every row", async () => {
+    const base = { createdBy: "key:test", createdAt: at, displayName: null, labels: {} };
+    const [mine, other, foreign, gone] = [newDeviceId(), newDeviceId(), newDeviceId(), newDeviceId()];
+    const meshId = newMeshId();
+    const vmId = newVmId();
+    const result = await run(
+      Effect.gen(function* () {
+        const ownership = yield* OwnershipStore;
+        const store = yield* MeshStore;
+        yield* ownership.record({ ...base, tenantId: A, kind: "device", cmuxId: mine, upstreamId: UpstreamId.make("tun-a") });
+        yield* ownership.record({ ...base, tenantId: A, kind: "device", cmuxId: other, upstreamId: UpstreamId.make("tun-b") });
+        yield* ownership.record({ ...base, tenantId: B, kind: "device", cmuxId: foreign, upstreamId: UpstreamId.make("tun-c") });
+        yield* ownership.record({ ...base, tenantId: A, kind: "device", cmuxId: gone, upstreamId: UpstreamId.make("tun-d") });
+        yield* ownership.markDeleted(A, "device", gone, at);
+        const found = yield* ownership.findMany(A, "device", [mine, foreign, gone, newDeviceId()]);
+        const asVms = yield* ownership.findMany(A, "vm", [mine]);
+        const none = yield* ownership.findMany(A, "device", []);
+        const rule = (deviceId: string, port: number) =>
+          ({ meshId, key: `${deviceId}>${vmId}:tcp:${port}`, upstreamRuleId: `fwr-${deviceId}-${port}`, deviceId, vmId, protocol: "tcp" as const, port, createdAt: at });
+        yield* store.recordRules(A, [rule(mine, 22), rule(mine, 4100), rule(other, 22)]);
+        yield* store.recordRules(A, []);
+        return { found, asVms, none, rules: yield* store.listRules(A, meshId), rulesB: yield* store.listRules(B, meshId) };
+      }),
+    );
+    expect([...result.found.keys()]).toEqual([mine]);
+    expect(result.found.get(mine)?.upstreamId).toBe("tun-a");
+    expect(result.asVms.size).toBe(0);
+    expect(result.none.size).toBe(0);
+    expect(result.rules.map((row) => row.key).sort()).toEqual([`${mine}>${vmId}:tcp:22`, `${mine}>${vmId}:tcp:4100`, `${other}>${vmId}:tcp:22`].sort());
+    expect(result.rulesB).toEqual([]);
+  });
+
+  it("markRulesDeleted marks exactly the named keys of this tenant's mesh", async () => {
+    const meshId = newMeshId();
+    const otherMesh = newMeshId();
+    const vmId = newVmId();
+    const deviceId = newDeviceId();
+    const rule = (mesh: string, port: number) =>
+      ({ meshId: mesh, key: `${deviceId}>${vmId}:tcp:${port}`, upstreamRuleId: `fwr-${mesh}-${port}`, deviceId, vmId, protocol: "tcp" as const, port, createdAt: at });
+    const result = await run(
+      Effect.gen(function* () {
+        const store = yield* MeshStore;
+        yield* store.recordRules(A, [rule(meshId, 22), rule(meshId, 4100), rule(meshId, 4101), rule(otherMesh, 22)]);
+        // Another tenant naming this mesh's keys marks nothing.
+        yield* store.markRulesDeleted(B, meshId, [`${deviceId}>${vmId}:tcp:4101`], at);
+        yield* store.markRulesDeleted(A, meshId, [`${deviceId}>${vmId}:tcp:22`, `${deviceId}>${vmId}:tcp:4100`, "no-such-key"], at);
+        yield* store.markRulesDeleted(A, meshId, [], at);
+        return {
+          mine: yield* store.listRules(A, meshId),
+          otherMesh: yield* store.listRules(A, otherMesh),
+        };
+      }),
+    );
+    expect(result.mine.map((row) => row.key)).toEqual([`${deviceId}>${vmId}:tcp:4101`]);
+    expect(result.otherMesh).toHaveLength(1);
+  });
+});

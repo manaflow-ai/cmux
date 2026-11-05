@@ -28,7 +28,7 @@ extension IPhoneHostService {
     ///   - processEnvironment: Read for the Debug-only overrides.
     ///   - acpmuxEnvironment: The app's acpmux, for the phones' approval keys (nil: none).
     ///   - chief: This app's Chief owner (session, and socket once connected), which hostd serves to phones.
-    ///   - surfaceHosts: The app's phone tabs as streamed simulator surfaces (nil: this Mac streams none).
+    ///   - surfaceHosts: The app's streamed surfaces: phone tabs' simulators and the owner's Cloud desktops (nil: this Mac streams none).
     public func wire(auth: CloudAuth, daemon: DaemonService,
                      acpmuxHost: @escaping @MainActor @Sendable () -> (any AgentPaneHostProviding)?,
                      acpmuxEnvironment: AcpmuxEnvironment? = nil,
@@ -36,9 +36,13 @@ extension IPhoneHostService {
                      newChatPicks: @escaping @MainActor @Sendable () -> NewChatPicks = { NewChatPicks() },
                      chief: (@MainActor () async -> ChiefPlacement?)? = nil,
                      surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
+                     cloudLinks: (@Sendable () async -> MobileHostCloudLinks)? = nil,
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {
+        // A failed runtime Cloud selection is inert: do not pair the phone host
+        // with a development mobile API or reuse production pairing state.
+        guard !auth.configuration.apiBaseURL.isFileURL else { return }
         let bundled = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-mobile-host", isDirectory: false)
         // Debug builds may point at another hostd or service; a release build never does.
         #if DEBUG
@@ -54,9 +58,12 @@ extension IPhoneHostService {
         #endif
         let executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
         // Each Worker accepts only its own sign-in project's tokens.
-        guard let base = serviceOverride ?? (auth.configuration.isProductionAuth ? Self.productionAPI : Self.developmentAPI) else { return }
-        let state = MobileHostStateDirectory(parent: DaemonLauncher.applicationSupportDirectory()
-            .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)).resolve()
+        guard let base = auth.configuration.runtimeSelection?.mobileOrigin ?? serviceOverride ?? (auth.configuration.isProductionAuth ? Self.productionAPI : Self.developmentAPI) else { return }
+        let stateRoot = DaemonLauncher.applicationSupportDirectory()
+            .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
+        let state = MobileHostStateDirectory(parent: auth.configuration.runtimeSelection?.storageNamespace.map {
+            stateRoot.appendingPathComponent($0, isDirectory: true)
+        } ?? stateRoot).resolve()
         // The phone's browser tabs stream from this build's own remote browser host
         // (Contents/Helpers, every configuration on arm64).
         let browserHosts: (any MobileHostBrowserHosting)? = IPhoneBrowserHosts.available()
@@ -67,6 +74,8 @@ extension IPhoneHostService {
             followNewChatPicks()
         }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
+        servesPhones = executable != nil
+        wireRemoteControl(auth: auth, settings: settings)
         dependencies = Dependencies(
             executable: executable,
             baseURL: base,
@@ -78,7 +87,11 @@ extension IPhoneHostService {
             },
             daemonSocket: { [weak daemon] in
                 guard let daemon else { throw DaemonError.notConnected }
-                return try await daemon.endpoint().socketPath
+                do {
+                    return try await daemon.endpoint().socketPath
+                } catch DaemonError.endpointBlocked(let reason) {
+                    throw DaemonSocketBlocked(reason: reason)
+                }
             },
             acpmux: {
                 guard let host = await acpmuxHost(),
@@ -110,6 +123,7 @@ extension IPhoneHostService {
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
             surfaceHosts: surfaceHosts,
+            cloudLinks: cloudLinks ?? { MobileHostCloudLinks() },
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
             chief: chief
         )

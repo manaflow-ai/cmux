@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 public import CmuxNextSettings
 public import Foundation
 public import Observation
@@ -13,6 +14,8 @@ public final class AgentPaneModel {
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
+    /// The page commands the native palette may run in this chat now (`pane.commandAvailability`).
+    public internal(set) var pageCommands: Set<String> = []
     /// The page drew its first frame after the handshake (`pane.painted`), the
     /// first that shows what it is. Until then its pane keeps what it showed.
     public internal(set) var hasPainted = false
@@ -21,17 +24,37 @@ public final class AgentPaneModel {
     /// loading state shows the page in one frame instead of fading it in
     /// (``AgentPaneView/pageFades(hasNewTab:isVisible:fromKeptTail:)``). False
     /// for a chat read cold, for a page that says nothing, and for the host's
-    /// own give-up path, each of which keeps the fade.
+    /// own give-up path, which keep the fade unless a child-window page is replacing a saved frame.
     public internal(set) var paintedFromKeptTail = false
+    /// The first reveal came from the page's after-render report, rather than the watchdog.
+    @ObservationIgnored var pageReportedPaint = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
+    /// The page's acpmux client is connected and its page actions answer (`pane.clientReady`); false
+    /// while it connects or after it lost its connection. A prewarmed New Tab page serves a tab
+    /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
+    @ObservationIgnored public internal(set) var clientReady = false
 
+    /// The tab this pane shows (the store's id), asked each time: what a pane keeps per view, not per
+    /// chat, is kept by it (its transcript's place, ``AgentPaneScrollAnchors``; its Session Info, the
+    /// page's `sessionInfoState.ts`), since one chat can be open in two tabs at once. Nil for a page
+    /// that is no tab's (a prewarmed spare until a tab adopts it, the quick panel): those keep by chat.
+    @ObservationIgnored public var tabKey: @MainActor () -> String? = { nil } { didSet { onTabKeyChange?() } }
+    /// The view tells a page that already had its handshake (a spare a tab adopted) its tab.
+    @ObservationIgnored var onTabKeyChange: (() -> Void)?
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
+    @ObservationIgnored var onQuestionKeySessionChange: (() -> Void)?
     /// Called when acpmux reports the agent the pane's session runs (its `session/new` or
     /// `_acpmux/attach` reply; ``AcpmuxPaneSessions/harness(of:)``), so the App records the
     /// harness on the tab (cx-w4bbw). Only for the session the pane shows.
     @ObservationIgnored public var onSessionHarness: ((_ session: String) -> Void)?
     @ObservationIgnored public var onUnsentDraft: ((String) -> Void)? // a new chat's typed text, until it has a session
+    @ObservationIgnored public var onNewChatLeftover: ((String) -> Void)? // what a new chat leaves when its tab opens another chat
+    @ObservationIgnored public var onNewChatLeftoverTaken: ((String) -> Void)? // a New Tab page showed that text as its draft
+    /// What a new chat of this page's window left (``AgentUnsentDrafts/leftover(inWindow:)``), for a
+    /// New Tab page whose host gave it none (``newTabForPage``).
+    @ObservationIgnored public var newChatLeftoverDraft: (() -> String?)?
+    @ObservationIgnored public var machineLink: AgentPaneMachineLink? // the chat's machine dot (``AgentPanePageHost/currentEvents(_:)``)
     /// Reports each settled scroll and returns the native display settings to the page.
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
@@ -61,8 +84,34 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// A new chat's Sandboxed send (`sandbox.run`, hq#3367): the App runs one task on a throwaway
     /// Cloud VM behind Labs and answers the page's reply (the receipt, or a typed refusal). Nil: no
-    /// sandboxes in this app.
-    @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String) async -> [String: Any])?
+    /// sandboxes in this app. `incognito` is ``sendIsIncognito``'s answer as the send was issued.
+    @ObservationIgnored public var onSandboxRun: (@MainActor (_ task: String, _ agent: String?, _ key: String, _ incognito: Bool) async -> [String: Any])?
+    /// Whether this pane's tab is in an incognito window now, as the App knows it. Read when a
+    /// Sandboxed send is issued, before its send line drains: the tab may close during that wait
+    /// (#31109). Nil: taken as incognito.
+    @ObservationIgnored public var sendIsIncognito: (@MainActor () -> Bool)?
+    /// A Cloud chat's hand-off turn (`cloud.handoffTurn`, ``AgentPaneHandoffPrompt``): the App opens
+    /// it and answers `{turn}` or a refusal. Nil: no hand-offs in this app.
+    /// Another machine picked for this pane's Cloud chat whose first send has not run
+    /// (``AgentPaneCloudRepick``): the App moves the chat there and sends its first prompt again.
+    @ObservationIgnored public var onCloudRepickChat: (@MainActor (AgentPaneCloudRepick) async -> [String: Any])?
+    @ObservationIgnored public var onCloudHandoffTurn: (@MainActor (_ sessionId: String) async -> [String: Any])?
+    /// The session a pane with no chat yet asked hand-off turns for (`cloud.handoffTurn`).
+    @ObservationIgnored private var handoffSession: String?
+    /// Shared web owns each compose's warm request; native only forwards it to Rust.
+    @ObservationIgnored public var onCloudReservation: (@MainActor (AgentPaneCloudReservationRequest) async -> [String: Any])?
+    /// The one speculative Cloud lease this pane may own before its first chat. The page may
+    /// retry the same compose key, but a second key must release the first one first.
+    @ObservationIgnored private var cloudReservationComposeKey: String?
+
+    /// Whether a Cloud start may bind the pane's currently live reservation.
+    func ownsCloudReservation(_ key: String) -> Bool { cloudReservationComposeKey == key }
+    /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
+    @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
+    /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
+    @ObservationIgnored public var onCloudRepositoryLocal: (@MainActor () async throws -> Data)?
+    /// For a Cloud chat, forwards machine actions through its tab host even while the page's
+    /// ACP transport is a local connection.
     /// This pane's Sandboxed send, kept across a page reload (``AgentPaneSandboxRuns``).
     @ObservationIgnored public let sandboxRuns = AgentPaneSandboxRuns()
     /// Agent session avatars (the app's ``ChiefAvatarUploads``, keyed per session): the avatar as a
@@ -74,6 +123,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onSetAgentAvatar: ((String) async -> String?)?
     @ObservationIgnored public var onRemoveAgentAvatar: ((String) -> Void)?
+    /// `chief.face`: Chief `chief`'s name and avatar as the sidebar shows them (`name`, `src` or `text`).
+    @ObservationIgnored public var onChiefFace: ((String) async -> [String: String])?
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
     /// The folders a chat on another machine can pick: that machine's (its workspace's folders
@@ -83,6 +134,10 @@ public final class AgentPaneModel {
     /// gives a remote connection; never cleared): the page's folder tools (project list, Browse,
     /// Choose Folder, Use Folder, the shell box) act there or are refused, never on this Mac (cx-k21v).
     @ObservationIgnored public var remoteChat = false
+    /// The origin the pane's page is served from, which its granted media URLs use (the page's CSP
+    /// plays media only from its own origin): the pane's own host, or the shared page host's
+    /// (``AgentPaneMediaGrants/pageOrigin``), set by the view that hosts the page there.
+    @ObservationIgnored var mediaOrigin = AgentPaneSource.bundledOrigin
     /// Logs each missing-chat view the page reports (`chat.missing`).
     @ObservationIgnored let missingChatLog = AgentPaneMissingChatLog()
     @ObservationIgnored public var onOpenChat: ((String) -> Void)? // `chats.open`: the app's shared Open Chat path
@@ -99,13 +154,32 @@ public final class AgentPaneModel {
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// The header's tools in the pane's tab row (``AgentPaneTabRow``, `ChromeTunables.tabRowTools`).
     @ObservationIgnored public let tabRow = AgentPaneTabRow()
+    /// Page-owned Session Info content drawn by AppKit.
+    @ObservationIgnored public let sessionInfo = AgentPaneSessionInfo()
+    /// Declarative native controls published by the page for the shared tab row.
+    public private(set) var tabRowTools: [PaneTabRowTool] = []
+    @ObservationIgnored public var onTabRowToolInvoked: ((String, String?) -> Void)?
+    @ObservationIgnored public var onTabRowToolMenuRequested: ((String, String?) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
+    /// Takes back a long recording the pane's dictation gave the page, for chat `session`
+    /// (``AgentPaneDictation/takeRecording(_:session:)``); nil for any other path.
+    @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> AgentPaneIssuedRecording?)?
+    /// Gives back a long recording of chat `session` whose upload failed, so the page may try again
+    /// (``AgentPaneDictation/giveBackRecording(_:session:)``).
+    @ObservationIgnored var onDictationRecordingUnsent: ((_ recording: AgentPaneIssuedRecording, _ session: String) -> Void)?
+    /// The long recordings uploading now, and the ones whose chip's × stopped them.
+    @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
     @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?
+    /// Claude's automatic sign-in page of a Cloud chat (``AgentPaneSignInPage/callbackPort(_:)``),
+    /// in a Chromium tab whose localhost is the chat's machine: the open, or nil when no such tab
+    /// can be made here (the card then opens the page that gives a code to paste). Asked before any
+    /// gesture is spent.
+    @ObservationIgnored public var onOpenSignInOnMachine: (@MainActor (URL) -> (@MainActor () -> Bool)?)?
     /// Start Agent's panel (``AgentPaneQuickHooks``): its page's `quick.*` requests.
     @ObservationIgnored public var quick: AgentPaneQuickHooks?
     /// This build's URL scheme, handed to the page with every handshake so
@@ -125,6 +199,9 @@ public final class AgentPaneModel {
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
     @ObservationIgnored public internal(set) var hasHandshake = false
+    /// The New Tab context came from the spare pool's prepare (the tab a Cmd-T would make), not from a tab: the
+    /// handshake (a reconnect too) never takes its folder, which is no tab's yet (SHORTCUT FRAMES F2 review).
+    @ObservationIgnored public internal(set) var newTabPrepared = false
     /// The binary on the socket when the last handshake was refused with a daemon this app may
     /// replace: only then does `acpmux.restart` stop it, and only while that same binary holds
     /// the socket (``AgentPaneHandshakeReply/restartAcpmux(in:)``).
@@ -166,6 +243,11 @@ public final class AgentPaneModel {
     /// Choose Folder… for a chat whose folder is missing: the native folder sheet on this pane,
     /// then acpmux's `chat_open` with the pick (cx-nn3e.1).
     @ObservationIgnored public var onChooseChatFolder: (@MainActor (_ chat: String) async -> AgentPaneChatFolderResult)?
+    /// Share with Me: grants the signed-in person chats on this remote chat's Cloud machine.
+    @ObservationIgnored public var onShareMachineWithMe: (@MainActor () async -> AgentPaneMachineShare)?
+    /// A native notice's button (`pane.noticeAction`): the pane runs the action of the notice `id`;
+    /// false when it shows no such notice with an enabled button.
+    @ObservationIgnored var onPaneNoticeAction: (@MainActor (_ id: String) -> Bool)?
     /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
     /// workspace's own field (``workspaceRoots``) carries it.
     @ObservationIgnored public internal(set) var chosenFolder: String?
@@ -189,6 +271,10 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onLocalPaths: (@MainActor () -> Bool)?
     /// The file URLs of the person's last native drop or paste on the page.
     @ObservationIgnored var droppedPaths = AgentPaneDroppedPaths()
+    /// Where a dropped screenshot or recording preview is kept (``retainedDropURLs``); tests point it elsewhere.
+    @ObservationIgnored var chatUploadFolders = ChatUploadFolders.standard
+    /// The icons of the apps this pane said attachments came from (`attachment.sourceIcon`).
+    @ObservationIgnored let sourceIcons = AttachmentSourceIcons()
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
     /// The native Debug Settings baseline for the sidebar's latest-reply preview. A user's
     /// `layout.sidebarPreviewVariant` can temporarily override it in the page.
@@ -198,16 +284,23 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onComposerSetting: (@MainActor ([String], Bool) async throws -> Void)?
     /// The chat's look as the page last got it, and where its popover writes (AgentPaneView+Display.swift).
     @ObservationIgnored public internal(set) var display = AgentPaneDisplaySetting.fallback
+    /// The app's feature tip records (`tips.state`); a test gives its own defaults.
+    @ObservationIgnored public var featureTipRecords = AgentPaneFeatureTipRecords()
     @ObservationIgnored public var onDisplaySetting: (@MainActor ([String], JSONValue?) async throws -> Void)?
     /// The chat's tool cards (``AgentPaneToolCard``), and the App's answer to a click on one: the card's id, the button's
     /// and what the person typed in the card's field, if the button sends it.
     @ObservationIgnored public internal(set) var toolCards: [AgentPaneToolCard] = []
     @ObservationIgnored public var onToolCard: (@MainActor (_ card: String, _ action: String, _ value: AgentPaneToolCard.Entered?) -> Void)?
+    /// The chat's live preview card (``AgentPaneComputerUsePreview``), and the App's answer to a click on it (its session).
+    @ObservationIgnored public internal(set) var computerUsePreview: AgentPaneComputerUsePreview?
+    @ObservationIgnored public var onComputerUsePreview: (@MainActor (_ session: String, _ action: AgentPaneComputerUsePreview.Action) -> Void)?
     /// The App's upload for this chat (a chat moved to a Cloud machine), nil when it takes none (``AgentPaneUpload``).
     @ObservationIgnored public var onUpload: (@MainActor () -> AgentPaneUploader?)?
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
     /// App-owned, explicitly confirmed provider credential setup for this pane's Cloud chat.
     @ObservationIgnored public var onCloudCredentialTransfer: (@MainActor (AgentPaneCloudCredentialTransferRequest) async -> Bool)?
+    /// The application-owned marked-tab list shared by this page and the palette.
+    @ObservationIgnored public let attentionTabs: AgentPaneAttentionTabs?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
@@ -217,6 +310,7 @@ public final class AgentPaneModel {
 
     public init(
         host: any AgentPaneHostProviding,
+        attentionTabs: AgentPaneAttentionTabs? = nil,
         sessionId: String? = nil,
         seed: AgentPaneSeedSource? = nil,
         newTab: AgentPaneNewTab? = nil,
@@ -225,10 +319,11 @@ public final class AgentPaneModel {
     ) {
         self.allowsTabConversion = allowsTabConversion
         self.host = host
+        self.attentionTabs = attentionTabs
         self.transport = transport
-        self.sessionId = sessionId
-        self.seed = seed
+        (self.sessionId, self.seed) = (sessionId, seed)
         self.newTab = sessionId == nil ? newTab : nil
+        sandboxRuns.restore(seed?.sandboxResult)
         transport.roots = { [weak self] in self?.roots() ?? [] }
         transport.gestureRoots = { [weak self] in self?.gestureRoots() ?? [] }
         transport.primaryRoot = { [weak self] in self?.primaryRoot() }
@@ -251,6 +346,14 @@ public final class AgentPaneModel {
         }
     }
 
+    /// The app's one Read aloud voice (``AgentPaneReadAloud``); nil refuses the page's speaker.
+    @ObservationIgnored public var readAloud: AgentPaneReadAloud?
+    /// Session Info's Remote Control switch (``AgentPaneRemoteControl``, the iPhone host's); nil: no row.
+    @ObservationIgnored public var remoteControl: AgentPaneRemoteControl?
+    /// The app's Cloud machines for `cloudMachine.*` (``AgentPaneCloudMachines``); nil refuses every method.
+    @ObservationIgnored public var cloudMachines: AgentPaneCloudMachines?
+    @ObservationIgnored public var onCloudEnvironment: (@MainActor (AgentPaneCloudEnvironmentRequest) async -> [String: Any])?
+    @ObservationIgnored public var onIMessage: (@MainActor (AgentPaneIMessageAction) async -> [String: Any])?
     /// Asks the user to confirm a config option that is not free (the view's native sheet).
     @ObservationIgnored public var onConfirmMode: (@MainActor (_ asked: AgentPaneModeConfirmation, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
 
@@ -270,6 +373,33 @@ public final class AgentPaneModel {
         newTab = page
     }
 
+    /// The New Tab page's context as the page gets it: with what a new chat of its window left
+    /// (cmux#32276) when the host gave it none. The slot gives it up only once the page reports it
+    /// showed it (`chat.leftoverTaken`).
+    public var newTabForPage: AgentPaneNewTab? {
+        guard var page = newTab else { return nil }
+        if page.draft == nil { page.draft = newChatLeftoverDraft?() }
+        page.start = startFolders.local(of: self)
+        return page
+    }
+
+    /// A tab bound to session `session` (an existing chat it opens) adopted this prewarmed, connected
+    /// New Tab page: the model is that tab's from here, as if its handshake had named the session
+    /// (``AgentPaneView/adoptSession(_:revealTurn:)``). Its first paint is ahead again: the pane
+    /// keeps its cover until the page draws the chat. False, changing nothing, for a page that is
+    /// not an untouched, connected New Tab page.
+    @discardableResult
+    public func adoptSpareSession(_ session: String) -> Bool {
+        guard sessionId == nil, newTab != nil, hasHandshake, !userTouched, !remoteChat, !neverPooled else { return false }
+        sessionId = session
+        transport.sessions.add(session)
+        newTab = nil
+        // The spare's start folder was no tab's; the chat's folder comes with its session.
+        handshakeCwd = nil
+        (hasPainted, paintedFromKeptTail, pageReportedPaint) = (false, false, false)
+        return true
+    }
+
     /// A new workspace's first tab (its view made before the store's reply
     /// named it a new tab page): a chat that has no session yet becomes the
     /// page. A chat with a session keeps it.
@@ -281,26 +411,46 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest, userGesture: Bool = false) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
+        case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .projectIcon, .agentAvatar, .harnessSymbol, .environment(.list), .cloudMachine(.list), .sandboxState: break
+             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
+             .sandboxState, .subagentShown: break
+        // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
+        // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
+        case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
         case .reply(let reply) where reply.isPassive: break
+        case .cloudReservation: break
+        case .cloudEnvironment(let request) where request.action != "update": break
+        case .imessage(let action) where action.isPassive: break
         default:
-            if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
+            let name = String(String(describing: request).prefix { $0 != "(" })
+            if touchedBy?.split(separator: ",").contains(Substring(name)) != true, (touchedBy?.count ?? 0) < 200 {
+                touchedBy = touchedBy.map { $0 + "," + name } ?? name
+            }
             userTouched = true
         }
         switch request {
         case .uiPointerReport: return AgentPaneReply.success()
         case .ready, .reconnect:
             return await AgentPaneHandshakeReply.reply(to: request, in: self)
+        case .addAccount(let account): return await account.reply(in: self)
         case .restartAcpmux: return await AgentPaneHandshakeReply.restartAcpmux(in: self)
+        case .restartStuckAcpmux: return await AgentPaneHandshakeReply.restartStuckAcpmux(in: self)
         case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()
         case .missingChat(let session, let reason):
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)
             return AgentPaneReply.success()
         case .unsentDraft(let text): if sessionId == nil { onUnsentDraft?(text) }; return AgentPaneReply.success()
+        case .newChatLeftover(let text): if sessionId == nil { onNewChatLeftover?(text) }; return AgentPaneReply.success()
+        case .newChatLeftoverTaken(let text): onNewChatLeftoverTaken?(text); return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
+            return AgentPaneReply.success()
+        case .commandAvailability(let commands):
+            pageCommands = Set(commands)
+            return AgentPaneReply.success()
+        case .clientReady(let ready):
+            clientReady = ready
             return AgentPaneReply.success()
         case .framePacing(let intervals):
             return AgentPaneReply.success(onFramePacing?(intervals) ?? [:])
@@ -312,7 +462,10 @@ public final class AgentPaneModel {
             // The first report only, and before `markPainted`: the pane's loading state leaves on
             // that call, and what that frame drew is what decides whether the page fades in
             // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.
-            if !hasPainted { paintedFromKeptTail = fromKeptTail }
+            if !hasPainted {
+                paintedFromKeptTail = fromKeptTail
+                pageReportedPaint = true
+            }
             markPainted()
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
@@ -330,7 +483,7 @@ public final class AgentPaneModel {
         case .newTabContext:
             AgentPaneLaunchTimings.shared.mark("agent_pane.newtab_context")
             // Only a page with no chat yet is a New Tab page; the handshake still sends the same context.
-            guard sessionId == nil, let newTab, let data = try? JSONEncoder().encode(newTab),
+            guard sessionId == nil, let newTab = newTabForPage, let data = try? JSONEncoder().encode(newTab),
                   let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
         // Another machine's chats are not this Mac's: only a local page's list warms the next page.
@@ -339,17 +492,28 @@ public final class AgentPaneModel {
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
         case .editNewTab(let edit): guard let onEditNewTab else { return Self.unsupported(edit.method) }; onEditNewTab(edit); return AgentPaneReply.success()
         case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
-        case .runAction(let id): return runAction(id)
+        case .readAloud(let command):
+            guard let readAloud else { return Self.unsupported("readAloud") }
+            if case .speak(let id, let text, let language) = command { readAloud.speak(text, id: id, language: language, owner: self) } else { readAloud.stop() }
+            return AgentPaneReply.success()
+        case .attentionOpen where !transport.gestures.consume(): return Self.transportFailure(.gestureRequired)
+        case .attentionOpen(let tab): return attentionTabs?.open(tab) == true ? AgentPaneReply.success() : Self.unsupported("chat.attention.open")
+        case .runAction(let id, let session): return runAction(id, session: session)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()
+        case .shareMachineWithMe: return await shareMachineWithMe(userGesture: userGesture)
         // The panel picks this Mac's files: never for a chat on another machine (cx-k21v).
         case .chooseAttachments where remoteChat: return Self.unsupported("chat.attach.choose")
         case .chooseAttachments: return await chooseAttachments()
         // Nor the paths of files dropped or pasted from this Mac.
         case .attachDropped where remoteChat: return Self.unsupported("chat.attach.dropped")
         case .attachDropped(let kind, let names): return await attachDropped(kind, names: names)
+        // A chat on another machine gets the gesture's source only (`attachSource`).
+        case .attachSource(let kind, let names, let gestureAt): return await attachSource(kind, names: names, gestureAt: gestureAt)
+        case .attachmentSourceIcon(let bundleId):
+            return AgentPaneReply.success(sourceIcons.dataURL(bundleId).map { ["src": $0] } ?? [:])
         case .useFolder(let cwd, let confirm) where remoteChat:
             // A folder of that machine: its store answers as this Mac's does (cx-1bhjj), its acpmux
             // checks the folder and its trust at the start; this Mac's disk is never read (cx-k21v).
@@ -360,7 +524,9 @@ public final class AgentPaneModel {
             return await notePicked(pick, startFolders.use(cwd, confirm: confirm, transport: transport))
         case .browseProject where remoteChat: return Self.unsupported("project.browse")
         case .listProjects(let query) where remoteChat:
-            return AgentPaneReply.success(["projects": await onListRemoteProjects?(query) ?? []])
+            // `machine`: the folders are the chat's machine's, so its folder menu lists them and a
+            // pick there goes through `workspace.useFolder` (cmux#29213).
+            return AgentPaneReply.success(["projects": await onListRemoteProjects?(query) ?? [], "machine": true])
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
@@ -377,6 +543,8 @@ public final class AgentPaneModel {
         case .removeAgentAvatar(let session):
             onRemoveAgentAvatar?(session)
             return AgentPaneReply.success()
+        case .chiefFace(let chief):
+            return AgentPaneReply.success(await onChiefFace?(chief) ?? [:])
         case .projectIcon where remoteChat:
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()
@@ -397,28 +565,72 @@ public final class AgentPaneModel {
         case .watchChat(let key): if let onWatchChat { onWatchChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.watch") }
         case .chatsPage(let query): return await respondToChatsPage(query)
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
-        case .sandboxRun(let task, let agent, let key):
-            // A new chat only, and it spends Cloud time: the Send's own gesture, as a git write.
-            // Not once a chat starts or opens here (it would replace the run's result), and one at a time;
-            // while it runs no chat starts or opens here. The send line drains first, so a start or
-            // open the page handed over before this is counted.
-            guard sessionId == nil, let onSandboxRun else { return Self.unsupported("sandbox.run") }
-            let notNow = AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
-            guard await transport.lineDrained(within: .seconds(5)) else { return notNow }
-            if let refusal = sandboxRuns.refusal { return AgentPaneReply.failure(code: refusal, message: refusal) }
-            let replacements = transport.replacements
-            guard replacements.beginSandbox() else { return notNow }
-            guard transport.gestures.consume() else {
-                replacements.endSandbox()
-                return Self.transportFailure(.gestureRequired)
-            }
-            return await sandboxRuns.run(task: task, key: key) {
-                defer { replacements.endSandbox() }
-                return await onSandboxRun(task, agent, key)
-            }
+        // A new chat's send elsewhere spends Cloud time: the Send's own gesture (``AgentPaneHandOff``).
+        case .sandboxRun(let task, let agent, let key): return await AgentPaneHandOff(model: self).sandbox(task: task, agent: agent, key: key)
+        case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
+        // Only a chat on another machine, on the person's own pick (one gesture).
+        case .cloudRepickChat(let repick):
+            guard let onCloudRepickChat, remoteChat, newTab == nil else { return Self.unsupported("cloud.repickChat") }
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            return await onCloudRepickChat(repick)
         case .sandboxState(let wait):
             return await sandboxRuns.state(wait: wait)
-        case .cloudMachine(let request): return await request.reply(.shared, gestures: transport.gestures)
+        case .cloudHandoffTurn(let session):
+            // Only this pane's own chat on another machine: its chat, or the one it is starting now
+            // (a remote chat's session is made by its first send, just before this ask). A pane
+            // with no chat yet is held to the first session it asks for.
+            let own = sessionId ?? handoffSession ?? session
+            guard let onCloudHandoffTurn, remoteChat, own == session else {
+                return Self.unsupported("cloud.handoffTurn")
+            }
+            if sessionId == nil { handoffSession = session }
+            return await onCloudHandoffTurn(session)
+        case .cloudMachine(let request): return await request.reply(cloudMachines, gestures: transport.gestures)
+        case .cloudRepository(let request):
+            return await request.reply(remoteChat: remoteChat, sessionID: sessionId,
+                                       request: transport.cloudRepository ?? { [host] method, params, timeout in
+                                           try await host.cloudRepository(method: method, params: params, timeout: timeout)
+                                       },
+                                       localRequest: onCloudRepositoryLocal)
+        case .cloudReservation(let request):
+            guard !remoteChat, request.release || sessionId == nil else {
+                return Self.unsupported(request.release ? "cloud.releaseReservation" : "cloud.reserve")
+            }
+            guard let composeKey = request.composeKey, !composeKey.isEmpty,
+                  let onCloudReservation else {
+                return Self.unsupported(request.release ? "cloud.releaseReservation" : "cloud.reserve")
+            }
+            if request.release {
+                // Release is idempotent: a late page cleanup for an already-cleared key is harmless.
+                guard cloudReservationComposeKey == composeKey else { return AgentPaneReply.success() }
+                let reply = await onCloudReservation(request)
+                if reply["ok"] as? Bool == true { cloudReservationComposeKey = nil }
+                return reply
+            }
+            if let current = cloudReservationComposeKey, current != composeKey {
+                return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
+            }
+            // Picking Cloud is a page gesture recorded by the native pane. Consume it before
+            // the await so concurrent page calls cannot both authorize a paid reservation.
+            if cloudReservationComposeKey != composeKey {
+                guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+                cloudReservationComposeKey = composeKey
+            }
+            let reply = await onCloudReservation(request)
+            if reply["ok"] as? Bool != true, cloudReservationComposeKey == composeKey { cloudReservationComposeKey = nil }
+            return reply
+        case .cloudEnvironment(let request):
+            guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
+            if request.action == "update", !transport.gestures.consume() {
+                return Self.transportFailure(.gestureRequired)
+            }
+            return await onCloudEnvironment(request)
+        case .imessage(let action):
+            guard let onIMessage else { return Self.unsupported("imessage") }
+            guard action.isPassive || userGesture || transport.gestures.consume() else {
+                return Self.transportFailure(.gestureRequired)
+            }
+            return await onIMessage(action)
         case .cloudCredentialTransfer(let request):
             guard remoteChat, newTab == nil, sessionId == request.sessionID else {
                 return AgentPaneReply.failure(code: "unavailable", message: "Credential setup is unavailable for this chat.")
@@ -427,7 +639,7 @@ public final class AgentPaneModel {
             guard let connection = transport.connection,
                   let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": [
                     "promptId": request.retryPromptID, "sessionId": request.sessionID,
-                  ]]]), let ticket = transport.reserveGesture(intent) else { return Self.transportFailure(.gestureRequired) }
+                  ]]]), let ticket = transport.reserveGesture(intent, personOnly: true) else { return Self.transportFailure(.gestureRequired) }
             var released = false
             defer { if !released { _ = transport.gestures.redeem(ticket, connection: connection, pick: nil) } }
             guard await onCloudCredentialTransfer(request), !Task.isCancelled,
@@ -437,7 +649,30 @@ public final class AgentPaneModel {
             // Preserve the original click's one-use, session/prompt-scoped grant and expiry.
             released = true
             return AgentPaneReply.success(["transferred": true, "promptId": request.retryPromptID, "ticket": ticket])
-        case .paneAction, .diffTurn, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
+        case .btwInline(let question, let sessionId):
+            // Handshake-attached panes keep the daemon path in `acpmuxSocket`; direct
+            // transport tests and pre-handshake calls retain the connection path.
+            guard !remoteChat, self.sessionId == sessionId,
+                  let socketPath = transport.acpmuxSocket ?? transport.socketPath else {
+                return Self.unsupported("chat.btw.inline")
+            }
+            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+            do {
+                let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/btw",
+                    params: ["sessionId": sessionId, "question": question, "inline": true, "_meta": ["acpmux": ["via": "app"]]], deadline: .seconds(120), detailed: true)
+                guard let text = result["text"] as? String, !text.isEmpty else {
+                    return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
+                }
+                return AgentPaneReply.success(["text": text])
+            } catch let refusal as AcpmuxRPCError where refusal.name == "trust.pending" || refusal.name == "trust.untrusted" {
+                let reason = refusal.name ?? "trust.pending"
+                var details: [String: Any] = ["reason": reason]
+                if let cwd = refusal.cwd { details["cwd"] = cwd }
+                return AgentPaneReply.failure(code: reason, message: refusal.message, details: details, retryable: true, origin: "session_host")
+            } catch {
+                return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
+            }
+        case .paneAction, .moveToMachine, .diffTurn, .diffPatch, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -447,6 +682,8 @@ public final class AgentPaneModel {
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
             return AgentPaneReply.success()
+        case .dictationRecordingUpload(let path): return await AgentPaneDictationUpload.respond(path, in: self)
+        case .dictationRecordingCancel(let path): return AgentPaneDictationUpload.cancel(path, in: self)
         case .openFile(let path, let target): return await openFile(path, target: target)
         case .quickDismiss, .quickSetOnTop, .quickSetCollapsed, .quickFloatingState, .quickContext, .quickOpenInWindow, .quickStartInBackground:
             return await quick?.respond(to: request, in: self) ?? Self.unsupported(String(describing: request))
@@ -467,10 +704,17 @@ public final class AgentPaneModel {
         case .saveFile(let save): return await saveFile(save)
         case .composerSetting(let path, let show): return await setComposer(path, show, userGesture: userGesture)
         case .displaySetting(let path, let value): return await setDisplay(path, value)
+        case .featureTips(let tips): return featureTipState(tips)
+        case .remoteControl(let on): return await AgentPaneRemoteControl.reply(on: on, in: self, userGesture: userGesture)
+        case .paneNoticeAction(let id): return paneNoticeAction(id, userGesture: userGesture)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
+        case .computerUsePreview(let action): return AgentPaneComputerUsePreview.respond(action, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
         case .uploadStage(let stage):
-            guard let stager = onUploadStage?(), let sessionId else { return Self.unsupported("chat.upload.stage") }
+            // A chat with no session yet (a new chat, the New Tab page) stages too: its stager says
+            // whether it can take one. Refusing it as unsupported told the page this host is too old
+            // to stream, so a recording over the one-frame size failed with Retry (#28647).
+            guard let stager = onUploadStage?() else { return Self.unsupported("chat.upload.stage") }
             if case .begin(_, _, let batchToken, _) = stage, batchToken == nil, !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
             return await stager(stage, sessionId)
         case .unsupported(let method): return Self.unsupported(method)
@@ -480,9 +724,17 @@ public final class AgentPaneModel {
     /// The page's chat became session `id` (it started, or the quick panel moved it); no longer a new tab page.
     func adoptSession(_ id: String) {
         guard id != sessionId else { return }
+        if sessionId != nil { droppedPaths.clearForSessionChange() }
         sessionId = id
+        cloudReservationComposeKey = nil
         newTab = nil
+        onQuestionKeySessionChange?()
         onSessionChange?(id)
+    }
+
+    func setTabRowTools(_ tools: [PaneTabRowTool]) {
+        guard tabRowTools != tools else { return }
+        tabRowTools = tools
     }
 
     func setCheckpointAvailable(_ available: Bool) {

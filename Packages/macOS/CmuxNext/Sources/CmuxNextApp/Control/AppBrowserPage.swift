@@ -27,7 +27,7 @@ enum AppBrowserPage {
     }
 
     static func run(_ operation: BrowserPageOperation, tabID: String, services: AppServices) async throws -> CmuxNextSettings.JSONValue {
-        guard let (tab, _) = services.locateTab(tabID) else {
+        guard let (tab, _) = services.locateTabOnAnyMachine(tabID) else {
             throw ControlError(code: "not_found", message: "Surface not found or not a browser")
         }
         // Before the page exists or any script runs: this tab never gets a

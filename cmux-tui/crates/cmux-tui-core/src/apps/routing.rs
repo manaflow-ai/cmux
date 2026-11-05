@@ -63,6 +63,29 @@ impl OpRouter for MuxRouter {
         answer(op, response)
     }
 
+    fn place_sidebar_sections(
+        &self,
+        sections: &[cmux_layout_reducer::sidebar_doc::Section],
+        automatic: bool,
+    ) -> Result<Value, super::supervisor::ApiError> {
+        let mux = self.mux.upgrade().ok_or_else(|| {
+            super::supervisor::ApiError::new("apps.sidebar.unavailable", "the daemon is stopping")
+        })?;
+        super::sidebar::place(&mux, sections, automatic)
+            .map_err(|error| super::supervisor::ApiError::new("apps.sidebar", error.to_string()))
+    }
+
+    fn initialize_sidebar_placements(
+        &self,
+        sections: &[cmux_layout_reducer::sidebar_doc::Section],
+    ) -> Result<(), super::supervisor::ApiError> {
+        let mux = self.mux.upgrade().ok_or_else(|| {
+            super::supervisor::ApiError::new("apps.sidebar.unavailable", "the daemon is stopping")
+        })?;
+        super::sidebar::initialize(&mux, sections)
+            .map_err(|error| super::supervisor::ApiError::new("apps.sidebar", error.to_string()))
+    }
+
     fn owns(&self, op: &str) -> bool {
         is_daemon_op(op)
     }
@@ -102,7 +125,10 @@ impl OpRouter for MuxRouter {
 /// The app streams a daemon event invalidates (`cmux.live` re-reads on them).
 fn streams(event: &MuxEvent) -> &'static [&'static str] {
     match event {
-        MuxEvent::TreeChanged | MuxEvent::TreeSelectionChanged | MuxEvent::TreeDelta(_) => &[
+        MuxEvent::TreeChanged
+        | MuxEvent::TreeSelectionChanged(_)
+        | MuxEvent::WorkspacePresentationChanged(_)
+        | MuxEvent::TreeDelta(_) => &[
             "workspace.changed",
             "screen.changed",
             "pane.changed",

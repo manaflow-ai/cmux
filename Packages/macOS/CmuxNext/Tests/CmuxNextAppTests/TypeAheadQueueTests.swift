@@ -1,3 +1,4 @@
+import CmuxNextFocus
 @testable import CmuxNextApp
 import Testing
 

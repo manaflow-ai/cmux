@@ -25,16 +25,20 @@ public final class ForcedQuitExit {
     ///   - prepare: The synchronous last steps, before the deadline is armed.
     ///   - save: The bounded last write.
     ///   - armDeadline: Arms the hard end after `limit` (default: a ``QuitDeadline``, `_exit` on its own thread).
+    ///   - deadlineEnd: The default deadline's end (it records what `save` had not written, then ends).
     ///   - end: Ends the process after `save` (default: `exit(0)`).
     public init(limit: Duration = .milliseconds(160),
          prepare: @escaping @MainActor () -> Void,
          save: @escaping @MainActor () async -> Void,
          armDeadline: ((Duration) -> Void)? = nil,
+         deadlineEnd: (@Sendable () -> Void)? = nil,
          end: (@MainActor () -> Void)? = nil) {
         self.limit = limit
         self.prepare = prepare
         self.save = save
-        self.armDeadline = armDeadline ?? { QuitDeadline(reason: "a forced quit began its Home cache write").arm(after: $0) }
+        self.armDeadline = armDeadline ?? {
+            QuitDeadline(reason: "a forced quit began its last writes (the Home cache, the agent panes' state files)", end: deadlineEnd).arm(after: $0)
+        }
         self.end = end ?? { exit(0) }
     }
 

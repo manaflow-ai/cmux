@@ -695,7 +695,7 @@ export async function vmActiveLimitExceededResponse(input: {
   readonly activeMachines?: readonly VmActiveLimitMachine[];
 }): Promise<Response> {
   const paid = isPaidVmPlan(input.planId);
-  if (input.planId === "go") return goLimitResponse("active", input.locale ?? "en");
+  if (input.planId === "go") return goLimitResponse("saved", input.locale ?? "en");
   const plural = input.limit === 1 ? "" : "s";
   // Machine lists show paused machines beside the counted ones, so the
   // message names the counted set rather than leaving a person to guess.
@@ -705,7 +705,7 @@ export async function vmActiveLimitExceededResponse(input: {
     return vmErrorResponse({
       error: "vm_active_limit_exceeded",
       status: 402,
-      message: `This plan allows ${input.limit} active Cloud VM${plural} at a time.${counted}`,
+      message: `This plan allows ${input.limit} Cloud VM${plural} in total, including paused machines.${counted}`,
       action: input.retryAction,
       extra: { limit: input.limit },
       details: { limit: input.limit, ...countedDetails },
@@ -1278,10 +1278,10 @@ export const vmWorkflowErrorResponders = {
   VmGoShapeError: async (_error, context) => {
     const copy = await vmGoLimitCopy("shape", context.locale);
     return vmErrorResponse({
-      error: "vm_resources_require_pro", status: 402, phase: "billing",
+      error: "vm_resources_require_plan", status: 402, phase: "billing",
       message: copy.message,
       action: copy.action,
-      extra: { upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=pro" },
+      extra: { upgradeRequired: true, upgradePlanId: "max", upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max" },
     });
   },
   VmCreateCreditsInsufficientError: () => null,

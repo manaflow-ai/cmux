@@ -69,7 +69,7 @@ public final class HostSizePolicyModel {
 
     public func reload() async {
         guard let service else {
-            load = .failed("Not connected to this Mac yet.")
+            load = .failed("Not connected to this Mac.")
             return
         }
         if info == nil { load = .loading }

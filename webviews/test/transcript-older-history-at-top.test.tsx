@@ -106,7 +106,7 @@ test("a reader back at the top after a page lands gets the next page", async () 
     asked += 1;
     return new Promise<void>((resolve) => (land = resolve));
   };
-  const draw = async () =>
+  const draw = async (connected = true) =>
     act(async () =>
       root.render(
         <VirtualTranscript
@@ -114,7 +114,7 @@ test("a reader back at the top after a page lands gets the next page", async () 
           onToggleActivity={() => {}}
           expanded={new Set()}
           canLoadOlder
-          onLoadOlder={onLoadOlder}
+          onLoadOlder={connected ? onLoadOlder : undefined}
           sessionId="s-top"
         />,
       ),
@@ -125,6 +125,8 @@ test("a reader back at the top after a page lands gets the next page", async () 
     act(async () => {
       scroller().scrollTop = top;
       scroller().dispatchEvent(new dom.window.Event("scroll"));
+      // The virtual range commits on the next display frame, just as a real reader sees it.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
   try {
     await draw();
@@ -132,15 +134,32 @@ test("a reader back at the top after a page lands gets the next page", async () 
     const first = asked;
     expect(first).toBeGreaterThanOrEqual(1);
     for (let page = 1; page <= 3; page += 1) {
+      const anchorId = history[0]!.id;
+      const anchor = scroller().querySelector(`[data-row-id="${anchorId}"]`);
+      expect(anchor).not.toBeNull();
       // A page of older turns lands above the first row, far taller than two viewports: the view
       // moves down to keep the reader's row, and the reader scrolls straight back to the top.
       history = [...Array.from({ length: 30 }, (_, index) => turn(100 - page * 30 + index)).flat(), ...history];
       land?.();
       await draw();
       expect(scroller().scrollTop).toBeGreaterThan(VIEWPORT * 2);
+      // Correcting scrollTop after reconciliation is too late: the same visible row must keep
+      // its DOM node, including any open details and local state, through the prepend itself.
+      expect(scroller().querySelector(`[data-row-id="${anchorId}"]`)).toBe(anchor);
       await scrollTo(0);
       expect(asked).toBe(first + page);
     }
+    // Disconnect while the last page is pending. Its settlement must not re-arm a stale 500 ms
+    // retry; reconnecting starts exactly one fresh request on this same mounted transcript.
+    const beforeDisconnect = asked;
+    await draw(false);
+    land?.();
+    await act(async () => Promise.resolve());
+    await draw(true);
+    expect(asked).toBe(beforeDisconnect + 1);
+    // fixed-wait: allow the stale retry window to elapse before checking it did not re-arm.
+    await new Promise((resolve) => setTimeout(resolve, 550));
+    expect(asked).toBe(beforeDisconnect + 1);
   } finally {
     await act(async () => root.unmount());
   }

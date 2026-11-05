@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use super::GlobalArgs;
 use super::link::{Link, LinkError};
 use crate::cli::OutputMode;
+use cmux_json::JsonSet as _;
 
 /// The largest picture the daemon takes.
 const MAX_AVATAR_BYTES: u64 = 1024 * 1024;
@@ -209,7 +210,7 @@ fn execute(link: &mut Link, request: &Request, json_out: bool) -> Result<(), Fai
     }
     let mut params = json!({"participant_id": participant});
     if request.clear {
-        params["clear"] = json!(true);
+        params.set("clear", json!(true));
     } else if let Some(file) = &request.file {
         let size = std::fs::metadata(file)
             .map_err(|e| Failure::Usage(format!("{}: {e}", file.display())))?
@@ -222,7 +223,7 @@ fn execute(link: &mut Link, request: &Request, json_out: bool) -> Result<(), Fai
         }
         let bytes =
             std::fs::read(file).map_err(|e| Failure::Usage(format!("{}: {e}", file.display())))?;
-        params["bytes"] = json!(STANDARD.encode(bytes));
+        params.set("bytes", json!(STANDARD.encode(bytes)));
     }
     let key = super::link::new_message_id();
     let written = link.call("participant.avatar.set", params, Some(&key))?;

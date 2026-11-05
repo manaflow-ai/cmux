@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Selecting a tab never moves or resizes any tab (Lawrence 2026-10-19, "changing tab changes tab
@@ -12,7 +13,7 @@ import Testing
 /// window's own page tab or a chat): the strip gave the "…" its width while it showed, so every tab
 /// shrank and grew as the selection moved. The second case was Chrome's crowded strip, where the
 /// selected tab kept a larger minimum than the others.
-@MainActor @Suite(.serialized) struct TabSelectionKeepsTabWidthsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TabSelectionKeepsTabWidthsTests {
     private struct Geometry: Equatable, CustomStringConvertible {
         let strip: NSRect
         let slots: [String]
@@ -32,7 +33,7 @@ import Testing
         let model = TabStripModel(tabs: ids.map { TabItem(id: TabID($0), title: "cmux-prompt-commits \($0)") }, selectedID: TabID(ids[0]))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1280, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let pane = PaneContentView(stripModel: model, reveal: LaunchReveal(deadline: .zero))
         pane.frame = NSRect(x: 0, y: 0, width: 1280, height: 300)
         window.contentView = pane
@@ -64,9 +65,17 @@ import Testing
         let model = TabStripModel(tabs: ids.map { TabItem(id: TabID($0), title: "Tab \($0)") }, selectedID: TabID(ids[0]))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 40), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         let strip = TabStripView(model: model)
         strip.dragsWindowFromEmptySpace = false
+        // The case this guards needs a share between the two minimums. Since 9d31a6eb78b the default inactive
+        // minimum (the favicon, the close button and 24 pt of title room) equals the active one, so a crowded
+        // strip scrolls at that width; the strip pins the two minimums apart here, as a person's
+        // `appearance.metrics.tabMinInactiveWidth` can.
+        var metrics = TabStripMetrics()
+        metrics.minInactiveTabWidth = 32
+        metrics.minActiveTabWidth = 72
+        strip.customMetrics = metrics
         // 30 tabs in 1200 pt: 40 each, under the selected minimum and over the inactive one.
         strip.frame = NSRect(x: 0, y: 0, width: 1200, height: TabStripView.preferredHeight)
         window.contentView = strip

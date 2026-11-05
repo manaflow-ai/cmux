@@ -49,6 +49,16 @@ extension ActionRegistry {
         return item
     }
 
+    /// `id`'s choices as a menu of their own, run on `target` with `context`'s menu facts: the submenu its
+    /// choices entry shows, the target's current value checked (the group editor's Sort row opens
+    /// `workspaceGroup.setSort`'s). Nil when the action shows no choices there.
+    public func makeChoicesMenu(for id: ActionID, in context: ActionMenuContext, target: ActionTargetRef?) -> NSMenu? {
+        guard let row = makeContextMenu(for: context, target: target, entries: [.choices(id)], customize: false).items.first,
+              let choices = row.submenu else { return nil }
+        row.submenu = nil
+        return choices
+    }
+
     /// The row a choices submenu always ends with, under its own title (Move Workspace to Group >
     /// Move Workspace to New Group, never confused with a group named "New Group"), run on the same
     /// target; nil when the choices have none or it is not bound and enabled here.
@@ -87,6 +97,8 @@ final class ActionChoicesMenuCoordinator: NSObject, NSMenuDelegate {
     private let action: ActionID
     private let argument: String
     private let target: ActionTargetRef?
+    /// The machine that owns `target` (a menu scoped to it, ``ActionRegistry/scope(_:toMachine:)``).
+    var machineID: String?
 
     init(registry: ActionRegistry, action: ActionID, argument: String, target: ActionTargetRef?) {
         self.registry = registry
@@ -97,10 +109,10 @@ final class ActionChoicesMenuCoordinator: NSObject, NSMenuDelegate {
 
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
         let value = (item?.representedObject as? ActionMenuPayload)?.arguments[argument]?.stringValue
-        registry?.choicePreview?(action, argument, value, target)
+        registry?.choicePreview?(action, argument, value, target, machineID)
     }
 
     func menuDidClose(_ menu: NSMenu) {
-        registry?.choicePreview?(action, argument, nil, target)
+        registry?.choicePreview?(action, argument, nil, target, machineID)
     }
 }

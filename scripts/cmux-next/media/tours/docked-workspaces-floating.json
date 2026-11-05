@@ -1,0 +1,165 @@
+{
+  "title": "Docked workspaces: a floating drawer over the stage",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Debug Settings window.dockedWorkspaces on",
+      "rpc": {
+        "method": "debug.tunables",
+        "params": {
+          "action": "set",
+          "key": "window.dockedWorkspaces",
+          "value": true
+        }
+      },
+      "shot": false,
+      "optional": "debug.tunables is DEBUG only"
+    },
+    {
+      "title": "New workspace app",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "app"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "app: a plain $ prompt and a label",
+      "cmux": [
+        "workspace",
+        "name:app",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "export PS1='$ ' PROMPT='$ '; clear; echo 'stage: the workspace the sidebar selects'\r"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "New workspace drawer",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "drawer"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "drawer: a plain $ prompt and a label",
+      "cmux": [
+        "workspace",
+        "name:drawer",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "export PS1='$ ' PROMPT='$ '; clear; echo 'drawer: a floating dock over the stage'\r"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Focus app",
+      "cmux": [
+        "workspace",
+        "name:app",
+        "focus"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Focus drawer",
+      "cmux": [
+        "workspace",
+        "name:drawer",
+        "focus"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "drawer docks at the right",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.dockRight"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Float Docked Workspace: drawer floats over the stage, which keeps its full width",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.toggleDockFloating"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Focus back on the stage: the floating dock stays on top",
+      "cmux": [
+        "workspace",
+        "name:app",
+        "focus"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Toggle Right Dock hides the drawer: the stage never resized",
+      "cmux": [
+        "action",
+        "run",
+        "window.toggleDockRight"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "Back to the system appearance",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "debug.appearance is DEBUG only"
+    }
+  ]
+}

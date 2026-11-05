@@ -23,8 +23,11 @@ name: cmux-next perf cron
 #            confirmed by a cron run, 2026-10-23), each at most 15 min (STRESS and sidebar 25, untimed).
 #            Every exit path leaves a result: a cancel or timeout cancels the fleet step and counts as one
 #            attempt.
-#   linux    (Linux, only when plan picked it) the diff-viewer budgets (scripts/benchmark-diff-viewer.sh's
-#            benches), which left ci-web.yml; it takes no Mac, so it runs while Mac parts yield.
+#   linux    (Linux, only when plan picked it) one Linux part: the diff-viewer budgets
+#            (scripts/benchmark-diff-viewer.sh's benches), which left ci-web.yml, or the web UI benches
+#            (webviews/bench/web-ui-suite.ts: chat open and switch, transcript scroll and rows, the thread
+#            rail, the activity list), slowest first against their targets in the step summary. It takes
+#            no Mac, so it runs while Mac parts yield.
 #   report   (Linux) stores the part; after the last part compares every row with the last good run
 #            and opens, updates or closes the one issue "cmux-next perf regression" (the table, the sha
 #            range, the runs); a missing measurement for 24 h is noted there. No job fails on a
@@ -77,7 +80,7 @@ on:
       runner_class:
         description: "Blacksmith macOS runner class; rows are compared only within this class"
         required: false
-        default: "blacksmith-6vcpu-macos-26"
+        default: blacksmith-6vcpu-macos-26
       yield_mode:
         description: "queued: yield while a nightly or dev build waits for a runner (default); running: also while one runs"
         required: false
@@ -103,7 +106,7 @@ jobs:
   blacksmith-mac:
     name: manual GUI perf (${{ inputs.tip_sha && inputs.tip_sha || 'none' }})
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.tip_sha != '' && inputs.parts != '' && github.repository == 'manaflow-ai/cmux' }}
-    runs-on: ${{ inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26_large || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     permissions:
       contents: read
     timeout-minutes: 180
@@ -115,19 +118,73 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      - name: Set up Bun for the native fade proof
-        if: inputs.parts == 'pane-overflow-fade'
+      # split-spring.sh and pane-overflow-fade.sh build the app: pin the pool's Xcode.
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      # reload.sh builds the web bundles with Bun, and the fade proof runs Bun too: every part needs it
+      # (the GUI parts failed at "need bun 1.4.4" without it, run 41142613858).
+      - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+
+      # Warm start (.github/warm-sources.json: actions-cache). The build keeps what it made in
+      # CI_SHARED_CACHE_DIR: the tip's app (split-spring-apps/<sha>), the GhosttyKit archive
+      # (ghosttykit-archives/<sha256>, checked against the pinned checksum on use), optchat-chief by
+      # commit and cmux-mobile-host by its source trees; the web bundles' Bun package cache rides
+      # along. A Blacksmith Mac starts empty, so the directory goes through actions/cache, which Blacksmith serves next to the runner. Every
+      # entry inside is keyed by its own inputs; the cache key adds the toolchain (Xcode, macOS,
+      # arch, Rust) and the Cargo lockfiles, and the restore-keys fall back to the newest entry of
+      # the same toolchain, so a new tip reuses the archive and the helpers and a re-measured tip
+      # builds nothing. The fade proof builds nothing here, so it takes no cache.
+      - name: Name the warm cache
+        id: warm-key
+        if: inputs.parts != 'pane-overflow-fade'
+        env:
+          TIP_SHA: ${{ inputs.tip_sha }}
+          LOCKS: ${{ hashFiles('Native/OptChat/optchat-chief/Cargo.lock', 'cmux-next-ios/rust/Cargo.lock', 'cmux-tui/Cargo.lock', 'webviews/bun.lock') }}
+        run: |
+          set -euo pipefail
+          [[ "$TIP_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "tip_sha must be a full lowercase commit SHA" >&2; exit 2; }
+          toolchain="$(printf '%s\n%s\n%s\n' "$(xcodebuild -version)" "$(xcrun --show-sdk-build-version)" "$(sw_vers -productVersion)" | shasum -a 256 | cut -c1-16)"
+          rust="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' cmux-tui/rust-toolchain.toml)"
+          ghostty="$(git rev-parse HEAD:ghostty)"
+          prefix="perf-blacksmith-mac-v1-${RUNNER_OS}-${RUNNER_ARCH}-xcode-${toolchain}-rust-${rust}-"
+          {
+            echo "prefix=$prefix"
+            echo "locks=${prefix}${LOCKS:0:16}-"
+            echo "ghostty=${prefix}${LOCKS:0:16}-${ghostty:0:12}-"
+            echo "key=${prefix}${LOCKS:0:16}-${ghostty:0:12}-${TIP_SHA}"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Restore the warm cache
+        id: warm-restore
+        if: inputs.parts != 'pane-overflow-fade'
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/tipguard-cache
+            ~/.bun/install/cache
+          key: ${{ steps.warm-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.warm-key.outputs.ghostty }}
+            ${{ steps.warm-key.outputs.locks }}
+            ${{ steps.warm-key.outputs.prefix }}
 
       - name: Run the exact tip's GUI parts
         env:
           TIP_SHA: ${{ inputs.tip_sha }}
           PARTS: ${{ inputs.parts }}
           PRODUCT_SHA: ${{ inputs.product_sha }}
-          RUNNER_CLASS: ${{ inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
+          RUNNER_CLASS: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner_class == 'blacksmith-6vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26 || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && fromJSON(vars.RUNNER_POOLS).macos_26_large || fromJSON(vars.RUNNER_POOLS).macos_26 }}
           CI_SHARED_CACHE_DIR: ${{ runner.temp }}/tipguard-cache
+          # The Rust helpers' caches live in the kept directory too. optchat-chief stays keyed by commit:
+          # its input key includes the rustc identity, which changes once rustup installs the toolchain
+          # mid-build on a fresh VM, so the bundle phase missed the binary it had just built (run 41154112683).
+          CMUX_NEXT_OPTCHAT_CHIEF_CACHE: ${{ runner.temp }}/tipguard-cache/optchat-chief
+          CMUX_NEXT_MOBILE_HOST_CACHE: ${{ runner.temp }}/tipguard-cache/cmux-mobile-host
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/tipguard-blacksmith"
@@ -135,7 +192,9 @@ jobs:
           [[ "$TIP_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "tip_sha must be a full lowercase commit SHA" >&2; exit 2; }
           actual="$(git rev-parse HEAD)"
           [ "$actual" = "$TIP_SHA" ] || { echo "checkout SHA $actual differs from requested $TIP_SHA" >&2; exit 2; }
-          git fetch --no-tags --depth=50 origin feat-cmux-next
+          # Deep enough that a tip measured again an hour or two later (the warm-cache case) is still found:
+          # feat-cmux-next lands about 50 commits an hour.
+          git fetch --no-tags --depth=500 origin feat-cmux-next
           branch_tip="$(git rev-parse FETCH_HEAD)"
           git merge-base --is-ancestor "$actual" "$branch_tip" || { echo "requested SHA is not an ancestor of feat-cmux-next" >&2; exit 2; }
           started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -174,7 +233,7 @@ jobs:
           IFS=',' read -r -a requested <<<"$PARTS"
           for part in "${requested[@]}"; do
             case "$part" in
-              transcript-scroll) args=(--app-cache --vdisplay=120 --suite=budgets --only=panes) ;;
+              transcript-scroll) args=(--app-cache --vdisplay=120 --suite=budgets --only=acp --raw=acp) ;;
               sidebar) args=(--app-cache --vdisplay=120 --suite=budgets --only=sidebar) ;;
               startup) args=(--app-cache --vdisplay=120 --suite=launch --profile empty --mode warm --runs 5 --timeout 20) ;;
               *) echo "unsupported part: $part" >&2; exit 2 ;;
@@ -201,6 +260,49 @@ jobs:
           echo "runner class: $RUNNER_CLASS" >>"$GITHUB_STEP_SUMMARY"
           cat "$out/receipt.json" >>"$GITHUB_STEP_SUMMARY"
 
+      - name: Trim the warm cache to this tip
+        # Save once the tip's app is built, even when a measured part failed after it: the build is
+        # the cold part. Only this tip's app and the helpers it bundled go into the entry (the GhosttyKit
+        # archives keep their own small LRU). Only this trusted
+        # job saves: a manual dispatch in manaflow-ai/cmux by a writer, for a tip already on
+        # feat-cmux-next (checked above); no pull request or fork ever runs it.
+        id: warm-trim
+        if: ${{ !cancelled() && inputs.parts != 'pane-overflow-fade' && github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && steps.warm-restore.outputs.cache-hit != 'true' }}
+        env:
+          TIP_SHA: ${{ inputs.tip_sha }}
+          CI_SHARED_CACHE_DIR: ${{ runner.temp }}/tipguard-cache
+        run: |
+          set -euo pipefail
+          apps="$CI_SHARED_CACHE_DIR/split-spring-apps"
+          if [ ! -f "$apps/$TIP_SHA/ok" ]; then
+            echo "no built app for $TIP_SHA; nothing to keep"
+            exit 0
+          fi
+          find "$apps" -mindepth 1 -maxdepth 1 ! -name "$TIP_SHA" -exec rm -rf {} +
+          # optchat-chief (keyed by commit) and cmux-mobile-host keep no LRU of their own: keep only what
+          # this build bundled.
+          chief="$CI_SHARED_CACHE_DIR/optchat-chief"
+          if [ -d "$chief/$TIP_SHA" ]; then
+            find "$chief" -mindepth 1 -maxdepth 1 ! -name "$TIP_SHA" -exec rm -rf {} +
+          fi
+          hosts="$CI_SHARED_CACHE_DIR/cmux-mobile-host"
+          used="$(sed -n "s#^==> cmux-next: bundling cmux-mobile-host from $hosts/\([0-9a-f]*\)/.*#\1#p" artifacts/split-spring/reload.log 2>/dev/null | tail -n 1 || true)"
+          if [ -n "$used" ] && [ -d "$hosts/$used" ]; then
+            find "$hosts" -mindepth 1 -maxdepth 1 ! -name "$used" -exec rm -rf {} +
+          fi
+          du -sh "$CI_SHARED_CACHE_DIR"/* 2>/dev/null || true
+          echo "save=true" >>"$GITHUB_OUTPUT"
+
+      - name: Save the warm cache
+        if: ${{ !cancelled() && steps.warm-trim.outputs.save == 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/tipguard-cache
+            ~/.bun/install/cache
+          key: ${{ steps.warm-key.outputs.key }}
+
       - name: Keep exact receipts and rows
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -213,7 +315,7 @@ jobs:
   plan:
     name: perf cron plan
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && inputs.tip_sha == '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     permissions:
       actions: read
       contents: read
@@ -232,7 +334,7 @@ jobs:
       frame_pacing: ${{ steps.plan.outputs.frame_pacing }}
       # The one place the Linux part's runner label is computed: the linux job runs on it, and its rows carry it as
       # their host (diff rows are compared only within one runner class).
-      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     steps:
       # The branch tip with the trees of its recent commits (the cmux-tui tree key of each candidate)
       # and no blobs beyond the scripts.
@@ -372,7 +474,7 @@ jobs:
     name: perf cron request ${{ needs.plan.outputs.sha }} ${{ needs.plan.outputs.part }}${{ needs.plan.outputs.worker != '' && format(' on {0}', needs.plan.outputs.worker) || '' }}
     needs: plan
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY == '' && vars.CMUX_NEXT_PERF_CRON_CONTROLLER == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     permissions: {}
     timeout-minutes: 5
     steps:
@@ -393,7 +495,7 @@ jobs:
     name: perf cron starts frame pacing
     needs: plan
     if: ${{ needs.plan.outputs.frame_pacing == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     permissions:
       actions: write
     timeout-minutes: 5
@@ -422,6 +524,7 @@ jobs:
           submodules: false
 
       - name: Install Rust
+        if: ${{ needs.plan.outputs.linux_part == 'diff-viewer' }}
         run: ./scripts/install-rust-ci.sh
 
       - name: Setup Bun
@@ -433,11 +536,17 @@ jobs:
         working-directory: webviews
         run: bun install --frozen-lockfile
 
+      # The web UI benches drive headless Chromium and WebKit (the measured commit's Playwright).
+      - name: Install Playwright browsers
+        if: ${{ needs.plan.outputs.linux_part == 'web-ui' }}
+        working-directory: webviews
+        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+
       # The measured commit's own benches; the perf cron script from the branch tip judges them.
       - name: Fetch the perf cron script of the branch tip
         run: git fetch --no-tags --depth=1 origin feat-cmux-next && git show FETCH_HEAD:scripts/cmux-next/perf-cron.py > "$RUNNER_TEMP/perf-cron.py"
 
-      - name: The diff-viewer budgets
+      - name: The part's benches
         continue-on-error: true
         env:
           PART: ${{ needs.plan.outputs.linux_part }}
@@ -448,9 +557,10 @@ jobs:
         run: |
           set -uo pipefail
           cp "$RUNNER_TEMP/perf-cron.py" scripts/cmux-next/perf-cron-tip.py
-          python3 -I scripts/cmux-next/perf-cron-tip.py run-linux-part --runner-class "$RUNNER_CLASS" \
+          python3 -I scripts/cmux-next/perf-cron-tip.py run-linux-part --part "$PART" --runner-class "$RUNNER_CLASS" \
             --out "$RUNNER_TEMP/perf-cron-linux" | tee "$RUNNER_TEMP/linux.log"
-          { echo "### perf cron part $PART at ${SHA:0:12} (Linux)"; echo; sed -n 's/^perf-cron linux part: //p' "$RUNNER_TEMP/linux.log"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### perf cron part $PART at ${SHA:0:12} (Linux)"; echo; sed -n 's/^perf-cron linux part: //p' "$RUNNER_TEMP/linux.log"
+            echo; sed -n 's/^perf-cron web-ui: //p' "$RUNNER_TEMP/linux.log"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the part's result
         if: always()
@@ -466,7 +576,7 @@ jobs:
     name: perf cron report
     needs: [plan, measure, linux]
     if: ${{ always() && needs.plan.result == 'success' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     permissions:
       actions: write  # read the state, and start the next tick at once (Start the next part now)
       contents: read

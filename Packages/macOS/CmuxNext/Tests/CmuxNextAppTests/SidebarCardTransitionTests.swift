@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The update status card after Check for Updates comes in and goes out with motion (Lawrence
@@ -8,7 +9,7 @@ import Testing
 /// coming out"): a fade and a short rise in, a quicker fade and drop out, a crossfade between
 /// messages, fade only under Reduce Motion, nothing with motion off, and the list above makes
 /// room on a spring instead of jumping.
-@MainActor @Suite(.serialized) struct SidebarCardTransitionTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarCardTransitionTests {
     static let moving = MotionPolicy(speed: .fast, reduceMotion: false)
     static let reduced = MotionPolicy(speed: .fast, reduceMotion: true)
     static let off = MotionPolicy(speed: .off, reduceMotion: false)

@@ -12,6 +12,7 @@ enum CanvasHandlers {
             guard let (content, pane) = target(invocation, ctx) else { return }
             toggle(content, pane: pane, ctx)
         })
+        ActionTargetTitles.setPaletteState("toggleCanvasLayout", in: registry) { ctx.services.windows.active?.focusedPane.map { $0.workspace?.layoutModel.canvasScreenID(containing: $0.layoutPaneID) != nil } ?? false }
         registry.bind("canvasZoomIn", invoke: { zoom($0, by: CanvasCamera.zoomStep, ctx) })
         registry.bind("canvasZoomOut", invoke: { zoom($0, by: 1 / CanvasCamera.zoomStep, ctx) })
         registry.bind("canvasZoomReset", invoke: { invocation in

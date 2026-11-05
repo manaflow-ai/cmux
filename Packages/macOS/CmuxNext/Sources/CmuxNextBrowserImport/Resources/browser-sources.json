@@ -786,9 +786,13 @@
       "evidence": [
         {
           "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/chatgpt-atlas.rb",
-          "note": "Discontinued 2026-08; Local State and profile folders stay in com.openai.atlas/browser-data/host. Keychain item unknown, so no password or cookie import."
+          "note": "Discontinued 2026-08; Local State and profile folders stay in com.openai.atlas/browser-data/host. Keychain item inferred from the product name (the ChatGPT app's Chromium names its item after its product); detection prefers an item the Keychain lists."
         }
-      ]
+      ],
+      "safeStorage": {
+        "service": "ChatGPT Atlas Safe Storage",
+        "confirmed": false
+      }
     },
     {
       "id": "avast",
@@ -1852,13 +1856,64 @@
       ],
       "bookmarks": "none",
       "safeStorage": {
-        "service": "ChatGPT Safe Storage",
-        "confirmed": false
+        "service": "Codex Safe Storage",
+        "account": "Codex",
+        "confirmed": true
       },
       "evidence": [
         {
           "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/chatgpt.rb",
           "note": "Its in-app Chromium keeps Local State, History and Login Data in Codex/; no Bookmarks file. 'ChatGPT Safe Storage' and 'Aura Safe Storage' are both strings in the binary."
+        },
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/chatgpt.rb",
+          "note": "ChatGPT.app is com.openai.codex. On a real install (2026-11) the login Keychain has 'Codex Safe Storage' with accounts 'Codex' (the Chromium profile in Codex/Default) and 'Codex Key' (Electron); no 'ChatGPT Safe Storage' item."
+        }
+      ]
+    },
+    {
+      "id": "claude",
+      "name": "Claude",
+      "vendor": "Anthropic",
+      "kind": "appWithEmbeddedBrowser",
+      "engine": "chromium",
+      "bundleIDs": [
+        "com.anthropic.claudefordesktop"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/Claude"
+      ],
+      "profiles": "dataDirectory",
+      "bookmarks": "none",
+      "safeStorage": {
+        "service": "Claude Safe Storage",
+        "account": "Claude Key",
+        "confirmed": true
+      },
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/claude.rb",
+          "note": "Electron: Local State, Cookies and Preferences sit in Claude/ itself (no Default folder). The login Keychain has 'Claude Safe Storage', account 'Claude Key'. No bookmarks."
+        }
+      ]
+    },
+    {
+      "id": "chatGPTClassic",
+      "name": "ChatGPT Classic",
+      "vendor": "OpenAI",
+      "kind": "appWithEmbeddedBrowser",
+      "engine": "webkit",
+      "bundleIDs": [
+        "com.openai.chat"
+      ],
+      "dataDirectories": [
+        "Library/Application Support/com.openai.chat"
+      ],
+      "bookmarks": "none",
+      "evidence": [
+        {
+          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/chatgpt-classic.rb",
+          "note": "Native app: conversations in com.openai.chat/, its web session in URLSession's cookie store Library/HTTPStorages/com.openai.chat.binarycookies. No bookmarks or history."
         }
       ]
     }
@@ -2112,34 +2167,6 @@
         {
           "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/coherence-x.rb",
           "note": "verdict: no importable bookmarks"
-        }
-      ]
-    },
-    {
-      "name": "ChatGPT Classic (old desktop app)",
-      "bundleIDs": [
-        "com.openai.chat"
-      ],
-      "kind": "nonBrowserApp",
-      "verdict": "no local bookmarks",
-      "evidence": [
-        {
-          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/chatgpt-classic.rb",
-          "note": "verdict: no local bookmarks"
-        }
-      ]
-    },
-    {
-      "name": "Claude (desktop app)",
-      "bundleIDs": [
-        "com.anthropic.claudefordesktop"
-      ],
-      "kind": "nonBrowserApp",
-      "verdict": "no local bookmarks",
-      "evidence": [
-        {
-          "url": "https://github.com/Homebrew/homebrew-cask/blob/main/Casks/c/claude.rb",
-          "note": "verdict: no local bookmarks"
         }
       ]
     },

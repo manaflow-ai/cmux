@@ -1,7 +1,9 @@
 public import AppKit
 public import CmuxNextTerminalFind
+import CmuxNextDesign
 import CmuxNextWakeups
 import GhosttyNextKit
+import IOSurface
 
 /// One terminal on screen: a Ghostty surface fed by a ``TerminalIO``.
 ///
@@ -81,8 +83,15 @@ public final class TerminalSession {
     /// Pauses rendering while the terminal is scrolled off-screen (strip
     /// columns) or its tab is not selected. Output keeps being parsed.
     public var isRenderingSuspended = false {
-        didSet { surfaceView.isRenderingSuspended = isRenderingSuspended }
+        didSet {
+            surfaceView.isRenderingSuspended = isRenderingSuspended
+            if isRenderingSuspended != oldValue { frameChanges.wake() } // shown or hidden: its kept frame follows
+        }
     }
+    /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``).
+    nonisolated let frameChanges = TerminalFrameChanges()
+    /// ``close()`` ran: the launch frame keeper forgets this terminal.
+    private(set) var isClosed = false
 
     /// This terminal's theme when it differs from the Ghostty config (its
     /// own, its workspace's or its room's); nil uses the config. Applied to
@@ -90,6 +99,12 @@ public final class TerminalSession {
     /// background, foreground, cursor, selection), with no restart and no
     /// grid change, and to every surface a later replay swaps in.
     public private(set) var theme: GhosttyThemeConfig?
+    /// The App Theme's veil this terminal draws on (a see-through window under an App Theme), set by
+    /// its host; nil draws on its own colors. Its colors are then raised to read on it
+    /// (``GhosttyThemeColors/contrastLines(over:minimum:)``) in a config of this surface's own.
+    private var veil: ThemeRGB?
+    /// ``theme`` (or the app config) with the veil's contrast lines, while they change any color.
+    private var veilConfig: GhosttyThemeConfig?
     /// Whether the last theme apply to the live surface animated its colors (diagnostics and tests).
     private(set) var lastThemeApplyAnimated = false
     /// A theme has been applied to this session, so the next change animates.
@@ -109,6 +124,21 @@ public final class TerminalSession {
         let animated = themeWasApplied
         if config != nil { themeWasApplied = true }
         applyTheme(to: surfaceView, clearing: previous != nil && config == nil, animated: animated)
+    }
+
+    /// Sets the veil this terminal draws on and re-applies its colors when that changes them.
+    func setVeil(_ veil: ThemeRGB?) {
+        guard veil != self.veil else { return }
+        self.veil = veil
+        applyTheme(to: surfaceView, clearing: true, animated: themeWasApplied)
+    }
+
+    /// ``theme`` or the app config, with the veil's contrast lines when they change any color.
+    private func rebuildVeilConfig() -> GhosttyThemeConfig? {
+        guard let veil, let base = theme?.config ?? GhosttyRuntime.shared.config,
+              let colors = theme?.colors ?? GhosttyRuntime.shared.themeColors,
+              let raised = GhosttyRuntime.surfaceConfig(base, lines: colors.contrastLines(over: veil)) else { return nil }
+        return GhosttyThemeConfig(config: raised, themeName: theme?.themeName ?? "", colors: GhosttyRuntime.themeColors(of: raised, backgroundOpacity: colors.backgroundOpacity))
     }
 
     /// Mirrors currently shown. Forwarded to whichever surface is live so a
@@ -134,6 +164,8 @@ public final class TerminalSession {
     /// later VT replay (diagnostics: a snapshot attach never swaps).
     private(set) var restoredSnapshots = 0
     private(set) var swappedSurfaces = 0
+    /// The daemon terminal this session shows (``showsTerminal(_:carrying:)``).
+    private(set) var terminalIdentity: String?
     /// Last frames shown while this session attached (``showLastFrame(_:)``).
     private(set) var lastFrameHolds = 0
     /// Local-history restores whose history did not match the owner's (or
@@ -145,8 +177,13 @@ public final class TerminalSession {
     /// Kitty images the owner left out of its image replays (its cap).
     private(set) var skippedImages = 0
 
-    public init(io: any TerminalIO, ownsGeometry: Bool = true) {
+    /// Reports a pane that still shows nothing after a reveal (``TerminalBlankWatch``).
+    let blankWatch: TerminalBlankWatch
+
+    /// - Parameter blankClock: The clock of the blank-pane check after a reveal; tests pass a manual clock.
+    public init(io: any TerminalIO, ownsGeometry: Bool = true, blankClock: any Clock<Duration> = ContinuousClock()) {
         self.io = io
+        blankWatch = TerminalBlankWatch(clock: blankClock)
         self.ownsGeometry = ownsGeometry
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
@@ -159,6 +196,7 @@ public final class TerminalSession {
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
+        view.onVeil = { [weak self] veil in self?.setVeil(veil) }
         view.install(surfaceView)
         find.target = self
         view.attachFind(find)
@@ -182,7 +220,7 @@ public final class TerminalSession {
             }
         }
 
-        eventsTask = Self.consume(io.events, probeSource: io.typingProbeSource, for: self)
+        eventsTask = Self.consume(io.events, probeSource: io.typingProbeSource, changes: frameChanges, for: self)
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
@@ -274,6 +312,12 @@ public final class TerminalSession {
         surfaceView.applyAction(.openURL(text))
     }
 
+    /// Whether `responder` is this terminal's view or inside it: this terminal has the keyboard.
+    public func hasKeyboard(_ responder: NSResponder?) -> Bool {
+        guard let view = responder as? NSView else { return false }
+        return view === surfaceView || view.isDescendant(of: self.view)
+    }
+
     /// Sends bytes as typed, in order with this terminal's keys (they join the same queue to
     /// `io.write`): input the daemon gave back from a creation that did not take it.
     public func sendBytes(_ data: Data) {
@@ -303,8 +347,49 @@ public final class TerminalSession {
         guard !surfaceHasContent else { return "has_content" }
         guard let surface = frame.take() else { return "purged" }
         lastFrameHolds += 1
-        frameHold.begin(lastFrame: surface, over: surfaceView, in: view)
+        frameHold.begin(lastFrame: .surface(surface), over: surfaceView, in: view)
         return nil
+    }
+
+    /// What this session's pane shows now, for a session that replaces it on the same tab and shows
+    /// the same daemon terminal `identity` (``showsTerminal(_:carrying:)``; a daemon restart gives the
+    /// terminal a new generation, so the App makes a new view of it): the held frame while a hold is
+    /// on screen, else the surface's last presented frame once it drew content; nil when it shows
+    /// nothing or another terminal. A surface frame is made non-volatile here and given away: this
+    /// session, closed next, never marks it volatile again (``TerminalSurfaceView/giveAway(_:)``);
+    /// nil when the system purged its pages meanwhile.
+    public func carriedFrame(for identity: String) -> TerminalCarriedFrame? {
+        guard terminalIdentity == identity else { return nil }
+        let frame: TerminalFrameHold.HeldFrame
+        if let held = frameHold.heldFrame {
+            frame = held
+        } else if surfaceHasContent, let surface = surfaceView.presentedFrame {
+            frame = .surface(surface)
+        } else {
+            return nil
+        }
+        if case .surface(let surface) = frame {
+            surfaceView.giveAway(surface)
+            guard surface.reclaim() else { return nil }
+        }
+        return TerminalCarriedFrame(frame: frame)
+    }
+
+    /// This session shows the daemon terminal `identity` (whatever the daemon's generation), and the
+    /// `carried` frame of the session it replaces (``carriedFrame(for:)``) until its own first content
+    /// is drawn, as a launch or evicted terminal's last frame is: no empty pane between the two views.
+    public func showsTerminal(_ identity: String, carrying carried: TerminalCarriedFrame?) {
+        terminalIdentity = identity
+        if let carried { holdCarriedFrame(carried) }
+    }
+
+    /// Holds `frame`; false when this session has content or holds a frame already.
+    @discardableResult
+    func holdCarriedFrame(_ frame: TerminalCarriedFrame) -> Bool {
+        guard !surfaceHasContent, !frameHold.isHolding else { return false }
+        lastFrameHolds += 1
+        frameHold.begin(lastFrame: frame.frame, over: surfaceView, in: view)
+        return true
     }
 
     /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
@@ -312,15 +397,48 @@ public final class TerminalSession {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
     }
 
+    /// Whether the pane shows a held frame (a restored, evicted or replaced terminal whose attach has
+    /// not drawn its content yet): its hover card pictures that frame (``shownFrameInBackground(maxPixelSize:)``).
+    public var showsHeldFrame: Bool { frameHold.isHolding }
+
+    /// What the pane shows now, rendered off the main thread: while the frame hold is on screen (a
+    /// restored, evicted or replaced terminal whose attach has not drawn its content yet), the held
+    /// frame, never the empty surface under it; else ``snapshotInBackground(maxPixelSize:)``. The quit
+    /// saves this for the next launch, and the hover card pictures it: a quit during a slow attach
+    /// must not save an empty pane as the terminal's last frame.
+    public func shownFrameInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
+        switch frameHold.heldFrame {
+        case nil:
+            return await snapshotInBackground(maxPixelSize: maxPixelSize)
+        case .image(let image)?:
+            guard CGFloat(max(image.width, image.height)) > maxPixelSize else { return image }
+            return await Task.detached(priority: .utility) {
+                TerminalSnapshotRenderer.render(image, maxPixelSize: maxPixelSize)
+            }.value
+        case .surface(let surface)?:
+            let frame = SendableSurface(surface: surface)
+            return await Task.detached(priority: .utility) {
+                TerminalSnapshotRenderer.render(frame, maxPixelSize: maxPixelSize)
+            }.value
+        }
+    }
+
     /// Stops consuming events and detaches the surface. The IO owner decides
     /// whether the underlying terminal keeps running.
     public func close() {
+        isClosed = true
+        frameChanges.wake() // its kept frame goes (TerminalLaunchFrameKeeper)
+        let onClose = view.onClose
+        view.onClose = nil
+        onClose?()
         surfaceView.clipboardRequests.cancelPendingWrite()
         eventsTask?.cancel()
         eventsTask = nil
         closeCancels.forEach { $0.cancel() }
         closeCancels = []
         input.finish()
+        frameHold.end() // a held frame has no time limit: it goes with the session, not with the object
+        blankWatch.cancel()
         surfaceView.removeFromSuperview()
     }
 
@@ -335,10 +453,11 @@ public final class TerminalSession {
     /// ``handle(_:)`` swaps surfaces, so that lane stays current until the next main-actor event.
     /// `probeSource` names the IO's terminal to the typing probe (``TerminalIO/typingProbeSource``).
     private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>, probeSource: TypingLatencyProbe.Source?,
-                                            for session: TerminalSession) -> Task<Void, Never> {
+                                            changes: TerminalFrameChanges, for session: TerminalSession) -> Task<Void, Never> {
         Task.detached(priority: .high) { [weak session] in
             var lane: TerminalOutputLane?
             for await event in events {
+                changes.bump()
                 if case .output(let data) = event, let lane {
                     TypingLatencyProbe.shared.mark(.outputReceived, source: probeSource, next: .object(ObjectIdentifier(lane)))
                     ExpectedActivity.shared.note(.terminalOutput)
@@ -478,9 +597,13 @@ public final class TerminalSession {
         lastThemeApplyAnimated = animated
         guard let surface = surfaceView.surface else { return }
         surfaceView.applyColorTransition(animated: animated)
-        if let theme {
+        let hadVeil = veilConfig != nil
+        veilConfig = rebuildVeilConfig()
+        if let veilConfig {
+            ghostty_surface_update_config(surface, veilConfig.config)
+        } else if let theme {
             ghostty_surface_update_config(surface, theme.config)
-        } else if clearing, let config = GhosttyRuntime.shared.config {
+        } else if clearing || hadVeil, let config = GhosttyRuntime.shared.config {
             ghostty_surface_update_config(surface, config)
         }
     }

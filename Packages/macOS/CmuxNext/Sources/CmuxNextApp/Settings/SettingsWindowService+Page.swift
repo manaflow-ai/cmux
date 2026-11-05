@@ -1,11 +1,14 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDesign
 import CmuxNextImportCards
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextServer
 import CmuxNextSettingsWindow
+import CmuxNextUpdater
 import CmuxNextWebUpdates
 
 /// What the React Settings page shows beside the schema rows (R82 commit 2): `cmux.settings.host.lists`.
@@ -20,10 +23,14 @@ extension SettingsWindowService {
         return [
             // The Development category (dev_only) shows only in DEV builds; Devices shows in every build.
             "dev_build": .bool(DevTools.isDebugBuild),
+            // Raw legacy preference; the web shares its fallback policy with the model picker.
+            "harness_placement": .string(AgentPaneTunables.harnessPlacement.value.rawValue),
             "rooms": rooms.map { .array($0.map(Self.listRow)) } ?? .null,
             "machines": .array(machines.map { vmHostRow(Self.machineRow($0), id: $0.id) }),
             // Settings > Devices (plans/cmux-next/add-device-DESIGN.md 2.4): every device, one remove.
             "devices": (try? JSONValue.parse(services.devices.pageData(phones: services.iphone.devicePhones))) ?? .null,
+            // This Mac's one-line join consent (labs.machineJoin): null unless joined.
+            "devices_join": services.joinConsent.pageData().flatMap { try? JSONValue.parse($0) } ?? .null,
             "browser_profiles": .array(browserProfiles.map { profile in
                 [
                     "id": .string(profile.id), "name": .string(profile.name),
@@ -42,9 +49,9 @@ extension SettingsWindowService {
                 "current": .object(Dictionary(uniqueKeysWithValues: themeLevels.map { level in
                     (level.rawValue, theme(at: level).map(JSONValue.string) ?? .null)
                 })),
-                // The Ghostty config's own theme, for the preview of "Use Ghostty Config": the app
-                // scope's colors while appearance.theme is unset (null while it names a theme).
-                "config": services.settings?.snapshot.appTheme == nil ? Self.themeJSON(ThemeScope.app.input) : .null,
+                // "Use Ghostty Config"'s preview (the config's own colors, null while appearance.theme is set); the pair side the terminals use.
+                "config": services.settings?.snapshot.appTheme == nil ? Self.themeJSON(services.themeStore.configInput) : .null,
+                "system_scheme": .string(NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? "dark" : "light"),
             ],
             "terminal": ["ghostty_config": .string(ghosttyConfigPath), "shell_integration": shellIntegration.map(JSONValue.string) ?? .null],
             // R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list).
@@ -60,12 +67,23 @@ extension SettingsWindowService {
             "server": services.serverUpdates.settingsPageJSON,
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,
             "web_updates": WebUpdates.shared.pageJSON,
+            "app_update": services.updater.settingsPageJSON,
             // Chief > Voice input: home.voiceInput, null where the tunable does not exist (Release).
             "voice_input": ChiefVoiceInputPageRoute().hostJSON,
+            // Settings > Menus: every right-click menu's rows and the person's arrangement of it.
+            "context_menus": contextMenusRoute.hostJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
-            "backdrops": backdropCatalog.catalog.pageRows,
+            "backdrops": backdropRowsCache.rows(for: backdropCatalog.catalog),
             "derived": .object(pageDerivedNumbers()),
         ]
+    }
+
+    /// Settings > Menus' reads and writes (ContextMenusSettingsPage).
+    var contextMenusRoute: ContextMenusPageProvider {
+        ContextMenusPageProvider { [weak services] in
+            guard let services, let settings = services.settings else { return nil }
+            return ContextMenusSettingsPage(registry: services.registry, settings: settings)
+        }
     }
 
     /// Where unset number rows' sliders sit, by schema key: the window opacity the theme resolved.
@@ -132,8 +150,8 @@ extension SettingsWindowService {
     }
 
     /// A Cloud machine's row with its "Dedicated agent machine" switch (`vm_host`: `on`, `busy`,
-    /// `error`), once the machine answered (``CloudVmHostStore``): only a machine the legacy Cloud
-    /// API can exec on, and only while the link in use says the signed-in caller owns it
+    /// `error`), once the machine answered (``CloudVmHostStore``): only a machine the Cloud API can
+    /// exec on (either link), and only while the link in use says the signed-in caller owns it
     /// (``CloudLinkOwnership``, the Cloud API's `vmKind`). The machine's own answer cannot tell:
     /// `vmHost` is on by default on any Linux machine, team VMs included, and `cmuxVm` is a record
     /// its agents can write. Personal and SSH machines never get the switch, and a machine the
@@ -141,7 +159,8 @@ extension SettingsWindowService {
     /// machine is not reachable now.
     func vmHostRow(_ row: JSONValue, id: String) -> JSONValue {
         guard case .object(var members) = row, let reach = vmHostReach(id) else { return row }
-        let owns = services.machines.session(id)?.link?.ownership.callerOwnsVM == true
+        let session = services.machines.session(id)
+        let owns = (session?.link?.ownership ?? session?.appLink?.ownership)?.callerOwnsVM == true
         let store = services.cloudVmHost
         let entry = owns ? store.state(id, readable: reach) : nil
         guard let vm = Self.vmHostSwitch(entry, callerOwnsVM: owns, busy: !reach || store.setting.contains(id)) else { return row }
@@ -164,11 +183,11 @@ extension SettingsWindowService {
 
     /// Whether `id`'s vmHost can be read or set over the Cloud exec now (true), only shown from
     /// what it last said (false: not connected, or Cloud turned off), or never (nil: not a
-    /// Cloud machine on the legacy link with exec). The row and every set ask this, so a switch
+    /// Cloud machine with exec). The row and every set ask this, so a switch
     /// drawn while connected never execs (or wakes the machine) once it is not.
     func vmHostReach(_ id: String) -> Bool? {
-        guard let session = services.machines.session(id), session.appLink == nil,
-              session.machine.allows(.exec) else { return nil }
+        // Either link: CloudService.machineAPI execs on a legacy and a Worker machine.
+        guard let session = services.machines.session(id), session.machine.allows(.exec) else { return nil }
         guard !services.machines.isFeatureDisabled(.cloud) else { return false }
         if case .connected = session.daemon.store.connectionState { return true }
         return false

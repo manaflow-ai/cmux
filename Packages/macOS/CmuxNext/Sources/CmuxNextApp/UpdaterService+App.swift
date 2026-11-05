@@ -17,7 +17,6 @@ extension UpdaterService {
     /// "Simulate pending update" (DEV and NIGHTLY; elsewhere it stays off).
     func attach(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
-        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
         relaunchBehind = { [weak services] willQuit, declined, inFront in
             let behind = UpdateRelaunchBehind(app: Bundle.main.bundleURL, bundleIdentifier: Bundle.main.bundleIdentifier ?? "")
             // A quit the user refuses (a quit dialog's Cancel) stops the helper and stages the update again.
@@ -25,10 +24,11 @@ extension UpdaterService {
             behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
         }
         relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
-        // The click: the windows leave the screen at once (S1); a failed
-        // install brings them back.
+        // The windows leave the screen when Sparkle commits to the relaunch,
+        // not at the click (`UpdateWindowHandoff`); a failed install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
-        willInstallStaged = { _ = handoff.hide() }
+        willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
+        hidesForRelaunch = { _ = handoff.hide() }
         installAbandoned = { handoff.restore() }
         isSheetPresented = { sheet.isPresented }
         sheet.onDismiss = { [weak self] in self?.updateSheetClosed() }
@@ -36,14 +36,10 @@ extension UpdaterService {
         // active window's sidebar hidden (or no window) nothing would show, so the sheet
         // answers instead (never a check with no visible feedback).
         showsIndicator = { [weak services] in (services?.windows.active).map { !$0.state.sidebarHidden } ?? false }
-        openChangelog = { [weak services] in
-            return services.map { ChangelogPageTab.open($0) } ?? false
-        }
+        openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
         // "See What's New" on the Updated card: the React changelog page
         // for the releases this update crossed (`#/?from=&to=`).
-        openChangelogSpan = { [weak services] from, to in
-            return services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false
-        }
+        openChangelogSpan = { [weak services] from, to in services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false }
         openReleaseNotesURL = { [weak services] url in
             guard let services, url.scheme == "https" else { return false }
             SidebarCardFeed.openUpdateLink(url, services: services)
@@ -71,7 +67,7 @@ extension UpdaterService {
     /// (local only); a return to cmux may pick the next day's tip.
     func attachTips(registry: ActionRegistry) {
         runTipAction = { [weak registry] action in
-            guard TipCatalog.all.contains(where: { $0.action == action }) else { return }
+            guard TipCatalog.actions.contains(action) else { return }
             _ = registry?.perform(ActionID(rawValue: action), invocation: ActionInvocation(origin: .user))
         }
         registry.runObserver = { [weak self] id, invocation in
@@ -108,6 +104,7 @@ extension UpdaterService {
                 self?.apply(updates)
                 let whatsNewEnabled = updates.showWhatsNew
                 if self?.whatsNew.isItemEnabled != whatsNewEnabled { self?.whatsNew.isItemEnabled = whatsNewEnabled }
+                if self?.whatsNew.isItemEnabledKnown == false { self?.whatsNew.isItemEnabledKnown = true }
                 if self?.tipsEnabled != tips { self?.tipsEnabled = tips }
                 self?.announcementsFetch = announcements.fetch
                 if self?.announcementsEnabled != announcements.enabled { self?.announcementsEnabled = announcements.enabled }
@@ -120,7 +117,7 @@ extension UpdaterService {
         let preferences = UpdatePreferences(
             installOnQuit: updates.installOnQuit,
             notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,
-            keepPreviousVersions: updates.keepPreviousVersions)
+            keepPreviousVersions: updates.keepPreviousVersions, oneClickInstall: updates.oneClickInstall)
         if self.preferences != preferences { self.preferences = preferences }
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically,

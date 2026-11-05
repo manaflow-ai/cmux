@@ -33,6 +33,15 @@ nonisolated extension CatalogArgument {
                        kind: .string)
     }
 
+    /// New Remote Group's host: typed, or picked from the hosts the App lists
+    /// (``ActionSuggestions/remoteHosts``).
+    static var remoteHostDestination: ActionArgument {
+        ActionArgument(name: "destination", title: String(localized: "argument.destination", defaultValue: "SSH Destination", table: "RemoteActions", bundle: .module),
+                       kind: .string, suggestions: ActionSuggestions(
+                           source: ActionSuggestions.remoteHosts, pinned: [],
+                           otherTitle: String(localized: "argument.remoteGroup.host.other", defaultValue: "Enter Host…", table: "RemoteActions", bundle: .module)))
+    }
+
     /// Where cmux-tui lives on the machine; `~/.local/bin/cmux-tui` when omitted.
     static var binaryString: ActionArgument {
         ActionArgument(name: "binary", title: String(localized: "argument.binary", defaultValue: "cmux-tui Path", table: "RemoteActions", bundle: .module),

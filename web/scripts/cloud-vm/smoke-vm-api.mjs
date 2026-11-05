@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execFileSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -12,7 +12,13 @@ import {
   parseWebDirAndTarget,
   requireEnvKeys,
 } from "./projects.mjs";
-import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
+import { classifyCodexCanaryOutcome, edgeCanaryProblems, retryGuestEdgeRequest } from "./canaryOutcome.mjs";
+import {
+  CREATE_VM_RETRY_BUDGET_MS,
+  createVmRequest,
+  createVmWithRetry,
+} from "./smokeCreate.mjs";
+import { stackServerAppOptions } from "./stackConfig.mjs";
 
 const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
 const args = process.argv.slice(2);
@@ -123,18 +129,23 @@ async function timed(name, work) {
   }
 }
 
-async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
-  if (useVercelCurl) return vercelCurlFetch(url, init, timeoutMs);
+/** Fetch an API request with both a local timeout and caller cancellation. */
+async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS, signal) {
+  if (useVercelCurl) return vercelCurlFetch(url, init, timeoutMs, signal);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    // Keep caller cancellation connected while the response body is read,
+    // after fetch has returned its headers and this local timer is cleared.
+    const requestSignal = signal ? AbortSignal.any([controller.signal, signal]) : controller.signal;
+    return await fetch(url, { ...init, signal: requestSignal });
   } finally {
     clearTimeout(timer);
   }
 }
 
-function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+/** Run the Vercel curl transport while preserving cancellation and cleanup. */
+async function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS, signal) {
   const parsed = new URL(url);
   const scratch = mkdtempSync(path.join(tmpdir(), "cmux-vercel-curl-"));
   const responsePath = path.join(scratch, "response.txt");
@@ -160,7 +171,7 @@ function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
     }
     writeFileSync(configPath, `${lines.join("\n")}\n`, { mode: 0o600 });
 
-    const statusOutput = execFileSync("vercel", [
+    const statusOutput = await runVercelCurl([
       "curl",
       `${parsed.pathname}${parsed.search}`,
       "--deployment",
@@ -170,11 +181,7 @@ function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
       "--",
       "--config",
       configPath,
-    ], {
-      encoding: "utf8",
-      timeout: timeoutMs + 10_000,
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+    ], timeoutMs, signal);
     const statusMatch = statusOutput.match(/(\d{3})$/);
     if (!statusMatch) throw new Error(`vercel curl did not return an HTTP status: ${statusOutput}`);
     const status = Number(statusMatch[1]);
@@ -186,6 +193,46 @@ function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+}
+
+/** Run the Vercel CLI in a cancellable child process for signal-safe teardown. */
+function runVercelCurl(args, timeoutMs, signal) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("vercel", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timer;
+    let abort = () => {};
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    };
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      child.kill("SIGTERM");
+      reject(error);
+    };
+    abort = () => fail(signal?.reason instanceof Error ? signal.reason : new Error("Vercel curl aborted"));
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", fail);
+    child.once("close", (code) => {
+      if (settled) return;
+      if (code !== 0) {
+        fail(new Error(`vercel curl exited with ${code}: ${stderr.trim()}`));
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(stdout.trim());
+    });
+    timer = setTimeout(() => fail(new Error(`vercel curl exceeded ${timeoutMs + 10_000} ms`)), timeoutMs + 10_000);
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+  });
 }
 
 function writeResultFile(outcome) {
@@ -255,11 +302,10 @@ try {
     "STACK_SECRET_SERVER_KEY",
   ], `${project.projectName} smoke`);
   const projectId = env.NEXT_PUBLIC_STACK_PROJECT_ID;
-  // Optional: the production project requires no publishable key.
   const publishableClientKey = env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim();
   const secretServerKey = env.STACK_SECRET_SERVER_KEY;
 
-  const app = new StackServerApp({ projectId, ...(publishableClientKey ? { publishableClientKey } : {}), secretServerKey });
+  const app = new StackServerApp(stackServerAppOptions({ projectId, publishableClientKey, secretServerKey }));
   const emailPrefix = `cmux-${project.stackLabel}-smoke+`;
   const swept = sweepOlderThanMinutes === null
     ? null
@@ -320,19 +366,24 @@ try {
     keepUserForSweep = true;
     stage = "create";
     const createStartedAt = performance.now();
-    const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
-      method: "POST",
-      headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": `smoke-${suffix}` },
-      body: JSON.stringify({
-        ...(provider === "default" ? {} : { provider }),
-        ...(image ? { image } : {}),
-      }),
-    });
+    const createIdempotencyKey = `smoke-${suffix}`;
+    const createAbortController = new AbortController();
+    const abortCreate = () => createAbortController.abort(new Error("Cloud VM smoke create interrupted"));
+    process.once("SIGINT", abortCreate);
+    process.once("SIGTERM", abortCreate);
+    let created;
+    try {
+      created = await createVmWithRetry({
+        idempotencyKey: createIdempotencyKey,
+        send: createVmRequest({ targetUrl, authHeaders, provider, image, fetchWithTimeout }),
+        signal: createAbortController.signal,
+        budgetMs: CREATE_VM_RETRY_BUDGET_MS,
+      });
+    } finally {
+      process.off("SIGINT", abortCreate);
+      process.off("SIGTERM", abortCreate);
+    }
     const createDurationMs = Math.round(performance.now() - createStartedAt);
-    const createText = await create.text();
-    if (create.status !== 200) throw new Error(`POST /api/vm expected 200, got ${create.status}: ${createText}`);
-    const created = JSON.parse(createText);
-    if (!created.id) throw new Error("create response missing id");
     if (provider !== "default" && created.provider !== provider) {
       throw new Error(`POST /api/vm returned provider ${created.provider}, expected ${provider}`);
     }
@@ -391,12 +442,12 @@ try {
     if (edgeCheck) {
       stage = "edge";
       const edgeStartedAt = performance.now();
-      const exec = async (command, timeoutMs = 120_000) => {
+      const exec = async (command, timeoutMs = 120_000, signal) => {
         const response = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/exec`, {
           method: "POST",
           headers: { ...authHeaders, "content-type": "application/json" },
           body: JSON.stringify({ command, timeoutMs }),
-        }, timeoutMs + 30_000);
+        }, timeoutMs + 30_000, signal);
         const text = await response.text();
         if (response.status !== 200) throw new Error(`POST exec expected 200, got ${response.status}: ${text}`);
         return JSON.parse(text);
@@ -404,15 +455,22 @@ try {
       const guestEnv = "export HOME=/root; for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done; . /etc/cmux/agent-config.sh;";
       const originHost = await exec(`${guestEnv} printf '%s' "$CMUX_CODEROUTER_URL" | sed -e 's#^https\\?://##' -e 's#/.*$##'`);
       const host = (originHost.stdout ?? "").trim();
+      // Only idempotent probes are retried, never paid agent turns. Reuse the
+      // request timeout as the total retry deadline, including retry delays.
+      const edgeExec = (command) => retryGuestEdgeRequest(
+        (signal) => exec(command, 30_000, signal),
+        host,
+        { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+      );
       // Any crt_ string under the agent config roots means a token leaked into the guest.
       const leak = await exec("grep -rslE 'crt_[A-Za-z0-9_-]{40,}' /root/.config/cmux /root/.codex /root/.pi /root/.config/opencode /etc/cmux /etc/environment /etc/profile.d 2>/dev/null; true");
       const tokenOnDisk = (leak.stdout ?? "").trim();
       // /v1/models needs an upstream client_version query, so the self-usage
       // route is the guest-side proof that the bound token arrived.
-      const models = await exec(`${guestEnv} curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
+      const models = await edgeExec(`${guestEnv} curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
       const modelsStatus = (models.stdout ?? "").trim();
       const codex = zeroToken
-        ? await exec(`${guestEnv} command -v codex >/dev/null || echo 'codex-missing'; curl -sS --max-time 30 -X POST -H 'content-type: application/json' -H "authorization: Bearer $OPENAI_API_KEY" -d '{"model":"cmux-canary-no-such-model","input":"x","max_output_tokens":16,"stream":false}' "$CMUX_CODEROUTER_URL/v1/responses"; echo; echo "codex-exit $?"`)
+        ? await edgeExec(`${guestEnv} command -v codex >/dev/null || echo 'codex-missing'; curl -sS --max-time 30 -X POST -H 'content-type: application/json' -H "authorization: Bearer $OPENAI_API_KEY" -d '{"model":"cmux-canary-no-such-model","input":"x","max_output_tokens":16,"stream":false}' "$CMUX_CODEROUTER_URL/v1/responses"; echo; echo "codex-exit $?"`)
         : await exec(`${guestEnv} cd /root && command -v codex && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20; echo "codex-exit $?"`, 240_000);
       const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
       const codexOutcome = classifyCodexCanaryOutcome(codexOut, { zeroToken });
@@ -437,7 +495,7 @@ try {
         edge.claudeExit = claude.exitCode;
         edge.claudeOutcome = claudePong ? "answered" : /claude_upstream_not_configured|no upstream/i.test(claudeOut) ? "no_upstream" : "failed";
         edge.claudeTail = claudeOut.slice(-400);
-        const selfUsage = await exec(`${guestEnv} curl -sS --max-time 20 -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
+        const selfUsage = await edgeExec(`${guestEnv} curl -sS --max-time 20 -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
         edge.selfUsage = (selfUsage.stdout ?? "").trim().slice(0, 600);
       }
       const problems = edgeCanaryProblems({
@@ -540,8 +598,12 @@ try {
 } finally {
   // A create that failed before returning an id, or a VM that could not be
   // deleted, may still exist; deleting its owner would orphan it.
-  if (user && keepUserForSweep && sweepOlderThanMinutes !== null) {
-    console.error(`cleanup_kept_user_for_sweep=${user.id}`);
+  if (user && keepUserForSweep) {
+    if (sweepOlderThanMinutes !== null) {
+      console.error(`cleanup_kept_user_for_sweep=${user.id}`);
+    } else {
+      console.error(`cleanup_kept_user_for_reconciliation=${user.id}`);
+    }
   } else if (user) {
     try {
       await user.delete();

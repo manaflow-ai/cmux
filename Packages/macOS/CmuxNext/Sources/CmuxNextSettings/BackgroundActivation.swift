@@ -89,7 +89,10 @@ public final class BackgroundActivation {
     }
 
     private func showItem() {
-        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // cmux-classic's item: variable length, image only, scaled down proportionally.
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.imagePosition = .imageOnly
+        statusItem.button?.imageScaling = .scaleProportionallyDown
         statusItem.button?.image = icon
         let menu = NSMenu()
         for id: ActionID in ["showMainWindow", "newWindow", "openSettings"] {

@@ -15,6 +15,8 @@ extension ActionID {
     public static let toggleAcpInspector: ActionID = "agentPane.toggleInspector"
     /// Toggle the chat's floating Session Info panel through its header path.
     public static let toggleSessionInfo: ActionID = "agentPane.toggleSessionInfo"
+    /// The page commands the palette runs (``AgentPageCommand``): `agentPane.<command>`.
+    public init(_ command: AgentPageCommand) { self.init(rawValue: "agentPane.\(command.rawValue)") }
     /// Stop the focused agent chat's active turn through the page's composer path.
     public static let stopTurn: ActionID = "agentPane.stopTurn"
     /// Open File: a file in a tab of the pane or in the text editor
@@ -24,9 +26,74 @@ extension ActionID {
     public static let openBrowser: ActionID = "openBrowser"
 }
 
+/// A chat control the native palette runs through the page's `command` bridge, by its name there.
+/// The page lists the ones that apply to its chat now (`pane.commandAvailability`): Quick Chat's
+/// panel has no tabs beside it, a remote chat's folder is not on this Mac, Preview needs the chat's
+/// page or the preview it opened, Run in Background needs work in the foreground, and Session
+/// Info's sections need rows.
+public enum AgentPageCommand: String, CaseIterable, Sendable {
+    case toggleFiles, togglePreview, toggleSideTabs
+    case runInBackground, toggleQueueing, showSubagents, showBackgroundTasks
+
+    /// Whether this header toggle is on in `state` (the split it opens shows, the panes beside the
+    /// chat show); nil for a command that is no toggle the App can read. Queueing is the page's own
+    /// choice (its local storage), so the App does not know it.
+    public func isOn(in state: AgentPaneHeaderState) -> Bool? {
+        switch self {
+        case .toggleFiles: state.lit.contains(AgentPaneModel.filesAction)
+        case .togglePreview: state.lit.contains(AgentPaneModel.previewAction)
+        case .toggleSideTabs: state.sideTabs
+        case .runInBackground, .toggleQueueing, .showSubagents, .showBackgroundTasks: nil
+        }
+    }
+}
+
 extension ActionRegistry {
+    /// Binds every ``AgentPageCommand``. `available` is the page commands of the agent chat the
+    /// invocation resolves to (its target, else the focused pane; nil when it is no agent chat: `run`
+    /// refuses then). A command that page does not list refuses with the reason, checked for the
+    /// run's own target (``ActionTargetReasons``; the palette row is disabled with it), and one run
+    /// by automation without a focus request refuses too. `state` is the header's state of the
+    /// focused chat (nil: no chat, or not known): each header toggle's palette row shows whether it
+    /// is on (``AgentPageCommand/isOn(in:)``).
+    @discardableResult
+    public func bindAgentPageCommands(
+        available: @escaping @MainActor (ActionInvocation) -> Set<String>?,
+        state: (@MainActor () -> AgentPaneHeaderState?)? = nil,
+        run: @escaping @MainActor (AgentPageCommand, ActionInvocation) -> Void
+    ) -> Bool {
+        AgentPageCommand.allCases.map { command in
+            let id = ActionID(command)
+            let title = descriptor(for: id)?.title ?? command.rawValue
+            let bound = bindEffect(id, effect: { invocation in
+                guard ActionRunScope.viewChangeAllowed() else { return .refused(AgentPaneView.pageCommandNeedsFocus(title)) }
+                run(command, invocation)
+                return .done
+            })
+            let reason: @MainActor (ActionInvocation) -> String? = { invocation in
+                guard let commands = available(invocation), !commands.contains(command.rawValue) else { return nil }
+                return AgentPaneView.pageCommandUnavailable(title)
+            }
+            ActionTargetReasons.set(id, in: self, reason)
+            // The palette runs on the focused chat: its row is disabled while that chat does not offer
+            // it, with a subtitle that does not repeat the row's title.
+            ActionTargetTitles.setPaletteReason(id, in: self) {
+                reason(ActionInvocation()) == nil ? nil : AgentPaneView.pageCommandUnavailableHere
+            }
+            // A header toggle's row says whether it is on in the focused chat; off with no chat.
+            if let state, command.isOn(in: Self.blankHeaderState) != nil {
+                ActionTargetTitles.setPaletteState(id, in: self) { state().flatMap(command.isOn(in:)) ?? false }
+            }
+            return bound
+        }.allSatisfy(\.self)
+    }
+
+    /// A header state with every value given (no Debug Settings read), only to ask which commands
+    /// are toggles the App can read (``AgentPageCommand/isOn(in:)`` not nil).
+    private static let blankHeaderState = AgentPaneHeaderState(sideSessions: false, sessionInfo: false, browserOpensPreview: false)
+
     /// Binds Session Info for the invocation's pane, focused when there is no target. With
-    /// `agent.inspector` off the page has no Session Info, so the action refuses instead of
+    /// `agent.sessionInfo` off the page has no Session Info, so the action refuses instead of
     /// reporting a toggle that changed nothing.
     @discardableResult
     public func bindAgentPaneSessionInfo(
@@ -34,7 +101,7 @@ extension ActionRegistry {
         toggle: @escaping @MainActor (ActionInvocation) -> Void
     ) -> Bool {
         bindEffect(.toggleSessionInfo, effect: { invocation in
-            guard isOn?() ?? AgentPaneTunables.inspector.value else { return .refused(AgentPaneView.sessionInfoOff) }
+            guard isOn?() ?? AgentPaneTunables.sessionInfo.value else { return .refused(AgentPaneView.sessionInfoOff) }
             guard ActionRunScope.viewChangeAllowed() else {
                 return .refused(AgentPaneView.sessionInfoNeedsFocus)
             }
@@ -72,11 +139,11 @@ extension ActionRegistry {
     /// refused, so the page shows its notice instead of the app's beep; an
     /// editor that fails after it starts opening is not reported back.
     @discardableResult
-    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String) -> Bool {
+    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String, machineID: String? = nil) -> Bool {
         let invocation = ActionInvocation(
             target: ActionTargetRef(kind: .pane, id: pane),
             arguments: ["path": .string(path), "where": .string(target.rawValue)]
-        )
+        ).onMachine(machineID)
         var performed = false
         let refusal = reportingRefusal { performed = perform(.fileOpen, invocation: invocation) }
         return performed && refusal == nil
@@ -86,11 +153,11 @@ extension ActionRegistry {
     /// of `pane` through `openBrowser`, the path the tab strip and palette
     /// take. False when the handler refused.
     @discardableResult
-    public func openAgentPreview(_ url: URL, pane: String) -> Bool {
+    public func openAgentPreview(_ url: URL, pane: String, machineID: String? = nil) -> Bool {
         let invocation = ActionInvocation(
             target: ActionTargetRef(kind: .pane, id: pane),
             arguments: ["url": .string(url.absoluteString)]
-        )
+        ).onMachine(machineID)
         var performed = false
         let refusal = reportingRefusal { performed = perform(.openBrowser, invocation: invocation) }
         return performed && refusal == nil

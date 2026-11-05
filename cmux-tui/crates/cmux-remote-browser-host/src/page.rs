@@ -40,6 +40,11 @@ impl PageState {
         (*self != before).then(|| self.message())
     }
 
+    /// The page's address as last reported (empty before the first).
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
     /// `rb.page` for a viewer that opens now (`None` before any fact).
     pub fn snapshot(&self) -> Option<Control> {
         self.known.then(|| self.message())

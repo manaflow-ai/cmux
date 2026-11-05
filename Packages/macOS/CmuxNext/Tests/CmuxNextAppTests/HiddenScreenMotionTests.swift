@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-21: after a restart the chat pane's content was laid out wider than the pane and
@@ -8,6 +9,7 @@ import Testing
 /// pane springs there, and a screen that hid mid-spring kept its own: its panes stayed frozen
 /// mid-motion, their content held at the size and edge of a spring that never landed.
 @MainActor
+@Suite(.closesItsWindows)
 struct HiddenScreenMotionTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -57,6 +59,7 @@ struct HiddenScreenMotionTests {
 
     @Test func aHiddenScreensLayoutChangeLandsAtOnce() throws {
         let layout = Layout()
+        defer { layout.window.closeAfterTest() }
         try #require(layout.root.screenViews["b"]?.isHidden == true, "screen b is shown")
         // Precondition: the same change on the shown screen springs.
         layout.show(a: Self.pairSplit, b: Self.other)
@@ -70,6 +73,7 @@ struct HiddenScreenMotionTests {
 
     @Test func hidingAScreenMidSpringSettlesIt() throws {
         let layout = Layout()
+        defer { layout.window.closeAfterTest() }
         layout.show(a: Self.pairSplit, b: Self.other)
         layout.root.advanceFrame(1.0 / 120)
         try #require(layout.isMoving("a"), "the split on the shown screen did not spring")

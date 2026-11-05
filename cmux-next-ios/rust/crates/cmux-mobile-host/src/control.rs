@@ -2,6 +2,7 @@
 //! as its child and owns sign-in and the acpmux endpoint.
 //!
 //! stdin carries JSON lines from the app:
+//! - `{"type":"network_changed"}`: the Mac woke; re-register signaling and refresh live endpoints.
 //! - `{"type":"token","token":"<Stack access token>"}`: the access token to use
 //!   from now on. The app sends one at start and answers every `need_token`
 //!   (hostd asks whenever it needs one and its token is under a minute from
@@ -24,17 +25,89 @@
 //!   presents it instead of the dashboard token, so acpmux knows which phone it is and
 //!   that phone's Full-access setting can cover it (`services.rs`). Never logged.
 //!
+//! - `{"type":"needs_you","items":[{"id","title","body","kind","source","url","created_at_ms"}]}`:
+//!   the open requests of the app's own Feed (held PRs, sign-ins, consent cards), the whole set
+//!   each time it changes. hostd serves them to phones and pushes each once (`needs_you.rs`).
+//!
 //! End of stdin means the app is gone: the process exits.
 //!
 //! stdout carries one JSON event per line for the app (logs go to stderr);
 //! [`Event`] lists them. Tokens never appear in either stream.
 
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
-use std::sync::OnceLock;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, oneshot, watch};
+use tokio::time::{Duration, timeout};
+
+/// Durable per-chat phone exposure. `configured=false` preserves the legacy
+/// Mac-wide master behavior until the person first uses a per-chat switch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionExposure {
+    /// Whether the file was successfully read and written. This is deliberately
+    /// fail closed: a corrupt or unavailable durable authority must not expose
+    /// an existing chat by accident.
+    #[serde(default = "default_available")]
+    pub available: bool,
+    pub configured: bool,
+    /// Explicitly enabled sessions (kept for forward/backward compatibility).
+    #[serde(default)]
+    pub allowed: HashSet<String>,
+    /// Explicitly disabled sessions. Missing sessions inherit the Mac-wide
+    /// setting, so turning one chat off does not turn every other chat off.
+    #[serde(default)]
+    pub blocked: HashSet<String>,
+}
+
+impl Default for SessionExposure {
+    fn default() -> Self {
+        Self { available: true, configured: false, allowed: HashSet::new(), blocked: HashSet::new() }
+    }
+}
+
+fn default_available() -> bool {
+    true
+}
+
+fn exposure_path() -> PathBuf {
+    crate::config::default_state_dir().join("remote-control-sessions.json")
+}
+
+fn load_session_exposure() -> SessionExposure {
+    load_session_exposure_at(&exposure_path())
+}
+
+/// Load the durable policy from an explicit path. Keeping the path-taking
+/// helper separate makes restart and fail-closed behavior testable without
+/// touching the process state directory.
+fn load_session_exposure_at(path: &std::path::Path) -> SessionExposure {
+    match std::fs::read(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => SessionExposure::default(),
+        Ok(data) => serde_json::from_slice(&data).unwrap_or_else(|_| SessionExposure {
+            available: false,
+            configured: true,
+            ..SessionExposure::default()
+        }),
+        Err(_) => SessionExposure { available: false, configured: true, ..SessionExposure::default() },
+    }
+}
+
+fn persist_session_exposure(state: &SessionExposure) -> Result<(), String> {
+    persist_session_exposure_at(&exposure_path(), state)
+}
+
+fn persist_session_exposure_at(path: &std::path::Path, state: &SessionExposure) -> Result<(), String> {
+    let Some(parent) = path.parent() else { return Err("state path has no parent".into()) };
+    std::fs::create_dir_all(parent).map_err(|error| format!("creating state directory: {error}"))?;
+    let data = serde_json::to_vec(state).map_err(|error| format!("encoding session exposure: {error}"))?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, data).map_err(|error| format!("writing session exposure: {error}"))?;
+    std::fs::rename(&tmp, path).map_err(|error| format!("committing session exposure: {error}"))
+}
 
 /// The acpmux WebSocket the app reported: URL and bearer token.
 pub type AcpmuxEndpoint = Option<(String, Option<String>)>;
@@ -43,6 +116,90 @@ static ENABLED: OnceLock<bool> = OnceLock::new();
 static DROPS: OnceLock<broadcast::Sender<String>> = OnceLock::new();
 static PHONE_CREDENTIALS: std::sync::Mutex<Option<std::collections::HashMap<String, Secret>>> =
     std::sync::Mutex::new(None);
+
+/// A current authenticated Cloud machine link supplied by the signed-in Mac
+/// app. Socket paths are never accepted from the phone.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct CloudLink {
+    pub machine_id: String,
+    pub team_id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub socket: Option<PathBuf>,
+    #[serde(default)]
+    pub owner: bool,
+    /// The machine's state (`CloudMachine.Status` raw value: `running`, `paused`, ...).
+    /// An older app sends none: `unknown`.
+    #[serde(default = "unknown_status")]
+    pub status: String,
+    /// Whether the machine has run at least once.
+    #[serde(default)]
+    pub ran: bool,
+}
+
+fn unknown_status() -> String {
+    "unknown".to_owned()
+}
+
+/// One `cloud_links` snapshot: whether the account pays for cmux Cloud, whether this Mac
+/// streams Cloud desktops to phones (`phone.cloudDesktop`), and its links.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CloudLinks {
+    pub paid: bool,
+    pub desktops: bool,
+    pub links: Vec<CloudLink>,
+}
+
+#[derive(Default)]
+struct CloudLinkBroker {
+    next: std::sync::atomic::AtomicU64,
+    pending: Mutex<HashMap<u64, oneshot::Sender<CloudLinks>>>,
+}
+static CLOUD_LINKS: OnceLock<Arc<CloudLinkBroker>> = OnceLock::new();
+const MAX_CLOUD_LINK_REQUESTS: usize = 16;
+
+struct PendingCloudLink {
+    broker: Arc<CloudLinkBroker>,
+    request: u64,
+}
+impl Drop for PendingCloudLink {
+    fn drop(&mut self) {
+        self.broker.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.request);
+    }
+}
+fn cloud_link_broker() -> Arc<CloudLinkBroker> {
+    CLOUD_LINKS.get_or_init(|| Arc::new(CloudLinkBroker::default())).clone()
+}
+
+/// Request a fresh app-owned Cloud link snapshot. A response is single-use and
+/// expires quickly so a revoked link cannot be reused after sign-out.
+pub async fn request_cloud_links() -> Result<CloudLinks, &'static str> {
+    let broker = cloud_link_broker();
+    let request = broker.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed).wrapping_add(1);
+    let (sender, receiver) = oneshot::channel();
+    {
+        let mut pending = broker.pending.lock().unwrap_or_else(|e| e.into_inner());
+        if pending.len() >= MAX_CLOUD_LINK_REQUESTS {
+            return Err("too many Cloud link requests");
+        }
+        pending.insert(request, sender);
+    }
+    let _pending = PendingCloudLink { broker: Arc::clone(&broker), request };
+    emit(&Event::NeedCloudLinks { request });
+    match timeout(Duration::from_secs(5), receiver).await {
+        Ok(Ok(links)) => Ok(links),
+        Ok(Err(_)) | Err(_) => Err("Cloud link snapshot unavailable"),
+    }
+}
+fn resolve_cloud_links(request: u64, paid: bool, desktops: bool, links: Vec<CloudLink>) {
+    let links = links.into_iter().take(128).collect();
+    if let Some(sender) =
+        cloud_link_broker().pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&request)
+    {
+        let _ = sender.send(CloudLinks { paid, desktops, links });
+    }
+}
 
 /// The acpmux credential the app gave phone `phone_device_id` (`phone_credentials`), if any.
 pub fn phone_credential(phone_device_id: &str) -> Option<String> {
@@ -81,6 +238,8 @@ impl std::fmt::Debug for Secret {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Inbound {
+    /// The Mac woke: refresh signaling and endpoints without dropping live links.
+    NetworkChanged,
     Token {
         token: String,
     },
@@ -135,6 +294,25 @@ pub enum Inbound {
     PhoneCredentials {
         credentials: std::collections::HashMap<String, Secret>,
     },
+    SessionExposure {
+        session_id: String,
+        allowed: bool,
+    },
+    /// The open requests of the app's own Feed, the whole set (`needs_you.rs`).
+    NeedsYou {
+        items: Vec<crate::needs_you::Request>,
+    },
+    /// The app's Cloud links for `need_cloud_links` `request`. `paid` (absent from an
+    /// older app: false) says the account pays for cmux Cloud; `desktops` (absent: false) that
+    /// the person lets phones view their Cloud machine's screen (`phone.cloudDesktop`).
+    CloudLinks {
+        request: u64,
+        #[serde(default)]
+        paid: bool,
+        #[serde(default)]
+        desktops: bool,
+        links: Vec<CloudLink>,
+    },
 }
 
 impl Inbound {
@@ -151,9 +329,15 @@ pub enum Event {
     /// Registering and opening the signaling socket.
     Connecting,
     /// Registered and holding the signaling socket: phones can dial.
-    Online { device_id: String, team_id: String },
+    Online {
+        device_id: String,
+        team_id: String,
+    },
     /// The last attempt failed or the socket closed; retrying after the delay.
-    Waiting { reason: String, retry_in_seconds: u64 },
+    Waiting {
+        reason: String,
+        retry_in_seconds: u64,
+    },
     /// The current access token is missing, about to expire, or was refused.
     NeedToken,
     /// The acpmux endpoint is missing or refused a connection (acpmux restarted).
@@ -163,14 +347,28 @@ pub enum Event {
     /// the person allows iPhone connections again (a new device id then).
     Removed,
     /// A phone's link is up.
-    PhoneUp { session_id: String, phone_device_id: String, transport: String, path: String },
+    PhoneUp {
+        session_id: String,
+        phone_device_id: String,
+        transport: String,
+        path: String,
+    },
     /// A phone's link moved to another path.
-    PhonePath { session_id: String, path: String },
+    PhonePath {
+        session_id: String,
+        path: String,
+    },
     /// A phone's WebRTC media session beside its WireGuard link `session_id`
     /// came up over `media_path` (`direct`, `turn`), or went away (`none`).
-    PhoneMedia { session_id: String, media_path: String },
+    PhoneMedia {
+        session_id: String,
+        media_path: String,
+    },
     /// A phone's link ended.
-    PhoneDown { session_id: String, reason: String },
+    PhoneDown {
+        session_id: String,
+        reason: String,
+    },
     /// A phone proved keys the Mac has not approved: ask the user.
     /// `registered_at_ms` (epoch milliseconds, absent when unknown) is when
     /// that phone device id first registered with the service, for the prompt.
@@ -187,18 +385,45 @@ pub enum Event {
         pair_token: Option<String>,
     },
     /// A paired phone signed out and asks the Mac to forget it.
-    Unpaired { phone_device_id: String },
+    Unpaired {
+        phone_device_id: String,
+    },
     /// A phone opened browser tab `tab`: start the app's browser host on
     /// `url` and answer with `browser` (or `browser_failed`) for `request`.
-    NeedBrowser { request: u64, tab: String, url: String },
+    NeedBrowser {
+        request: u64,
+        tab: String,
+        url: String,
+    },
     /// hostd no longer needs the browser host of `tab`: stop it.
-    BrowserStop { tab: String },
+    BrowserStop {
+        tab: String,
+    },
     /// A phone opened simulator surface tab `tab` (`s<surface>`, a phone tab
     /// of this Mac): start its frame source and answer with `surface` (or
     /// `surface_failed`) for `request`.
-    NeedSurface { request: u64, tab: String },
+    NeedSurface {
+        request: u64,
+        tab: String,
+    },
     /// hostd no longer needs the surface source of `tab`: stop it.
-    SurfaceStop { tab: String },
+    SurfaceStop {
+        tab: String,
+    },
+    NeedCloudLinks {
+        request: u64,
+    },
+    SessionExposureState {
+        available: bool,
+        configured: bool,
+        sessions: Vec<String>,
+        blocked_sessions: Vec<String>,
+    },
+    SessionExposureError {
+        session_id: String,
+        allowed: bool,
+        reason: String,
+    },
 }
 
 /// Writes `event` as one stdout line when supervised; otherwise nothing.
@@ -210,6 +435,19 @@ pub fn emit(event: &Event) {
     let mut stdout = std::io::stdout().lock();
     let _ = writeln!(stdout, "{line}");
     let _ = stdout.flush();
+}
+
+fn emit_exposure_state(state: &SessionExposure) {
+    let mut sessions = state.allowed.iter().cloned().collect::<Vec<_>>();
+    let mut blocked = state.blocked.iter().cloned().collect::<Vec<_>>();
+    sessions.sort_unstable();
+    blocked.sort_unstable();
+    emit(&Event::SessionExposureState {
+        available: state.available,
+        configured: state.configured,
+        sessions,
+        blocked_sessions: blocked,
+    });
 }
 
 /// What the app supplies over stdin, as it changes.
@@ -224,6 +462,7 @@ pub struct Supplied {
     pub browser: std::sync::Arc<crate::browser::BrowserBroker>,
     /// Simulator surface sources the app starts for the `surface` service.
     pub surface: std::sync::Arc<crate::browser::BrowserBroker>,
+    pub session_exposure: watch::Receiver<SessionExposure>,
 }
 
 /// Reads stdin until it ends, then exits the process (the app is gone).
@@ -232,6 +471,9 @@ pub fn spawn_stdin_reader() -> Supplied {
     let (acpmux_tx, acpmux) = watch::channel(None);
     let (devices_tx, devices) = watch::channel(None);
     let (identity_tx, identity) = watch::channel(None);
+    let (exposure_tx, session_exposure) = watch::channel(load_session_exposure());
+    let initial = exposure_tx.borrow().clone();
+    emit_exposure_state(&initial);
     let browser = std::sync::Arc::new(crate::browser::BrowserBroker::new(std::sync::Arc::new(emit)));
     let broker = std::sync::Arc::clone(&browser);
     let surface = std::sync::Arc::new(crate::browser::BrowserBroker::for_surfaces(std::sync::Arc::new(emit)));
@@ -240,6 +482,7 @@ pub fn spawn_stdin_reader() -> Supplied {
         let mut lines = BufReader::new(tokio::io::stdin()).lines();
         while let Ok(Some(line)) = lines.next_line().await {
             match Inbound::parse(&line) {
+                Some(Inbound::NetworkChanged) => crate::netwatch::changed(),
                 Some(Inbound::Token { token }) => {
                     token_tx.send_replace(Some(token));
                 }
@@ -258,6 +501,55 @@ pub fn spawn_stdin_reader() -> Supplied {
                     devices_tx.send_replace(Some(trust));
                 }
                 Some(Inbound::PhoneCredentials { credentials }) => set_phone_credentials(credentials),
+                Some(Inbound::SessionExposure { session_id, allowed }) => {
+                    let previous = exposure_tx.borrow().clone();
+                    let mut candidate = previous.clone();
+                    candidate.configured = true;
+                    candidate.available = true;
+                    if allowed {
+                        candidate.blocked.remove(&session_id);
+                        candidate.allowed.insert(session_id.clone());
+                    } else {
+                        candidate.allowed.remove(&session_id);
+                        candidate.blocked.insert(session_id.clone());
+                    }
+                    // Never overwrite an unreadable policy with a partial grant.
+                    if !previous.available {
+                        let mut effective = previous;
+                        effective.configured = true;
+                        effective.blocked.insert(session_id.clone());
+                        effective.allowed.remove(&session_id);
+                        exposure_tx.send_replace(effective);
+                        emit(&Event::SessionExposureError {
+                            session_id,
+                            allowed,
+                            reason: "durable policy unavailable".into(),
+                        });
+                        continue;
+                    }
+                    if !allowed {
+                        // Revocation takes effect immediately, even if persistence fails.
+                        let mut effective = candidate.clone();
+                        effective.available = previous.available;
+                        exposure_tx.send_replace(effective.clone());
+                    }
+                    match persist_session_exposure(&candidate) {
+                        Ok(()) => {
+                            exposure_tx.send_replace(candidate.clone());
+                            emit_exposure_state(&candidate);
+                        }
+                        Err(reason) => {
+                            let mut effective = candidate;
+                            effective.available = false;
+                            exposure_tx.send_replace(effective);
+                            emit(&Event::SessionExposureError { session_id, allowed, reason });
+                        }
+                    }
+                }
+                Some(Inbound::NeedsYou { items }) => crate::needs_you::set(items),
+                Some(Inbound::CloudLinks { request, paid, desktops, links }) => {
+                    resolve_cloud_links(request, paid, desktops, links);
+                }
                 Some(Inbound::DropPhone { phone_device_id }) => {
                     let _ =
                         DROPS.get_or_init(|| broadcast::channel(16).0).send(phone_device_id.to_lowercase());
@@ -279,7 +571,7 @@ pub fn spawn_stdin_reader() -> Supplied {
         crate::size_release::stop_and_release(crate::size_release::EXIT_WAIT).await;
         std::process::exit(0);
     });
-    Supplied { token, acpmux, devices, identity, browser, surface }
+    Supplied { token, acpmux, devices, identity, browser, surface, session_exposure }
 }
 
 /// The wire name of a transport.
@@ -303,6 +595,81 @@ pub fn path_name(path: cmux_mobile_link::dial::LinkPath) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const CHAT_A: &str = "00000000-0000-7000-8000-000000000001";
+    const CHAT_B: &str = "00000000-0000-7000-8000-000000000002";
+
+    fn disabled_chat(id: &str) -> SessionExposure {
+        SessionExposure {
+            available: true,
+            configured: true,
+            allowed: HashSet::new(),
+            blocked: [id.to_owned()].into_iter().collect(),
+        }
+    }
+
+    #[test]
+    fn missing_policy_defaults_to_available_and_unconfigured() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = load_session_exposure_at(&dir.path().join("missing.json"));
+        assert_eq!(state, SessionExposure::default());
+    }
+
+    #[test]
+    fn corrupt_or_unreadable_policy_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let corrupt = dir.path().join("corrupt.json");
+        std::fs::write(&corrupt, b"not-json").unwrap();
+        assert_eq!(
+            load_session_exposure_at(&corrupt),
+            SessionExposure { available: false, configured: true, ..SessionExposure::default() }
+        );
+
+        // A regular file in the parent position makes the policy unreadable,
+        // exercising the same fail-closed branch as a permissions/IO error.
+        let parent_file = dir.path().join("not-a-directory");
+        std::fs::write(&parent_file, b"occupied").unwrap();
+        let unreadable = load_session_exposure_at(&parent_file.join("policy.json"));
+        assert!(!unreadable.available);
+        assert!(unreadable.configured);
+    }
+
+    #[test]
+    fn persisted_chat_off_survives_restart_while_other_chats_inherit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("remote-control-sessions.json");
+        persist_session_exposure_at(&path, &disabled_chat(CHAT_A)).unwrap();
+
+        // A fresh load is the restart boundary. The explicit block remains,
+        // while an unmentioned chat has no block and inherits the Mac policy.
+        let restarted = load_session_exposure_at(&path);
+        assert!(restarted.available && restarted.configured);
+        assert!(restarted.blocked.contains(CHAT_A));
+        assert!(!restarted.blocked.contains(CHAT_B));
+        assert!(!restarted.allowed.contains(CHAT_B));
+    }
+
+    #[test]
+    fn failed_grant_persistence_does_not_replace_existing_chat_off_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("remote-control-sessions.json");
+        let existing = disabled_chat(CHAT_A);
+        persist_session_exposure_at(&path, &existing).unwrap();
+
+        // Simulate a failed grant at the real policy path: the atomic
+        // replacement temp path is already a directory, so the write fails
+        // before rename. The durable A-off policy must remain intact.
+        std::fs::create_dir(path.with_extension("json.tmp")).unwrap();
+        let grant = SessionExposure {
+            available: true,
+            configured: true,
+            allowed: [CHAT_A.to_owned()].into_iter().collect(),
+            blocked: HashSet::new(),
+        };
+        assert!(persist_session_exposure_at(&path, &grant).is_err());
+        let after_failure = load_session_exposure_at(&path);
+        assert_eq!(after_failure, existing);
+    }
 
     #[test]
     fn parses_control_lines() {
@@ -339,8 +706,76 @@ mod tests {
             Inbound::parse(r#"{"type":"browser_gone","tab":"s4"}"#),
             Some(Inbound::BrowserGone { tab: "s4".into() })
         );
+        assert_eq!(Inbound::parse(r#"{"type":"network_changed"}"#), Some(Inbound::NetworkChanged));
+        assert_eq!(
+            Inbound::parse(
+                r#"{"type":"cloud_links","request":7,"links":[{"machine_id":"m","team_id":"t","name":"Cloud","socket":"/tmp/s","owner":true}]}"#
+            ),
+            Some(Inbound::CloudLinks {
+                request: 7,
+                paid: false,
+                desktops: false,
+                links: vec![CloudLink {
+                    machine_id: "m".into(),
+                    team_id: "t".into(),
+                    name: "Cloud".into(),
+                    socket: Some("/tmp/s".into()),
+                    owner: true,
+                    status: "unknown".into(),
+                    ran: false,
+                }]
+            })
+        );
+        assert_eq!(
+            Inbound::parse(r#"{"type":"needs_you","items":[{"id":"fi_a","title":"Held","url":"https://x"}]}"#),
+            Some(Inbound::NeedsYou {
+                items: vec![crate::needs_you::Request {
+                    id: "fi_a".into(),
+                    title: "Held".into(),
+                    body: String::new(),
+                    kind: String::new(),
+                    source: String::new(),
+                    url: Some("https://x".into()),
+                    created_at_ms: 0,
+                }]
+            })
+        );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);
         assert_eq!(Inbound::parse("not json"), None);
+    }
+
+    #[test]
+    fn cloud_links_carry_paid_status_and_ran_and_asleep_machines_have_no_socket() {
+        assert_eq!(
+            Inbound::parse(
+                r#"{"type":"cloud_links","request":8,"paid":true,"desktops":true,"links":[{"machine_id":"m","team_id":"t","name":"Dev box","socket":null,"owner":true,"status":"paused","ran":true}]}"#
+            ),
+            Some(Inbound::CloudLinks {
+                request: 8,
+                paid: true,
+                desktops: true,
+                links: vec![CloudLink {
+                    machine_id: "m".into(),
+                    team_id: "t".into(),
+                    name: "Dev box".into(),
+                    socket: None,
+                    owner: true,
+                    status: "paused".into(),
+                    ran: true,
+                }]
+            })
+        );
+        // An older app's line: no paid, status, ran, name, socket or owner.
+        let Some(Inbound::CloudLinks { paid, desktops, links, .. }) = Inbound::parse(
+            r#"{"type":"cloud_links","request":9,"links":[{"machine_id":"m","team_id":"t"}]}"#,
+        ) else {
+            panic!("a cloud_links line")
+        };
+        assert!(!paid);
+        // An older app never turned Cloud desktops on.
+        assert!(!desktops);
+        assert_eq!((links[0].status.as_str(), links[0].ran, links[0].owner), ("unknown", false, false));
+        assert_eq!(links[0].socket, None);
     }
 
     #[test]

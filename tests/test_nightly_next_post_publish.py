@@ -2,9 +2,16 @@
 """Keep NEXT feed publication independent of the compatibility identity.
 
 The signed arm64 artifact is the user-facing readiness boundary. The
-NIGHTLY-identity compatibility lane can submit its own copy while the NEXT
-publication writes the feed; it must not become a dependency of
-``publish-nightly``.
+NIGHTLY-identity compatibility lane must not become a dependency of
+``publish-nightly``. Its target and the release signer pool (hosted Linux and
+one secret-free Mac job) start from this run's prepared app beside cmux NEXT's
+own signers. This run's own new build is signed as cmux NIGHTLY at the end of
+build-sign-notarize-nightly, on the same runner (Leo, 2026-11-05: "THERE
+SHOULDN'T BE 2"; it takes back #25957's sign after publication for that build,
+each copy step bounded by its own timeout and continuing on error). The separate
+macOS signer, for a continued submission or another run's build, still runs
+after the NEXT publication, and the old feed publishes only the build
+``publish-nightly`` published.
 """
 
 import re
@@ -32,14 +39,15 @@ def needs(job_text: str) -> str:
 failures = []
 publish = job("publish-nightly")
 publish_needs = needs(publish)
-compatibility_jobs = ("legacy-identity-target",)
+compatibility_jobs = ("legacy-identity-target", "sign-nightly-identity-legacy")
 
 for post_job in compatibility_jobs:
     if post_job in publish_needs:
-        failures.append(f"publish-nightly must not wait for post-publication job {post_job}")
-    post = job(post_job)
-    if "prepare-nightly-variant" not in needs(post):
-        failures.append(f"{post_job} must wait for the prepared NEXT artifact")
+        failures.append(f"publish-nightly must not wait for compatibility job {post_job}")
+if "prepare-nightly-variant" not in needs(job("legacy-identity-target")):
+    failures.append("legacy-identity-target must wait for the prepared NEXT artifact")
+if "publish-nightly" not in needs(job("sign-nightly-identity-legacy")):
+    failures.append("the macOS legacy signer (an owned signing Mac) must run after the primary NEXT publication")
 legacy = job("legacy-identity-target")
 if "build-nightly-app" not in needs(legacy):
     failures.append("legacy identity targeting must know the current build number")
@@ -64,9 +72,14 @@ if "CHANNEL_FEED_BASE/appcast-arm64.xml" not in delta or "live_build != NIGHTLY_
     failures.append("republish-nightly-deltas must skip unless the live NEXT appcast still serves this build")
 if "if: steps.current.outputs.current == 'true'" not in notes_publish:
     failures.append("publish-release-notes must skip stale notes after a newer publication")
+# Notes keep the publish lock (their writes have no compare-and-swap): publish-nightly's R2 lease,
+# taken before the live feed is read and released last (tests/test_nightly_delivery_concurrency.py).
+if ("    concurrency:\n" in notes_publish
+        or notes_publish.find("publish-lease.sh lock") < 0
+        or not notes_publish.find("publish-lease.sh lock") < notes_publish.find("id: current")
+        or "env: *next-publish-lease" not in notes_publish):
+    failures.append("publish-release-notes must hold publish-nightly's R2 lease, in no concurrency group")
 for writer, group in (
-    # Notes keep the publish lock: their writes have no compare-and-swap.
-    ("publish-release-notes", "release-publish-${{ needs.decide.outputs.release_tag }}"),
     # nightly-next: its own group (the feed write is a compare-and-swap); classic and RC keep the publish lock.
     ("republish-nightly-deltas", "release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
                                  "${{ needs.decide.outputs.release_tag }}"),
@@ -90,17 +103,29 @@ for downstream in ("sign-nightly-identity-legacy", "verify-nightly-identity-lega
 if "publish-nightly" not in needs(job("publish-nightly-identity-legacy")):
     failures.append("legacy identity publication must wait for successful NEXT publication")
 legacy_publish = job("publish-nightly-identity-legacy")
+
+
+def target(field: str) -> str:
+    """The publish reads the decision of whichever job signed: the main job's copy (legacy_ran) or legacy-identity-target."""
+    return (f"(needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && "
+            f"needs.build-sign-notarize-nightly.outputs.legacy_target_{field} || needs.legacy-identity-target.outputs.{field})")
+
+
 pause_exemption = "needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue'"
 if pause_exemption not in job("sign-nightly-identity-legacy"):
     failures.append("parallel identity signing must honor the notary pause except for accepted continuations")
-if pause_exemption not in legacy_publish:
+if f"needs.decide.outputs.notary_paused != 'true' || {target('action')} == 'continue'" not in legacy_publish:
     failures.append("parallel identity publication must honor the notary pause except for accepted continuations")
 if "needs.publish-nightly.outputs.refused != 'true'" not in legacy_publish:
     failures.append("legacy identity publication must stop when NEXT publication was refused")
-if "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" not in legacy_publish:
+if f"needs.publish-nightly.outputs.build == {target('build')}" not in legacy_publish:
     failures.append("legacy identity publication must match the exact NEXT build selected for the compatibility feed")
-if "needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue'" not in legacy_publish:
+if f"needs.publish-nightly.result == 'skipped' && {target('action')} == 'continue'" not in legacy_publish:
     failures.append("legacy identity continuation must remain available when publish-nightly is intentionally skipped")
+# Run 41126559170 (2026-10-30): the rescue's full re-runs skipped publish-nightly (the build was already on the
+# NEXT feed), so a legacy sign there could never publish. A target from the live feed publishes from any run.
+if f"|| {target('source_run')} == '')" not in legacy_publish:
+    failures.append("a legacy target from the live NEXT feed (source_run empty) must publish whatever this run's publish-nightly did")
 
 if failures:
     print("FAIL: NEXT post-publication dependency contract\n  " + "\n  ".join(failures))

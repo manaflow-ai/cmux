@@ -8,6 +8,7 @@ use crate::client::Client;
 use crate::rpc::method;
 use crate::secret_mcp::error_result;
 use anyhow::Result;
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 pub const SERVER_NAME: &str = "cmux-subsessions";
@@ -55,7 +56,7 @@ fn tools() -> Value {
     json!([
         {
             "name": "start_session",
-            "description": "Start a sub-session: a new agent session that works on a task in parallel with you, as your child. It is a normal session (it resumes, forks and lists like any other) and it may start its own sub-sessions. The user finds it listed under your chat in the chat list; to put its chat in front of them, open it with the cmux MCP server's app_agent_open and its sessionId. It starts with none of your context: the prompt must carry the whole task (files, goal, constraints, how to report). Returns at once with its sessionId while it works; use wait_for_sessions or get_session to read its result, send_message to steer it, stop_session to stop or close it. Limits: each session may have a limited number of open sub-sessions, a limited number running at once (maxRunning; a start past it is queued and starts by itself when a running one finishes), and nesting is limited in depth (list_sessions shows yours under self); a refused start says which limit and how to ask for more.",
+            "description": "Start a sub-session: a new agent session that works on a task in parallel with you, as your child. It is a normal session (it resumes, forks and lists like any other) and it may start its own sub-sessions. The user finds it listed under your chat in the chat list; to put its chat in front of them, open it with the cmux MCP server's app_agent_open and its sessionId. It starts with none of your context: the prompt must carry the whole task (files, goal, constraints, how to report). Returns at once with its sessionId while it works; use wait_for_sessions or get_session to read its result, send_message to steer it, stop_session to stop or close it. Limits: each session may have a limited number of live sub-sessions (running, waiting for input, or with a harness process alive; finished, dead and closed ones do not count), a limited number running at once (maxRunning; a start past it is queued and starts by itself when a running one finishes), and nesting is limited in depth (list_sessions shows yours under self); a refused start says which limit and how to ask for more.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -64,7 +65,7 @@ fn tools() -> Value {
                     "harness": {"type": "string", "description": "The agent to run it, e.g. claude or codex. Default: the same agent as yours."},
                     "model": {"type": "string", "description": "The model. Default: the agent's default."},
                     "cwd": {"type": "string", "description": "The folder it works in, as an absolute path. Default: yours. A folder the user has not trusted makes the call wait on a Trust / Not now card in your chat; Not now refuses it (do not ask again)."},
-                    "host": {"type": "string", "description": "Where it runs. A sub-session runs on this machine only. \"auto\" first checks that this machine has room for another agent, with acpmux's placement engine (the one `acpmux new --host auto` uses): free RAM, busy cores, free disk and this machine's lane limit, weighed by its own size and role. The result's placed line says why, e.g. \"placed on huge-blue: 31 GB RAM free, 15.7/32 cores busy, 400 GB disk free, room for 5\"; with no room it starts all the same and the placed line says it is past its room (load and lane limits only warn). \"auto-build\" checks the same for a build or a test run, which only a build machine takes: on a machine that takes no builds the start is refused and says why. Default: this machine, unchecked."},
+                    "host": {"type": "string", "description": "Where it runs. A sub-session runs on this machine only. \"auto\" first checks that this machine has room for another agent, with acpmux's placement engine (the one `acpmux new --machine auto` uses): free RAM, busy cores, free disk and this machine's lane limit, weighed by its own size and role. The result's placed line says why, e.g. \"placed on huge-blue: 31 GB RAM free, 15.7/32 cores busy, 400 GB disk free, room for 5\"; with no room it starts all the same and the placed line says it is past its room (load and lane limits only warn). \"auto-build\" checks the same for a build or a test run, which only a build machine takes: on a machine that takes no builds the start is refused and says why. Default: this machine, unchecked."},
                     "worktree": {"type": "boolean", "description": "Work in a new git worktree of that folder's repository (~/.cmux/worktrees/<project>/<name>, branch cmux/<name>), so its edits stay apart from yours until the user applies them. It starts in the same subfolder of the worktree as that folder. Its files are checked out as committed, without running the repository's hooks or filters (a Git LFS file stays its pointer)."}
                 },
                 "required": ["prompt"]
@@ -72,7 +73,7 @@ fn tools() -> Value {
         },
         {
             "name": "list_sessions",
-            "description": "List your sub-sessions with their live state (state working, input, failed or idle; doing: one line of what a working one does right now, its plan step and latest tool; queued: messages waiting for its turn to end; the last turn's outcome; open children) and your own limits: depth, open sub-sessions, maxChildren and maxDepth. Report a sub-session's progress from doing, not from status alone. waitingOn question or permission means it waits on the user: only the user allows a permission, in the app, so tell the user what it asks; a question you may answer with answer_question (see get_session's questions).",
+            "description": "List your sub-sessions with their live state (state working, input, failed or idle; doing: one line of what a working one does right now, its plan step and latest tool; queued: messages waiting for its turn to end; the last turn's outcome; live children) and your own limits: depth, live sub-sessions, maxChildren and maxDepth. A live child is running, waiting for input, or has a harness process alive; finished, dead and closed children do not count toward maxChildren. Report a sub-session's progress from doing, not from status alone. waitingOn question or permission means it waits on the user: only the user allows a permission, in the app, so tell the user what it asks; a question you may answer with answer_question (see get_session's questions).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -158,7 +159,7 @@ fn tools() -> Value {
         },
         {
             "name": "set_session_limits",
-            "description": "Set a sub-session's own limits (most open sub-sessions, most running at once, deepest nesting), at most your own limits. null clears a value (it then inherits yours). Read your own limits, and how many of your sub-sessions run or wait now, with list_sessions (self). You cannot raise your own limits: ask the user (they change them in cmux NEXT) or your parent session.",
+            "description": "Set a sub-session's own limits (most live sub-sessions, most running at once, deepest nesting), at most your own limits. A live child is running, waiting for input, or has a harness process alive; finished, dead and closed children do not count toward maxChildren. null clears a value (it then inherits yours). Read your own limits, and how many of your sub-sessions run or wait now, with list_sessions (self). You cannot raise your own limits: ask the user (they change them in cmux NEXT) or your parent session.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -266,7 +267,7 @@ async fn with_attachments(daemon: &Client, mut args: Value) -> Result<Value> {
         tracing::info!(session = %session, "{line}");
     })
     .await?;
-    args["attachments"] = Value::Array(blocks);
+    args.set("attachments", Value::Array(blocks));
     Ok(args)
 }
 
@@ -275,7 +276,7 @@ fn retry_params(args: &Value) -> Value {
     let session = args.get("session").or_else(|| args.get("sessionId"));
     let mut params = json!({"sessionId": session.cloned().unwrap_or(Value::Null)});
     if let Some(subagent) = args.get("subagent").filter(|v| !v.is_null()) {
-        params["subagentId"] = subagent.clone();
+        params.set("subagentId", subagent.clone());
     }
     params
 }
@@ -335,7 +336,9 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Err(e) => refusal(e),
         },
         "wait_for_sessions" => wait(daemon, &args).await,
-        other => error_result(format!("unknown tool: {other}")),
+        other => {
+            error_result(crate::mcp_hint::unknown_tool(other, crate::mcp_hint::names(&tools())))
+        }
     }
 }
 
@@ -464,7 +467,10 @@ mod tests {
             .expect("start_session host")
             .to_owned();
         assert!(host.contains("\"auto\"") && host.contains("\"auto-build\""), "{host}");
-        assert!(host.contains("acpmux new --host auto") && host.contains("placed on "), "{host}");
+        assert!(
+            host.contains("acpmux new --machine auto") && host.contains("placed on "),
+            "{host}"
+        );
         let placed = "placed on box: 40 GB RAM free, room for 4";
         let r = json!({"shortName": "t", "sessionId": "s", "depth": 1, "placed": placed});
         let text = started_text(&r);

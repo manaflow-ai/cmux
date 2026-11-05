@@ -59,14 +59,14 @@
         {
           "key": "agents.subsessions.maxChildren",
           "name": "subsessionsMaxChildren",
-          "note": "Open (not closed) sub-sessions one session may have at a time. A session or an ancestor can set a lower value for a subtree.",
+          "note": "Live sub-sessions (running, waiting for input, or with a harness process alive) one session may have at a time. Finished, dead and closed sub-sessions do not use a slot. A session or an ancestor can set a lower value for a subtree.",
           "title": {
             "key": "settings.agents.subsessions.maxChildren",
             "text": "Open Sub-sessions per Session"
           },
           "help": {
             "key": "settings.agents.subsessions.maxChildren.help",
-            "text": "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place."
+            "text": "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot."
           },
           "kind": "number",
           "range": {
@@ -75,7 +75,7 @@
             "step": 1,
             "unit": "count"
           },
-          "default": 50,
+          "default": 1000,
           "keywords": [
             "subagent",
             "sub-session",
@@ -104,7 +104,7 @@
             "step": 1,
             "unit": "count"
           },
-          "default": 16,
+          "default": 1000,
           "keywords": [
             "subagent",
             "sub-session",

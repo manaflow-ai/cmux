@@ -27,10 +27,10 @@ those defaults; they never invent a third model.
 
 | Key held | Split divider | Column edge |
 | --- | --- | --- |
-| none | trades between its two panes, soft snaps (8 pt) at 1/3, 1/2, 2/3 and the chain's equal share | grows or shrinks the column; the columns after it move |
+| none | trades between its two panes; follows the pointer in every frame and lands where it lets go (no snap, no fling snap) | grows or shrinks the column; the columns after it move |
 | Option | in a scrolling column: the column grows by the drag and the columns after it move; only the pane before the divider changes (niri's push) | trades width with the next column; the columns after it stay put |
 | Command | the panes on each side of the divider stay even (`layout.splitSizing` even, applied live) | every scrolling column takes this width (Finder's all-columns drag) |
-| Shift | lands only on a snap, at any distance | lands only on a preset width (1/3, 1/2, 2/3, full) |
+| Shift | follows the pointer; the release lands only on a snap (1/3, 1/2, 2/3, the chain's equal share), the nearest at any distance, on the release spring | follows the pointer; the release lands only on a preset width (1/3, 1/2, 2/3, full) |
 | Control | moves at a quarter of the pointer's speed, no snapping | same |
 
 - Command beats Option when both are held (one structural mode at a time). Control beats Shift.
@@ -39,13 +39,19 @@ those defaults; they never invent a third model.
 - Every frame derives its values from the drag's start, the pointer and the keys held now
   (`DividerDrag.apply`), so a key pressed or let go mid-drag switches the mode at once. A value the new
   mode stops setting goes back to its start (`LayoutModel.restoreGestureValues`) and is not sent.
+- No mode holds the divider still or makes it jump while the pointer moves (FRAME OWNER REFACTOR KEYS,
+  2026-11-03; Ghostty and Chrome have no soft snap): the old 8 pt soft snap held a divider that started on a
+  snap for 8 pt and then jumped (RESIZE KEYS films, #32988), and a fling landed on a snap the pointer never
+  reached. Shift's snap is the landing: while Shift is held the alignment haptic plays when the snap the
+  release would land on changes, and letting go of Shift before the release lands where the pointer is.
 - Control keeps a trail: letting it go leaves the divider where it is, not under the pointer.
 - Escape cancels the drag: every value goes back to the start, nothing reaches the daemon
   (`LayoutModel.cancelGesture`). The handle watches Escape and modifier keys with a local event
   monitor only between press and release.
 - While a key changes the drag, a toast at the bottom of the window names the mode
   ("⌥ Push: the column grows and moves the columns after it"); it names only modes that apply to the
-  handle and goes on release. The snap haptic (`.alignment`) plays as before.
+  handle and goes on release. While Shift is held, the snap haptic (`.alignment`) plays when the snap (or
+  preset width) the release would land on changes, on split dividers and column edges.
 - Double-click stays: a split divider evens its chain, a column edge steps to the next preset.
 - Row edges ignore the modifiers (their own fit-and-scroll rules, rows.md Z1).
 - Option on a vertical divider, a `splits` screen or a docked column has nothing to push: the drag is
@@ -68,7 +74,8 @@ column edge sends every column's width. Single-op atomicity for multi-value drag
 `DividerModifierDragTests` drives the real `DividerHandleView` (press, drags with flags,
 `flagsChanged`, `cancelOperation`, release) on a columns screen and a splits screen;
 `DividerResizeMathTests` checks the key map, the push across nested splits, the minimums, the trade
-and the uniform width.
+and the uniform width; `DividerDragFollowsPointerTests` checks that the divider is under the pointer in
+every move with no modifier and with Shift, and where each release lands.
 
 ## Later
 

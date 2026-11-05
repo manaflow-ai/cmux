@@ -1,6 +1,1187 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "chiefMove.running": {
+      "comment": "Move Chief To…: refusal while another move or rollback runs.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a Chief move or rollback is already running"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجري بالفعل نقل Chief أو التراجع عنه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "premještanje ili poništavanje za Chief je već u toku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "en flytning eller tilbagerulning af Chief kører allerede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "eine Verschiebung oder Rücknahme von Chief läuft bereits"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ya hay un traslado o una reversión de Chief en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "un déplacement ou une annulation de Chief est déjà en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "è già in corso uno spostamento o un annullamento di Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief の移動または取り消しがすでに実行中です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្លាស់ទី ឬការត្រឡប់ Chief វិញកំពុងដំណើរការរួចហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 이동 또는 되돌리기가 이미 진행 중입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "en flytting eller tilbakerulling av Chief pågår allerede"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "przenoszenie lub cofanie Chief już trwa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uma mudança ou reversão do Chief já está em andamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "перенос или отмена Chief уже выполняется"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังย้ายหรือย้อนกลับ Chief อยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bir Chief taşıma veya geri alma işlemi zaten sürüyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "перенесення або скасування Chief уже виконується"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "một lần chuyển hoặc hoàn tác Chief đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 的移动或回滚已在进行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 的移動或復原已在進行"
+          }
+        }
+      }
+    },
+    "chiefMove.notMoved": {
+      "comment": "Roll Back Chief Move: refusal when the Chief never moved off this Mac.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this Chief runs on this Mac: there is no move to roll back"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعمل هذا الـ Chief على هذا الـ Mac: لا يوجد نقل للتراجع عنه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ovaj Chief radi na ovom Macu: nema premještanja za poništiti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denne Chief kører på denne Mac: der er ingen flytning at rulle tilbage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dieser Chief läuft auf diesem Mac: es gibt keine Verschiebung zum Zurücknehmen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "este Chief se ejecuta en este Mac: no hay ningún traslado que revertir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ce Chief s’exécute sur ce Mac : aucun déplacement à annuler"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "questo Chief è in esecuzione su questo Mac: non c’è nessuno spostamento da annullare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Chief はこの Mac で動いています。元に戻す移動はありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief នេះដំណើរការលើ Mac នេះ៖ គ្មានការផ្លាស់ទីដើម្បីត្រឡប់វិញទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Chief는 이 Mac에서 실행 중입니다. 되돌릴 이동이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "denne Chief kjører på denne Macen: det finnes ingen flytting å rulle tilbake"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ten Chief działa na tym Macu: nie ma przeniesienia do cofnięcia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "este Chief executa neste Mac: não há mudança para reverter"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "этот Chief работает на этом Mac: отменять нечего"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief นี้ทำงานบน Mac เครื่องนี้: ไม่มีการย้ายให้ย้อนกลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bu Chief bu Mac’te çalışıyor: geri alınacak bir taşıma yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "цей Chief працює на цьому Mac: немає перенесення для скасування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief này chạy trên Máy Mac này: không có lần chuyển nào để hoàn tác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Chief 在此 Mac 上运行：没有可回滚的移动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Chief 在這台 Mac 上執行：沒有可復原的移動"
+          }
+        }
+      }
+    },
+    "settings.personGate.fullAccessReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "turn on Full access, so another machine's chats can edit files and run commands on this Mac without asking"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تشغيل الوصول الكامل، لتتمكن محادثات جهاز آخر من تعديل الملفات وتشغيل الأوامر على هذا الـ Mac دون أن تسأل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uključi Puni pristup, kako bi razgovori s drugog uređaja mogli uređivati datoteke i pokretati naredbe na ovom Macu bez pitanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "slå Fuld adgang til, så en anden maskines chats kan redigere filer og køre kommandoer på denne Mac uden at spørge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vollzugriff einschalten, damit die Chats eines anderen Geräts auf diesem Mac ohne Nachfrage Dateien bearbeiten und Befehle ausführen können"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "activar Acceso total, para que los chats de otra máquina puedan editar archivos y ejecutar comandos en este Mac sin preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "activer l’Accès complet, pour que les discussions d’une autre machine puissent modifier des fichiers et lancer des commandes sur ce Mac sans demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "attivare Accesso completo, così le chat di un'altra macchina possono modificare file ed eseguire comandi su questo Mac senza chiedere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "フルアクセスをオンにして、別のマシンのチャットが確認なしでこの Mac のファイルを編集しコマンドを実行できるようにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក​ការ​ចូល​ប្រើ​ពេញលេញ ដើម្បី​ឱ្យ​ការ​ជជែក​របស់​ម៉ាស៊ីន​ផ្សេង​អាច​កែ​ឯកសារ និង​ដំណើរការ​ពាក្យ​បញ្ជា​លើ Mac នេះ​ដោយ​មិន​សួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체 접근을 켜서 다른 기기의 채팅이 묻지 않고 이 Mac에서 파일을 편집하고 명령을 실행할 수 있게 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "slå på Full tilgang, så en annen maskins chatter kan redigere filer og kjøre kommandoer på denne Macen uten å spørre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "włączyć Pełny dostęp, aby czaty innej maszyny mogły edytować pliki i uruchamiać polecenia na tym Macu bez pytania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ativar o Acesso total, para que os chats de outra máquina possam editar arquivos e executar comandos neste Mac sem perguntar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "включить полный доступ, чтобы чаты другого компьютера могли без запроса изменять файлы и выполнять команды на этом Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดการเข้าถึงเต็มรูปแบบ เพื่อให้แชทของเครื่องอื่นแก้ไขไฟล์และเรียกใช้คำสั่งบน Mac เครื่องนี้ได้โดยไม่ต้องถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tam erişimi açmak; böylece başka bir makinenin sohbetleri bu Mac'te sormadan dosya düzenleyip komut çalıştırabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "увімкнути повний доступ, щоб чати іншого комп’ютера могли без запиту змінювати файли й виконувати команди на цьому Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bật Toàn quyền truy cập, để các cuộc trò chuyện của máy khác có thể sửa tệp và chạy lệnh trên máy Mac này mà không hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开“完全访问”，让另一台机器的聊天无需询问即可在这台 Mac 上编辑文件和运行命令"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟「完全存取」，讓另一台機器的聊天無需詢問即可在這台 Mac 上編輯檔案和執行指令"
+          }
+        }
+      }
+    },
+    "settings.personGate.vmHostReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "turn on Dedicated agent machine, so this Mac's chats run on that Cloud machine without the sandbox"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تشغيل جهاز الوكيل المخصص، لتعمل محادثات هذا الـ Mac على جهاز السحابة ذلك دون وضع الحماية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uključi Namjenski uređaj za agente, kako bi razgovori s ovog Maca radili na tom Cloud uređaju bez sandboxa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "slå Dedikeret agentmaskine til, så denne Macs chats kører på den Cloud-maskine uden sandkassen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dedizierte Agent-Maschine einschalten, damit die Chats dieses Macs auf dieser Cloud-Maschine ohne Sandbox laufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "activar Máquina dedicada a agentes, para que los chats de este Mac se ejecuten en esa máquina de Cloud sin el entorno aislado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "activer Machine dédiée aux agents, pour que les discussions de ce Mac s’exécutent sur cette machine Cloud sans le bac à sable"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "attivare Macchina dedicata agli agenti, così le chat di questo Mac girano su quella macchina Cloud senza sandbox"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "専用エージェントマシンをオンにして、この Mac のチャットがその Cloud マシン上でサンドボックスなしで動くようにする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក​ម៉ាស៊ីន​ភ្នាក់ងារ​ផ្ទាល់ ដើម្បី​ឱ្យ​ការ​ជជែក​របស់ Mac នេះ​ដំណើរការ​លើ​ម៉ាស៊ីន Cloud នោះ​ដោយ​គ្មាន​ប្រអប់​ខ្សាច់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전용 에이전트 머신을 켜서 이 Mac의 채팅이 해당 Cloud 머신에서 샌드박스 없이 실행되게 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "slå på Dedikert agentmaskin, så denne Macens chatter kjører på den Cloud-maskinen uten sandkassen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "włączyć Dedykowaną maszynę agentów, aby czaty tego Maca działały na tej maszynie Cloud bez piaskownicy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ativar Máquina dedicada a agentes, para que os chats deste Mac rodem nessa máquina do Cloud sem a sandbox"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "включить выделенную машину для агентов, чтобы чаты этого Mac работали на той облачной машине без песочницы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดเครื่องเอเจนต์เฉพาะ เพื่อให้แชทของ Mac เครื่องนี้ทำงานบนเครื่อง Cloud นั้นโดยไม่มีแซนด์บ็อกซ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayrılmış ajan makinesini açmak; böylece bu Mac'in sohbetleri o Cloud makinesinde korumalı alan olmadan çalışır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "увімкнути виділену машину для агентів, щоб чати цього Mac працювали на тій хмарній машині без пісочниці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bật Máy dành riêng cho agent, để các cuộc trò chuyện của máy Mac này chạy trên máy Cloud đó mà không có sandbox"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开“专用智能体机器”，让这台 Mac 的聊天在那台 Cloud 机器上不经沙盒运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟「專用代理機器」，讓這台 Mac 的聊天在那台 Cloud 機器上不經沙盒執行"
+          }
+        }
+      }
+    },
+    "remote.recovery.checkMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check Machine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فحص الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjeri mašinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrollér maskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschine prüfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprobar máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifier la machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifica macchina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンを確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យម៉ាស៊ីន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 확인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontroller maskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdź maszynę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificar máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверить машину"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makineyi kontrol et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірити машину"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểm tra máy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢查機器"
+          }
+        }
+      }
+    },
+    "remote.recovery.copyError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Error"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخ الخطأ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiraj grešku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiér fejl"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehler kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar error"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copier l’erreur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia errore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーをコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លងកំហុស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오류 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopier feil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiuj błąd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar erro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скопировать ошибку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คัดลอกข้อผิดพลาด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hatayı kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Копіювати помилку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sao chép lỗi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制错误"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製錯誤"
+          }
+        }
+      }
+    },
+    "remote.recovery.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokušaj ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reintentar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réessayer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព្យាយាមម្ដងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentar novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden dene"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спробувати ще раз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重試"
+          }
+        }
+      }
+    },
+    "remote.joined.checkStopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توقف التحقق قبل أن ينتهي. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Provjera je stala prije kraja. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tjekket stoppede, før det var færdigt. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Prüfung wurde vor dem Ende abgebrochen. Versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The check stopped before it finished. Try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La comprobación se detuvo antes de terminar. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La vérification s’est arrêtée avant la fin. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La verifica si è interrotta prima di finire. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "確認は完了前に停止しました。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការពិនិត្យបានឈប់មុនពេលបញ្ចប់។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "확인이 끝나기 전에 멈췄습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sjekken stoppet før den var ferdig. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprawdzanie zatrzymało się przed końcem. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A verificação parou antes de terminar. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Проверка остановилась, не завершившись. Повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตรวจสอบหยุดก่อนเสร็จ ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denetim bitmeden durdu. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перевірка зупинилася, не завершившись. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quá trình kiểm tra đã dừng trước khi xong. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "检查在完成前停止了。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "檢查在完成前停止了。請再試一次。"
+          }
+        }
+      }
+    },
+    "remote.joined.signInToCheck": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل الدخول إلى cmux للتحقق من هذا الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijavite se na cmux da provjerite ovaj računar."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log ind på cmux for at tjekke denne maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melde dich bei cmux an, um diesen Rechner zu prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux to check this machine."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicia sesión en cmux para comprobar este equipo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connectez-vous à cmux pour vérifier cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accedi a cmux per verificare questo computer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このマシンを確認するには cmux にサインインしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលគណនី cmux ដើម្បីពិនិត្យម៉ាស៊ីននេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 컴퓨터를 확인하려면 cmux에 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg på cmux for å sjekke denne maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaloguj się do cmux, aby sprawdzić ten komputer."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entre no cmux para verificar esta máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Войдите в cmux, чтобы проверить этот компьютер."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้ cmux เพื่อตรวจสอบเครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu makineyi denetlemek için cmux'a giriş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увійдіть у cmux, щоб перевірити цей комп’ютер."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng nhập cmux để kiểm tra máy này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录 cmux 以检查此机器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入 cmux 以檢查此機器。"
+          }
+        }
+      }
+    },
     "remote.button.connect": {
       "extractionState": "manual",
       "localizations": {
@@ -662,127 +1843,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No SSH machine is selected. Right-click a machine or pass --machine <name>."
+            "value": "No SSH machine is selected. Choose Connect to Machine in the command palette, or pass --machine <name>."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لم يُحدَّد جهاز SSH. انقر بزر الماوس الأيمن على جهاز أو مرّر ‎--machine <name>‎."
+            "state": "translated",
+            "value": "لم يُحدَّد جهاز SSH. اختر «الاتصال بجهاز» في لوحة الأوامر، أو مرّر ‎--machine <name>‎."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nije odabrana SSH mašina. Kliknite desnim klikom na mašinu ili proslijedite --machine <name>."
+            "state": "translated",
+            "value": "Nije odabrana SSH mašina. Odaberite „Poveži se s mašinom“ u paleti naredbi ili proslijedite --machine <name>."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen SSH-maskine er valgt. Højreklik på en maskine, eller angiv --machine <name>."
+            "state": "translated",
+            "value": "Ingen SSH-maskine er valgt. Vælg „Forbind til maskine“ i kommandopaletten, eller angiv --machine <name>."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Keine SSH-Maschine ausgewählt. Klicke eine Maschine mit rechts an oder gib --machine <name> an."
+            "state": "translated",
+            "value": "Keine SSH-Maschine ausgewählt. Wähle „Mit Maschine verbinden“ in der Befehlspalette oder gib --machine <name> an."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No hay ninguna máquina SSH seleccionada. Haz clic derecho en una máquina o pasa --machine <name>."
+            "state": "translated",
+            "value": "No hay ninguna máquina SSH seleccionada. Elige «Conectar a una máquina» en la paleta de comandos o pasa --machine <name>."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucune machine SSH n’est sélectionnée. Cliquez sur une machine avec le bouton droit ou passez --machine <name>."
+            "state": "translated",
+            "value": "Aucune machine SSH n’est sélectionnée. Choisissez « Se connecter à une machine » dans la palette de commandes ou passez --machine <name>."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessuna macchina SSH selezionata. Fai clic destro su una macchina o passa --machine <name>."
+            "state": "translated",
+            "value": "Nessuna macchina SSH selezionata. Scegli «Connetti a una macchina» nella tavolozza dei comandi oppure passa --machine <name>."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH マシンが選択されていません。マシンを右クリックするか、--machine <name> を指定してください。"
+            "state": "translated",
+            "value": "SSH マシンが選択されていません。コマンドパレットで「マシンに接続」を選択するか、--machine <name> を指定してください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនបានជ្រើសម៉ាស៊ីន SSH ទេ។ ចុចស្ដាំលើម៉ាស៊ីន ឬផ្ដល់ --machine <name>។"
+            "state": "translated",
+            "value": "មិនបានជ្រើសរើសម៉ាស៊ីន SSH ទេ។ ជ្រើសរើស «ភ្ជាប់ទៅម៉ាស៊ីន» ក្នុងផ្ទាំងពាក្យបញ្ជា ឬបញ្ជូន --machine <name>។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "선택된 SSH 머신이 없습니다. 머신을 오른쪽 클릭하거나 --machine <name>을 전달하세요."
+            "state": "translated",
+            "value": "선택된 SSH 머신이 없습니다. 명령 팔레트에서 ‘머신에 연결’을 선택하거나 --machine <name>을 전달하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingen SSH-maskin er valgt. Høyreklikk på en maskin, eller angi --machine <name>."
+            "state": "translated",
+            "value": "Ingen SSH-maskin er valgt. Velg «Koble til maskin» i kommandopaletten, eller oppgi --machine <name>."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie wybrano maszyny SSH. Kliknij maszynę prawym przyciskiem lub podaj --machine <name>."
+            "state": "translated",
+            "value": "Nie wybrano maszyny SSH. Wybierz „Połącz z maszyną” z palety poleceń lub przekaż --machine <name>."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nenhuma máquina SSH selecionada. Clique com o botão direito em uma máquina ou passe --machine <name>."
+            "state": "translated",
+            "value": "Nenhuma máquina SSH está selecionada. Escolha “Conectar a uma máquina” na paleta de comandos ou passe --machine <name>."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH-машина не выбрана. Щёлкните машину правой кнопкой или передайте --machine <name>."
+            "state": "translated",
+            "value": "Машина SSH не выбрана. Выберите «Подключиться к машине» в палитре команд или передайте --machine <name>."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังไม่ได้เลือกเครื่อง SSH คลิกขวาที่เครื่องหรือระบุ --machine <name>"
+            "state": "translated",
+            "value": "ยังไม่ได้เลือกเครื่อง SSH เลือก “เชื่อมต่อเครื่อง” ในแผงคำสั่ง หรือส่ง --machine <name>"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH makinesi seçili değil. Bir makineye sağ tıklayın ya da --machine <name> verin."
+            "state": "translated",
+            "value": "SSH makinesi seçilmedi. Komut paletinden “Makineye bağlan” seçeneğini seçin veya --machine <name> ile belirtin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "SSH-машину не вибрано. Клацніть машину правою кнопкою або передайте --machine <name>."
+            "state": "translated",
+            "value": "Машину SSH не вибрано. Виберіть «Під’єднатися до машини» на палітрі команд або передайте --machine <name>."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chưa chọn máy SSH. Nhấp chuột phải vào một máy hoặc truyền --machine <name>."
+            "state": "translated",
+            "value": "Chưa chọn máy SSH. Chọn “Kết nối tới máy” trong bảng lệnh hoặc truyền --machine <name>."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未选择 SSH 机器。请右键点按机器，或传入 --machine <name>。"
+            "state": "translated",
+            "value": "未选择 SSH 机器。请在命令面板中选择“连接到机器”，或传入 --machine <name>。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未選擇 SSH 機器。請按右鍵點選機器，或傳入 --machine <name>。"
+            "state": "translated",
+            "value": "未選擇 SSH 機器。請在命令面板中選擇「連線到機器」，或傳入 --machine <name>。"
           }
         }
       }
@@ -3020,127 +4201,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The cmux-tui there speaks link protocol %1$d; this app needs %2$d. Install cmux-tui to update it."
+            "value": "The cmux-tui there is a different version than this app uses (%1$d, not %2$d). Install cmux-tui to update it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يستخدم cmux-tui هناك بروتوكول الربط %1$d؛ يحتاج هذا التطبيق إلى %2$d. ثبّت cmux-tui لتحديثه."
+            "value": "إصدار cmux-tui هناك مختلف عن الإصدار الذي يستخدمه هذا التطبيق (%1$d، وليس %2$d). ثبّت cmux-tui لتحديثه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui tamo koristi protokol veze %1$d; ova aplikacija treba %2$d. Instalirajte cmux-tui da ga ažurirate."
+            "value": "cmux-tui tamo je drugačije verzije od one koju ova aplikacija koristi (%1$d, a ne %2$d). Instalirajte cmux-tui da ga ažurirate."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui der bruger linkprotokol %1$d; denne app kræver %2$d. Installér cmux-tui for at opdatere den."
+            "value": "cmux-tui derovre er en anden version end den, appen bruger (%1$d, ikke %2$d). Installer cmux-tui for at opdatere den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das cmux-tui dort spricht Link-Protokoll %1$d; diese App braucht %2$d. Installiere cmux-tui, um es zu aktualisieren."
+            "value": "Das cmux-tui dort ist eine andere Version, als diese App nutzt (%1$d statt %2$d). Installiere cmux-tui, um es zu aktualisieren."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El cmux-tui de allí usa el protocolo de enlace %1$d; esta app necesita el %2$d. Instala cmux-tui para actualizarlo."
+            "value": "El cmux-tui de allí es una versión distinta de la que usa esta app (%1$d, no %2$d). Instala cmux-tui para actualizarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le cmux-tui présent parle le protocole de liaison %1$d ; cette app a besoin du %2$d. Installez cmux-tui pour le mettre à jour."
+            "value": "Le cmux-tui de cette machine n’est pas la version qu’utilise cette app (%1$d au lieu de %2$d). Installez cmux-tui pour le mettre à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il cmux-tui lì usa il protocollo di collegamento %1$d; questa app richiede il %2$d. Installa cmux-tui per aggiornarlo."
+            "value": "Il cmux-tui lì è una versione diversa da quella usata da questa app (%1$d, non %2$d). Installa cmux-tui per aggiornarlo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "そこの cmux-tui はリンクプロトコル %1$d を使っています。このアプリには %2$d が必要です。更新するには cmux-tui をインストールしてください。"
+            "value": "そこの cmux-tui はこのアプリが使うバージョンと異なります（%1$d、必要なのは %2$d）。cmux-tui をインストールして更新してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui នៅទីនោះប្រើពិធីការតភ្ជាប់ %1$d ប៉ុន្តែកម្មវិធីនេះត្រូវការ %2$d។ ដំឡើង cmux-tui ដើម្បីធ្វើបច្ចុប្បន្នភាព។"
+            "value": "cmux-tui នៅទីនោះជាកំណែខុសពីកំណែដែលកម្មវិធីនេះប្រើ (%1$d មិនមែន %2$d)។ ដំឡើង cmux-tui ដើម្បីអាប់ដេតវា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "그곳의 cmux-tui는 링크 프로토콜 %1$d을(를) 사용합니다. 이 앱은 %2$d이(가) 필요합니다. 업데이트하려면 cmux-tui를 설치하세요."
+            "value": "그곳의 cmux-tui는 이 앱이 쓰는 버전과 다릅니다(%1$d, 필요한 버전 %2$d). cmux-tui를 설치해 업데이트하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui der bruker lenkeprotokoll %1$d; denne appen trenger %2$d. Installer cmux-tui for å oppdatere den."
+            "value": "cmux-tui der er en annen versjon enn den appen bruker (%1$d, ikke %2$d). Installer cmux-tui for å oppdatere den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tamtejszy cmux-tui używa protokołu łącza %1$d; ta aplikacja wymaga %2$d. Zainstaluj cmux-tui, aby go zaktualizować."
+            "value": "cmux-tui tam ma inną wersję niż ta, której używa aplikacja (%1$d zamiast %2$d). Zainstaluj cmux-tui, aby go zaktualizować."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux-tui lá usa o protocolo de link %1$d; este app precisa do %2$d. Instale o cmux-tui para atualizá-lo."
+            "value": "O cmux-tui lá é uma versão diferente da que este app usa (%1$d, não %2$d). Instale o cmux-tui para atualizá-lo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui там использует протокол связи %1$d; этому приложению нужен %2$d. Установите cmux-tui, чтобы обновить его."
+            "value": "cmux-tui там другой версии, чем использует это приложение (%1$d вместо %2$d). Установите cmux-tui, чтобы обновить его."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui ที่นั่นใช้โปรโตคอลลิงก์ %1$d แต่แอปนี้ต้องการ %2$d ติดตั้ง cmux-tui เพื่ออัปเดต"
+            "value": "cmux-tui ที่นั่นเป็นเวอร์ชันต่างจากที่แอปนี้ใช้ (%1$d ไม่ใช่ %2$d) ติดตั้ง cmux-tui เพื่ออัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oradaki cmux-tui %1$d bağlantı protokolünü kullanıyor; bu uygulama %2$d gerektiriyor. Güncellemek için cmux-tui kurun."
+            "value": "Oradaki cmux-tui, bu uygulamanın kullandığından farklı bir sürüm (%2$d değil, %1$d). Güncellemek için cmux-tui'yi yükleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui там використовує протокол зв’язку %1$d; цьому застосунку потрібен %2$d. Установіть cmux-tui, щоб оновити його."
+            "value": "cmux-tui там іншої версії, ніж використовує цей застосунок (%1$d замість %2$d). Установіть cmux-tui, щоб оновити його."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui ở đó dùng giao thức liên kết %1$d; ứng dụng này cần %2$d. Cài cmux-tui để cập nhật."
+            "value": "cmux-tui ở đó khác phiên bản ứng dụng này dùng (%1$d, không phải %2$d). Hãy cài cmux-tui để cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "那里的 cmux-tui 使用链路协议 %1$d；此应用需要 %2$d。请安装 cmux-tui 进行更新。"
+            "value": "那里的 cmux-tui 与此应用使用的版本不同（%1$d，而非 %2$d）。请安装 cmux-tui 以更新。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "那裡的 cmux-tui 使用連結協定 %1$d；此 App 需要 %2$d。請安裝 cmux-tui 進行更新。"
+            "value": "那裡的 cmux-tui 與此 App 使用的版本不同（%1$d，而非 %2$d）。請安裝 cmux-tui 以更新。"
           }
         }
       }
@@ -6420,137 +7601,6 @@
         }
       }
     },
-    "remote.status.daemonFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-tui on the machine did not start: %@ Choose Copy SSH Error for the full text."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لم يبدأ cmux-tui على الجهاز: %@ اختر نسخ خطأ SSH للحصول على النص الكامل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui na mašini se nije pokrenuo: %@ Odaberite Kopiraj SSH grešku za cijeli tekst."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui på maskinen startede ikke: %@ Vælg Kopiér SSH-fejl for at få hele teksten."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui auf dem Rechner wurde nicht gestartet: %@ Wähle „SSH-Fehler kopieren“ für den vollständigen Text."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui no se inició en la máquina: %@ Elige Copiar error de SSH para ver el texto completo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui n’a pas démarré sur la machine : %@ Choisissez Copier l’erreur SSH pour le texte complet."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui non si è avviato sulla macchina: %@ Scegli Copia errore SSH per il testo completo."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マシン上の cmux-tui が起動しませんでした: %@ 全文は「SSH エラーをコピー」で取得できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui នៅលើម៉ាស៊ីនមិនបានចាប់ផ្ដើមទេ៖ %@ ជ្រើស ចម្លងកំហុស SSH ដើម្បីបានអត្ថបទពេញ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "머신의 cmux-tui가 시작되지 않았습니다: %@ 전체 내용은 SSH 오류 복사를 선택하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui på maskinen startet ikke: %@ Velg Kopier SSH-feil for hele teksten."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui na maszynie nie uruchomił się: %@ Wybierz Kopiuj błąd SSH, aby uzyskać pełny tekst."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O cmux-tui na máquina não iniciou: %@ Escolha Copiar Erro de SSH para ver o texto completo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui на машине не запустился: %@ Выберите «Копировать ошибку SSH», чтобы получить полный текст."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui บนเครื่องไม่เริ่มทำงาน: %@ เลือก คัดลอกข้อผิดพลาด SSH เพื่อดูข้อความทั้งหมด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Makinedeki cmux-tui başlamadı: %@ Tam metin için SSH Hatasını Kopyala'yı seçin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui на машині не запустився: %@ Виберіть «Копіювати помилку SSH», щоб отримати повний текст."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-tui trên máy không khởi động: %@ Chọn Sao chép lỗi SSH để lấy toàn bộ nội dung."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "机器上的 cmux-tui 未能启动：%@ 选择“复制 SSH 错误”获取完整文本。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "機器上的 cmux-tui 未能啟動：%@ 選擇「複製 SSH 錯誤」取得完整文字。"
-          }
-        }
-      }
-    },
     "remote.browser.runsOnThisMac": {
       "extractionState": "manual",
       "localizations": {
@@ -8260,127 +9310,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux-tui on %@ is too old for browser tabs. Update it, then try again."
+            "value": "cmux on %@ is too old for browser tabs. Update it, then try again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إصدار cmux-tui على %@ قديم جدًا لعلامات تبويب المتصفح. حدّثه ثم حاول مرة أخرى."
+            "value": "إصدار cmux على %@ قديم جدًا لعلامات تبويب المتصفح. حدّثه، ثم أعد المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na %@ je prestar za kartice preglednika. Ažurirajte ga, pa pokušajte ponovo."
+            "value": "cmux na %@ je prestar za kartice preglednika. Ažurirajte ga, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på %@ er for gammel til browserfaner. Opdater den, og prøv igen."
+            "value": "cmux på %@ er for gammel til browserfaner. Opdater den, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui auf %@ ist zu alt für Browser-Tabs. Aktualisiere es und versuche es erneut."
+            "value": "cmux auf %@ ist zu alt für Browser-Tabs. Aktualisiere es und versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui en %@ es demasiado antiguo para las pestañas del navegador. Actualízalo y vuelve a intentarlo."
+            "value": "cmux en %@ es demasiado antiguo para pestañas del navegador. Actualízalo y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui sur %@ est trop ancien pour les onglets de navigateur. Mettez-le à jour, puis réessayez."
+            "value": "cmux sur %@ est trop ancien pour les onglets de navigateur. Mettez-le à jour, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui su %@ è troppo vecchio per le schede del browser. Aggiornalo, poi riprova."
+            "value": "cmux su %@ è troppo vecchio per le schede del browser. Aggiornalo, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ の cmux-tui は古いため、ブラウザタブを使えません。更新してから、もう一度お試しください。"
+            "value": "%@ の cmux はブラウザタブには古すぎます。アップデートしてから再試行してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ សូមធ្វើបច្ចុប្បន្នភាព រួចព្យាយាមម្តងទៀត។"
+            "value": "cmux នៅលើ %@ ចាស់ពេកសម្រាប់ផ្ទាំងកម្មវិធីរុករក។ អាប់ដេតវា រួចព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@의 cmux-tui가 너무 오래되어 브라우저 탭을 사용할 수 없습니다. 업데이트한 후 다시 시도하세요."
+            "value": "%@의 cmux는 브라우저 탭을 쓰기에 너무 오래되었습니다. 업데이트한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui på %@ er for gammel for nettleserfaner. Oppdater den, og prøv igjen."
+            "value": "cmux på %@ er for gammel for nettleserfaner. Oppdater den, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui na %@ jest za stary na karty przeglądarki. Zaktualizuj go i spróbuj ponownie."
+            "value": "cmux na %@ jest za stary na karty przeglądarki. Zaktualizuj go, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux-tui em %@ é antigo demais para abas do navegador. Atualize-o e tente novamente."
+            "value": "O cmux em %@ é antigo demais para abas do navegador. Atualize-o e tente de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на %@ слишком старый для вкладок браузера. Обновите его и повторите попытку."
+            "value": "cmux на %@ слишком старый для вкладок браузера. Обновите его и повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ อัปเดตแล้วลองอีกครั้ง"
+            "value": "cmux บน %@ เก่าเกินไปสำหรับแท็บเบราว์เซอร์ อัปเดตแล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ üzerindeki cmux-tui, tarayıcı sekmeleri için çok eski. Güncelleyip yeniden deneyin."
+            "value": "%@ üzerindeki cmux tarayıcı sekmeleri için çok eski. Güncelleyin, sonra yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui на %@ застарий для вкладок браузера. Оновіть його та спробуйте ще раз."
+            "value": "cmux на %@ застарий для вкладок браузера. Оновіть його і спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux-tui trên %@ quá cũ cho các thẻ trình duyệt. Hãy cập nhật rồi thử lại."
+            "value": "cmux trên %@ quá cũ cho thẻ trình duyệt. Hãy cập nhật rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 上的 cmux-tui 版本过旧，无法使用浏览器标签页。请更新后重试。"
+            "value": "%@ 上的 cmux 太旧，无法使用浏览器标签页。请更新后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 上的 cmux-tui 版本過舊，無法使用瀏覽器分頁。請更新後再試一次。"
+            "value": "%@ 上的 cmux 太舊，無法使用瀏覽器分頁。請更新後再試。"
           }
         }
       }
@@ -8778,661 +9828,6 @@
         }
       }
     },
-    "chiefMove.failedTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief did not move to %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "لم يُنقل Chief إلى %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief nije premješten na %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief blev ikke flyttet til %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief wurde nicht nach %@ verschoben"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief no se movió a %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief n’a pas été déplacé vers %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief non è stato spostato su %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief を %@ に移動できませんでした"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មិនបានផ្លាស់ទី Chief ទៅ %@ ទេ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief를 %@(으)로 이동하지 못했습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief ble ikke flyttet til %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nie przeniesiono Chief do %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief não foi movido para %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief не перенесён на %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ย้าย Chief ไปที่ %@ ไม่สำเร็จ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief %@ konumuna taşınamadı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief не перенесено на %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Không chuyển được Chief sang %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief 未能移至 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief 未能移至 %@"
-          }
-        }
-      }
-    },
-    "chiefMove.doneTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief moved to %@"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نُقل Chief إلى %@"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief je premješten na %@"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief er flyttet til %@"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief nach %@ verschoben"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief se movió a %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief a été déplacé vers %@"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief spostato su %@"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief を %@ に移動しました"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បានផ្លាស់ទី Chief ទៅ %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief를 %@(으)로 이동했습니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief er flyttet til %@"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przeniesiono Chief do %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief movido para %@"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief перенесён на %@"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ย้าย Chief ไปที่ %@ แล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief %@ konumuna taşındı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief перенесено на %@"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Đã chuyển Chief sang %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief 已移至 %@"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief 已移至 %@"
-          }
-        }
-      }
-    },
-    "chiefMove.confirmTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move Chief to %@?"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نقل Chief إلى %@؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Premjestiti Chief na %@?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flyt Chief til %@?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief nach %@ verschieben?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "¿Mover Chief a %@?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Déplacer Chief vers %@ ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spostare Chief su %@?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief を %@ に移動しますか？"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្លាស់ទី Chief ទៅ %@ ឬ?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief를 %@(으)로 이동할까요?"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flytte Chief til %@?"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przenieść Chief do %@?"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mover Chief para %@?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перенести Chief на %@?"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ย้าย Chief ไปที่ %@ ไหม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chief %@ konumuna taşınsın mı?"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перенести Chief на %@?"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chuyển Chief sang %@?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将 Chief 移至 %@？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "將 Chief 移至 %@？"
-          }
-        }
-      }
-    },
-    "chiefMove.signIn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (sign in first)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (سجّل الدخول أولًا)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (prvo se prijavite)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (log ind først)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (zuerst anmelden)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (inicia sesión primero)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (connectez-vous d’abord)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (accedi prima)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (先にサインイン)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (ចូលគណនីជាមុនសិន)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (먼저 로그인)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (logg inn først)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (najpierw się zaloguj)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (entre primeiro)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (сначала войдите)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (ลงชื่อเข้าใช้ก่อน)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (önce oturum açın)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (спершу увійдіть)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (hãy đăng nhập trước)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@（请先登录）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@（請先登入）"
-          }
-        }
-      }
-    },
-    "chiefMove.offline": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (offline)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (غير متصل)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (van mreže)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (offline)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (offline)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (sin conexión)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (hors ligne)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (offline)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (オフライン)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (គ្មានអ៊ីនធឺណិត)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (오프라인)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (frakoblet)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (offline)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (offline)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (не в сети)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (ออฟไลน์)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (çevrimdışı)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (не в мережі)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (ngoại tuyến)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@（离线）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@（離線）"
-          }
-        }
-      }
-    },
     "chiefMove.unknownTarget": {
       "extractionState": "manual",
       "localizations": {
@@ -9822,268 +10217,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "找不到內建的 cmux CLI"
-          }
-        }
-      }
-    },
-    "chiefMove.move": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نقل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Premjesti"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flyt"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verschieben"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mover"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Déplacer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sposta"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移動"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ផ្លាស់ទី"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이동"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Flytt"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przenieś"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mover"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перенести"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ย้าย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Taşı"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перенести"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chuyển"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移动"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移動"
-          }
-        }
-      }
-    },
-    "chiefMove.cloud": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud"
           }
         }
       }
@@ -11132,137 +11265,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增遠端群組"
-          }
-        }
-      }
-    },
-    "chiefMove.noSSHRoute": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (no SSH route)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (لا يوجد مسار SSH)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (nema SSH rute)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (ingen SSH-rute)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (keine SSH-Route)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (sin ruta SSH)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (aucune route SSH)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (nessuna route SSH)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@（SSH 経路なし）"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (គ្មានផ្លូវ SSH)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (SSH 경로 없음)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (ingen SSH-rute)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (brak trasy SSH)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (sem rota SSH)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (нет маршрута SSH)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (ไม่มีเส้นทาง SSH)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (SSH yolu yok)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (немає маршруту SSH)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ (không có tuyến SSH)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@（无 SSH 路径）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@（無 SSH 路徑）"
           }
         }
       }
@@ -12573,6 +12575,399 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "比例 %@ 必須是 0 到 1 之間的數字。"
+          }
+        }
+      }
+    },
+    "remote.failure.cause": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux on %1$@ stopped: %2$@. Choose Copy Error for the details."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقف cmux على %1$@: %2$@. اختر «نسخ الخطأ» للاطلاع على التفاصيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux na %1$@ je stao: %2$@. Odaberite Kopiraj grešku za detalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux på %1$@ stoppede: %2$@. Vælg Kopiér fejl for detaljer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux auf %1$@ wurde beendet: %2$@. Wähle „Fehler kopieren“ für die Details."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux en %1$@ se detuvo: %2$@. Elige Copiar error para ver los detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sur %1$@ s’est arrêté : %2$@. Choisissez Copier l’erreur pour les détails."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux su %1$@ si è fermato: %2$@. Scegli Copia errore per i dettagli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ の cmux が停止しました: %2$@。詳細は「エラーをコピー」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux នៅលើ %1$@ បានឈប់៖ %2$@។ ជ្រើស ចម្លងកំហុស ដើម្បីមើលព័ត៌មានលម្អិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@의 cmux가 중지됨: %2$@. 자세한 내용은 오류 복사를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux på %1$@ stoppet: %2$@. Velg Kopier feil for detaljer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux na %1$@ zatrzymał się: %2$@. Wybierz Kopiuj błąd, aby zobaczyć szczegóły."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux em %1$@ parou: %2$@. Escolha Copiar erro para ver os detalhes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux на %1$@ остановился: %2$@. Выберите «Скопировать ошибку», чтобы увидеть подробности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux บน %1$@ หยุดทำงาน: %2$@ เลือก คัดลอกข้อผิดพลาด เพื่อดูรายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ üzerindeki cmux durdu: %2$@. Ayrıntılar için Hatayı Kopyala'yı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux на %1$@ зупинився: %2$@. Виберіть «Скопіювати помилку», щоб побачити подробиці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux trên %1$@ đã dừng: %2$@. Chọn Sao chép lỗi để xem chi tiết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上的 cmux 已停止：%2$@。选择“拷贝错误”以查看详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上的 cmux 已停止：%2$@。選擇「拷貝錯誤」以查看詳細資訊。"
+          }
+        }
+      }
+    },
+    "remote.failure.sessionInUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another cmux on %1$@ holds this session. Update cmux on %1$@, then choose Retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نسخة أخرى من cmux على %1$@ تستخدم هذه الجلسة. حدّث cmux على %1$@ ثم اختر «إعادة المحاولة»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drugi cmux na %1$@ koristi ovu sesiju. Ažurirajte cmux na %1$@, pa odaberite Pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En anden cmux på %1$@ bruger denne session. Opdater cmux på %1$@, og vælg derefter Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein anderes cmux auf %1$@ belegt diese Sitzung. Aktualisiere cmux auf %1$@ und wähle dann „Erneut versuchen“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otro cmux en %1$@ está usando esta sesión. Actualiza cmux en %1$@ y luego elige Reintentar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un autre cmux sur %1$@ utilise cette session. Mettez à jour cmux sur %1$@, puis choisissez Réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un altro cmux su %1$@ sta usando questa sessione. Aggiorna cmux su %1$@, poi scegli Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ の別の cmux がこのセッションを使用しています。%1$@ の cmux をアップデートしてから「再試行」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ផ្សេងទៀតនៅលើ %1$@ កំពុងប្រើវគ្គនេះ។ ធ្វើបច្ចុប្បន្នភាព cmux នៅលើ %1$@ រួចជ្រើស ព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@의 다른 cmux가 이 세션을 사용 중입니다. %1$@의 cmux를 업데이트한 다음 재시도를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En annen cmux på %1$@ bruker denne økten. Oppdater cmux på %1$@, og velg deretter Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inny cmux na %1$@ używa tej sesji. Zaktualizuj cmux na %1$@, a następnie wybierz Ponów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outro cmux em %1$@ está usando esta sessão. Atualize o cmux em %1$@ e escolha Tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Другой cmux на %1$@ занял этот сеанс. Обновите cmux на %1$@, затем выберите «Повторить»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux อีกตัวบน %1$@ กำลังใช้เซสชันนี้ อัปเดต cmux บน %1$@ แล้วเลือก ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ üzerindeki başka bir cmux bu oturumu kullanıyor. %1$@ üzerindeki cmux'u güncelleyin, ardından Yeniden Dene'yi seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інший cmux на %1$@ використовує цей сеанс. Оновіть cmux на %1$@, потім виберіть «Повторити»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một cmux khác trên %1$@ đang dùng phiên này. Cập nhật cmux trên %1$@, rồi chọn Thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上的另一个 cmux 正在使用此会话。请更新 %1$@ 上的 cmux，然后选择“重试”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上的另一個 cmux 正在使用此工作階段。請更新 %1$@ 上的 cmux，然後選擇「重試」。"
+          }
+        }
+      }
+    },
+    "remote.failure.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux on %@ stopped. Choose Copy Error for the details."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقف cmux على %@. اختر «نسخ الخطأ» للاطلاع على التفاصيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux na %@ je stao. Odaberite Kopiraj grešku za detalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux på %@ stoppede. Vælg Kopiér fejl for detaljer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux auf %@ wurde beendet. Wähle „Fehler kopieren“ für die Details."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux en %@ se detuvo. Elige Copiar error para ver los detalles."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux sur %@ s’est arrêté. Choisissez Copier l’erreur pour les détails."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux su %@ si è fermato. Scegli Copia errore per i dettagli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の cmux が停止しました。詳細は「エラーをコピー」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux នៅលើ %@ បានឈប់។ ជ្រើស ចម្លងកំហុស ដើម្បីមើលព័ត៌មានលម្អិត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 cmux가 중지되었습니다. 자세한 내용은 오류 복사를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux på %@ stoppet. Velg Kopier feil for detaljer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux na %@ zatrzymał się. Wybierz Kopiuj błąd, aby zobaczyć szczegóły."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux em %@ parou. Escolha Copiar erro para ver os detalhes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux на %@ остановился. Выберите «Скопировать ошибку», чтобы увидеть подробности."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux บน %@ หยุดทำงาน เลือก คัดลอกข้อผิดพลาด เพื่อดูรายละเอียด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ üzerindeki cmux durdu. Ayrıntılar için Hatayı Kopyala'yı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux на %@ зупинився. Виберіть «Скопіювати помилку», щоб побачити подробиці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux trên %@ đã dừng. Chọn Sao chép lỗi để xem chi tiết."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 cmux 已停止。选择“拷贝错误”以查看详细信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 上的 cmux 已停止。選擇「拷貝錯誤」以查看詳細資訊。"
           }
         }
       }

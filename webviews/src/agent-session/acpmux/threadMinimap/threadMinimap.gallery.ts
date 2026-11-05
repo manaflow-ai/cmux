@@ -224,6 +224,10 @@ export default agentPaneEntry({
         await ctx.waitFor(() => (card?.getBoundingClientRect().height ?? 0) > 166);
       },
     },
+    "first-paint": {
+      note: "The initial rail with no scripted scroll or hover, for first-frame stability measurement.",
+      snapshot: chat(rows, { title: "Thread minimap first paint" }),
+    },
     rest: {
       note: "At rest mid-thread. Compact (the default, the wave): every unbookmarked tick stays a quiet 6 px and the prompts on screen are brighter; only a bookmarked prompt has a white dot. Full height: the rail spans the transcript, each prompt a longer tick and each reply a shorter one set in, at its place in the chat, under a bar for the view. Off: no minimap, the left edge empty.",
       snapshot: chat(rows, { title: "Thread minimap at rest" }),

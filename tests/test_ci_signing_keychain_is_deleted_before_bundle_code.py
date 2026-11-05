@@ -42,7 +42,22 @@ statically, so a reordered step fails in review and not on a release day:
    cmux-next-guards.yml's signing-runner-variables job (on a literal Blacksmith
    runner) checks it on every feat-cmux-next pull request and push: pointing one
    of those variables at an owned mini turns it red. It detects; it does not stop
-   a signing job that starts before it.
+   a signing job that starts before it. The one way onto an owned Mac is a
+   picker output from scripts/ci/signing_runner.py (Leo, 2026-10-28: the
+   release signing jobs may run on our own Macs), on a mini held whole for the
+   job; tests/test_ci_signing_owned_mac.py checks those jobs. Two narrow exceptions,
+   each proven here rather than listed:
+   a. A job glaeda gives the exclusive class (test_ci_signing_owned_mac.SIGNING_JOBS)
+      whose first step is that test's CLAIM_GATE may also fall back to the owned
+      pool variables in OWNED_ROUTE_VARIABLES (nightly.yml's owned-only legacy sign
+      and deltas, Lawrence, 2026-10-30, a7b6a61175c). The gate fails the job on any
+      owned Mac without the whole-mini claim before a credential is in reach, however
+      the label was chosen, and test_ci_signing_owned_mac.py holds the claim script,
+      the always() keychain delete and the rest of its rules for those jobs.
+   b. A job in GATED_SECRET_JOBS reads every signing secret only when its mode
+      variable says so, and that same condition picks a literal ephemeral label
+      before runs-on reads any variable (stable-next.yml's sign: its dry run signs
+      ad hoc with no key on an owned Mac; its publish run signs on Blacksmith).
 8. A job that signs with the release signer (RELEASE_POOL_SIGNERS) makes no
    keychain: it runs on a literal ubuntu label and hands the certificate only
    to its signer script, which keeps the key in its own temporary directory.
@@ -67,6 +82,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+
+import signing_runner_variables  # noqa: E402
 
 CREATE = re.compile(r"signing-keychain\.sh\s+create\b|\bsecurity\s+create-keychain\b")
 DELETE = re.compile(
@@ -84,6 +102,9 @@ BUNDLE_CODE = [
     re.compile(r"test_bundled_ghostty_theme_picker_helper\.sh"),
     re.compile(r"verify_remote_daemon_release\.py(?=.*--verify-cli)"),
     re.compile(r"verify-diff-sidecar-artifact\.sh(?!.*--static-only)"),
+    # The cmux NEXT fresh-home launch smoke (nightly.yml's pre-publish gate and its harness).
+    re.compile(r"launch-smoke-gate\.sh"),
+    re.compile(r"fresh_home_launch_smoke\.py"),
 ]
 # Run blocks moved out of a workflow into their own script (inline_step_scripts).
 STEP_SCRIPT = re.compile(r"scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh")
@@ -109,6 +130,8 @@ SCRIPT_MADE_KEYCHAINS = {
     # nightly-next recovery signs the DMG around the stapled app (feat-cmux-next).
     ("nightly.yml", "recover-nightly-next-notarization"): "scripts/ci/notarize-nightly-dmg.sh",
     ("release.yml", "build-sign-notarize"): "scripts/ci/notarize-nightly-dmg.sh",
+    # Its same-run Blacksmith twin runs the same steps (tests/test_ci_signing_owned_mac.py).
+    ("release.yml", "build-sign-notarize-blacksmith"): "scripts/ci/notarize-nightly-dmg.sh",
     ("auto-resume-nightly-notarization.yml", "wait-and-staple"): "scripts/ci/resume-stapled-app-notarization.sh",
     ("auto-resume-nightly-notarization.yml", "staple-outer"): "scripts/ci/resume-stapled-app-notarization.sh",
     ("resume-nightly-notarization.yml", "resume"): "scripts/ci/resume-stapled-app-notarization.sh",
@@ -117,6 +140,9 @@ SCRIPT_MADE_KEYCHAINS = {
 RELEASE_POOL_SIGNERS = {
     ("nightly.yml", "signer-app"): "scripts/ci/release-signer/sign-app.sh",
     ("nightly.yml", "signer-dmg"): "scripts/ci/release-signer/notarize-dmg.sh",
+    # The cmux NIGHTLY-identity copy through the same signer (the macOS legacy signer's pool path).
+    ("nightly.yml", "legacy-signer-app"): "scripts/ci/release-signer/sign-app.sh",
+    ("nightly.yml", "legacy-signer-dmg"): "scripts/ci/release-signer/notarize-dmg.sh",
 }
 # Jobs that keep bundle code in the signing job, outside the keychain window
 # only (rule 1, not rule 6). Each entry names its follow-up.
@@ -124,6 +150,7 @@ STEP_LEVEL_ONLY = {
     # Build, sign, notarize and publish are one job; the split into build,
     # sign, verify and publish jobs is a separate change.
     "release.yml build-sign-notarize",
+    "release.yml build-sign-notarize-blacksmith",  # its same-run Blacksmith twin, the same steps
 }
 # Scripts that launch the app unless their launch smokes are deferred.
 SMOKING_SCRIPTS = re.compile(
@@ -136,10 +163,11 @@ SIGNING_SECRET_REFERENCE = re.compile(
     re.IGNORECASE,
 )
 # Rule 7. These repository variables hold only ephemeral runner labels; the
-# live-value check in cmux-next-guards.yml keeps them so. Add a variable here
-# only together with that check.
-EPHEMERAL_RUNNER_VARIABLES = ("LINUX_RUNNER", "MACOS_RUNNER_26")
-EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-)[a-z0-9.-]+$")
+# live-value check in cmux-next-guards.yml keeps them so, and the cloud overflow
+# switch never writes anything else to them. The list lives in
+# scripts/ci/signing_runner_variables.py; the check must name exactly it.
+EPHEMERAL_RUNNER_VARIABLES = signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES
+EPHEMERAL_LABEL = signing_runner_variables.EPHEMERAL_LABEL
 # vars.NAME or vars['NAME'] / vars["NAME"], with the literal it falls back to. GitHub reads
 # context and variable names without regard to case, so this does too.
 RUNNER_VARIABLE = re.compile(
@@ -148,8 +176,79 @@ RUNNER_VARIABLE = re.compile(
 )
 ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
 RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
+# Rule 7a: owned pool variables a claim-gated signing job may fall back to.
+OWNED_ROUTE_VARIABLES = frozenset({"CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER"})
+# These declared pools contain only ephemeral Blacksmith members.  Secret-bearing
+# jobs may use them as their pool-backed fallback; the hosted pools are excluded.
+EPHEMERAL_POOL_KEYS = frozenset({
+    "linux_2", "linux_4", "linux_8", "linux_16", "linux_32", "linux_arm64",
+    "macos_15", "macos_26", "macos_26_large", "macos_latest", "windows",
+})
+# Rule 7b: (workflow, job) -> (env variable, value that means "sign with the release key").
+GATED_SECRET_JOBS = {("stable-next.yml", "sign"): ("SIGN", "developer-id")}
 LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
 LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
+# `vars.CI_CLOUD_OVERFLOW_SAVED && '<blacksmith label>' ||`: the overflow failover,
+# a boolean record choosing between two literal Blacksmith Linux labels.
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED\s*&&\s*'blacksmith-\d+vcpu-ubuntu-2404'\s*\|\|\s*")
+# `vars.NAME == '<label>' && '<label>' ||`: a variable that only chooses between literal labels.
+# Its value is compared, never used as the label, so the job still runs on the literal it names.
+LITERAL_SELECTOR = re.compile(
+    r"vars\.([A-Za-z0-9_]+)\s*==\s*'([^']*)'\s*&&\s*'([^']*)'\s*\|\|\s*", re.IGNORECASE)
+
+
+def strip_literal_selectors(runs_on: str) -> str:
+    """Drop `vars.X == 'L' && 'L' ||` choices whose label L is ephemeral; anything else stays for the checks."""
+    return LITERAL_SELECTOR.sub(
+        lambda m: "" if m.group(2) == m.group(3) and EPHEMERAL_LABEL.match(m.group(3)) else m.group(0), runs_on)
+
+
+def claim_gated(name: str, job: dict) -> bool:
+    """Rule 7a: glaeda's exclusive class admits the job and its first step is the verbatim claim gate."""
+    import test_ci_signing_owned_mac as owned_mac  # late: that module imports this one
+
+    steps = job.get("steps") or []
+    first = steps[0] if steps and isinstance(steps[0], dict) else {}
+    return (tuple(name.split(" ", 1)) in owned_mac.SIGNING_JOBS
+            and first.get("id") == owned_mac.CLAIM_GATE_ID
+            and str(first.get("run", "")).strip() == owned_mac.claim_gate_for(name.split(" ", 1)[0]).strip())
+
+
+def secret_gate_failures(name: str, job: dict) -> list[str] | None:
+    """Rule 7b: None when the job is not in GATED_SECRET_JOBS, else what keeps its proof from holding."""
+    gate = GATED_SECRET_JOBS.get(tuple(name.split(" ", 1)))
+    if not gate:
+        return None
+    variable, value = gate
+    problems = []
+    mode = re.fullmatch(r"\$\{\{\s*(.+?)\s*&&\s*'" + re.escape(value) + r"'\s*\|\|\s*'[^']*'\s*\}\}",
+                        str((job.get("env") or {}).get(variable, "")).strip())
+    if not mode:
+        return [f"{name}: env {variable} is not `${{{{ <condition> && '{value}' || '<other>' }}}}`"]
+    condition = mode.group(1)
+    runs_on = str(job.get("runs-on", ""))
+    picked = re.search(re.escape(condition) + r"\s*&&\s*'([^']*)'", runs_on)
+    picked_pool = re.search(re.escape(condition) + r"\s*&&\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)", runs_on)
+    picked_ok = (picked and EPHEMERAL_LABEL.match(picked.group(1))) or (picked_pool and picked_pool.group(1) in EPHEMERAL_POOL_KEYS)
+    picked_at = picked.start() if picked else (picked_pool.start() if picked_pool else 0)
+    if not picked_ok or ANY_VARS.search(runs_on[:picked_at]):
+        problems.append(f"{name}: runs-on does not take a literal ephemeral label on `{condition}` before any variable")
+    gated_if = f"env.{variable} == '{value}'"
+    gated_value = re.compile(re.escape(gated_if) + r"\s*&&\s*secrets\.[A-Z0-9_]+\s*\|\|\s*'[^']*'\s*\}\}")
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict) or not SIGNING_SECRET_REFERENCE.search(json.dumps(step)):
+            continue
+        if gated_if in str(step.get("if", "")):
+            continue
+        rest = json.dumps({k: v for k, v in step.items() if k != "env"})
+        env_ok = all(not SIGNING_SECRET_REFERENCE.search(str(v)) or gated_value.search(str(v))
+                     for v in (step.get("env") or {}).values())
+        if SIGNING_SECRET_REFERENCE.search(rest) or not env_ok:
+            label = step.get("name") or step.get("id") or "<step>"
+            problems.append(f"{name}: step {label!r} reads a signing secret outside `{gated_if}`")
+    if SIGNING_SECRET_REFERENCE.search(json.dumps(job.get("env") or {})):
+        problems.append(f"{name}: job-level env reads a signing secret")
+    return problems
 
 
 def commands(run: str) -> list[str]:
@@ -243,7 +342,15 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                         "set CMUX_DEFER_LAUNCH_SMOKES: \"true\" and smoke in a job without secrets"
                     )
     if SIGNING_SECRET_REFERENCE.search(json.dumps(job)):
-        runs_on = str(job.get("runs-on", ""))
+        runs_on = strip_literal_selectors(str(job.get("runs-on", "")))
+        pool_keys = set(re.findall(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)", runs_on))
+        trusted_ephemeral_pool = bool(pool_keys & EPHEMERAL_POOL_KEYS)
+        gated = secret_gate_failures(name, job)
+        if gated is not None:
+            failures.extend(gated)
+            # Proven above: every signing secret sits behind the condition that picks an ephemeral label.
+            runs_on = ""
+        owned_route = claim_gated(name, job)
         if len(ANY_VARS.findall(runs_on)) != len(RUNNER_VARIABLE.findall(runs_on)):
             failures.append(
                 f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
@@ -252,6 +359,10 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
         for match in RUNNER_VARIABLE.finditer(runs_on):
             dotted, bracketed, fallback = match.groups()
             variable = (dotted or bracketed).upper()
+            if trusted_ephemeral_pool and variable == "RUNNER_POOLS":
+                continue
+            if owned_route and variable in OWNED_ROUTE_VARIABLES:
+                continue
             if variable not in EPHEMERAL_RUNNER_VARIABLES:
                 failures.append(
                     f"{name}: holds a signing secret but picks its runner from vars.{variable}; use a literal "
@@ -259,6 +370,11 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                 )
             # The variable and its literal close the expression (`... || vars.X || 'blacksmith-...' }}`),
             # so nothing after them (an `&&`, another selector) can replace the label they give.
+            elif (trusted_ephemeral_pool and re.search(
+                    r"(?:\|\||&&)\s*fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)",
+                    runs_on[match.end():]) and
+                  re.search(r"fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)\s*\}\}$", runs_on)):
+                continue
             elif not (fallback and EPHEMERAL_LABEL.match(fallback) and RUNS_ON_END.match(runs_on, match.end())):
                 failures.append(
                     f"{name}: holds a signing secret and reads vars.{variable} other than as the expression's "
@@ -396,8 +512,12 @@ def check_live_runner_variables(failures: list[str]) -> None:
     document = yaml.safe_load((ROOT / path).read_text(encoding="utf-8")) or {}
     job = (document.get("jobs") or {}).get(job_name) or {}
     # The check's own runner must not come from the variables it checks: a variable
-    # pointed at a missing label would leave it queued instead of red.
-    if ANY_VARS.search(str(job.get("runs-on", ""))) or LIVE_VALUE_RUNNER not in str(job.get("runs-on", "")):
+    # pointed at a missing label would leave it queued instead of red. The one
+    # variable it may read is the overflow record as a switch between two literal
+    # Blacksmith labels (tests/test_ci_blacksmith_linux_failover.py requires it):
+    # the record holds no label, so both outcomes stay literal ephemeral runners.
+    runs_on = OVERFLOW_FAILOVER.sub("", str(job.get("runs-on", "")))
+    if ANY_VARS.search(runs_on) or LIVE_VALUE_RUNNER not in runs_on:
         failures.append(f"{path} {job_name}: runs on the literal {LIVE_VALUE_RUNNER}, never a repository variable")
     steps = job.get("steps") or []
     for step in steps:
@@ -405,6 +525,15 @@ def check_live_runner_variables(failures: list[str]) -> None:
         run = str((step or {}).get("run", ""))
         if all(env.get(v, "").replace(" ", "") == "${{vars.%s}}" % v for v in EPHEMERAL_RUNNER_VARIABLES) \
                 and "blacksmith-" in run and "ubuntu-" in run and "exit 1" in run:
+            # The step loops over exactly the shared list, so a variable added there is checked live too.
+            loop = re.search(r"^\s*for\s+name\s+in\s+([A-Z0-9_ ]+?)\s*;\s*do\b", run, re.MULTILINE)
+            looped = tuple(loop.group(1).split()) if loop else ()
+            if sorted(looped) != sorted(EPHEMERAL_RUNNER_VARIABLES) or \
+                    sorted(n for n in env if n.isupper() and env[n].startswith("${{")) != sorted(EPHEMERAL_RUNNER_VARIABLES):
+                failures.append(
+                    f"{path} {job_name}: checks {', '.join(looped) or 'no variables'}, not exactly "
+                    f"{', '.join(EPHEMERAL_RUNNER_VARIABLES)} (scripts/ci/signing_runner_variables.py)"
+                )
             return
     failures.append(
         f"{path} {job_name}: no step fails when {', '.join(EPHEMERAL_RUNNER_VARIABLES)} hold a label other than "
@@ -412,8 +541,22 @@ def check_live_runner_variables(failures: list[str]) -> None:
     )
 
 
+def check_literal_selectors(failures: list[str]) -> None:
+    """A selector is dropped only when it picks the literal it compares against, and that literal is ephemeral."""
+    cases = {
+        "${{ vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}":
+            "${{ 'blacksmith-32vcpu-ubuntu-2404' }}",
+        "${{ vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && 'glaeda-std-xcode-26.6' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+        "${{ vars.X == 'glaeda-std-xcode-26.6' && 'glaeda-std-xcode-26.6' || 'blacksmith-32vcpu-ubuntu-2404' }}": None,
+    }
+    for runs_on, expected in cases.items():
+        if strip_literal_selectors(runs_on) != (runs_on if expected is None else expected):
+            failures.append(f"strip_literal_selectors mishandles {runs_on}")
+
+
 def main() -> int:
     failures: list[str] = []
+    check_literal_selectors(failures)
     check_live_runner_variables(failures)
     signing_jobs = 0
     for path in sorted(WORKFLOWS.glob("*.y*ml")):

@@ -10,6 +10,44 @@ pub(super) fn handle_command_with_cancellation(
     writer: &MessageWriter,
     cancellation: Option<&ConnectionCancellation>,
 ) -> anyhow::Result<Value> {
+    // A move out of an incognito workspace can make another incognito
+    // workspace; its app owns it (incognito_orphans). Every move command
+    // takes part, so none commits outside the serialized moves.
+    let moves = matches!(
+        cmd,
+        Command::MoveTabToNewWorkspace { .. }
+            | Command::MoveTabGroupToNewWorkspace { .. }
+            | Command::MoveScreen { .. }
+            | Command::MoveScreenGroup { .. }
+            | Command::MoveTabToWorkspace { .. }
+            | Command::MoveTab { .. }
+            | Command::MoveTabToSplit { .. }
+            | Command::MoveTabGroup { .. }
+            | Command::MoveTabGroupToSplit { .. }
+            | Command::MoveTabGroupToColumn { .. }
+            | Command::MoveTerminal { .. }
+    );
+    let claim = if moves { incognito_orphans::begin_move(mux, false) } else { None };
+    let mut result = dispatch_command(mux, client, cmd, writer, cancellation);
+    // A remote device's lists leave incognito workspaces out (#31210).
+    if let Ok(reply) = &mut result {
+        incognito_remote::prune_reply(mux, client, reply);
+    }
+    if let Some(claim) = claim
+        && result.is_ok()
+    {
+        claim.finish(mux, client);
+    }
+    result
+}
+
+fn dispatch_command(
+    mux: &Arc<Mux>,
+    client: u64,
+    cmd: Command,
+    writer: &MessageWriter,
+    cancellation: Option<&ConnectionCancellation>,
+) -> anyhow::Result<Value> {
     // Who a durable legacy command acts as (P8): read once per command.
     let actor = origin_gate::connection_actor(mux, client);
     if let Some(remote) = remote_relay::intercept(mux, client, &cmd, writer) {
@@ -29,6 +67,10 @@ pub(super) fn handle_command_with_cancellation(
         }
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
+        }
+        Command::ChiefWork { chief } => {
+            drop(chief);
+            anyhow::bail!("chief-work requires the asynchronous request path")
         }
         Command::PasteImage {
             surface,
@@ -58,6 +100,18 @@ pub(super) fn handle_command_with_cancellation(
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
+        Command::RemoteHostStatus => remote_host_command::status(mux, client),
+        Command::RemoteHostCall { method, params } => {
+            remote_host_command::call(mux, client, &method, params)
+        }
+        Command::RemoteHostConfig { computer_use, screen_sharing, headless } => {
+            remote_host_command::config(
+                mux,
+                client,
+                json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless}),
+            )
+        }
+        Command::RemoteHostApp => remote_host_command::app(mux, client),
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
@@ -168,7 +222,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux),
+        Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux, writer.lines_written()),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
         }
@@ -210,7 +264,7 @@ pub(super) fn handle_command_with_cancellation(
             cmd_frontend::sidebar_plugin(mux, cols, rows, relaunch)
         }
         Command::WaitFor { surface, pattern, timeout_ms } => {
-            cmd_terminal_io::wait_for(mux, cancellation, surface, pattern, timeout_ms)
+            cmd_terminal_io::wait_for(mux, writer, cancellation, surface, pattern, timeout_ms)
         }
         Command::Run { argv, command, cwd, pane, new_workspace, key, name, cols, rows } => {
             cmd_terminal_io::run(
@@ -230,7 +284,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::CreateSurfaceWithReceipt(request) => {
             cmd_frontend::create_surface_with_receipt_command(mux, client, request)
         }
-        Command::SendKey { surface, keys } => cmd_terminal_io::send_key(mux, client, surface, keys),
+        Command::SendKey { surface, keys } => {
+            cmd_terminal_io::send_key(mux, client, writer, surface, keys)
+        }
         Command::Copy { surface, mode } => cmd_terminal_io::copy(mux, surface, mode),
         Command::Ids { kind } => cmd_frontend::ids(mux, kind),
         Command::Notify { title, body, level, surface, source } => {
@@ -411,6 +467,9 @@ pub(super) fn handle_command_with_cancellation(
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
+        }
+        Command::SetLayoutSizes { values, transaction } => {
+            cmd_panes::set_layout_sizes(mux, client, actor, values, transaction)
         }
         Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {
             cmd_panes::set_column_dock(
@@ -618,6 +677,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
         Command::CloudRequestsList(_) => cloud_conversations::requests_list(mux, client),
         Command::CloudSelfhostInfo(_) => cloud_conversations::selfhost_info(mux, client),
+        Command::CloudEnvironment(params) => cloud_conversations::environment(mux, client, params),
         Command::CloudConversationSnapshot(params) => {
             cloud_conversations::snapshot(mux, client, params)
         }
@@ -890,6 +950,9 @@ pub(super) fn handle_command_with_cancellation(
         }
         Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
         Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
+        Command::SetAttachVisibility(params) => {
+            terminal_snapshot::set_visibility(mux, client, params)
+        }
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
         Command::ScrollSurface { surface, delta } => {

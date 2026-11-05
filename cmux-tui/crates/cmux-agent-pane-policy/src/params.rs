@@ -31,6 +31,11 @@ pub fn breaks_params_rule(
     if params.keys().any(|k| !contains(&known.params, k)) {
         return true;
     }
+    if matches!(method, "acp.trust.get" | "acp.trust.set")
+        && params.get("peer").is_some_and(|peer| peer.as_str().is_none_or(str::is_empty))
+    {
+        return true;
+    }
     let setting = contains(&p.setting_methods, method);
     let empty = BTreeSet::new();
     let denied = if setting { &empty } else { mode_fields.unwrap_or(&empty) };
@@ -78,34 +83,40 @@ pub fn is_model_id(value: &Value) -> bool {
 }
 
 /// A session/prompt with every `_meta` inside its prompt blocks removed, at
-/// any depth; None when there is none (the frame goes unchanged). The
-/// request's own `params._meta` stays.
+/// any depth, but a top-level block's upload reference ([`prompt_upload_meta`],
+/// which the daemon checks belongs to this chat); None when there is none
+/// (the frame goes unchanged). The request's own `params._meta` stays
+/// (AcpmuxPaneMethods.swift `strippingPromptMeta`).
 pub fn stripping_prompt_meta(object: &Map<String, Value>) -> Option<Map<String, Value>> {
     if object.get("method").and_then(Value::as_str) != Some("session/prompt") {
         return None;
     }
     let params = object.get("params")?.as_object()?;
     let prompt = params.get("prompt")?.as_array()?;
-    fn strip(value: &Value, stripped: &mut bool) -> Value {
+    fn strip(value: &Value, stripped: &mut bool, accepts_upload: bool) -> Value {
         match value {
             Value::Object(o) => {
+                let upload = if accepts_upload { prompt_upload_meta(o) } else { None };
                 let mut o = o.clone();
                 if o.remove("_meta").is_some() {
                     *stripped = true;
                 }
                 for child in o.values_mut() {
                     if child.is_object() || child.is_array() {
-                        *child = strip(child, stripped);
+                        *child = strip(child, stripped, false);
                     }
+                }
+                if let Some(upload) = upload {
+                    o.insert("_meta".into(), upload);
                 }
                 Value::Object(o)
             }
-            Value::Array(a) => Value::Array(a.iter().map(|v| strip(v, stripped)).collect()),
+            Value::Array(a) => Value::Array(a.iter().map(|v| strip(v, stripped, false)).collect()),
             other => other.clone(),
         }
     }
     let mut stripped = false;
-    let blocks: Vec<Value> = prompt.iter().map(|b| strip(b, &mut stripped)).collect();
+    let blocks: Vec<Value> = prompt.iter().map(|b| strip(b, &mut stripped, true)).collect();
     if !stripped {
         return None;
     }
@@ -114,6 +125,48 @@ pub fn stripping_prompt_meta(object: &Map<String, Value>) -> Option<Map<String, 
     let mut object = object.clone();
     object.insert("params".into(), Value::Object(params));
     Some(object)
+}
+
+/// The one `_meta` a prompt block keeps (AcpmuxPaneMethods+Uploads.swift
+/// `promptUploadMeta`, #25979): an `image` or `resource_link` reference to a
+/// finished upload, `_meta.acpmux.upload` with exactly `uploadId` (a UUID)
+/// and `fileName` (not empty), and no bytes (`data`, `blob`, `resource`). A
+/// `resource_link`'s `uri` is `acpmux-upload:<uploadId>`; an image has none.
+/// Rebuilt from those two strings, so nothing else rides along.
+pub fn prompt_upload_meta(block: &Map<String, Value>) -> Option<Value> {
+    if ["data", "blob", "resource"].iter().any(|k| block.contains_key(*k)) {
+        return None;
+    }
+    let kind = block.get("type").and_then(Value::as_str)?;
+    if kind != "image" && kind != "resource_link" {
+        return None;
+    }
+    let upload = block.get("_meta")?.get("acpmux")?.get("upload")?.as_object()?;
+    if upload.len() != 2 {
+        return None;
+    }
+    let upload_id = upload.get("uploadId").and_then(Value::as_str).filter(|id| is_uuid(id))?;
+    let file_name = upload.get("fileName").and_then(Value::as_str).filter(|n| !n.is_empty())?;
+    if kind == "resource_link" {
+        let uri = block.get("uri").and_then(Value::as_str)?;
+        if uri.strip_prefix("acpmux-upload:") != Some(upload_id) {
+            return None;
+        }
+    } else if block.contains_key("uri") {
+        return None;
+    }
+    Some(serde_json::json!({"acpmux": {"upload": {"uploadId": upload_id, "fileName": file_name}}}))
+}
+
+/// Whether `text` is a UUID as Foundation's `UUID(uuidString:)` reads one:
+/// 8-4-4-4-12 hex digits (either case) joined by `-`.
+fn is_uuid(text: &str) -> bool {
+    let groups: Vec<&str> = text.split('-').collect();
+    groups.len() == 5
+        && groups
+            .iter()
+            .zip([8, 4, 4, 4, 12])
+            .all(|(group, len)| group.len() == len && group.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 /// A frame's gesture ticket taken out of `params._meta`.

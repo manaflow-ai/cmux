@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// click, ``AgentPaneUserGestures``), which page script cannot make, and uses it once. A terminal
 /// opened only to type printable text (`run: false`), an empty terminal and a browser tab run nothing
 /// and stay ungated; typed text with a control key (`run: false`, `tab.typeAhead`) is a run.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPaneTabOpenGestureTests {
     private actor NoHost: AgentPaneHostProviding {

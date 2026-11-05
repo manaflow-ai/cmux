@@ -61,7 +61,11 @@ pub struct Options {
 /// blank line, so the typed question never reaches the agent without it nor
 /// the paste without the question.
 pub fn prompt_text(blocks: &[Value], last_block: bool) -> String {
-    let texts = blocks
+    // Cmux context is part of this request, not an older view block. Keep it
+    // alongside the last typed block even for stateful CLI adapters (UniiChat).
+    let (context, ordinary): (Vec<_>, Vec<_>) =
+        blocks.iter().partition(|b| crate::prompt_context::is_context(b));
+    let texts = ordinary
         .iter()
         .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
         .filter_map(|b| Some((b.get("text").and_then(Value::as_str)?, is_pasted(b))));
@@ -71,6 +75,14 @@ pub fn prompt_text(blocks: &[Value], last_block: bool) -> String {
     } else {
         typed.iter().map(|(t, _)| *t).collect()
     };
+    for block in context {
+        if let Some(context) = block.get("text").and_then(Value::as_str) {
+            if !text.is_empty() {
+                text.push_str("\n\n");
+            }
+            text.push_str(context);
+        }
+    }
     for (paste, _) in pasted {
         if !text.is_empty() {
             text.push_str("\n\n");
@@ -388,7 +400,11 @@ async fn run_prompt(
         if let Some(e) = stderr.as_mut() {
             let _ = e.read_to_end(&mut buf).await;
         }
-        let text = strip_ansi(&String::from_utf8_lossy(&buf));
+        let text = crate::stderr::clean_stderr_lines(&String::from_utf8_lossy(&buf))
+            .into_iter()
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
         let tail: String =
             text.chars().rev().take(600).collect::<Vec<_>>().into_iter().rev().collect();
         tail.trim().to_owned()
@@ -492,6 +508,14 @@ const TTY_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Gives `cmd` a new pseudo-terminal (160 by 50) as its stdout and
 /// controlling terminal; the terminal's controller, to read its output.
+///
+/// This terminal is a protocol adapter, not one a person uses: nothing draws
+/// it and nobody selects in it, and its output is parsed into ACP
+/// `agent_message_chunk` updates (hence `NO_COLOR=1` above). So it sets no
+/// terminal identity and is not one of the terminal child paths that apply
+/// `cmux_pty::UNSET_IN_TERMINAL_CHILDREN` (cmux#22585): a Ghostty version
+/// here cannot cost anyone a mouse selection, and changing what the program
+/// sees would change the text this parses.
 #[cfg(unix)]
 fn attach_tty(cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::File> {
     use std::os::fd::{FromRawFd, OwnedFd};
@@ -572,6 +596,21 @@ mod tests {
         assert_eq!(prompt_text(&blocks, true), "hello unii");
         assert_eq!(prompt_text(&blocks, false), "view line 1\nhello unii");
         assert_eq!(prompt_text(&[], true), "");
+    }
+
+    #[test]
+    fn last_block_keeps_hidden_context_beside_the_user_request() {
+        let blocks = vec![
+            json!({"type": "text", "text": "older view"}),
+            json!({"type": "text", "text": "fix the grid"}),
+            crate::context_inventory::override_block("read early", "user"),
+        ];
+        for last in [true, false] {
+            let text = prompt_text(&blocks, last);
+            assert!(text.contains("fix the grid"), "{text}");
+            assert!(text.contains("read early"), "{text}");
+            assert_eq!(text.contains("older view"), !last, "{text}");
+        }
     }
 
     /// A huge paste in cmux's composer goes as its own text block after the

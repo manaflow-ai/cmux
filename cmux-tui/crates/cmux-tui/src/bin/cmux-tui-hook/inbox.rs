@@ -9,6 +9,7 @@
 //! fails, so on success the helper prints exactly one JSON object itself.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// Queued messages one hook asks the daemon for, oldest first.
 const PAGE: u64 = 50;
@@ -167,8 +168,8 @@ fn request(
     deadline: Instant,
 ) -> anyhow::Result<Value> {
     let (request_id, idempotency_key) = random_identifiers()?;
-    params["machine"] = json!("current");
-    params["session"] = json!("current");
+    params.set("machine", json!("current"));
+    params.set("session", json!("current"));
     let mut request = json!({
         "protocol": "cmux.protocol/2",
         "type": "request",
@@ -177,13 +178,13 @@ fn request(
         "params": params,
     });
     if mutation {
-        request["idempotency_key"] = Value::String(idempotency_key);
+        request.set("idempotency_key", Value::String(idempotency_key));
     }
     let mut encoded = serde_json::to_vec(&request)?;
     encoded.push(b'\n');
     let attempt = || -> Result<Vec<u8>, AppendAttemptError> {
         let mut stream = connect_before(socket, deadline)?;
-        // Bound the read before writing, as `append_once` does: read_before
+        // Bound the read before writing: read_before
         // only shrinks this bound, since macOS refuses the option once the
         // daemon has answered and closed.
         stream
@@ -196,6 +197,9 @@ fn request(
         AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error) => error,
     })?;
     let response: Value = serde_json::from_slice(&response)?;
+    if let Some(busy) = journal_append::busy_line(&response) {
+        bail!("{operation} was refused: {busy}");
+    }
     if response["id"].as_str() != Some(request_id.as_str()) {
         bail!("{operation} returned a mismatched request id");
     }

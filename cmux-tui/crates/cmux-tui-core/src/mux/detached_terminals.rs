@@ -6,6 +6,7 @@ use std::sync::PoisonError;
 
 use super::*;
 use crate::workspace_registry::DETACHED_TERMINAL_WORKSPACE_KEY;
+use cmux_json::JsonSet as _;
 
 /// Whether a durable `workspace_key` is a detached terminal's sentinel.
 pub(super) fn is_detached_key(workspace_key: &str) -> bool {
@@ -67,7 +68,7 @@ impl Mux {
     ) -> anyhow::Result<TerminalPlacementResult> {
         let DetachedTerminalSpawn { argv, cwd, name, size, env } = spawn;
         let _creation_handoff =
-            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
+            self.resource_creation_handoff.write().unwrap_or_else(PoisonError::into_inner);
         let _creation_execution =
             self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(terminal_id) = requested_terminal_id {
@@ -83,7 +84,7 @@ impl Mux {
             None,
         )?;
         // Marks a detached receipt explicitly, beyond its sentinel key.
-        fingerprint["detached"] = Value::Bool(true);
+        fingerprint.set("detached", Value::Bool(true));
         let replay = {
             self.workspace_registry
                 .lock()

@@ -229,6 +229,7 @@ pub fn preset_dir(presets: &Path, name: &str) -> PathBuf {
 pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result<String> {
     use std::io::Write;
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    crate::config::refuse_lost_home(presets).map_err(io::Error::other)?;
     let dir = preset_dir(presets, name);
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
@@ -260,6 +261,8 @@ pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result
 
 /// Removes preset `name`'s directory (its system prompt file).
 pub fn remove_preset_dir(presets: &Path, name: &str) -> io::Result<()> {
+    // A lost home's presets may be another daemon's now (`config::mark_home_lost`).
+    crate::config::refuse_lost_home(presets).map_err(io::Error::other)?;
     if check_preset_dir_name(name).is_err() {
         return Ok(());
     }

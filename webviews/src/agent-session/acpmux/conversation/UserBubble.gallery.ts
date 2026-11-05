@@ -183,9 +183,21 @@ export default agentPaneEntry({
       play: hoverTime("time.cv-user__time"),
     },
     "answer-time-tooltip": {
-      note: "Play: hover an answer's age at the end of its row; its exact time shows above it.",
+      note: "Play: point at an answer's footer; its exact date and time shows at the row's end, after the buttons (hidden at rest, as ChatGPT's: #31609), its tooltip the turn's time and tokens.",
       snapshot: yesterday(),
-      play: hoverTime("time.cv-turn-time"),
+      play: async (ctx) => {
+        const selector = "time.cv-turn-time";
+        await ctx.waitFor(() => ctx.document.querySelector(selector));
+        await ctx.hover({ selector });
+        await ctx.waitFor(() => {
+          const time = ctx.document.querySelector<HTMLElement>(selector);
+          return (
+            time !== null &&
+            /\d:\d\d/.test(time.textContent ?? "") &&
+            ctx.document.defaultView!.getComputedStyle(time).opacity === "1"
+          );
+        });
+      },
     },
     other: {
       note: "Another agent forks only at a chat's end: prompts offer Copy only.",
@@ -218,6 +230,54 @@ export default agentPaneEntry({
       note: "A short prompt is unchanged: its whole text, no fade, no Show more.",
       snapshot: turns(claude),
     },
+    "markdown-quote": {
+      note: "A sent prompt reuses transcript Markdown: quoted lines draw with a muted left bar and quiet ink instead of raw greater-than markers.",
+      snapshot: claude(
+        chat([
+          user("> The upload retries forever\n> when the network is offline.\n\nAdd a bounded backoff.", 9, { seq: 1 }),
+          assistant("Added a five-attempt cap and a reset on the next upload.", 8.5),
+          summary(8.5, { seq: 3, status: "completed" }),
+        ]),
+      ),
+    },
+    "markdown-parity": {
+      note: "Sent prompts render quotes, lists, inline code, fenced code and links with the transcript renderer. The second prompt has no quote marker.",
+      snapshot: claude(
+        chat([
+          user(
+            "> The uploader retries forever.\n> It should stop after three attempts.\n\nKeep that limit visible.",
+            9,
+            {
+              id: "markdown-quote",
+              seq: 1,
+            },
+          ),
+          assistant("The quote remains distinct from your reply.", 8.5),
+          summary(8.5, { seq: 3, status: "completed" }),
+          user(
+            "1. Keep `retry_count` bounded.\n2. Report **exhausted** attempts.\n\n```text\nretry_count = 3\n```\n\n[Read the retry guide](https://example.com/retry)",
+            6,
+            { id: "markdown-list", seq: 4 },
+          ),
+          assistant("The list, code and link remain formatted after sending.", 5),
+          summary(5, { seq: 6, status: "completed" }),
+        ]),
+      ),
+    },
+    "markdown-long-tokens": {
+      note: "A delivered review with inline code, paths and a 40-character SHA range: the code draws as code, and the range ends a line after its `..` or a path after a `/`, never mid-hash.",
+      snapshot: claude(
+        chat([
+          user(
+            "Review of manaflow-ai/cmux:4f1c2a9be07d3e6f58a1b2c3d4e5f60718293a4b..8e0c5dda55f4d5d0821cf21a4b520c2397145d00 by review-box/review-27240-2c1e: SHIP\n\n`repeatsPrompt` now stays false for a queued prompt; `webviews/src/agent-session/acpmux/conversation/PromptText.tsx` and `webviews/test/user-prompt-markdown.test.ts` cover it.",
+            9,
+            { id: "markdown-long-tokens", seq: 1 },
+          ),
+          assistant("Landing it at that head.", 8.5),
+          summary(8.5, { seq: 3, status: "completed" }),
+        ]),
+      ),
+    },
     "pasted-chip": {
       note: "A pasted 2,300-line stack trace is a chip under the typed question: its first words and line count.",
       snapshot: pastedPrompt(),
@@ -228,6 +288,15 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".cv-user__paste" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
+      },
+    },
+    editing: {
+      note: "Play: Edit opens the prompt in place on the bubble's own glass, 12 radius and 16 sides, at the bubble's widest, so its right edge stays put; Cancel and Send under the text.",
+      snapshot: turns(claude),
+      play: async (ctx) => {
+        await ctx.hover({ text: "Now cover it with a test that fakes two timeouts" });
+        await ctx.click({ selector: '.cv-user__actions button[aria-label="Edit"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__edit"));
       },
     },
     "edit-tooltip": {

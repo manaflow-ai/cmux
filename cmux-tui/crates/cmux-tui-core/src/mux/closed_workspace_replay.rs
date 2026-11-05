@@ -23,7 +23,7 @@ impl Mux {
         mutation: &WorkspaceMutation,
         env: Vec<(String, String)>,
     ) -> anyhow::Result<TerminalPlacementResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_execution = self.resource_creation_execution.lock().unwrap();
         let Some(workspace) = workspace else {
             let fingerprint = terminal_create_fingerprint(

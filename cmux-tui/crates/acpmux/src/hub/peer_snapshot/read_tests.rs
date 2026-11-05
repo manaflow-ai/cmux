@@ -45,6 +45,63 @@ fn seqs(reply: &Value) -> Vec<u64> {
 }
 
 #[test]
+fn sign_out_clears_queued_peer_snapshots_and_bars_late_old_instance_captures() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps-clear");
+    let hub = hub_at(dir.path());
+    let peer = add_idle_peer(&hub, "huge-blue");
+    hub.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    capture(&hub, &peer, &page(1..=6));
+    let query = json!({"host": "huge-blue", "sessionId": "m1"});
+    assert_eq!(seqs(&hub.peer_snapshot(&query).unwrap()), vec![1, 2, 3, 4, 5, 6]);
+    // A page queued before sign-out is erased even if the store has not written it yet.
+    hub.capture_peer_page(
+        ("huge-blue", peer.generation, peer.link_epoch(), Some(42)),
+        ("m1", false),
+        &json!({}),
+        &page(1..=7),
+    );
+    assert_eq!(hub.clear_peer_snapshots().unwrap(), json!({"cleared": true}));
+    // A pending watch and attach from that same peer cannot resurrect its disk copy.
+    hub.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    capture(&hub, &peer, &page(1..=8));
+    assert!(seqs(&hub.peer_snapshot(&query).unwrap()).is_empty());
+    assert!(seqs(&hub_at(dir.path()).peer_snapshot(&query).unwrap()).is_empty());
+    // A new account's new peer instance is allowed, even under the same peer/session names.
+    let newer = add_idle_peer(&hub, "huge-blue");
+    hub.apply_peer_notice("huge-blue", newer.generation, PeerNotice::Sessions(vec![row(42)]));
+    capture(&hub, &newer, &page(1..=3));
+    assert_eq!(seqs(&hub.peer_snapshot(&query).unwrap()), vec![1, 2, 3]);
+}
+
+#[test]
+fn sign_out_clears_a_previous_runs_unread_copy_with_no_registered_peer() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps-clear-old");
+    let old = hub_at(dir.path());
+    let peer = add_idle_peer(&old, "huge-blue");
+    old.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    capture(&old, &peer, &page(1..=6));
+    // A lease may already have ended; clearing must scan all files, not only live peers/rows.
+    let fresh = hub_at(dir.path());
+    fresh.clear_peer_snapshots().unwrap();
+    let query = json!({"host": "huge-blue", "sessionId": "m1"});
+    assert!(seqs(&fresh.peer_snapshot(&query).unwrap()).is_empty());
+    assert!(seqs(&hub_at(dir.path()).peer_snapshot(&query).unwrap()).is_empty());
+}
+
+#[test]
+fn offline_sign_out_removes_a_previous_runs_peer_snapshot_files() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps-offline");
+    let old = hub_at(dir.path());
+    let peer = add_idle_peer(&old, "huge-blue");
+    old.apply_peer_notice("huge-blue", peer.generation, PeerNotice::Sessions(vec![row(42)]));
+    capture(&old, &peer, &page(1..=6));
+    clear_offline(dir.path()).unwrap();
+    let query = json!({"host": "huge-blue", "sessionId": "m1"});
+    assert!(seqs(&hub_at(dir.path()).peer_snapshot(&query).unwrap()).is_empty());
+    clear_offline(dir.path()).unwrap();
+}
+
+#[test]
 fn a_down_peers_chat_reads_stale_without_a_countdown_across_a_restart() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-psr");
     let hub = hub_at(dir.path());

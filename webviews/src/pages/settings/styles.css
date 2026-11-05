@@ -4,38 +4,22 @@
  * body and every container (sidebar, sections, groups, rows) are transparent; groups are set
  * apart by spacing and hairlines (--border, transparent under appearance.borders none).
  * Only controls and interactive feedback (hover, selection, focus) use --input-bg or
- * --accent-soft. Colors: the one web theme (--cmux-*, window.cmuxTheme.apply) first, then the
- * page fallbacks (--app-*), then the dev-server defaults below.
+ * --accent-soft. Shared design roles inherit the web theme (--cmux-*, window.cmuxTheme.apply).
  */
 :root {
   color-scheme: light dark;
-  --text: var(--cmux-text, var(--app-text, light-dark(rgba(29, 29, 31, 1), rgba(236, 236, 240, 1))));
-  --muted-text: var(
-    --cmux-text-secondary,
-    var(--app-muted-text, light-dark(rgba(29, 29, 31, 0.62), rgba(236, 236, 240, 0.62)))
-  );
-  --soft-text: var(
-    --cmux-text-tertiary,
-    var(--app-soft-text, light-dark(rgba(29, 29, 31, 0.45), rgba(236, 236, 240, 0.45)))
-  );
-  --border: var(--cmux-separator, var(--app-border, light-dark(rgba(0, 0, 0, 0.1), rgba(255, 255, 255, 0.1))));
-  --border-strong: var(
-    --app-border-strong,
-    var(--cmux-separator, light-dark(rgba(0, 0, 0, 0.18), rgba(255, 255, 255, 0.18)))
-  );
-  --input-bg: var(
-    --cmux-hover,
-    var(--app-input-bg, light-dark(rgba(0, 0, 0, 0.045), rgba(255, 255, 255, 0.07)))
-  );
-  --accent-soft: var(
-    --cmux-selection,
-    var(--app-accent-soft, light-dark(rgba(0, 0, 0, 0.09), rgba(255, 255, 255, 0.13)))
-  );
-  --danger: var(--cmux-app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
-  --warning: var(--cmux-app-warning, light-dark(rgba(166, 104, 0, 1), rgba(255, 196, 77, 1)));
-  --motion-hover: var(--cmux-motion-quick, 80ms);
-  --motion-focus: var(--cmux-motion-quick, 80ms);
-  font: 13px/1.4 var(--font-ui);
+  --text: var(--ds-color-fg);
+  --muted-text: var(--ds-color-muted);
+  --soft-text: var(--ds-color-faint);
+  --border: var(--ds-color-separator);
+  --border-strong: var(--app-border-strong, var(--ds-color-focus));
+  --input-bg: var(--ds-color-hover);
+  --accent-soft: var(--ds-color-selection);
+  --danger: var(--ds-color-danger);
+  --warning: var(--ds-color-attention);
+  --motion-hover: var(--cmux-motion-quick);
+  --motion-focus: var(--cmux-motion-quick);
+  font: var(--text-body)/var(--text-body--line-height) var(--font-ui);
 }
 
 /* The native bootstrap's html rule (!important) wins; this matches it for the dev server. */
@@ -102,8 +86,8 @@ mark {
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 10px;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-4) var(--ds-space-3);
   border-right: 1px solid var(--border);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -153,7 +137,7 @@ mark {
 
 .search .icon {
   position: absolute;
-  left: 8px;
+  left: var(--ds-space-2);
   color: var(--muted-text);
   pointer-events: none;
 }
@@ -161,23 +145,43 @@ mark {
 /* Two classes so .field's padding (later in the file) cannot undo the icon inset. */
 .search .search-input {
   width: 100%;
-  padding-left: 28px;
+  padding-left: var(--ds-control-row);
 }
 
 .section-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--ds-space-1);
+}
+
+/* A titled run of categories (Look and Feel, AI, ...); the space above each header separates the
+   runs, so no divider line is needed. */
+/* Its links keep the list's own rhythm: the section is a column with no gap of its own. */
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-section + .sidebar-section { margin-top: var(--ds-space-4); }
+
+.sidebar-section-title {
+  margin: 0;
+  padding: 0 var(--ds-space-2) var(--ds-space-1);
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .section-link {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   width: 100%;
-  padding: 5px 6px;
+  padding: var(--ds-space-1) var(--ds-space-2);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: transparent;
   text-align: left;
   /* A router link (it preloads its section on hover) that looks and acts like the list's
@@ -219,29 +223,29 @@ mark {
 }
 
 .section-title {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0 0 18px;
+  font-size: var(--text-heading);
+  font-weight: var(--weight-emphasis);
+  margin: 0 0 var(--ds-space-5);
 }
 
 .result-section-title {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0 0 10px;
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+  margin: 0 0 var(--ds-space-3);
 }
 
 .result-section {
-  margin-bottom: 28px;
+  margin-bottom: var(--grid-row);
 }
 
 .group {
-  margin-bottom: 24px;
+  margin-bottom: var(--ds-space-5);
 }
 
 .group-title {
-  margin: 0 0 6px;
-  font-size: 11px;
-  font-weight: 600;
+  margin: 0 0 var(--ds-space-2);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted-text);
@@ -287,6 +291,35 @@ mark {
   overflow-wrap: anywhere;
 }
 
+/* A provider's accounts under its harness row (ProviderAccounts). */
+.harness-accounts {
+  gap: 8px;
+}
+
+.harness-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.harness-account-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.harness-account-copy > .row-help {
+  overflow-wrap: anywhere;
+}
+
+.harness-account-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
 .harness-update-card > .button {
   flex: 0 0 auto;
   margin-top: 1px;
@@ -297,7 +330,7 @@ mark {
 }
 
 .row {
-  padding: 9px 8px;
+  padding: var(--ds-space-2);
   border-bottom: 1px solid var(--border);
   border-radius: 0;
   outline: none;
@@ -312,7 +345,7 @@ mark {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--ds-space-4);
 }
 
 /* A device row's Full access switch, under the device's own line (Settings > Devices). */
@@ -366,18 +399,18 @@ mark {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--ds-space-2);
   max-width: 60%;
 }
 
 /* A row with a Reset slot (setting rows, the Theme rows, the spacer rows) holds one control and the
-   slot, on one line: the cap leaves the slot's 30 px (22 px slot, 8 px gap) beyond the control's
-   60 %. A wrapped slot left the control in the slot's column, 30 px right of the other rows'
+   slot, on one line: the cap leaves the compact Reset slot and its gap beyond the control's
+   60 %. A wrapped slot left the control in the slot's column, to the right of the other rows'
    controls and a line higher (live QA 7a: the three-choice New Tab Position, 330 px, in a 570 px
    card). Editors with several parts (number, color, text, lists) wrap inside their own box. */
 .row-control:has(> .reset-slot) {
   flex-wrap: nowrap;
-  max-width: calc(60% + 30px);
+  max-width: calc(60% + var(--ds-control-compact) + var(--ds-space-2));
 }
 
 /* The row menu's host around the control (SettingRow): the control's own flex items stay in place. */
@@ -411,20 +444,29 @@ mark {
 
 .field {
   min-width: 0;
-  padding: 2px 8px;
+}
+
+.field:not(.ui-input) {
+  min-height: var(--ds-control-row);
+  padding: var(--ds-space-1) var(--ds-space-2);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: var(--input-bg);
   outline: none;
 }
 
-.field:focus {
+.field:not(.ui-input):focus {
   border-color: var(--border-strong);
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
-.field[aria-invalid="true"] {
+.field:not(.ui-input)[aria-invalid="true"] {
   border-color: var(--danger);
+}
+
+/* Validation remains visible on shared inputs, whose outline is an inset shadow. */
+.settings .field.ui-input[aria-invalid="true"] {
+  box-shadow: inset 0 0 0 var(--cmux-hairline) var(--ds-color-danger);
 }
 
 .text,
@@ -433,12 +475,12 @@ mark {
 }
 
 .hex {
-  width: 110px;
+  width: calc(var(--ds-space-4) * 7);
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 .number {
-  width: 64px;
+  width: calc(var(--ds-space-6) * 2);
   text-align: right;
 }
 
@@ -446,7 +488,7 @@ mark {
    copy in the same grid cell sets the column width; at least the old 64 px. */
 .number-sizer {
   display: inline-grid;
-  min-width: 64px;
+  min-width: calc(var(--ds-space-6) * 2);
 }
 
 .number-sizer::after {
@@ -454,7 +496,7 @@ mark {
   grid-area: 1 / 1;
   visibility: hidden;
   white-space: pre;
-  padding: 3px 8px;
+  padding: var(--ds-space-1) var(--ds-space-2);
   border: 1px solid transparent;
 }
 
@@ -474,7 +516,7 @@ mark {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: var(--ds-space-2);
 }
 
 .unit {
@@ -547,10 +589,10 @@ mark {
   position: absolute;
   top: 50%;
   left: 0;
-  width: 26px;
-  height: 22px;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
   border: 1px dashed var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--ds-radius-sm);
   opacity: 0.7;
   translate: 0 -50%;
   pointer-events: none;
@@ -565,18 +607,21 @@ mark {
 
 .segmented {
   display: inline-flex;
-  gap: 1px;
-  padding: 1px;
+  gap: 0;
+  padding: var(--ds-space-1);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--ds-radius-lg);
   margin: 0;
   min-width: 0;
 }
 
 .segment {
   position: relative;
-  padding: 1px 10px;
-  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-3);
+  border-radius: var(--ds-radius-sm);
   background: transparent;
   cursor: default;
 }
@@ -602,72 +647,40 @@ mark {
   outline-offset: -1px;
 }
 
-.switch {
-  position: relative;
-  width: 32px;
-  height: 18px;
-  padding: 0;
-  border: 1px solid var(--border-strong);
-  border-radius: 9px;
-  background: transparent;
-  transition: background var(--motion-hover);
-}
-
-.switch .knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 0;
-  height: 0;
-  border: 6px solid var(--muted-text);
-  border-radius: 50%;
-  transition: transform var(--motion-hover);
-}
-
-.switch[aria-checked="true"] {
-  border-color: var(--text);
-  background: var(--accent-soft);
-}
-
-.switch[aria-checked="true"] .knob {
-  border-color: var(--text);
-  transform: translateX(14px);
-}
-
-.switch:focus-visible,
-.button:focus-visible,
-.icon-button:focus-visible,
+.button:not(.ui-btn):focus-visible,
+.icon-button:not(.ui-btn):focus-visible,
 .domain-option:focus-visible {
   outline: 2px solid var(--border-strong);
   outline-offset: 1px;
 }
 
-.button,
-.link-button,
-.icon-button {
+.button:not(.ui-btn),
+.link-button:not(.ui-btn),
+.icon-button:not(.ui-btn) {
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: transparent;
-  padding: 3px 10px;
+  min-height: var(--ds-control-row);
+  padding: var(--ds-space-1) var(--ds-space-3);
   white-space: nowrap;
 }
 
-.link-button {
+.link-button:not(.ui-btn) {
   border: 0;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-1);
   text-decoration: underline;
 }
 
-.icon-button {
+.icon-button:not(.ui-btn) {
   display: inline-flex;
-  padding: 3px;
+  padding: var(--ds-space-1);
   border-color: transparent;
   color: var(--muted-text);
 }
 
 /* As the section links: the fill eases in under the pointer and clears at once when it leaves. */
-.button:hover,
-.icon-button:hover {
+.button:not(.ui-btn):hover,
+.icon-button:not(.ui-btn):hover {
   background: var(--input-bg);
   transition: background var(--motion-hover);
 }
@@ -677,11 +690,11 @@ mark {
 }
 
 .swatch {
-  width: 26px;
-  height: 22px;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
   padding: 0;
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--ds-radius-sm);
   background: transparent;
 }
 
@@ -692,7 +705,7 @@ mark {
 .domain-button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-2);
   max-width: 260px;
 }
 
@@ -701,7 +714,16 @@ mark {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  width: 260px;
+  /* Fixed, so filtering never resizes it, and no wider than a font row plus its Recent tag and
+     check need (design/menus.md menu-fit: at most 112 px spare past the fullest row). */
+  width: 240px;
+}
+
+/* Fit font names and the search field, while keeping long installed family names in the viewport. */
+.font-picker-panel {
+  width: max-content;
+  min-width: min(220px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
 }
 
 .domain-list {
@@ -855,6 +877,11 @@ mark {
   margin-top: 8px;
 }
 
+.clear-browsing-data-error {
+  flex-basis: 100%;
+  min-width: 0;
+}
+
 .host-toggle {
   width: 100%;
   padding: 0;
@@ -882,7 +909,7 @@ mark {
   border-radius: 50%;
   background: var(--accent-soft);
   color: var(--muted-text);
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 600;
 }
 
@@ -916,6 +943,32 @@ mark {
 
 .host-field > .field {
   width: 240px;
+}
+
+/* Wrap complete controls rather than shrinking their labels in narrow profile editors. */
+.host-field[data-clear-browsing-data] {
+  flex-wrap: wrap;
+}
+
+.host-field[data-clear-browsing-data] > .row-help {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: normal;
+  text-overflow: clip;
+}
+
+.host-field[data-clear-browsing-data] > .field {
+  flex-shrink: 0;
+  max-width: 100%;
+}
+
+.host-field[data-clear-browsing-data] > .host-actions {
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .host-swatches {
@@ -963,10 +1016,14 @@ mark {
   padding: 4px 0 0;
 }
 
+.accounts-row {
+  --accounts-mark-width: 20px;
+}
+
 .accounts-mark {
   display: inline-flex;
   flex: none;
-  width: 20px;
+  width: var(--accounts-mark-width);
 }
 
 .accounts-status {
@@ -1000,7 +1057,7 @@ mark {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* Under the title: the mark's 20 px plus the row's 20 px gap (layout.css .row-main). */
+  /* Under the title: the mark plus the row's gap; refined.css sets it from --row-main-gap. */
   padding: 6px 0 0 40px;
 }
 
@@ -1010,6 +1067,61 @@ mark {
 
 .accounts-form > .field {
   max-width: 320px;
+}
+
+/* Teams: a team row has no provider mark, so its details start under the title. */
+.accounts-team-body {
+  padding-left: 0;
+}
+
+/* New Team is the row itself, not details under a title: its title starts where a team's name does. */
+.accounts-team-create,
+.accounts-team-create > .accounts-form {
+  padding-top: 0;
+}
+
+.accounts-team-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accounts-badge {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--text-caption);
+  font-weight: 400;
+  line-height: var(--text-caption--line-height);
+  color: var(--muted-text);
+}
+
+.accounts-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 0;
+}
+
+.accounts-fact {
+  display: flex;
+  /* The label is smaller than its value: share a baseline, not a top edge. */
+  align-items: baseline;
+  gap: 8px;
+}
+
+.accounts-fact > dd {
+  margin: 0;
+}
+
+.accounts-team-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.accounts-team-role {
+  margin-left: auto;
 }
 
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
@@ -1335,13 +1447,8 @@ mark {
 
 .backdrop-remove {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 20px;
-  height: 20px;
-  border-radius: 10px;
-  background: var(--input-bg);
-  color: var(--text);
+  top: var(--ds-space-1);
+  right: var(--ds-space-1);
   opacity: 0;
 }
 
@@ -1719,4 +1826,337 @@ mark {
   color: var(--muted-text);
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+/* Settings > Menus (ContextMenusCard): the list of menus beside the chosen menu, drawn as a menu.
+   Rows reorder by drag (data-drop marks where a row lands) or by their buttons, which show on
+   hover and keyboard focus. */
+.menus-editor {
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
+  gap: var(--ds-space-4);
+  align-items: start;
+}
+
+.menus-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  position: sticky;
+  top: 0;
+}
+
+.menus-area {
+  display: flex;
+  flex-direction: column;
+}
+
+.menus-area-title {
+  margin: 0 0 3px 8px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--muted-text);
+}
+
+.menus-list-item {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  min-height: 24px;
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+
+.menus-list-item:hover {
+  background: var(--input-bg);
+}
+
+.menus-list-item[aria-current] {
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.menus-list-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.menus-edited {
+  margin-inline-start: auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.menus-detail {
+  min-width: 0;
+}
+
+.menus-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menus-detail-title {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+
+.menus-detail-spacer {
+  flex: 1;
+}
+
+.menus-help {
+  margin: 4px 0 10px;
+}
+
+/* The menu itself: a rounded panel of 24 px rows, as macOS draws a context menu. */
+.menu-preview {
+  list-style: none;
+  margin: 0;
+}
+
+.menu-preview {
+  padding: var(--ds-space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  /* A context menu's own surface (WebTheme's --surface-popup) and drop, so it reads as the menu. */
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-drop);
+  max-width: 420px;
+  position: relative;
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: 24px;
+  padding: 0 var(--ds-space-1);
+  border-radius: 5px;
+  position: relative;
+}
+
+/* A row lights on hover, but never while the pointer is on one of its own buttons: then only that
+   button lights (a hover covers only its control). The exclusion sits in :where() so the rule keeps
+   .menu-row:hover's weight and a dragged row's opaque fill (below) still wins. */
+.menu-row:where(:hover:not(:has(.icon-button:hover))),
+.menu-row:focus-within {
+  background: var(--input-bg);
+}
+
+/* While a row is dragged it follows the pointer and the rows it passes slide apart to open the gap
+   where it lands (transforms only, no layout); hover washes and row buttons stay off so nothing
+   flashes under the pointer. */
+.menu-preview[data-reordering] .menu-row:not([data-dragging]):hover {
+  background: none;
+}
+
+.menu-preview[data-reordering] .menu-row .menu-row-actions {
+  opacity: 0;
+}
+
+.menu-preview[data-reordering] > .menu-row:not([data-dragging]) {
+  transition: transform var(--motion-in) var(--motion-ease);
+}
+
+.menu-row[data-dragging] {
+  z-index: var(--layer-raised);
+  /* Opaque: the rows it passes never show through its title. */
+  background: var(--surface-popup);
+  box-shadow:
+    inset 0 0 0 100vmax var(--accent-soft),
+    var(--elevation-2);
+  cursor: grabbing;
+}
+
+.menu-row[data-drop-into] {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.menu-row-grip {
+  display: inline-flex;
+  color: var(--soft-text);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.menu-preview[data-reordering] {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.menu-row-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.menu-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.menu-disclosure {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+
+.menu-row-chevron {
+  color: var(--muted-text);
+}
+
+.menu-row-actions {
+  display: inline-flex;
+  opacity: 0;
+}
+
+.menu-row:hover .menu-row-actions,
+.menu-row:focus-within .menu-row-actions,
+.menu-row:has([data-popup-open]) .menu-row-actions {
+  opacity: 1;
+}
+
+.menu-separator .menu-separator-line {
+  flex: 1;
+  height: 0;
+  margin: 0 6px;
+  border-top: 1px solid var(--border-strong);
+}
+
+.menu-row-body {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.menu-row[data-hidden] .menu-row-body > :not(.menu-row-actions):not(.menu-row-grip) {
+  opacity: 0.45;
+}
+
+.menu-row-badge {
+  flex: none;
+  padding: 0 var(--ds-space-1);
+  border-radius: 4px;
+  background: var(--input-bg);
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+button.menu-disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.menu-twisty {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-inline-start: -2px;
+  color: var(--muted-text);
+}
+
+.menu-twisty-closed {
+  transform: rotate(-90deg);
+}
+
+.menu-rename {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+}
+
+.menus-move-picker {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  max-width: 420px;
+  padding: var(--ds-space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface-popup);
+  box-shadow: var(--ui-popup-drop);
+}
+
+@media (max-width: 640px) {
+  .menus-editor {
+    grid-template-columns: 1fr;
+  }
+
+  .menus-list {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+}
+
+.menus-failure {
+  margin: 0 0 10px;
+  color: var(--danger);
+  font-size: var(--text-detail);
+}
+
+/* Live storage and phone totals, plus editable numeric tokens, keep equal-width digits. */
+.backdrop-own-bar > .row-help,
+[data-card="mobile"] > .rows:first-of-type > [data-action-row]:first-child .row-help,
+.number-list .token,
+.number-list .token-input {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Updates > App Update: the download's bar under its status row, and Restart to Update filled. */
+.app-update-progress-row {
+  padding: 0 8px 8px;
+}
+
+.app-update-progress {
+  display: block;
+  width: 100%;
+  block-size: 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 2px;
+  appearance: none;
+  background: var(--input-bg);
+}
+
+.app-update-progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+.app-update-progress::-webkit-progress-value {
+  border-radius: 2px;
+  background: var(--text);
+}
+
+.app-update-progress::-moz-progress-bar {
+  border-radius: 2px;
+  background: var(--text);
+}
+
+.button.app-update-prominent:not(.ui-btn) {
+  border-color: transparent;
+  background: var(--accent-soft);
 }

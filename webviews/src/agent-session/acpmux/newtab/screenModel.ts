@@ -26,6 +26,8 @@ export type ScreenRow =
   | { type: "tab"; id: string; title: string; detail?: string; icon?: string; url?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
   | { type: "history"; url: string; title?: string; icon?: string }
+  /// A Commands palette action (Cmd-Shift-P) the host runs (`app.action`); `detail` is its section.
+  | { type: "action"; id: string; title: string; detail?: string; keycaps?: string[] }
   /// The text as a prompt to `harness`, named `agent` (its `model` when known).
   | { type: "ask"; text: string; harness: string; agent: string; model?: string }
   /// A create action (cx-ag5.7): New terminal, New browser tab or New chat, as under the field.
@@ -46,6 +48,8 @@ export const MAX_SUGGESTIONS = 8;
 export const MAX_COMPLETIONS = 3;
 /// The shortest word an address completes: "go" or "no" stays a prompt, not google.com or notion.so.
 const MIN_COMPLETION_LENGTH = 3;
+/// Commands palette actions shown under the matches.
+export const MAX_ACTION_ROWS = 3;
 /// Chat cards under the field.
 export const CHAT_CARD_COUNT = 3;
 
@@ -105,11 +109,22 @@ export function inStrip(row: ScreenRow): boolean {
   return row.type === "create" && row.strip === true;
 }
 
+/// An address with its port still to come (`localhost:`, `example.com:`): the address it was a key
+/// ago, so its row stays put while the port is typed instead of leaving for one key and coming
+/// back (the rows under it jumped 28 px down, up and down again; agent-pane.new-tab#create-strip-narrow).
+function typingPort(text: string, home?: string): { kind: "url"; url: string } | undefined {
+  const trimmed = text.trim();
+  if (!trimmed.endsWith(":") || trimmed.endsWith("::")) return undefined;
+  const intent = classifyNewTabInput(trimmed.slice(0, -1), home ? { home } : {});
+  return intent.kind === "url" && !intent.url.startsWith("file:") ? intent : undefined;
+}
+
 function navigationRows(
   text: string,
   context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; order?: SuggestionOrder },
 ): ScreenRow[] {
-  const intent = classifyNewTabInput(text, context.home ? { home: context.home } : {});
+  const intent =
+    typingPort(text, context.home) ?? classifyNewTabInput(text, context.home ? { home: context.home } : {});
   // A pairing link offers nothing: no search, no Ask, no address, no create row (they carry the text).
   if (intent.kind === "none" || intent.kind === "terminal" || intent.kind === "refused") return [];
   const order = context.order ?? DEFAULT_SUGGESTION_ORDER;
@@ -129,11 +144,30 @@ function navigationRows(
     ranked(rest).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
   // No agent to ask: a question or a word is searched, an address still opens first.
   if (!ask.length) {
-    if (!top) return [...search, ...fit(search)];
-    return [top, ...fit([top]), ...search];
+    if (!top) return [...search, ...fit(search), ...actionRows(query, context.omnibar)];
+    return [top, ...fit([top]), ...actionRows(query, context.omnibar), ...search];
   }
   const lead = top ? (order === "chat" ? [...ask, top] : [top, ...ask]) : ask;
-  return [...lead, ...fit(lead), ...search];
+  return [...lead, ...fit(lead), ...actionRows(query, context.omnibar), ...search];
+}
+
+/// The Commands palette actions the text names, best match first (the palette's order breaks
+/// ties): a title or keyword starting with it, or for 3+ characters containing it.
+export function actionRows(query: string, omnibar: OmnibarContext, limit = MAX_ACTION_ROWS): ScreenRow[] {
+  const actions = omnibar.actions ?? [];
+  if (!actions.length || !query) return [];
+  return actions
+    .map((action, index) => ({ action, index, score: matchScore(query, action.title, ...action.keywords) }))
+    .filter((entry) => entry.score >= 2 || (entry.score > 0 && query.length >= SUBSTRING_MATCH_LENGTH))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, limit)
+    .map(({ action }): ScreenRow => ({
+      type: "action",
+      id: action.id,
+      title: action.title,
+      ...(action.detail ? { detail: action.detail } : {}),
+      ...(action.keycaps ? { keycaps: action.keycaps } : {}),
+    }));
 }
 
 /// Whether `query` is a site's whole first name or reads as a host, for the completion `row`.

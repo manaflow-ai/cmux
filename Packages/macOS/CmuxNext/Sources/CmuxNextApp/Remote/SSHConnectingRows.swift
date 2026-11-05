@@ -2,30 +2,22 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSidebar
 
-/// An SSH machine that is connecting in the one-list sidebar (cx-gaq9): the
-/// list has no computer rows (cx-mdo0), so a machine with no workspace row
-/// yet shows one pending row, "Connecting to <host>…", from Connect until its
-/// first workspace is listed or the link stops connecting (a link that
-/// fails or goes offline ends the row; the machine's surface says why). The state is the
-/// link's and the daemon's (`SidebarBridge.sshStatus`); this type only
-/// presents it, so the sidebar bridge does not grow.
+/// The one-list sidebar's "Connecting to <host>…" rows (`ConnectingRowWindows`; the list has no
+/// computer rows, cx-mdo0). The state is the link's and the daemon's (`SidebarBridge.sshStatus`).
 enum SSHConnectingRows {
-    nonisolated static let prefix = "ssh-connecting:"
-
-    /// `sections` with one pending row per SSH machine that is connecting
-    /// or installing and lists no row in this window. The row is a titled
-    /// placeholder: never selected, dragged, renamed or closed, and never
-    /// saved in the sidebar snapshot (the placeholder guards).
-    static func adding(_ machines: MachineRegistry, to sections: [SidebarRowSection]) -> [SidebarRowSection] {
+    /// `sections` with one pending row per SSH machine that is connecting or installing, lists no row
+    /// here and lists in `window` (nil: any). The row is a titled placeholder: never selected, dragged,
+    /// renamed or closed, and never saved in the sidebar snapshot (the placeholder guards).
+    static func adding(_ machines: MachineRegistry, to sections: [SidebarRowSection], window: String?, windows: ConnectingRowWindows) -> [SidebarRowSection] {
         var sections = sections
-        for session in machines.ssh {
+        for session in machines.ssh where window == nil || windows.owner(requestedBy: session.connectingWindow) == window {
             let machineID = MachineID(session.machineID)
             let index = sections.firstIndex { $0.machine?.id == machineID }
             if let index, !sections[index].workspaces.isEmpty { continue }
             let status = SidebarBridge.sshStatus(session, compatibility: machines.compatibility(of: session.daemon))
             guard status == .connecting || status == .installing else { continue }
             let row = SidebarWorkspace(
-                id: WorkspaceID(prefix + session.machineID), machineID: machineID,
+                id: WorkspaceID(ConnectingRowWindows.prefix + session.machineID), machineID: machineID,
                 title: RemoteStrings.sidebarConnecting(session.host.label), kind: .terminal,
                 progress: SidebarProgress(value: nil), rowState: .placeholder, isClosable: false,
                 stage: status == .installing ? RemoteStrings.detail(session) : nil)
@@ -37,9 +29,8 @@ enum SSHConnectingRows {
         }
         return sections
     }
+}
 
-    /// The machine id of a connecting row, whose menu is its machine's.
-    nonisolated static func machine(of id: WorkspaceID) -> String? {
-        id.rawValue.hasPrefix(prefix) ? String(id.rawValue.dropFirst(prefix.count)) : nil
-    }
+extension WindowManager {
+    func connectingRowWindows(making id: String?) -> ConnectingRowWindows { ConnectingRowWindows(open: controllers.map(\.state.id), incognito: isIncognito(window:), making: id) }
 }

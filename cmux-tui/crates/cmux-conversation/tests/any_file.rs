@@ -30,3 +30,33 @@ fn active_types_a_client_never_sends_stay_refused() {
     assert!(check("x.svg", "image/svg+xml").is_err());
     assert!(check("index.html", "text/html").is_err());
 }
+
+#[test]
+fn original_admission_is_uncapped_but_derived_images_keep_their_budget() {
+    use cmux_conversation::{
+        AttachmentReject, DerivedImage, DerivedVariant, MAX_POSTER_BYTES, MAX_PREVIEW_IMAGE_BYTES,
+        validate_derived,
+    };
+    assert_eq!(
+        validate_attachment_meta(
+            HASH,
+            "application/octet-stream",
+            1_073_741_825,
+            "large.bin",
+            None,
+            None,
+            None
+        ),
+        Ok(AttachmentClass::File)
+    );
+    for (variant, class, limit) in [
+        (DerivedVariant::Preview, AttachmentClass::Image, MAX_PREVIEW_IMAGE_BYTES),
+        (DerivedVariant::Poster, AttachmentClass::Video, MAX_POSTER_BYTES),
+    ] {
+        let mut image =
+            DerivedImage { hash: HASH.into(), mime_type: "image/jpeg".into(), byte_count: limit };
+        assert_eq!(validate_derived(&image, class, variant), Ok(()));
+        image.byte_count += 1;
+        assert_eq!(validate_derived(&image, class, variant), Err(AttachmentReject::TooLarge));
+    }
+}

@@ -34,7 +34,7 @@ afterAll(() => {
 const HOUR = 3_600_000;
 // Each item of the row by its name: a control's label (Retry's wrapper by its button's), else its text.
 const labels = () =>
-  [...host.querySelectorAll(".cv-user__actions > *")].map(
+  [...host.querySelectorAll(".cv-user__actions > .cv-message-footer-row > *")].map(
     (node) =>
       node.getAttribute("aria-label") ??
       node.querySelector("button")?.getAttribute("aria-label") ??
@@ -43,22 +43,25 @@ const labels = () =>
 /// The tooltip text an item of the row shows on hover (its `title`, which ui/titleTooltips.ts draws).
 const tooltip = (selector: string) => host.querySelector(`.cv-user__actions ${selector}`)?.getAttribute("title");
 
-async function draw(row: AcpmuxRow, actions: object) {
+async function draw(row: AcpmuxRow, actions: object, presentation: "transcript" | "messages" = "transcript") {
   const { createRoot } = await import("react-dom/client");
   const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
   const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
+  const { PresentationContext } = await import("../src/agent-session/acpmux/conversation/PresentationContext");
   act(() => root?.unmount());
   root = createRoot(host);
   await act(async () =>
     root!.render(
-      <TurnActionsContext.Provider value={actions}>
-        <UserBubble row={row} text={row.text ?? ""} />
-      </TurnActionsContext.Provider>,
+      <PresentationContext.Provider value={presentation}>
+        <TurnActionsContext.Provider value={actions}>
+          <UserBubble row={row} text={row.text ?? ""} />
+        </TurnActionsContext.Provider>
+      </PresentationContext.Provider>,
     ),
   );
 }
 
-test("a read prompt shows age, Copy, Edit, Retry and Fork, without receipt checks or state dots", async () => {
+test("a read prompt shows age, Copy, Edit and Fork, without receipt checks or state dots", async () => {
   const forked: number[] = [];
   const sent: [string, string][] = [];
   const row: AcpmuxRow = {
@@ -78,8 +81,8 @@ test("a read prompt shows age, Copy, Edit, Retry and Fork, without receipt check
     promptTurns: new Map([["user-4", 5]]),
     route: { name: "Claude Code", harness: "claude" },
   });
-  // Leo's row, then the direct prompt actions: Copy, Edit, Retry and Fork.
-  expect(labels()).toEqual(["3 days ago", "Copy", "Edit", "Retry", "Fork from here"]);
+  // Leo's row, then the direct prompt actions: Copy, Edit and Fork (Retry is the reply footer's).
+  expect(labels()).toEqual(["3 days ago", "Copy", "Edit", "Fork from here"]);
   expect(host.querySelector(".cv-message-pin")).toBeNull();
   expect(host.querySelector(".cv-user__read")).toBeNull();
   expect(host.querySelector("time.cv-user__time")?.getAttribute("dateTime")).toBe(new Date(row.at).toISOString());
@@ -97,7 +100,6 @@ test("a read prompt shows age, Copy, Edit, Retry and Fork, without receipt check
       .replace(/\s/g, " "),
   );
   expect(tooltip('button[aria-label="Copy"]')).toBe("Copy");
-  expect(tooltip('button[aria-label="Retry"]')).toBe("Retry");
   expect(tooltip('button[aria-label="Fork from here"]')).toBe("Fork from here");
   const forkButton = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
   expect(forkButton.getAttribute("data-tooltip-detail")).toBe(
@@ -105,8 +107,8 @@ test("a read prompt shows age, Copy, Edit, Retry and Fork, without receipt check
   );
   act(() => forkButton.click());
   expect(forked).toEqual([5]);
-  act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!.click());
-  expect(sent).toEqual([["user-4", "Cover it"]]);
+  expect(host.querySelector('button[aria-label="Retry"]')).toBeNull();
+  expect(sent).toEqual([]);
 });
 
 test("Fork gives same-frame pending feedback and suppresses duplicate activation", async () => {
@@ -248,7 +250,7 @@ test("a chat that cannot fork at a prompt hides Fork there rather than showing i
     { id: "user-2", version: 1, at: Date.now(), kind: "user", seq: 2, text: "First" },
     { fork: () => {}, forkSeq: 9, promptTurns: new Map([["user-2", 3]]), retry: () => {} },
   );
-  expect(labels()).toEqual(["just now", "Copy", "Retry"]);
+  expect(labels()).toEqual(["just now", "Copy"]);
 });
 
 test("a prompt still being sent has no receipt, and one that cannot fork offers no Fork", async () => {
@@ -272,11 +274,25 @@ test("a read steer shows only normal hover actions", async () => {
   expect(host.textContent).not.toContain("Steer");
 });
 
-test("Retry under a prompt sends it again (shown under every prompt)", async () => {
+// Leo, 2026-11-04: "Today Retry is on your prompt bubble, and appears on the reply only after a
+// failure. Put it, with the model switch, in the last turn's footer." (TurnRows.tsx TurnFooter).
+test("a sent prompt draws no Retry: the last turn's reply footer has it", async () => {
+  await draw(
+    { id: "user-4", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Cover it" },
+    { retry: () => undefined },
+  );
+  expect(host.querySelector('button[aria-label="Retry"]')).toBeNull();
+  expect(host.querySelector(".cv-turn-retry-menu")).toBeNull();
+});
+
+// The Messages view draws no footer for a turn that ended well (messagesRows.ts), so a prompt there
+// keeps the Retry it had, which sends it again.
+test("in the Messages view a sent prompt keeps its Retry", async () => {
   const sent: [string, string][] = [];
   await draw(
     { id: "user-4", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Cover it" },
     { retry: (rowId: string, prompt: string) => sent.push([rowId, prompt]) },
+    "messages",
   );
   const retry = host.querySelector<HTMLButtonElement>('.cv-message-retry button[aria-label="Retry"]')!;
   act(() => retry.click());
@@ -357,4 +373,26 @@ test("the time under a prompt names its exact time, shown above it", async () =>
   const time = host.querySelector("time.cv-user__time")!;
   expect(time.getAttribute("title")?.replace(/\s/g, " ")).toBe("Oct 20, 2026, 10:16 PM");
   expect(time.getAttribute("data-tooltip-side")).toBe("top");
+});
+
+test("Option-click Fork offers destinations without starting a fork", async () => {
+  const { installMessageMenuReporter } = await import("../src/agent-session/acpmux/conversation/messageMenu");
+  const reports: unknown[] = [];
+  const remove = installMessageMenuReporter(document, () => ({ postMessage: (report) => reports.push(report) }));
+  const forked: number[] = [];
+  try {
+    const row: AcpmuxRow = { id: "option-fork", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Fork this" };
+    await draw(row, { fork: (seq: number) => forked.push(seq), forkAny: true, promptTurns: new Map([[row.id, 5]]) });
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
+    act(() => {
+      button.dispatchEvent(new window.MouseEvent("click", { bubbles: true, altKey: true }));
+    });
+    expect(reports).toEqual([expect.objectContaining({ forkDestinations: 5 })]);
+    expect(forked).toEqual([]);
+    expect(button.dataset.forkState).toBe("idle");
+    act(() => button.click());
+    expect(forked).toEqual([5]);
+  } finally {
+    remove();
+  }
 });

@@ -156,6 +156,16 @@ export interface UpstreamClientService {
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network">; readonly network: VmNetworkAllowed<C> },
   ) => Effect.Effect<"updated" | "missing" | "ambiguous", UpstreamError>;
+  /** Whether a rule whose source is exactly this VM allows the public Internet on every port. */
+  readonly readVmPublicEgress: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network"> },
+  ) => Effect.Effect<boolean, UpstreamError>;
+  /** Adds that rule unless one is there; never removes or widens another rule. */
+  readonly allowVmPublicEgress: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network"> },
+  ) => Effect.Effect<void, UpstreamError>;
   readonly getVm: <C, R>(
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> },
@@ -167,7 +177,7 @@ export interface UpstreamClientService {
   ) => Effect.Effect<UpstreamVm, UpstreamError>;
   /**
    * Boots a new VM for the caller's tenant. Its upstream name and metadata
-   * carry the tenant id and the cmux id. With `source`, it boots from that
+   * carry the tenant id and the cmux id; the tenant id is also its upstream customer. With `source`, it boots from that
    * snapshot of the tenant's.
    */
   readonly inspectCancellingCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly cancelling: CancellingVmCreation<C, V> }) => Effect.Effect<{ readonly upstreamId: UpstreamId } | null, UpstreamError>;

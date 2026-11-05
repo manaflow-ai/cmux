@@ -153,9 +153,17 @@ struct Setup {
 }
 
 fn setup(events: Vec<Value>) -> Setup {
+    setup_with_owner(events, false)
+}
+
+fn setup_with_owner(events: Vec<Value>, connected: bool) -> Setup {
     let sub = Arc::new(Mutex::new(events));
     let mut h = Harness::new(script(sub));
     h.agents.hold(true);
+    // Connect before spawning: a later reconnect also reconciles the child.
+    if connected {
+        h.connect();
+    }
     let traces = h.dir.path().join("traces");
     h.brain
         .set_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap());
@@ -471,4 +479,36 @@ fn an_ack_to_a_chief_tell_is_quiet() {
         "{sub:?}"
     );
     assert!(sub.stopped, "an ack starts no Chief turn");
+}
+
+#[test]
+fn a_stopped_report_stays_quiet_in_home() {
+    let t0 = now_ms();
+    let mut s = setup_with_owner(
+        vec![
+            prompt("optchat-sub:a1", t0),
+            started(t0),
+            say("Partial work before cancellation.", t0 + 1000),
+            json!({"dir": "mux", "kind": "turn_end", "at": t0 + 2000, "msg": {"stopReason": "cancelled"}}),
+        ],
+        true,
+    );
+    s.idle();
+    s.at(t0 + 10 * MIN);
+    s.tick();
+    assert!(s.sub().stopped, "the cancellation was observed");
+    assert!(s.h.brain.state().pending_reports.is_empty());
+    assert!(
+        s.h.owner
+            .lock()
+            .unwrap()
+            .run_steps
+            .iter()
+            .all(|(_, run, _)| {
+                !run["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("reports:"))
+            }),
+        "a stopped report stays quiet in Home"
+    );
 }

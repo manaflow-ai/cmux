@@ -295,7 +295,7 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(posterImage.height > posterImage.width) // the transform is applied to the poster too
     }
 
-    @MainActor @Test func policyRefusesSizesBeforeCopying() async throws {
+    @MainActor @Test func policyAcceptsLargeOriginalsBeforeCopying() async throws {
         let root = try temporaryDirectory()
         let cache = root.appendingPathComponent("cache")
         let store = HomeStore(source: MockHomeSource(options: .immediate), blobCacheDirectory: cache)
@@ -303,16 +303,8 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         try Data().write(to: empty)
         await #expect(throws: HomeAttachmentError.empty(name: "empty.txt")) { try await store.prepareAttachment(fileURL: empty) }
 
-        // A sparse file one byte over the limit: refused from its size, never read.
-        let big = root.appendingPathComponent("big.mp4")
-        FileManager.default.createFile(atPath: big.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: big)
-        try handle.truncate(atOffset: UInt64(HomeAttachmentPolicy.maxBytes + 1))
-        try handle.close()
-        await #expect(throws: HomeAttachmentError.tooLarge(byteCount: HomeAttachmentPolicy.maxBytes + 1, limit: HomeAttachmentPolicy.maxBytes)) {
-            try await store.prepareAttachment(fileURL: big)
-        }
-        #expect(!FileManager.default.fileExists(atPath: cache.path))
+        // Original size is unbounded; the admission policy accepts a file over 100 MB.
+        try HomeAttachmentPolicy.check(mimeType: "video/mp4", byteCount: 100_000_001, name: "big.mp4")
     }
 
     @MainActor @Test func mimeTypesUseTheOwnersSpelling() async throws {
@@ -425,17 +417,24 @@ func makeTextSample(_ text: String, format: CMFormatDescription, duration: CMTim
         #expect(HomeAttachmentPolicy.sendableName("  ") == "attachment")
     }
 
-    /// The copy into the cache stops one byte past the limit (the file grew
-    /// after its size was read), and leaves nothing behind.
-    @Test func ingestStopsCopyingPastTheLimit() throws {
+    /// File ingestion streams the complete original without a per-file cap.
+    @Test func ingestStreamsTheCompleteOriginal() throws {
         let root = try temporaryDirectory()
         let source = root.appendingPathComponent("growing.txt")
-        try Data(repeating: 1, count: 100).write(to: source)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let byteCount = 1_073_741_825
+        #expect(FileManager.default.createFile(atPath: source.path, contents: nil))
+        let file = try FileHandle(forWritingTo: source)
+        try file.truncate(atOffset: UInt64(byteCount))
+        try file.seek(toOffset: UInt64(byteCount - 1))
+        try file.write(contentsOf: Data([1]))
+        try file.close()
         let cache = root.appendingPathComponent("cache")
-        #expect(throws: HomeAttachmentError.tooLarge(byteCount: 11, limit: 10)) {
-            try AttachmentMedia.ingest(fileURL: source, root: cache, maxBytes: 10)
-        }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: cache.path).isEmpty)
+        let ingested = try AttachmentMedia.ingest(fileURL: source, root: cache)
+        #expect(ingested.byteCount == byteCount)
+        #expect(try ingested.url.resourceValues(forKeys: [.fileSizeKey]).fileSize == byteCount)
+        #expect(ingested.hash == (try AttachmentMedia.sha256(ofFile: source)))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: cache.path) == [ingested.hash])
     }
 
     /// Sample bytes prepare can take for `type`: a real image for a type

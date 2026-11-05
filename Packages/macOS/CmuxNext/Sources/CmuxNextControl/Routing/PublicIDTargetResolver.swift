@@ -24,6 +24,12 @@ enum PublicIDTargetResolver {
             guard Set(exact.map(\.sessionID)).count == 1 else { throw ambiguous(ref, exact) }
             return ControlTargetRef(kind: ref.kind, id: first.modelID)
         }
+        // A workspace group also answers to its exact name (`cmux workspace group create --parent Fleet`), never a prefix of it.
+        if ControlRouter.normalizedKind(ref.kind) == "workspacegroup" {
+            let named = topology.workspaceGroups.filter { $0.name == ref.id }
+            if named.count > 1 { throw ambiguous(ref, named.map { Candidate(modelID: $0.id, names: [$0.id]) }) }
+            if let group = named.first { return ControlTargetRef(kind: ref.kind, id: group.id) }
+        }
         var seen = Set<String>()
         let prefixed = candidates.filter { $0.names.contains { $0.hasPrefix(ref.id) } && seen.insert(($0.sessionID ?? "") + "/" + $0.modelID).inserted }
         switch prefixed.count {

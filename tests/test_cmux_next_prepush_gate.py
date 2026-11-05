@@ -7,11 +7,13 @@ scripts/cmux-next checks and a small CmuxNext package, then pushes to a bare
 runs. The base already carries a `try!` (base debt): only what a push adds counts.
 """
 import importlib.util
+import sys
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -41,6 +43,43 @@ if os.uname().sysname == "Darwin":
 else:
     TOOLS = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "cmux-lint-tools"
 TOOLS = Path(os.environ.get("CMUX_LINT_TOOLS_DIR", TOOLS))
+
+
+def load_gate_tools():
+    """scripts/cmux-next/prepush-gate.py as a module, from this checkout."""
+    spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_module", SOURCE / "scripts/cmux-next/prepush-gate.py")
+    gate = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = gate
+    spec.loader.exec_module(gate)
+    return gate
+
+
+def _pinned_swiftformat() -> Path:
+    """The pinned SwiftFormat the gate downloads into TOOLS (scripts/cmux-next/lint-tools.lock, this platform)."""
+    spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_tools", SOURCE / "scripts/cmux-next/prepush-gate.py")
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    row = gate.read_lock(SOURCE / "scripts/cmux-next/lint-tools.lock").get("swiftformat")
+    if row is None:
+        return TOOLS / "swiftformat-unpinned-on-this-platform" / "swiftformat"
+    return TOOLS / f"swiftformat-{row[0]}-{gate.platform_key()}" / "swiftformat"
+
+
+SWIFTFORMAT = _pinned_swiftformat()
+# These tests run the real pinned binary through the real hook; they do not download it (the gate would).
+NEEDS_SWIFTFORMAT = unittest.skipUnless(
+    SWIFTFORMAT.is_file() and os.access(SWIFTFORMAT, os.X_OK),
+    f"the pinned SwiftFormat is not installed at {SWIFTFORMAT} (any push through the hook downloads it once)")
+# One `consecutiveBlankLines` hit (scripts/cmux-next/lint/swiftformat.conf): a rule the SwiftLint layer does not have,
+# so only the SwiftFormat layer can refuse it, and nothing any other check refuses.
+SWIFTFORMAT_HIT = """struct Fresh {
+    func a() -> Int { 1 }
+
+
+    func b() -> Int { 2 }
+}
+"""
+SWIFTFORMAT_CLEAN = SWIFTFORMAT_HIT.replace("\n\n\n", "\n\n")
 
 PACKAGE = """// swift-tools-version: 6.2
 import PackageDescription
@@ -139,7 +178,9 @@ class PrePushGateTests(unittest.TestCase):
         self.repo = self.root / "repository"
         self.origin = self.root / "origin.git"
         self.global_config = self.root / "gitconfig"
-        self.global_config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n")
+        # The pushes below go into a local bare origin, whose receive-pack reads only config files (git_fixture_env).
+        self.global_config.write_text("[user]\n\tname = Fixture\n\temail = fixture@example.com\n"
+                                      + git_fixture_env.CONFIG_FILE_OPT_OUT)
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith("GIT_") and key not in AGENT_VARS}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
@@ -180,6 +221,10 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/normalize-pbxproj.py",
+            "scripts/swift_source_mask.py",
+            # The What's New validator the highlights layer runs (origin/feat-cmux-next's copy for the hook).
+            "scripts/whats-new/digest.py",
+            "scripts/whats-new/validate.py",
             *checks,
         ):
             source, target = SOURCE / relative, self.repo / relative
@@ -220,6 +265,25 @@ class PrePushGateTests(unittest.TestCase):
     def push_ref(self, ref, *flags, **env):
         return subprocess.run(["git", "-C", str(self.repo), "push", *flags, "origin", ref],
                               env={**self.env, **env}, text=True, capture_output=True)
+
+    def test_a_push_that_changes_the_perf_cron_never_runs_its_tests_in_the_hook(self):
+        # The hook never runs code the push controls (docs/contributor-verification.md, trust boundary). The perf
+        # cron's unit tests are the pushed head's own code, so the hook names them and the command to run them on
+        # code the person trusts; it never runs them, whatever they hold.
+        marker = self.root / "pushed-code-ran"
+        self.write("scripts/cmux-next/perf-cron.py", "VALUE = 1\n")
+        self.write("scripts/cmux-next/tests/test_perf_cron.py",
+                   f"import unittest\nopen({str(marker)!r}, 'w').close()\n"
+                   "class T(unittest.TestCase):\n    def test_ok(self):\n        pass\n")
+        self.commit("change the perf cron")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists(), "the hook ran the pushed head's perf cron tests")
+        self.assertIn("perf cron", result.stderr)
+        self.assertIn("python3 -I -m unittest discover -s scripts/cmux-next/tests -p 'test_perf_cron*.py'",
+                      result.stderr, "must say how to run them")
 
     def kit(self, name, text):
         self.write(f"{PKG}/Sources/CmuxNextKit/{name}.swift", text)
@@ -346,6 +410,73 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("push_range.py is missing; rerun scripts/install-git-hooks.sh", output)
         self.assertNotIn("Traceback", output)
 
+    STALE = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
+
+    def test_a_stale_install_refuses_and_never_runs_the_pushed_check(self):
+        # The hook never runs code the push controls. A reviewed copy older than a check must refuse with how to fix
+        # it, never fall back to the pushed head's copy of that check.
+        snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
+        marker = self.root / "pushed-code-ran"
+        payload = f"open({str(marker)!r}, 'w').close()\n"
+        self.write("schemas/keybindings/ghostty-reserved-keys.json", "[]\n")
+        self.write("plans/cmux-next/action-surfaces.json", "{}\n")
+        self.commit("reserved-key data")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        for number, name in enumerate(("check-leo-bans.py", "check-ghostty-reserved-keys.py")):
+            with self.subTest(name=name):
+                installed = snapshot.resolve() / name
+                if installed.exists():
+                    installed.unlink()
+                self.write(f"scripts/cmux-next/{name}", payload)
+                self.kit(f"Stale{number}", NEW_CLEAN.replace("Fresh", f"Stale{number}"))
+                self.commit(f"a pushed {name}")
+                before = self.remote_head()
+
+                result = self.push()
+
+                output = result.stdout + result.stderr
+                self.assertFalse(marker.exists(), f"the hook ran the pushed {name}")
+                self.assertNotEqual(result.returncode, 0, output)
+                self.assertEqual(self.remote_head(), before)
+                self.assertIn(self.STALE, output)
+                self.assertNotIn("Traceback", output)
+
+    def test_a_stale_install_never_takes_the_tool_pins_from_the_checkout(self):
+        # Review of 9b89be5eefd: an install with no lint-tools.lock read the checkout's (the pushed branch) and
+        # downloaded and ran the binary that lock names; its sha256 proves nothing, it comes from the same lock.
+        snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
+        (snapshot.resolve() / "lint-tools.lock").unlink()
+        marker = self.root / "pushed-code-ran"
+        tools = self.root / "tools"  # a fresh tools folder, so no pinned binary already there answers instead
+        payload = self.root / "payload"
+        payload.mkdir()
+        import hashlib
+        import zipfile
+        binary = payload / "ast-grep"
+        binary.write_text(f"#!/bin/sh\ntouch {marker}\n")
+        archive = payload / "tool.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.write(binary, "ast-grep")
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        gate = load_gate_tools()
+        rows = "".join(f"{tool}\t9.9.9\t{gate.platform_key()}\t{archive.as_uri()}\t{digest}\t{tool}\n"
+                       for tool in ("ast-grep", "swiftformat", "swiftlint"))
+        self.write("scripts/cmux-next/lint-tools.lock", "# tool\tversion\tplatform\turl\tsha256\tbinary-in-zip\n" + rows)
+        self.kit("Pinned", NEW_CLEAN.replace("Fresh", "Pinned"))
+        self.commit("a pushed lock and a Swift change")
+        before = self.remote_head()
+
+        result = self.push(CMUX_LINT_TOOLS_DIR=str(tools))
+
+        output = result.stdout + result.stderr
+        self.assertFalse(marker.exists(), "the hook ran a binary the pushed lock named")
+        self.assertFalse(tools.exists() and any(tools.iterdir()), "the hook downloaded what the pushed lock named")
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn(self.STALE, output)
+        self.assertNotIn("Traceback", output)
+
     def test_a_merge_cannot_use_an_upstream_removal_to_pay_for_the_branch_s_own_debt(self):
         # Upstream removes a try! and a main hop from Shared.swift; the branch adds a try! of the same text and a
         # main hop to Shared.swift and merges upstream in. Over the old remote head the removals pay for both
@@ -467,6 +598,354 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, output)
         self.assertIn("a merge", output)
 
+    def test_a_branch_that_merged_an_extra_upstream_is_judged_on_what_it_adds_over_it(self):
+        # A long-lived shared branch on the remote (perf/x) carries a try! pushed past the hook; a task branch
+        # merges it in. Unset, cmux.prepushExtraUpstream changes nothing: perf/x's commit is the push's own. Set
+        # to origin/perf/x, it is a shared base like origin/feat-cmux-next, and only the task's own work counts.
+        self.git("checkout", "--quiet", "-b", "perf/x")
+        self.kit("PerfDebt", self.with_try("PerfDebt"))
+        self.commit("the shared perf branch's debt")
+        self.assertEqual(self.push_ref("perf/x", "--no-verify").returncode, 0)
+        self.git("fetch", "--quiet", "origin")
+        self.git("checkout", "--quiet", "-b", "task", "origin/feat-cmux-next")
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean task work")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "origin/perf/x")
+
+        unset = self.push_ref("task")
+
+        output = unset.stdout + unset.stderr
+        self.assertNotEqual(unset.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "unset: the merged shared branch's commits count as the push's")
+        self.assertNotEqual(self.git("ls-remote", "--exit-code", "origin", "refs/heads/task", check=False).returncode, 0)
+
+        self.git("config", "--add", "cmux.prepushExtraUpstream", "origin/perf/x")
+
+        extra = self.push_ref("task")
+
+        output = extra.stdout + extra.stderr
+        self.assertEqual(extra.returncode, 0, output)
+        self.assertNotIn("PerfDebt.swift", output)
+        self.assertNotIn("installed hook copy", output, "the tracked push_range.py reads the setting: no patch")
+        self.assertEqual(self.remote_head_of("refs/heads/task"), self.git("rev-parse", "task").stdout.strip())
+
+    def pre_push_extra(self, name, status):
+        """An executable outside the checkout that records its arguments and stdin, then exits with STATUS."""
+        record = self.root / f"{name}.record"
+        script = self.root / name
+        script.write_text(f'#!/bin/sh\nprintf "%s|%s|%s\\n" "$1" "$2" "$PWD" > {record}\ncat >> {record}\nexit {status}\n')
+        script.chmod(0o755)
+        return script, record
+
+    def test_clone_local_pre_push_extras_run_with_the_pushed_refs_and_a_failure_refuses_the_push(self):
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        before = self.remote_head()
+        passes, passed = self.pre_push_extra("passes", 0)
+        refuses, refused_record = self.pre_push_extra("refuses", 3)
+        self.git("config", "--add", "cmux.prePushExtra", str(passes))
+        self.git("config", "--add", "cmux.prePushExtra", str(refuses))
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn(f"cmux.prePushExtra {refuses} refused the push (exit 3)", output)
+        for record in (passed, refused_record):  # each extra, in order, got the remote, its URL, the top and refs
+            lines = record.read_text().splitlines()
+            self.assertEqual(lines[0], f"origin|{self.origin}|{self.repo.resolve()}")
+            self.assertEqual(lines[1], f"refs/heads/feat-cmux-next {head} refs/heads/feat-cmux-next {before}")
+
+        self.git("config", "--unset-all", "cmux.prePushExtra")
+        self.git("config", "--add", "cmux.prePushExtra", str(passes))
+
+        allowed = self.push()
+
+        output = allowed.stdout + allowed.stderr
+        self.assertEqual(allowed.returncode, 0, output)
+        self.assertEqual(self.remote_head(), head)
+        self.assertNotIn("installed hook copy", output, "the tracked hook runs the extras: no patched copy")
+
+    def test_a_pre_push_extra_that_is_relative_or_not_executable_refuses_the_push(self):
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean")
+        before = self.remote_head()
+        script, record = self.pre_push_extra("check", 0)
+        script.chmod(0o644)
+        (self.repo / "check").write_text(script.read_text())  # a checkout path never runs
+        (self.repo / "check").chmod(0o755)
+        for value, why in (("check", "is not an absolute path"), (str(script), "is not an executable file")):
+            self.git("config", "--unset-all", "cmux.prePushExtra", check=False)
+            self.git("config", "--add", "cmux.prePushExtra", value)
+
+            pushed = self.push()
+
+            output = pushed.stdout + pushed.stderr
+            self.assertNotEqual(pushed.returncode, 0, output)
+            self.assertIn(why, output)
+            self.assertEqual(self.remote_head(), before)
+            self.assertFalse(record.exists(), "the extra never ran")
+
+    def remote_branch(self, name, text=None):
+        """Branch NAME on the remote (pushed past the hook), with a commit that adds TEXT (a clean file by default)."""
+        self.git("checkout", "--quiet", "-b", name, "origin/feat-cmux-next")
+        kind = name.title().replace("-", "")
+        self.kit(kind, text or NEW_CLEAN.replace("Fresh", kind))
+        self.commit(f"{name} work")
+        self.assertEqual(self.push_ref(name, "--no-verify").returncode, 0)
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        return self.remote_head_of(f"refs/heads/{name}")
+
+    def remote_has(self, ref):
+        return subprocess.run(["git", "-C", str(self.origin), "show-ref", "--verify", "--quiet", ref],
+                              env=self.env).returncode == 0
+
+    def test_a_delete_only_push_passes_from_a_clone_without_a_work_tree(self):
+        # 2026-11-01: the tip watcher's `git -C /work/cmux push origin :refs/heads/x` (a core.bare clone root,
+        # no work tree) died in the hook with "this operation must be run in a work tree" 738 times. A delete
+        # sends no commits; nothing in the hook has anything to check.
+        for name in ("stale-a", "stale-b"):
+            self.remote_branch(name)
+        self.git("config", "core.bare", "true")
+
+        one = self.push_ref(":refs/heads/stale-a")
+
+        output = one.stdout + one.stderr
+        self.assertEqual(one.returncode, 0, output)
+        self.assertNotIn("work tree", output)
+        self.assertFalse(self.remote_has("refs/heads/stale-a"), "the branch is gone")
+
+        # Two deletes in one push (`git push --delete origin a b`): every line is a delete, so it passes too.
+        self.git("config", "core.bare", "false")
+        self.remote_branch("stale-c")
+        self.git("config", "core.bare", "true")
+        two = subprocess.run(["git", "-C", str(self.repo), "push", "--delete", "origin", "stale-b", "stale-c"],
+                             env=self.env, text=True, capture_output=True)
+
+        output = two.stdout + two.stderr
+        self.assertEqual(two.returncode, 0, output)
+        for name in ("stale-b", "stale-c"):
+            self.assertFalse(self.remote_has(f"refs/heads/{name}"), name)
+
+    def test_a_push_with_any_real_ref_still_runs_every_check(self):
+        # The delete-only pass must not reach a push that also sends commits: a delete next to a real ref, or a
+        # real ref alone, still runs the gate and is refused for the try! it adds.
+        doomed = self.remote_branch("doomed")
+        before = self.remote_head()
+        self.kit("Fresh", NEW_WITH_TRY)
+        self.commit("adds a try!")
+
+        for refs in ((":refs/heads/doomed", "feat-cmux-next"), ("feat-cmux-next",)):
+            pushed = subprocess.run(["git", "-C", str(self.repo), "push", "--atomic", "origin", *refs],
+                                    env=self.env, text=True, capture_output=True)
+
+            output = pushed.stdout + pushed.stderr
+            self.assertNotEqual(pushed.returncode, 0, f"{refs}: {output}")
+            self.assertIn("Fresh.swift", output, refs)
+            self.assertIn("try!", output, refs)
+            self.assertEqual(self.remote_head(), before, refs)
+            self.assertEqual(self.remote_head_of("refs/heads/doomed"), doomed, f"{refs}: the hook refused the delete too")
+
+    def long_lived_branch(self, name, debt):
+        """A long-lived integration branch NAME on the remote, three commits ahead of feat-cmux-next (its own merge
+        train), the first carrying a try! in DEBT.swift (pushed past the hook); this clone fetches it."""
+        self.git("checkout", "--quiet", "-b", name, "origin/feat-cmux-next")
+        self.kit(debt, self.with_try(debt))
+        self.commit(f"{name}: debt landed on its own train")
+        for index in range(2):
+            self.kit(f"{debt}Clean{index}", NEW_CLEAN.replace("Fresh", f"{debt}Clean{index}"))
+            self.commit(f"{name}: more of its train")
+        self.git("push", "--quiet", "--no-verify", "origin", name)
+        self.git("fetch", "--quiet", "origin")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+
+    def topic_from(self, start, *flags):
+        """Branch `topic` cut from START (git checkout -b topic FLAGS START) with one commit adding a try!."""
+        self.git("checkout", "--quiet", "-b", "topic", *flags, start)
+        self.kit("Topic", self.with_try("Topic"))
+        self.commit("the branch's own try!")
+
+    def test_a_branch_cut_from_the_perf_integration_branch_is_judged_only_over_its_own_commits(self):
+        # origin/perf/chrome-parity runs far ahead of feat-cmux-next with debt of its own (2026-10-29: one agent's
+        # push was judged over 9,426 perf commits and refused for files it never touched). No upstream is set
+        # (--no-track): the known integration refs bound the walk.
+        self.long_lived_branch("perf/chrome-parity", "PerfDebt")
+        self.topic_from("origin/perf/chrome-parity", "--no-track")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output, "the branch's own try! is judged")
+        self.assertNotIn("PerfDebt.swift", output, "perf's own debt is not the branch's")
+        self.assertIn(" 1 own commit(s); cut from origin/perf/chrome-parity", output)
+
+        self.git("reset", "--quiet", "--hard", "HEAD~1")
+        self.kit("Topic", NEW_CLEAN.replace("Fresh", "Topic"))
+        self.commit("clean work on perf")
+
+        clean = self.push_ref("topic")
+
+        output = clean.stdout + clean.stderr
+        self.assertEqual(clean.returncode, 0, output)
+        self.assertNotIn("PerfDebt.swift", output)
+
+    def test_a_branch_tracking_any_long_lived_remote_branch_is_judged_over_its_upstream(self):
+        # A long-lived branch no list names: the branch's configured upstream (git worktree add -b topic
+        # origin/release/train sets it) is a fact of where it was cut from.
+        self.long_lived_branch("release/train", "TrainDebt")
+        self.topic_from("origin/release/train", "--track")
+        self.assertEqual(self.git("rev-parse", "--symbolic-full-name", "topic@{upstream}").stdout.strip(),
+                         "refs/remotes/origin/release/train", "control: the branch tracks the train")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertNotIn("TrainDebt.swift", output, "the train's debt is not the branch's")
+        self.assertIn(" 1 own commit(s)", output)
+        self.assertIn("origin/release/train", output, "the report names the upstream that bounds the push")
+
+    def test_a_branch_with_no_known_base_is_still_judged_over_feat_cmux_next(self):
+        # Cut from a remote branch that is neither its upstream nor a known integration ref: no base is found,
+        # so the push is judged over origin/feat-cmux-next as before, never given a free pass.
+        self.long_lived_branch("release/train", "TrainDebt")
+        self.topic_from("origin/release/train", "--no-track")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertIn("TrainDebt.swift", output, "with no known base the train's commits count as the push's")
+        self.assertIn(" 4 own commit(s)", output)
+
+    def test_an_upstream_that_is_a_local_branch_bounds_nothing(self):
+        # A local branch's commits are not on the remote: tracking one (git branch --track) must not hide them.
+        self.git("checkout", "--quiet", "-b", "local-train")
+        self.kit("LocalDebt", self.with_try("LocalDebt"))
+        self.commit("debt that was never pushed")
+        self.topic_from("local-train", "--track")
+        self.assertEqual(self.git("rev-parse", "--symbolic-full-name", "topic@{upstream}").stdout.strip(),
+                         "refs/heads/local-train", "control: the upstream is a local branch")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("LocalDebt.swift", output, "an unpushed upstream's commits are the push's own")
+        self.assertIn(" 2 own commit(s)", output)
+
+    def test_an_upstream_on_another_remote_bounds_nothing(self):
+        # A branch cut from a contributor's fork (git checkout -b topic fork/contrib) pushed to origin: the fork's
+        # commits are not on origin, so they are the push's own.
+        fork = self.root / "fork.git"
+        subprocess.run(["git", "init", "--quiet", "--bare", str(fork)], env=self.env, check=True, capture_output=True)
+        self.git("remote", "add", "fork", str(fork))
+        self.git("checkout", "--quiet", "-b", "contrib")
+        self.kit("ForkDebt", self.with_try("ForkDebt"))
+        self.commit("a contributor's debt, never on origin")
+        self.git("push", "--quiet", "--no-verify", "fork", "contrib")
+        self.git("fetch", "--quiet", "fork")
+        self.topic_from("fork/contrib", "--track")
+        self.assertEqual(self.git("rev-parse", "--symbolic-full-name", "topic@{upstream}").stdout.strip(),
+                         "refs/remotes/fork/contrib", "control: the upstream is on another remote")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("ForkDebt.swift", output, "another remote's commits are the push's own")
+        self.assertIn(" 2 own commit(s)", output)
+
+    def test_an_extra_upstream_bounds_nothing_on_a_push_onto_an_integration_branch(self):
+        # cmux.prepushExtraUpstream is a cut-from ref like the configured upstream: landing perf onto
+        # feat-cmux-next is judged over feat-cmux-next whatever the setting names (review of the #28493 merge).
+        self.long_lived_branch("perf/x", "PerfDebt")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "origin/perf/x")
+        self.git("config", "--add", "cmux.prepushExtraUpstream", "origin/perf/x")
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "what perf lands on feat-cmux-next is judged")
+
+    def test_an_extra_upstream_that_is_not_a_ref_of_the_pushed_remote_bounds_nothing(self):
+        # A local branch nobody pushed (or another remote's ref, a URL push, a raw sha) never hides its commits.
+        self.git("checkout", "--quiet", "-b", "local-x")
+        self.kit("LocalDebt", self.with_try("LocalDebt"))
+        self.commit("never pushed")
+        self.git("checkout", "--quiet", "-b", "task", "origin/feat-cmux-next")
+        self.kit("Fresh", NEW_CLEAN)
+        self.commit("clean task work")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "local-x")
+        self.git("config", "--add", "cmux.prepushExtraUpstream", "local-x")
+
+        refused = self.push_ref("task")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("LocalDebt.swift", output, "a local branch's commits are the push's own")
+
+    def test_landing_perf_onto_feat_cmux_next_is_judged_over_feat_cmux_next(self):
+        # A push onto the integration branch itself (the perf train landing on feat-cmux-next) is judged over
+        # feat-cmux-next as before: perf's commits are what it lands.
+        self.long_lived_branch("perf/chrome-parity", "PerfDebt")
+        self.git("merge", "--quiet", "--no-ff", "--no-edit", "origin/perf/chrome-parity")
+
+        manual = subprocess.run(["python3", "-I", GATE], cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        output = manual.stdout + manual.stderr
+        self.assertNotEqual(manual.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "a manual run on feat-cmux-next reads what its push will")
+        self.assertNotIn("cut from", output)
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("PerfDebt.swift", output, "what perf lands on feat-cmux-next is judged")
+        self.assertNotIn("cut from", output)
+
+    def test_an_ordinary_branch_report_names_no_integration_ref(self):
+        # perf exists in the clone but this branch left feat-cmux-next: the report reads as before.
+        self.long_lived_branch("perf/chrome-parity", "PerfDebt")
+        self.topic_from("origin/feat-cmux-next", "--track")
+
+        refused = self.push_ref("topic")
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertIn(" 1 own commit(s)", output)
+        self.assertNotIn("cut from", output)
+        self.assertNotIn("perf/chrome-parity", output)
+
+    def test_a_base_given_on_the_command_line_wins_over_the_branch_s_integration_base(self):
+        self.long_lived_branch("perf/chrome-parity", "PerfDebt")
+        self.topic_from("origin/perf/chrome-parity", "--track")
+        run = lambda *args: subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo,
+                                           env=self.env, text=True, capture_output=True)
+
+        inferred = run()
+
+        output = inferred.stdout + inferred.stderr
+        self.assertNotEqual(inferred.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertNotIn("PerfDebt.swift", output, "with no flag the base is where the branch left perf")
+
+        given = run("--base", "origin/feat-cmux-next")
+
+        output = given.stdout + given.stderr
+        self.assertNotEqual(given.returncode, 0, output)
+        self.assertIn("Topic.swift", output)
+        self.assertIn("PerfDebt.swift", output, "--base A judges exactly what HEAD adds over A")
+        self.assertIn("the base given", output)
+
     def test_install_adds_the_gate_to_the_pre_push_hook(self):
         hooks = Path(self.git("config", "--get", "core.hooksPath").stdout.strip())
         self.assertTrue((hooks / "cmux_next_prepush_gate.py").is_file())
@@ -484,6 +963,368 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("Fresh.swift", output)
         self.assertIn("try!", output)
         self.assertNotIn("Old.swift", output, "base debt in an untouched file must not be reported")
+
+    # A package whose test target declares one local target (one target per block, as Package.swift writes them).
+    DEPS_PACKAGE = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextApp"
+        ),
+        .target(
+            name: "CmuxNextKit"
+        ),
+        .testTarget(
+            name: "CmuxNextKitTests",
+            dependencies: ["CmuxNextKit"]
+        ),
+    ]
+)
+"""
+
+    def test_push_that_adds_an_undeclared_local_import_is_refused_with_the_fix(self):
+        # 2026-10-29: a63986a4 and e875485c each pushed a test import their target did not declare, and the CI step
+        # "Package dependency lists sorted" was red on every pull request after them.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.commit("a test target")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
+        self.commit("a test that imports the app")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the bad commit must not reach origin")
+        self.assertIn("Package dependency lists sorted", output)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
+
+        self.write(f"{PKG}/Package.swift",
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit", "CmuxNextApp"]'))
+        self.commit("declare it")
+        declared = self.push()
+        self.assertEqual(declared.returncode, 0, declared.stdout + declared.stderr)
+
+    def test_a_direct_gate_run_refuses_an_undeclared_local_import(self):
+        # Review of #28365: the gate's own trees (a direct `prepush-gate.py` run, as agents and CI's "Pushed commits
+        # add no violations" step do) held scripts/cmux-next only, so the checker could not import the Swift source
+        # masker from scripts/, did not run, and the gate passed an undeclared import with a warning.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.commit("a test target")
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
+        self.commit("a test that imports the app")
+
+        result = subprocess.run(["python3", "-I", str(self.repo / GATE), "--repo", str(self.repo), "--base", "HEAD~1",
+                                 "--head", "HEAD", "--only", "scanners"],
+                                cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertNotIn("Package dependency lists sorted did not run cleanly", output)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
+
+    def test_push_that_drops_a_dependency_an_unchanged_file_imports_is_refused(self):
+        # Review of 6d8b96f: the gate's trees held only the changed files, so a manifest edit that dropped a
+        # dependency an untouched source imports passed. A manifest change now brings the package's Swift sources.
+        self.write(f"{PKG}/Package.swift",
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit", "CmuxNextApp"]'))
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
+        self.commit("a test target that declares what it imports")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.commit("drop a dependency AppTests.swift still imports")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
+
+    def test_a_push_that_removes_one_of_two_baseline_imports_is_not_told_to_drop_the_baseline_line(self):
+        # Review of 115ed33e: without a manifest change the trees hold only the changed files, so the check saw no
+        # file importing CmuxNextWakeups and called IMPORT_BASELINE's line stale while an untouched file kept it.
+        package = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+        self.write(f"{PKG}/Package.swift", package)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/B.swift", "import CmuxNextWakeups\n")
+        self.commit("two files under the baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import Foundation\n")
+        self.commit("one file stops importing it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("drop its line", output)
+
+    def test_a_push_that_declares_a_baseline_import_and_drops_its_line_passes(self):
+        # Review of 3db311e3: the hook runs the installed checker, whose IMPORT_BASELINE still lists the pair, so the
+        # cleanup the pushed checker asks for (declare it, drop its line) was refused with "drop its line".
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        pair = '"CmuxNextActionsTests: CmuxNextWakeups",'
+        self.assertIn(pair, (self.repo / checker).read_text(), "the fixture needs this baseline pair")
+        package = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+        self.write(f"{PKG}/Package.swift", package)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.commit("a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Package.swift", package.replace(
+            'name: "CmuxNextActionsTests"\n', 'name: "CmuxNextActionsTests",\n            dependencies: ["CmuxNextWakeups"]\n'))
+        self.write(checker, (self.repo / checker).read_text().replace(pair + "\n    ", "", 1))
+        self.assertNotIn(pair, (self.repo / checker).read_text())
+        self.commit("declare it and drop its baseline line")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("drop its line", output)
+
+    def test_a_pushed_baseline_cannot_hide_an_import_the_installed_checker_refuses(self):
+        # The other half of the same fix: only the installed checker decides what is missing, so a push that adds a
+        # pair to its own IMPORT_BASELINE still cannot land an undeclared import.
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.commit("a test target")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "@testable import CmuxNextApp\n")
+        self.write(checker, (self.repo / checker).read_text().replace(
+            "IMPORT_BASELINE = frozenset((\n", 'IMPORT_BASELINE = frozenset((\n    "CmuxNextKitTests: CmuxNextApp",\n', 1))
+        self.commit("baseline the new import instead of declaring it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
+
+    def test_an_annotated_or_set_baseline_is_read_so_a_dropped_line_is_still_seen(self):
+        # Review of c9beb1af: `IMPORT_BASELINE: frozenset[str] = ...` read as None, which dropped_baseline_pairs took
+        # as "nothing dropped", so a push that rewrote the line that way and dropped a pair passed the gate.
+        spec = importlib.util.spec_from_file_location("prepush_gate_baseline", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        for source in (b'IMPORT_BASELINE: frozenset[str] = frozenset(("A: B",))\n',
+                       b'IMPORT_BASELINE = frozenset({"A: B"})\n'):
+            self.assertEqual(gate.import_baseline(source), frozenset({"A: B"}), source)
+        self.assertIsNone(gate.import_baseline(b"IMPORT_BASELINE: frozenset[str]\n"))
+
+    def test_a_head_without_the_checker_reads_no_baseline_instead_of_aborting(self):
+        # Review of 3f01de17: `git()` raises SystemExit on a failed `git show`, which the CalledProcessError handler
+        # never caught, so a pushed head without the checker aborted the whole push.
+        spec = importlib.util.spec_from_file_location("prepush_gate_no_checker", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        (self.repo / gate.DEPS_CHECKER).unlink()
+        self.commit("a head without the dependency checker")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertNotEqual(self.git("cat-file", "-e", f"{head}:{gate.DEPS_CHECKER}", check=False).returncode, 0)
+        self.assertIsNone(gate.pushed_import_baseline(self.repo, head))
+
+    def test_a_push_that_drops_a_baseline_line_without_declaring_the_import_is_refused(self):
+        # Review of a37b4cce: the installed checker still lists the pair, so it reported neither a missing import nor
+        # a stale line, and a push that only deleted the pair from IMPORT_BASELINE passed; CI's pushed checker failed.
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        pair = '"CmuxNextActionsTests: CmuxNextWakeups",'
+        package = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+        self.write(f"{PKG}/Package.swift", package)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.commit("a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(checker, (self.repo / checker).read_text().replace(pair + "\n    ", "", 1))
+        self.assertNotIn(pair, (self.repo / checker).read_text())
+        self.commit("drop the baseline line, declare nothing")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn('Fix: add "CmuxNextWakeups" to the dependencies of CmuxNextActionsTests', output)
+
+    def test_a_source_only_push_that_removes_a_baseline_import_s_last_use_must_drop_its_line(self):
+        # Review of befae46a: with the manifest unchanged the gate dropped every "drop its line" finding, so a push
+        # that removed the last import of a baseline pair passed and left the pair in IMPORT_BASELINE. Only a line
+        # the push itself made stale is kept: base stale lines and pairs an untouched file still imports stay out.
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        pair = '"CmuxNextActionsTests: CmuxNextWakeups",'
+        package = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+        self.write(f"{PKG}/Package.swift", package)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.commit("the one file under a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import Foundation\n")
+        self.commit("its last file stops importing it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("IMPORT_BASELINE lists CmuxNextActionsTests: CmuxNextWakeups", output)
+        self.assertIn("drop its line", output)
+
+        self.write(checker, (self.repo / checker).read_text().replace(pair + "\n    ", "", 1))
+        self.assertNotIn(pair, (self.repo / checker).read_text())
+        self.commit("drop its baseline line")
+        dropped = self.push()
+        self.assertEqual(dropped.returncode, 0, dropped.stdout + dropped.stderr)
+
+    WAKEUPS_PACKAGE = """// swift-tools-version: 6.2
+import PackageDescription
+let package = Package(
+    name: "CmuxNext",
+    targets: [
+        .target(
+            name: "CmuxNextWakeups"
+        ),
+        .testTarget(
+            name: "CmuxNextActionsTests"
+        ),
+    ]
+)
+"""
+
+    def test_a_push_that_only_deletes_a_baseline_import_s_last_file_must_drop_its_line(self):
+        # Review of 81d1b7fb: changed_files() leaves deletions out, so a push that only deleted the last Swift file
+        # importing a baseline pair changed no file, the gate never ran the dependency check, and the stale
+        # IMPORT_BASELINE line reached CI.
+        checker = "scripts/cmux-next/check-package-dependency-lists.py"
+        pair = '"CmuxNextActionsTests: CmuxNextWakeups",'
+        self.write(f"{PKG}/Package.swift", self.WAKEUPS_PACKAGE)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/B.swift", "import Foundation\n")
+        self.commit("the one file under a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.git("rm", "--quiet", f"{PKG}/Tests/CmuxNextActionsTests/A.swift")
+        self.commit("delete its last importing file")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("IMPORT_BASELINE lists CmuxNextActionsTests: CmuxNextWakeups", output)
+        self.assertIn("drop its line", output)
+
+        self.write(checker, (self.repo / checker).read_text().replace(pair + "\n    ", "", 1))
+        self.assertNotIn(pair, (self.repo / checker).read_text())
+        self.commit("drop its baseline line")
+        dropped = self.push()
+        self.assertEqual(dropped.returncode, 0, dropped.stdout + dropped.stderr)
+
+    def test_a_push_that_renames_a_baseline_import_s_last_file_is_not_told_to_drop_the_line(self):
+        # The rename side of the same fix: the old path is gone but the new one still imports the module.
+        self.write(f"{PKG}/Package.swift", self.WAKEUPS_PACKAGE)
+        self.write(f"{PKG}/Sources/CmuxNextWakeups/Wakeups.swift", "public enum Wakeups {}\n")
+        self.write(f"{PKG}/Tests/CmuxNextActionsTests/A.swift", "import CmuxNextWakeups\n")
+        self.commit("the one file under a baseline import")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.git("mv", f"{PKG}/Tests/CmuxNextActionsTests/A.swift", f"{PKG}/Tests/CmuxNextActionsTests/C.swift")
+        self.commit("rename it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("drop its line", output)
+
+    def test_a_manifest_edit_does_not_put_a_changed_test_under_production_rules(self):
+        # Review of 115ed33e: the package's file list for the dependency check replaced ast-grep's list of changed
+        # production sources, so a test's try! failed only when the push also changed Package.swift.
+        self.write(f"{PKG}/Package.swift", self.DEPS_PACKAGE)
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/KitTests.swift", "import CmuxNextKit\n")
+        self.commit("a test target")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{PKG}/Package.swift",
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextApp", "CmuxNextKit"]'))
+        self.write(f"{PKG}/Tests/CmuxNextKitTests/TryTests.swift", self.with_try("TryTests"))
+        self.commit("a manifest edit and a test with try!")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotIn("TryTests.swift", output)
 
     def test_push_that_adds_a_raw_spawn_in_a_daemon_crate_is_refused(self):
         # Reviews 1 and 2 of pl-holder-11: on macOS a daemon child started any other way than
@@ -517,6 +1358,12 @@ class PrePushGateTests(unittest.TestCase):
     def test_the_raw_spawn_guard_rules_hold(self):
         # The guard's own rule tests (per-file counts, the ratchet, scope), with the pre-push set.
         result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-no-raw-spawn.test.sh")],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_the_app_id_special_cases_guard_rules_hold(self):
+        # Zero first-party privilege (docs/app-store-platonic-ideal.md 5): the guard's own rule tests.
+        result = subprocess.run(["bash", str(SOURCE / "scripts/cmux-next/tests/check-app-id-special-cases.test.sh")],
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
@@ -555,6 +1402,55 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(self.remote_head(), before, "the conflicted file must not reach origin")
         self.assertIn("Merge conflict markers", output)
         self.assertIn("MergedTests.swift:2: <<<<<<< HEAD", output)
+
+    def cargo_workspace(self):
+        """A two-crate cmux-tui workspace with a matching Cargo.lock; the push env cargo needs under this HOME."""
+        cargo = shutil.which("cargo")
+        if cargo is None:
+            self.skipTest("no cargo on this host")
+        real_home = Path(os.environ.get("HOME", str(Path.home())))
+        env = {"CARGO_HOME": os.environ.get("CARGO_HOME", str(real_home / ".cargo")),
+               "RUSTUP_HOME": os.environ.get("RUSTUP_HOME", str(real_home / ".rustup")),
+               "PATH": f"{Path(cargo).parent}:{self.env.get('PATH', '')}"}
+        self.write("cmux-tui/Cargo.toml", '[workspace]\nmembers = ["crates/a", "crates/b"]\nresolver = "2"\n')
+        for name in ("a", "b"):
+            self.write(f"cmux-tui/crates/{name}/Cargo.toml",
+                       f'[package]\nname = "{name}"\nversion = "0.1.0"\nedition = "2021"\n')
+            self.write(f"cmux-tui/crates/{name}/src/lib.rs", "")
+        made = subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=self.repo / "cmux-tui",
+                              env={**self.env, **env}, text=True, capture_output=True)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        self.commit("cmux-tui workspace")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        return env
+
+    def test_a_cargo_dependency_moved_without_its_lock_is_refused(self):
+        # 2026-11-02: #31462 changed a crate's Cargo.toml and left Cargo.lock behind; every --locked step failed.
+        env = self.cargo_workspace()
+        before = self.remote_head()
+        self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'
+                   '\n[dependencies]\nb = { path = "../b" }\n')
+        self.commit("a uses b")
+
+        result = self.push(**env)
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("cmux-tui/Cargo.lock: does not match its manifests", output)
+
+    def test_a_cargo_dependency_with_its_lock_pushes(self):
+        env = self.cargo_workspace()
+        self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'
+                   '\n[dependencies]\nb = { path = "../b" }\n')
+        locked = subprocess.run(["cargo", "metadata", "--offline", "--format-version", "1"], cwd=self.repo / "cmux-tui",
+                                env={**self.env, **env}, capture_output=True, text=True)
+        self.assertEqual(locked.returncode, 0, locked.stderr)
+        self.commit("a uses b, with the lock")
+
+        result = self.push(**env)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     SIDEBAR_VIEW = f"{PKG}/Sources/CmuxNextSidebar/Views/RowView.swift"
 
@@ -649,6 +1545,48 @@ class PrePushGateTests(unittest.TestCase):
 
         self.assertEqual(logged.returncode, 0, logged.stdout + logged.stderr)
 
+    def test_a_pull_request_sweep_warns_on_a_base_commit_and_errors_on_its_own(self):
+        # 2026-10-29: two feat-cmux-next commits without the owner's record (#24073, #24295) put an ##[error] on
+        # every pull request's checks, and next-autoland read it as the PR's own red (#27454). A pull request is
+        # judged on its own commits (--own-range); the base's debt is a warning that names the commit there, and
+        # stays an error on the branch's push sweep (no --own-range).
+        start = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 22\n}\n")
+        self.commit("sidebar: a base commit with no record")
+        on_base = self.git("rev-parse", "HEAD").stdout.strip()
+        gate = self.repo / "scripts/cmux-next/prepush-gate.py"
+        sweep = lambda *extra: subprocess.run(
+            ["python3", "-I", str(gate), "--only", "sidebar", "--commits", f"{start}..HEAD", *extra],
+            cwd=self.repo, env=self.env, text=True, capture_output=True)
+
+        # The pull request adds an unrelated commit: the base commit is only a warning.
+        self.write("docs/notes.md", "notes\n")
+        self.commit("docs: notes")
+        pr_run = sweep("--own-range", f"{on_base}..HEAD")
+        output = pr_run.stdout + pr_run.stderr
+        self.assertEqual(pr_run.returncode, 0, output)
+        self.assertNotIn("::error", output)
+        self.assertIn("::warning title=Sidebar look owner (base commit)::", output)
+        self.assertIn(on_base[:11], output)
+        self.assertIn("plans/cmux-next/sidebar-owner.md", output)
+        self.assertIn("no `Sidebar-Look:` trailer. Add", output, "the warning carries the whole finding")
+
+        # The branch's push sweep (no --own-range) still fails on the same base commit.
+        push_run = sweep()
+        self.assertNotEqual(push_run.returncode, 0, push_run.stdout + push_run.stderr)
+        self.assertIn("::error title=Sidebar look owner::", push_run.stdout)
+
+        # A sidebar commit of the pull request's own stays an error, next to the base commit's warning.
+        self.write(self.SIDEBAR_VIEW, "struct RowView {\n    let inset = 23\n}\n")
+        self.commit("sidebar: the pull request's own commit with no record")
+        own_commit = self.git("rev-parse", "HEAD").stdout.strip()
+        pr_run = sweep("--own-range", f"{on_base}..HEAD")
+        output = pr_run.stdout + pr_run.stderr
+        self.assertNotEqual(pr_run.returncode, 0, output)
+        self.assertIn("::error title=Sidebar look owner::1 commit(s)", output)
+        self.assertIn(own_commit[:11], output.split("::warning")[0])
+        self.assertIn(f"{on_base[:11]}", output.split("::warning", 1)[1])
+
     def test_a_fixture_that_mentions_one_marker_passes(self):
         self.write("docs/merging.md", "Git writes a line such as\n<<<<<<< HEAD\nat the top of a hunk.\n")
         self.commit("docs mention a marker")
@@ -707,6 +1645,100 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotIn("reviewed raises of the pushed crash data", output)
         self.assertEqual(self.remote_head(), before)
 
+    # A ratchet row a push lowers or deletes with the sites it removes (lead 2026-11-03, #33091): the installed
+    # baseline cannot know the push lowered it, so it read the fix as "fewer than the baseline" and refused it. Each
+    # tree reads its own row where that is lower; a raise or a new row still reads the installed copy.
+    SCAN = "cmux-tui/crates/fixture/src/scan.rs"
+
+    def scan_source(self, sites):
+        return "".join("pub fn exe%d(pid: i32) -> String {\n    format!(\"/proc/{pid}/exe\")\n}\n" % i
+                       for i in range(sites))
+
+    def set_scan_row(self, count):
+        path = self.repo / "scripts/cmux-next/process-scan-baseline.tsv"
+        lines = [line for line in path.read_text().splitlines() if not line.startswith(self.SCAN + "\t")]
+        if count:
+            lines.append(f"{self.SCAN}\t{count}\tremove\tfixture")
+        path.write_text("\n".join(lines) + "\n")
+
+    def install_with_scan_sites(self, sites):
+        """A base with SITES process-scan lines and their row, and the hook installed from it."""
+        self.write(self.SCAN, self.scan_source(sites))
+        self.set_scan_row(sites)
+        self.commit(f"base: {sites} process-scan lines")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        installed = subprocess.run(["bash", INSTALLER], cwd=self.repo, env=self.env, text=True, capture_output=True)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+
+    def test_a_push_that_lowers_a_ratchet_row_with_its_fix_passes(self):
+        self.install_with_scan_sites(2)
+        self.write(self.SCAN, self.scan_source(1))
+        self.set_scan_row(1)
+        self.commit("removes one process-scan line and lowers its row")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_push_that_deletes_the_row_of_a_site_it_removed_passes(self):
+        self.install_with_scan_sites(2)
+        self.write(self.SCAN, "pub fn other() {}\n")
+        self.set_scan_row(0)
+        self.commit("removes both process-scan lines and deletes their row")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_push_that_raises_a_ratchet_row_is_still_refused(self):
+        self.install_with_scan_sites(2)
+        self.write(self.SCAN, self.scan_source(3))
+        self.set_scan_row(3)
+        self.commit("adds a process-scan line and raises its row")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("No process scanning", output)
+        self.assertIn("has 3 process-scan line(s), baseline 2", output)
+        self.assertEqual(self.remote_head(), before)
+
+    def test_a_push_that_lowers_a_row_below_its_sites_is_refused(self):
+        self.install_with_scan_sites(2)
+        self.write(self.SCAN, self.scan_source(2) + "pub fn other() {}\n")
+        self.set_scan_row(1)
+        self.commit("lowers the row but keeps both lines")
+        before = self.remote_head()
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("has 2 process-scan line(s), baseline 1", output)
+        self.assertEqual(self.remote_head(), before)
+
+    def test_each_ratchet_baseline_shape_takes_only_lower_rows(self):
+        spec = importlib.util.spec_from_file_location("prepush_gate_ratchet_rows", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        name = "swift-type-scale-baseline.tsv"
+        self.write(f"scripts/cmux-next/{name}", "# path\tkind\tcount\nA.swift\tsize\t1\nA.swift\tweight\t5\nC.swift\tsize\t4\n")
+        self.commit("pushed type-scale rows: one lower, one higher, one deleted, one new")
+        installed = self.root / "installed"
+        installed.mkdir()
+        (installed / name).write_text("# path\tkind\tcount\nA.swift\tsize\t3\nA.swift\tweight\t2\nB.swift\tsize\t1\n")
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed)
+
+        self.assertEqual((installed / name).read_text(), "# path\tkind\tcount\nA.swift\tsize\t1\nA.swift\tweight\t2\n")
+        self.assertEqual(sorted(taken), [f"{name}: A.swift size 3 -> 1", f"{name}: B.swift size 1 -> 0 (row deleted)"])
+        self.assertEqual(set(gate.RATCHET_BASELINES), {
+            "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
+            "app-id-special-cases-baseline.tsv", "swift-type-scale-baseline.tsv"})
+
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))
         self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_CLEAN)
@@ -716,6 +1748,58 @@ class PrePushGateTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    @NEEDS_SWIFTFORMAT
+    def test_push_that_adds_a_swiftformat_violation_is_refused(self):
+        self.kit("Fresh", SWIFTFORMAT_HIT)
+        self.commit("adds two blank lines in a row")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SwiftFormat --lint", result.stdout + result.stderr)
+        self.assertRegex(result.stdout + result.stderr, r"Sources/CmuxNextKit/Fresh\.swift:\d+:\d+: error: \(consecutiveBlankLines\)")
+        self.assertNotEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    @NEEDS_SWIFTFORMAT
+    def test_push_with_swiftformat_clean_code_passes(self):
+        self.kit("Fresh", SWIFTFORMAT_CLEAN)
+        self.commit("adds formatted code")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("(consecutiveBlankLines)", result.stdout + result.stderr)
+
+    @NEEDS_SWIFTFORMAT
+    def test_push_that_edits_a_file_with_an_old_swiftformat_violation_passes(self):
+        # The base already has the double blank line (pushed past the hook); the push edits other lines of that file.
+        self.kit("Fresh", SWIFTFORMAT_HIT)
+        self.commit("old formatting debt")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.kit("Fresh", SWIFTFORMAT_HIT.replace("    func a()", "    func c() -> Int { 3 }\n\n    func a()"))
+        self.commit("adds a function above the old double blank line")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    @NEEDS_SWIFTFORMAT
+    def test_ci_modes_do_not_run_the_swiftformat_layer(self):
+        # SwiftFormat findings are refused by the local pre-push hook only (lead 2026-10-27, CLAUDE.md: no new CI
+        # gates). CI and the merge-time gates run the gate as --base/--head (fast gates, car guards, pull requests)
+        # or --commits (pushes); none of them may refuse a SwiftFormat finding.
+        self.kit("Fresh", SWIFTFORMAT_HIT)
+        self.commit("adds two blank lines in a row")
+        for args in (["--base", "HEAD~1", "--head", "HEAD"], ["--commits", "HEAD~1..HEAD"]):
+            with self.subTest(args=args):
+                result = subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo, env=self.env, text=True,
+                                        capture_output=True)
+                output = result.stdout + result.stderr
+                self.assertEqual(result.returncode, 0, output)
+                self.assertNotIn("(consecutiveBlankLines)", output)
 
     def test_branch_checker_changes_are_not_executed_by_the_installed_hook(self):
         marker = self.root / "branch-checker-ran"
@@ -848,6 +1932,263 @@ class PrePushGateTests(unittest.TestCase):
         result = self.push()
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # What's New highlights (release-notes/next/WRITING.md). 2026-11-01: #30774, #31156 and #31140 each landed a
+    # highlight with no docs link (or three sentences); only the release-notary job's test (after the merge) saw it,
+    # and it was red on every pull request until a fix landed (#31032, #31252).
+    HIGHLIGHT_NO_LINK = ("title: Continue a stopped reply\ncategory: improved\n\n"
+                         "Continue picks up a reply you stopped, and Retry asks again.\n")
+    HIGHLIGHT_WITH_DOCS = ("title: Continue a stopped reply\ncategory: improved\ndocs: https://cmux.com/docs/chief\n\n"
+                           "Continue picks up a reply you stopped, and Retry asks again.\n")
+    HIGHLIGHTS = "release-notes/next/highlights"
+
+    def test_a_pushed_highlight_without_a_docs_link_is_refused_by_the_hook_only(self):
+        before = self.remote_head()
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_NO_LINK)
+        self.commit("adds a highlight with no docs link")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the highlight must not reach origin")
+        self.assertIn("What's New highlights", output)
+        self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: entries[0] (continue-retry): "
+                      "needs a tryIt action/deeplink or a docs link", output)
+        self.assertIn("add docs: https://cmux.com/docs/<page> or a tryIt; at most 2 sentences, 240 characters", output)
+        # The rule stays out of CI and the merge-time gates (CLAUDE.md: no new CI gates): they run --base/--head
+        # (pull requests, fast gates, car guards) or --commits (pushes).
+        for args in (["--base", "HEAD~1", "--head", "HEAD"], ["--commits", "HEAD~1..HEAD"]):
+            with self.subTest(args=args):
+                ci = subprocess.run(["python3", "-I", GATE, *args], cwd=self.repo, env=self.env, text=True,
+                                    capture_output=True)
+                self.assertEqual(ci.returncode, 0, ci.stdout + ci.stderr)
+                self.assertNotIn("What's New highlights", ci.stdout + ci.stderr)
+
+    def test_a_pushed_highlight_with_a_docs_link_passes(self):
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_WITH_DOCS)
+        self.commit("adds a highlight with a docs link")
+
+        direct = subprocess.run(["python3", "-I", GATE, "--timings"], cwd=self.repo, env=self.env, text=True,
+                                capture_output=True)
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+        # The plain run judged the highlight (its timing line) and found nothing.
+        self.assertIn("What's New highlights", direct.stderr, direct.stdout + direct.stderr)
+        self.assertNotIn("needs a tryIt", direct.stdout + direct.stderr)
+
+    def test_an_unchanged_bad_highlight_elsewhere_does_not_block_a_push(self):
+        # Someone else's bad highlight reached the base past the hook; this push adds its own highlight next to it.
+        self.write(f"{self.HIGHLIGHTS}/old-bad.md", "title: Old\n\nOne. Two. Three sentences is too many.\n")
+        self.commit("someone else's bad highlight")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_NO_LINK)
+        self.commit("adds a highlight with no docs link")
+
+        refused = self.push()
+
+        output = refused.stdout + refused.stderr
+        self.assertNotEqual(refused.returncode, 0, output)
+        self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md", output)
+        self.assertNotIn("old-bad.md", output, "only the highlights the push changes are judged")
+
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_WITH_DOCS)
+        self.git("add", "-A")
+        self.git("commit", "--quiet", "--no-verify", "--amend", "-m", "adds a highlight with a docs link")
+
+        passed = self.push()
+
+        self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+
+    def test_the_hook_runs_origin_s_highlight_validator_not_the_pushed_one(self):
+        # A push that also weakens the validator cannot pass its own highlight: the hook reads
+        # origin/feat-cmux-next's validator, as it runs the installed checks and never the branch's.
+        before = self.remote_head()
+        self.write("scripts/whats-new/digest.py", (self.repo / "scripts/whats-new/digest.py").read_text()
+                   + "\n\ndef entry_problems(entry):\n    return []\n")
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_NO_LINK)
+        self.commit("adds a highlight and a validator that accepts it")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("needs a tryIt action/deeplink or a docs link", output)
+
+    def test_a_pushed_highlight_that_is_not_utf8_is_refused_as_the_release_notary_test_fails_it(self):
+        # The release-notary test opens each highlight as strict UTF-8: a Latin-1 byte is a test error there, so the
+        # hook refuses it too, naming the file (review of #31260).
+        before = self.remote_head()
+        path = self.repo / self.HIGHLIGHTS / "continue-retry.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(self.HIGHLIGHT_WITH_DOCS.replace("Retry asks again", "Retry asks the caf\u00e9 again")
+                         .encode("latin-1"))
+        self.commit("adds a Latin-1 highlight")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: is not UTF-8 text", output)
+
+    def test_a_validator_warning_on_stderr_does_not_turn_a_refusal_into_a_pass(self):
+        # The validator's result is read from its own file, never from its output: a warning it prints (a future
+        # SyntaxWarning) must not make the check fail open (review of #31260).
+        digest = self.repo / "scripts/whats-new/digest.py"
+        digest.write_text(digest.read_text() + "\nimport sys\nprint('digest: a warning', file=sys.stderr)\n"
+                          "print('digest: a note')\n")
+        self.commit("the validator prints a warning when it loads")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        before = self.remote_head()
+        self.write(f"{self.HIGHLIGHTS}/continue-retry.md", self.HIGHLIGHT_NO_LINK)
+        self.commit("adds a highlight with no docs link")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn(f"{self.HIGHLIGHTS}/continue-retry.md: entries[0] (continue-retry): "
+                      "needs a tryIt action/deeplink or a docs link", output)
+        self.assertNotIn("were not validated", output)
+
+
+
+class StaleInstallTests(unittest.TestCase):
+    """The check trees never take the pushed head's scripts/swift_source_mask.py on a hook run."""
+
+    def test_the_trees_refuse_an_install_without_the_masker_and_never_write_the_pushed_one(self):
+        gate = load_gate_tools()
+        with tempfile.TemporaryDirectory(prefix="cmux-stale-install-") as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+            run = lambda *args: subprocess.run(["git", "-C", str(repo), *args], env=env, check=True,
+                                               capture_output=True)
+            repo.mkdir()
+            run("init", "--quiet")
+            (repo / "scripts/cmux-next").mkdir(parents=True)
+            (repo / "scripts/cmux-next/check-x.py").write_text("print('x')\n")
+            (repo / "scripts/swift_source_mask.py").write_text("PUSHED = True\n")
+            run("add", "-A")
+            run("-c", "user.email=a@b", "-c", "user.name=n", "commit", "--quiet", "-m", "x")
+            head = run("rev-parse", "HEAD").stdout.decode().strip()
+            trusted = root / "trusted"
+            trusted.mkdir()
+            (trusted / "check-x.py").write_text("print('reviewed')\n")
+            with self.assertRaises(SystemExit) as raised:
+                gate.build_trees(repo, head, head, [], root / "work-stale", trusted)
+            self.assertIn("the installed hook is older than the checks this push needs", str(raised.exception))
+            (trusted / "swift_source_mask.py").write_text("PUSHED = False\n")
+            base_tree, head_tree = gate.build_trees(repo, head, head, [], root / "work", trusted)
+            for tree in (base_tree, head_tree):
+                self.assertNotIn("PUSHED = True", (tree / "scripts/swift_source_mask.py").read_text()
+                                 if (tree / "scripts/swift_source_mask.py").exists() else "")
+                self.assertIn("PUSHED = False", (tree / "scripts/cmux-next/swift_source_mask.py").read_text())
+
+
+class SwiftFormatCacheTests(unittest.TestCase):
+    """The gate lints throwaway trees (base and head under a fresh temporary folder per run), and SwiftFormat keys
+    its cache by absolute path, so a persistent cache can never hit: it only grows (335 MB on a busy machine, ~50 s
+    to read and rewrite on every call, even for one file). The lint must keep no cache file and still report."""
+
+    def test_linting_a_throwaway_tree_keeps_no_cache_and_still_reports(self):
+        spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_sf", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        with tempfile.TemporaryDirectory() as tmp:
+            tools, tree = Path(tmp) / "tools", Path(tmp) / "head"
+            tools.mkdir()
+            (tree / "Sources").mkdir(parents=True)
+            (tree / "Sources" / "A.swift").write_text("let a = 1 \n")
+            # A stand-in SwiftFormat: like the real one, it writes the cache file it is given (unless `ignore`)
+            # and prints one finding per file.
+            fake = Path(tmp) / "swiftformat"
+            fake.write_text(
+                "#!/usr/bin/env python3\n"
+                "import sys\n"
+                "args = sys.argv[1:]\n"
+                "cache = args[args.index('--cache') + 1] if '--cache' in args else None\n"
+                "if cache != 'ignore':\n"
+                "    open(cache or 'default.cache', 'a').write('entry\\n')\n"
+                "for path in [a for a in args if a.endswith('.swift')]:\n"
+                "    print(f'{path}:1:10: error: (trailingSpace) Remove trailing space at end of a line.', file=sys.stderr)\n"
+                "sys.exit(1)\n")
+            fake.chmod(0o755)
+            saved = os.environ.get("CMUX_LINT_TOOLS_DIR")
+            os.environ["CMUX_LINT_TOOLS_DIR"] = str(tools)
+            try:
+                out = gate.swiftformat(fake, tree / "swiftformat.conf", tree, ["Sources/A.swift"])
+            finally:
+                if saved is None:
+                    os.environ.pop("CMUX_LINT_TOOLS_DIR", None)
+                else:
+                    os.environ["CMUX_LINT_TOOLS_DIR"] = saved
+            self.assertIn("Sources/A.swift:1:10", out)
+            self.assertEqual(sorted(p.name for p in tools.iterdir()), [], "the lint left a cache file in the tools folder")
+            self.assertFalse((tree / "default.cache").exists(), "the lint fell back to a default cache file")
+
+
+class StopCleanlyTests(unittest.TestCase):
+    """The gate stops what it started with SIGTERM first, so a `git` under it clears `.git/index.lock`.
+
+    A `git` that refreshes a stale index holds that lock while it writes the index back, and removes it on
+    SIGTERM but not on SIGKILL (measured: 3 of 3 runs left it on SIGKILL, 0 of 3 on SIGTERM). The stale lock
+    then refuses the developer's next git command with no process alive to blame (live-apply-nightly, three
+    times on 2026-11-04). The stand-in below holds and clears a lock the way git does.
+    """
+
+    HOLDS_A_LOCK = ("#!/usr/bin/env python3\n"
+                    "import os, signal, sys, time\n"
+                    "lock = sys.argv[1]\n"
+                    "signal.signal(signal.SIGTERM, lambda *_: (os.remove(lock), sys.exit(143)))\n"
+                    "open(lock, 'w').close()\n"
+                    "open(sys.argv[2], 'w').close()\n"  # it has the lock now
+                    "time.sleep(300)\n")
+
+    def _holder(self, folder: Path) -> Path:
+        script = folder / "holds-a-lock.py"
+        script.write_text(self.HOLDS_A_LOCK)
+        script.chmod(0o755)
+        return script
+
+    def _wait_for(self, path: Path) -> None:
+        for _ in range(500):
+            if path.exists():
+                return
+            time.sleep(0.02)
+        self.fail(f"{path.name} never appeared")
+
+    def test_stopping_a_process_lets_it_clear_its_lock(self):
+        gate = load_gate_tools()
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            lock, held = folder / "index.lock", folder / "held"
+            process = subprocess.Popen([sys.executable, str(self._holder(folder)), str(lock), str(held)])
+            try:
+                self._wait_for(held)
+                gate.stop([process.pid])
+                process.wait(timeout=30)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+            self.assertFalse(lock.exists(), "the stopped process was killed outright and left its lock behind")
+
+    def test_a_timed_out_check_leaves_no_lock_behind(self):
+        gate = load_gate_tools()
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            lock, held = folder / "index.lock", folder / "held"
+            code, out = gate.run([sys.executable, str(self._holder(folder)), str(lock), str(held)], folder, timeout=2)
+            self.assertEqual(code, 124, out)
+            self.assertFalse(lock.exists(), "the timed-out check's process left its lock behind")
 
 
 if __name__ == "__main__":

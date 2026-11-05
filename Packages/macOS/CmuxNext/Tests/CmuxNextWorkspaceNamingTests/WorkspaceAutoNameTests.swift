@@ -176,6 +176,27 @@ struct WorkspaceAutoNameTests {
         #expect(Self.persisted(Self.titledChat, title: "Mine") == nil)
     }
 
+    /// A workspace created under the default name the app showed (`workspace-N`, never renamed) is
+    /// unnamed even when the daemon recorded that name as requested (#26680).
+    @Test func aCreatedDefaultNameRecordedAsTheUsersIsStillUnnamed() {
+        #expect(!WorkspaceAutoName.isUserNamed(name: "workspace-151", title: nil, nameSource: .user, nameRevision: 0,
+                                               allowsLegacyDefaults: false))
+        #expect(Self.persisted(Self.titledChat, name: "workspace-151", supportsNameSource: true,
+                               nameSource: .user, nameRevision: 0) == "Fix the sidebar drag")
+        #expect(Self.live.label(name: "workspace-151", title: nil, front: Self.titledChat, nameSource: .user,
+                                nameRevision: 0, allowsLegacyDefaults: false) == "Fix the sidebar drag")
+        // A person's rename (revision 1), a home marker and any other name stay theirs.
+        #expect(WorkspaceAutoName.isUserNamed(name: "workspace-151", title: nil, nameSource: .user, nameRevision: 1,
+                                              allowsLegacyDefaults: false))
+        #expect(WorkspaceAutoName.isUserNamed(name: "~", title: nil, nameSource: .user, nameRevision: 0,
+                                              allowsLegacyDefaults: false))
+        #expect(WorkspaceAutoName.isUserNamed(name: "api", title: nil, nameSource: .user, nameRevision: 0,
+                                              allowsLegacyDefaults: false))
+        // The daemon matches `workspace-N` exactly; a padded one is the person's and stays pinned.
+        #expect(WorkspaceAutoName.isUserNamed(name: " workspace-151 ", title: nil, nameSource: .user, nameRevision: 0,
+                                              allowsLegacyDefaults: false))
+    }
+
     @Test func persistNamesARemoteWorkspaceWhenTheDaemonSupportsNameSource() {
         #expect(Self.persisted(Self.titledChat, local: false, supportsNameSource: true) == "Fix the sidebar drag")
     }

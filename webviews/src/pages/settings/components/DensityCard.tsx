@@ -5,6 +5,8 @@
 // (the app then drops appearance.customDensity); a custom one writes appearance.customDensity;
 // the list is appearance.customDensities.
 import { useMemo, useState, type CSSProperties } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { useSettingsState, useStore } from "../context";
 import {
   CUSTOM_DENSITIES_KEY,
@@ -213,7 +215,7 @@ export function DensityCard() {
         })}
       </div>
       <div className="density-actions">
-        <button
+        <Button
           type="button"
           className="button"
           data-density-action="duplicate"
@@ -221,8 +223,8 @@ export function DensityCard() {
           onClick={onDuplicate}
         >
           {t("settingsWindow.density.duplicate")}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="button"
           data-density-action="import"
@@ -230,10 +232,10 @@ export function DensityCard() {
           onClick={() => setImporting(!importing)}
         >
           {t("settingsWindow.density.import")}
-        </button>
-        <button type="button" className="button" data-density-action="export" onClick={onExport}>
+        </Button>
+        <Button type="button" className="button" data-density-action="export" onClick={onExport}>
           {t("settingsWindow.density.export")}
-        </button>
+        </Button>
         {notice && <span className="density-notice">{notice}</span>}
       </div>
       {importing && (
@@ -244,9 +246,9 @@ export function DensityCard() {
             value={importText}
             onChange={(event) => setImportText(event.target.value)}
           />
-          <button type="button" className="button" data-density-action="import-confirm" onClick={onImport}>
+          <Button type="button" className="button" data-density-action="import-confirm" onClick={onImport}>
             {t("settingsWindow.density.import")}
-          </button>
+          </Button>
         </div>
       )}
       {editing && (
@@ -254,7 +256,7 @@ export function DensityCard() {
           <div className="density-fields">
             <label className="density-field">
               <span>{t("settingsWindow.density.name")}</span>
-              <input
+              <Input
                 type="text"
                 aria-label={t("settingsWindow.density.name")}
                 name="density-name"
@@ -301,7 +303,8 @@ export function DensityCard() {
               ))}
             </details>
             <div className="density-actions">
-              <button
+              <Button
+                variant="solid"
                 type="button"
                 className="button button-primary"
                 data-density-action="save"
@@ -309,10 +312,10 @@ export function DensityCard() {
                 onClick={onSave}
               >
                 {t("settingsWindow.density.save")}
-              </button>
-              <button type="button" className="button" data-density-action="delete" onClick={() => onDelete(editing)}>
+              </Button>
+              <Button type="button" className="button" data-density-action="delete" onClick={() => onDelete(editing)}>
                 {t("settingsWindow.density.delete")}
-              </button>
+              </Button>
             </div>
           </div>
           <DensityPreview density={editing} rows={3} />

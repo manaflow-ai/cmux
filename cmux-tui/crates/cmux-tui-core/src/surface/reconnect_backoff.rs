@@ -66,11 +66,14 @@ impl TerminalHostReconnectBackoff {
                     .host_connection_state
                     .swap(TerminalHostConnectionState::Failed as u8, Ordering::AcqRel);
                 if was != TerminalHostConnectionState::Failed as u8 {
-                    if let PtyRuntime::Hosted(host) =
-                        &*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-                    {
+                    let runtime =
+                        pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if let PtyRuntime::Hosted(host) = &*runtime {
                         host.disconnect();
+                        // The input port refuses until a replacement is installed, as a write here fails now.
+                        pty.input_route_failed(&runtime);
                     }
+                    drop(runtime);
                     pty.stream_progress.notify();
                     publish_host_link_state(pty);
                 }
@@ -82,7 +85,7 @@ impl TerminalHostReconnectBackoff {
                 host.disconnect();
             }
             // Input waiting out the reconnect (surface/input.rs) fails now.
-            pty.stream_progress.notify();
+            pty.reader_gave_up();
             return false;
         };
         #[cfg(test)]
@@ -93,13 +96,17 @@ impl TerminalHostReconnectBackoff {
 }
 
 /// Sleep `delay` in slices; false once the terminal is closed or the daemon
-/// shuts down (both set `owner_detaching`) or its mux is gone.
+/// shuts down (both set `owner_detaching`) or its mux is gone. A recover
+/// request (`recover_requested`) ends the wait at once.
 #[cfg(any(unix, windows))]
 fn wait_unless_detached(pty: &PtySurface, delay: Duration) -> bool {
     let until = Instant::now() + delay;
     loop {
         if pty.owner_detaching.load(Ordering::Acquire) || pty.mux.upgrade().is_none() {
             return false;
+        }
+        if pty.recover_requested.load(Ordering::Acquire) {
+            return true;
         }
         let Some(left) = until.checked_duration_since(Instant::now()).filter(|d| !d.is_zero())
         else {

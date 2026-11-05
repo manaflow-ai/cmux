@@ -1,4 +1,5 @@
 import CmuxConversationCore
+import CryptoKit
 import Foundation
 
 /// The Cloud Chief: the main conversation of the user's Cloud Chief, held by
@@ -74,10 +75,14 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         await core.markRead(upToSeq)
     }
 
-    /// Cloud attachments need the upload slot flow (`/v1/home/attachments`),
-    /// which the phone does not speak yet.
+    /// A photo through the Cloud service's attachment routes (home-messaging.md 10.1, as the
+    /// Mac's `WireHomeSource.upload`): an intent by SHA-256, the bytes to the slot it answers
+    /// with, then the message names the stored hash in an `attachment` part.
     public func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
-        throw ConversationBackendError(code: -32601, message: String(localized: "Photos can't be sent to Cloud Chief from iPhone yet."))
+        let size = ChiefImageSize(data: data)
+        let ext = ["image/png": "png", "image/heic": "heic", "image/gif": "gif", "image/webp": "webp"][mimeType] ?? "jpg"
+        return try await core.upload(data, mimeType: mimeType, name: "IMG_\(Int(Date().timeIntervalSince1970)).\(ext)",
+                                     width: size.width, height: size.height)
     }
 
     /// Hide Alerts and Send Read Receipts belong to this phone (``ChiefPreferences``).
@@ -136,6 +141,65 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         private var lastReadHere: Int?
         /// Messages seen, by id: my current tapback (to replace it) and receipts.
         private var known: [String: ConversationMessage] = [:]
+        /// Each uploaded photo's `attachment` part, by the attachment id the composer holds.
+        private var uploadedParts: [String: [String: Any]] = [:]
+
+        /// `/v1/home/attachments/intent`, the PUT it answers with (and `commit` after a
+        /// presigned one), then the part a message sends.
+        func upload(_ data: Data, mimeType: String, name: String, width: Int, height: Int) async throws -> ConversationAttachment {
+            let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            var intent: [String: Any] = [
+                "conversation": conversationID, "sha256": hash, "byte_count": data.count, "mime_type": mimeType, "name": name,
+            ]
+            if width > 0 { intent["width"] = width }
+            if height > 0 { intent["height"] = height }
+            let answer: [String: Any]
+            do {
+                let reply = try await http.send("POST", "/v1/home/attachments/intent", body: try ChiefCloudHTTP.json(intent))
+                answer = try ChiefCloudHTTP.value(reply) as? [String: Any] ?? [:]
+            } catch let error as ChiefCloudError {
+                throw ConversationBackendError(code: -32000, message: error.description)
+            }
+            switch answer["state"] as? String {
+            case "exists":
+                break
+            case "upload":
+                guard let url = (answer["upload_url"] as? String).flatMap(URL.init(string:)) else {
+                    throw ConversationBackendError(code: -4, message: "attachment.bad_answer")
+                }
+                let presigned = answer["mode"] as? String == "presigned"
+                guard answer["mode"] as? String == "stream" || presigned else {
+                    throw ConversationBackendError(code: -4, message: "attachment.bad_answer")
+                }
+                let headers = (answer["headers"] as? [String: Any] ?? [:]).compactMapValues { $0 as? String }
+                let put = try await http.upload(url, method: answer["method"] as? String ?? "PUT", headers: headers, body: data,
+                                                toWorker: !presigned)
+                // 412: a retried presigned PUT whose first attempt landed (`if-none-match: *`).
+                guard (200..<300).contains(put.status) || (presigned && put.status == 412) else {
+                    throw ConversationBackendError(code: -32000, message: "attachment.upload_refused (HTTP \(put.status))")
+                }
+                if presigned {
+                    guard let slot = answer["slot"] as? String else { throw ConversationBackendError(code: -4, message: "attachment.bad_answer") }
+                    do {
+                        _ = try ChiefCloudHTTP.value(try await http.send("POST", "/v1/home/attachments/commit",
+                                                                          body: try ChiefCloudHTTP.json(["conversation": conversationID, "slot": slot])))
+                    } catch let error as ChiefCloudError {
+                        throw ConversationBackendError(code: -32000, message: error.description)
+                    }
+                }
+            default:
+                throw ConversationBackendError(code: -4, message: "attachment.bad_answer")
+            }
+            var part: [String: Any] = [
+                "type": "attachment", "hash": hash, "name": name, "mime_type": mimeType, "byte_count": data.count,
+            ]
+            if width > 0 { part["width"] = width }
+            if height > 0 { part["height"] = height }
+            let attachment = wire.attachment(part, bytes: data)
+                ?? ConversationAttachment(id: "att:\(hash)", kind: .image, width: width, height: height, url: nil, localData: data)
+            uploadedParts[attachment.id] = part
+            return attachment
+        }
 
         init(http: ChiefCloudHTTP, conversationID: String, identity: ChiefIdentity, preferences: ChiefPreferences,
              clock: any Clock<Duration>, liveFeed: ChiefLiveFeed, refused: @escaping @Sendable (String) -> Void) {
@@ -191,9 +255,17 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         }
 
         func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
+            // A photo the message names that this connection did not upload: never sent without it.
+            var parts: [[String: Any]] = try draft.attachmentIDs.map { id in
+                guard let part = uploadedParts[id] else {
+                    throw ConversationBackendError(code: -4, message: String(localized: "The photo didn't finish uploading. Try again."))
+                }
+                return part
+            }
+            if !draft.text.isEmpty || parts.isEmpty { parts.append(wire.textPart(draft.text, mentions: draft.mentions)) }
             var fields: [String: Any] = [
                 "client_msg_id": draft.clientMessageID,
-                "parts": [wire.textPart(draft.text, mentions: draft.mentions)],
+                "parts": parts,
             ]
             if let reply = draft.replyToID { fields["reply_to"] = ["message_id": reply, "part_index": 0] }
             let message = try await messageOp("message.send", fields, key: draft.clientMessageID)
@@ -224,10 +296,13 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         }
 
         func markRead(_ seq: Int) async {
-            lastReadHere = max(lastReadHere ?? 0, seq)
-            // Send Read Receipts off: the read position stays on this phone.
+            lastReadHere = max(lastReadHere ?? preferences.readHere(conversationID) ?? 0, seq)
+            // Send Read Receipts off: the read position stays on this phone
+            // (kept, so a reconnect or relaunch still knows it).
             if preferences.sendsReadReceipts(conversationID) {
                 _ = try? await op("read_cursor.set", ["seq": seq])
+            } else if let lastReadHere, preferences.readHere(conversationID) != lastReadHere {
+                preferences.setReadHere(lastReadHere, conversationID)
             }
             yieldReadState(lastRead: seq)
         }
@@ -237,7 +312,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             if let receipts = change.sendReadReceipts {
                 preferences.setSendsReadReceipts(receipts, conversationID)
                 // Turning receipts back on reports where this phone has read to.
-                if receipts, let lastRead = lastReadHere { await markRead(lastRead) }
+                if receipts, let lastRead = lastReadHere ?? preferences.readHere(conversationID) { await markRead(lastRead) }
             }
             guard var info = info ?? wire.info(["id": conversationID]) else {
                 throw ConversationBackendError(code: -4, message: "no conversation")
@@ -579,7 +654,8 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
             takeChiefCursor(head)
             // With receipts off the service's cursor lags what this phone read.
             let server = wire.readCursor(head, of: identity.meID)
-            yieldReadState(lastRead: preferences.sendsReadReceipts(conversationID) ? server : max(server, lastReadHere ?? 0))
+            let here = lastReadHere ?? preferences.readHere(conversationID) ?? 0
+            yieldReadState(lastRead: preferences.sendsReadReceipts(conversationID) ? server : max(server, here))
         }
 
         private func requestSnapshot(on task: URLSessionWebSocketTask) async throws {

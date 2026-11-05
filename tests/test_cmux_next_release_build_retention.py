@@ -42,7 +42,8 @@ touch "$1/compiled.o"
         self.write_executable(scripts / "check-app-personalities.sh", "#!/bin/bash\n")
         # The DEV step builds through compile-dev-release.sh; without the compilation cache (unset
         # here) it builds per runner instance, the path these tests pin.
-        for name in ("release-derived-data-path.sh", "compile-dev-release.sh", "host_build_lock.py"):
+        for name in ("release-derived-data-path.sh", "compile-dev-release.sh", "host_build_lock.py",
+                     "release-compile-fleet-cas.sh"):
             shutil.copy2(ROOT / "scripts/cmux-next" / name, scripts / name)
         self.job_number = 0
 
@@ -53,7 +54,9 @@ touch "$1/compiled.o"
 
     def run_build(self, lane="package", **overrides):
         job, step, build = {
-            "package": ("release-compile", "Release compile", "check-release-compile.sh"),
+            # With no fleet-cas node (none under FLEET_CAS_ROOT here) the fleet cache wrapper builds per
+            # runner, the path these tests pin; release-compile-fleet-cas.test.sh covers the node.
+            "package": ("release-compile", "Release compile", "release-compile-fleet-cas.sh"),
             "dev": ("cmux-scheme-compile", "Compile the cmux NEXT DEV Release app", "compile-dev-release.sh"),
         }[lane]
         step = next(s for s in WORKFLOW["jobs"][job]["steps"] if s.get("name") == step)
@@ -84,6 +87,7 @@ touch "$1/compiled.o"
             # compiled-product lookup missed, which is the path compiled here.
             "REUSED_ARCHIVE": "",
             "DEV_DAILY_SHA": "a" * 40,
+            "FLEET_CAS_ROOT": str(self.root / "no-fleet-cas"),
         }
         env.update(overrides)
         result = subprocess.run(["/bin/bash", "-eu", "-c", "\n".join(lines)], cwd=self.workspace,
@@ -99,6 +103,12 @@ touch "$1/compiled.o"
                 second, mode = self.run_build(lane)
                 self.assertEqual(first, second, "owned Release compilation moved to a new job temporary")
                 self.assertEqual(mode, "incremental")
+
+    def test_release_compile_without_a_fleet_cas_node_keeps_the_runner_path(self):
+        for mode in ("read", "off"):
+            with self.subTest(mode=mode):
+                path, _ = self.run_build(CMUX_NEXT_RELEASE_FLEET_CAS=mode)
+                self.assertIn("/Library/Caches/cmux-next-ci/release-compile/", str(path))
 
     def test_worker_workspace_and_release_lane_have_distinct_build_databases(self):
         original, _ = self.run_build()

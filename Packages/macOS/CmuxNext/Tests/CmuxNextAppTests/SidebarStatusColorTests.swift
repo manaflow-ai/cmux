@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence msg 11983: "make sure sidebar has blue, orange/yellow for needs attention, and red for errors".
@@ -9,16 +10,18 @@ import Testing
 /// is an error. A group header, open or collapsed, rolls up its subtree's most urgent state: red, then orange,
 /// then blue. Measured on the real ``SidebarView``: each row's visible status glyph and the color its
 /// indicator draws, in light and dark. Each case prints a `STATUSCOLOR|` line so a fleet log shows them.
-@MainActor @Suite(.serialized) struct SidebarStatusColorTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarStatusColorTests {
     enum Meaning: String, CustomStringConvertible {
         case unread, attention, error
         var description: String { rawValue }
-        /// The one system color this meaning draws in.
+        /// The one color this meaning draws in: its system color's hue at 3:1 on the theme's rows
+        /// (c0230efd501, user 2026-11-03: "we need to make sure every single theme, all the UI elements
+        /// are colored properly"), read in the scope that draws it.
         var color: NSColor {
             switch self {
-            case .unread: .systemBlue
-            case .attention: .systemOrange
-            case .error: .systemRed
+            case .unread: Palette.statusUnread
+            case .attention: Palette.statusAttention
+            case .error: Palette.statusError
             }
         }
     }
@@ -133,9 +136,9 @@ import Testing
         return found
     }
 
-    static func matches(_ ink: NSColor, _ meaning: Meaning, appearance: NSAppearance) -> Bool {
+    static func matches(_ ink: NSColor, _ meaning: Meaning, in view: NSView, appearance: NSAppearance) -> Bool {
         var expected: NSColor?
-        appearance.performAsCurrentDrawingAppearance { expected = meaning.color.usingColorSpace(.sRGB) }
+        appearance.performAsCurrentDrawingAppearance { expected = view.performWithTheme { meaning.color }.usingColorSpace(.sRGB) }
         guard let expected else { return false }
         return abs(ink.redComponent - expected.redComponent) < 0.02 && abs(ink.greenComponent - expected.greenComponent) < 0.02
             && abs(ink.blueComponent - expected.blueComponent) < 0.02
@@ -143,6 +146,10 @@ import Testing
 
     @Test(arguments: [false, true])
     func everyRowKindDrawsEachMeaningInItsOneColor(_ dark: Bool) throws {
+        // The static look (Reduce Motion) draws done as a green check, not the blue dot. Pin it off:
+        // a runner with the system's Reduce Motion on (Blacksmith macOS) otherwise fails here.
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         let label = dark ? "dark" : "light"
         let h = Harness(dark: dark)
         defer { h.window.close() }
@@ -166,7 +173,7 @@ import Testing
             print("STATUSCOLOR|\(label)|\(name)|want \(meaning)|\(inks.map { String(format: "%.3f,%.3f,%.3f", $0.redComponent, $0.greenComponent, $0.blueComponent) })")
             #expect(inks.count == 1, "\(label) \(name): \(inks.count) status glyphs, want one")
             for ink in inks {
-                #expect(Self.matches(ink, meaning, appearance: appearance), "\(label) \(name): draws \(ink), want \(meaning) (\(meaning.color))")
+                #expect(Self.matches(ink, meaning, in: row, appearance: appearance), "\(label) \(name): draws \(ink), want \(meaning)")
             }
         }
     }
@@ -184,6 +191,8 @@ import Testing
             #expect(SidebarGroup(id: GroupID("g"), name: "g", workspaces: members).statusRollUp(collapsed: false) == .waiting)
         }
         #expect(SidebarGroup(id: GroupID("g"), name: "g", workspaces: [unread]).statusRollUp(collapsed: false) == .success)
+        let zeroUnread = ws("zero", unread: .count(0))
+        #expect(SidebarGroup(id: GroupID("g"), name: "g", workspaces: [zeroUnread]).statusRollUp(collapsed: false) == .idle)
         let working = ws("b", activity: .working)
         // A collapsed header keeps its loading spinner when nothing needs the user; an open one leaves it to its rows.
         #expect(SidebarGroup(id: GroupID("g"), name: "g", workspaces: [working]).statusRollUp(collapsed: true) == .working)

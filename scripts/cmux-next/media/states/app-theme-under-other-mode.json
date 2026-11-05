@@ -1,0 +1,173 @@
+{
+ "title": "A light App Theme under a dark system and a dark one under a light system: the window keeps the theme's colors",
+ "launch_args": [
+  "--showcase"
+ ],
+ "settings": {
+  "appearance": {
+   "theme": "Rose Pine"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Showcase rows: workspaces, an agent chat, unread notifications",
+   "rpc": {
+    "method": "debug.showcase.seed",
+    "params": {
+     "focus": true,
+     "dense": true
+    }
+   },
+   "wait": 4,
+   "optional": "the showcase fixture is DEBUG only"
+  },
+  {
+   "title": "Workspace Themes",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Themes"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Themes",
+    "focus"
+   ],
+   "wait": 1.5
+  },
+  {
+   "title": "Write a Markdown file",
+   "cmux": [
+    "workspace",
+    "name:Themes",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "printf '# Release notes\\n\\nEvery **App Theme** colors every element.\\n\\n- [x] Sidebar and rows\\n- [ ] Popovers\\n\\n> A quote with a [link](https://cmux.com).\\n\\n| Element | Color |\\n| --- | --- |\\n| Tab bar | theme |\\n| Cards | theme |\\n\\n```swift\\nlet tokens = ThemeTokens.derive(from: input)\\n```\\n' > /tmp/cmux-all-themes.md; clear\r"
+   ],
+   "wait": 2,
+   "daemon": true
+  },
+  {
+   "title": "Open it in a tab",
+   "cmux": [
+    "open",
+    "/tmp/cmux-all-themes.md",
+    "--focus",
+    "true"
+   ],
+   "wait": 3
+  },
+  {
+   "title": "A staged update: the Update card",
+   "rpc": {
+    "method": "debug.updater",
+    "params": {
+     "action": "stage",
+     "version": "1.0.0-nightly.3932981759301",
+     "changes": 3
+    }
+   },
+   "wait": 2,
+   "optional": "debug.updater is DEBUG only"
+  },
+  {
+   "title": "App Theme Catppuccin Latte",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.appTheme",
+    "Catppuccin Latte"
+   ],
+   "wait": 0.5
+  },
+  {
+   "title": "Catppuccin Latte: system dark",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "dark"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Catppuccin Latte: the workspace",
+   "cmux": [
+    "workspace",
+    "name:Themes",
+    "focus"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Catppuccin Latte dark: workspace",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "latte-under-dark-workspace.png"
+  },
+  {
+   "title": "App Theme Catppuccin Mocha",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.appTheme",
+    "Catppuccin Mocha"
+   ],
+   "wait": 0.5
+  },
+  {
+   "title": "Catppuccin Mocha: system light",
+   "rpc": {
+    "method": "debug.appearance",
+    "params": {
+     "mode": "light"
+    }
+   },
+   "wait": 2
+  },
+  {
+   "title": "Catppuccin Mocha: the workspace",
+   "cmux": [
+    "workspace",
+    "name:Themes",
+    "focus"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Catppuccin Mocha light: workspace",
+   "rpc": {
+    "method": "debug.window_snapshot",
+    "params": {
+     "kind": "main",
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "collect": "mocha-under-light-workspace.png"
+  }
+ ]
+}

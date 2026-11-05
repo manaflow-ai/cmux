@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Toasts come back less often (Lawrence 2026-10-18: "we show the toast in cmux-next too
 /// often"): a notice the person closed stays quiet for a while, and the same toast again while
 /// it shows is not announced again.
 @MainActor
+@Suite(.closesItsWindows)
 struct CmuxToastQuietTests {
     private static func window() -> NSWindow {
         NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.borderless],
@@ -17,6 +19,7 @@ struct CmuxToastQuietTests {
         let host = RecordingToastHost()
         let center = CmuxToastCenter(host: host)
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let notice = CmuxToast(id: "refusal", message: "The agent chat column holds only agent chats.")
         center.show(notice, in: window)
         host.shown.last?.onClose?()
@@ -34,6 +37,7 @@ struct CmuxToastQuietTests {
         let host = RecordingToastHost()
         let center = CmuxToastCenter(host: host)
         let window = Self.window()
+        defer { window.closeAfterTest() }
         center.show(CmuxToast(id: "refusal", message: "Not enough room to split this column"), in: window)
         host.shown.last?.onClose?()
 
@@ -49,6 +53,7 @@ struct CmuxToastQuietTests {
         let host = RecordingToastHost()
         let center = CmuxToastCenter(host: host)
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let first = CmuxToast(id: "home.stopAllAgents", message: "1 could not be stopped", detail: "a2: refused")
         center.show(first, in: window)
         host.shown.last?.onClose?()
@@ -64,6 +69,7 @@ struct CmuxToastQuietTests {
         let host = RecordingToastHost()
         let center = CmuxToastCenter(host: host)
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let undo = CmuxToast(id: "tab-closed", message: "Closed “zsh”", action: .undo())
         center.show(undo, in: window)
         host.shown.last?.onClose?()
@@ -78,6 +84,7 @@ struct CmuxToastQuietTests {
     @Test func onlyThePersonsCloseQuiets() {
         let center = CmuxToastCenter(host: RecordingToastHost())
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let notice = CmuxToast(id: "saved", message: "Saved")
         center.show(notice, in: window).dismiss()
 
@@ -93,6 +100,7 @@ struct CmuxToastQuietTests {
         let center = CmuxToastCenter(host: host)
         center.closedCooldown = .milliseconds(100)
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let notice = CmuxToast(id: "refusal", message: "No pane to the left")
         center.show(notice, in: window)
         host.shown.last?.onClose?()
@@ -111,6 +119,7 @@ struct CmuxToastQuietTests {
         let center = CmuxToastCenter(host: host)
         center.closedCooldown = .zero
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let notice = CmuxToast(id: "refusal", message: "No pane to the left")
         center.show(notice, in: window)
         host.shown.last?.onClose?()

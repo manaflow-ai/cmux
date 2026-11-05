@@ -47,7 +47,7 @@ const modes = {
     { id: "ask", name: "Supervised", description: "Ask before changing files or running commands" },
     { id: "edit", name: "Auto-accept edits", description: "Apply file edits without asking" },
     { id: "auto", name: "Auto", description: "Choose the safest approval level for each action" },
-    { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+    { id: "bypassPermissions", name: "Bypass permissions", description: "Run actions without approval" },
   ],
 };
 
@@ -158,6 +158,20 @@ export default agentPaneEntry({
     "claude-auto": {
       note: "Auto on the left; one model button, Opus 5.5  Medium, then the context ring on the right; mic and Send in the box.",
       snapshot: row(),
+    },
+    "grid-running": {
+      note: "Grid measurement: running with the steer / queue placeholder and no draft.",
+      snapshot: row({ isWorking: true }),
+    },
+    "grid-draft": {
+      note: "Grid measurement: a single plain text line and Send.",
+      ready: { draft: "Check the grid lines" },
+      snapshot: row(),
+    },
+    "grid-draft-lines": {
+      note: "A two-line draft keeps its text column on the composer's 44px grid line while the controls stay on the last line.",
+      snapshot: row(),
+      ready: { draft: "First line of the draft\nSecond line of the draft" },
     },
     "long-model": {
       note: "A long model name: it shows whole while the row has room and is the last label to shorten.",

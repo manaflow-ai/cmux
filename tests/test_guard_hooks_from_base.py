@@ -99,7 +99,9 @@ class GuardsRunFromTheBase(unittest.TestCase):
         self.home.mkdir()
         config = self.home / ".gitconfig"
         config.write_text("[maintenance]\n\tauto = false\n\tautoDetach = false\n"
-                          "[gc]\n\tauto = 0\n\tautoDetach = false\n")
+                          "[gc]\n\tauto = 0\n\tautoDetach = false\n"
+                          # git 2.43 (Ubuntu 24.04): a push's receive-pack starts `git gc --auto` and reads no maintenance.auto.
+                          "[receive]\n\tautogc = false\n")
         env = {"HOME": str(self.home), "XDG_CONFIG_HOME": str(self.home / ".config"), "GIT_CONFIG_GLOBAL": str(config),
                "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "0"}
         patcher = mock.patch.dict(os.environ, env)

@@ -42,6 +42,27 @@ extension PageWebView {
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        webContentEnded(PageTermination(reason: .unknown, pid: PageTermination.webContentPid(of: webView)))
+    }
+
+    /// WebKit's reason for the end (`WKNavigationDelegatePrivate`); a WebKit that has it calls this
+    /// instead of ``webViewWebContentProcessDidTerminate(_:)``.
+    @objc(_webView:webContentProcessDidTerminateWithReason:)
+    public func webView(_ webView: WKWebView, webContentProcessDidTerminateWithReason reason: Int) {
+        webContentEnded(PageTermination(reason: .init(webKit: reason), pid: PageTermination.webContentPid(of: webView)))
+    }
+
+    /// The WebKit page's process ended with `termination` (an injected end in tests).
+    public func webContentEnded(_ termination: PageTermination) {
+        // A page that shows in Chromium lives in its Chromium renderer: the end of its hidden
+        // WebKit view's process ends nothing the person sees. WebKit ends every web content
+        // process after its GPU process fails three times (Leo's Mac, 2026-11-01: 19 Chromium
+        // chats showed the crash notice over pages that still worked, and their bridges were reset).
+        guard !showsChromium else {
+            logger.error("page \(self.descriptor.id, privacy: .public) hidden WebKit web content ended reason=\(termination.reason.rawValue, privacy: .public) pid=\(termination.pid); the page shows in Chromium, nothing ended")
+            return
+        }
+        lastTermination = termination.withPid(fallback: knownWebContentPid)
         contentProcessTerminated()
     }
 
@@ -55,7 +76,8 @@ extension PageWebView {
             // A renderer that crashed before the page reached the host leaves the Chromium start
             // deadline armed: its fallback would load the page in WebKit by itself.
             chromiumSession?.deadline.cancel()
-            logger.error("page \(self.descriptor.id, privacy: .public) web content ended; no automatic reload (the crash notice offers Reload)")
+            let termination = lastTermination ?? .unknown
+            logger.error("page \(self.descriptor.id, privacy: .public) web content ended reason=\(termination.reason.rawValue, privacy: .public) pid=\(termination.pid); no automatic reload (the crash notice offers Reload)")
             onCrash?(self, false)
             return
         }
@@ -69,11 +91,13 @@ extension PageWebView {
         onCrash?(self, reloading)
     }
 
-    /// Reloads a page that stopped reloading after crashes, and forgets those crashes (the crash
-    /// notice's Reload button).
+    /// Brings back a page whose process ended, in a new process, and forgets its crashes (the
+    /// host's automatic retry, or the crash notice's Reload). Chromium reloads the tab (a new
+    /// renderer); WebKit loads the document, which starts a new web content process (a `reload()`
+    /// does nothing for a view whose process ended before its document committed: it has no URL).
     public func reloadAfterCrashes() {
         crashReloads = PageCrashReloads()
-        guard webKitLoadsOnReload else { return reloadPage() }
+        guard chromiumSession == nil else { return reloadPage() }
         // Chromium ended while the notice showed: the page reopens in WebKit now.
         webKitLoadsOnReload = false
         webView.load(URLRequest(url: descriptor.url(route: route)))

@@ -14,7 +14,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<RunCommandResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = self
             .ordinary_workspace_selectors(workspace)
             .with_context(|| format!("unknown workspace {workspace}"))?;
@@ -52,7 +52,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = self
             .ordinary_workspace_selectors(workspace)
             .with_context(|| format!("unknown workspace {workspace}"))?;
@@ -92,7 +92,7 @@ impl Mux {
         {
             return self.new_browser_column_beside_lone_dock(actor, url, dock, size, extra_fields);
         }
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
             let target = match pane {
@@ -147,7 +147,21 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        self.new_column_with_options_as(actor, target, width, false, spawn, size)
+    }
+
+    /// A viewport column of `width` beside the target's column: before it
+    /// when `before` (`column-left-v1`, New Column Left), else after it.
+    pub fn new_column_with_options_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        target: PaneId,
+        width: f32,
+        before: bool,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<PaneSurfaceCreation> {
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         if !width.is_finite()
             || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
         {
@@ -157,7 +171,7 @@ impl Mux {
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
         let mut fields = Map::from_iter([
-            ("direction".into(), Value::String("right".into())),
+            ("direction".into(), Value::String(if before { "left" } else { "right" }.into())),
             ("viewport_width".into(), Value::from(width)),
         ]);
         Self::insert_cell_size(&mut fields, size);
@@ -190,7 +204,7 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
@@ -224,7 +238,7 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<(Arc<Surface>, ScreenId)> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = match workspace {
             Some(workspace) => self
                 .ordinary_workspace_selectors(workspace)
@@ -276,7 +290,7 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
             let target = match pane {
@@ -344,7 +358,7 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let mut fields =
             Map::from_iter([("initial_content".into(), Value::String("terminal".into()))]);
         Self::insert_optional_string(&mut fields, "name", name);
@@ -366,7 +380,7 @@ impl Mux {
         argv: Vec<String>,
         options: RunCommandOptions,
     ) -> anyhow::Result<RunCommandResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let RunCommandOptions { pane, new_workspace, workspace_key, cwd, name, size } = options;
         if workspace_key.is_some() && !new_workspace {
             anyhow::bail!("workspace key requires a new workspace");
@@ -439,7 +453,7 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;

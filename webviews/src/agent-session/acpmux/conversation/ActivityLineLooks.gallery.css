@@ -1,0 +1,28 @@
+.cv-activity-line-looks {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 24px;
+  color: var(--cv-text);
+}
+
+.cv-activity-line-looks__title {
+  margin-bottom: 12px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.cv-activity-line-looks__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.cv-activity-line-looks .cv-activity {
+  color: var(--cv-activity-text);
+}
+
+.cv-activity-line-looks[data-look="none"] .cv-activity {
+  color: var(--cv-text-dim);
+}

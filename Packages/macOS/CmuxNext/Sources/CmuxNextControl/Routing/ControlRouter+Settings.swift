@@ -27,6 +27,17 @@ extension ControlRouter {
                 }
                 writer = .user
             }
+            // A write to a parent object (`cloud` with `{"useMyClaudeLoginOnMyCloudMachines": true}`)
+            // replaces every key under it: one the writer may not change makes it the person's to
+            // confirm too, never a raw file write that skips the leaf's policy.
+            if descriptor == nil, let guarded = SettingsSchema.all.first(where: { $0.path.count > path.count
+                && Array($0.path.prefix(path.count)) == path && !writer.mayWrite($0) }) {
+                guard call.params["confirm"]?.boolValue == true else { throw ControlSettingsPolicy.userOnly(guarded.id) }
+                guard await ControlSettingsPolicy.confirm(path.joined(separator: "."), value: value, owner: owner, connection: call.connection) else {
+                    throw ControlSettingsPolicy.declined(guarded.id)
+                }
+                writer = .user
+            }
             if descriptor != nil {
                 do {
                     try await owner.setSetting(at: path, to: value, by: writer)

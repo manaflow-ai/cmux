@@ -21,4 +21,17 @@ struct AgentPaneSendScrollSettingTests {
         #expect(SettingsSchema.agentRefusedKeys["agentPane.scrollToBottomOnSend"] == .userOnly)
         #expect(!SettingsSchema.agentSettableKeys.contains("agentPane.scrollToBottomOnSend"))
     }
+
+    @Test func machineLoadWarningsAreOnByDefaultAndRoundTripOff() {
+        let defaults = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
+        #expect(defaults.agentPaneComposer.showMachineLoadWarnings)
+        #expect(defaults.agentPaneComposer.pageValue.value(at: ["showMachineLoadWarnings"])?.boolValue == true)
+        let row = SettingsSchema.descriptor(for: AgentPaneComposerSetting.showMachineLoadWarningsPath)
+        #expect(row?.defaultValue == .bool(true))
+
+        let root = JSONValue.object(["agentPane": .object(["showMachineLoadWarnings": .bool(false)])])
+        let snapshot = CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
+        #expect(snapshot.agentPaneComposer.showMachineLoadWarnings == false)
+        #expect(snapshot.agentPaneComposer.pageValue.value(at: ["showMachineLoadWarnings"])?.boolValue == false)
+    }
 }

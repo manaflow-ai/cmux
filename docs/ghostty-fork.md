@@ -12,6 +12,81 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### The embedder presents a new host size with its bounds (ghostty-next)
+
+- Fork release branch `release/cmux-9ce9b7d0-e2` at the merge commit `12ec155e1` (fork PR #79, on `ae7c1f741` = fork
+  PR #77 on `6cc749a8a` = fork PR #75 on `bd7ff2687` = fork PRs #72 and #73 on `7d43bb68b`, fork PR #71 on
+  `635c6c12a` = fork PR #70 on `dfd07de4a`, the earlier pin `34e73ba8b` plus fork PR #69). GhosttyNextKit
+  `xcframework-12ec155e1e67f8f33a1cee5fd2e129f59277465c-apple-v6` (zip sha256 `5defd8f8...30aa7`, run 41955494921).
+- What: opt-in on macOS host-sized surfaces, `ghostty_surface_set_host_present(surface, GHOSTTY_HOST_PRESENT_EMBEDDER)`.
+  The renderer still draws each new host size at once with cells rebuilt for it, but never shows a frame of another
+  size than the shown one itself. A new size asks for no display pass, and a display pass never waits.
+  `ghostty_surface_host_frame(surface, present)` answers NONE, HIDDEN, SHOWN, READY, PRESENTED, PENDING or HELD. With
+  `present`, a READY frame becomes the layer's contents in the caller's Core Animation transaction, ordered by the
+  present sequence. From the mode's start, and after the main thread changes the shown size, frames go through the
+  main thread until `ghostty_surface_host_frame_committed`. An off-main present never commits while it holds the
+  CA lock (fork PR #71: #70 committed under the lock and deadlocked against main's commit). A frame kept for the
+  embedder's present that the layer cannot show in its bounds goes to no main-queue block (fork PR #75: it was
+  dropped on main, one main wake per moving terminal and frame); the skip is decided under the CA lock and then
+  the fresh-frame mutex, only while the kept frame is still that frame. An off-main present begins a CA
+  transaction only for a frame it shows (fork PR #79: each frame that went through main, or that a newer frame
+  superseded, committed an empty transaction on the GPU completion thread).
+- Why: cmux FRAME OWNER REFACTOR stage S4 (ready-or-keep). In every commit a terminal's bounds and pixels change
+  together, or both keep their last size. Before, a new-size frame landed in the old bounds 2-4 refreshes after the
+  geometry. The waiting present (G1) cost main 4-9 ms per drag frame.
+- Tests: `host present:` in `src/renderer/Metal.zig` and `src/renderer/metal/IOSurfaceLayer.zig` (real layer and
+  IOSurfaces, no GPU) and the two `ghostty.h` enum parity tests. Four red/green pairs on the fork workflow, the
+  last runs 41638046842 (red) and 41638050805 (green: 239/239, lib-vt 475/475). Four independent reviews; the
+  last said SHIP at `9f88e48ee`.
+- Open, not blocking (review 4): a mode switch can race a completion that read the mode without the lock (cmux sets
+  the mode per surface and changes it only when the Debug switch changes).
+- Fork PR #71 (the deadlock): with the switch on and the film recorder's load, main hung in
+  `CA::Transaction::commit` and the Metal completion thread in `setSurfaceOffMain`, which committed while it held
+  `[CATransaction lock]`. Since fork PR #79 an off-main present does lock, checks, then (only for a frame it shows)
+  `begin`, set contents, unlock, `commit`; a frame that goes through main or that a newer frame superseded unlocks and
+  commits nothing. `ghostty.h`: the
+  embedder presents and sets the bounds in one explicit lock span (fork PR #72: not a layout or display pass), and
+  never commits, flushes or draws in it (`ghostty_surface_draw`, a first frame's display pass). Test: `host present:
+  an off-main present never commits while it holds the Core Animation lock` (red run 41694823112, green run
+  41694827381; Codex SHIP at `3163f4b73`).
+- Conflict notes: keep `setSurfaceOffMain` in the order lock, checks (`offMainDecisionLocked`), then `begin`, set
+  contents, unlock, `commit` only for a frame it shows, in both modes: never commit under the lock, and never begin a
+  transaction for a frame it does not show (fork PR #79, test `host present: an off-main present that does not show
+  its frame commits no transaction`). Keep its gate check (`main_pending`) after the shown-size and sequence checks. Keep
+  `changesShownSize` as the only condition that closes the gate in `setSurfaceCallback` and `setSurfaceSync`.
+  `publishFresh` keeps the newest frame by present sequence.
+- When cmux moves to fork `main`, port #70 to `main` (it is based on the release branch).
+
+### A scroll region scroll breaks the soft wrap across its edges; the formatter carries blanks only across a joined wrap (ghostty-next)
+
+- Fork release branch `release/cmux-9ce9b7d0-e2` (ghostty-next `34e73ba8b`): the pin `9ce9b7d08` plus only fork PRs #66
+  (`fix-formatter-blank-carry`) and #68 (`fix-wrap-edge-history-cost`) and the release workflow change of fork PR #67. GhosttyNextKit
+  `xcframework-34e73ba8ba7cb8da0115caeb780065e3a12f2f62-apple-v6`.
+- Root fix (`771194607` red Zig tests, `3c717e511` fix): `cursorScrollRegionUp` (fast and slow paths),
+  `cursorScrollAbove` with a bottom margin, `insertLines` and `deleteLines` with a full-width region move the rows
+  inside the region and keep the rows outside it. The row above the region kept `wrap` and the row below it kept
+  `wrap_continuation` while their neighbour inside was replaced. `Screen.breakWrapAbove` now clears both flags of the
+  pair (and a spacer head) at each edge after the scroll. At a bottom margin the cursor row moves up with its `wrap`:
+  a linefeed or SU first resets it (`cursorResetWrap`, red `e47ad0619`, fix `601585067`); printWrap's index keeps its
+  wrap, which goes into the row the scroll makes. Left/right margin scrolls keep their old behavior.
+- Scroll-path cost (red `bc393a54b`, fix `db6d27f78`): `breakWrapAbove` decides on the resident row first (its
+  `wrap_continuation`, or for IL/DL the top row's flag read before the rows move) and reads a row in a compressed
+  history page only when the pair was joined, so a region scroll never restores a history page for nothing.
+- Cleared rows (red `221848c29`, fix `353151949`): `clearRows` (ED 0, 1 and 2, DECALN) resets the cleared rows and now
+  breaks the soft wrap across both edges of the range, so a scrollback row no longer wraps into a cleared screen.
+- Commit IDs in this section are those on `release/cmux-9ce9b7d0-e2`; the same changes on the fork PR branches
+  have other IDs.
+- Defense (`19ab1cbcb` red test, `406763ee6` fix): with `unwrap`, `PageFormatter` carried a row's trailing blank
+  cells into a `wrap_continuation` row even after it had emitted a line break, so a stale flag moved that row right.
+  Blank cells now reset when a line break goes out before the row (`broke_before`).
+- Why: cmux VT fuzz finding E2. After DECSTBM 3;10 and a soft wrap at the region bottom, the attach replay drew the
+  row under the region 43 or 163 columns to the right.
+- Conflict notes: keep the `breakWrapAbove` calls after each scroll's row moves (not before; the flags move with the
+  rows), and only for full-width regions. Keep `indexOpts(true)` in printWrap and `breakWrapAtBottomMargin` before the
+  scroll in index and scrollUp. In the formatter, keep `broke_before` read before the pending blank rows
+  are flushed (`blank_rows = 0`), and keep it in the `blank_cells = 0` condition next to `wrap_continuation`.
+- When cmux moves to fork `main`, take #66 from `main` (after it merges there); this release branch is then obsolete.
+
 ### Offscreen embedded platform behind `-Dembedded-offscreen`
 
 - Branch: `cmux-offscreen-platform`

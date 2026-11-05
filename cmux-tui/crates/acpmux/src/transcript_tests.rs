@@ -414,3 +414,22 @@ fn a_subagents_recorded_words_never_join_the_chats_reply() {
         .collect();
     assert_eq!(said, ["The hook is fixed."]);
 }
+
+/// A hibernation's exit and its wake's resume draw no row; an ordinary stop and resume do.
+#[test]
+fn a_hibernation_and_its_wake_draw_no_row() {
+    let mux = |seq: u64, kind: &str, msg: Value| json!({"seq": seq, "at": 1_000 + seq, "dir": "mux", "kind": kind, "msg": msg});
+    let mut t = Transcript::default();
+    for ev in [
+        mux(1, "stopped", json!({"code": 0, "hibernated": true})),
+        mux(2, "exited", json!({"code": -15, "hibernated": true})),
+        mux(3, "resumed", json!({"level": "exact", "wake": true})),
+        mux(4, "config", json!({"replayed": true})),
+    ] {
+        t.apply_event(&ev);
+    }
+    assert!(t.items.is_empty(), "{:?}", t.items);
+    t.apply_event(&mux(5, "stopped", json!({"code": 0, "hibernated": false})));
+    t.apply_event(&mux(6, "resumed", json!({"level": "exact", "wake": false})));
+    assert_eq!(t.items.len(), 2, "{:?}", t.items);
+}

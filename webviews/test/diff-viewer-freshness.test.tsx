@@ -2,7 +2,7 @@
 // until the tab was reopened. It compares the host's fingerprint of its scope's diff with the one
 // it loaded: coming back to the viewer after an edit refreshes it, unless a comment draft or the
 // commit form would be lost, and then it says the files changed.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -40,7 +40,7 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
-const { act } = await import("react");
+const { act, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { diffFingerprintReader, useDiffFreshness } = await import("../src/diff-viewer/freshness");
 
@@ -76,8 +76,14 @@ function Viewer({
   canRefresh: boolean;
   refresh: () => void;
 }) {
-  const stale = useDiffFreshness(read, 0, () => canRefresh, refresh);
-  return <output>{stale ? "stale" : "fresh"}</output>;
+  const [unavailable, setUnavailable] = useState<string>();
+  const stale = useDiffFreshness(read, 0, () => canRefresh, refresh, setUnavailable);
+  return (
+    <>
+      <output>{stale ? "stale" : "fresh"}</output>
+      <aside>{unavailable}</aside>
+    </>
+  );
 }
 const shown = () => dom.window.document.querySelector("output")?.textContent;
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
@@ -119,4 +125,135 @@ test("with a draft or the commit form open it says the files changed instead", a
   await settle();
   expect(refreshed).toBe(0);
   expect(shown()).toBe("stale");
+});
+
+test("an open Cloud diff reports disconnection and clears it after reconnect without losing its patch", async () => {
+  let failure: Error | undefined;
+  let refreshed = 0;
+  const reason = "Build VM is offline. Reconnect to see its diff.";
+  const read = async () => {
+    if (failure) throw failure;
+    return "same-patch";
+  };
+  await act(async () =>
+    root.render(<Viewer key="machine-disconnect" read={read} canRefresh={false} refresh={() => (refreshed += 1)} />),
+  );
+  await settle();
+  expect(shown()).toBe("fresh");
+
+  failure = Object.assign(new Error(reason), { code: "cmux.diff.machine_offline" });
+  dom.window.dispatchEvent(new dom.window.Event("focus"));
+  await settle();
+  expect(host.querySelector("aside")?.textContent).toBe(reason);
+  expect(shown()).toBe("fresh");
+  expect(refreshed).toBe(0);
+
+  failure = undefined;
+  dom.window.dispatchEvent(new dom.window.Event("focus"));
+  await settle();
+  expect(host.querySelector("aside")?.textContent).toBe("");
+  expect(shown()).toBe("fresh");
+  expect(refreshed).toBe(0);
+});
+
+test("a replaced source ignores a late offline failure from the old machine", async () => {
+  let refuse: ((error: Error) => void) | undefined;
+  const oldRead = () =>
+    new Promise<string>((_resolve, reject) => {
+      refuse = reject;
+    });
+  const refresh = () => {};
+  await act(async () => root.render(<Viewer key="machine-race" read={oldRead} canRefresh={false} refresh={refresh} />));
+  expect(typeof refuse).toBe("function");
+  const newRead = async () => "new-machine";
+  await act(async () => root.render(<Viewer key="machine-race" read={newRead} canRefresh={false} refresh={refresh} />));
+  await settle();
+  refuse?.(Object.assign(new Error("Old VM is offline"), { code: "cmux.diff.machine_offline" }));
+  await settle();
+  expect(host.querySelector("aside")?.textContent).toBe("");
+  expect(shown()).toBe("fresh");
+});
+
+test("freshness backs off while unfocused, checks on return, and stops waking while hidden or unmounted", async () => {
+  await act(async () => root.render(null));
+  let focused = true;
+  let visibility = "visible";
+  const focus = spyOn(document, "hasFocus").mockImplementation(() => focused);
+  const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+  let clock = 0;
+  let nextId = 0;
+  let wakeups = 0;
+  const timers = new Map<number, { callback: () => void; delay: number; due: number }>();
+  const interval = spyOn(globalThis, "setInterval").mockImplementation(((callback: () => void, delay = 0) => {
+    const id = ++nextId;
+    timers.set(id, { callback, delay, due: clock + delay });
+    return id;
+  }) as unknown as typeof setInterval);
+  const clear = spyOn(globalThis, "clearInterval").mockImplementation((id) => {
+    timers.delete(id as unknown as number);
+  });
+  const advance = async (ms: number) => {
+    const end = clock + ms;
+    for (;;) {
+      const next = [...timers.values()].sort((a, b) => a.due - b.due)[0];
+      if (!next || next.due > end) break;
+      clock = next.due;
+      next.due += next.delay;
+      wakeups++;
+      await act(async () => next.callback());
+    }
+    clock = end;
+  };
+  let reads = 0;
+  let refreshed = 0;
+  let fingerprint = "a";
+  const read = async () => {
+    reads++;
+    return fingerprint;
+  };
+  try {
+    await act(async () => root.render(<Viewer read={read} canRefresh refresh={() => refreshed++} />));
+    expect(reads).toBe(1);
+    await advance(12_000);
+    expect(reads).toBe(4);
+
+    focused = false;
+    window.dispatchEvent(new dom.window.Event("blur"));
+    await advance(60_000);
+    expect(reads).toBe(6);
+    expect(timers.size).toBe(1);
+    fingerprint = "b";
+    focused = true;
+    await act(async () => window.dispatchEvent(new dom.window.Event("focus")));
+    expect(refreshed).toBe(1);
+    expect(reads).toBe(7);
+    await advance(4_000);
+    expect(reads).toBe(8);
+
+    visibility = "hidden";
+    document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    const beforeHidden = wakeups;
+    await advance(60_000);
+    expect(wakeups).toBe(beforeHidden);
+    expect(timers.size).toBe(0);
+    focused = false;
+    visibility = "visible";
+    await act(async () => document.dispatchEvent(new dom.window.Event("visibilitychange")));
+    expect(reads).toBe(9);
+    await advance(60_000);
+    expect(reads).toBe(11);
+    await act(async () => root.render(null));
+    expect(timers.size).toBe(0);
+    const beforeUnmount = wakeups;
+    await advance(60_000);
+    expect(wakeups).toBe(beforeUnmount);
+  } finally {
+    await act(async () => root.render(null));
+    interval.mockRestore();
+    clear.mockRestore();
+    focus.mockRestore();
+    if (originalVisibility) Object.defineProperty(document, "visibilityState", originalVisibility);
+    else Reflect.deleteProperty(document, "visibilityState");
+  }
 });

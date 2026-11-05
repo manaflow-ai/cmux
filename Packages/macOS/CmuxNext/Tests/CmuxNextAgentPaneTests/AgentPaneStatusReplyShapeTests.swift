@@ -73,4 +73,43 @@ struct AgentPaneStatusReplyShapeTests {
         let peers = try #require((reply["result"] as? [String: Any])?["peers"] as? [[String: String]])
         #expect(peers == [["name": "odd"], ["name": "bare"]])
     }
+
+    @Test func cachedHealthKeepsOnlyWarningInputs() throws {
+        let peers = try Self.peers(Self.reply(["peers": [[
+            "name": "worker", "health": [
+                "load": [14.0, 3.0, 2.0], "cpus": 16, "ram": ["freeBytes": 1_200_000_000, "totalBytes": 32_000_000_000],
+                "host": "private-host", "disk": ["freeBytes": 99], "liveSessions": 5,
+                "pressure": ["cores": 10, "load_limit": 10.0, "ok": false,
+                             "over": ["available RAM 7% < 10%"], "host": "private-host", "warning": "private detail"],
+            ],
+        ]]]))
+        let health = try #require(peers.first?["health"] as? [String: Any])
+        #expect(health["load"] as? [Double] == [14, 3, 2])
+        #expect(health["host"] == nil && health["disk"] == nil && health["liveSessions"] == nil)
+        let ram = try #require(health["ram"] as? [String: Any])
+        #expect((ram["freeBytes"] as? NSNumber)?.int64Value == 1_200_000_000)
+        #expect(ram["totalBytes"] == nil)
+        let pressure = try #require(health["pressure"] as? [String: Any])
+        #expect(pressure["cores"] as? Int == 10)
+        #expect(pressure["over"] as? [String] == ["available RAM 7% < 10%"])
+        #expect(pressure["host"] == nil && pressure["warning"] == nil)
+    }
+
+
+    @Test func reconnectKeepsDoctorStateButDropsPeerEndpointsAndMetadata() throws {
+        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/peer_reconnect"])
+        let text = AcpmuxPaneMethods.filteredReply(["result": ["peers": [
+            ["name": "cloud-1", "url": "wss://cloud-1.cmux.dev/?token=secret", "connected": false,
+             "state": "offline", "error": "doctor refused", "health": ["host": "hidden"]],
+        ]]], shape: shape, pageID: "8")
+        let reply = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+        let result = try #require(reply["result"] as? [String: Any])
+        let peers = try #require(result["peers"] as? [[String: Any]])
+        let peer = try #require(peers.first)
+        #expect(peer["name"] as? String == "cloud-1")
+        #expect(peer["transport"] as? String == "wss")
+        #expect(peer["state"] as? String == "offline")
+        #expect(peer["error"] as? String == "doctor refused")
+        #expect(peer["url"] == nil && peer["health"] == nil)
+    }
 }

@@ -88,6 +88,20 @@ struct SidebarSpacePageRealizationTests {
         #expect(second.displayed.rows.contains { $0.key == .workspace(WorkspaceID("b-0")) })
     }
 
+    /// An empty space's page draws nothing in its empty list, as the live list does (https://github.com/manaflow-ai/cmux/issues/32728).
+    @Test func aSwipesEmptyPageDrawsNoEmptyStateText() throws {
+        let (model, sidebar) = Self.sidebar()
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let empty = SidebarSection(kind: .machine(machine), nodes: [])
+        model.spaceSections = { _ in [empty] }
+        sidebar.spacePaging.scroll(.began, deltaX: -20, time: 0)
+        let page = try #require(sidebar.spacePaging.neighbor?.list)
+        page.layoutSubtreeIfNeeded()
+        let row = try #require(page.rowViews[.emptySection(empty.id)] as? EmptySectionRowView)
+        #expect(row.subviews.compactMap { $0 as? ChromeLabel }.filter { !$0.isHidden && !$0.stringValue.isEmpty }.isEmpty)
+        sidebar.spacePaging.scroll(.ended, deltaX: 0, time: 0.5)
+    }
+
     /// A slide whose sidebar goes away before its animation ends (a window closed mid-switch)
     /// finishes without touching the sidebar: the completion read it through an unowned
     /// reference and crashed the process (fleet step 2f4e9864569bd12ab870b44d).

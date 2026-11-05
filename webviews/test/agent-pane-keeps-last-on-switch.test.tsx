@@ -1,7 +1,7 @@
 // Leo, 2026-10-19: "identify and solve all situations where that kind of thing could occur". Each
 // piece of the agent pane read per chat, folder or scope drew nothing (or a stand-in) on a switch or
 // a reload until its read came back, then the real value: the edited-files counts, the worktree
-// pill, the changes list, an empty chat's hero. Each now draws what it last read from the first
+// pill, an empty chat's hero. Each now draws what it last read from the first
 // committed render and the read only refreshes it. The probes record committed renders (layout
 // effects run before paint); a render React throws away is never drawn.
 import { afterAll, expect, test } from "bun:test";
@@ -28,7 +28,6 @@ const { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { useTurnCheckpoints } = await import("../src/agent-session/acpmux/changes/useTurnCheckpoints");
 const { useWorktree } = await import("../src/agent-session/acpmux/header/WorktreePill");
-const { useScopeChanges } = await import("../src/agent-session/acpmux/changes/useScopeChanges");
 const { isNewChat } = await import("../src/agent-session/acpmux/EmptyState");
 
 const root = createRoot(dom.window.document.getElementById("root")!);
@@ -97,37 +96,6 @@ test("back in a folder, its worktree pill draws from the first render", async ()
   await settle();
   // Every committed render names the branch (toEqual would take [undefined] for []).
   expect(seen.filter((shown) => shown !== branch)).toHaveLength(0);
-});
-
-test("a reload of the changes on screen keeps them until the new answer", async () => {
-  let reads = 0;
-  const source = {
-    diff: () =>
-      reads++ === 0
-        ? Promise.resolve({
-            scope: "uncommitted",
-            files: [{ path: "a.ts", status: "modified", additions: 1, deletions: 0 }],
-          })
-        : never(),
-  } as unknown as Parameters<typeof useScopeChanges>[0];
-  const seen: string[] = [];
-  let retry: () => void = () => {};
-  function Probe() {
-    const changes = useScopeChanges(source, "uncommitted");
-    retry = changes.retry;
-    React.useLayoutEffect(() => {
-      seen.push(changes.load.state);
-    });
-    return null;
-  }
-  await act(async () => root.render(<Probe />));
-  await settle();
-  expect(seen.at(-1)).toBe("loaded");
-  seen.length = 0;
-  // A stage, unstage or commit reads the scope again.
-  await act(async () => retry());
-  await settle();
-  expect(seen.filter((state) => state !== "loaded")).toEqual([]);
 });
 
 test("a chat with no turns keeps its hero while the pane connects", () => {

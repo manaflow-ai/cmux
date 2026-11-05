@@ -40,3 +40,28 @@ import Testing
         #expect(stamp.spoken(for: now.addingTimeInterval(-300)) != "now")
     }
 }
+
+/// "The create team button on iOS doesn't work" (2026-11-03): the production mobile service
+/// answered every production account 503 `team_creation_unavailable`, so a production build
+/// must create teams through the cmux team API, as the Mac does.
+@Suite struct TeamCreationRouteTests {
+    let web = URL(string: "https://cmux.com")!
+    let mobile = URL(string: "https://mobile-api.cmux.dev")!
+    let devMobile = URL(string: "https://cmux-mobile-api-dev.debussy.workers.dev")!
+
+    @Test func aProductionAccountCreatesThroughTheCmuxTeamAPI() {
+        #expect(TeamCreationRoute(productionAccount: true, teamAPIBase: web, mobileServiceBase: mobile) == .teamAPI(web))
+        #expect(TeamCreationRoute(productionAccount: true, teamAPIBase: web, mobileServiceBase: nil) == .teamAPI(web))
+    }
+
+    @Test func aDevelopmentAccountKeepsTheDevMobileService() {
+        // A development build's web API is a localhost dev server; the dev service holds the dev key.
+        let localhost = URL(string: "http://localhost:3000")!
+        #expect(TeamCreationRoute(productionAccount: false, teamAPIBase: localhost, mobileServiceBase: devMobile) == .mobileService(devMobile))
+    }
+
+    @Test func withNothingConfiguredItSaysSo() {
+        #expect(TeamCreationRoute(productionAccount: false, teamAPIBase: nil, mobileServiceBase: nil) == .unavailable)
+        #expect(TeamCreationRoute(productionAccount: true, teamAPIBase: nil, mobileServiceBase: nil) == .unavailable)
+    }
+}

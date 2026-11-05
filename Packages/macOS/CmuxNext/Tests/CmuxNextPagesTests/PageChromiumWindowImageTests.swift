@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 /// the window server leaves out what Chromium's GPU process draws, so on a capture slot an agent
 /// or Settings page came out blank.
 @MainActor
+@Suite(.closesItsWindows)
 struct PageChromiumWindowImageTests {
     private let root: URL
     private let descriptor = PageDescriptor(id: "test.window-image", resource: "window-image", namespaces: [])

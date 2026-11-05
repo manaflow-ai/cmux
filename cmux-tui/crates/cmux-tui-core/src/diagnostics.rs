@@ -10,8 +10,8 @@
 
 use std::collections::HashMap;
 use std::panic::Location;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -22,7 +22,15 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod connection_leases;
+pub use connection_leases::{ConnectionLease, PeerClosed};
+mod hook_queue;
 mod write_path;
+pub use hook_queue::{
+    HOOK_SPOOL_DIR, HOOK_SPOOL_DROPPED_EVENTS, HOOK_SPOOL_UNDELIVERABLE_EVENTS, HookQueueSnapshot,
+    JOURNAL_APPEND_LONGEST_WAIT, add_undeliverable_hook_events, drop_session_hook_queues,
+    hook_spool_dir, names_this_file, open_spool_file, queue_prefix, spool_name_part,
+};
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
 
@@ -153,11 +161,63 @@ struct Holder {
     since: Instant,
 }
 
-#[derive(Default)]
+/// Octave buckets of a per-site histogram: bucket `i` (i > 0) holds samples
+/// from 2^(i-1) to 2^i - 1 us, the last one everything above.
+const SITE_OCTAVES: usize = 32;
+
+/// Sites each `locks` list of `server-stats` reports.
+const DETAIL_SITES: usize = 20;
+
+/// Power-of-two histogram of one site: 256 bytes, updated under the
+/// `sites` table lock that the release already takes, so a site costs no
+/// allocation after its first acquisition.
+#[derive(Clone, Copy, Default)]
+struct OctaveHistogram {
+    counts: [u64; SITE_OCTAVES],
+    total_us: u64,
+    max_us: u64,
+}
+
+impl OctaveHistogram {
+    fn record(&mut self, value_us: u64) {
+        // Bucket i > 0 holds 2^(i-1)..2^i - 1; the last one everything above.
+        let octave = u64::BITS.saturating_sub(value_us.leading_zeros()) as usize;
+        if let Some(count) = self.counts.get_mut(octave.min(SITE_OCTAVES.saturating_sub(1))) {
+            *count = count.saturating_add(1);
+        }
+        self.total_us = self.total_us.saturating_add(value_us);
+        self.max_us = self.max_us.max(value_us);
+    }
+
+    /// The upper bound of the bucket that holds the 99th percentile sample,
+    /// at most twice the true value and never above the largest sample.
+    fn p99_us(&self) -> u64 {
+        let count = self.counts.iter().fold(0u64, |sum, bucket| sum.saturating_add(*bucket));
+        if count == 0 {
+            return 0;
+        }
+        let rank = count.saturating_mul(99).div_ceil(100).max(1);
+        let mut seen = 0u64;
+        for (octave, bucket) in self.counts.iter().enumerate() {
+            seen = seen.saturating_add(*bucket);
+            if seen >= rank {
+                let upper = 1u64
+                    .checked_shl(u32::try_from(octave).unwrap_or(u32::MAX))
+                    .map_or(u64::MAX, |bound| bound.saturating_sub(1));
+                return upper.min(self.max_us);
+            }
+        }
+        self.max_us
+    }
+}
+
+#[derive(Clone, Copy, Default)]
 struct SiteStats {
     acquisitions: u64,
     hold_total_us: u64,
     hold_max_us: u64,
+    hold: OctaveHistogram,
+    wait: OctaveHistogram,
 }
 
 #[derive(Clone, Copy)]
@@ -224,31 +284,92 @@ impl LockStats {
         }
     }
 
-    pub fn released(&self, site: LockSite, held: Duration) {
+    /// Call when the holder at `site` releases, after holding for `held`
+    /// and having waited `waited` to acquire.
+    pub fn released(&self, site: LockSite, held: Duration, waited: Duration) {
         self.hold.record_duration(held);
         *self.holder.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let held_us = u64::try_from(held.as_micros()).unwrap_or(u64::MAX);
+        let waited_us = u64::try_from(waited.as_micros()).unwrap_or(u64::MAX);
         let mut sites = self.sites.lock().unwrap_or_else(|e| e.into_inner());
         let entry = sites.entry(site).or_default();
-        entry.acquisitions += 1;
+        entry.acquisitions = entry.acquisitions.saturating_add(1);
         entry.hold_total_us = entry.hold_total_us.saturating_add(held_us);
         entry.hold_max_us = entry.hold_max_us.max(held_us);
+        entry.hold.record(held_us);
+        entry.wait.record(waited_us);
+    }
+
+    fn holder_snapshot(&self) -> Option<LockHolderSnapshot> {
+        self.holder.lock().unwrap_or_else(|e| e.into_inner()).map(|holder| LockHolderSnapshot {
+            site: site_label(holder.site),
+            held_for_us: u64::try_from(holder.since.elapsed().as_micros()).unwrap_or(u64::MAX),
+        })
+    }
+
+    fn last_stall_snapshot(&self) -> Option<LockStallSnapshot> {
+        self.last_stall.lock().unwrap_or_else(|e| e.into_inner()).map(|stall| LockStallSnapshot {
+            waiter: site_label(stall.waiter),
+            blocker: stall.blocker.map(site_label),
+            waited_us: u64::try_from(stall.waited.as_micros()).unwrap_or(u64::MAX),
+        })
+    }
+
+    /// Every site's hold and wait record, the `server-stats` `locks`
+    /// section: the [`DETAIL_SITES`] sites with the most total hold time,
+    /// and the [`DETAIL_SITES`] with the longest 99th percentile hold.
+    pub fn detail(&self) -> LockDetailSnapshot {
+        // Copy the raw records out, then format the labels after the unlock:
+        // every release of this lock takes the `sites` mutex.
+        let raw: Vec<(LockSite, SiteStats)> = self
+            .sites
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(site, stats)| (*site, *stats))
+            .collect();
+        let all: Vec<LockSiteDetail> = raw
+            .iter()
+            .map(|(site, stats)| LockSiteDetail {
+                site: site_label(site),
+                acquisitions: stats.acquisitions,
+                hold_total_us: stats.hold_total_us,
+                hold_max_us: stats.hold_max_us,
+                hold_p99_us: stats.hold.p99_us(),
+                wait_total_us: stats.wait.total_us,
+                wait_max_us: stats.wait.max_us,
+                wait_p99_us: stats.wait.p99_us(),
+            })
+            .collect();
+        let sites = all.len() as u64;
+        let mut by_hold_total = all.clone();
+        by_hold_total
+            .sort_by(|a, b| b.hold_total_us.cmp(&a.hold_total_us).then(a.site.cmp(&b.site)));
+        by_hold_total.truncate(DETAIL_SITES);
+        let mut by_hold_p99 = all;
+        by_hold_p99.sort_by(|a, b| {
+            b.hold_p99_us
+                .cmp(&a.hold_p99_us)
+                .then(b.hold_max_us.cmp(&a.hold_max_us))
+                .then(a.site.cmp(&b.site))
+        });
+        by_hold_p99.truncate(DETAIL_SITES);
+        LockDetailSnapshot {
+            wait_us: self.wait.snapshot(),
+            hold_us: self.hold.snapshot(),
+            contended_acquisitions: self.contended.load(Ordering::Relaxed),
+            stalls: self.stalls.load(Ordering::Relaxed),
+            holder: self.holder_snapshot(),
+            last_stall: self.last_stall_snapshot(),
+            sites,
+            by_hold_total,
+            by_hold_p99,
+        }
     }
 
     pub fn snapshot(&self) -> LockStatsSnapshot {
-        let holder = self.holder.lock().unwrap_or_else(|e| e.into_inner()).map(|holder| {
-            LockHolderSnapshot {
-                site: site_label(holder.site),
-                held_for_us: u64::try_from(holder.since.elapsed().as_micros()).unwrap_or(u64::MAX),
-            }
-        });
-        let last_stall = self.last_stall.lock().unwrap_or_else(|e| e.into_inner()).map(|stall| {
-            LockStallSnapshot {
-                waiter: site_label(stall.waiter),
-                blocker: stall.blocker.map(site_label),
-                waited_us: u64::try_from(stall.waited.as_micros()).unwrap_or(u64::MAX),
-            }
-        });
+        let holder = self.holder_snapshot();
+        let last_stall = self.last_stall_snapshot();
         let mut top_sites: Vec<LockSiteSnapshot> = self
             .sites
             .lock()
@@ -308,6 +429,47 @@ pub struct LockSiteSnapshot {
     pub acquisitions: u64,
     pub hold_total_us: u64,
     pub hold_max_us: u64,
+}
+
+/// One lock's full site record (`server-stats` `locks`).
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct LockDetailSnapshot {
+    pub wait_us: HistogramSnapshot,
+    pub hold_us: HistogramSnapshot,
+    /// Acquisitions that waited at least 1 ms.
+    pub contended_acquisitions: u64,
+    /// Acquisitions that waited at least [`LOCK_STALL_THRESHOLD`].
+    pub stalls: u64,
+    pub holder: Option<LockHolderSnapshot>,
+    pub last_stall: Option<LockStallSnapshot>,
+    /// Distinct sites that released the lock since start.
+    pub sites: u64,
+    /// At most twenty sites, by total hold time.
+    pub by_hold_total: Vec<LockSiteDetail>,
+    /// At most twenty sites, by 99th percentile hold.
+    pub by_hold_p99: Vec<LockSiteDetail>,
+}
+
+/// One site's acquisitions of a lock. The p99 values are power-of-two
+/// bucket bounds: at most twice the true value, never above the maximum.
+#[derive(Clone, Debug, Serialize)]
+pub struct LockSiteDetail {
+    pub site: String,
+    pub acquisitions: u64,
+    pub hold_total_us: u64,
+    pub hold_max_us: u64,
+    pub hold_p99_us: u64,
+    pub wait_total_us: u64,
+    pub wait_max_us: u64,
+    pub wait_p99_us: u64,
+}
+
+/// The `server-stats` `locks` section: the workspace registry lock and the
+/// mux state lock, each with its top sites.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct LocksSnapshot {
+    pub registry: LockDetailSnapshot,
+    pub state: LockDetailSnapshot,
 }
 
 const WRITER_IDLE: u8 = 0;
@@ -482,14 +644,102 @@ pub struct ConnectionStats {
     peak: AtomicU64,
     refused: AtomicU64,
     accepted: AtomicU64,
+    /// Connections whose client hung up while their thread still runs (most
+    /// often parked on the registry lock): their slot went back to `active`'s
+    /// limit (`connection_leases`), bounded by that same limit.
+    hung_up: AtomicU64,
+    /// Slots taken back from hung-up clients since start.
+    reclaimed: AtomicU64,
+    /// The admitted connections whose client can be watched for a hang-up.
+    leases: Mutex<Vec<std::sync::Weak<ConnectionLease>>>,
+    /// Of `active`, the connections from processes inside this session's
+    /// terminals (agents, their hooks, `cmux` run in a pane). A hung-up
+    /// terminal connection gives this slot back with its main one
+    /// (`connection_leases`).
+    terminal_active: AtomicU64,
+    /// Of `terminal_active`, the connections each terminal holds (by its
+    /// process session), for the terminal lane's fair share
+    /// (`try_claim_terminal`). A terminal with none is not listed.
+    terminal_clients: Mutex<HashMap<u32, u64>>,
+    /// The socket these connections come in on, once a server attached the
+    /// session to it.
+    socket: std::sync::OnceLock<std::path::PathBuf>,
 }
 
 impl ConnectionStats {
+    /// Counts one connection that already holds a slot as terminal-bound, if
+    /// fewer than `limit` terminal-bound connections are active. A refusal
+    /// moves the connection from `accepted` to `refused`; the caller gives
+    /// the slot back.
+    /// At `limit` it first takes back the slots of clients that hung up
+    /// (`reclaim_hung_up`, pool bounded by `pool_limit`), as `try_claim` does.
+    ///
+    /// `client`: the terminal the connection comes from (its process session).
+    /// A terminal's first connection gets in whenever the lane has room; a
+    /// further one only while that terminal then holds no more than the lane
+    /// has left free. One terminal (an agent's hooks in a loop, a script
+    /// running `cmux`) stops at half the lane, so a second terminal still finds
+    /// room; several terminals in a loop together can still fill the lane. A
+    /// connection whose terminal is unknown is bounded by the lane alone.
+    pub fn try_claim_terminal(&self, limit: u64, pool_limit: u64, client: Option<u32>) -> bool {
+        let mut claimed = self.claim_terminal_slot(limit, client);
+        if !claimed && self.reclaim_hung_up(pool_limit) > 0 {
+            claimed = self.claim_terminal_slot(limit, client);
+        }
+        if !claimed {
+            self.accepted.fetch_sub(1, Ordering::Relaxed);
+            self.refused.fetch_add(1, Ordering::Relaxed);
+        }
+        claimed
+    }
+
+    /// One terminal slot under `limit`, within `client`'s fair share. The
+    /// share and the count change together under `terminal_clients`, so two
+    /// claims never both take the last place a share allows.
+    fn claim_terminal_slot(&self, limit: u64, client: Option<u32>) -> bool {
+        let mut clients = self.terminal_clients.lock().unwrap_or_else(PoisonError::into_inner);
+        let active = self.terminal_active.load(Ordering::Acquire);
+        if active >= limit {
+            return false;
+        }
+        if let Some(client) = client {
+            let held = clients.get(&client).copied().unwrap_or(0);
+            let free_after = limit.saturating_sub(active.saturating_add(1));
+            if held > 0 && held.saturating_add(1) > free_after {
+                return false;
+            }
+            let held = clients.entry(client).or_insert(0);
+            *held = held.saturating_add(1);
+        }
+        self.terminal_active.fetch_add(1, Ordering::AcqRel);
+        true
+    }
+
+    pub fn release_terminal(&self, client: Option<u32>) {
+        if let Some(client) = client {
+            let mut clients = self.terminal_clients.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(held) = clients.get_mut(&client) {
+                *held = held.saturating_sub(1);
+                if *held == 0 {
+                    clients.remove(&client);
+                }
+            }
+        }
+        self.terminal_active.fetch_sub(1, Ordering::AcqRel);
+    }
+
     /// Claims a slot if fewer than `limit` connections are active.
+    /// At the limit it first takes back the slots of clients that hung up
+    /// (`reclaim_hung_up`): a connection thread parked on the registry lock
+    /// outlives its client, and those threads held every slot while the app
+    /// was refused (#27669).
     pub fn try_claim(&self, limit: u64) -> bool {
-        match self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-            (count < limit).then_some(count + 1)
-        }) {
+        let claim = |count: u64| (count < limit).then_some(count + 1);
+        let mut claimed = self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim);
+        if claimed.is_err() && self.reclaim_hung_up(limit) > 0 {
+            claimed = self.active.fetch_update(Ordering::AcqRel, Ordering::Acquire, claim);
+        }
+        match claimed {
             Ok(previous) => {
                 // Use the count this claim produced, not a later reload: a
                 // release in between would under-report the peak.
@@ -512,6 +762,15 @@ impl ConnectionStats {
         self.active.load(Ordering::Acquire)
     }
 
+    /// Records the socket the session serves (the first one wins).
+    pub fn note_socket(&self, path: &std::path::Path) {
+        let _ = self.socket.set(path.to_path_buf());
+    }
+
+    pub fn socket(&self) -> Option<&std::path::Path> {
+        self.socket.get().map(std::path::PathBuf::as_path)
+    }
+
     pub fn snapshot(&self, limit: u64) -> ConnectionSnapshot {
         ConnectionSnapshot {
             active: self.active.load(Ordering::Acquire),
@@ -519,6 +778,8 @@ impl ConnectionStats {
             limit,
             accepted: self.accepted.load(Ordering::Relaxed),
             refused: self.refused.load(Ordering::Relaxed),
+            hung_up: self.hung_up.load(Ordering::Acquire),
+            reclaimed: self.reclaimed.load(Ordering::Relaxed),
         }
     }
 }
@@ -532,6 +793,11 @@ pub struct ConnectionSnapshot {
     /// Connections dropped because `limit` was reached. Any non-zero value
     /// means a client saw a failed connect, which for hooks is a lost event.
     pub refused: u64,
+    /// Connections whose client hung up before their thread ended; they hold
+    /// no slot of `limit`.
+    pub hung_up: u64,
+    /// Slots taken back from hung-up clients since start.
+    pub reclaimed: u64,
 }
 
 /// Everything `server-stats` returns.
@@ -549,6 +815,13 @@ pub struct ServerStatsSnapshot {
     /// Present only when the request names `write_path` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub write_path: Option<WritePathSnapshot>,
+    /// Present only when the request names `locks` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub locks: Option<LocksSnapshot>,
+    /// Present only when the request names `hook_queue` in `include` and the
+    /// session serves a socket.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hook_queue: Option<HookQueueSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

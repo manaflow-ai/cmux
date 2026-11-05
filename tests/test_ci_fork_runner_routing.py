@@ -88,6 +88,12 @@ UNGATED_BLACKSMITH_ALLOWED = {
         "(stricter than the owner check); the seed job reading it has the same gate"
     ),
 }
+# Release publication controls are trusted release-environment jobs. They must
+# stay on the trusted Blacksmith fallback for forks too; a hosted runner cannot
+# receive release credentials.
+RELEASE_PUBLICATION_JOBS = {
+    "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names",
+}
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
 # read before the fork branch.
 UNTRANSLATED_DISPATCH_INPUTS: dict[tuple[str, str], str] = {}
@@ -156,7 +162,7 @@ FORK_PULL_REQUEST_CONDITIONS = frozenset(
 # sends every pull request, fork or not, to the label.
 PULL_REQUEST_CONDITION = ("==", "github.event_name", "'pull_request'")
 FORK_PULL_REQUEST_LABEL = re.compile(
-    r"blacksmith-\d+vcpu-(?:macos|ubuntu)-[a-z0-9.]+|macos-\d+|ubuntu-[a-z0-9.-]+"
+    r"blacksmith-\d+vcpu-(?:macos|ubuntu|windows)-[a-z0-9.]+|macos-\d+|ubuntu-[a-z0-9.-]+|windows-\d+"
 )
 # Values that can resolve to an owned self-hosted label. A variable counts on
 # any line (env mirrors such as CMUX_PRODUCT_RUNNER must agree with runs-on); a
@@ -187,6 +193,10 @@ OWNED_RUNNER_SELECTOR = re.compile(
 )
 # (workflow, stripped line) -> why a runner variable read there picks no runner.
 FORK_GATE_EXEMPT = {
+    ("cmux-tui-windows-check.yml", "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"): (
+        "windows-gnu-check's job if skips a fork pull request head (head.repo.full_name == "
+        "github.repository), so fork code never reaches this selector"
+    ),
     ("cmux-next-guards.yml", "LINUX_RUNNER: ${{ vars.LINUX_RUNNER }}"): (
         "signing-runner-variables reads the value to check it is ephemeral; the job runs on a "
         "literal label and selects no runner"
@@ -334,6 +344,17 @@ class _Parser:
                     args.append(self._or())
             self._take(")")
             call = ("call", text, args)
+            # Keep the declared pool member selected by a RUNNER_POOLS
+            # property so expression test evaluators can resolve it from the
+            # repository's pool declaration. Preserve the historical AST for
+            # other fromJSON() property/index expressions.
+            if (text.lower() == "fromjson" and len(args) == 1 and args[0] == ("ref", "vars.RUNNER_POOLS")
+                    and self._peek() == "."):
+                self._take(".")
+                property_token = self._take()
+                if property_token[0] != "name":
+                    raise ExpressionSyntaxError(f"bad pool property {property_token[1]!r}")
+                return ("pool", property_token[1])
             if self._peek() not in (".", "["):
                 return call
             # e.g. fromJSON(x)[0]: an index into a call's result. Its refs are
@@ -427,7 +448,13 @@ def _blacksmith_pick(node: tuple) -> bool:
     if node[0] != "or" or len(node[1]) != 2:
         return False
     kept, fallback = node[1]
-    if fallback[0] != "literal" or not re.fullmatch(r"'blacksmith-\d+vcpu-macos-\d+'", fallback[1]):
+    if fallback[0] == "pool":
+        fallback_ok = True
+    else:
+        fallback_ok = fallback[0] == "literal" and bool(
+            re.fullmatch(r"'blacksmith-\d+vcpu-macos-\d+'", fallback[1])
+        )
+    if not fallback_ok:
         return False
     if kept[0] != "and" or len(kept[1]) != 2:
         return False
@@ -455,6 +482,16 @@ def _trusted_fork_exclusion(node: tuple) -> bool:
 
 
 def _is_fork_pull_request_branch(node: tuple) -> bool:
+    if node[0] == "and" and node[1] and node[1][-1][0] == "pool":
+        conditions = node[1][:-1]
+        keys = [_condition_key(condition) for condition in conditions]
+        if None not in keys and set(keys) == FORK_PULL_REQUEST_CONDITIONS:
+            return True
+        if (len(conditions) == 3 and None not in keys[:2]
+                and set(keys[:2]) == FORK_PULL_REQUEST_CONDITIONS
+                and _trusted_fork_exclusion(conditions[2])):
+            return True
+        return False
     if node[0] == "and" and node[1] and _blacksmith_pick(node[1][-1]):
         conditions = node[1][:-1]
         keys = [_condition_key(condition) for condition in conditions]
@@ -485,6 +522,17 @@ def _is_fork_pull_request_branch(node: tuple) -> bool:
     return bool(FORK_PULL_REQUEST_LABEL.fullmatch(label))
 
 
+def _ends_in_pool(node: tuple) -> bool:
+    """Whether a disjunct's selected value is a declared Blacksmith pool."""
+    if node[0] == "pool":
+        return True
+    if node[0] == "and" and node[1]:
+        return _ends_in_pool(node[1][-1])
+    if node[0] == "or" and node[1]:
+        return all(_ends_in_pool(child) for child in node[1])
+    return False
+
+
 def _runner_value_error(
     node: tuple, selector: re.Pattern[str], dispatch_inputs_are_empty: bool
 ) -> str | None:
@@ -504,6 +552,8 @@ def _runner_value_error(
     for disjunct in disjuncts:
         if _is_fork_pull_request_branch(disjunct):
             return None
+        if _ends_in_pool(disjunct):
+            continue
         early = _owned(disjunct, selector)
         if early:
             return f"checks {early[0]} before the fork pull-request branch"
@@ -517,6 +567,14 @@ def _runner_value_error(
             continue
         return "has no top-level fork pull-request branch"
     return "has no top-level fork pull-request branch"
+
+
+# `(<fork branch> && '<label>' || fromJSON(vars.RUNNER_POOLS).<pool>)`: a pool read that carries its own fork
+# branch. A fork evaluates it as '<label>', so the gate reads it as that literal.
+FORK_WRAPPED_POOL_READ = re.compile(
+    r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != "
+    r"github\.repository && ('blacksmith-[^']+') \|\| fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+\)"
+)
 
 
 def fork_pull_request_gate_error(
@@ -535,6 +593,7 @@ def fork_pull_request_gate_error(
     """
     if not selector.search(line):
         return None
+    line = FORK_WRAPPED_POOL_READ.sub(r"\1", line)
     if selector.search(EXPRESSION.sub("", line)):
         return "reads a runner selector outside a ${{ }} expression"
     for expression in EXPRESSION.findall(line):
@@ -694,7 +753,16 @@ def _gated_expression(expression: str, explicit_input_first: bool = False) -> bo
         body = body[len("startsWith("):]
     if explicit_input_first:
         body = re.sub(r"^(?:inputs\.[A-Za-z0-9_-]+ \|\| )+", "", body)
-    return body.startswith(FORK_BRANCHES)
+    if body.startswith(FORK_BRANCHES):
+        return True
+    # Pull-request workflows may use the full head-repository fork guard
+    # before a Blacksmith fallback; it is equivalent to the owner branch for
+    # this zero-configuration check.
+    return bool(re.match(
+        r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
+        r" != github\.repository && '[^']+'",
+        body,
+    ))
 
 
 def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
@@ -747,6 +815,8 @@ def ungated_blacksmith_labels(name: str, text: str) -> list[str]:
         if stripped.startswith("#") or not BLACKSMITH_LABEL.search(BLACKSMITH_RUNNER_NAME_CHECK.sub("", raw)):
             continue
         if job in owner_only_jobs or (name, stripped) in UNGATED_BLACKSMITH_ALLOWED:
+            continue
+        if name == "nightly.yml" and job in RELEASE_PUBLICATION_JOBS:
             continue
         if matrix_branch and re.search(r'"hosted_runner":\s*"macos-[^"]+"', raw):
             continue
@@ -1050,11 +1120,21 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                     or (matrix_hosted and FORK_MACOS_MATRIX_BRANCH in line)
                 )
 
+                # A mixed macOS/Linux selector (cmux-next.yml's fast tier, whose
+                # fleet-client fallback runs on vars.LINUX_RUNNER) is fork-safe when
+                # its first clause is a hosted fork branch: a fork's own repository
+                # stops there and never reads the Linux label, and a fork PR into
+                # manaflow-ai still has to pass the macOS checks below.
+                fork_short_circuits = any(
+                    re.search(r"runs-on:\s*\$\{\{\s*" + re.escape(branch) + r"\s*\|\|", line)
+                    for branch in FORK_BRANCHES
+                )
+
                 with self.subTest(workflow=path.name, line=number):
                     if "vars.LINUX_RUNNER" in line:
                         saw_linux += 1
                         self.assertTrue(
-                            hosted_linux,
+                            hosted_linux or (fork_short_circuits and hosted_macos),
                             f"{path.name}:{number} has no GitHub-hosted Linux fork branch",
                         )
                     if "vars.MACOS_RUNNER" in line:
@@ -1290,6 +1370,116 @@ class ForkRunnerRoutingTests(unittest.TestCase):
             "    runs-on: blacksmith-32vcpu-ubuntu-2404\n"
         )
         self.assertEqual(ungated_blacksmith_labels("x.yml", text), [])
+
+
+
+# ci-macos.yml's compile admission runs on an owned Mac by design: the picker's
+# pull-request route (pr_runner_pool.py), and on other events MACOS_RUNNER_15,
+# which the overflow switch can point at the owned std pool. A reused machine
+# must hold no secret, so admission reads the Chromium engine only from the
+# Mac's own verified cache and the tailnet controller store, never with the
+# CEF R2 key. ci.yml passes ci-macos.yml no CEF key (118e52e14907) and the
+# job's environment holds none, so the key reference there was dead; this keeps
+# it from coming back with a `secrets:` pass from the caller.
+CI_MACOS = WORKFLOWS / "ci-macos.yml"
+COMPILE_ADMISSION_JOB = "macos-compile-admission"
+# secrets.NAME or secrets[...]; any other read of the context (toJSON(secrets)) too.
+SECRET_REFERENCE = re.compile(r"\bsecrets\s*(?:\.\s*\w+|\[[^\]]*\])", re.IGNORECASE)
+SECRETS_CONTEXT = re.compile(r"\bsecrets\b", re.IGNORECASE)
+CEF_R2_SECRET = re.compile(r"CMUX_CEF_R2_(?:ACCOUNT_ID|ACCESS_KEY_ID|SECRET_ACCESS_KEY)", re.IGNORECASE)
+CEF_FETCH_SCRIPT = re.compile(r"scripts/cmux-next/ensure-(?:cef|remote-browser-host)\.sh")
+# What keeps ensure-cef.sh and ensure-remote-browser-host.sh off every key source
+# on the runner: no R2 at all, and no ~/.secrets/cmux-cef.env.
+CEF_FETCH_NO_KEY_ENV = {
+    "CMUX_CEF_NO_R2": "1",
+    "CMUX_RB_HOST_NO_R2": "1",
+    "CMUX_CEF_R2_ENV_FILE": "/dev/null",
+}
+
+
+def _load_workflow(path: Path) -> dict:
+    import yaml  # noqa: PLC0415 (only these tests parse YAML)
+
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+
+def compile_admission_secret_errors(document: dict) -> list[str]:
+    """Why ci-macos.yml's compile admission could hold a secret on the Mac it runs on."""
+    errors: list[str] = []
+    triggers = document.get("on") or {}
+    call = (triggers.get("workflow_call") or {}) if isinstance(triggers, dict) else {}
+    declared = sorted(name for name in (call.get("secrets") or {}) if CEF_R2_SECRET.fullmatch(name))
+    if declared:
+        errors.append(f"workflow_call declares {', '.join(declared)}; no job of ci-macos.yml takes the CEF R2 key")
+    job = (document.get("jobs") or {}).get(COMPILE_ADMISSION_JOB)
+    if not isinstance(job, dict):
+        return errors + [f"no {COMPILE_ADMISSION_JOB} job"]
+    text = json.dumps(job)
+    references = sorted(set(SECRET_REFERENCE.findall(text)))
+    errors.extend(f"{COMPILE_ADMISSION_JOB} references {reference}" for reference in references)
+    if not references and SECRETS_CONTEXT.search(text):
+        errors.append(f"{COMPILE_ADMISSION_JOB} reads the secrets context")
+    permissions = job.get("permissions")
+    if not isinstance(permissions, dict) or any(value != "read" for value in permissions.values()):
+        errors.append(f"{COMPILE_ADMISSION_JOB} permissions must all be read: {permissions!r}")
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict) or not CEF_FETCH_SCRIPT.search(str(step.get("run", ""))):
+            continue
+        env = step.get("env") or {}
+        label = step.get("name") or step.get("id") or "<step>"
+        for name, value in CEF_FETCH_NO_KEY_ENV.items():
+            if str(env.get(name, "")) != value:
+                errors.append(f"{COMPILE_ADMISSION_JOB} step {label!r} must set {name}: {value!r} (got {env.get(name)!r})")
+        for name in env:
+            if CEF_R2_SECRET.fullmatch(name):
+                errors.append(f"{COMPILE_ADMISSION_JOB} step {label!r} sets {name}")
+    return errors
+
+
+class CompileAdmissionHoldsNoSecretTests(unittest.TestCase):
+    def test_compile_admission_holds_no_secret(self) -> None:
+        self.assertEqual(compile_admission_secret_errors(_load_workflow(CI_MACOS)), [])
+
+    def test_rule_rejects_a_secret_on_admission(self) -> None:
+        document = {
+            "on": {"workflow_call": {"secrets": {"CMUX_CEF_R2_ACCESS_KEY_ID": {"required": "false"}}}},
+            "jobs": {
+                COMPILE_ADMISSION_JOB: {
+                    "permissions": {"contents": "read", "actions": "write"},
+                    "steps": [
+                        {
+                            "name": "fetch",
+                            "env": {"CMUX_CEF_R2_ACCESS_KEY_ID": "${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}"},
+                            "run": "scripts/cmux-next/ensure-cef.sh --optional",
+                        },
+                        {"name": "token", "env": {"T": "${{ secrets['GLAEDA_ROUTE_APP_KEY'] }}"}, "run": "true"},
+                    ],
+                }
+            },
+        }
+        errors = compile_admission_secret_errors(document)
+        joined = "\n".join(errors)
+        self.assertIn("workflow_call declares CMUX_CEF_R2_ACCESS_KEY_ID", joined)
+        self.assertIn("references secrets.CMUX_CEF_R2_ACCESS_KEY_ID", joined)
+        self.assertIn("references secrets['GLAEDA_ROUTE_APP_KEY']", joined)
+        self.assertIn("permissions must all be read", joined)
+        self.assertIn("must set CMUX_CEF_NO_R2", joined)
+        self.assertIn("sets CMUX_CEF_R2_ACCESS_KEY_ID", joined)
+
+    def test_rule_accepts_a_keyless_admission(self) -> None:
+        document = {
+            "on": {"workflow_call": {"secrets": {"GLAEDA_ROUTE_APP_KEY": {"required": "false"}}}},
+            "jobs": {
+                COMPILE_ADMISSION_JOB: {
+                    "permissions": {"contents": "read", "actions": "read"},
+                    "steps": [
+                        {"name": "fetch", "env": dict(CEF_FETCH_NO_KEY_ENV), "run": "scripts/cmux-next/ensure-cef.sh --optional"},
+                        {"name": "gh", "env": {"GH_TOKEN": "${{ github.token }}"}, "run": "true"},
+                    ],
+                }
+            },
+        }
+        self.assertEqual(compile_admission_secret_errors(document), [])
 
 
 if __name__ == "__main__":

@@ -129,6 +129,11 @@ public final class LocalFeedSourceAdapter: FeedPostingSource {
         localItemIDs.insert(item.id)
         local.post(item)
     }
+
+    /// Withdraws through the local owner, which owns every item a local poster posted.
+    public func withdraw(dedupeKey: String) {
+        local.withdraw(dedupeKey: dedupeKey)
+    }
 }
 
 private extension LocalFeedSourceAdapter {

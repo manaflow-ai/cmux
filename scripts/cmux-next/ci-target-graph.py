@@ -11,7 +11,8 @@ Package.swift by eye:
   packages  each local package dependency's repository directory
   reads     for each test target, the repository files and directories its
             sources name in string literals (schemas, fixtures, plans, cmux-tui
-            vectors), which a test can read without depending on them in SwiftPM
+            vectors), which a test can read without depending on them in SwiftPM;
+            a literal with `*` is a pattern of files (glob_read)
 
 `dump-package` needs the Swift 6.2 tools, so this runs on a Mac (the
 `cmux-next generated files` job); `--check` fails when the committed file is
@@ -115,6 +116,31 @@ def dependency_name(dependency: dict) -> tuple[str, str]:
     raise SystemExit(f"unknown dependency shape: {dependency}")
 
 
+def glob_read(literal: str, source_dir: Path, source: Path) -> str | None:
+    """A literal with `*` names the files a test reads by a pattern (PageDevServerTests:
+    "webviews/src/pages/*/main.tsx", the dev server's entries, where the folder alone would make every
+    edit inside a page a read). It is a read, as that repository pattern, when it matches a file on
+    disk in its exact case; scripts/ci/cmux_next_route.py matches changed paths against it with
+    fnmatch, whose `*` also crosses `/`, so the pattern only ever reads wider than the test does."""
+    if ".." in literal.split("/"):
+        return None
+    for base in (ROOT, PACKAGE, source_dir, source.parent):
+        try:
+            found = [path for path in base.glob(literal) if in_disk_case(path)]
+        except (OSError, ValueError):
+            continue
+        prefix = repo_relative(base)
+        if not found or prefix is None:
+            continue
+        pattern = literal if prefix in ("", ".") else f"{prefix}/{literal}"
+        # As for a plain literal: checkout state and agent config are no inputs, and a read inside
+        # the target is already one of its sources.
+        if pattern.split("/", 1)[0] in NOT_TEST_INPUTS or pattern.startswith(repo_relative(source_dir) + "/"):
+            return None
+        return pattern
+    return None
+
+
 def literal_reads(source_dir: Path) -> list[str]:
     """Repository paths a test target's sources name in string literals."""
     reads: set[str] = set()
@@ -128,6 +154,11 @@ def literal_reads(source_dir: Path) -> list[str]:
             if "/" not in literal.strip("/") or literal.startswith(SYSTEM_PREFIXES) or "://" in literal:
                 continue
             if any(ch.isspace() for ch in literal):
+                continue
+            if "*" in literal:
+                pattern = glob_read(literal, source_dir, source)
+                if pattern is not None:
+                    reads.add(pattern)
                 continue
             for base in (ROOT, PACKAGE, source_dir, source.parent):
                 candidate = base / literal

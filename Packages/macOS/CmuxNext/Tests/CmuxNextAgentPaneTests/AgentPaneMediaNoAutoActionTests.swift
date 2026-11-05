@@ -308,6 +308,47 @@ struct AgentPaneMediaNoAutoActionTests {
         #expect(pane.effects.seen.isEmpty, "\(pane.effects.seen)")
     }
 
+    // MARK: Outside images preview under `outsideRoots = open`
+
+    /// Leo, 2026-10-31: "I SHOULDN'T EVEN HAVE TO CLICK THE OPEN BUTTON IT SHOULD JUST PREVIEW".
+    /// An image outside the chat's folders loads with no click where its chip would open without
+    /// asking (`open`, the default); under `confirm` or `text` it stays refused. A path outside the
+    /// folders that is not there is `missing` under `open` (no dead Open), still `outside` otherwise.
+    @Test func anOutsideImagePreviewsUnderOpenOnlyAndAMissingOneIsMissing() async throws {
+        // Home is an image root: keep it away from the temporary folder, wherever TMPDIR is.
+        let makePane = { (outsideRoots: AgentPaneReplySetting.OutsideRoots) throws -> Pane in
+            let made = try Self.pane(setting: AgentPaneReplySetting(outsideRoots: outsideRoots, remoteImages: .click))
+            made.model.replyLinks.home = "/nonexistent-home-\(UUID().uuidString)"
+            return made
+        }
+        let open = try makePane(.open)
+        // `/tmp` is an image root: a TMPDIR under it puts nothing outside the image roots.
+        let temporary = open.project.resolvingSymlinksInPath().path
+        guard !temporary.hasPrefix("/private/tmp/"), !temporary.hasPrefix("/tmp/") else { return }
+        let outsideFolder = open.project.deletingLastPathComponent().appendingPathComponent("elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: outsideFolder, withIntermediateDirectories: true)
+        let shot = outsideFolder.appendingPathComponent("shot.png"), gone = outsideFolder.appendingPathComponent("gone-320.png")
+        try Self.png.write(to: shot)
+
+        let places = { (pane: Pane) async -> [String: String] in
+            let reply = await Self.ask(pane, "link.inspect", ["paths": [shot.path, gone.path], "urls": [String]()])
+            let paths = ((reply["value"] as? [String: Any])?["paths"] as? [String: Any]) ?? [:]
+            return paths.compactMapValues { ($0 as? [String: Any])?["place"] as? String }
+        }
+        #expect(await places(open) == [shot.path: "outside", gone.path: "missing"])
+        let loaded = await Self.ask(open, "image.load", ["src": shot.path])
+        #expect(Self.src(loaded)?.hasPrefix("data:image/png;base64,") == true, "\(loaded)")
+        #expect(Self.errorCode(await Self.ask(open, "image.load", ["src": gone.path])) == AgentPaneReplyError.pathInvalid.rawValue)
+
+        for outsideRoots in [AgentPaneReplySetting.OutsideRoots.confirm, .text] {
+            let pane = try makePane(outsideRoots)
+            #expect(await places(pane) == [shot.path: "outside", gone.path: "outside"], "\(outsideRoots)")
+            let refused = await Self.ask(pane, "image.load", ["src": shot.path])
+            #expect(Self.errorCode(refused) == AgentPaneReplyError.pathOutsideRoots.rawValue, "\(outsideRoots)")
+        }
+        #expect(open.effects.seen.isEmpty, "\(open.effects.seen)")
+    }
+
     // MARK: R7: no action from media
 
     @Test func loadingAndPlayingLocalMediaOpensNothingAndAnswersOnlyThePanesMediaURLs() async throws {

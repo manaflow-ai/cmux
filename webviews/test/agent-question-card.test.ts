@@ -2,7 +2,7 @@
 // 2026-10-19, the Claude app's AskUserQuestion card, "this is decent ui cmux next should have it").
 // A pending ask shows a "Needs your input" pill over a card with the question as its header; the
 // card has the keyboard when it arrives on an empty composer, so arrows move between the options,
-// ⌘↩ submits, Esc hands the keyboard back to the composer without answering (Skip declines), a
+// Enter and ⌘↩ submit, Esc skips the waiting ask, a
 // click chooses an option and Submit sends it, and a number key picks Other to type an answer. What the card sends is the
 // host's `chat.permission` call, which the pane relay sends as `_acpmux/permission_respond` and
 // acpmux hands the agent (cmux-tui/crates/acpmux/tests/hub_integration/questions.rs).
@@ -52,6 +52,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
   /// The pending Claude question, recording each `chat.permission` the page hands the host.
   async function pendingQuestion(fixture = "pending-single"): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    page.setDefaultTimeout(5_000);
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/?fixture=question-${fixture}`);
     await page.locator(".acpmux-question").waitFor();
@@ -88,6 +89,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
   /// pending Claude question then arrives, as it does mid-chat.
   async function questionArrivesMidChat(draft = ""): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    page.setDefaultTimeout(5_000);
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/?fixture=worked-turn`);
     const composer = page.locator(".acpmux-composer-prompt .acpmux-md-root [contenteditable=true]");
@@ -145,10 +147,8 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
-    test("Esc never answers: it hands the keyboard to the composer and reaches the pane", async () => {
+    test("keyboard contract: Esc skips once and claims the key without stopping the turn", async () => {
       const page = await pendingQuestion();
-      expect(await focusedInCard(page)).toBe(true);
-      // The card leaves the key unclaimed for the pane's own listeners.
       await page.evaluate(() => {
         const seen: boolean[] = [];
         window.addEventListener("keydown", (event) => {
@@ -157,53 +157,100 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
         Object.assign(window, { escapesSeen: seen });
       });
       await page.keyboard.press("Escape");
-      // The pane heard the key; by then the card had its say.
-      await page.waitForFunction(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen.length > 0);
-      expect(await permissionCalls(page, 0)).toEqual([]);
-      expect(await page.evaluate(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen)).toEqual([false]);
-      expect(await focusedInCard(page)).toBe(false);
-      expect(await page.evaluate(() => document.activeElement?.closest(".acpmux-composer-prompt") !== null)).toBe(true);
-      // The ask is still pending; Skip is what declines it.
-      expect(await page.locator(".acpmux-question").isVisible()).toBe(true);
-      await page.locator(".acpmux-question-skip").click();
       expect(await permissionCalls(page, 1)).toEqual([
         { method: "chat.permission", params: { permissionId: "perm_toolu_single", optionId: "reject_once" } },
+      ]);
+      expect(await page.evaluate(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen)).toEqual([true]);
+      expect(await focusedInCard(page)).toBe(false);
+      await page.close();
+    });
+
+    test("keyboard contract: Up/Down and Ctrl-N/P wrap, then bare Enter submits the focused option", async () => {
+      const page = await pendingQuestion();
+      await page.keyboard.press("ArrowUp");
+      expect(await highlighted(page)).toBe("Other");
+      await page.keyboard.press("ArrowDown");
+      expect(await highlighted(page)).toBe("OAuth 2.0");
+      await page.keyboard.press("Control+p");
+      expect(await highlighted(page)).toBe("Other");
+      await page.keyboard.press("Control+n");
+      expect(await highlighted(page)).toBe("OAuth 2.0");
+      await page.keyboard.press("Control+n");
+      expect(await highlighted(page)).toBe("API keys");
+      await page.keyboard.press("Enter");
+      expect(await permissionCalls(page, 1)).toEqual([
+        {
+          method: "chat.permission",
+          params: { permissionId: "perm_toolu_single", optionId: "allow_once", answers: { [prompt]: "API keys" } },
+        },
       ]);
       await page.close();
     });
 
-    test("Esc on the card while the turn runs is the double press's first: Stop is armed, the next Esc stops", async () => {
-      // The card's Esc falls through to the composer's double press (escapeStop.ts), so a card Esc
-      // and one more stop the turn: never three presses, and never an answer.
-      const page = await pendingQuestion();
-      expect(await focusedInCard(page)).toBe(true);
-      await page.getByRole("button", { name: "Stop", exact: true }).waitFor({ timeout: 2_000 });
-      await page.keyboard.press("Escape");
-      await page.getByRole("button", { name: "Press Esc again to stop" }).waitFor({ timeout: 1_000 });
-      expect(await permissionCalls(page, 0)).toEqual([]);
-      await page.keyboard.press("Escape");
-      const calls = await permissionCalls(page, 1);
-      expect(calls.map((call) => call.method)).toEqual(["chat.cancel"]);
+    test("keyboard contract: bare Enter selects the focused multi-select option and submits", async () => {
+      const page = await pendingQuestion("pending-multi");
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Enter");
+      expect(await permissionCalls(page, 1)).toEqual([
+        {
+          method: "chat.permission",
+          params: {
+            permissionId: "perm_toolu_multi",
+            optionId: "allow_once",
+            answers: { "Which platforms should the first release support?": "iOS" },
+          },
+        },
+      ]);
       await page.close();
     });
 
-    test("in the floating chat Esc on the card is claimed, so it does not hide the panel", async () => {
-      // The Quick Composer hides on an Esc nothing claimed (paneSurface.ts useEscapeToDismiss).
+    test("keyboard contract: a number key chooses directly and submits", async () => {
       const page = await pendingQuestion();
-      await page.evaluate(() => {
-        document.querySelector(".acpmux-shell")!.setAttribute("data-surface", "quick");
-        const seen: boolean[] = [];
-        window.addEventListener("keydown", (event) => {
-          if (event.key === "Escape") seen.push(event.defaultPrevented);
-        });
-        Object.assign(window, { escapesSeen: seen });
-      });
-      await page.keyboard.press("Escape");
-      // The pane heard the key; by then the card had its say.
-      await page.waitForFunction(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen.length > 0);
-      expect(await permissionCalls(page, 0)).toEqual([]);
-      expect(await page.evaluate(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen)).toEqual([true]);
-      expect(await focusedInCard(page)).toBe(false);
+      await page.keyboard.press("3");
+      expect(await permissionCalls(page, 1)).toEqual([
+        {
+          method: "chat.permission",
+          params: { permissionId: "perm_toolu_single", optionId: "allow_once", answers: { [prompt]: "Passkeys" } },
+        },
+      ]);
+      await page.close();
+    });
+
+    test("keyboard contract: navigation from Skip returns focus to the option before Enter", async () => {
+      const page = await pendingQuestion();
+      await page.keyboard.press("Tab");
+      expect(await page.locator(".acpmux-question-skip").evaluate((button) => button === document.activeElement)).toBe(
+        true,
+      );
+      await page.keyboard.press("Control+n");
+      expect(await highlighted(page)).toBe("API keys");
+      expect(await page.locator(".acpmux-question-row:focus .acpmux-question-label").innerText()).toBe("API keys");
+      await page.keyboard.press("Enter");
+      expect(await permissionCalls(page, 1)).toEqual([
+        {
+          method: "chat.permission",
+          params: { permissionId: "perm_toolu_single", optionId: "allow_once", answers: { [prompt]: "API keys" } },
+        },
+      ]);
+      await page.close();
+    });
+
+    test("keyboard contract: Enter preserves the checked multi-select options", async () => {
+      const page = await pendingQuestion("pending-multi");
+      await page.keyboard.press("Space");
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("Space");
+      await page.keyboard.press("Enter");
+      expect(await permissionCalls(page, 1)).toEqual([
+        {
+          method: "chat.permission",
+          params: {
+            permissionId: "perm_toolu_multi",
+            optionId: "allow_once",
+            answers: { "Which platforms should the first release support?": "macOS, iOS" },
+          },
+        },
+      ]);
       await page.close();
     });
 
@@ -262,14 +309,41 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
+    test("Other textarea inherits the row font, fills its space, and shows multiline text", async () => {
+      const page = await pendingQuestion();
+      await page.keyboard.press("4");
+      const field = page.getByRole("textbox", { name: "Other", exact: true });
+      await page.keyboard.type("Signed cookies");
+      await page.keyboard.press("Shift+Enter");
+      await page.keyboard.type("with rotation");
+      const geometry = await field.evaluate((element) => {
+        const field = element as HTMLTextAreaElement;
+        const row = field.closest(".acpmux-question-row")!;
+        const style = getComputedStyle(field);
+        const rowStyle = getComputedStyle(row);
+        return {
+          font: style.fontFamily + "/" + style.fontSize,
+          rowFont: rowStyle.fontFamily + "/" + rowStyle.fontSize,
+          resize: style.resize,
+          border: style.borderTopWidth,
+          fill: field.getBoundingClientRect().width / row.getBoundingClientRect().width,
+          clipped: field.scrollHeight > field.clientHeight,
+        };
+      });
+      expect(geometry.font).toBe(geometry.rowFont);
+      expect(geometry.resize).toBe("none");
+      expect(geometry.border).toBe("0px");
+      expect(geometry.fill).toBeGreaterThan(0.8);
+      expect(geometry.clipped).toBe(false);
+      await page.close();
+    });
+
     test("Other takes a typed answer, which ⌘↩ sends", async () => {
       const page = await pendingQuestion();
       await page.keyboard.press("4");
-      const field = page.locator(".acpmux-question-other input");
+      const field = page.locator(".acpmux-question-other textarea");
       await field.waitFor();
       await page.keyboard.type("Signed cookies");
-      // Esc in the field only leaves it; nothing is sent.
-      await page.keyboard.press("Escape");
       expect(await permissionCalls(page, 0)).toEqual([]);
       await page.keyboard.press("Meta+Enter");
       expect(await permissionCalls(page, 1)).toEqual([
@@ -302,24 +376,17 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
-    test("Esc in an ask of several questions hands the keyboard back without declining the answers so far", async () => {
+    test("keyboard contract: Esc in Other skips the whole ask, including earlier answers", async () => {
       const page = await pendingQuestion("pending-4-questions");
-      // Answer the first question (1 picks and moves on), then Esc on the second's rows.
       await page.keyboard.press("1");
       expect(await page.locator(".acpmux-question-tab[aria-current=step]").innerText()).toBe("Platforms");
-      await page.keyboard.press("Escape");
-      expect(await focusedInCard(page)).toBe(false);
-      // From a tab too, in one press even with an Other answer left open.
-      await page.locator(".acpmux-question-tab").nth(1).click();
-      await page.locator(".acpmux-question-other-choice").click();
-      await page.locator(".acpmux-question-other input").waitFor();
+      await page.keyboard.press("5");
+      await page.locator(".acpmux-question-other textarea").waitFor();
       await page.keyboard.type("Tauri");
-      await page.locator(".acpmux-question-tab").nth(2).focus();
       await page.keyboard.press("Escape");
-      expect(await focusedInCard(page)).toBe(false);
-      expect(await permissionCalls(page, 0)).toEqual([]);
-      // Both answers are kept: question 1's pick and the typed Other for Platforms.
-      expect(await page.locator(".acpmux-question-tab[data-answered]").count()).toBe(2);
+      expect(await permissionCalls(page, 1)).toEqual([
+        { method: "chat.permission", params: { permissionId: "perm_toolu_four", optionId: "reject_once" } },
+      ]);
       await page.close();
     });
 

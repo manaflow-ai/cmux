@@ -95,6 +95,27 @@ import Testing
         }
     }
 
+    /// SECURITY: a write to a parent object that holds a user-only key (`cloud` with the person's
+    /// Claude login consent) is the person's to confirm too, never a raw write past the leaf's policy.
+    @Test func aParentObjectWriteCannotSetAUserOnlyKeyUnderIt() async throws {
+        let (router, settings, directory) = try make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var asked: [String] = []
+        settings.userOnlyConfirmation = { key, _ in asked.append(key); return false }
+        let value: JSONValue = ["useMyClaudeLoginOnMyCloudMachines": true]
+        guard case .failure(let refused) = await call(router, "settings.set", ["path": "cloud", "value": value]) else {
+            Issue.record("a parent write set a user-only key")
+            return
+        }
+        #expect(refused.code == "setting_user_only")
+        guard case .failure = await call(router, "settings.set", ["path": "cloud", "value": value, "confirm": true]) else {
+            Issue.record("a declined sheet wrote the parent")
+            return
+        }
+        #expect(asked.count == 1)
+        #expect(try await settings.file.value(at: ["cloud", "useMyClaudeLoginOnMyCloudMachines"]) == nil)
+    }
+
     /// cmux-browser mutes a workspace through settings.set as `script` (a separate process is
     /// never `user`), so `notifications.mutedWorkspaces` is a schema key an agent may set, with no
     /// sheet, and a list that is not workspace-id strings is refused before the file changes.

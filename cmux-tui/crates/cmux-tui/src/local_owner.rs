@@ -20,15 +20,18 @@
 //! restore ends (then `identify` reports `lifecycle_ready: false` until
 //! startup ends), so ensure reads a live but silent socket as a starting
 //! owner, waits for it outside the lock, and never mistakes it for an absent
-//! one.
+//! one. An owner at its connection limit answers with a refusal line instead
+//! of an identity; that is a live owner too, never a reason to spawn
+//! (https://github.com/manaflow-ai/cmux/issues/22311).
 
 use std::io;
-use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use cmux_tui_core::platform::{self, transport};
+use cmux_tui_core::platform;
 use serde_json::Value;
 
 /// Time to reach an owner: for an owner this call spawns, from the spawn
@@ -102,21 +105,37 @@ impl<'a> RestoreProgress<'a> {
 /// client re-asks. An owner this process spawns is awaited on its pipe.
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
 
+/// Probe interval while the owner refuses connections at its connection
+/// limit. A slot frees only when one of its clients leaves, so asking faster
+/// only adds refused accepts on the owner's accept loop.
+const BUSY_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
 /// Windows has no readiness pipe or `waitid`: the spawned owner is probed
 /// like a foreign one and the reaper ticks.
 #[cfg(not(unix))]
 const REAP_INTERVAL: Duration = Duration::from_secs(1);
-const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
 /// Private startup option: the detached owner writes one byte to this
 /// inherited descriptor once it accepts clients, then closes it. End of
 /// file first means the owner exited (a lost bind race or a crash).
 pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 
+mod exit_with;
 mod install_key;
 mod replace;
+pub(crate) use exit_with::{
+    EXIT_WITH_PID_ARG, ExitWith, parse_owner_exit_with, resolve_exit_with_pid,
+};
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub(crate) use exit_with::{exit_with, test_owner_exit_with};
+mod identify;
+#[cfg(all(test, unix))]
+mod recovery_tests;
+use identify::{IdentifyError, identify};
 pub(crate) use install_key::{OWNER_INSTALL_KEY_FD_ARG, install_key_from_launcher};
-pub(crate) use replace::{ReplaceError, replace_if_unresponsive};
+pub(crate) use replace::{
+    ReplaceError, is_wedged, replace_if_backend_changed, replace_if_unresponsive, replace_if_wedged,
+};
 
 /// Takes an inherited descriptor (`option` names it) from argv and keeps it
 /// out of every process the owner starts (terminal hosts): only this owner
@@ -140,11 +159,14 @@ pub(crate) fn claim_inherited_fd(option: &str, value: &str) -> Result<i32, Strin
 
 /// Whether `arg` is a private owner startup option `claim_owner_arg` parses.
 pub(crate) fn is_owner_arg(arg: &str) -> bool {
-    arg == OWNER_READY_FD_ARG || arg == OWNER_INSTALL_KEY_FD_ARG || install_key::is_stdin_arg(arg)
+    arg == OWNER_READY_FD_ARG
+        || arg == OWNER_INSTALL_KEY_FD_ARG
+        || arg == EXIT_WITH_PID_ARG
+        || install_key::is_stdin_arg(arg)
 }
 
-/// Parses `OWNER_READY_FD_ARG`, `OWNER_INSTALL_KEY_FD_ARG` (each once,
-/// taking its value from `values`) or, on Windows, the value-less
+/// Parses `OWNER_READY_FD_ARG`, `OWNER_INSTALL_KEY_FD_ARG`, `EXIT_WITH_PID_ARG`
+/// (each once, taking its value from `values`) or, on Windows, the value-less
 /// `OWNER_INSTALL_KEY_STDIN_ARG`.
 pub(crate) fn claim_owner_arg(
     arg: &str,
@@ -155,6 +177,13 @@ pub(crate) fn claim_owner_arg(
         return install_key::claim_install_key_stdin();
     }
     let value = values.next().ok_or_else(|| format!("{arg} needs a value"))?;
+    if arg == EXIT_WITH_PID_ARG {
+        let exit_with = parse_owner_exit_with(&value)?;
+        if args.exit_with_pid.replace(exit_with).is_some() {
+            return Err(format!("{arg} may be supplied only once"));
+        }
+        return Ok(());
+    }
     let fd = claim_inherited_fd(arg, &value)?;
     let slot = if arg == OWNER_READY_FD_ARG {
         &mut args.owner_ready_fd
@@ -206,6 +235,8 @@ pub(crate) struct OwnerSpec {
     /// `--terminal-reap-grace-seconds` for the owner. Reaping is opt-in, so
     /// `None` starts an owner that never reaps unplaced terminals.
     pub terminal_reap_grace: Option<Duration>,
+    /// `--exit-with-pid` for an owner this call spawns (`exit_with`).
+    pub exit_with_pid: Option<ExitWith>,
     /// The app's install key for an owner this call spawns (`server ensure
     /// --install-key-stdin`); a running owner never receives it.
     pub install_key: Option<cmux_tui_core::server::FrontendKey>,
@@ -227,6 +258,7 @@ pub(crate) struct ReadyOwner {
     pub session: String,
     pub pid: u64,
     pub generation: String,
+    pub cloud_backend: Option<String>,
 }
 
 pub(crate) enum Ensured {
@@ -244,6 +276,10 @@ pub(crate) enum EnsureError {
     /// An owner was alive but did not finish restoring its session within
     /// `RESTORE_DEADLINE`.
     RestoreTimeout,
+    /// The owner refused every connection at its connection limit for
+    /// `ENSURE_DEADLINE`: its clients never leave, as when the owner is
+    /// wedged and its connection threads never end.
+    Busy,
     /// The socket is served by something that is not a cmux-tui server.
     WrongOwner,
     /// The socket is served by a different session than requested.
@@ -257,18 +293,62 @@ pub(crate) enum EnsureError {
     UnsupportedProtocol,
 }
 
+/// The backend requested by a NEXT app launch. Classic callers do not set the
+/// runtime marker, so they must never cause an existing daemon to restart.
+fn requested_cloud_backend() -> Option<String> {
+    if std::env::var("CMUX_NEXT_CLOUD_RUNTIME").as_deref() != Ok("1")
+        || std::env::var("CMUX_NEXT_CLOUD_LAUNCHER").as_deref() != Ok("1")
+    {
+        return None;
+    }
+    std::env::var("CMUX_NEXT_CLOUD_BACKEND")
+        .ok()
+        .or_else(|| std::env::var("CMUX_NEXT_CLOUD_ENV").ok())
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn cloud_backend_from_identity(identity: &Value) -> Option<String> {
+    identity.get("cloud_backend").and_then(Value::as_str).map(str::to_owned)
+}
+
 /// One connect-and-identify attempt against the session socket.
 enum Attempt {
     /// Nothing serves the socket: the connect failed (missing file, refused).
     /// An owner seen restoring before has exited.
     Gone,
     /// A connection was accepted but closed or broke before an identity came
-    /// back: a stale or dying peer, or a live owner refusing extra clients.
+    /// back: a stale or dying peer.
     Unanswered,
     /// A cmux-tui server answered but is not lifecycle-ready yet (its pid
-    /// when its identity carried one).
+    /// when its identity carried one). Also an owner that holds the identify
+    /// unanswered, as one restoring its session does.
     Starting(Option<u64>),
+    /// The owner refused the connection at its connection limit.
+    Busy,
+    /// The identify went unanswered and the process listening on the socket
+    /// is stopped (SIGSTOP, a debugger): it restores nothing until someone
+    /// continues it, so ensure reports it unavailable now instead of waiting
+    /// out `RESTORE_DEADLINE`, and the app offers "Restart cmux-tui".
+    Stopped,
     Ready(ReadyOwner),
+}
+
+/// How long the owner has refused connections at its connection limit,
+/// reset by any other answer. A healthy owner frees a slot as soon as one of
+/// its clients leaves; one that frees none for `ENSURE_DEADLINE` is reported
+/// (`EnsureError::Busy`) instead of awaited for the restore bound.
+#[derive(Default)]
+struct BusySince(Option<Instant>);
+
+impl BusySince {
+    /// Notes one refusal; true once refusals have lasted `ENSURE_DEADLINE`.
+    fn refused(&mut self) -> bool {
+        self.0.get_or_insert_with(Instant::now).elapsed() >= ENSURE_DEADLINE
+    }
+
+    fn answered(&mut self) {
+        self.0 = None;
+    }
 }
 
 /// Connect to a ready owner for `spec.session` on `spec.socket`, spawning a
@@ -286,10 +366,32 @@ pub(crate) fn ensure_owner(
     cmux_tui_core::server::prepare_socket_parent(&spec.socket, spec.socket_is_derived)
         .map_err(|error| EnsureError::Spawn(io::Error::other(error)))?;
     let restore_deadline = deadline.max(Instant::now() + RESTORE_DEADLINE);
+    let requested_backend = requested_cloud_backend();
     let owner = loop {
         if let Some(ready) =
             wait_while_starting(spec, expected_session, restore_deadline, progress)?
         {
+            if let Some(expected) = requested_backend.as_deref()
+                && ready.cloud_backend.as_deref() != Some(expected)
+            {
+                // The app may have quit while this daemon stayed alive. Stop
+                // the stale owner through the existing replacement machinery;
+                // terminal hosts remain running and are adopted by the next
+                // owner. Re-probe after the exit to handle races.
+                match replace_if_backend_changed(spec, expected) {
+                    Ok(Some(_)) => continue,
+                    Ok(None) if Instant::now() < restore_deadline => continue,
+                    Ok(None) => {
+                        return Err(EnsureError::RestoreTimeout);
+                    }
+                    Err(error) => {
+                        return Err(EnsureError::Spawn(io::Error::other(format!(
+                            "cloud backend restart refused: {}",
+                            error.code()
+                        ))));
+                    }
+                }
+            }
             return Ok(Ensured::Running(ready));
         }
         if Instant::now() >= restore_deadline {
@@ -306,13 +408,38 @@ pub(crate) fn ensure_owner(
         // owner while this call waited for the lock. A restoring owner is
         // awaited outside the lock (next turn), never while holding it.
         match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
-            Attempt::Ready(ready) => return Ok(Ensured::Running(ready)),
+            Attempt::Ready(ready) => {
+                if let Some(expected) = requested_backend.as_deref()
+                    && ready.cloud_backend.as_deref() != Some(expected)
+                {
+                    match replace_if_backend_changed(spec, expected) {
+                        Ok(Some(_)) => continue,
+                        Ok(None) if Instant::now() < restore_deadline => continue,
+                        Ok(None) => return Err(EnsureError::RestoreTimeout),
+                        Err(error) => {
+                            return Err(EnsureError::Spawn(io::Error::other(format!(
+                                "cloud backend restart refused: {}",
+                                error.code()
+                            ))));
+                        }
+                    }
+                }
+                return Ok(Ensured::Running(ready));
+            }
             Attempt::Starting(pid) => {
                 progress.restoring(pid);
                 drop(lock);
                 std::thread::sleep(POLL_INTERVAL);
                 continue;
             }
+            // A live owner: spawning would only start a second owner that
+            // loses the bind. The next turn awaits it outside the lock.
+            Attempt::Busy => {
+                drop(lock);
+                std::thread::sleep(BUSY_POLL_INTERVAL);
+                continue;
+            }
+            Attempt::Stopped => return Err(EnsureError::NotReady),
             // The lock is released once the spawn is issued. A redundant
             // owner spawned by a racing ensure finds the socket live at its
             // bind, exits before it restores anything, and every caller
@@ -346,7 +473,26 @@ pub(crate) fn ensure_owner(
         ),
     };
     match ready {
-        Ok(Some(ready)) => Ok(Ensured::Started(ready)),
+        Ok(Some(ready)) => {
+            if let Some(expected) = requested_backend.as_deref()
+                && ready.cloud_backend.as_deref() != Some(expected)
+            {
+                match replace_if_backend_changed(spec, expected) {
+                    Ok(Some(_)) | Ok(None) => {
+                        owner.terminate();
+                        return Err(EnsureError::NotReady);
+                    }
+                    Err(error) => {
+                        owner.terminate();
+                        return Err(EnsureError::Spawn(io::Error::other(format!(
+                            "cloud backend restart refused: {}",
+                            error.code()
+                        ))));
+                    }
+                }
+            }
+            Ok(Ensured::Started(ready))
+        }
         Ok(None) => {
             owner.terminate();
             Err(EnsureError::NotReady)
@@ -366,24 +512,34 @@ fn attempt_deadline(restore_deadline: Instant) -> Instant {
 }
 
 /// Poll while a live server reports it is still starting (restoring its
-/// session). `Ok(None)` means nothing serves the socket; the caller decides
-/// whether to spawn. `restore_deadline` bounds the wait for a live owner.
+/// session) or refuses connections at its connection limit. `Ok(None)` means
+/// nothing serves the socket; the caller decides whether to spawn.
+/// `restore_deadline` bounds the wait for a live owner, `BusySince` the wait
+/// for a full one.
 fn wait_while_starting(
     spec: &OwnerSpec,
     expected_session: Option<&str>,
     restore_deadline: Instant,
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
+    let mut busy = BusySince::default();
     loop {
-        match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
+        let interval = match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Gone | Attempt::Unanswered => return Ok(None),
-            Attempt::Starting(pid) => progress.restoring(pid),
-        }
+            Attempt::Starting(pid) => {
+                busy.answered();
+                progress.restoring(pid);
+                POLL_INTERVAL
+            }
+            Attempt::Stopped => return Err(EnsureError::NotReady),
+            Attempt::Busy if busy.refused() => return Err(EnsureError::Busy),
+            Attempt::Busy => BUSY_POLL_INTERVAL,
+        };
         if Instant::now() >= restore_deadline {
             return Err(EnsureError::RestoreTimeout);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        std::thread::sleep(interval);
     }
 }
 
@@ -392,7 +548,9 @@ fn wait_while_starting(
 /// but is still restoring is awaited until `restore_deadline`. An owner seen
 /// restoring that then vanishes from the socket ends the restore wait at
 /// once: the contact bound applies again, and when the spawned process has
-/// exited too (`owner_exited`) ensure fails now instead of waiting.
+/// exited too (`owner_exited`) ensure fails now instead of waiting. An owner
+/// that refuses connections continuously has the same busy bound as an
+/// existing owner, including after it has reported that it is restoring.
 fn wait_until_ready(
     spec: &OwnerSpec,
     expected_session: Option<&str>,
@@ -402,16 +560,26 @@ fn wait_until_ready(
     progress: &RestoreProgress<'_>,
 ) -> Result<Option<ReadyOwner>, EnsureError> {
     let mut seen_alive = false;
+    let mut busy = BusySince::default();
     loop {
-        match attempt(spec, expected_session, attempt_deadline(restore_deadline))? {
+        let result = attempt(spec, expected_session, attempt_deadline(restore_deadline))?;
+        let refused = matches!(result, Attempt::Busy);
+        match result {
             Attempt::Ready(ready) => return Ok(Some(ready)),
             Attempt::Starting(pid) => {
+                busy.answered();
                 seen_alive = true;
                 progress.restoring(pid);
             }
-            // Accepted but unanswered: keep what is known about the owner.
-            Attempt::Unanswered => {}
+            Attempt::Stopped => return Err(EnsureError::NotReady),
+            // Accepted but unanswered: keep what is known about the owner,
+            // but only consecutive refusals count toward its connection-limit
+            // deadline.
+            Attempt::Unanswered => busy.answered(),
+            Attempt::Busy if busy.refused() => return Err(EnsureError::Busy),
+            Attempt::Busy => {}
             Attempt::Gone => {
+                busy.answered();
                 seen_alive = false;
                 if owner_exited() {
                     return Ok(None);
@@ -423,9 +591,9 @@ fn wait_until_ready(
             return Err(EnsureError::RestoreTimeout);
         }
         if !seen_alive && now >= contact_deadline {
-            return Ok(None);
+            return if refused { Err(EnsureError::Busy) } else { Ok(None) };
         }
-        std::thread::sleep(POLL_INTERVAL);
+        std::thread::sleep(if refused { BUSY_POLL_INTERVAL } else { POLL_INTERVAL });
     }
 }
 
@@ -515,11 +683,17 @@ fn attempt(
             Ok(stream) => stream,
             Err(_) => return Ok(Attempt::Gone),
         };
+    let listener = stream.peer_process_key();
     let identity = match identify(stream, deadline) {
         Ok(identity) => identity,
-        // A timeout is a live but busy server; anything else on a fresh
-        // connection is a dying or stale peer (or a full one).
+        // A timeout is a live but busy server (one restoring holds its
+        // connections unanswered), unless its process is stopped; anything
+        // else on a fresh connection is a dying or stale peer.
+        Err(IdentifyError::Timeout) if replace::listener_is_stopped(listener.as_deref()) => {
+            return Ok(Attempt::Stopped);
+        }
         Err(IdentifyError::Timeout) => return Ok(Attempt::Starting(None)),
+        Err(IdentifyError::Refused) => return Ok(Attempt::Busy),
         Err(IdentifyError::Failed) => return Ok(Attempt::Unanswered),
     };
     if identity["app"] != "cmux-tui" {
@@ -559,6 +733,7 @@ fn attempt(
         session: session.to_string(),
         pid,
         generation: generation.to_string(),
+        cloud_backend: cloud_backend_from_identity(&identity),
     }))
 }
 
@@ -577,57 +752,6 @@ fn serves_requested_state(spec: &OwnerSpec, session: &str, identity: &Value) -> 
     match cmux_tui_core::WorkspaceRegistry::stored_registry_id(&root, session) {
         Ok(stored) => stored.as_deref() == Some(running),
         Err(_) => true,
-    }
-}
-
-enum IdentifyError {
-    Timeout,
-    Failed,
-}
-
-/// Run one identify exchange on a fresh connection with a bounded timeout.
-fn identify(stream: Box<dyn transport::Stream>, deadline: Instant) -> Result<Value, IdentifyError> {
-    let timeout =
-        Some(deadline.saturating_duration_since(Instant::now()).min(Duration::from_secs(2)));
-    stream.set_read_timeout(timeout).map_err(|_| IdentifyError::Failed)?;
-    stream.set_write_timeout(timeout).map_err(|_| IdentifyError::Failed)?;
-    let mut connection = BufReader::new(stream);
-    writeln!(connection.get_mut(), "{}", serde_json::json!({"id":1,"cmd":"identify"}))
-        .and_then(|()| connection.get_mut().flush())
-        .map_err(|_| IdentifyError::Failed)?;
-    loop {
-        let mut bytes = Vec::new();
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err(IdentifyError::Timeout);
-        }
-        connection
-            .get_mut()
-            .set_read_timeout(Some(remaining.min(Duration::from_secs(2))))
-            .map_err(|_| IdentifyError::Failed)?;
-        match connection.by_ref().take((RESPONSE_LIMIT + 2) as u64).read_until(b'\n', &mut bytes) {
-            Ok(0) => return Err(IdentifyError::Failed),
-            Ok(_) => {}
-            Err(error)
-                if matches!(error.kind(), io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock) =>
-            {
-                return Err(IdentifyError::Timeout);
-            }
-            Err(_) => return Err(IdentifyError::Failed),
-        }
-        if bytes.len() > RESPONSE_LIMIT || !bytes.ends_with(b"\n") {
-            return Err(IdentifyError::Failed);
-        }
-        let Ok(response) = serde_json::from_slice::<Value>(&bytes) else {
-            return Err(IdentifyError::Failed);
-        };
-        if response.get("event").is_some() || response["id"] != 1 {
-            continue;
-        }
-        if response["ok"] == true {
-            return Ok(response.get("data").cloned().unwrap_or(Value::Null));
-        }
-        return Err(IdentifyError::Failed);
     }
 }
 
@@ -651,8 +775,16 @@ struct SpawnedOwner {
     ready: Option<std::convert::Infallible>,
 }
 
-const DETACHED_OWNER_IDENTITY_ENV: [&str; 5] =
-    ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
+const DETACHED_OWNER_IDENTITY_ENV: [&str; 6] = [
+    "CMUX_SURFACE_ID",
+    "CMUX_WORKSPACE_ID",
+    "CMUX_TAB_ID",
+    "CMUX_PANEL_ID",
+    "CMUX_PANE_ID",
+    // Only the app launcher may reconcile a backend switch. A terminal
+    // or a detached owner must never inherit this one-shot authority.
+    "CMUX_NEXT_CLOUD_LAUNCHER",
+];
 
 /// Remove terminal identity and agent caller claims
 /// (`startup_env::AGENT_CALLER_ENV`, cx-4nar) from the detached owner while
@@ -724,6 +856,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(grace) = spec.terminal_reap_grace {
         command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
     }
+    if let Some(exit_with) = spec.exit_with_pid {
+        command.arg(EXIT_WITH_PID_ARG).arg(exit_with.arg());
+    }
     if let Some(websocket) = &spec.websocket {
         command.arg("--ws").arg("127.0.0.1:0");
         for origin in &websocket.allow_origins {
@@ -748,6 +883,11 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     if let Some(brains) = &spec.chief_brains {
         command.env(cmux_tui_core::chief_brains::ENV, brains);
+    }
+    // R-LIFECYCLE stage 1's switch, when off, reaches only the owner this
+    // call spawns (headless.rs `take_owner_keepers_switch`); on is the default.
+    if !crate::headless::owner_keepers_switch() {
+        command.env(crate::headless::OWNER_KEEPERS_ENV, "0");
     }
     // The app directory settings this client took at start go to the owner
     // daemon it spawns only (cx-e0cs): the owner takes them out of its own
@@ -880,7 +1020,21 @@ mod tests {
     use std::ffi::OsString;
     use std::process::Command;
 
+    use super::cloud_backend_from_identity;
     use super::configure_detached_owner_environment;
+    use serde_json::json;
+
+    #[test]
+    fn backend_identity_is_optional_for_classic_and_exact_for_next() {
+        assert_eq!(cloud_backend_from_identity(&json!({"app":"cmux-tui"})), None);
+        assert_eq!(
+            cloud_backend_from_identity(
+                &json!({"cloud_backend":"https://cloud-api-staging.cmux.dev"})
+            ),
+            Some("https://cloud-api-staging.cmux.dev".to_owned())
+        );
+        assert_eq!(cloud_backend_from_identity(&json!({"cloud_backend": 7})), None);
+    }
 
     #[cfg(unix)]
     mod event_driven {
@@ -950,6 +1104,7 @@ mod tests {
             .env("CMUX_TAB_ID", "tab")
             .env("CMUX_PANEL_ID", "panel")
             .env("CMUX_PANE_ID", "pane")
+            .env("CMUX_NEXT_CLOUD_LAUNCHER", "1")
             .env("CMUX_TUI_CONFIG", "/tmp/mux.json")
             .env("CMUX_MUX_CONFIG", "/tmp/legacy-mux.json");
 
@@ -964,6 +1119,7 @@ mod tests {
         {
             assert_eq!(values.get(OsString::from(key).as_os_str()), Some(&None));
         }
+        assert_eq!(values.get(OsString::from("CMUX_NEXT_CLOUD_LAUNCHER").as_os_str()), Some(&None));
         assert_eq!(
             values.get(OsString::from("CMUX_TUI_CONFIG").as_os_str()),
             Some(&Some(OsString::from("/tmp/mux.json")))

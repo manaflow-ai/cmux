@@ -58,14 +58,89 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
       rows.map((row) => `${getComputedStyle(row).animationName} ${getComputedStyle(row).animationDuration}`),
     );
     await p.close();
-    expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s"]);
+    expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.36s", "cv-enter-fade 0.12s"]);
   });
 
-  test("the Jump to Latest pill rises in without growing", async () => {
-    const p = await page(conversation, `<button class="acpmux-jump-latest">v</button>`, "no-preference");
-    const hidden = await p.$eval(".acpmux-jump-latest", (pill) => getComputedStyle(pill).transform);
+  test("a new message fades at final size and appears instantly under Reduce Motion", async () => {
+    const style = `:root{--agent-motion-in:180ms}${desktop}${conversation}`;
+    const message = `<div class="acpmux-row__message-presentation" style="width:440px;height:72px">message</div>`;
+    const normal = await page(style, message, "no-preference");
+    const normalMotion = await normal.$eval(".acpmux-row__message-presentation", (row) => {
+      const animation = row.getAnimations()[0];
+      const duration = animation?.effect?.getTiming().duration;
+      if (!animation || typeof duration !== "number") throw new Error("message entrance did not start");
+      animation.pause();
+      const bounds = [0, duration / 2, duration].map((time) => {
+        animation.currentTime = time;
+        const { x, y, width, height } = row.getBoundingClientRect();
+        return { x, y, width, height };
+      });
+      return {
+        name: getComputedStyle(row).animationName,
+        duration: getComputedStyle(row).animationDuration,
+        bounds,
+      };
+    });
+    await normal.close();
+    expect(normalMotion.name).toBe("cv-message-enter");
+    expect(normalMotion.duration).toBe("0.18s");
+    const finalBounds = normalMotion.bounds[2]!;
+    expect(finalBounds.width).toBe(440);
+    expect(finalBounds.height).toBe(72);
+    expect(normalMotion.bounds).toEqual([finalBounds, finalBounds, finalBounds]);
+
+    const reduced = await page(style, message, "reduce");
+    const reducedMotion = await reduced.$eval(".acpmux-row__message-presentation", (row) => ({
+      name: getComputedStyle(row).animationName,
+      duration: getComputedStyle(row).animationDuration,
+    }));
+    await reduced.close();
+    expect(reducedMotion.name).toBe("none");
+    expect(Number.parseFloat(reducedMotion.duration)).toBeLessThanOrEqual(0.001);
+  });
+
+  test("a message text update keeps its entrance animation object and start time", async () => {
+    const p = await page(
+      `:root{--agent-motion-in:180ms}${desktop}${conversation}`,
+      `<div class="acpmux-row__message-presentation" data-message>first token</div>`,
+      "no-preference",
+    );
+    await p.waitForFunction(() => document.querySelector<HTMLElement>("[data-message]")?.getAnimations().length === 1);
+    await p.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    await p.$eval("[data-message]", (row) => {
+      const animation = row.getAnimations()[0];
+      if (!animation) throw new Error("message entrance did not start");
+      (row as HTMLElement & { __entrance?: { animation: Animation; startTime: CSSNumberish | null } }).__entrance = {
+        animation,
+        startTime: animation.startTime,
+      };
+      row.textContent = "first token and another token";
+    });
+    await p.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    const stable = await p.$eval("[data-message]", (row) => {
+      const saved = (row as HTMLElement & { __entrance?: { animation: Animation; startTime: CSSNumberish | null } })
+        .__entrance;
+      const current = row.getAnimations()[0];
+      return { sameObject: current === saved?.animation, sameStart: current?.startTime === saved?.startTime };
+    });
     await p.close();
-    expect(scaleOf(hidden)).toBe(1);
+    expect(stable).toEqual({ sameObject: true, sameStart: true });
+  });
+
+  // It fades in place: its 6px rise read as the button jumping the moment the reader scrolled up
+  // (Leo 2026-10-28), so hidden and shown it sits on the same pixels.
+  test("the Jump to Latest pill fades in place, without growing or rising", async () => {
+    const p = await page(
+      conversation,
+      `<button class="acpmux-jump-latest">v</button><button class="acpmux-jump-latest" data-shown>v</button>`,
+      "no-preference",
+    );
+    const [hidden, shown] = await p.$$eval(".acpmux-jump-latest", (pills) =>
+      pills.map((pill) => getComputedStyle(pill).transform),
+    );
+    await p.close();
+    expect(scaleOf(hidden!)).toBe(1);
+    expect(hidden).toBe(shown);
   });
 
   test("the settings Reset button, notes and badges fade in without growing", async () => {

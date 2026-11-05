@@ -55,11 +55,19 @@ await requireBrowserLane("new-tab-paste-anywhere.test.ts", async () => {
   });
 
   /// The two New Tab designs: the one-input screen (the default) and the classic page (`layout` "a").
+  /// Both fields are the composer's Markdown prompt: `field` is its editable element, which takes the
+  /// keyboard. On the screen a pasted image is a chip at its place in the text (the default inline
+  /// view); the classic page shows it in its strip.
   const designs = [
-    { design: "screen", field: ".nt-field", chips: ".nt-box .acpmux-attachment-image", context: {} },
+    {
+      design: "screen",
+      field: ".nt-field .ProseMirror",
+      chips: ".nt-box .nt-field [data-inline-attachment] img",
+      context: {},
+    },
     {
       design: "classic",
-      field: ".acpmux-newtab-field",
+      field: ".acpmux-newtab-field .ProseMirror",
       chips: ".acpmux-newtab-box .acpmux-attachment-image",
       context: { layout: "a" },
     },
@@ -84,10 +92,29 @@ await requireBrowserLane("new-tab-paste-anywhere.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/`);
     const field = page.locator(design.field);
     await field.waitFor();
+    // MarkdownField mounts its ProseMirror DOM before the async Milkdown view and imperative
+    // handle are ready. Cmd-V focuses through that handle, so wait for the same readiness the
+    // app's COMPOSER_READY_EVENT reports before blurring and exercising the route.
+    await page.waitForFunction(
+      (selector) => {
+        const element = document.querySelector(selector) as
+          | (Element & { acpmuxMarkdownField?: { inlineIds: () => unknown } })
+          | null;
+        return element?.acpmuxMarkdownField?.inlineIds() !== undefined;
+      },
+      design.design === "classic" ? ".acpmux-newtab-field" : ".nt-field",
+    );
     if (draft) {
       await field.click();
       await page.keyboard.type(draft);
-      await field.evaluate((node: HTMLInputElement) => node.setSelectionRange(0, 0));
+      // Both fields are the composer's Markdown prompt: the caret moves through its handle.
+      await page.evaluate(
+        (selector) =>
+          (
+            document.querySelector(selector) as Element & { acpmuxMarkdownField?: { setCaret(at: number): void } }
+          ).acpmuxMarkdownField?.setCaret(0),
+        design.design === "classic" ? ".acpmux-newtab-field" : ".nt-field",
+      );
     }
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
     expect(await inField(page, design)).toBe(false);
@@ -96,7 +123,10 @@ await requireBrowserLane("new-tab-paste-anywhere.test.ts", async () => {
 
   const inField = (page: Page, design: Design) =>
     page.evaluate((selector) => document.activeElement?.matches(selector) === true, design.field);
-  const fieldText = (page: Page, design: Design) => page.locator(design.field).inputValue();
+  // The words in the prompt (a ready image chip holds no text): both designs' fields are the composer's
+  // Markdown prompt.
+  const fieldText = (page: Page, design: Design) =>
+    page.locator(design.field).evaluate((node) => node.textContent ?? "");
 
   /// Dispatches the paste the app's Paste sends to the focused element (the page, when nothing has
   /// the keyboard), carrying `clipboard`; a PNG drawn in the page stands for a copied image.
@@ -167,6 +197,8 @@ await requireBrowserLane("new-tab-paste-anywhere.test.ts", async () => {
           expect(await paste(page, { image: true })).toBe(true);
           await page.locator(design.chips).first().waitFor();
           expect(await page.locator(design.chips).count()).toBe(1);
+          if (design.design === "screen")
+            expect(await page.locator(".nt-box .acpmux-attachments .acpmux-attachment-image").count()).toBe(0);
           expect(await fieldText(page, design)).toBe("");
           await page.close();
         });

@@ -251,7 +251,7 @@ impl BuildIdentity {
     /// `cli/chief/home.rs` move to this rule when they adopt this type; today
     /// they write `<bundle id>.<account>`.
     pub fn chief_home(&self, user_home: &Path, account: &str) -> PathBuf {
-        let base = user_home.join(".cmux/chief");
+        let base = chief_homes_root(user_home);
         let account = component(account).unwrap_or_else(|| "default".into());
         if self.keeps_shared_roots() || self.kind == BuildKind::Unbundled {
             base.join(account)
@@ -387,4 +387,9 @@ fn fnv1a32(bytes: &[u8]) -> u32 {
         hash = hash.wrapping_mul(0x0100_0193);
     }
     hash
+}
+
+/// The folder of every build's Chief home: `~/.cmux/chief`.
+pub fn chief_homes_root(user_home: &Path) -> PathBuf {
+    user_home.join(".cmux/chief")
 }

@@ -12,7 +12,7 @@
   --cu-hit: var(--cu-cache-read);
   max-width: 960px;
   margin: 0 auto;
-  padding: 20px 16px 32px;
+  padding: var(--ds-space-5) var(--ds-space-4) var(--ds-space-6);
 }
 
 .cu-header {
@@ -20,15 +20,15 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--ds-space-3);
+  margin-bottom: var(--ds-space-4);
 }
 
 .cu-title {
   margin: 0;
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-title--letter-spacing);
 }
 
@@ -36,7 +36,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .cu-segmented {
@@ -44,16 +44,17 @@
   margin: 0;
   border: 0;
   min-width: 0;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 7px;
+  gap: 0;
+  padding: var(--grid-half-step);
+  border-radius: var(--ds-radius-lg);
   background: var(--page-hover);
 }
 
 .cu-segment-button {
   border: 0;
-  border-radius: 5px;
-  padding: 3px 10px;
+  border-radius: var(--ds-radius-md);
+  height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-3);
   background: transparent;
   color: var(--page-text-2);
   font-size: var(--text-control);
@@ -66,22 +67,23 @@
 .cu-segment-button.is-selected {
   background: var(--page-elevated);
   color: var(--page-text);
+  box-shadow: var(--elevation-1);
 }
 
 .cu-by {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-2);
   color: var(--page-text-3);
   font-size: var(--text-control);
   letter-spacing: var(--text-control--letter-spacing);
 }
 
-.cu-by select,
-.cu-refresh {
+.cu-by select {
+  height: var(--ds-control-compact);
   border: 1px solid var(--page-separator);
-  border-radius: 6px;
-  padding: 2px 8px;
+  border-radius: var(--ds-radius-md);
+  padding: 0 var(--ds-space-2);
   background: transparent;
   color: var(--page-text);
   font-size: var(--text-control);
@@ -89,12 +91,8 @@
   letter-spacing: var(--text-control--letter-spacing);
 }
 
-.cu-refresh:disabled {
-  color: var(--page-text-disabled);
-}
-
 .cu-message {
-  margin: 12px 0;
+  margin: var(--ds-space-3) 0;
 }
 
 .cu-muted,
@@ -108,14 +106,14 @@
 .cu-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .cu-tile,
 .cu-card {
-  padding: 10px 12px;
+  padding: var(--ds-space-3);
   border: 1px solid var(--page-separator);
-  border-radius: 8px;
+  border-radius: var(--ds-radius-lg);
   min-width: 0;
 }
 
@@ -126,42 +124,42 @@
 }
 
 .cu-tile-value {
-  margin-top: 2px;
+  margin-top: var(--ds-space-1);
   font-size: var(--text-heading);
   line-height: var(--text-heading--line-height);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   letter-spacing: var(--text-heading--letter-spacing);
 }
 
 .cu-section {
-  margin-top: 24px;
+  margin-top: var(--ds-space-5);
   min-width: 0;
 }
 
 .cu-section-title {
-  margin: 0 0 8px;
+  margin: 0 0 var(--ds-space-2);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-body--letter-spacing);
 }
 
 .cu-pair {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  column-gap: 24px;
+  column-gap: var(--ds-space-5);
 }
 
 .cu-multiples {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .cu-card .cu-chart {
-  margin-top: 6px;
+  margin-top: var(--ds-space-2);
 }
 
 /* Charts */
@@ -219,8 +217,8 @@
 .cu-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
-  margin: 0 0 6px;
+  gap: var(--ds-space-1) var(--ds-space-4);
+  margin: 0 0 var(--ds-space-2);
   padding: 0;
   list-style: none;
   color: var(--page-text-2);
@@ -231,7 +229,7 @@
 .cu-legend li {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--ds-space-1);
 }
 
 .cu-swatch {
@@ -254,12 +252,12 @@
 
 .cu-tooltip {
   position: absolute;
-  top: 4px;
+  top: var(--ds-space-1);
   z-index: var(--layer-raised);
-  transform: translateX(8px);
+  transform: translateX(var(--ds-space-2));
   min-width: 140px;
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-lg);
   /* The liquid glass (.ui-glass in charts.tsx) in the tooltip frost is its fill, blur, rim and
      shadow, as every tooltip's (ui/glass/glass.css; Leo 2026-10-21: glass, never the solid card). */
   font-size: var(--text-caption);
@@ -270,12 +268,12 @@
 }
 
 .cu-tooltip.is-left {
-  transform: translateX(calc(-100% - 8px));
+  transform: translateX(calc(-100% - var(--ds-space-2)));
 }
 
 .cu-tooltip-title {
-  margin-bottom: 2px;
-  font-weight: 600;
+  margin-bottom: var(--ds-space-1);
+  font-weight: var(--weight-emphasis);
 }
 
 .cu-tooltip dl {
@@ -285,13 +283,13 @@
 .cu-tooltip-row {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--ds-space-3);
 }
 
 .cu-tooltip-row dt {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--ds-space-1);
   color: var(--page-text-2);
 }
 
@@ -307,12 +305,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+.cu-table tr {
+  height: var(--ds-control-row);
+}
+
 .cu-table th,
 .cu-table td {
-  padding: 5px 8px;
+  padding: var(--ds-space-1) var(--ds-space-2);
   border-bottom: 1px solid var(--page-separator);
   text-align: start;
-  font-weight: 400;
+  font-weight: var(--weight-regular);
 }
 
 .cu-table thead th {
@@ -324,7 +326,7 @@
 .cu-table tfoot th,
 .cu-table tfoot td {
   border-bottom: 0;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 
 .cu-num {
@@ -352,7 +354,7 @@
 .cu-share {
   display: block;
   height: 3px;
-  margin-top: 3px;
+  margin-top: var(--ds-space-1);
   border-radius: 2px;
   background: var(--page-hover);
   overflow: hidden;
@@ -377,7 +379,7 @@
 .cu-inline-track {
   display: block;
   height: 4px;
-  margin-top: 3px;
+  margin-top: var(--ds-space-1);
   border-radius: 2px;
   background: var(--page-hover);
   overflow: hidden;
@@ -402,8 +404,11 @@
   display: grid;
   grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto auto;
   align-items: baseline;
-  gap: 10px;
-  padding: 5px 8px;
+  gap: var(--ds-space-3);
+  min-height: var(--ds-control-row);
+  box-sizing: border-box;
+  align-content: center;
+  padding: var(--ds-space-1) var(--ds-space-2);
   border-bottom: 1px solid var(--page-separator);
   color: inherit;
   text-decoration: none;
@@ -436,7 +441,7 @@ a.cu-top-row:focus-visible {
 
 .cu-top-cost {
   min-width: 7ch;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 
 @media (forced-colors: active) {

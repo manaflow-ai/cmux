@@ -126,19 +126,27 @@ enum Animate {
         layer.add(a, forKey: "crossFade")
     }
 
-    /// Working activity rotates at constant opacity on the render server.
-    /// The scene starts it only when motion is enabled and removes it when
-    /// typing ends, the row leaves the viewport, or motion is disabled.
-    static func typingSpinner(_ layer: CALayer, begin: CFTimeInterval) {
+    /// Typing dots: a Gaussian brightness pulse per dot, staggered, repeating
+    /// on the render server (no main-thread work per frame).
+    static func typingDot(_ layer: CALayer, index: Int, begin: CFTimeInterval) {
+        let n = 60
+        let width = HomeMotion.typingDotWidth
+        var values: [NSNumber] = []
+        values.reserveCapacity(n + 1)
+        for k in 0...n {
+            var x = Double(k) / Double(n) - 0.33 - Double(index) * HomeMotion.typingDotStagger
+            x -= x.rounded()
+            values.append(NSNumber(value: exp(-(x / width) * (x / width))))
+        }
         // motion-allow: the render core's motion module (motion.md rule 1)
-        let a = CABasicAnimation(keyPath: "transform.rotation.z")
-        a.fromValue = 0
-        a.toValue = 2 * Double.pi
-        a.duration = HomeMotion.typingSpinnerPeriod
+        let a = CAKeyframeAnimation(keyPath: "opacity")
+        a.values = values
+        a.duration = HomeMotion.typingDotPeriod
         a.repeatCount = .infinity
         a.beginTime = begin
         a.isRemovedOnCompletion = false
-        layer.add(a, forKey: "typingSpinner")
+        a.calculationMode = .linear
+        layer.add(a, forKey: "dots")
     }
 
     /// Caret: solid after an edit, then a blink (render server); grey for a

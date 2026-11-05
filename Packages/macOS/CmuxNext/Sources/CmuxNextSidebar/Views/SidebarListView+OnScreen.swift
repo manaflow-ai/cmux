@@ -6,6 +6,6 @@ extension SidebarListViewComponents {
     /// the window shows and the focused one strongest.
     func paintSecondaryFills(_ row: WorkspaceRowView, _ id: WorkspaceID) {
         row.isSecondarySelected = model.selection.contains(id) && !row.isSelected
-        row.isOnScreen = SidebarTunables.multiView.value && model.onScreen.contains(id) && !row.isSelected
+        row.isOnScreen = SidebarTunables.multiViewOn && model.onScreen.contains(id) && !row.isSelected
     }
 }

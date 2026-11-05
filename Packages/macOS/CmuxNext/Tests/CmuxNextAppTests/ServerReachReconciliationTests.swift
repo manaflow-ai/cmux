@@ -1,3 +1,5 @@
+import CmuxNextHostedChief
+
 import CmuxNextRemote
 import Testing
 @testable import CmuxNextApp

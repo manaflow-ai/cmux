@@ -5,27 +5,34 @@ import { useFindReveal } from "./chatFind";
 import { useId, useMemo, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { ChevronRight, Globe, Magnifier, Pencil, Spinner, TerminalSquare, ToolGroup } from "./icons";
-import { isFailed, isRunning } from "./toolGroups";
-import { mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
+import { ChevronRight, Globe, Magnifier, MultiTool, Pencil, TerminalSquare, ToolGroup } from "./icons";
+import { countsFailed } from "./toolGroups";
+import { isMixedToolRun, mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useToolRunLook } from "../toolRunLook";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
+import { isThought } from "./thoughts";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { EditCounts, useEditTotals } from "./EditCounts";
+import { FailedCount } from "./FailedCount";
+import { ToolLabel } from "./ToolVerb";
 
-/// The summary's glyph: its main kind of work's, with searches and reads both as the magnifier.
-function runIcon(category: ToolRunCategory | undefined): ReactNode {
+/// The summary's glyph: its one kind of work's, with searches and reads both as the magnifier, or the
+/// several-tools mark when it did more than one kind.
+function runIcon(category: ToolRunCategory | "mixed" | undefined): ReactNode {
   switch (category) {
+    case "mixed":
+      return <MultiTool />;
     case "edited":
-      return <Pencil size={16} strokeWidth={1.1} />;
+      return <Pencil size={16} />;
     case "read":
     case "searched":
       return <Magnifier />;
     case "web":
-      return <Globe size={16} strokeWidth={1.1} />;
+      return <Globe size={16} />;
     case "ran":
       return <TerminalSquare />;
     default:
-      return <ToolGroup size={16} strokeWidth={1.2} />;
+      return <ToolGroup size={16} />;
   }
 }
 
@@ -40,45 +47,49 @@ export function ToolRun({
 }) {
   const t = useT();
   const look = useToolRunLook();
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
+  // The Verbose transcript view opens the run to its calls; Thinking opens a run that holds a
+  // thought, so the thought it opens is on screen.
+  const thinking = useTranscriptViewContext() === "thinking";
+  const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, holdsThought, true);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();
   // Read once per run: the row draws again only when its version moves (App.tsx ToolActivityRow),
   // and then only a new list of calls counts again.
-  const { summary, main, failures, running } = useMemo(
+  const { summary, main, failures } = useMemo(
     () => ({
       summary: toolRunSummary(t, items),
-      main: mainToolRunCategory(items),
+      main: isMixedToolRun(items) ? ("mixed" as const) : mainToolRunCategory(items),
       // A failed call never hides behind the summary: the line counts it, as a group's line does.
-      failures: items.filter((item) => item.tool && isFailed(item.tool)).length,
-      // A call still running in the run (a background shell) turns the glyph, as a group's does.
-      running: items.some((item) => item.tool && isRunning(item.tool)),
+      failures: items.filter((item) => item.tool && countsFailed(item.tool)).length,
     }),
     [t, items],
   );
+  // The lines the run's edits added and removed, on its summary line as Claude Code desktop puts
+  // them (Leo 2026-10-30: "i like claude code they put the number overarching too").
+  const totals = useEditTotals(items);
   const pencil = look === "pencil" || look === "quiet-pencil";
   const quiet = look === "quiet" || look === "quiet-pencil";
   return (
     <>
       <button
         type="button"
-        className={quiet ? "cv-tool is-toggle" : "cv-tool is-toggle is-strong"}
+        className={quiet ? "cv-tool is-toggle is-run" : "cv-tool is-toggle is-run is-strong"}
         aria-expanded={open}
         aria-controls={open ? list : undefined}
         ref={fold.headerRef}
         onClick={fold.toggle}
       >
-        <span className="cv-tool__icon">{running ? <Spinner size={16} /> : runIcon(pencil ? "edited" : main)}</span>
-        <span className="cv-tool__text" data-find-skip>
-          {summary}
-          {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
+        <span className="cv-tool__icon">{runIcon(pencil ? "edited" : main)}</span>
+        <span className={totals ? "cv-tool__text has-counts" : "cv-tool__text"} data-find-skip>
+          <span className="cv-tool__summary">
+            <ToolLabel text={summary} tight />
+          </span>
+          {totals && <EditCounts totals={totals} />}
+          <FailedCount n={failures} />
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>

@@ -11,8 +11,12 @@ fn the_daemon_bind_path_starts_flow_marks() {
     std::fs::create_dir_all(&dir).unwrap();
     // SAFETY: set before any thread of this test binary reads the environment (`init` reads it once).
     unsafe { std::env::set_var("CMUX_TRACE_FLOWS", &dir) };
-    let socket =
-        std::path::PathBuf::from(format!("/tmp/cmux-flow-bind-{}.sock", std::process::id()));
+    // An explicit socket's folder must be a real directory, never a symlink
+    // (`server/listen.rs`), and macOS's /tmp is a symlink to /private/tmp: the resolved /tmp,
+    // still short enough for a socket path.
+    let socket = std::fs::canonicalize("/tmp")
+        .unwrap()
+        .join(format!("cmux-flow-bind-{}.sock", std::process::id()));
     let _ = std::fs::remove_file(&socket);
     let server = cmux_tui_core::server::bind_session_socket("flow-bind-test", Some(socket.clone()))
         .unwrap()

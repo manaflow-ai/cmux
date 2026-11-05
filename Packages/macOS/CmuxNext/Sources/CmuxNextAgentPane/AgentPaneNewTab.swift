@@ -4,6 +4,18 @@ public import Foundation
 /// The kinds the new tab page offers in its Terminal | Browser | Agent switch.
 public nonisolated enum AgentPaneTabKind: String, CaseIterable, Codable, Sendable {
     case terminal, browser, agent
+
+    /// The right-column placement kind for the two tools that can reuse an existing pane.
+    public var rightColumnKind: RightColumnPlacement.Kind? {
+        switch self {
+        case .terminal: .terminal
+        case .browser: .browser
+        case .agent: nil
+        }
+    }
+
+    /// Terminal and browser picks leave an agent chat's dock; an agent pick stays in it.
+    public var opensBesideChat: Bool { self != .agent }
 }
 
 /// A tab opened as the new tab page (#16620): one field and a kind switch,
@@ -31,14 +43,19 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The tab the page opened from, as the location bar shows it (its URL or
     /// folder): in the field and selected, so typing replaces it.
     public var location: String?
+    /// What a new chat of this window left when its tab opened another chat (cmux#32276): the
+    /// field's draft, to edit and send or delete; nothing sends it. A page takes it once
+    /// (``AgentUnsentDrafts/takeLeftover(inWindow:)``); nil for none.
+    public var draft: String?
     /// What the location bar suggests besides the typed text.
     public var omnibar: AgentPaneOmnibar
     /// Recent local project folders from agent history, classic sessions and git roots.
     public var projects: [String]
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
-    /// The template (`tabs.newTabTemplate`: "minimal", "cards", "default", "composer", "threads",
-    /// "console", "classic" or "terminal"); nil follows `layout`. The page validates it.
+    /// The template (`tabs.newTabTemplate`: "minimal", "cards", "default", "threads", "console",
+    /// "classic" or "terminal"); the legacy "composer" value is still forwarded so the web page
+    /// can migrate saved settings to Minimal. nil follows `layout`. The page validates it.
     public var template: String?
     /// The agent last picked.
     public var lastAgent: String?
@@ -84,6 +101,11 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent
     /// chats only, never All chats; nil lists All chats where the template does.
     public var allChats: Bool?
+    /// Where the page's new chat starts, as this Mac already knows it (``AgentPaneStartFolders/local(of:)``):
+    /// the page draws its project, or Do not work in a project, on its first frame, and the handshake's
+    /// answer from the store replaces it only when it differs. Set on the context the page gets
+    /// (``AgentPaneModel/newTabForPage``), never on the tab's own, so it draws no other screen.
+    public var start: AgentPaneNewTabStart?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
@@ -184,23 +206,29 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         }
     }
 
-    /// A host-owned action the omnibar may invoke by id.
+    /// A host-owned action the omnibar may invoke by id: a Commands palette (Cmd-Shift-P) row.
     public struct Action: Codable, Sendable, Equatable {
         public var id: String
         public var title: String
+        /// The palette section the action sits in ("Tabs"), shown beside the title.
         public var detail: String?
         public var keywords: [String]
+        /// The action's shortcut keycaps (`["⌘", "T"]`); nil without one.
+        public var keycaps: [String]?
 
-        public init(id: String, title: String, detail: String? = nil, keywords: [String] = []) {
+        public init(id: String, title: String, detail: String? = nil, keywords: [String] = [], keycaps: [String]? = nil) {
             self.id = id
             self.title = title
             self.detail = detail
             self.keywords = keywords
+            self.keycaps = keycaps
         }
     }
 
-    /// Bound for newly introduced recent project and action suggestions.
+    /// Bound for newly introduced recent project suggestions.
     public static let maximumEntries = 40
+    /// Bound for the action rows: every Commands palette action fits (hundreds), a runaway list does not.
+    public static let maximumActions = 2000
 
     public var tabs: [Tab]
     public var workspaces: [Workspace]
@@ -219,7 +247,7 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
         self.workspaces = workspaces
         self.folders = folders
         self.projects = Array(projects.prefix(cap))
-        self.actions = Array(actions.prefix(cap))
+        self.actions = Array(actions.prefix(Self.maximumActions))
         self.commands = commands
         self.history = history
     }
@@ -251,12 +279,25 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             "workspaces": workspaces.map { optional([("id", $0.id), ("name", $0.name), ("detail", $0.detail)]) },
             "folders": folders,
             "projects": projects,
-            "actions": actions.map {
-                optional([("id", $0.id), ("title", $0.title), ("detail", $0.detail)])
-                    .merging(["keywords": $0.keywords]) { left, _ in left }
+            "actions": actions.map { action in
+                optional([("id", action.id), ("title", action.title), ("detail", action.detail)])
+                    .merging(["keywords": action.keywords]) { left, _ in left }
+                    .merging(action.keycaps.map { ["keycaps": $0] } ?? [:]) { left, _ in left }
             },
             "commands": commands,
             "history": history.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
         ]
+    }
+}
+
+/// A new chat's start folder before the store's answer (``AgentPaneNewTab/start``): the folder, or
+/// none with Choose Folder… offered (the workspace's agent-home folder).
+public nonisolated struct AgentPaneNewTabStart: Codable, Sendable, Equatable {
+    public var cwd: String?
+    public var chooseFolder: Bool?
+
+    public init(cwd: String? = nil, chooseFolder: Bool? = nil) {
+        self.cwd = cwd
+        self.chooseFolder = chooseFolder
     }
 }

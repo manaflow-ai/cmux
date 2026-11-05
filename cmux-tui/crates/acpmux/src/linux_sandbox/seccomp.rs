@@ -54,7 +54,10 @@ impl Assembler {
     }
 
     fn mark(&mut self, label: Label) {
-        self.labels[label.0] = Some(self.program.len());
+        let at = self.program.len();
+        if let Some(slot) = self.labels.get_mut(label.0) {
+            *slot = Some(at);
+        }
     }
 
     fn stmt(&mut self, code: u32, k: u32) {
@@ -74,7 +77,11 @@ impl Assembler {
 
     fn finish(mut self) -> Result<Vec<libc::sock_filter>, String> {
         for (index, label, true_branch) in self.patches {
-            let target = self.labels[label.0]
+            let target = self
+                .labels
+                .get(label.0)
+                .copied()
+                .flatten()
                 .ok_or_else(|| format!("unresolved seccomp label {}", label.0))?;
             let offset = target
                 .checked_sub(index + 1)
@@ -82,10 +89,13 @@ impl Assembler {
             if offset > u8::MAX as usize {
                 return Err(format!("seccomp jump at {index} is too far ({offset})"));
             }
+            let Some(insn) = self.program.get_mut(index) else {
+                return Err(format!("seccomp jump at {index} is outside the program"));
+            };
             if true_branch {
-                self.program[index].jt = offset as u8;
+                insn.jt = offset as u8;
             } else {
-                self.program[index].jf = offset as u8;
+                insn.jf = offset as u8;
             }
         }
         if self.program.len() >= 4096 {

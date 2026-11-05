@@ -15,14 +15,15 @@ optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the moni
 optchat-chief workspace                                   the person's Home workspace now (panes, terminal tails, browsers)
 optchat-chief engine show | set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]
 optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
-optchat-chief usage [--since 7d] [--by chief|agent|model|harness|kind] [--top N] [--json] [--mux-home DIR]... [--chiefs]
+optchat-chief usage [--since 7d] [--by chief|agent|model|harness|kind|person] [--top N] [--json] [--mux-home DIR]... [--chiefs]
                                                           tokens, cost, cache hit and turn time over time (the usage ledger)
+optchat-chief usage export [--since 30d] [--until 0] [--person ID] [--json]   export local usage JSONL
 optchat-chief usage backfill [--force] [--mux-home DIR]   convert old traces into the usage ledger
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
 optchat-chief settings [show | set cache.ttl 5m|1h | set replies.thread auto|always|never | set show.afterReport true|false | set trace.full true|false
-                       | set cloud.autoPauseIdleSeconds N] [--mux-home DIR]
+                       | set subagents.showWorkspaces true|false | set cloud.autoPauseIdleSeconds N] [--mux-home DIR]
                                                            per-Chief settings (none of them makes the Chief ask before it acts)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
@@ -84,10 +85,20 @@ fn main() -> std::process::ExitCode {
             flags.words.get(3).cloned().unwrap_or_default(),
         );
         let home = home(&flags);
+        // The composition root of the launchers: this Chief home's store, the process's stdio.
+        let store_of =
+            |p: &optchat_chief::toolpacks::Pack| optchat_chief::toolpacks::store(&home, p);
         let out = if args[1] == "mcp" {
-            optchat_chief::toolpacks::serve_mcp(&home, &pack, &server)
+            optchat_chief::toolpacks::serve_mcp(
+                &home,
+                &pack,
+                &server,
+                &store_of,
+                Box::new(std::io::BufReader::new(std::io::stdin())),
+                Box::new(std::io::stdout()),
+            )
         } else {
-            optchat_chief::toolpacks::mcp_headers(&home, &pack, &server).map(|h| {
+            optchat_chief::toolpacks::mcp_headers(&home, &pack, &server, &store_of).map(|h| {
                 println!("{h}");
                 0
             })
@@ -147,6 +158,10 @@ fn main() -> std::process::ExitCode {
         if a == "--stop-host" {
             *a = "--stop-host=1".to_owned();
         }
+        // `memory import-from detect --exports`: a boolean too.
+        if a == "--exports" {
+            *a = "--exports=1".to_owned();
+        }
     }
     let mut flags = Flags::parse(&args);
     // `memory search --json` (and only there: `trace` and `stats` read their
@@ -178,8 +193,8 @@ fn main() -> std::process::ExitCode {
         }
         Some(
             tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "remember" | "transcript" | "control" | "profile"
-            | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
+            | "stop" | "sleep" | "watch" | "remember" | "transcript" | "control"
+            | "profile" | "chiefs" | "escalate-auth" | "escalate_auth" | "cloud-workspace"
             | "cloud_workspace"),
         ) => {
             let socket = flags
@@ -221,6 +236,50 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
+        Some("rights-hook") => {
+            // Claude Code's PreToolUse/PostToolUse hook of a Chief turn.
+            let phase = args.get(1).map(String::as_str).unwrap_or("");
+            let socket = flags.value("socket").map(std::path::PathBuf::from);
+            if let Some(socket) = socket {
+                let out = optchat_chief::rights::hook(phase, &socket, &mut std::io::stdin());
+                if !out.is_empty() {
+                    println!("{out}");
+                }
+            }
+            0
+        }
+        Some(verb @ ("rights" | "audit")) => {
+            // The table and the log of this Chief (`--mux-home` or MUX_HOME).
+            // Read here, not through `Flags`: a bare flag before it
+            // (`--json --mux-home X`) would take X as its value there, and
+            // the change would go to the default home's table.
+            let (home, words) = match optchat_chief::rights::split_mux_home(&args[1..]) {
+                Ok(split) => split,
+                Err(e) => {
+                    eprintln!("optchat-chief {verb}: {e}");
+                    return std::process::ExitCode::from(2);
+                }
+            };
+            let home = home.unwrap_or_else(optchat_chief::paths::mux_home);
+            let root = optchat_chief::paths::Paths::new(&home).root;
+            let owner =
+                std::env::var("OPTCHAT_CHIEF_OWNER").unwrap_or_else(|_| "user_local".to_owned());
+            let out = if verb == "rights" {
+                optchat_chief::rights::run(&words, &root, &owner)
+            } else {
+                optchat_chief::audit::run(&words, &root, &mut std::io::stdin())
+            };
+            match out {
+                Ok(out) => {
+                    println!("{out}");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief {verb}: {e}");
+                    1
+                }
+            }
+        }
         Some("usage") => match optchat_chief::usage::run(&args[1..]) {
             Ok(out) => {
                 print!("{out}");
@@ -310,15 +369,34 @@ fn main() -> std::process::ExitCode {
                         let file = paths.root.join("settings.json");
                         let mut s = optchat_chief::chief_settings::ChiefSettings::load(&file);
                         if let Some((key, value)) = set {
-                            use optchat_chief::chief_settings::{CACHE_TTL, parse_ttl};
+                            use optchat_chief::chief_settings::{
+                                CACHE_TTL, CONTACT, parse_contact, parse_ttl,
+                            };
                             match key {
                                 CACHE_TTL => s.cache_ttl = Some(parse_ttl(value)?),
+                                CONTACT => s.contact = parse_contact(value)?,
                                 optchat_chief::chief_settings::TRACE_FULL => {
                                     s.trace_full = optchat_chief::chief_settings::parse_bool(value)?
+                                }
+                                optchat_chief::chief_settings::CLOUD_AUTO_PAUSE => {
+                                    s.cloud_auto_pause =
+                                        optchat_chief::chief_settings::parse_bool(value)?
                                 }
                                 optchat_chief::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS => {
                                     s.cloud_auto_pause_idle_secs =
                                         optchat_chief::chief_settings::parse_idle_secs(value)?
+                                }
+                                optchat_chief::chief_settings::SHOW_SUBAGENT_WORKSPACES => {
+                                    s.show_subagent_workspaces =
+                                        optchat_chief::chief_settings::parse_bool(value)?
+                                }
+                                optchat_chief::chief_settings::TRUST_AGENTS => {
+                                    s.trust_agents =
+                                        optchat_chief::chief_settings::parse_bool(value)?
+                                }
+                                optchat_chief::chief_settings::TRUSTED_AGENTS => {
+                                    s.trusted_agents =
+                                        optchat_chief::chief_settings::parse_trusted_agents(value)?
                                 }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }

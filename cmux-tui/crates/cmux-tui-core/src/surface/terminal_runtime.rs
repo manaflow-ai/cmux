@@ -52,6 +52,53 @@ impl Drop for ReaderCompletionGuard {
 }
 
 impl PtyTerminalRuntime {
+    /// The input route of `runtime`, for the input port (R-DAEMON-STATE stage S1 step 6).
+    #[cfg(any(unix, windows))]
+    pub(super) fn input_route_of(runtime: &PtyRuntime) -> Option<Arc<input_port::InputRoute>> {
+        match runtime {
+            PtyRuntime::Hosted(host) => {
+                Some(Arc::new(input_port::InputRoute::Hosted(host.input_route())))
+            }
+            PtyRuntime::ExitedHosted => Some(Arc::new(input_port::InputRoute::Exited)),
+            PtyRuntime::Local { .. } => None,
+        }
+    }
+
+    /// Replaces the terminal's runtime and republishes its input route, under the runtime lock the caller holds.
+    /// Every replacement goes through here, so the port always writes to the connection the runtime has.
+    #[cfg(any(unix, windows))]
+    pub(super) fn replace_runtime(&self, runtime: &mut PtyRuntime, next: PtyRuntime) {
+        *runtime = next;
+        // The new connection's other frames go after the keys the port took (S1.6b).
+        if let PtyRuntime::Hosted(host) = runtime {
+            host.set_input_order(self.input_port.order());
+        }
+        self.input_route.store(Self::input_route_of(runtime));
+        // After the store: a port writer waiting for a reconnect writes the keys it holds to the new connection now,
+        // before any other frame on it (#35082 review 1).
+        self.input_port.route_changed();
+    }
+
+    /// The reader will install no host connection now (it ended, gave the host up, or the owner detaches the
+    /// terminal): input that waits out a lost connection fails now, as the old path's write failed then.
+    pub(super) fn reader_gave_up(&self) {
+        self.stream_progress.notify();
+        // The input port's writer waits on its own route epoch, not on the stream (#35082 review 2).
+        self.input_port.reconnect_ended();
+    }
+
+    /// The reader shut the current host connection down and keeps retrying (`Failed`): input is refused until a
+    /// replacement connection is installed ([`Self::replace_runtime`] publishes its route), as the old path's write
+    /// to the shut connection failed. Takes the held runtime so it is ordered with every replacement.
+    #[cfg(any(unix, windows))]
+    pub(super) fn input_route_failed(&self, _runtime: &PtyRuntime) {
+        self.input_route.store(Some(Arc::new(input_port::InputRoute::Failed)));
+        // A port writer waiting for a reconnect fails its frame now, as the old path's write failed then.
+        self.input_port.route_changed();
+    }
+}
+
+impl PtyTerminalRuntime {
     /// Feed raw child output to the generic terminal metadata parser. The
     /// parser has no knowledge of agents or plugins and keeps only bounded
     /// terminal protocol state. Returns the desktop notifications (OSC 9,
@@ -244,6 +291,10 @@ pub struct PtyTerminalRuntime {
     /// The daemon is intentionally dropping its compatibility proxy while
     /// leaving the terminal host alive for a later daemon to adopt.
     pub(super) owner_detaching: AtomicBool,
+    /// The user asked to recover a terminal whose host link failed
+    /// (`restart-tab` on a `failed` tab): its host was ended, so the
+    /// reconnect loop stops its wait and retries at once.
+    pub(super) recover_requested: AtomicBool,
     /// The host socket ended without a sequenced Exit. Closing this proxy
     /// must retain the host record so a fresh snapshot can recover it.
     pub(super) host_connection_state: AtomicU8,
@@ -303,6 +354,17 @@ pub struct PtyTerminalRuntime {
     pub(super) render: Arc<RankedMutex<RenderHub>>,
     pub(super) render_generation: AtomicU64,
     pub(super) frame_requests: frame_producer::FrameRequests,
+    /// The view a key may skip its sizing note for, published by the terminal's sizing entry (R-DAEMON-STATE stage
+    /// S1, `mux::sizing_fast_path`); shared by every view of the terminal.
+    pub(super) sizing_fast_path: crate::mux::sizing_fast_path::SizingFastPathSlot,
+    /// The terminal's input port: on the input lane, interactive input to a hosted terminal goes through it
+    /// (R-DAEMON-STATE stage S1 step 6, `surface::input_port`).
+    #[cfg(any(unix, windows))]
+    pub(super) input_port: input_port::InputPort,
+    /// Where the port writes: the current host connection, the exited final screen, or `None` (not hosted).
+    /// Published by [`Self::replace_runtime`] and the constructors, so the port never takes the runtime lock.
+    #[cfg(any(unix, windows))]
+    pub(super) input_route: arc_swap::ArcSwapOption<input_port::InputRoute>,
     #[cfg(test)]
     pub(super) frame_producer_before_upgrade: FrameProducerTestHook,
 }

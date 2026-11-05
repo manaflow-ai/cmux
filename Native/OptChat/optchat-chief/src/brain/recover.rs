@@ -4,9 +4,9 @@
 //! after the appends was lost. Each logged item's bookkeeping is finished
 //! (cursor for a human message, `Reported` for a child's report), so nothing
 //! is logged twice; items that never reached the log are caught up again.
-//! A cut turn whose human messages reached the log runs again as a resume
-//! turn on `RESUMED` (E23, the reference client's Server.ts `resume`), so
-//! each message is answered once.
+//! A cut turn whose human messages, notes or reports reached the log runs
+//! again as a resume turn on `RESUMED` (E23, the reference client's
+//! Server.ts `resume`), so each message is answered once.
 
 use optchat_host::OptChat;
 
@@ -19,9 +19,23 @@ pub(super) const RESUMED: &str = "The server restarted, cutting the turn; nothin
 
 /// Whether a logged item represented work whose interrupted turn must run
 /// again. A quiet stopped-subagent report intentionally waits for another
-/// message; a normal report wakes a turn just like a human message.
+/// message; a normal report wakes a turn just like a human message. So does
+/// a host note (a watch that fired, a wake, another Chief's message) and a
+/// child's report: each was consumed when it was logged, so nothing else
+/// would wake the Chief for it after a restart.
 fn resumes_after_cut(item: &Item) -> bool {
-    item.resume || item.seq.is_some() || item.spawn.as_ref().is_some_and(|spawn| !spawn.quiet)
+    item.resume
+        || item.seq.is_some()
+        || item.note
+        || item.child.is_some()
+        || item.spawn.as_ref().is_some_and(|spawn| !spawn.quiet)
+}
+
+/// Whether the resume turn replays a logged item's text among the cut
+/// requests: a human message's, a note's and a child's report (a subagent
+/// report already reaches the view as its `[id]` message).
+fn replays_after_cut(item: &Item) -> bool {
+    item.seq.is_some() || item.note || item.child.is_some()
 }
 
 /// The resume turn's new messages: the note, then the cut requests' full
@@ -76,7 +90,7 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
             remote |= item.remote;
             requires_approval |= item.requires_approval;
             cut.extend(item.cut.iter().cloned());
-            if item.seq.is_some()
+            if replays_after_cut(item)
                 && positioned
                 && let Some((_, text)) = chat.message(at + j as u64)
             {
@@ -161,7 +175,25 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
 #[cfg(test)]
 mod security_tests {
     use super::resumes_after_cut;
-    use crate::state::{Item, SpawnRef};
+    use crate::state::{ChildRef, Item, SpawnRef};
+
+    #[test]
+    fn a_note_or_child_report_cut_by_a_restart_resumes() {
+        let note = Item {
+            note: true,
+            ..Item::default()
+        };
+        let child = Item {
+            child: Some(ChildRef {
+                session_id: "s9".to_owned(),
+                floor: 3,
+            }),
+            ..Item::default()
+        };
+        assert!(resumes_after_cut(&note));
+        assert!(resumes_after_cut(&child));
+        assert!(!resumes_after_cut(&Item::default()));
+    }
 
     #[test]
     fn report_only_cut_resumes_unless_the_report_was_quiet() {

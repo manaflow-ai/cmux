@@ -9,13 +9,16 @@ import Foundation
 /// every request still waiting then answers nil.
 @MainActor
 public final class AcpmuxPersonLine {
-    private let line: AcpmuxCheckedLine
+    /// The connection itself (internal: tests hold its queue).
+    let line: AcpmuxCheckedLine
     private let timer = DemandTimer(owner: "acpmux.person-line")
     private var nextID = 10
     private var waiters: [Int: CheckedContinuation<ResultBox?, Never>] = [:]
     private var closed = false
     /// acpmux took the person proof: this connection may allow.
     public private(set) var isPerson = false
+    /// The surfaces this acpmux serves (`initialize`'s `_meta.acpmux.capabilities`, e.g. `machine-consent-v1`).
+    public private(set) var capabilities: Set<String> = []
 
     private init(environment: AcpmuxEnvironment) {
         line = AcpmuxCheckedLine(environment: environment)
@@ -31,7 +34,9 @@ public final class AcpmuxPersonLine {
             connection.close()
             return nil
         }
-        let challenge = ((initialized["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
+        let meta = (initialized["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        connection.capabilities = Set(meta?["capabilities"] as? [String] ?? [])
+        let challenge = meta?["personChallenge"] as? [String: Any]
         if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
            let proof = connection.line.personProof(nonce: nonce, connection: id) {
             connection.isPerson = (await connection.call("_acpmux/person_prove", ["proof": proof]))?["person"] as? Bool ?? false
@@ -41,13 +46,21 @@ public final class AcpmuxPersonLine {
 
     /// One request; its `result`, or nil when it failed or the connection closed.
     public func call(_ method: String, _ params: [String: Any]) async -> [String: Any]? {
+        await call(method, params, through: nil)
+    }
+
+    /// One request as ``call(_:_:)``; with `gate`, it is written only through it, on the line's queue
+    /// right before the bytes go out, and a refused one closes the connection and answers nil
+    /// (``AcpmuxCheckedLine/send(_:through:)``).
+    public func call(_ method: String, _ params: [String: Any],
+                     through gate: (@Sendable (() -> Void) -> Bool)?) async -> [String: Any]? {
         guard !closed else { return nil }
         nextID += 1
         let id = nextID
         let frame = AcpmuxPermissionPrompt.frame(id: id, method: method, params: params)
         let reply: ResultBox? = await withCheckedContinuation { waiter in
             waiters[id] = waiter
-            line.send(frame)
+            if let gate { line.send(frame, through: gate) } else { line.send(frame) }
         }
         return reply?.value
     }
@@ -59,9 +72,22 @@ public final class AcpmuxPersonLine {
 
     /// The pending prompts of `session` while this daemon holds it itself: empty when `_acpmux/info`
     /// says a peer holds it (`peer`), as ``AgentPanePendingAsks`` reads it.
-    func ownPending(of session: String) async -> [[String: Any]] {
+    func ownPending(of session: String, chiefHomeID: String? = nil) async -> [[String: Any]] {
         guard let info = await call("_acpmux/info", ["sessionId": session]), info["peer"] == nil else { return [] }
+        if let chiefHomeID, !Self.isOwnerSubagent(info, session: session, home: chiefHomeID) { return [] }
         return info["pending"] as? [[String: Any]] ?? []
+    }
+
+    /// Home cards can answer only this home's local owner subagents. Turn sessions,
+    /// another Chief, the ask floor and peers stay outside this surface.
+    nonisolated static func isOwnerSubagent(_ info: [String: Any], session: String, home: String) -> Bool {
+        guard session.hasPrefix("local/"), info["sessionId"] as? String == String(session.dropFirst(6)),
+              info["peer"] == nil, let tags = info["tags"] as? [String: String],
+              tags["mux.parent"] == "optchat-chief:" + home,
+              let subagent = tags["optchat.subagent"], !subagent.isEmpty,
+              tags["optchat.policy"] != "ask", info["policy"] as? String != "ask",
+              tags["cmux.chief.role"] != "turn" else { return false }
+        return true
     }
 
     public func close() {

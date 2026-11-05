@@ -4,8 +4,8 @@ public import Foundation
 /// (`CloudStrings.errorText`); ``description`` is the same in English for
 /// logs and any caller that prints the error, never a Swift dump.
 public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible, LocalizedError {
-    /// The link went down or its connection ended. v1 does not reconnect by
-    /// itself: the user connects again.
+    /// The link went down or its connection ended. A running machine's link
+    /// is dialed again a few times (``CloudAppLinkRedial``), then on a click.
     case disconnected(reason: String)
     /// The backend revoked the link.
     case revoked(reason: String)
@@ -44,6 +44,29 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
     }
 
     public var errorDescription: String? { description }
+
+    /// The link went down or was revoked: a machine that ran lost it. Any
+    /// other error (a provider's refusal, a failed check) is not a drop.
+    public static func isDrop(_ error: any Error) -> Bool {
+        switch error as? CloudLinkError {
+        case .disconnected?, .revoked?: true
+        default: false
+        }
+    }
+
+    /// An end a redial can help: the link dropped, the machine's carrier was not up yet, or the machine was not
+    /// bound yet (still provisioning, hq#7060). A revoke or another refusal is the server's answer, and a failed
+    /// check this Mac's: dialing again changes neither.
+    public static func isRedialable(_ error: any Error) -> Bool {
+        switch error as? CloudLinkError {
+        case .disconnected?, .notUp?: true
+        case .failed(let code, _)?: notBoundCodes.contains(code)
+        default: false
+        }
+    }
+
+    /// The machine has no bound host yet: it still provisions (the Cloud API's and the app server's spelling).
+    static let notBoundCodes: Set<String> = ["cloud.machine.not_bound", "cmux.cloud.not_bound"]
 
     /// The command that closes an ``openDirectory(path:parent:)``: the socket
     /// folder to owner-only, a parent to not writable by others.

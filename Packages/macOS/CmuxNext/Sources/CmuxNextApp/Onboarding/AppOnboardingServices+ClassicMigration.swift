@@ -434,9 +434,9 @@ extension AppOnboardingServices {
                 _ = try await connection.setWorkspaceMetadata(key, pinned: true)
             }
             if let classic = saved.groupID, let group = groups[classic], let session = store.registryID {
-                try await connection.state.placePersonalWorkspace(session: session, key: key,
-                                                                  resource: store.personalStateID(session: session, key: key),
-                                                                  group: .set(group))
+                try await connection.state.placePersonalWorkspace(session: session, key: key, resource: store.personalStateID(session: session, key: key),
+                                                                  group: .set(group), index: store.personal.index(afterLastMemberOf: group, moving: key.rawValue, session: session))
+                await local.appliedThroughReply(on: connection, after: "classic group") // the next member's index reads this row (#28425)
             }
         } catch {
             services.daemon.logger.error("classic workspace look not kept: \(String(describing: error), privacy: .public)")

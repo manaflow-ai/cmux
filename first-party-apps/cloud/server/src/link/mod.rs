@@ -57,6 +57,10 @@ pub struct Attach {
     pub(crate) paused_restarts: BTreeSet<String>,
     /// `cloud.machine.connect_info` answers by machine (info::InfoCache).
     pub(crate) infos: info::InfoCache,
+    /// Cached owner answers are scoped to a link generation and the current
+    /// authenticated identity epoch. They avoid a Cloud read on every
+    /// connect over an already-up carrier.
+    pub(crate) owner_answers: BTreeMap<String, (u64, u64, bool)>,
     /// The server's allowlisted environment; children get only
     /// [`AppEnv::child_env`].
     pub(crate) env: AppEnv,
@@ -75,8 +79,15 @@ pub struct Attach {
     pub(crate) park_link_waits: bool,
     /// The link a connect just parked on, for the loop to pick up.
     pub(crate) parked: Option<(String, u64)>,
-    /// Ops of the serve loop that wait for a link (bounded).
+    /// The machine a connect just parked on until it runs, for the loop.
+    pub(crate) parked_machine: Option<String>,
+    /// Ops of the serve loop that wait for a link or a running machine
+    /// (bounded).
     pub(crate) parked_ops: Vec<park::Parked>,
+    /// The clock of the reads of a parked op's starting machine.
+    pub(crate) wait_clock: std::sync::Arc<dyn crate::clock::Clock>,
+    /// Wakes the serve loop (set by the loop; `None`: no loop).
+    pub(crate) wake: Option<LinkWake>,
     /// Frame links on the host channel (`DataPlane::Frames`, crate::connector).
     pub(crate) frames: crate::connector::frames::FrameLinks,
     next_terminal: u64,
@@ -99,6 +110,7 @@ impl Attach {
             hosts: BTreeMap::new(),
             paused_restarts: BTreeSet::new(),
             infos: info::InfoCache::default(),
+            owner_answers: BTreeMap::new(),
             env: AppEnv::default(),
             rescue: RescueBackend::new(rescue),
             rescue_terminals: BTreeMap::new(),
@@ -112,7 +124,10 @@ impl Attach {
             link_handles: BTreeMap::new(),
             park_link_waits: false,
             parked: None,
+            parked_machine: None,
             parked_ops: Vec::new(),
+            wait_clock: std::sync::Arc::new(crate::clock::SystemClock),
+            wake: None,
             frames: crate::connector::frames::FrameLinks::new(Box::new(
                 crate::connector::port::UnixPortOpener,
             )),
@@ -130,6 +145,13 @@ impl Attach {
     /// from the host (`cmux.host.link.get`), never from the environment.
     pub fn real() -> Self {
         Self::new(Box::new(CarrierSpawner), None, Box::new(MissingRescueRoute))
+    }
+
+    /// The clock of a parked connect's reads of its starting machine (tests
+    /// fire it by hand).
+    pub fn with_wait_clock(mut self, clock: std::sync::Arc<dyn crate::clock::Clock>) -> Self {
+        self.wait_clock = clock;
+        self
     }
 
     /// The clock of the `connect_info` cache (tests set their own time).
@@ -170,11 +192,13 @@ impl Attach {
             match &event {
                 CarrierEvent::Down { target, generation, retryable, reason, .. } => {
                     self.infos.forget(target);
+                    self.owner_answers.remove(target);
                     let lost = cmux_terminal_iface::Lost::new(reason.clone(), *retryable);
                     self.frames.link_down(target, Some(*generation), &lost);
                 }
                 CarrierEvent::Revoked { target, reason, generation } => {
                     self.infos.forget(target);
+                    self.owner_answers.remove(target);
                     let lost = cmux_terminal_iface::Lost::new(reason.clone(), false);
                     self.frames.link_down(target, *generation, &lost);
                 }

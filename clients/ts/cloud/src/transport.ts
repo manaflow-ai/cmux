@@ -43,8 +43,9 @@ export interface CloudClientOptions {
 }
 
 /**
- * Typed transport for cloud ops. Mutations always carry an idempotency key
- * (reuse the same key to retry; the owner replays the original result).
+ * Typed transport for cloud ops. Keyed mutations carry an idempotency key
+ * (reuse the same key to retry; the owner replays the original result); catalog
+ * mutations with idempotency `none` omit the request key.
  */
 export const createCloudClient = (options: CloudClientOptions) => {
   const doFetch = options.fetch ?? fetch
@@ -66,13 +67,11 @@ export const createCloudClient = (options: CloudClientOptions) => {
       params: CloudOps[K]["params"],
       opts: { idempotencyKey?: string; expectedRevision?: string; origin?: "user" | "cli" | "mcp" | "script" | "remote" } = {}
     ): Promise<CloudMutationOutcome<CloudOps[K]["result"]>> {
-      const r = (await post("/v1/ops", {
-        op,
-        params,
-        idempotency_key: opts.idempotencyKey ?? crypto.randomUUID(),
-        origin: opts.origin ?? "user",
-        ...(opts.expectedRevision ? { expected_revision: opts.expectedRevision } : {})
-      })) as Record<string, unknown>
+      const meta = cloudOpMeta[op]
+      const body: Record<string, unknown> = { op, params, origin: opts.origin ?? "user" }
+      if (meta.idempotency !== "none") body.idempotency_key = opts.idempotencyKey ?? crypto.randomUUID()
+      if (meta.idempotency === "required" && opts.expectedRevision) body.expected_revision = opts.expectedRevision
+      const r = (await post("/v1/ops", body)) as Record<string, unknown>
       return r.ok
         ? ({ ok: true, value: r.value, revision: r.revision, transaction: r.transaction, replayed: r.replayed, idempotency_key: r.idempotency_key, stream: r.stream, sequence: r.sequence } as CloudMutationOutcome<CloudOps[K]["result"]>)
         : ({ ok: false, error: r.error, transaction: r.transaction, replayed: r.replayed, idempotency_key: r.idempotency_key, stream: r.stream, sequence: r.sequence } as CloudMutationOutcome<CloudOps[K]["result"]>)

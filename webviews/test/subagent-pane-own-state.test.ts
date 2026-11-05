@@ -1,7 +1,10 @@
 // l10n-allow-file: test fixture prompts, replies and subagent names, not shipped UI.
 // A subagent's own pane (a tab on the chat's session that opens on `subagent:<id>`,
-// subagents/subagentPanes.ts) shows the subagent, read only. It never draws the chat's composer,
-// queue or pull request bars: they are the chat's, and a prompt typed there went to the chat.
+// subagents/subagentPanes.ts) shows the subagent with a composer of its own (Leo 2026-11-03:
+// "currently it says "read only" on the subagents in cmux-next. we should improve that"). It never
+// draws the chat's composer, queue or pull request bars: they are the chat's. What is typed in the
+// subagent's composer goes to the chat as a SendMessage relay naming the subagent's agentId
+// (subagents/subagentMessage.ts), since a Claude subagent has no acpmux session of its own.
 // Leo 2026-10-20: a reviewer's pane showed the chat's queued "this is a bit spammy" and its #663
 // bar. The chat's own pane keeps all of them. The page is the pane's dev entry with its browser
 // host, talking JSON-RPC to a stand-in acpmux daemon; the app's `subagent:` reveal is the page
@@ -67,7 +70,18 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
       "subagent_spawned",
       update(
         { sessionUpdate: "subagent_spawned" },
-        { subagents: [{ id: "a1", parent: null, name: "Reviewer", state: "running", startedAt: START + 4000 }] },
+        {
+          subagents: [
+            {
+              id: "a1",
+              parent: null,
+              name: "Reviewer",
+              state: "running",
+              startedAt: START + 4000,
+              agentId: "a39e817af38ddf5e7",
+            },
+          ],
+        },
       ),
     ],
     [
@@ -93,6 +107,8 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     family: "claude",
     status: "working",
     turnCount: 1,
+    // Claude Code takes a prompt into a running turn (acpmux `steering`).
+    steering: true,
     // acpmux's list holds the queue; the replayed `queued` record gives the prompt's whole text.
     queue: [{ promptId: "q1", prompt: "this is a bit spammy" }],
     updatedAt: START,
@@ -124,14 +140,25 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     await page.getByText("The reviewer is on it.").waitFor({ timeout: 25_000 });
     return page;
   };
-  /// What the pane's bottom shows: the chat's composer, its queued prompt and its pull request bar.
+  /// What the pane's bottom shows: the chat's composer, its queued prompt and its pull request bar,
+  /// and a subagent's own composer: its placeholder and the line naming the chat that passes it on.
   const bottom = (page: Page) =>
     page.evaluate(() => ({
-      composer: document.querySelectorAll(".acpmux-composer").length,
+      composer: document.querySelectorAll(".acpmux-composer:not(.acpmux-subagent-composer)").length,
       queued: [...document.querySelectorAll(".acpmux-queued")].map((row) => row.textContent ?? ""),
-      prDock: document.querySelectorAll(".acpmux-pr-dock").length,
-      readOnly: document.querySelector(".cv-subagent-pane-footer")?.textContent?.trim() ?? "",
+      subagent: document.querySelectorAll(".acpmux-subagent-composer").length,
+      placeholder:
+        document.querySelector(".acpmux-subagent-composer [aria-label]")?.getAttribute("aria-label")?.trim() ?? "",
+      via: document.querySelector(".cv-subagent-composer-via")?.textContent?.trim() ?? "",
+      text: document.body.textContent ?? "",
     }));
+  /// A message whose relay acpmux takes and whose turn never ends (the stand-in daemon never answers it).
+  const RUNNING_TURN = "Keep an eye on the flaky test";
+  /// Every prompt the stand-in daemon was sent, as its text.
+  const prompts: string[] = [];
+  /// Resolves with the first prompt sent after it was made that holds `text`.
+  let awaited: { text: string; resolve(sent: string): void } | undefined;
+  const promptWith = (text: string) => new Promise<string>((resolve) => (awaited = { text, resolve }));
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -141,7 +168,25 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string };
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: unknown };
+          if (/prompt/i.test(message.method)) {
+            const sent = JSON.stringify(message.params ?? null);
+            prompts.push(sent);
+            if (awaited && sent.includes(awaited.text)) awaited.resolve(sent);
+          }
+          // A prompt whose turn keeps running: acpmux takes it at once and answers when the turn ends,
+          // which here is never.
+          const params = message.params as { _meta?: { acpmux?: { promptId?: string } } } | undefined;
+          if (/prompt/i.test(message.method) && JSON.stringify(params ?? null).includes(RUNNING_TURN)) {
+            ws.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                method: "_acpmux/prompt_accepted",
+                params: { promptId: params?._meta?.acpmux?.promptId },
+              }),
+            );
+            return;
+          }
           if (message.id !== undefined)
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
         },
@@ -168,12 +213,11 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     const shown = await bottom(page);
     expect(shown.composer).toBe(1);
     expect(shown.queued.some((text) => text.includes("this is a bit spammy"))).toBe(true);
-    expect(shown.prDock).toBe(1);
-    expect(shown.readOnly).toBe("");
+    expect(shown.subagent).toBe(0);
     await page.close();
   });
 
-  test("a subagent's pane shows the subagent read only, with none of the chat's queue or bars", async () => {
+  test("a subagent's pane shows its own composer, with none of the chat's queue or bars", async () => {
     const page = await open();
     await page.locator(".acpmux-queued").first().waitFor({ timeout: 10_000 });
     await page.evaluate(() =>
@@ -185,15 +229,65 @@ await requireBrowserLane("subagent-pane-own-state.test.ts", async () => {
     const shown = await bottom(page);
     expect(shown.composer).toBe(0);
     expect(shown.queued).toEqual([]);
-    expect(shown.prDock).toBe(0);
-    expect(shown.readOnly).toContain("Release review");
+    expect(shown.subagent).toBe(1);
+    expect(shown.text).not.toContain("Read only");
+    expect(shown.placeholder).toBe("Message Reviewer");
+    expect(shown.via).toContain("Release review");
     // "Subagent of" shows the chat in this pane: the chat's composer, queue and bar are back.
     await page.locator(".cv-subagent-of__pill").click();
     await page.locator(".acpmux-queued").first().waitFor({ timeout: 10_000 });
     const chat = await bottom(page);
     expect(chat.composer).toBe(1);
-    expect(chat.prDock).toBe(1);
-    expect(chat.readOnly).toBe("");
+    expect(chat.subagent).toBe(0);
+    await page.close();
+  });
+
+  test("a message typed in a subagent's pane goes to its chat as a SendMessage to its agentId", async () => {
+    const page = await open();
+    await page.evaluate(() =>
+      (window as { cmuxAcpmuxBridge?: { revealTurn?(value: string): void } }).cmuxAcpmuxBridge?.revealTurn?.(
+        "subagent:a1",
+      ),
+    );
+    await page.locator(".acpmux-subagent-composer").waitFor({ timeout: 10_000 });
+    prompts.length = 0;
+    const arrived = promptWith("Also check the retry tests");
+    await page.locator('.acpmux-subagent-composer [aria-label="Message Reviewer"]').click();
+    await page.keyboard.type("Also check the retry tests");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => !document.querySelector(".acpmux-subagent-composer .ProseMirror")?.textContent);
+    // The test's own timeout ends a wait for a prompt that never comes.
+    const sent = await arrived;
+    expect(sent).toContain(CHAT);
+    expect(sent).toContain("SendMessage");
+    expect(sent).toContain("a39e817af38ddf5e7");
+    expect(sent).toContain("Reviewer");
+    // A steer: the chat's turn runs and its agent steers, so its next step reads it, not after the
+    // turn (an idle chat gets a prompt of its own: subagentMessage.test.ts subagentRelaySteers).
+    expect(sent).toContain('"steer":true');
+    await page.close();
+  });
+
+  test("a message the chat took is no longer held by the pane while the chat's turn runs on", async () => {
+    const page = await open();
+    await page.evaluate(() =>
+      (window as { cmuxAcpmuxBridge?: { revealTurn?(value: string): void } }).cmuxAcpmuxBridge?.revealTurn?.(
+        "subagent:a1",
+      ),
+    );
+    await page.locator(".acpmux-subagent-composer").waitFor({ timeout: 10_000 });
+    const arrived = promptWith(RUNNING_TURN);
+    await page.locator('.acpmux-subagent-composer [aria-label="Message Reviewer"]').click();
+    await page.keyboard.type(RUNNING_TURN);
+    await page.keyboard.press("Enter");
+    await arrived;
+    // The chat's send settles when the turn ends, which it never does here; the relay settled when
+    // acpmux took it, so a web update or a page release no longer waits on it.
+    await page.waitForFunction(
+      () => (window as { cmuxWebSwap?: { hold(): string | null } }).cmuxWebSwap?.hold() !== "subagents.draft-unsaved",
+      undefined,
+      { timeout: 10_000 },
+    );
     await page.close();
   });
 });

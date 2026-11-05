@@ -35,12 +35,12 @@ fn late_socket_report_cannot_resurrect_hook_ended_agent() {
     )
     .unwrap();
     mux.apply_agent_hook_record(&delayed, 10).unwrap();
-    assert!(mux.list_agents(Some(surface.id), None).is_empty());
+    assert!(settled(&mux).list_agents(Some(surface.id), None).is_empty());
     let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
     assert!(snapshot["agents"].as_array().unwrap().is_empty());
     assert!(mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, None).is_err());
     assert!(mux.report_agent(surface.id, AgentState::Working, AgentSource::Hook, None).is_err());
-    assert!(mux.list_agents(Some(surface.id), None).is_empty());
+    assert!(settled(&mux).list_agents(Some(surface.id), None).is_empty());
     assert!(
         mux.workspace_registry
             .lock()
@@ -76,7 +76,7 @@ fn new_non_hook_session_can_start_after_hook_session_end() {
         Some("new-socket-session".into()),
     )
     .unwrap();
-    let record = &mux.list_agents(Some(surface.id), None)[0];
+    let record = &settled(&mux).list_agents(Some(surface.id), None)[0];
     assert_eq!(record.source, AgentSource::Socket);
     assert_eq!(record.session.as_deref(), Some("new-socket-session"));
 
@@ -85,7 +85,7 @@ fn new_non_hook_session_can_start_after_hook_session_end() {
 
     // A late event from the ended hook session remains fenced.
     mux.apply_agent_hook_record(&hook("UserPromptSubmit"), 2).unwrap();
-    let record = &mux.list_agents(Some(surface.id), None)[0];
+    let record = &settled(&mux).list_agents(Some(surface.id), None)[0];
     assert_eq!(record.source, AgentSource::Socket);
     assert_eq!(record.session.as_deref(), Some("new-socket-session"));
 
@@ -93,7 +93,7 @@ fn new_non_hook_session_can_start_after_hook_session_end() {
     drop(mux);
     let reopened = open_persistent_test_mux("agent-hook-restart", &root);
     assert!(
-        reopened.list_agents(None, None).is_empty(),
+        settled(&reopened).list_agents(None, None).is_empty(),
         "a detached terminal must not remain in the live agent cache"
     );
     let public = crate::resource_api::public_session_snapshot(&reopened).unwrap();
@@ -122,7 +122,7 @@ fn direct_hook_report_with_new_session_can_follow_hook_end() {
         mux.report_agent(surface.id, AgentState::Working, AgentSource::Hook, Some("new".into()),)
             .is_ok()
     );
-    let record = &mux.list_agents(Some(surface.id), None)[0];
+    let record = &settled(&mux).list_agents(Some(surface.id), None)[0];
     assert_eq!(record.source, AgentSource::Hook);
     assert_eq!(record.session.as_deref(), Some("new"));
     mux.apply_agent_hook_record(&hook("UserPromptSubmit", "new"), 2).unwrap();
@@ -135,7 +135,7 @@ fn direct_hook_report_with_new_session_can_follow_hook_end() {
         .report_agent(surface.id, AgentState::Working, AgentSource::Hook, Some("old".into()))
         .unwrap_err();
     assert!(error.to_string().contains("agent_session_conflict"));
-    let record = &mux.list_agents(Some(surface.id), None)[0];
+    let record = &settled(&mux).list_agents(Some(surface.id), None)[0];
     assert_eq!(record.state, AgentState::Blocked);
     assert_eq!(record.session.as_deref(), Some("new"));
     assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
@@ -320,7 +320,7 @@ fn non_hook_reports_reject_reserved_hook_markers() {
         )
         .unwrap_err();
     assert!(error.to_string().contains("reserved hook marker"));
-    assert!(mux.list_agents(Some(surface.id), None).is_empty());
+    assert!(settled(&mux).list_agents(Some(surface.id), None).is_empty());
 }
 
 #[test]
@@ -407,12 +407,12 @@ fn reopened_ended_hook_fence_rejects_late_transitions() {
     };
     mux.apply_agent_hook_record(&ingress("SessionStart", Some("ended-session")), 1).unwrap();
     mux.apply_agent_hook_record(&ingress("SessionEnd", Some("ended-session")), 2).unwrap();
-    assert!(mux.list_agents(Some(surface.id), None).is_empty());
+    assert!(settled(&mux).list_agents(Some(surface.id), None).is_empty());
     mux.shutdown();
     drop(mux);
 
     let reopened = open_persistent_test_mux("agent-ended-reopen", &root);
-    assert!(reopened.list_agents(None, None).is_empty());
+    assert!(settled(&reopened).list_agents(None, None).is_empty());
     let fence = reopened.agent_hook_fences.lock().unwrap()[&terminal_id].clone();
     assert_eq!(fence.session_id, "ended-session");
     assert_eq!(fence.sequence, 2);
@@ -449,7 +449,7 @@ fn agent_hook_events_without_a_live_terminal_still_append() {
     )
     .unwrap();
     mux.append_journal_ingress(&ingress, "test", "hook-no-terminal").unwrap();
-    assert!(mux.list_agents(None, None).is_empty());
+    assert!(settled(&mux).list_agents(None, None).is_empty());
 }
 
 #[test]
@@ -503,12 +503,37 @@ fn terminal_cleanup_purges_pending_hook_receipts() {
 }
 
 #[test]
+fn terminal_cleanup_purges_held_child_agents() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+    let apply = |event: &str, native: Value, sequence: u64| {
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            native,
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ingress, sequence).unwrap();
+    };
+    let session = serde_json::json!({"session_id": "native-1"});
+    apply("SessionStart", session.clone(), 1);
+    apply("UserPromptSubmit", session.clone(), 2);
+    apply("SubagentStart", serde_json::json!({"session_id": "native-1", "agent_id": "a"}), 3);
+    apply("Stop", session, 4);
+    assert!(mux.agent_hook_children.lock().unwrap().contains_key(&terminal_id));
+    mux.purge_terminal_side_tables(&terminal_id);
+    assert!(!mux.agent_hook_children.lock().unwrap().contains_key(&terminal_id));
+}
+
+#[test]
 fn raw_socket_report_reaches_the_roster_through_its_journal_echo() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, None).unwrap();
     mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("probe".into()))
         .unwrap();
-    let records = mux.list_agents(Some(surface.id), None);
+    let records = settled(&mux).list_agents(Some(surface.id), None);
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].state, AgentState::Working);
     assert_eq!(records[0].source, AgentSource::Socket);

@@ -25,8 +25,8 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// keeps them equal). The agent pane has its own override (`CMUX_NEXT_AGENT_PANE_DEV_URL`); an
     /// app page is never served from it.
     static let pageIDs: Set<String> = [
-        "cmux.apps", "cmux.changelog", "cmux.chief-inspector", "cmux.chief-usage", "cmux.chief-views", "cmux.cloud", "cmux.coderouter", "cmux.debug-settings", "cmux.diff", "cmux.editor", "cmux.files", "cmux.history", "cmux.home-channels",
-        "cmux.icon-picker", "cmux.keybindings", "cmux.markdown", "cmux.mobile-pairing", "cmux.passwords", "cmux.settings", "cmux.stats",
+        "cmux.apps", "cmux.artifacts", "cmux.changelog", "cmux.chief-inspector", "cmux.chief-usage", "cmux.chief-views", "cmux.cloud", "cmux.coderouter", "cmux.debug-settings", "cmux.diff", "cmux.editor", "cmux.files", "cmux.history", "cmux.home-channels",
+        "cmux.icon-picker", "cmux.import-history", "cmux.keybindings", "cmux.markdown", "cmux.mobile-pairing", "cmux.passwords", "cmux.settings", "cmux.stats",
     ]
 
     /// The server's root URL (`http://127.0.0.1:4190/`).

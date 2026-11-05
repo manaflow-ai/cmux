@@ -1,11 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// The SwiftUI panels' toasts (`cmuxToast`, Feed and Tasks rejects): every end of the toast
 /// clears the model, so the same reject shows again, and a panel that goes away does not keep an
 /// old reject to replay when it reopens.
 @MainActor
+@Suite(.closesItsWindows)
 struct CmuxToastModifierTests {
     private final class Model {
         var reject: String? = "Refused"
@@ -36,6 +38,7 @@ struct CmuxToastModifierTests {
     @Test func aRejectPushedOutOfTheStackClearsTheModel() async throws {
         let center = CmuxToastCenter(host: HeadlessHost())
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let model = Model()
         _ = Self.anchor(model, center: center, in: window)
         #expect(center.toasts(in: window).map(\.id) == ["feed.reject"])
@@ -50,6 +53,7 @@ struct CmuxToastModifierTests {
     @Test func aClosedPanelClearsItsReject() async throws {
         let center = CmuxToastCenter(host: HeadlessHost())
         let window = Self.window()
+        defer { window.closeAfterTest() }
         let model = Model()
         let view = Self.anchor(model, center: center, in: window)
         view.removeFromSuperview()

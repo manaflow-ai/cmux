@@ -54,12 +54,12 @@ struct MenuBarMenuSpecTests {
         let busy = MenuBarMenuSpec().items(for: MenuBarMenuState(agentsWorking: 3, agentsNeedingInput: 1), isBound: Self.everything)
         let ids = Self.ids(busy)
         let start = try #require(ids.firstIndex(of: "-")) + 1
-        #expect(Array(ids[start..<start + 3]) == ["info:Agents working: 3", "jumpToUnread", "-"])
+        #expect(Array(ids[start..<start + 3]) == ["info:Agents working: 3", "agent.jumpToNextNeedingInput", "-"])
         let jump = busy[start + 1]
-        #expect(jump == .action("jumpToUnread", title: "Needs input: 1", symbol: "exclamationmark.bubble"))
+        #expect(jump == .action("agent.jumpToNextNeedingInput", title: "Needs input: 1", symbol: "exclamationmark.bubble"))
 
         let idle = Self.ids(MenuBarMenuSpec().items(for: MenuBarMenuState(), isBound: Self.everything))
-        #expect(!idle.contains("jumpToUnread"))
+        #expect(!idle.contains("agent.jumpToNextNeedingInput"))
         #expect(!idle.contains { $0.hasPrefix("info:") })
     }
 

@@ -1,5 +1,6 @@
 //! `acpmux secret-mcp`: the agent's `request_secret` and `run_with_secret`
-//! tools (cx-ncc.42), an MCP stdio server for one agent session that
+//! tools (cx-ncc.42) and `connect_mcp_server` (`hub/mcp_connect.rs`): every
+//! tool here waits on a card only the person answers, an MCP stdio server for one agent session that
 //! `agent_tools.rs` registers. Each call is one daemon request
 //! (`hub/secrets.rs`) for the session in [`SESSION_ENV`]; the value never
 //! passes through here, only the ref.
@@ -7,6 +8,7 @@
 use crate::client::Client;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::future::Future;
 use std::sync::Arc;
@@ -16,8 +18,43 @@ use tokio::sync::mpsc;
 pub const SERVER_NAME: &str = "cmux-secrets";
 /// The session the tools ask for, set in this server's own env.
 pub const SESSION_ENV: &str = "ACPMUX_SECRET_SESSION";
+/// The newest MCP protocol version our stdio servers speak.
+pub const NEWEST_PROTOCOL_VERSION: &str = "2025-06-18";
+/// The MCP protocol versions our stdio servers speak, newest first.
+pub const PROTOCOL_VERSIONS: &[&str] = &[NEWEST_PROTOCOL_VERSION, "2025-03-26", "2024-11-05"];
+
+/// The version an MCP `initialize` answers: the client's when we speak it,
+/// else our newest (the client then decides whether to go on).
+pub fn protocol_version(params: &Value) -> &'static str {
+    let requested = params["protocolVersion"].as_str();
+    PROTOCOL_VERSIONS
+        .iter()
+        .copied()
+        .find(|v| Some(*v) == requested)
+        .unwrap_or(NEWEST_PROTOCOL_VERSION)
+}
+
+/// Lists `connect_mcp_server` only with this set to `1`: until the daemon runs an approved
+/// server (plans/cmux-next/mcp-connect-DESIGN.md step 2b), an approval connects nothing, so agents
+/// do not see the tool by default.
+pub const MCP_CONNECT_PREVIEW_ENV: &str = "CMUX_MCP_CONNECT_PREVIEW";
+
+/// `value[key]` without an index: `Null` for a missing key or a value that is not an object.
+fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+    value.get(key).unwrap_or(&Value::Null)
+}
 
 fn tools() -> Value {
+    let mut all = all_tools();
+    if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1")
+        && let Some(list) = all.as_array_mut()
+    {
+        list.retain(|t| *field(t, "name") != "connect_mcp_server");
+    }
+    all
+}
+
+fn all_tools() -> Value {
     json!([
         {
             "name": "request_secret",
@@ -42,6 +79,19 @@ fn tools() -> Value {
                     "argv": {"type": "array", "items": {"type": "string"}, "description": "The command and its arguments, e.g. [\"sh\", \"-c\", \"curl -u \\\"$STRIPE_API_KEY:\\\" https://api.stripe.com/v1/balance\"]."}
                 },
                 "required": ["secretRef", "env", "argv"]
+            }
+        },
+        {
+            "name": "connect_mcp_server",
+            "description": "Ask the user to connect an MCP server (a known service such as linear, github, sentry or notion; an https:// URL; or a local command such as `npx -y @scope/server`). cmux checks it, then shows the user a card in this chat with the exact server, its publisher and the access it asks for; only the user can approve it, and they pick who gets it. You never see a token or key. The call waits until the user answers (15 minutes at most, or until your turn ends). Returns status approved (with the scope the user chose), declined, cancelled, or unknown (with near names to suggest). An address that is unsafe (a private network, http:// to another machine, a user name before the host) or a shell line is refused with the reason. Use it only when the user asked for the server.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "server": {"type": "string", "description": "What the user named: a service name, an https URL, or a command line."},
+                    "scope": {"type": "string", "enum": ["chat", "chief", "allChiefs", "agents", "everywhere"], "description": "Your proposal of who gets it; the user decides. Default chat."},
+                    "reason": {"type": "string", "description": "One sentence the card shows: what you will use it for."}
+                },
+                "required": ["server", "reason"]
             }
         }
     ])
@@ -90,12 +140,12 @@ where
         let reply = match verb.as_str() {
             "initialize" => {
                 let mut reply = json!({
-                    "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                    "protocolVersion": protocol_version(&message["params"]),
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name": name, "version": env!("CARGO_PKG_VERSION")},
                 });
                 if let Some(text) = &instructions {
-                    reply["instructions"] = json!(text);
+                    reply.set("instructions", json!(text));
                 }
                 reply
             }
@@ -148,26 +198,80 @@ async fn call(daemon: &Client, session: &str, params: &Value) -> Value {
                 "name": arguments["name"], "reason": arguments["reason"],
             }),
         ),
+        Some("connect_mcp_server")
+            if std::env::var(MCP_CONNECT_PREVIEW_ENV).as_deref() != Ok("1") =>
+        {
+            return error_result(
+                "connect_mcp_server is not on yet: cmux cannot run an approved MCP server until its \
+                 sign-in and proxy land. Tell the user to add the server to the harness themselves."
+                    .to_owned(),
+            );
+        }
+        Some("connect_mcp_server") => (
+            method::MUX_MCP_CONNECT_REQUEST,
+            json!({
+                "server": field(&arguments, "server"), "scope": field(&arguments, "scope"),
+                "reason": field(&arguments, "reason"),
+            }),
+        ),
         Some("run_with_secret") => (
             method::MUX_SECRET_RUN,
             json!({
                 "secretRef": arguments["secretRef"], "env": arguments["env"], "argv": arguments["argv"],
             }),
         ),
-        other => return error_result(format!("unknown tool: {}", other.unwrap_or_default())),
+        other => {
+            let name = other.unwrap_or_default();
+            return error_result(crate::mcp_hint::unknown_tool(
+                name,
+                crate::mcp_hint::names(&tools()),
+            ));
+        }
     };
-    request["sessionId"] = Value::String(session.to_owned());
+    request.set("sessionId", Value::String(session.to_owned()));
     match daemon.request(m, request).await {
         Ok(result) => {
             let text = if result["outcome"] == "cancelled" {
                 "The card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()
+            } else if *field(&result, "status") == "cancelled" {
+                "The connect card closed before the user answered (the turn stopped, or a newer ask replaced it).".to_owned()
+            } else if *field(&result, "status") == "declined" {
+                "The user declined to connect this server.".to_owned()
             } else if result["declined"] == true {
                 "The user declined to give this secret.".to_owned()
+            } else if *field(&result, "connect") == "signInNeeded" {
+                format!(
+                    "The user approved {} (scope {}). The server needs a sign-in before it lists tools: \
+                     ask the user to sign in on the card. The sign-in happens on the user's side; no \
+                     token or code comes to you, so never ask for one.",
+                    field(&result, "name").as_str().unwrap_or("the server"),
+                    field(&result, "scope").as_str().unwrap_or("chat"),
+                )
+            } else if *field(&result, "connect") == "keyNeeded" {
+                format!(
+                    "The user approved {}. It needs a key, which the user types only into the card's \
+                     secure field; never ask for it in the chat.",
+                    field(&result, "name").as_str().unwrap_or("the server"),
+                )
             } else {
                 result.to_string()
             };
             json!({"content": [{"type": "text", "text": text}], "structuredContent": result, "isError": false})
         }
         Err(e) => error_result(format!("{e:#}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initialize_answers_a_version_we_speak() {
+        let version = |v: Value| protocol_version(&json!({"protocolVersion": v}));
+        assert_eq!(version(json!("2024-11-05")), "2024-11-05");
+        assert_eq!(version(json!("2099-01-01")), PROTOCOL_VERSIONS[0]);
+        assert_eq!(version(json!(7)), PROTOCOL_VERSIONS[0]);
+        assert_eq!(protocol_version(&Value::Null), PROTOCOL_VERSIONS[0]);
     }
 }

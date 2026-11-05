@@ -97,12 +97,47 @@ test("the card shows status, space and phones with their transport, and follows 
   await act(async () =>
     page.provider.setHost({
       ...page.provider.host,
-      iphone: { ...state, allowed: false, account: null, space: null, phase: "off" },
+      // Off and signed out with no phones left; trusted phones stay listed while off (next test).
+      iphone: { ...state, allowed: false, account: null, space: null, phase: "off", phones: [] },
     }),
   );
   await settle();
   expect(card(page.container)!.querySelector("[data-mobile-phones]")).toBeNull();
   expect(card(page.container)!.textContent).not.toContain("Personal");
+  page.unmount();
+});
+
+test("Phone Access rows remain visible and removable when the legacy host is off", async () => {
+  const page = await renderPage({ path: "/settings/mobile" });
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      iphone: {
+        ...state,
+        allowed: false,
+        account: null,
+        space: null,
+        phase: "off",
+        phones: [
+          {
+            id: "iroh:peer",
+            title: "Demo iPhone · cmux next",
+            subtitle: "Device key demo",
+            connected: false,
+            removable: true,
+            transport: "iroh",
+            path: null,
+          },
+        ],
+      },
+    }),
+  );
+  await settle();
+  const element = card(page.container)!;
+  expect(element.querySelector('[data-mobile-phone="iroh:peer"]')).not.toBeNull();
+  await act(async () => element.querySelector<HTMLButtonElement>('[data-remove-phone="iroh:peer"]')!.click());
+  await settle();
+  expect(page.provider.log.some((entry) => entry.op === "cmux.settings.mobile.remove_phone")).toBe(true);
   page.unmount();
 });
 
@@ -205,5 +240,37 @@ test("a waiting pairing request has Allow and Don't Allow, and the blocked count
   );
   await settle();
   expect(card(page.container)!.querySelector("[data-pair-request]")).toBeNull();
+  page.unmount();
+});
+
+// Lawrence, msg 3790: "everywhere we say sign in, we need to have a button for signing in". Signed
+// out, the status ("Sign in to cmux to allow iPhone connections.") shows the shared Sign In button,
+// which runs the app's Sign In; signed in, it does not.
+test("signed out, the status row offers Sign In, which runs the app's Sign In", async () => {
+  const page = await renderPage({ path: "/settings/mobile" });
+  const signedOut: IPhoneHostState = {
+    ...state,
+    account: null,
+    space: null,
+    phase: "off",
+    phones: [],
+    status: "Sign in to cmux to allow iPhone connections.",
+    sign_in: "Sign In",
+  };
+  await act(async () => page.provider.setHost({ ...page.provider.host, iphone: signedOut }));
+  await settle();
+  const button = card(page.container)!.querySelector<HTMLButtonElement>('[data-action="sign-in"]');
+  expect(button?.textContent).toBe("Sign In");
+  await act(async () => button!.click());
+  await settle();
+  expect(
+    page.provider.log.some(
+      (entry) =>
+        entry.op === "cmux.app.action.run" && (entry.params as { action?: string }).action === "palette.auth.signIn",
+    ),
+  ).toBe(true);
+  await act(async () => page.provider.setHost({ ...page.provider.host, iphone: { ...state, sign_in: null } }));
+  await settle();
+  expect(card(page.container)!.querySelector('[data-action="sign-in"]')).toBeNull();
   page.unmount();
 });

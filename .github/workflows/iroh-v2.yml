@@ -28,15 +28,19 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   client:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER)) || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER)) || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 15
     steps:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER)) || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 && (vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER)) || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || fromJSON(vars.RUNNER_POOLS).macos_26 }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           # The self-hosted fleet also carries a macos-26 label, so a macos-*
@@ -59,7 +63,7 @@ jobs:
         run: swift test --package-path Packages/Shared/CmuxIrxTransport --filter V2URLSessionSocketTests
 
   backend:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     defaults:
       run:
@@ -89,7 +93,7 @@ jobs:
     environment: iroh-development
     if: github.event_name == 'workflow_dispatch' && inputs.deploy_development
     needs: backend
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     concurrency:
       group: iroh-v2-deploy-development

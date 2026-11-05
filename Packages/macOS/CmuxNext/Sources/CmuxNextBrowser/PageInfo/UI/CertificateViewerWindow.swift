@@ -11,10 +11,10 @@ final class CertificateViewerWindow: PageInfoWindow {
     private let container = NSView()
     private var selected = 0
 
-    init(chain: [PageInfoCertificate], site: PageInfoSite, failure: String?) {
+    init(chain: [PageInfoCertificate], site: PageInfoSite, failure: String?, activeLook: ActiveLookScope?) {
         self.chain = chain
         let name = chain.first?.subject.commonName ?? site.host ?? site.displayName
-        super.init(title: PageInfoStrings.viewerTitle(name), size: CGSize(width: 520, height: 560))
+        super.init(title: PageInfoStrings.viewerTitle(name), size: CGSize(width: 520, height: 560), activeLook: activeLook)
         setAccessibilityIdentifier("cmux.pageInfo.certificateViewer")
         tabs.segmentCount = 2
         tabs.setLabel(PageInfoStrings.general, forSegment: 0)

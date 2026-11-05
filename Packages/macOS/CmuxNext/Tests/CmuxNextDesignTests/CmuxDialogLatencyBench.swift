@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -12,7 +13,7 @@ import WebKit
 /// (`offsetHeight`), which is earlier than a painted frame, so they favor
 /// the web path.
 @MainActor
-@Suite(.enabled(if: ProcessInfo.processInfo.environment["CMUX_DIALOG_BENCH"] == "1"))
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["CMUX_DIALOG_BENCH"] == "1"), .closesItsWindows)
 struct CmuxDialogLatencyBench {
     static let runs = 40
     static let html = """
@@ -45,6 +46,7 @@ struct CmuxDialogLatencyBench {
     @Test func nativeVersusWeb() async throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         window.isReleasedWhenClosed = false
         let center = CmuxDialogCenter()
         let spec = CmuxDialogSpec(title: "Close Workspace “api”?", lines: ["vim and npm are still running."],

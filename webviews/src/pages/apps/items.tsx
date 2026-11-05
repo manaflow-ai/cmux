@@ -11,6 +11,21 @@ import type { AppContribution, CatalogApp } from "./types";
 
 type ItemProps = { app: CatalogApp; store: AppsStore; strings: Strings };
 
+/** Both localized labels size the action, including the primary state's heavier type. */
+function ActionLabel({ label, alternate }: { label: string; alternate: string }) {
+  return (
+    <span className="apps-action-label">
+      <span>{label}</span>
+      <span className="apps-action-label-size" aria-hidden="true">
+        {label}
+      </span>
+      <span className="apps-action-label-size" aria-hidden="true">
+        {alternate}
+      </span>
+    </span>
+  );
+}
+
 /**
  * The one action a listing offers: Install when absent, Remove when removable, else Hide/Show (a
  * first-party app ships with cmux and is hidden or shown, never removed; FIRST-PARTY-APPS).
@@ -27,7 +42,10 @@ export function ItemAction({ app, store, strings }: ItemProps) {
           void store.setHidden(app.id, !app.hidden);
         }}
       >
-        {t(app.hidden ? "store.action.show" : "store.action.hide")}
+        <ActionLabel
+          label={t(app.hidden ? "store.action.show" : "store.action.hide")}
+          alternate={t(app.hidden ? "store.action.hide" : "store.action.show")}
+        />
       </button>
     );
   }
@@ -40,7 +58,10 @@ export function ItemAction({ app, store, strings }: ItemProps) {
         void (app.installed ? store.uninstall(app.id) : store.install(app.id));
       }}
     >
-      {t(app.installed ? "store.action.remove" : "store.action.install")}
+      <ActionLabel
+        label={t(app.installed ? "store.action.remove" : "store.action.install")}
+        alternate={t(app.installed ? "store.action.install" : "store.action.remove")}
+      />
     </button>
   );
 }

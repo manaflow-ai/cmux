@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxHomeCore
 import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import Foundation
 @testable import MessagesLabHome
 import Testing
@@ -9,7 +10,7 @@ import Testing
 /// With no header (Debug Settings > Home > Avatar and name over the chat off), the top-right panel toggles (#22702) arrive after the chat's
 /// first layout (`HomeHostView.watchHeaderPanels`), and the rows' top moves under them. The
 /// first-run panel follows, or it would sit over the toggles' lower part and take their clicks.
-@MainActor @Suite(.serialized) struct HomeBareTopFirstRunTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeBareTopFirstRunTests {
     @Test func theFirstRunPanelMovesUnderTogglesThatArriveAfterLayout() throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(HomeTunables.all)
@@ -26,16 +27,18 @@ import Testing
         container.addSubview(view)
         container.layoutSubtreeIfNeeded()
         try #require(view.transcript.controller.host.bareTop, "the chat has no header with the tunable off")
-        #expect(view.firstRun.frame.minY == HostView.bareTopInset)
+        // The chat draws at its zoom (Agent Chat Zoom over its default size), so its header is that many points tall.
+        let zoom = view.transcript.zoom
+        #expect(view.firstRun.frame.minY == HostView.bareTopInset * zoom)
 
         view.setHeaderPanels([HomeHeaderPanelItem(id: "memory", symbol: "brain", label: "Memory Inspector", isOn: false)])
         container.layoutSubtreeIfNeeded()
         let rowsTop = PaneHeaderView.bareAccessoryTop + HomeHeaderPanelBar.buttonSize + 8
-        #expect(view.headerHeight == rowsTop)
-        #expect(view.firstRun.frame.minY == rowsTop)
+        #expect(view.headerHeight == rowsTop * zoom)
+        #expect(view.firstRun.frame.minY == rowsTop * zoom)
 
         view.setHeaderPanels([])
         container.layoutSubtreeIfNeeded()
-        #expect(view.firstRun.frame.minY == HostView.bareTopInset)
+        #expect(view.firstRun.frame.minY == HostView.bareTopInset * zoom)
     }
 }

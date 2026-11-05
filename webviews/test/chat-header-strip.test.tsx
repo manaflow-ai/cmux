@@ -1,7 +1,7 @@
 // The chat header's top strip as Claude Code desktop draws it (Leo 2026-10-21: "why do you still have
 // this spacing and these separators"): no separators between the tools, and one glyph size
 // (HEADER_GLYPH) for every icon button: the quick actions, the summary button, the "..." menu, the
-// Needs you inbox and the Inspector toggle. header.css gives them one 24px square on a 26px pitch;
+// Needs you inbox and Session Info toggle. header.css gives them one 24px square on a 26px pitch;
 // the gallery's grouped-controls play measures that in a real browser.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -90,7 +90,7 @@ test("the header strip has no separators and every icon button draws the same gl
     "New tab",
     "Chat actions",
   ]);
-  expect(buttons[0]?.querySelector("svg")?.getAttribute("data-icon")).toBe("view.list");
+  expect(buttons[0]?.querySelector("svg")?.getAttribute("data-icon")).toBe("view.list.short");
   for (const button of buttons) {
     expect(button.classList.contains("acpmux-header-tool")).toBe(true);
     const glyph = button.querySelector("svg");
@@ -126,7 +126,9 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
       />,
     );
   });
-  expect(requested.sort()).toEqual(["ellipsis", "globe", "list.bullet", "plusminus", "terminal"]);
+  // The panel toggle's two-row list (view.list.short) has no SF Symbol: it draws from the cmux pack, so it asks
+  // the host for nothing (Leo 2026-11-04: "make our session info button 2 rows too").
+  expect(requested.sort()).toEqual(["ellipsis", "globe", "plusminus", "terminal"]);
   const buttons = [...host.querySelectorAll(".acpmux-header-tool")];
   expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
     "Session Info",
@@ -135,18 +137,29 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
     "Browser",
     "Chat actions",
   ]);
-  for (const button of buttons) {
+  const lit = "var(--agent-lit-glyph, var(--agent-accent))";
+  const [toggle, ...symbolTools] = buttons;
+  const pack = toggle!.querySelector<SVGElement>("svg[data-icon]")!;
+  expect(pack.getAttribute("data-icon")).toBe("view.list.short");
+  expect(pack.getAttribute("width")).toBe("16");
+  expect(pack.classList.contains("acpmux-header-glyph")).toBe(true);
+  expect(pack.style.color).toBe(lit);
+  expect(toggle!.querySelector("[data-symbol]")).toBeNull();
+  for (const button of symbolTools) {
     const glyph = button.querySelector<HTMLElement>("[data-symbol]")!;
     expect(glyph).not.toBeNull();
     expect(glyph.getAttribute("aria-hidden")).toBe("true");
-    expect(glyph.style.width).toBe("16px");
-    expect(glyph.style.height).toBe("16px");
+    // header.css sizes the glyph from the icon box token, so nothing pins it inline.
+    expect(glyph.classList.contains("acpmux-header-glyph")).toBe(true);
+    expect(glyph.style.width).toBe("");
     expect(glyph.style.mask).toContain(template);
-    expect(glyph.style.color).toBe(button.getAttribute("aria-pressed") === "true" ? "var(--agent-accent)" : "");
+    expect(glyph.style.color).toBe(button.getAttribute("aria-pressed") === "true" ? lit : "");
   }
   await act(async () => root!.render(<PanelToggle label="Session Info" shown={false} onToggle={() => {}} />));
-  const unpressed = host.querySelector<HTMLElement>("[data-symbol]")!;
-  expect(unpressed.dataset.symbol).toBe("list.bullet");
+  const unpressed = host.querySelector<SVGElement>("svg[data-icon]")!;
+  expect(unpressed.getAttribute("data-icon")).toBe("view.list.short");
   expect(unpressed.style.color).toBe("");
-  act(() => setHarnessSymbolHost(undefined));
+  act(() => {
+    setHarnessSymbolHost(undefined);
+  });
 });

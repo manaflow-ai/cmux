@@ -831,10 +831,7 @@ mod tests {
 
         assert_eq!(resolver.resolve_fg(ColorSpec::Default), Color::Reset);
         assert_eq!(resolver.resolve_bg(ColorSpec::Default), Color::Reset);
-        assert_eq!(
-            resolver.blank_style(),
-            Style::default().fg(Color::Rgb(0x11, 0x22, 0x33)).bg(Color::Reset)
-        );
+        assert_eq!(resolver.blank_style(), Style::default().fg(Color::Reset).bg(Color::Reset));
     }
 
     #[test]

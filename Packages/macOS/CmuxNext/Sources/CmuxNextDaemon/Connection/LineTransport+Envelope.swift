@@ -16,11 +16,20 @@ extension LineTransport {
         var streamID: String?
         var errorDetails: JSONValue?
         var retryable: Bool?
+        /// The lines the daemon had written on this connection when the command read its state
+        /// (`data.lines_written_before_read`, `list-workspaces`): the reply's barrier (#32408).
+        var linesWrittenBeforeRead: UInt64?
 
         enum CodingKeys: String, CodingKey {
             case id, ok, event, error, type, reason, retryable, data
             case errorCode = "error_code"
             case streamID = "stream_id"
+            case errorDetails = "error_details"
+        }
+
+        private struct ReadBarrier: Decodable {
+            var lines: UInt64?
+            enum CodingKeys: String, CodingKey { case lines = "lines_written_before_read" }
         }
 
         private struct ResourceError: Decodable {
@@ -38,6 +47,7 @@ extension LineTransport {
                 id = UInt64(text, radix: 10)
             }
             ok = try? c.decodeIfPresent(Bool.self, forKey: .ok)
+            if ok == true { linesWrittenBeforeRead = (try? c.decodeIfPresent(ReadBarrier.self, forKey: .data))?.flatMap(\.lines) }
             (event, streamID) = (try? c.decodeIfPresent(String.self, forKey: .event), try? c.decodeIfPresent(String.self, forKey: .streamID))
             type = try? c.decodeIfPresent(String.self, forKey: .type)
             errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
@@ -51,6 +61,9 @@ extension LineTransport {
                 } else if let data = try? c.decodeIfPresent(JSONValue.self, forKey: .data), case .object = data {
                     // A typed refusal's facts (`agent_session.needs_keyed_start`, cx-0w0jj).
                     errorDetails = data
+                } else if let details = try? c.decodeIfPresent(JSONValue.self, forKey: .errorDetails) {
+                    // An `fs.*` refusal's facts (`fs.revision_mismatch` names the `current` revision).
+                    errorDetails = details
                 }
                 retryable = try? c.decodeIfPresent(Bool.self, forKey: .retryable)
             } else if let structured = try? c.decodeIfPresent(ResourceError.self, forKey: .error) {

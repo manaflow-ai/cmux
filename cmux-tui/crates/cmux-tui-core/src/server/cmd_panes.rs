@@ -29,6 +29,25 @@ use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
 
+/// One value of `set-layout-sizes`: what `set-split-ratio` or `set-viewport-pane-width` sets. Exactly one of the two
+/// objects: a value with both pairs, with any other field, or not an object (serde gives untagged struct variants no
+/// sequence form) is refused, not half applied (#34928 review A, #35261 review).
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub(super) enum LayoutSizeWire {
+    SplitRatio { split: SplitId, ratio: f32 },
+    PaneWidth { pane: PaneId, width: f32 },
+}
+
+impl From<LayoutSizeWire> for crate::mux::LayoutSizeValue {
+    fn from(value: LayoutSizeWire) -> Self {
+        match value {
+            LayoutSizeWire::SplitRatio { split, ratio } => Self::SplitRatio { split, ratio },
+            LayoutSizeWire::PaneWidth { pane, width } => Self::PaneWidth { pane, width },
+        }
+    }
+}
+
 pub(super) fn export_layout(mux: &Arc<Mux>, screen: Option<ScreenId>) -> anyhow::Result<Value> {
     mux.with_state(|state| export_layout_json(state, screen))
 }
@@ -130,6 +149,20 @@ pub(super) fn set_split_ratio(
             mux.set_split_ratio_in_transaction_checked_as(&actor, split, ratio, client, transaction)
         },
     )?;
+    Ok(json!({}))
+}
+
+/// `set-layout-sizes`: every value as one change, or none (a refused value answers with its single command's error
+/// code, and the message names its index).
+pub(super) fn set_layout_sizes(
+    mux: &Arc<Mux>,
+    client: u64,
+    actor: Actor,
+    values: Vec<LayoutSizeWire>,
+    transaction: u64,
+) -> anyhow::Result<Value> {
+    let values: Vec<crate::mux::LayoutSizeValue> = values.into_iter().map(Into::into).collect();
+    mux.set_layout_sizes_in_transaction_checked_as(&actor, &values, client, transaction)?;
     Ok(json!({}))
 }
 

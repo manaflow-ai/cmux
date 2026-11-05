@@ -24,9 +24,12 @@ enum CloudHandlers {
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
         CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
-        bindCreation(into: registry, context: context, reason: signedInReason)
+        CloudStartSession.bindRelayChat(into: registry, context: context, reason: signedInReason)
+        bindCreation(into: registry, context: context, reason: { cloud.unavailableReason })
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
+        bindSignInRecovery(into: registry, cloud: cloud)
+        CloudMachineStage.gatePowerActions(into: registry, context: context)
         // Any catalog row added later without a handler stays covered.
         registry.bindUnavailable(registry.unboundActionIDs(in: [.cloud]), ActionFailure(message: MiscHandlerStrings.cloud))
     }
@@ -40,6 +43,60 @@ enum CloudHandlers {
         assert(bound, "\(id) is not in the action catalog")
     }
 
+    static func bindMachineCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
+        let cloud = context.services.cloud
+        let signedOutCreation = cloud.signedOutCreation
+        let bound = registry.bindEffect("newCloudMachine", requires: nil, unavailable: reason) { invocation in
+            let request = try CloudHandlers.newMachineRequest(invocation)
+            let actionOrigin = CloudHandlers.origin(of: invocation)
+            let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
+            // The chat the person asked from, read now: sign-in may finish after focus moved.
+            let chat = CloudChatPick.chatTab(invocation, context.services)
+            let start: @MainActor () -> ActionWorkFailure? = {
+                guard cloud.isSignedIn else { return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.signInFirst) }
+                if let reason = cloud.unavailableReason { return ActionWorkFailure(refusal: .unavailable, reason: reason) }
+                if let window, context.services.windows.controller(for: window.id) == nil {
+                    return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
+                }
+                if request.isDefault, actionOrigin == .user, window != nil {
+                    CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat)
+                    return nil
+                }
+                let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
+                                         askedBy: invocation.callerAgentSession, reveals: invocation.allowsViewChange)
+                guard request.isDefault else {
+                    CloudHandlers.createRequested(request, flow: flow, window: window, context)
+                    return nil
+                }
+                CloudHandlers.reportCreatedMachine(flow.start(in: window, existing: nil), context)
+                return nil
+            }
+            guard !cloud.isSignedIn else {
+                signedOutCreation.cancel()
+                return registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined), start: start)
+            }
+            guard actionOrigin == .user else {
+                return .refused(CloudStrings.signInFirst)
+            }
+            let expected = signedOutCreation.reserve()
+            return registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined), authorize: {
+                let authorized = await signedOutCreation.perform(expected: expected,
+                    signIn: { await cloud.auth.signIn() }, resume: {})
+                guard authorized, cloud.isSignedIn else {
+                    return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.signInFirst)
+                }
+                if let reason = cloud.unavailableReason {
+                    return ActionWorkFailure(refusal: .unavailable, reason: reason)
+                }
+                if let window, context.services.windows.controller(for: window.id) == nil {
+                    return ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.createDeclined)
+                }
+                return nil
+            }, cancelAuthorization: { signedOutCreation.cancel(expected: expected) }, start: start)
+        }
+        assert(bound, "newCloudMachine is not in the action catalog")
+    }
+
     // MARK: Resolution
 
     /// The Cloud machine an invocation acts on.
@@ -47,9 +104,8 @@ enum CloudHandlers {
     /// Only a person's own gesture in this app may mean "the machine I'm looking at" (the active
     /// window's machine, else the only one). A CLI, MCP, script, page or remote run must name
     /// its machine (`--target machine:<id>`): an agent's `cloud kill-machine --confirm true`
-    /// never kills whatever machine the window happens to show. `fallsBack` keeps the old
-    /// fallback for an action whose miss costs nothing (New Cloud Workspace).
-    static func machine(_ invocation: ActionInvocation, _ context: AppActionContext, fallsBack: Bool = false) throws -> CloudMachineSession {
+    /// never kills whatever machine the window happens to show.
+    static func machine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> CloudMachineSession {
         let machines = context.services.machines
         if let target = invocation.target, target.kind == .machine {
             // The Cloud machine id (`cloud diagnostics`, `new-machine`), or the `machine_…`
@@ -60,7 +116,7 @@ enum CloudHandlers {
             }
             return session
         }
-        guard origin(of: invocation) == .user || fallsBack else { throw ActionFailure(message: CloudStrings.noMachine) }
+        guard origin(of: invocation) == .user else { throw ActionFailure(message: CloudStrings.noMachine) }
         if let state = context.services.windows.active?.state, let session = machines.session(state.machineID) { return session }
         if machines.cloud.count == 1, let only = machines.cloud.first { return only }
         throw ActionFailure(message: CloudStrings.noMachine)
@@ -109,7 +165,7 @@ enum CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if interactive { CloudPresenter.failure(error, in: window(context)) }
-                return ActionWorkFailure("\(label): \(CloudStrings.errorText(error))")
+                return ActionWorkFailure(log: "\(label): \(CloudStrings.errorText(error))", reason: CloudStrings.errorText(error))
             }
         }
         context.services.registry.track(task)
@@ -158,13 +214,18 @@ enum CloudHandlers {
         return false
     }
 
-    /// The machine's first workspace, created (with a terminal) when it has none.
-    static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
-        let daemon = session.daemon
+    /// The machine's first workspace that no other machine also lists (``CloudMachineWorkspace``), created (with a terminal) when it has none.
+    private static func firstWorkspaceResult(on session: CloudMachineSession, _ context: AppActionContext,
+                                             beforeCreate: () throws -> Void = {}) async throws -> (id: String, created: Bool) {
+        let daemon = session.daemon, machines = context.services.machines
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
-        if let first = daemon.store.workspaces.first { return first.id }
-        guard let id = await context.services.windows.createWorkspace(on: daemon) else { throw ActionFailure(message: CloudStrings.notConnected) }
-        return id
+        return try await CloudMachineWorkspace.first(in: daemon.store, notConnected: ActionFailure(message: CloudStrings.notConnected),
+                                                     listedElsewhere: { id in machines.daemons.contains { $0 !== daemon && $0.store.workspace(id: id) != nil } },
+                                                     beforeCreate: beforeCreate) { await context.services.windows.createWorkspace(on: daemon) }
+    }
+
+    static func firstWorkspace(on session: CloudMachineSession, _ context: AppActionContext) async throws -> String {
+        try await firstWorkspaceResult(on: session, context).id
     }
 
     /// Open Desktop (`cloud open-desktop`): the machine's desktop, as cmux Classic shows it, in a
@@ -191,11 +252,10 @@ enum CloudHandlers {
                 throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
             }
             let name = CloudStrings.desktopWorkspaceName(title), address = record.url.absoluteString
-            let api = services.cloud.api, machineID = session.machineID, cloud = services.cloud
+            let api = services.cloud.machineAPI, machineID = session.machineID, cloud = services.cloud
             let unavailable = CloudStrings.desktopUnavailable(title)
-            // The person's mark goes on right before the tab appears (after the host start and token
-            // read), in the person's run scope captured here, so its window never runs out first.
-            let scope = ActionRunScope.current, pages = services.remoteViewPages
+            // The person's run scope, captured here: their approval goes on the tab this open makes.
+            let scope = ActionRunScope.current, cache = services.cache
             WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
                 guard let pane = terminal.pane else { return }
                 if rd {
@@ -211,8 +271,11 @@ enum CloudHandlers {
                     guard token.count == 64 else { throw ActionFailure(message: unavailable) }
                     await MainActor.run { cloud.desktopRdTokens[machineID.lowercased()] = token }
                 }
-                await MainActor.run { pages.personOpens(record.url, scope: scope) }
-                _ = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
+                let created = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
+                // The approval goes on the exact tab the daemon made for this open, never on whichever
+                // tab first shows the same address (#29208): until then the tab asks for Connect.
+                let key = created.tabResourceID?.rawValue ?? "surface:\(created.surface.rawValue)"
+                await MainActor.run { cache.personOpenedRemoteView(key, url: record.url, scope: scope) }
                 if let surface = terminal.surface { try await connection.closeTab(surface) }
             }
             return
@@ -238,15 +301,13 @@ enum CloudHandlers {
     /// `proceed` runs right before each workspace this creates: its throw creates nothing.
     @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext,
                                           proceed: () throws -> Void = {}) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
-        let hadWorkspace = !session.daemon.store.workspaces.isEmpty
-        if !hadWorkspace { try proceed() }
-        let id = try await firstWorkspace(on: session, context)
+        let result = try await firstWorkspaceResult(on: session, context, beforeCreate: proceed)
+        let id = result.id
         if let anchor = anchor(id: id, on: session) { return anchor }
         if let anchor = await mirroredAnchor(id: id, on: session) { return anchor }
-        // `firstWorkspace` already requested the first workspace when the
-        // store was empty. Do not issue a second create if that mirror is
-        // unexpectedly late.
-        guard hadWorkspace else { throw ActionFailure(message: CloudStrings.notConnected) }
+        // A workspace created from a live empty tree may still be awaiting its
+        // mirror; do not issue a duplicate create while that request is pending.
+        guard !result.created else { throw ActionFailure(message: CloudStrings.notConnected) }
         try proceed()
         guard let created = await context.services.windows.createWorkspace(on: session.daemon) else {
             throw ActionFailure(message: CloudStrings.notConnected)
@@ -288,15 +349,19 @@ enum CloudHandlers {
     /// paused machine (cmux Cloud's idle auto-pause) resumes, and the work
     /// waits for its daemon instead of refusing with "not connected". A
     /// legacy machine with no connection reads its record again first, since
-    /// the app's copy may still say running. A machine that is not paused
-    /// returns at once, as before.
+    /// the app's copy may still say running. `waitsForLink` (Open Machine, Leo 2026-11-01: "when i tried to
+    /// click it this happens"): a person's gesture also waits for the link the attach started; else returns.
     static func attached(_ session: CloudMachineSession, _ invocation: ActionInvocation,
-                         within limit: Duration = .seconds(300)) async throws {
+                         within limit: Duration = .seconds(300), waitsForLink: Bool = false) async throws {
+        try requireAttachableState(session)
         await session.refreshIfMaybePaused()
+        try requireAttachableState(session)
         session.attach(origin: connectOrigin(for: invocation))
-        guard session.resuming else { return }
         let daemon = session.daemon
-        _ = await CloudMove.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
+        if waitsForLink, origin(of: invocation) == .user, !session.resuming, daemon.connection == nil, let reason = await CloudWait.linkFailure(
+            within: limit, connected: { daemon.connection != nil }, failure: { session.stage.failure }, deadline: CloudStrings.notConnected) { throw ActionFailure(message: reason) }
+        guard session.resuming else { return }
+        _ = await CloudWait.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
         if let failure = session.resumeFailure { throw ActionFailure(message: failure) }
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
     }
@@ -312,13 +377,16 @@ enum CloudHandlers {
     /// machine with no connection may be paused behind a stale record, so
     /// ``attached(_:_:within:)`` reads it again and decides.
     static func attachable(_ session: CloudMachineSession) -> Bool {
-        session.daemon.connection != nil || session.appLink == nil
+        !session.machine.shownStatus.isChanging && (session.daemon.connection != nil || session.appLink == nil)
+    }
+
+    static func requireAttachableState(_ session: CloudMachineSession) throws {
+        if let reason = CloudStrings.machineChanging(session.machine.shownStatus) { throw ActionFailure(message: reason) }
     }
 
     static func commandArgument(_ invocation: ActionInvocation) throws -> String {
-        guard let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
-            throw ActionFailure(message: CloudStrings.commandRequired)
-        }
+        let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !command.isEmpty else { throw ActionFailure(message: CloudStrings.commandRequired) }
         return command
     }
 }

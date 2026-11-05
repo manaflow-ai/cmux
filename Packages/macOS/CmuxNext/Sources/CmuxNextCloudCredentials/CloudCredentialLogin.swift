@@ -2,7 +2,6 @@ import CmuxNextDaemon
 import CmuxNextCompat
 import CryptoKit
 import Foundation
-import Security
 
 /// The transfer cache uses #25488's cmux-cloud-secret Keychain service and its stdin-only
 /// `cloud secret set` API. It is separate from the user's normal Claude/Codex login/cache.
@@ -16,22 +15,75 @@ import Security
         return "\(provider.rawValue.uppercased())_TRANSFER_\(scope)"
     }
 
+    /// The cached login, read the way it was stored: `cmux cloud secret set` writes the item with
+    /// `/usr/bin/security`, so its Keychain ACL trusts only that tool. The app's own
+    /// `SecItemCopyMatching` of it asks macOS for access with a modal prompt and waits for an answer,
+    /// which never comes on a machine with nobody at it (a capture runner): a Cloud start then sat
+    /// on "Clone repository" with its copy long done, awaiting this read. `security
+    /// find-generic-password -w` reads it with no prompt, bounded by ``readTimeout`` (as
+    /// `CloudHandlers.keychainValues` reads the same service). Nil when there is none.
     @concurrent static func load(provider: Provider, teamID: String?, userID: String, machineID: String? = nil) async throws -> Data? {
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching([
-            kSecClass: kSecClassGenericPassword, kSecAttrService: "cmux-cloud-secret",
-            kSecAttrAccount: "*/" + name(provider: provider, teamID: teamID, userID: userID, machineID: machineID),
-            kSecReturnData: true, kSecMatchLimit: kSecMatchLimitOne,
-        ] as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let bytes = result as? Data,
-              let object = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
-              let created = object["created"] as? Double,
-              created > 0,
-              let encoded = object["credential"] as? String, let data = Data(base64Encoded: encoded)
-        else { if status == errSecSuccess { return nil }; throw Failure.storeFailed }
+        let account = "*/" + name(provider: provider, teamID: teamID, userID: userID, machineID: machineID)
+        let result: ProcessResult
+        do {
+            result = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/usr/bin/security"),
+                arguments: ["find-generic-password", "-s", service, "-a", account, "-w"],
+                environment: nil, timeout: readTimeout, clock: ContinuousClock())
+        } catch {
+            throw Failure.storeFailed
+        }
+        if result.status == itemNotFoundStatus { return nil }
+        guard result.status == 0 else { throw Failure.storeFailed }
+        guard let data = credential(envelope: result.stdout) else { return nil }
         try CloudCredentialTransfer.validate(data, provider: provider)
         return data
+    }
+
+    /// The account's cached login under `teamID` first, else under the first of `otherTeams` (its
+    /// other teams, nil for its personal scope) that holds one: one person's own Claude login is the
+    /// same whichever of their teams is selected, so a team switch never asks them to sign in again
+    /// (Leo, 2026-11-04: "we literally said we were gonna do is such that you literally dont need to
+    /// log in"). Claude only; a Codex login is per machine and never kept. Nil when none holds one.
+    /// Every scope is read at once (each read is bounded by ``readTimeout``), so a locked Keychain
+    /// costs one timeout, not one per team; the selected team's entry wins, then `otherTeams` in order.
+    static func loadAny(provider: Provider, teamID: String?, otherTeams: [String?], userID: String) async throws -> Data? {
+        var scopes: [String?] = [teamID]
+        if provider == .claude { for team in otherTeams where !scopes.contains(team) { scopes.append(team) } }
+        var results = [Result<Data?, any Error>?](repeating: nil, count: scopes.count)
+        // concurrency-allow: bounded fan-out of Keychain reads, one per scope, each under readTimeout
+        await withTaskGroup(of: (Int, Result<Data?, any Error>).self) { group in
+            for (index, scope) in scopes.enumerated() {
+                group.addTask {
+                    // One local, one return: a tuple returned from an awaiting do and its catch
+                    // loses its first element at -O (swiftlang/swift#92698), here the scope's index.
+                    let result: Result<Data?, any Error>
+                    do { result = .success(try await load(provider: provider, teamID: scope, userID: userID)) } catch { result = .failure(error) }
+                    return (index, result)
+                }
+            }
+            for await (index, result) in group { results[index] = result }
+        }
+        // An unreadable or invalid entry under the selected team never hides a good one elsewhere.
+        for case .success(let data?)? in results { return data }
+        return try results.first.flatMap { $0 }?.get() ?? nil
+    }
+
+    /// The Keychain service `cmux cloud secret set` stores under.
+    nonisolated static let service = "cmux-cloud-secret"
+    /// How long one Keychain read may take before the login counts as unreadable.
+    nonisolated static let readTimeout: Duration = .seconds(30)
+    /// `security find-generic-password`'s exit status for no such item (errSecItemNotFound).
+    nonisolated static let itemNotFoundStatus: Int32 = 44
+
+    /// The credential in a stored envelope (`{"created": T, "credential": BASE64}`, one line as
+    /// `security -w` prints it); nil for anything else.
+    nonisolated static func credential(envelope output: Data) -> Data? {
+        var bytes = output
+        while let last = bytes.last, last == UInt8(ascii: "\n") || last == UInt8(ascii: "\r") { bytes.removeLast() }
+        guard let object = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+              let created = object["created"] as? Double, created > 0,
+              let encoded = object["credential"] as? String else { return nil }
+        return Data(base64Encoded: encoded)
     }
 
     static func store(_ value: Data, provider: Provider, teamID: String?, userID: String, machineID: String? = nil) async throws {

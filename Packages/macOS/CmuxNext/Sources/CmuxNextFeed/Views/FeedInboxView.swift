@@ -4,42 +4,55 @@ import CmuxNextIcons
 import SwiftUI
 
 /// The feed's wide mode. Connection and text filters are client view state;
-/// all triage continues through the single feed owner.
+/// all triage continues through the single feed owner. The Reports tab shows the
+/// reports basket (agent reports that wake no model, with a direct reply) in place
+/// of the item list and its detail.
 struct FeedInboxView: View {
     let model: FeedModel
+    var onReportsReply: (@MainActor (ReportReply) async -> Bool)?
     @Environment(\.feedColors) private var colors
     @State private var filter = FeedInboxFilter()
+    /// The first appearance picks GitHub when it is connected; switching tabs swaps the shown
+    /// child, which appears again, and must not pick it again.
+    @State private var pickedConnection = false
 
     var body: some View {
-        let items = filter.items(from: model.visibleItems)
-        let groups = FeedInboxGroups(items: items, now: model.now)
+        VStack(spacing: 0) {
+            if filter.connection == .reports {
+                VStack(spacing: 0) {
+                    header(hasUnread: false, markRead: {})
+                    ReportsBasketHost(model: model, onReply: onReportsReply)
+                }
+            } else {
+                inbox
+            }
+        }
+        .onAppear {
+            guard !pickedConnection else { return }
+            pickedConnection = true
+            if model.githubConnectionEnabled { filter.connection = .github }
+        }
+    }
+
+    private func header(hasUnread: Bool, markRead: @escaping () -> Void) -> FeedInboxHeader {
+        FeedInboxHeader(filter: $filter, hasUnread: hasUnread,
+            canRefresh: model.onRefresh != nil, canAddConnection: model.onAddConnection != nil,
+            markRead: markRead, refresh: { model.refresh() },
+            addConnection: { model.onAddConnection?() }, showsReports: onReportsReply != nil)
+    }
+
+    @ViewBuilder private var inbox: some View {
+        // The model's ordered sections, filtered and grouped once per change (no sort).
+        let groups = model.inboxGroups(filter)
+        let items = groups.all.flatMap(\.members)
         let shown = filter.selectedItem(model.selection, groups: groups)
-        let pendingIDs = Set(items.filter { model.isPending($0.id) }.map(\.id))
-        let now = model.now
-        // Capture actions here, outside LazyVStack. Its child views hold only
-        // immutable snapshots and callbacks, never the observable model.
-        let select: (String) -> Void = { model.select($0) }
         HStack(spacing: 0) {
             VStack(spacing: 0) {
-                FeedInboxHeader(filter: $filter, hasUnread: items.contains(where: \.isUnread),
-                    canRefresh: model.onRefresh != nil, canAddConnection: model.onAddConnection != nil,
-                    markRead: { model.markRead(items.map(\.id)) }, refresh: { model.refresh() },
-                    addConnection: { model.onAddConnection?() })
+                header(hasUnread: items.contains(where: \.isUnread), markRead: { model.markRead(items.map(\.id)) })
                 if groups.all.isEmpty {
                     FeedEmptyState(text: filter.query.isEmpty && filter.category == .all ? FeedStrings.empty : FeedStrings.noMatches)
                 } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            FeedInboxSection(title: FeedStrings.needsYou, entries: groups.needsYou,
-                                shown: shown?.id, now: now, pendingIDs: pendingIDs, select: select)
-                            FeedInboxSection(title: FeedStrings.today, entries: groups.today,
-                                shown: shown?.id, now: now, pendingIDs: pendingIDs, select: select)
-                            FeedInboxSection(title: FeedStrings.earlier, entries: groups.earlier,
-                                shown: shown?.id, now: now, pendingIDs: pendingIDs, select: select)
-                        }
-                        .padding(.bottom, 10)
-                        .thinScrollers()
-                    }
+                    FeedRowsHost(model: model, mode: .inbox, filter: filter)
                 }
             }
             .frame(width: 330)
@@ -58,9 +71,6 @@ struct FeedInboxView: View {
                 }
             }
             .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .onAppear {
-            if model.githubConnectionEnabled { filter.connection = .github }
         }
     }
 }

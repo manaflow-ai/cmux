@@ -109,12 +109,45 @@ it("keeps the provisioning intent and Stack mapping private in every subscriber 
   expect(JSON.stringify(views)).not.toContain(t.marker()?.nonce)
 })
 
+it("logs one line per ensure that is not ready, naming the reason, the ledger and the failed Stack call", async () => {
+  const t = await fixture()
+  t.stack.create = async () => { throw new PersonalTenantIdentityError(true, { call: "create", status: 403, code: "TEAM_CREATE_DENIED" }) }
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+  try {
+    expect(await ensure(t.personal)).toHaveProperty("status", "pending")
+    const lines = warn.mock.calls.map((c) => JSON.parse(String(c[0])) as Record<string, unknown>).filter((l) => l.msg === "personal vm api tenant not ready")
+    expect(lines).toEqual([expect.objectContaining({
+      team: t.personal, status: "pending", reason: "Stack create failed", create: true,
+      stack: { call: "create", status: 403, code: "TEAM_CREATE_DENIED" },
+      ledger: expect.objectContaining({ phase: "prepared", attempts: 2, nextAt: expect.any(Number) })
+    })])
+    warn.mockClear()
+    expect(await ensure(t.personal)).toHaveProperty("status", "pending")
+    expect(warn.mock.calls.map((c) => JSON.parse(String(c[0])) as Record<string, unknown>).filter((l) => l.msg === "personal vm api tenant not ready")).toEqual([
+      expect.objectContaining({ reason: "backing off after a failed create" })
+    ])
+  } finally { warn.mockRestore() }
+})
+
 it("does not resend a successful create when its membership confirmation fails", async () => {
   const t = await fixture()
   t.stack.members = async () => { throw new PersonalTenantIdentityError(true) }
   expect(await ensure(t.personal)).toHaveProperty("status", "pending")
   t.visible(false)
   expect(await ensure(t.personal)).toHaveProperty("status", "pending")
+  expect(t.creates()).toBe(1)
+})
+
+it("becomes ready on the next ensure once the members read answers, even with the ledger backed off for an hour", async () => {
+  const t = await fixture()
+  const listed = t.stack.members
+  t.stack.members = async () => { throw new PersonalTenantIdentityError(true, { call: "members", status: 404 }) }
+  for (let i = 0; i < 12; i++) expect(await ensure(t.personal)).toHaveProperty("status", "pending")
+  const ledger = await inDO(teamStub(t.personal), async (instance) => new PersonalTenantStore(instance.sqlStore).read())
+  expect(ledger).toMatchObject({ phase: "creating" })
+  expect(ledger!.nextAt! - Date.now()).toBeGreaterThan(30 * 60_000)
+  t.stack.members = listed
+  expect(await ensure(t.personal)).toMatchObject({ status: "ready", target: { tenant: STACK_TEAM } })
   expect(t.creates()).toBe(1)
 })
 

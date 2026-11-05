@@ -118,6 +118,19 @@ class LeoBansTests(unittest.TestCase):
                 result = self.check(*args)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_a_big_font_and_many_stylesheets_never_hang_the_rev_read(self):
+        # The real tree: an 880 KB font and ~140 stylesheets in one `cat-file --batch`. With the
+        # request piped through `input=`, Python blocked writing it while git blocked writing the
+        # font back, and every push on the host hung in this check (Oct 28).
+        self.write(FONTS + "InterVariable.ttf", ttf("Inter Variable") + b"\0" * 900_000)
+        for k in range(140):
+            self.write(f"webviews/src/pages/p{k:03}/page-with-a-long-enough-name-{k:03}.css",
+                       ".page { font: 13px var(--font-ui); }\n")
+        self.commit("big tree")
+        result = subprocess.run([sys.executable, "-I", str(CHECK), "--repo", str(self.repo), "--rev", "HEAD"],
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_another_ui_family_fails(self):
         self.write("schemas/type-scale/type-scale.json", json.dumps(type_scale(family="Geist")))
         self.assert_fails("UI font is 'Geist'")

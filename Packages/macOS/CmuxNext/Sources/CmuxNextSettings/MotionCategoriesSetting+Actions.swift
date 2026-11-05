@@ -6,7 +6,8 @@ extension MotionCategoriesSetting {
     /// `appearance.animations.toggle` flips the master switch
     /// `ui.animations.enabled`, and `appearance.animations.<category>.toggle`
     /// flips one category. Turning a switch back on removes its key (the
-    /// default). A managed key refuses and changes nothing.
+    /// default). A managed key refuses and changes nothing. Each palette row
+    /// says whether its switch is on now.
     @MainActor public static func bindActions(into registry: ActionRegistry, design: DesignSettings, save: @escaping SettingChoiceActions.Save) {
         registry.bind(ActionID(rawValue: masterActionID), invoke: { [weak registry] _ in
             let on = !design.animationsEnabled
@@ -16,6 +17,7 @@ extension MotionCategoriesSetting {
             }
             design.animationsEnabled = on
         })
+        ActionTargetTitles.setPaletteState(ActionID(rawValue: masterActionID), in: registry) { design.animationsEnabled }
         for category in MotionCategory.allCases {
             registry.bind(ActionID(rawValue: actionID(category)), invoke: { [weak registry] _ in
                 let on = design.disabledAnimationCategories.contains(category)
@@ -25,6 +27,7 @@ extension MotionCategoriesSetting {
                 }
                 if on { design.disabledAnimationCategories.remove(category) } else { design.disabledAnimationCategories.insert(category) }
             })
+            ActionTargetTitles.setPaletteState(ActionID(rawValue: actionID(category)), in: registry) { !design.disabledAnimationCategories.contains(category) }
         }
     }
 

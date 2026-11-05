@@ -2,8 +2,9 @@ public import AppKit
 import CmuxNextDesign
 
 /// Small label over a terminal whose link is down: the last screen stays
-/// visible behind it. Hidden while connected. The theme's raised surface and
-/// secondary text, no accent.
+/// visible behind it. The theme's raised surface and secondary text, no
+/// accent. ``TerminalStatusLabel`` builds it the first time a label shows and
+/// decides when it shows; it starts hidden.
 final class TerminalStatusBanner: NSView {
     private let label = ThemedLabel(labelWithString: "")
 
@@ -52,36 +53,51 @@ final class TerminalStatusBanner: NSView {
     /// Clicks go to the terminal below (a click there re-attaches).
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func show(_ status: TerminalConnectionStatus, hostLoss: TerminalHostLoss? = nil,
-              cause: TerminalHostLossCause? = nil, stall: TerminalShellStall? = nil) {
-        guard let text = Self.text(for: status, hostLoss: hostLoss, cause: cause, stall: stall) else {
-            endReveal()
-            isHidden = true
-            return
-        }
+    /// Shows `text` (the label's words, ``text(for:hostLoss:cause:stall:strings:)``). `fadeIn`: it
+    /// appears with the overlays' fade (a label that waited out its reveal delay); else at once.
+    func show(_ text: String, fadeIn: Bool) {
+        setText(text)
+        guard isHidden else { return }
+        isHidden = false
+        if fadeIn, let layer { Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
+    }
+
+    /// Sets the words while hidden (a label still waiting, whose place the buttons above it use).
+    func setText(_ text: String) {
         label.stringValue = text
         setAccessibilityLabel(text)
-        let restoring = status == .restoring && stall == nil
-        if restoring, isHidden { beginReveal() } else if !restoring { endReveal() }
-        isHidden = false
     }
 
-    /// "Restoring…" fades in only after `restoringRevealDelay`, so an attach
+    func hide() {
+        guard !isHidden else { return }
+        layer?.removeAnimation(forKey: "opacity")
+        isHidden = true
+    }
+
+    /// "Restoring…" shows only after `restoringRevealDelay`, so an attach
     /// that answers at once (the usual case) never flashes the label.
     static let restoringRevealDelay: CFTimeInterval = 0.5
-    private static let revealHoldKey = "terminalStatus.restoringHold"
-    private static let revealFadeKey = "terminalStatus.restoringReveal"
+    /// "Reconnecting…" and "Reconnecting to the shell…" show only after
+    /// `reconnectingRevealDelay`: a version handoff marks every tab adopting
+    /// while the new daemon takes its host back (a slow host costs up to 1 s
+    /// of connect retries and 2 s of handshake, after up to 2 s waiting for
+    /// the owner to say ready), and a dropped view re-attaches at once. Those
+    /// clear within it and never show; one that lasts still shows, and the
+    /// lasting "Disconnected" and stopped states show at once.
+    static let reconnectingRevealDelay: CFTimeInterval = 5
 
-    private func beginReveal() {
-        guard let layer else { return }
-        layer.add(Motion.hold("opacity", at: 0), forKey: Self.revealHoldKey)
-        layer.add(Motion.overlays.scheduledFade(.fadeIn, "opacity", from: 0, to: 1, after: Self.restoringRevealDelay, on: layer),
-                  forKey: Self.revealFadeKey)
-    }
-
-    private func endReveal() {
-        layer?.removeAnimation(forKey: Self.revealHoldKey)
-        layer?.removeAnimation(forKey: Self.revealFadeKey)
+    /// How long the label for `status` (with the daemon's `stall`) waits
+    /// before it fades in; nil shows it at once. Only transient states wait.
+    static func revealDelay(for status: TerminalConnectionStatus, stall: TerminalShellStall?) -> CFTimeInterval? {
+        if let stall = shownStall(status, stall) {
+            return stall == .reconnecting ? reconnectingRevealDelay : nil
+        }
+        switch status {
+        case .restoring: return restoringRevealDelay
+        case .disconnected(.turnedOffByOrganization, _): return nil
+        case .disconnected(_, reconnecting: true): return reconnectingRevealDelay
+        case .connected, .disconnected, .exited: return nil
+        }
     }
 
     /// The banner text, or nil while connected. An exited terminal whose
@@ -98,7 +114,7 @@ final class TerminalStatusBanner: NSView {
         stall: TerminalShellStall? = nil,
         strings: ModuleResourceBundle = .terminal
     ) -> String? {
-        if let stall, status != .exited, status != .disconnected(.turnedOffByOrganization, reconnecting: false) {
+        if let stall = shownStall(status, stall) {
             return stallText(stall, strings: strings)
         }
         if case .exited = status, hostLoss != nil, let cause,
@@ -148,6 +164,13 @@ final class TerminalStatusBanner: NSView {
         }
     }
 
+    /// The stall the banner names: any, unless the terminal exited or an
+    /// administrator turned the link off.
+    private static func shownStall(_ status: TerminalConnectionStatus, _ stall: TerminalShellStall?) -> TerminalShellStall? {
+        guard status != .exited, status != .disconnected(.turnedOffByOrganization, reconnecting: false) else { return nil }
+        return stall
+    }
+
     /// The label of a shell the daemon cannot reach.
     static func stallText(_ stall: TerminalShellStall, strings: ModuleResourceBundle) -> String {
         let close = strings.text("terminal.link.stall.closeHint", defaultValue: "Close the tab to end it")
@@ -155,8 +178,11 @@ final class TerminalStatusBanner: NSView {
         case .reconnecting:
             return strings.text("terminal.link.stall.reconnecting", defaultValue: "Reconnecting to the shell…")
         case .linkLost:
-            let reason = strings.text("terminal.link.stall.linkLost", defaultValue: "Terminal stopped: cmux lost its link to the shell")
-            return "\(reason) · \(close)"
+            // The shell may still run and the daemon keeps retrying; the
+            // Recover button above the label rehosts it at once.
+            let reason = strings.text("terminal.link.stall.linkLostRetrying", defaultValue: "cmux lost its link to the shell")
+            let retrying = strings.text("terminal.link.stall.retryingHint", defaultValue: "Still retrying")
+            return "\(reason) · \(retrying)"
         case .otherBuild:
             let reason = strings.text("terminal.link.stall.otherBuild", defaultValue: "Terminal stopped: another cmux build owns its shell")
             return "\(reason) · \(close)"

@@ -44,6 +44,31 @@ struct AcpmuxHomeIsolationTests {
         }
     }
 
+    /// cmux#29050: an agent under NIGHTLY's acpmux launched a tagged DEV app from its shell, which
+    /// exports the pair `ACPMUX_HOME=~/.acpmux` and `ACPMUX_SOCKET`. The DEV app took NIGHTLY's
+    /// home, handed its daemon off to its own, and every new NIGHTLY chat waited on re-adoption.
+    @Test func anInheritedNightlyHomeAndSocketPairIsAnotherBuilds() throws {
+        let inherited = ["ACPMUX_HOME": "/Users/me/.acpmux", "ACPMUX_SOCKET": Self.nextSocket]
+        let tagged = try Self.resolve(tag: "28978-chief-zoom-base", inherited)
+        let own = Self.build("28978-chief-zoom-base").acpmuxHome(userHome: Self.user)
+        #expect(tagged.home.path == own.path)
+        #expect(tagged.socketPath == own.appendingPathComponent("acpmux.sock").path)
+        #expect(tagged.childEnvironment["ACPMUX_HOME"] == own.path)
+        let otherBuild = Self.build("other").acpmuxHome(userHome: Self.user).path
+        let fromOther = try Self.resolve(tag: "28978-chief-zoom-base",
+                                         ["ACPMUX_HOME": otherBuild, "ACPMUX_SOCKET": otherBuild + "/acpmux.sock"])
+        #expect(fromOther.home.path == own.path)
+        // NIGHTLY's Chief runs a daemon of its own, which an agent under it exports the same way.
+        let chief = "/Users/me/.cmux/chief/default/acpmux"
+        let fromChief = try Self.resolve(tag: "28978-chief-zoom-base", ["ACPMUX_HOME": chief, "ACPMUX_SOCKET": chief + "/acpmux.sock"])
+        #expect(fromChief.home.path == own.path)
+        #expect(fromChief.socketPath == own.appendingPathComponent("acpmux.sock").path)
+        // Its own home named explicitly, and a home outside the root (a Chief brain's), still win.
+        #expect(try Self.resolve(tag: "28978-chief-zoom-base", ["ACPMUX_HOME": own.path]).home.path == own.path)
+        #expect(try Self.resolve(tag: "28978-chief-zoom-base", ["ACPMUX_HOME": "/Users/me/.cmux/brains/chief/acpmux"]).home.path
+            == "/Users/me/.cmux/brains/chief/acpmux")
+    }
+
     @Test func anExplicitHomeAndSocketPairStillWins() throws {
         let pair = try Self.resolve(tag: "t", ["ACPMUX_HOME": "/h", "ACPMUX_SOCKET": "/s.sock"])
         #expect(pair.home.path == "/h")
@@ -114,10 +139,10 @@ struct AcpmuxOtherHomeDaemonTests {
         var started: Int32?
         var bUsedIt = false
         do {
-            try await AcpmuxHost(environment: a).prewarm()
+            try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: a).prewarm()
             started = try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid
             try FileManager.default.removeItem(at: binA.appendingPathComponent("acpmux"))
-            bUsedIt = (try? await AcpmuxHost(environment: b).prewarm()) != nil
+            bUsedIt = (try? await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: b).prewarm()) != nil
         } catch {
             Issue.record("daemon A did not start: \(error)")
         }
@@ -147,7 +172,7 @@ struct AcpmuxOtherHomeDaemonTests {
         var refused: (any Error)?
         var started: Int32?
         do {
-            try await AcpmuxHost(environment: environment).prewarm()
+            try await AcpmuxHost(daemons: AcpmuxLocalDaemons(), environment: environment).prewarm()
             started = try await AcpmuxStatusClient.status(socketPath: socket, deadline: .seconds(15)).pid
             do {
                 try await AcpmuxStatusClient.shutdown(socketPath: socket, home: other, deadline: .seconds(10))

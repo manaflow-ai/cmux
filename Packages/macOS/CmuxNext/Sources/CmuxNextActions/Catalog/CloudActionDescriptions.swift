@@ -9,11 +9,12 @@
 nonisolated enum CloudActionDescriptions {
     static let text: [ActionID: String] = [
         "newCloudWorkspace": """
-            Opens a workspace on the Cloud machine the focused window shows, else the only one. A connected \
-            machine gets a new workspace; one not connected is connected (a paused one resumes) and its first \
-            workspace opens. When neither picks a machine (none, or several and none focused) it creates one, \
-            which may ask the person first. Answers at once with no ids: \
-            `cmux cloud new-terminal-on-machine --target machine:<id>` returns a workspace_id.
+            Opens a Cloud workspace on a new small machine of its own, never a listed one (another \
+            workspace's, a teammate's or a fleet one). Returns machine_id, title, status and target once the \
+            server has it (workspace_id once open); after 30 s, pending: true while the create goes on. A \
+            refused create fails with its reason. --target machine:<id> opens on that machine: a connected one \
+            returns workspace_id, another connects (a paused one resumes) and answers pending. In the app, \
+            the person's own gesture opens on the machine their window shows.
             """,
         "newCloudMachine": """
             Creates a Cloud machine; returns machine_id, title, status and target once the server has it. \
@@ -50,8 +51,9 @@ nonisolated enum CloudActionDescriptions {
             """,
         "palette.cloud.ports": """
             Lists the TCP ports listening on the machine (--target machine:<id>) and returns machine_id and \
-            ports (comma-separated). Needs the machine connected: resume a paused one first with \
-            `cmux cloud resume-machine --target machine:<id>`.
+            ports (comma-separated). New Cloud also returns private previews, listening and unavailable \
+            ports; its menu opens a detected port in the app browser. On the classic link, connect first \
+            with `cmux cloud resume-machine --target machine:<id>`.
             """,
         "palette.cloud.tools": """
             Shows the machine's login shell, where zsh, git, gh, htop, btop, node, bun and python3 are \
@@ -87,10 +89,11 @@ nonisolated enum CloudActionDescriptions {
             after 25 s. A person's run from the palette types it into a new terminal tab instead.
             """,
         "cloudSetupGitHub": """
-            Copies this Mac's git user.name and user.email to the machine (--target machine:<id>) and starts \
-            a GitHub CLI sign-in there; no token leaves this Mac. Returns ok, gh_status (logged_in, pending, \
-            missing or failed), the identity it set and, while the sign-in waits, device_code and \
-            verification_uri for the person to approve; --focus also opens that page.
+            Copies this Mac's git user.name and user.email to the machine (--target machine:<id>) and sets up \
+            GitHub: through the cmux GitHub App when the team has connected it (git gets a short-lived token \
+            per repo; no token stored), else a GitHub CLI sign-in there. No token leaves this Mac. Returns ok, \
+            method (app or device), fallback_reason, gh_status (app, logged_in, pending, missing or failed), \
+            the identity it set and, while a sign-in waits, device_code and verification_uri; --focus opens that page.
             """,
         "cloudEnrollMachine": """
             Makes the machine (--target machine:<id>) an ssh host and an acpmux peer of this Mac: authorizes \
@@ -166,11 +169,28 @@ nonisolated enum CloudActionDescriptions {
             Lists the account's Cloud publications and returns count and text with one line per \
             publication: its hostname, state and access mode.
             """,
+        "cloudProvisionAPI": """
+            Provisions an API on the machine (--target machine:<id>): publishes --port behind cmux \
+            sign-in under a generated https hostname and mints an API key for it, in one call. Returns url, \
+            publication_id, api_key_id, key and cookie. API clients send the key as the cookie \
+            (__Host-cmux-api-key=<key>), which the machine never receives; the key is answered this one time. \
+            Running it again for the same port reuses the URL and mints another key. Optional --name names \
+            the key.
+            """,
+        "cloudAPIKeyList": """
+            Lists the live API keys of a Cloud publication (--arg path=<publication id or hostname>) and \
+            returns count and text with one line per key: its id, name and last four characters.
+            """,
+        "cloudAPIKeyRevoke": """
+            Revokes an API key (--arg path=<publication id or hostname> --arg key=<key id>); requests with \
+            it are refused from the next one on. Destructive: a CLI or agent run needs --confirm. Returns \
+            api_key_id and revoked_at.
+            """,
         "cloudListMachines": """
             Returns the app's Cloud machines: loaded, count, account.signed_in and machines, each with \
-            machine_id, target (machine:<id>), title, status, owner and created_at. loaded false means the \
-            list is not known yet (signed out, or still loading after 25 s with pending: true), not that \
-            there are none.
+            machine_id, target (machine:<id>), title, status, owner, created_by and created_at. created_by is \
+            the creator's user ID, or null when unavailable. loaded false means the list is not known yet \
+            (signed out, or still loading after 25 s with pending: true), not that there are none.
             """,
         "cloudNewTerminal": """
             Opens a new workspace with a terminal on the machine (--target machine:<id>), resuming a paused \
@@ -185,10 +205,23 @@ nonisolated enum CloudActionDescriptions {
             it and resuming it when paused. Not a CLI verb: \
             `cmux cloud new-terminal-on-machine --target machine:<id> --focus` opens and shows a workspace.
             """,
+        "cloudOpenDesktop": """
+            Shows the machine's desktop (--target machine:<id>) in a new workspace on this Mac: its noVNC \
+            page in a browser tab, reached over this Mac's Cloud tunnel with no port opened here (--viewer \
+            web, the default). Refused when the machine has no desktop or address, or the browser is \
+            unavailable. Answers at once with no fields, before the page loads.
+            """,
         "cloudRenameMachine": """
             Renames the machine (--target machine:<id> --name <name>; an empty name clears it). Answers at \
             once, before the rename is done. Without --name it asks the person for the name in the app, so a \
             script or agent passes --name.
+            """,
+        "cloudShareMachine": """
+            Shares app-started chats on a team machine (--target machine:<id>) with a teammate \
+            (--teammate <user id>), or takes the share back (--revoke). Only the machine's creator or a \
+            team admin may change shares. Without --teammate it answers the machine's teammates as \
+            `teammates` [{user_id, name, shared}]; in the app it opens a page of them, where Return \
+            shares or stops sharing.
             """,
         "cloudKillMachine": """
             Deletes the machine (--target machine:<id>) and everything on it. Destructive: a CLI or agent \
@@ -221,17 +254,28 @@ nonisolated enum CloudActionDescriptions {
         "cloudDeliverSecrets": """
             Sends the values of the secret names the machine's .cmux/machine.toml declares (--target \
             machine:<id>, --repo OWNER/NAME for repo-scoped ones) from this Mac's Keychain to the machine \
-            over its daemon link, never the Cloud API. Returns status (delivered, unchanged or pending), \
-            delivered and missing names. Values are stored with cmux cloud secret set NAME.
+            over its daemon link, never the Cloud API. An own machine (an SSH machine or an acpmux peer, \
+            --target machine:<name>) gets exactly --names A,B over ssh, in ~/.config/cmux/machine-secrets.env; \
+            its shells read them through the returned source_line. Returns status (delivered, unchanged or \
+            pending), delivered and missing names. Values are stored with cmux cloud secret set NAME.
             """,
         "cloudResizeMachine": """
-            Resizes the machine (--target machine:<id> --size small, medium, large or xlarge: 2 vCPU and \
-            4 GB, 4 and 8, 8 and 16, or 16 and 24). Answers at once, before the resize is done.
+            Resizes the machine (--target machine:<id>): --size small, medium, large or xlarge (2 vCPU and \
+            4 GB, 4 and 8, 8 and 16, or 16 and 24), --disk GIB (the disk's new size in whole GiB: 4 GiB \
+            steps, up to 256, grow-only), or both in one call; at least one. Returns machine_id, target, \
+            and size and disk_gib as given. Answers pending after 30 s; the resize goes on.
             """,
         "cloudSetIdlePause": """
             Sets how long the machine (--target machine:<id>) may sit idle (nothing attached, running or \
             forwarded) before cmux Cloud pauses it: --minutes off, 15, 30, 60 or 120. Returns machine_id \
             and idle_pause_minutes (0 for off).
+            """,
+        "cloudSetNetworkAccess": """
+            Sets what the machine (--target machine:<id>) may reach on the internet: --access full (every \
+            public address), trusted (only GitHub, the package registries and the model providers the server \
+            lists as presets) or none (only the hosts cmux itself needs). Applies live, with no restart, and \
+            keeps the machine's own allowed ranges and domains. An agent may only choose none (turn access off). \
+            Returns machine_id, network_access, mode and applied (applied, pending or failed).
             """,
         "palette.cloud.deleteSnapshot": """
             Deletes a snapshot of the machine (--target machine:<id> --snapshot <snapshot id>). Destructive: \

@@ -67,7 +67,7 @@ pub(super) fn too_old_text(why: &str, version: Option<&str>, install: Option<&st
     let release = version.map_or_else(String::new, |version| format!(" (cmux {version})"));
     format!(
         "this client{release} is too old for this cmux-tui daemon (cmux {}): {why}. To fix it, {}",
-        crate::release::DISTRIBUTION_VERSION,
+        crate::release::distribution_version(),
         crate::release::update_hint_for(install)
     )
 }

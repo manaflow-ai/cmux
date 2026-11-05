@@ -3,8 +3,8 @@ import Darwin
 import Foundation
 
 /// cmux's end of the wire to one Chromium host: two stream socket pairs, one
-/// per direction. Frames to the host leave on ``ChromiumHostWire/send`` with one
-/// `write` on a non-blocking descriptor; frames from the host are read by a
+/// per direction. Frames to the host leave on ``send(_:)`` with one
+/// `writev` on a non-blocking descriptor; frames from the host are read by a
 /// thread of the connection's own, blocked in `read` on a second descriptor,
 /// and arrive as ``frames``.
 ///
@@ -14,7 +14,7 @@ import Foundation
 /// and read blocking from a thread.
 ///
 /// Both descriptors are owned by one `Mutex` (the lock carve-out: a short
-/// critical section around one non-blocking `write`, called synchronously on
+/// critical section around one non-blocking `writev`, called synchronously on
 /// every input event, where an actor would add a hop). The reader closes its
 /// descriptor under the lock after EOF; ``close()`` shuts it down under the
 /// same lock only while it is open, so no side ever touches a closed number
@@ -61,11 +61,20 @@ nonisolated final class ChromiumHostConnection: Sendable {
     /// (then the connection is closed and nothing more is sent).
     @discardableResult
     func send(_ frame: ChromiumHostFrame) -> Bool { // perf-hot: 5us cef-host-input (every forwarded input event)
-        let bytes = frame.encoded()
-        let sent = wire.withLock { wire -> Bool in
-            guard wire.writeFD >= 0 else { return false }
-            let written = bytes.withUnsafeBytes { Darwin.write(wire.writeFD, $0.baseAddress, $0.count) }
-            return written == bytes.count
+        // The header is encoded on the stack and goes out with the payload in one `writev`: no heap
+        // allocation and one system call per frame (an input frame has no payload).
+        let sent = frame.withEncodedHeader { header in
+            frame.payload.withUnsafeBytes { payload in
+                wire.withLock { wire -> Bool in
+                    guard wire.writeFD >= 0 else { return false }
+                    var parts = (iovec(iov_base: UnsafeMutableRawPointer(mutating: header.baseAddress), iov_len: header.count),
+                                 iovec(iov_base: UnsafeMutableRawPointer(mutating: payload.baseAddress), iov_len: payload.count))
+                    let written = withUnsafeMutablePointer(to: &parts) {
+                        $0.withMemoryRebound(to: iovec.self, capacity: 2) { Darwin.writev(wire.writeFD, $0, payload.isEmpty ? 1 : 2) }
+                    }
+                    return written == header.count + payload.count
+                }
+            }
         }
         if sent { return true }
         // A short or refused write leaves the stream mid-frame: it cannot

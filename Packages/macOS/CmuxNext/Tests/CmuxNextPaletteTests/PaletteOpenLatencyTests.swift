@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// tabs it searches once the user types are read after the first frame, so
 /// the open costs the same with 10 workspaces or 5,000 tabs.
 @MainActor
-@Suite(.paletteRanker, .serialized)
+@Suite(.paletteRanker, .serialized, .closesItsWindows)
 struct PaletteOpenLatencyTests {
     /// Counts reads of its lists: each read is the App walking every
     /// workspace and tab of every machine.
@@ -84,7 +85,7 @@ struct PaletteOpenLatencyTests {
     @Test func firstFrameReadsNoWorkspaceOrTabList() async {
         let store = Store(workspaces: 40, tabsPerWorkspace: 4)
         let palette = Self.palette(store)
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         store.workspaceReads = 0
         store.tabReads = 0
         palette.show(.commands)
@@ -98,41 +99,94 @@ struct PaletteOpenLatencyTests {
         #expect(store.workspaceReads == 1, "the workspaces are read once per open, after the first frame")
     }
 
-    /// A warm open's main-thread cost before its frame does not grow with the
+    /// Go to Workspace (Cmd-P) lists the workspaces on its empty query, so its
+    /// open reads the list, but once: every read walks every workspace of
+    /// every machine. Since #27071 the open asked each provider for its
+    /// immediate rows twice (once for the rows, once to see whether it must
+    /// refresh them), which built every row of the page twice, the command
+    /// page's row per catalog action included.
+    @Test func goToWorkspaceOpenReadsTheWorkspaceListOnce() throws {
+        let store = Store(workspaces: 40, tabsPerWorkspace: 4)
+        let palette = Self.palette(store)
+        defer { palette.closeForTest() }
+        let page = try #require(palette.workspacesPage())
+        store.workspaceReads = 0
+        palette.model.reset(to: page)
+        #expect(!palette.model.rows.isEmpty, "the first frame shows the workspaces")
+        #expect(store.workspaceReads == 1, "the open read the workspaces \(store.workspaceReads) times")
+    }
+
+    /// A warm open's main-thread work before its frame does not grow with the
     /// user's workspaces and tabs (a heavy user: 600 workspaces, 6,000 tabs).
+    ///
+    /// The page's rows (what the deferred load owns) are counted, not timed: a warm open
+    /// reads no workspace or tab list and builds the same rows at 10 workspaces as at 600.
+    /// Timing them gave the full suite's run noise, not growth: with every suite running
+    /// beside this one the model stage's median read 80-105 ms, and its 600-workspace minus
+    /// 10-workspace difference read +19.8 ms (6687c32f), +4.6 ms (#28298's run) and
+    /// -15.0 ms (6fcb117f45). A real growth cannot be negative.
+    ///
+    /// The whole open (panel order-in and layout) is still timed, relatively: the small and
+    /// large opens alternate, so both see the same load on the host, and each takes its
+    /// cheapest sample, since the host only ever adds time. Before the deferred load the
+    /// large open cost about 70 ms more than the small one's 14 ms.
     @Test func warmOpenCostDoesNotScaleWithWorkspacesAndTabs() async {
-        func openCost(_ store: Store) async -> Double {
-            let palette = Self.palette(store)
-            defer { palette.hide() }
-            var samples: [Double] = []
-            for _ in 0..<7 {
-                samples.append(Self.milliseconds(Self.mainThreadCPU { palette.show(.commands) }))
-                await palette.model.settleDeferredLoads()
-                await palette.model.settle()
-                palette.hide()
-            }
-            return samples.sorted()[samples.count / 2]
+        let smallStore = Store(workspaces: 10, tabsPerWorkspace: 1)
+        let largeStore = Store(workspaces: 600, tabsPerWorkspace: 10)
+
+        /// One warm open of the model stage alone (the page's rows, no panel): its main-thread
+        /// time, the workspace and tab lists it read, and the rows it built.
+        func modelOpen(_ palette: PaletteController, _ store: Store) -> (ms: Double, reads: Int, rows: Int) {
+            let before = store.workspaceReads + store.tabReads
+            let spent = Self.mainThreadCPU { palette.model.reset(to: palette.commandsPage()) }
+            return (Self.milliseconds(spent), store.workspaceReads + store.tabReads - before,
+                    palette.model.current?.items.count ?? -1)
         }
-        /// The model stage alone (the page's rows, no panel): what the open costs before AppKit.
-        func modelCost(_ store: Store) async -> Double {
-            let palette = Self.palette(store)
-            var samples: [Double] = []
-            for _ in 0..<7 {
-                samples.append(Self.milliseconds(Self.mainThreadCPU { palette.model.reset(to: palette.commandsPage()) }))
-                await palette.model.settle()
-            }
-            return samples.sorted()[samples.count / 2]
+        let smallModel = Self.palette(smallStore), largeModel = Self.palette(largeStore)
+        defer {
+            smallModel.closeForTest()
+            largeModel.closeForTest()
         }
-        let small = await openCost(Store(workspaces: 10, tabsPerWorkspace: 1))
-        let large = await openCost(Store(workspaces: 600, tabsPerWorkspace: 10))
-        let smallModel = await modelCost(Store(workspaces: 10, tabsPerWorkspace: 1))
-        let largeModel = await modelCost(Store(workspaces: 600, tabsPerWorkspace: 10))
-        print("palette open (median ms, debug build): 10 workspaces/10 tabs \(small) (model \(smallModel)), "
-              + "600 workspaces/6000 tabs \(large) (model \(largeModel))")
-        // The page's rows (what this fix owns) cost the same: within 3 ms.
-        #expect(largeModel - smallModel < 3, "the open's rows grow with the workspaces and tabs: \(smallModel) ms -> \(largeModel) ms")
-        // The whole open (panel order-in and layout vary by a few ms) stays
-        // within 8 ms; before the fix it grew by about 70 ms.
-        #expect(large - small < 8, "the open's cost grows with the workspaces and tabs: \(small) ms -> \(large) ms")
+        var smallModelOpens: [(ms: Double, reads: Int, rows: Int)] = []
+        var largeModelOpens: [(ms: Double, reads: Int, rows: Int)] = []
+        for _ in 0..<7 {
+            // Settled: the open before this one loaded every workspace and tab into its page.
+            smallModelOpens.append(modelOpen(smallModel, smallStore))
+            await smallModel.model.settle()
+            largeModelOpens.append(modelOpen(largeModel, largeStore))
+            await largeModel.model.settle()
+        }
+
+        func timedOpen(_ palette: PaletteController) async -> Double {
+            let spent = Self.milliseconds(Self.mainThreadCPU { palette.show(.commands) })
+            await palette.model.settleDeferredLoads()
+            await palette.model.settle()
+            palette.hide()
+            return spent
+        }
+        let smallPalette = Self.palette(smallStore), largePalette = Self.palette(largeStore)
+        defer {
+            smallPalette.closeForTest()
+            largePalette.closeForTest()
+        }
+        var smallOpens: [Double] = [], largeOpens: [Double] = []
+        for _ in 0..<7 {
+            smallOpens.append(await timedOpen(smallPalette))
+            largeOpens.append(await timedOpen(largePalette))
+        }
+
+        let small = smallOpens.min() ?? 0, large = largeOpens.min() ?? 0
+        print("palette open (cheapest of 7, ms, debug build): 10 workspaces/10 tabs \(small) "
+              + "(model \(smallModelOpens.map(\.ms).min() ?? 0)), 600 workspaces/6000 tabs \(large) "
+              + "(model \(largeModelOpens.map(\.ms).min() ?? 0))")
+        // Every warm open reads no list before its frame and builds the same rows at either size.
+        #expect(smallModelOpens.allSatisfy { $0.reads == 0 } && largeModelOpens.allSatisfy { $0.reads == 0 },
+                "a warm open read the workspace or tab list before its frame")
+        #expect(largeModelOpens.map(\.rows) == smallModelOpens.map(\.rows),
+                "the open's rows grow with the workspaces and tabs: \(smallModelOpens.map(\.rows)) -> \(largeModelOpens.map(\.rows))")
+        #expect(smallModelOpens.allSatisfy { $0.rows > 0 }, "the open builds the command rows")
+        // The whole open grows by less than it costs (or 8 ms when it costs less): flat opens differ
+        // only by what the host adds, while one that builds a row per tab grew about 5x.
+        #expect(large - small < max(8, small), "the open's cost grows with the workspaces and tabs: \(small) ms -> \(large) ms")
     }
 }

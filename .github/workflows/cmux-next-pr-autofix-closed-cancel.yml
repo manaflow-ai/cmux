@@ -1,0 +1,26 @@
+name: cmux-next PR autofix closed
+
+# cmux-next-pr-closed-cancel.yml's twin for cmux-next-pr-autofix.yml, whose
+# runs have a group of their own (cmux-next-pr-autofix-<number>), including its
+# Mac action exports job: a merged or closed pull request's autofix run ends
+# when the pull request closes instead of at the queue janitor's next sweep.
+on:
+  pull_request:
+    types: [closed]
+    branches: [feat-cmux-next]
+
+permissions: {}
+
+concurrency:
+  group: ${{ contains(github.event.pull_request.labels.*.name, 'no-janitor') && format('cmux-next-pr-autofix-closed-kept-{0}', github.event.pull_request.number) || format('cmux-next-pr-autofix-{0}', github.event.pull_request.number) }}
+  cancel-in-progress: true
+
+jobs:
+  cancelled:
+    # The run's concurrency group does the work; every run is a closed event,
+    # so this job is always skipped and never takes a runner.
+    if: github.event.action != 'closed'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 1
+    steps:
+      - run: "true"

@@ -15,8 +15,11 @@ function files(dir: string): string[] {
   });
 }
 
-/** A size token: a length or percentage, a `--text-*` size, or a keyword or system font. */
-const SIZED = /\d(?:px|rem|em|pt|%)|var\(--text-|\b(?:x*-?small|medium|x*-?large|smaller|larger)\b(?!-)/;
+/**
+ * A size token: a length or percentage, a `--text-*` size or a scoped alias of one (galleries name
+ * theirs `--bg-text-body: var(--text-body, 13px)`), or a keyword or system font.
+ */
+const SIZED = /\d(?:px|rem|em|pt|%)|var\(--(?:[a-z0-9]+-)*text-|\b(?:x*-?small|medium|x*-?large|smaller|larger)\b(?!-)/;
 const WHOLE = /^(?:inherit|initial|unset|revert|caption|icon|menu|message-box|small-caption|status-bar|var\([^)]*\))$/;
 
 test("every font shorthand on a page names a size", () => {

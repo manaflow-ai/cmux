@@ -72,11 +72,20 @@ def main(env: Mapping[str, str] = os.environ,
     repo = env.get("GITHUB_REPOSITORY", "")
     token = env.get("ROUTE_TOKEN", "")
     label = (env.get("DEDICATED_LABEL") or "").strip()
+    first_look = True
 
     def read() -> Sequence[Mapping[str, Any]] | None:
+        nonlocal first_look
+        use_state, first_look = first_look, False
         if not (token and repo):
             return None
         try:
+            if use_state:
+                document = pool.runner_state(repo, raw=env.get("CI_RUNNER_STATE", ""))
+                if document is not None:
+                    # Keep this picker's repository-only registration scope.
+                    print("Runner state: trusted repository document (no runner API requests)", file=sys.stderr)
+                    return document["repository_runners"]
             if read_runners is not None:
                 return read_runners(token, repo)
             # The dedicated mini is a repository runner, so the repository's list is enough.

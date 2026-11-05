@@ -11,7 +11,7 @@ import { Context, Data, Effect, Layer } from "effect";
 import { OwnershipStore } from "../db/stores.ts";
 import type { StoreError } from "../db/sql.ts";
 import type { Principal } from "../domain/principal.ts";
-import type { ResourceKind, TenantId } from "../lib/ids.ts";
+import type { ResourceKind } from "../lib/ids.ts";
 import { TenantLimits, type LimitsUnavailable } from "../limits/service.ts";
 import { TenantPolicy } from "../policy.ts";
 
@@ -24,8 +24,11 @@ export interface TenantMayCreate<C, K extends ResourceKind> extends Proof<`Tenan
 export class EntitlementUnavailable extends Data.TaggedError("EntitlementUnavailable")<{ readonly cause: unknown }> {}
 
 export interface EntitlementsService {
-  /** Whether the tenant's plan includes resources of this kind (billing, not quota). */
-  readonly mayCreate: (tenantId: TenantId, kind: ResourceKind) => Effect.Effect<boolean, EntitlementUnavailable>;
+  /**
+   * Whether the caller's tenant's plan includes resources of this kind (billing, not quota). `within` is the
+   * resource the new one joins (a device's mesh), named by who created it.
+   */
+  readonly mayCreate: (caller: Principal, kind: ResourceKind, within?: { readonly createdBy: string }) => Effect.Effect<boolean, EntitlementUnavailable>;
 }
 
 /**
@@ -46,16 +49,34 @@ export const entitlementsDenyAllLayer = Layer.succeed(Entitlements, {
   mayCreate: () => Effect.succeed(false),
 });
 
+/** The `created_by` prefix of a service actor (actorRef). */
+const SERVICE_PREFIX = "service:";
+
 /**
- * Until the billing source exists: dev/test tenants and teams under the
- * manaflow-team flag (per TenantPolicy, cx-b4h.16) may create, everyone else is
- * refused with 402. Fails closed in production.
+ * Until the billing source exists: dev/test tenants, teams under the
+ * manaflow-team flag (per TenantPolicy, cx-b4h.16) and requests made by an
+ * entitled service key for the team it acts for may create. A device may also
+ * join a mesh an entitled service made in the caller's tenant, whoever in that
+ * tenant enrolls it: the platform already decided that team's plan when it made
+ * the mesh, and the member's app enrolls with their own session (cmux#34244).
+ * The caller still had to be a member of the team and to own the mesh. Everyone
+ * else is refused with 402. Fails closed in production.
  */
 export const entitlementsFromPolicyLayer = Layer.effect(
   Entitlements,
-  Effect.map(TenantPolicy, (policy) => ({
-    mayCreate: (tenantId: TenantId) => Effect.succeed(policy.isDevTest(tenantId) || policy.isManaflowTeam(tenantId)),
-  })),
+  Effect.map(TenantPolicy, (policy) => {
+    const byEntitledService = (createdBy: string) =>
+      createdBy.startsWith(SERVICE_PREFIX) && policy.isEntitledService(createdBy.slice(SERVICE_PREFIX.length));
+    return {
+      mayCreate: (caller: Principal, kind: ResourceKind, within?: { readonly createdBy: string }) =>
+        Effect.succeed(
+          policy.isDevTest(caller.tenantId)
+            || policy.isManaflowTeam(caller.tenantId)
+            || (caller.actor.kind === "service" && policy.isEntitledService(caller.actor.serviceId))
+            || (kind === "device" && within !== undefined && byEntitledService(within.createdBy)),
+        ),
+    };
+  }),
 );
 
 export type CreateDecision<C, K extends ResourceKind> =
@@ -76,7 +97,7 @@ export const tenantMayCreate = <C, const K extends "vm" | "snapshot">(
   Effect.gen(function* () {
     const tenantId = caller.value.tenantId;
     const entitlements = yield* Entitlements;
-    if (!(yield* entitlements.mayCreate(tenantId, kind))) return { _tag: "not_entitled" };
+    if (!(yield* entitlements.mayCreate(caller.value, kind))) return { _tag: "not_entitled" };
     const policy = yield* TenantPolicy;
     if (resume !== undefined && "key" in resume && kind === "vm") {
       const limits = yield* TenantLimits;

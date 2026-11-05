@@ -14,10 +14,10 @@ and `optchat-tell:<id>:<ms>` (a tell or restart message).
 
 Checks, each with a window snapshot in --out:
   live     the chat tab shows the session before the prompt; after the turn its first bubble is
-           the task, labelled "From the Chief", with the Chief's view as one collapsed line
+           the task, labelled "Sent from <Chief>", with the Chief's view as one collapsed line
   reopen   the tab shows another chat, then this one again (a fresh open page, which starts after
            the 140 KB prompt): the same first bubble
-  tell     a tell from the Chief draws as a second "From the Chief" bubble; the task stays first
+  tell     a tell from the Chief draws as a second "Sent from <Chief>" bubble; the task stays first
 
 Usage: chief-prompt-bubble-live.py --tag <tag> --app PATH [--out DIR] [--json PATH]
 Fleet: scripts/measure/chief-prompt-bubble.sh (builds the tagged app first).
@@ -189,7 +189,7 @@ def check_first(label, extra=""):
     row(f"{label}: first bubble is the Chief's task", f"the task with '{TASK_MARK}', no view or label", text[:120],
         text.startswith("Title: Prompt bubble probe") and TASK_MARK in text and "<chat>" not in text
         and "Your task:" not in text)
-    row(f"{label}: marked as from the Chief", "From the Chief", str(first.get("from")), bool(first.get("from")))
+    row(f"{label}: marked as sent from the Chief", "Sent from <Chief>", str(first.get("from")), bool(first.get("from")))
     row(f"{label}: the Chief's view is one collapsed line", "a context summary", str(first.get("context")),
         bool(first.get("context")))
     return shown, snap

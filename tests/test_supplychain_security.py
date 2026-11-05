@@ -10,12 +10,13 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
-# The Blacksmith outage failover reads a variable but only ever picks another
-# Blacksmith Linux size (an ephemeral VM, never a persistent runner).
-OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| ")
 WORKFLOWS = ROOT / ".github/workflows"
 SHA256_IMAGE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 
+
+# The Blacksmith outage failover reads a variable but only ever picks another
+# Blacksmith Linux size (an ephemeral VM, never a persistent runner).
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && fromJSON\(vars\.RUNNER_POOLS\)\.linux(?:_\d+)? \|\| ")
 
 def workflow(name: str) -> dict:
     return yaml.load((WORKFLOWS / name).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
@@ -31,20 +32,20 @@ def test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_r
             "build-ghosttykit.yml",
             "build-ghosttykit",
             "ghostty-release",
-            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}",
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_15 }}",
         ),
         (
             "ios-streamed-validate.yml",
             "validate",
             "ios-streamed-validation",
-            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}",
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}",
         ),
     )
     for name, job_name, environment, runner in cases:
         job = workflow(name)["jobs"][job_name]
         assert job.get("environment") == environment, f"{name} secrets need {environment}"
-        assert job.get("runs-on") == runner, f"{name} must use a literal ephemeral runner"
-        assert "vars." not in runner
+        assert job.get("runs-on") == runner, f"{name} must use its declared ephemeral pool"
+        assert "fromJSON(vars.RUNNER_POOLS)." in runner
 
     shared_secret_readers = (
         ("claude.yml", "claude", "claude-agent"),
@@ -122,7 +123,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
 
     assert smoke.get("environment") is None
     assert "secrets." not in yaml.dump(smoke)
-    assert "vars." not in OVERFLOW_FAILOVER.sub("", smoke["runs-on"])
+    assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", smoke["runs-on"]))
     assert "https://cmux.com/tui/install.sh" in run_text(smoke)
     assert "CMUX_TUI_INSTALL_MS" in run_text(smoke)
     assert any("actions/upload-artifact@" in str(step.get("uses", "")) for step in smoke["steps"])
@@ -131,7 +132,7 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     assert installer.get("needs") == "public-installer-smoke"
     assert (installer.get("permissions") or {}).get("attestations") == "read"
     assert "secrets." not in yaml.dump(installer)
-    assert "vars." not in OVERFLOW_FAILOVER.sub("", installer["runs-on"])
+    assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", installer["runs-on"]))
     installer_script = run_text(installer)
     assert "gh attestation verify" in installer_script
     assert "--source-ref refs/heads/main" in installer_script
@@ -143,14 +144,18 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     assert any("actions/upload-artifact@" in str(step.get("uses", "")) for step in installer["steps"])
 
     assert journey.get("needs") == "installer"
-    assert journey.get("environment") == "cloud-vm-${{ inputs.target }}"
-    assert "vars." not in OVERFLOW_FAILOVER.sub("", journey["runs-on"])
-    assert "STACK_SECRET_SERVER_KEY" not in (journey.get("env") or {})
+    # NEXT Cloud: the cmux VM API's own environments, never classic cloud-vm-*.
+    assert journey.get("environment") == "cmux-vm-${{ inputs.target }}"
+    assert "/api/vm" not in yaml.dump(journey)
+    assert "scripts/cmux-next/cloud-vm-dogfood-journey.ts" in run_text(journey)
+    assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", journey["runs-on"]))
+    assert "STACK_SECRET_SERVER_KEY" not in yaml.dump(journey)
+    assert "CMUX_VM_SMOKE_API_KEY" not in (journey.get("env") or {})
     assert any("actions/download-artifact@" in str(step.get("uses", "")) for step in journey["steps"])
     assert "CMUX_TUI_INSTALL_MS" in run_text(journey)
     secret_steps = [
         step for step in journey["steps"]
-        if "STACK_SECRET_SERVER_KEY" in (step.get("env") or {})
+        if any("secrets." in str(value) and "!= ''" not in str(value) for value in (step.get("env") or {}).values())
     ]
     assert len(secret_steps) == 1
     assert secret_steps[0].get("name") == "Journey"
@@ -169,7 +174,18 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
     image_promote = workflow("cloud-vm-image-promote.yml")
     assert set(image_promote["on"]) == {"workflow_dispatch"}
     assert image_promote.get("permissions") == {"contents": "read", "actions": "read"}
-    assert image_promote["jobs"]["promote"].get("environment") == "cmux-next-vm-image-dev"
+    # production promotes in its own environment; dev keeps the dev one. The gate job that runs
+    # first for production names no environment (a job naming a missing one would create it).
+    assert image_promote["jobs"]["promote"].get("environment") == (
+        "${{ inputs.channel == 'production' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}"
+    )
+    assert "environment" not in image_promote["jobs"]["prod-gate"]
+    image_bake = workflow("cloud-vm-image-bake.yml")
+    assert image_bake.get("permissions") == {"contents": "read"}
+    assert image_bake["jobs"]["bake"].get("environment") == (
+        "${{ inputs.mode == 'prod-copy' && 'cmux-next-vm-image-prod' || 'cmux-next-vm-image-dev' }}"
+    )
+    assert "environment" not in image_bake["jobs"]["prod-gate"]
 
     backend_jobs = workflow("backend.yml")["jobs"]
     for job_name in ("migrations-development", "preview", "preview-cleanup"):

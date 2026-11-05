@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextLayout
 import CmuxNextPages

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Compiles the shim's DevTools message id scanner
-# (CEFShim/src/devtools_message_id.h, no CEF needed) and runs its cases.
+# Compiles the shim's DevTools message helpers
+# (CEFShim/src/devtools_message_id.h, no CEF needed: the id scanner and the
+# message of cmux_shim_devtools_call) and runs their cases.
 # Small: one clang++ call.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

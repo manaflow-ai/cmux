@@ -22,6 +22,11 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     var favicon: NSImage? { get }
     /// Unanswered permission requests and JavaScript dialogs, oldest first.
     var pendingPrompts: [BrowserPrompt] { get }
+    /// What the page shows for the link under the pointer (Chrome's status
+    /// bubble text), observable; nil when the pointer is over no link. The
+    /// chrome draws it at the bottom left of this tab's page area. Engines
+    /// that report none keep the default, nil.
+    var linkStatus: String? { get }
 
     var delegate: (any BrowserTabDelegate)? { get set }
     var keyRouter: (any BrowserKeyRouting)? { get set }
@@ -47,6 +52,11 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     /// time a page leaves the screen. May trade fidelity for a cheaper
     /// capture than `snapshot()`; the default is `snapshot()`.
     func thumbnail() async throws -> CGImage
+
+    /// ``thumbnail()`` asked of the engine in the caller's turn, so a picture asked for just before the page
+    /// hides is of the shown page: Chromium cannot picture a hidden page, and refuses to. The default asks when
+    /// the request is awaited (WebKit pictures a hidden page).
+    func beginThumbnail() -> BrowserPictureRequest
 
     /// Evaluates a script and returns its completion value.
     /// - Parameters:
@@ -109,6 +119,8 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
 
 extension BrowserTab {
     public func thumbnail() async throws -> CGImage { try await snapshot() }
+
+    public func beginThumbnail() -> BrowserPictureRequest { BrowserPictureRequest { try await self.thumbnail() } }
 
     /// Engines without Chromium password autofill have nothing to withhold.
     /// The favicon at `url` as this tab fetches it: the app's cookieless fetch, unless the

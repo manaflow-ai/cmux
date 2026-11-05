@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 
 /// DevTools of one Chromium tab: docked below or beside
 /// the page inside the pane, resizable, or in its own window. The docked
@@ -18,6 +19,24 @@ final class CEFDevToolsController {
     var devToolsBrowserID: Int32?
     /// Between `DEVTOOLS_WILL_OPEN` and `OPENED`: the layout keeps room.
     var opening = false
+    /// From the open key's turn until Chromium's `DEVTOOLS_WILL_OPEN`: the docked layout shows with the pane's
+    /// ground in the DevTools area while Chromium has not been asked yet (`openWithStandIn`).
+    private(set) var standIn = false
+    /// Which stand-in the pending after-commit ask belongs to: a cancel or a newer stand-in makes an older ask stale.
+    private var standInGeneration = 0
+    /// From the close key's turn until Chromium's `DEVTOOLS_CLOSED`: the DevTools area is hidden and the page has its
+    /// whole frame while Chromium still tears the DevTools browser down (`closeInThisTurn`).
+    private(set) var closing = false
+    /// The DevTools cmux closed while Chromium began a new one (`willOpen` during `closing`): its late
+    /// `DEVTOOLS_CLOSED` only retires it and never removes the new DevTools' views.
+    private var retiredBrowserID: Int32?
+    /// The bounded wait for `DEVTOOLS_OPENED` after `DEVTOOLS_WILL_OPEN` (`openedLimit`).
+    var openTimer = DemandTimer(owner: "CEFDevToolsController.opened")
+    /// How long a DevTools Chromium began may take to report it opened before its room is given back.
+    static let openedLimit: Duration = .seconds(5)
+    /// Chromium was given `views.host` as a DevTools parent and never reported it opened or closed: the shim keeps that
+    /// (unretained) view, so it stays alive, hidden when unused, until OPENED or CLOSED.
+    private var hostHeldByChromium = false
     /// Runs once DevTools closed (a move into or out of a window reopens).
     var afterClose: BrowserDevToolsCommand?
     /// The docked DevTools' parent view and the divider, while docked.
@@ -41,21 +60,153 @@ final class CEFDevToolsController {
         guard let tab, !tab.isClosed, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
         switch command {
         case .toggle:
-            perform(tab.devTools.isOpen ? .close : .show)
-        case .show:
-            _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.show, 0, 0)
-        case .console:
-            _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.console, 0, 0)
-        case .inspectElement:
-            _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.inspect, 0, 0)
+            perform(tab.devTools.isOpen || standIn || (closing && afterClose != nil) ? .close : .show)
+        case .show, .console, .inspectElement:
+            // Chromium still has the closing DevTools (its show would only focus it): the open goes after it closed.
+            if closing { afterClose = command; return }
+            let id = switch command {
+            case .console: CEFShimLibrary.DevToolsCommand.console
+            case .inspectElement: CEFShimLibrary.DevToolsCommand.inspect
+            default: CEFShimLibrary.DevToolsCommand.show
+            }
+            openWithStandIn(id)
         case .close:
             afterClose = nil
-            _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.close, 0, 0)
+            if standIn { return cancelStandIn() }
+            if closing { return }
+            closeInThisTurn()
+            // A page Chromium no longer has sends no DEVTOOLS_CLOSED: the close ends here.
+            if shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.close, 0, 0) == 0, closing {
+                closed(browser: devToolsBrowserID ?? 0)
+            }
         case .dock(let dock):
             move(to: dock)
         case .panel(let panel):
+            // The closing DevTools would take the panel and stay closed: the panel opens after it closed.
+            if closing { afterClose = command; return }
             _ = shim.devToolsShowPanel(browserID, panel.chromiumID)
         }
+    }
+
+    /// Opens DevTools as every create in cmux opens (PATTERNS.md P4, instant create). Chromium creates DevTools inside
+    /// the command, on this thread, before `DEVTOOLS_WILL_OPEN` gives it its place (CefBrowserHost::ShowDevTools, about
+    /// 18 ms); asked in the key's turn, the turn and its frame waited for that creation (BROWSER VIDEO F3: the first
+    /// changed frame 5-9 refreshes after the key). So the key's turn only lays out the stand-in (the page at its docked
+    /// frame, the DevTools area on the pane's themed ground: the view Chromium's DevTools window goes over), and the run
+    /// loop commits that frame as it commits every turn's; Chromium is asked after that commit (`AfterFrameCommit`), as
+    /// Chrome commits the frame an input changed before longer work. A main-actor `Task` is not "after": it runs from
+    /// the main queue in the key's own pass, before the commit (#32911: ShowDevTools was inside the key's commit,
+    /// commit_ms 43 ms p50). `willOpen` takes the stand-in's views; when Chromium opens nothing, the stand-in rolls back.
+    /// DevTools open, opening, undocked, or not in a window: the command goes at once, as before.
+    private func openWithStandIn(_ command: Int32) {
+        guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim, !standIn else { return }
+        // A parked tab (hidden in its pane) has no frame to show early: its open goes at once, to its own browser.
+        let shown = tab.container.window != nil && tab.host.visibleTab === tab && !tab.container.isHiddenOrHasHiddenAncestor
+        guard !tab.devTools.isOpen, !opening, layout.dock.isDocked, shown, tab.runtime.supportsEmbeddedDevTools else {
+            // Console and Inspect are Chromium commands on the pane's active Chromium tab (`ExecuteChromeCommand`): for a
+            // tab not shown that is another page. Its own DevTools opens on that panel instead (the shim targets the browser).
+            if !shown, let panel = Self.panel(of: command) { _ = shim.devToolsShowPanel(browserID, panel); return }
+            _ = shim.devToolsCommand(browserID, command, 0, 0)
+            return
+        }
+        if views == nil { _ = makeViews(in: tab) }
+        showViews()
+        opening = true
+        standIn = true
+        standInGeneration &+= 1
+        let generation = standInGeneration
+        tab.container.layoutContent()
+        AfterFrameCommit().run { [weak self] in self?.askChromium(command, generation: generation) }
+    }
+
+    /// The DevTools panel a Chromium command opens on (console, inspect), for a tab that is not the shown one.
+    static func panel(of command: Int32) -> String? {
+        switch command {
+        case CEFShimLibrary.DevToolsCommand.console: WebDevToolsPanel.console.chromiumID
+        case CEFShimLibrary.DevToolsCommand.inspect: WebDevToolsPanel.elements.chromiumID
+        default: nil
+        }
+    }
+
+    /// After the stand-in's frame committed: Chromium creates DevTools (`willOpen` ends the stand-in) or opens nothing.
+    /// Only the stand-in's own ask runs (`generation`), and only while its tab is still the one shown in a window:
+    /// console and inspect act on the pane's active Chromium tab (`ExecuteChromeCommand`), so after a tab switch
+    /// between the key's turn and the ask they would open DevTools on another page. Otherwise the stand-in rolls back.
+    private func askChromium(_ command: Int32, generation: Int) {
+        guard standIn, generation == standInGeneration else { return }
+        guard let tab, !tab.isClosed, let browserID = tab.browserID, let shim = tab.runtime.shim,
+              tab.host.visibleTab === tab, tab.container.window != nil, !tab.container.isHiddenOrHasHiddenAncestor else {
+            return cancelStandIn()
+        }
+        _ = shim.devToolsCommand(browserID, command, 0, 0)
+        if standIn { cancelStandIn() }
+    }
+
+    /// Closes as Chrome closes docked DevTools: the key's turn hides the DevTools area (the fork's tracker hides the
+    /// DevTools page window with its parent view) and lays the page out at its whole frame; Chromium's close, which
+    /// ends turns later in `DEVTOOLS_CLOSED` (BROWSER VIDEO F5: 3-6 refreshes with DevTools still on screen), then only
+    /// frees the views. The tab's DevTools state is closed in this turn, so focus returns to the page now. DevTools in
+    /// Chromium's own window (no cmux views) close through Chromium alone, as before.
+    private func closeInThisTurn() {
+        guard let tab, tab.devTools.isOpen, !opening, let views else { return }
+        closing = true
+        views.host.isHidden = true
+        views.divider.isHidden = true
+        // Only ordered out: this can run inside the window's own close action; `removeViews` releases it.
+        window?.orderOut(nil)
+        tab.devTools = BrowserDevToolsState(isOpen: false, dock: layout.dock)
+        tab.container.layoutContent()
+        tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: false)
+    }
+
+    /// Chromium opened DevTools (the page's Inspect, a Chromium command) while cmux's close still waited for
+    /// `DEVTOOLS_CLOSED`: the new DevTools takes the views, shown, and the older close's event no longer matches.
+    private func endClosingForNewDevTools() {
+        guard closing else { return }
+        closing = false
+        // The older session's device mode ended with it (its DEVTOOLS_CLOSED, now retired, would have ended it): the new
+        // DevTools gets its docked frame, and the tab's own emulation applies again.
+        if deviceModeBounds != nil {
+            deviceModeBounds = nil
+            tab?.devToolsDeviceModeEnded()
+        }
+        // The closing DevTools' late event retires it only. The new DevTools is the open a waiting open asked for: a
+        // plain open is done; a console or panel the person asked for applies to it once it opened (`opened`).
+        retiredBrowserID = devToolsBrowserID
+        devToolsBrowserID = nil
+        if afterClose == .show || afterClose == .toggle { afterClose = nil }
+        views?.host.isHidden = false
+        views?.divider.isHidden = false
+    }
+
+    /// `openedLimit` passed after `DEVTOOLS_WILL_OPEN` with no `DEVTOOLS_OPENED`: the creation failed. The page gets its
+    /// whole frame back. The views stay, hidden: Chromium was given the host view (unretained) as its parent, so a late
+    /// OPENED still finds it; the next open or that OPENED shows them again (`showViews`).
+    private func openNeverReported() {
+        guard opening, !standIn, let tab, !tab.isClosed, !tab.devTools.isOpen, views != nil else { return }
+        opening = false
+        hideViews()
+        tab.container.layoutContent()
+    }
+
+    private func hideViews() {
+        views?.host.isHidden = true
+        views?.divider.isHidden = true
+    }
+
+    /// Shows views an unreported open hid (`openNeverReported`).
+    private func showViews() {
+        views?.host.isHidden = false
+        views?.divider.isHidden = false
+    }
+
+    /// The page gets its whole frame back and the stand-in's views go.
+    private func cancelStandIn() {
+        guard standIn else { return }
+        standIn = false
+        opening = false
+        if hostHeldByChromium { hideViews() } else { removeViews() }
+        tab?.container.layoutContent()
     }
 
     func setFocused(_ focused: Bool) {
@@ -149,23 +300,41 @@ final class CEFDevToolsController {
     /// now; the shim reads it when this returns.
     func willOpen() {
         guard let tab, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
+        standIn = false
+        endClosingForNewDevTools()
         opening = true
-        if tab.container.window != nil, tab.runtime.supportsEmbeddedDevTools {
+        let embedded = tab.container.window != nil && tab.runtime.supportsEmbeddedDevTools
+        // The DevTools frontend keeps its own dock side (its profile setting) and applies it when it loads; the fork
+        // reports that as a dock-side choice (`dockSideChosen`), which moved a just-opened DevTools from cmux's side
+        // to the frontend's (BROWSER VIDEO F2: bottom, then right ~13 refreshes later). As in Chrome, one side counts:
+        // cmux's is written into that setting here, before the frontend exists, for every way DevTools opens (cmux's
+        // commands, a panel, the page's Inspect, Chromium's own commands).
+        _ = shim.devToolsSetFrontendDockSide(browserID, Self.forkSide(of: embedded ? layout.dock : .window))
+        if embedded {
             // Docked or in its own window, DevTools is a child of a cmux
             // view, so a later move keeps it alive.
             // Chromium creates DevTools synchronously over a view in the
             // page's window; a window of its own takes the same view after
             // DEVTOOLS_OPENED (opened), like a later move does.
             let views = views ?? makeViews(in: tab)
+            showViews()
             tab.container.layoutContent()
             if views.host.bounds.isEmpty { views.host.frame = tab.container.bounds }
+            // Until its frontend draws, DevTools shows its browser's background: the pane's theme color, as every
+            // page of the pane starts with (`CEFPaneHost`), never the color CEF started with (BROWSER VIDEO F1).
+            shim.devToolsSetBackground(browserID, PageBackground.themeARGB(in: views.host))
             let size = views.host.bounds.size
             shim.devToolsSetPlacement(browserID, Unmanaged.passUnretained(views.host).toOpaque(), 0, 0,
                                       Int32(max(size.width, 1)), Int32(max(size.height, 1)))
+            hostHeldByChromium = true
+            // A creation that fails sends no OPENED: the room it reserved stayed for good (an empty DevTools area beside
+            // a narrowed page). After a bounded wait the room goes back, as a stand-in rolls back.
+            openTimer.schedule(after: Self.openedLimit) { @MainActor [weak self] in self?.openNeverReported() }
         } else {
             opening = false
             removeViews()
             let frame = Self.undockedFrame(near: tab.container.window)
+            shim.devToolsSetBackground(browserID, PageBackground.themeARGB(in: tab.container))
             shim.devToolsSetPlacement(browserID, nil, Int32(frame.minX), Int32(frame.minY),
                                       Int32(frame.width), Int32(frame.height))
         }
@@ -183,6 +352,10 @@ final class CEFDevToolsController {
 
     func opened(browser: Int32, docked: Bool) {
         guard let tab else { return }
+        endClosingForNewDevTools()
+        openTimer.cancel()
+        hostHeldByChromium = false
+        showViews()
         opening = false
         devToolsBrowserID = browser
         // `docked` = a child of a cmux view (the pane's DevTools host).
@@ -196,11 +369,19 @@ final class CEFDevToolsController {
             views?.host.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion))
         }
         tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: true)
+        // A console or panel asked while the older DevTools closed, opened now by Chromium itself (see `endClosingForNewDevTools`).
+        if let next = afterClose, !closing { afterClose = nil; perform(next) }
     }
 
     func closed(browser: Int32) {
+        if browser == retiredBrowserID { retiredBrowserID = nil; return }
         guard let tab, devToolsBrowserID == nil || devToolsBrowserID == browser else { return }
         opening = false
+        openTimer.cancel()
+        hostHeldByChromium = false
+        // Closed by cmux's close (`closeInThisTurn`): the pane and the tab's state already show it closed.
+        let shownClosed = closing
+        closing = false
         // The frontend's DevTools session ended with its emulation: cmux's own applies again.
         if deviceModeBounds != nil {
             deviceModeBounds = nil
@@ -210,7 +391,7 @@ final class CEFDevToolsController {
         tab.devTools = BrowserDevToolsState(isOpen: false, dock: layout.dock)
         removeViews()
         tab.container.layoutContent()
-        tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: false)
+        if !shownClosed { tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: false) }
         if let next = afterClose {
             afterClose = nil
             perform(next)
@@ -226,6 +407,16 @@ final class CEFDevToolsController {
         case 2: .bottom
         case 3: .right
         default: nil
+        }
+    }
+
+    /// The fork's dock-side value of `dock` (the inverse of `dock(forkSide:)`).
+    nonisolated static func forkSide(of dock: BrowserDevToolsDock) -> Int32 {
+        switch dock {
+        case .window: 0
+        case .left: 1
+        case .bottom: 2
+        case .right: 3
         }
     }
 
@@ -304,6 +495,7 @@ final class CEFDevToolsController {
     }
 
     func removeViews() {
+        standIn = false
         closeWindow()
         guard let views else { return }
         self.views = nil

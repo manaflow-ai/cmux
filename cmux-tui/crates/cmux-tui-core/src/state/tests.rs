@@ -587,7 +587,8 @@ fn tab_groups_create_edit_move_ungroup_and_close_through_public_ids() {
 
     let second = mutate(&mux, "tab_group.create", json!({"tabs": [ids[2]]}), "group-create-2");
     let second_id = second["id"].as_str().unwrap().to_string();
-    assert_eq!(second["color"], "grey");
+    // No color named: no color (not grey, not a palette pick).
+    assert_eq!(second["color"], "none");
     let closed = mutate(&mux, "tab_group.close", json!({"tab_group": second_id}), "group-close");
     assert_eq!(closed["tab_ids"], json!([ids[2]]));
     assert!(mux.with_state(|state| {
@@ -598,6 +599,26 @@ fn tab_groups_create_edit_move_ungroup_and_close_through_public_ids() {
             .unwrap();
     assert_eq!(replay["replayed"], true);
     assert_eq!(replay["value"], closed);
+}
+
+#[test]
+fn tab_group_color_is_absent_until_explicitly_chosen() {
+    let mux = Mux::new_for_test("state-group-no-color", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 2);
+    let ids = tabs.iter().map(|tab| tab_id(&mux, *tab)).collect::<Vec<_>>();
+    let group = mutate(&mux, "tab_group.create", json!({"tabs": ids}), "no-color-create");
+    assert_eq!(group["name"], "");
+    assert_eq!(group["color"], "none");
+    let group_id = group["id"].as_str().unwrap();
+    for color in ["grey", "orange", "#336699", "none"] {
+        let updated = mutate(
+            &mux,
+            "tab_group.update",
+            json!({"tab_group": group_id, "color": color}),
+            &format!("choose-{color}"),
+        );
+        assert_eq!(updated["color"], color);
+    }
 }
 
 #[test]
@@ -1636,4 +1657,53 @@ fn raw_metadata_and_pin_commands_publish_the_same_state_on_session_events() {
             && change["id"] == second
             && change["value"]["extra"]["pinned"] == true
     }));
+}
+
+/// TUL-F7 (TYPING UNDER LOAD, STATUS 6339): under the L1 CLI storm one
+/// workspace status commit held the session lock (`Mux.state`) for 452 ms
+/// while its registry transaction ran, and a request waited 418 ms for it.
+/// Every key whose terminal lookup takes the session lock waited with it.
+/// A state mutation reads the session only to resolve its targets: the
+/// lock is free while its registry transaction writes and commits.
+#[test]
+fn a_status_commit_frees_the_session_lock_while_it_writes_the_registry() {
+    use std::sync::mpsc::sync_channel;
+    let mux = Mux::new_for_test("state-status-lock", SurfaceOptions::default());
+    let workspace = empty_workspace(&mux, "status");
+    let (entered, entered_receiver) = sync_channel::<()>(1);
+    let (release, release_receiver) = sync_channel::<()>(1);
+    let release_receiver = std::sync::Mutex::new(release_receiver);
+    mux.set_state_commit_after_apply_hook_for_test(Some(Arc::new(move || {
+        entered.send(()).unwrap();
+        let _ = release_receiver.lock().unwrap().recv_timeout(std::time::Duration::from_secs(10));
+    })));
+    let committing = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            mutate(
+                &mux,
+                "workspace_status.set",
+                json!({"workspace": workspace, "key": "build", "text": "slow write"}),
+                "status-while-writing",
+            )
+        })
+    };
+    entered_receiver.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+    // A key's terminal lookup (`Mux::surface` on the send path) takes the
+    // session lock; it must not wait for the registry write.
+    let (looked_up, looked_up_receiver) = sync_channel::<()>(1);
+    let key = {
+        let mux = mux.clone();
+        std::thread::spawn(move || {
+            mux.with_state(|state| state.surfaces.len());
+            looked_up.send(()).unwrap();
+        })
+    };
+    let waited = looked_up_receiver.recv_timeout(std::time::Duration::from_secs(2));
+    release.send(()).unwrap();
+    let set = committing.join().unwrap();
+    key.join().unwrap();
+    mux.set_state_commit_after_apply_hook_for_test(None);
+    assert!(waited.is_ok(), "a key's session lookup waited for a status commit's registry write");
+    assert_eq!(set["entries"][0]["text"], "slow write", "{set}");
 }

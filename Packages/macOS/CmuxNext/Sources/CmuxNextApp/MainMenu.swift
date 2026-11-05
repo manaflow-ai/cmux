@@ -36,6 +36,8 @@ enum MainMenu {
             item(Strings.menuPaste, #selector(NSText.paste(_:)), "v", [.command]),
             // Cmd+Shift+V, as in Chrome and Slack (Lawrence 2026-10-20): plain text only, in any text input.
             item(Strings.menuPasteAndMatchStyle, #selector(NSTextView.pasteAsPlainText(_:)), "v", [.command, .shift]),
+            // Opt-Shift-Cmd-V, the macOS standard Chrome also keeps (an alternate: shown with Option held).
+            alternate(item(Strings.menuPasteAndMatchStyle, #selector(NSTextView.pasteAsPlainText(_:)), "v", [.command, .shift, .option])),
             item(Strings.menuSelectAll, #selector(NSText.selectAll(_:)), "a", [.command]),
         ]))
         mainMenu.addItem(submenu(Strings.menuView, items: compactMainMenuItems(for: .view, registry: registry)))
@@ -78,7 +80,7 @@ enum MainMenu {
     /// remains available through the command palette. The allowlist is intentionally explicit so
     /// a new catalog placement cannot silently reintroduce menu overload.
     static let compactActionIDs: [ActionMainMenu: [ActionID]] = [
-        .app: ["about", "openSettings", "palette.checkForUpdates", "keepMacAwake", "quit"],
+        .app: ["about", "openSettings", "palette.checkForUpdates", "updates.installEarlierBuild", "keepMacAwake", "quit"],
         .file: [
             "newTab", "newBrowserWorkspace", "newTab.default", "palette.newAgentChat", "palette.quickAgentChat",
             "openFolder", "file.open", "remote.connect", "device.add", "closeTab", "closeWorkspace", "closeWindow",
@@ -91,7 +93,7 @@ enum MainMenu {
         ],
         .server: ["server.addServer", "server.showPanel"],
         .window: [
-            "newWindow", "newIncognitoWindow", "toggleFullScreen", "commandPalette", "goToWorkspace",
+            "newWindow", "newIncognitoWindow", "window.mergeAll", "toggleFullScreen", "commandPalette", "goToWorkspace",
             "globalSearch", "showMainWindow",
         ],
         .help: ["help.documentation", "palette.searchShortcuts", "updates.whatsNew", "sendFeedback", "help.showCrashLogs"],
@@ -123,6 +125,11 @@ enum MainMenu {
     private static func item(_ title: String, _ action: Selector, _ key: String, _ modifiers: NSEvent.ModifierFlags) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.keyEquivalentModifierMask = modifiers
+        return item
+    }
+
+    private static func alternate(_ item: NSMenuItem) -> NSMenuItem {
+        item.isAlternate = true
         return item
     }
 

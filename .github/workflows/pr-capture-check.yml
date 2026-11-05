@@ -2,9 +2,12 @@ name: PR capture check
 
 # A pull request that changes native app UI shows a real capture of it in its description:
 # what `cmux-ci capture` prints (a fleet build driven on a capture mini, light and dark, checked
-# for private text), the media-tour label, or a `No capture: <why>` line. Lanes kept merging UI
+# for private text), the media-tour label, or a `No capture: <why>` line. A capture or media-tour
+# label also requires body proof that the after image was viewed and judged. Lanes kept merging UI
 # changes with no capture or with mock stills. scripts/ci/pr_capture_check.py decides; it runs
 # from the base branch, never the pull request's code. Editing the description re-runs it.
+# It only warns and never fails, so it never blocks a land (Leo, 2026-10-31: "WE DONT NEED FUCKIGN
+# SCREENSHOTS JUST LET ME TRY THE SHIT OUT").
 on:
   pull_request:
     branches: [feat-cmux-next]
@@ -12,14 +15,23 @@ on:
 
 permissions: {}
 
+# Into feat-cmux-next, a label event the check does not read (anything but the media-tour labels) skips the job
+# and takes a concurrency group of its own, so it never cancels a real check in flight
+# (tests/test_ci_label_events_skip_full_ci.py). Bots set and clear risk, hold and landing labels
+# on hundreds of open pull requests, and each of those events queued a runner for the same answer.
 concurrency:
-  group: pr-capture-check-${{ github.event.pull_request.number }}
+  group: pr-capture-check-${{ github.event.pull_request.number }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["media-tour","media-tour-mac"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   capture:
     name: pr-capture-check
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    if: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["media-tour","media-tour-mac"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     permissions:
       contents: read

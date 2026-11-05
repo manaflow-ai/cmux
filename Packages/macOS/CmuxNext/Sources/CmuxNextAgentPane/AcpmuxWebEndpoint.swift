@@ -1,7 +1,9 @@
 public import Foundation
 
 /// acpmux's authenticated loopback WebSocket, split from the dashboard URL
-/// the daemon reports (`webUrl`, `http://127.0.0.1:<port>/?token=<t>`).
+/// the daemon reports (`webUrl`, `http://127.0.0.1:<port>/#token=<t>`; an
+/// older acpmux reported `?token=<t>`). The token goes in an
+/// `Authorization: Bearer` header (`AcpmuxConnection`), never in the URL.
 public nonisolated struct AcpmuxWebEndpoint: Sendable, Equatable {
     /// `ws://` (or `wss://`) URL with the token removed.
     public var url: URL
@@ -13,20 +15,29 @@ public nonisolated struct AcpmuxWebEndpoint: Sendable, Equatable {
     }
 
     /// Nil unless `webURL` is an http URL on 127.0.0.1 or localhost with a
-    /// non-empty `token` query item: exactly what the page's CSP lets it reach
+    /// non-empty `token` item in its fragment (or, from an older acpmux, its
+    /// query): exactly what the page's CSP lets it reach
     /// (`connect-src ws://127.0.0.1:* ws://localhost:*`).
     public init?(webURL: String) {
         guard var components = URLComponents(string: webURL),
               let scheme = components.scheme?.lowercased(), scheme == "http",
               let host = components.host, Self.isLoopback(host),
-              let token = components.queryItems?.first(where: { $0.name == "token" })?.value, !token.isEmpty
+              let token = Self.token(in: components), !token.isEmpty
         else { return nil }
         components.scheme = "ws"
+        components.fragment = nil
         let rest = components.queryItems?.filter { $0.name != "token" } ?? []
         components.queryItems = rest.isEmpty ? nil : rest
         if components.path.isEmpty { components.path = "/" }
         guard let url = components.url else { return nil }
         self.init(url: url, token: token)
+    }
+
+    /// The `token` item of the fragment (`#token=<t>`), else of the query.
+    static func token(in components: URLComponents) -> String? {
+        let fragment = components.fragment?.split(separator: "&").first { $0.hasPrefix("token=") }
+        if let fragment { return String(fragment.dropFirst("token=".count)) }
+        return components.queryItems?.first(where: { $0.name == "token" })?.value
     }
 
     static func isLoopback(_ host: String) -> Bool {
@@ -45,6 +56,9 @@ nonisolated struct AcpmuxReadyLine: Decodable, Equatable {
     /// Why the daemon refused to start (acpmux `daemon/exe_path.rs`: the shared home from a
     /// runner's `_work` or a temporary folder), on a `{"ready":false,"refused":"..."}` line.
     var refused: String?
+    /// True when this launch lost the daemon lock and relays the winner's readiness: the daemon
+    /// on the socket is one another client started (acpmux#27336), not this launch's.
+    var lockHeld: Bool?
 
     /// The refusal on a not-ready line, if the daemon refused to start.
     static func refusal(_ line: String) -> String? {

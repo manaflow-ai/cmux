@@ -174,6 +174,35 @@ pub fn same_team_as_this_build(path: &std::path::Path) -> Result<TeamMatch, Stri
     }
 }
 
+/// Resolve a signed macOS update clone to its matching installed executable.
+/// Both bundles and executable signatures must validate; a path alone grants
+/// no trust. Unsigned builds and other platforms return `None`.
+pub fn verified_clone_executable(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::caller::macos::verified_clone_executable(path)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        None
+    }
+}
+
+/// As [`verified_clone_executable`], also checking the running socket peer by
+/// audit token against the installed executable's designated requirement.
+pub fn verified_clone_peer(token: &PeerToken) -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::caller::macos::verified_clone_peer(&token.0)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = token;
+        None
+    }
+}
+
 /// `CFBundleIdentifier` characters allowed into the requirement text.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn plain_bundle_identifier(identifier: &str) -> bool {
@@ -196,6 +225,10 @@ pub(crate) fn containing_bundle(executable: &std::path::Path) -> Option<std::pat
                 && executable.starts_with(candidate.join("Contents"))
         })
         .map(std::path::Path::to_path_buf)
+        .or_else(|| {
+            verified_clone_executable(executable)
+                .and_then(|installed| containing_bundle(&installed))
+        })
 }
 
 #[cfg(test)]

@@ -14,6 +14,7 @@ pub mod agent_launch;
 pub mod agent_message_prompt;
 pub mod agent_view;
 mod apps;
+pub mod route_table;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
 mod browser;
@@ -23,6 +24,7 @@ mod browser_provider;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
 mod lock_rank;
+pub mod remote_host;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
 pub mod chief_brains;
@@ -33,6 +35,8 @@ mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
 use cmux_tui_util::debug_spans;
+#[cfg(unix)]
+pub mod blob_fetch;
 mod browser_profile_ops;
 mod browser_site_engines;
 pub mod diagnostics;
@@ -40,6 +44,8 @@ mod event_bus;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
+#[cfg(unix)]
+pub mod git_seed;
 mod history_ops;
 pub mod history_search;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
@@ -67,9 +73,13 @@ pub mod provider_management;
 mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
+/// A mutex-guarded value whose readers load a published projection without the lock (R-DAEMON-STATE).
+use cmux_tui_util::published;
 mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;
+/// The R-DAEMON-STATE stage switches (one per stage, deleted when the stage passes).
+mod rds_switch;
 pub mod release;
 mod request_origin;
 pub mod resource;
@@ -81,9 +91,11 @@ mod resource_screen;
 mod resource_selector;
 mod resource_tab;
 mod scripts;
+mod serial_lanes;
 mod session_shutdown;
 mod shell_history;
 mod shell_integration;
+pub mod startup_timings;
 use cmux_tui_util::short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
@@ -121,6 +133,8 @@ pub mod session_state_import;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub mod test_owner;
 #[cfg(unix)]
 pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;
@@ -220,3 +234,6 @@ pub enum SplitDir {
     /// Split into top/bottom rows.
     Down,
 }
+
+#[cfg(unix)]
+pub mod cloud_repos;

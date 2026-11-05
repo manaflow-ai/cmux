@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import UniformTypeIdentifiers
@@ -25,37 +26,80 @@ enum ChiefMemoryImportHandlers {
     static let toastID = "chief-memory-import"
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        // action-wait-allow: starts a process and a dialog that wait on the person and on another process; nothing local can stand in
-        registry.bind(actionID, run: { invocation in
-            guard let tool = bundledTool() else { throw ActionWorkFailure(ChiefMemoryImportStrings.noTool) }
-            let target = try resolveTarget(invocation["chief"]?.stringValue, context: context)
-            let named = invocation["source"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-            let interactive = !registry.isCapturingRefusal
-            let window = CloudHandlers.window(context)
-            // task-owner: one detect, one dialog and one background import the person started; ends with the result toast
-            registry.track(Task { @MainActor in
-                let runner = Runner(tool: tool, target: target, context: context, window: window)
-                if let named {
-                    await runner.importSources([named])
+        context.services.pages.register(WebPageTab(.importHistory, symbol: "square.and.arrow.down", title: ChiefMemoryImportStrings.title,
+            view: { [weak services = context.services] key in
+                guard let services else { return nil }
+                return Self.importHistoryPage(for: key, services: services)
+            }))
+        registry.bindEffect(actionID, effect: { invocation in
+            do {
+                let target = try resolveTarget(invocation["chief"]?.stringValue, context: context)
+                let named = invocation["source"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+                if named == nil, case .local = target {
+                    guard context.services.pages.show(.importHistory, in: context.services.windows.active, focus: invocation.allowsViewChange) != nil else {
+                        return .refused(RefusalStrings.noWindowOpen)
+                    }
+                    return .done
+                }
+                guard let tool = bundledTool() else { return .refused(ChiefMemoryImportStrings.noTool) }
+                let interactive = !registry.isCapturingRefusal
+                let window = CloudHandlers.window(context)
+                let detectArgs = Self.detectArguments(muxHome: muxHome(context), invocation: invocation)
+                // action-wait-allow: a named import or Cloud picker waits for the CLI; the local GUI opens synchronously above
+                return .waiting(.externalProcess) {
+                    let runner = Self.runner(tool: tool, target: target, context: context, window: window)
+                    if let named {
+                        await runner.importSources([named])
+                        return nil
+                    }
+                    guard interactive else { return ActionWorkFailure(ChiefMemoryImportStrings.nothingFound) }
+                    let found = await runner.detect(detectArgs)
+                    runner.askWhichSources(found)
                     return nil
                 }
-                guard interactive else { return ActionWorkFailure(ChiefMemoryImportStrings.nothingFound) }
-                let found = await runner.detect()
-                runner.askWhichSources(found)
-                return nil
-            })
+            } catch { return .refused(String(describing: error)) }
         })
-        // action-wait-allow: runs a process and waits for it; nothing local can stand in
-        registry.bind(undoActionID, run: { invocation in
-            guard let tool = bundledTool() else { throw ActionWorkFailure(ChiefMemoryImportStrings.noTool) }
-            let target = try resolveTarget(invocation["chief"]?.stringValue, context: context)
-            let window = CloudHandlers.window(context)
-            // task-owner: one undo the person started; ends with the result toast
-            registry.track(Task { @MainActor in
-                await Runner(tool: tool, target: target, context: context, window: window).undo()
-                return nil
-            })
+        registry.bindEffect(undoActionID, effect: { invocation in
+            do {
+                guard let tool = bundledTool() else { return .refused(ChiefMemoryImportStrings.noTool) }
+                let target = try resolveTarget(invocation["chief"]?.stringValue, context: context)
+                let window = CloudHandlers.window(context)
+                // action-wait-allow: restoring the CLI's backup has no optimistic stand-in
+                return .waiting(.externalProcess) {
+                    await Self.runner(tool: tool, target: target, context: context, window: window).undo()
+                    return nil
+                }
+            } catch { return .refused(String(describing: error)) }
         })
+    }
+
+    /// The page is a regular WebPageTab: its existing lifecycle closes the router and bridge.
+    private static func importHistoryPage(for key: String, services: AppServices) -> PageWebView? {
+        let home = HomeBrainHost.muxHome(tag: services.environment.tag).path
+        let provider = ImportHistoryPageProvider(muxHome: home, personOnlyMessage: RefusalStrings.personOnlyFromPage) { arguments, timeout in
+            guard let tool = bundledTool() else { throw PageError(code: "cmux.importHistory.no_tool", message: ChiefMemoryImportStrings.noTool) }
+            let output = await run(tool, arguments, timeout: timeout)
+            guard output.status == 0 else { throw PageError(code: "cmux.importHistory.failed", message: output.message) }
+            return try CmuxNextSettings.JSONValue.parse(Data(output.stdout.utf8))
+        }
+        provider.restart = { [weak services] in _ = services?.home.brain.ensure(asked: true) }
+        let native = AppPageNativeProvider(services: services, page: .importHistory)
+        let routes = [PageRoute(prefix: "cmux.importHistory.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
+        guard let page = PageWebView(descriptor: .importHistory, routes: routes) else { return nil }
+        provider.anchor = { [weak page] in page?.window }
+        native.anchor = { [weak page] in page }
+        provider.finish = { [weak services, weak page] _ in
+            guard let services else { return }
+            services.onboarding.historyImportFinished()
+            if let nativeWindow = page?.window,
+               let window = services.windows.controllers.first(where: { $0.window === nativeWindow }), window.shownTopPage == .page(.importHistory) {
+                window.leaveTopPage()
+                window.topPages.close(.page(.importHistory))
+            } else if let pane = services.paneController(showingTab: key), let tab = services.pages.stripID(showing: key, in: pane) {
+                pane.close([tab])
+            }
+        }
+        return page
     }
 
     /// `Contents/Resources/bin/optchat-chief`, or nil when this build does not carry it (as ``BundledAgentMemoryIndex``).
@@ -65,12 +109,19 @@ enum ChiefMemoryImportHandlers {
         return url
     }
 
-    /// What the first-run panel offers: the sources found on this Mac, read off the main thread (none in a build without the tool).
+    /// What the first-run panel offers, read off the main thread (none without the tool): run at launch unasked, so never ~/Downloads (LAUNCH-NO-TCC-PROMPTS).
     static func detectForOffer(muxHome: String) async -> [MemorySource] {
         guard let tool = bundledTool() else { return [] }
-        let output = await run(tool, MemoryImportCommand(target: .local(muxHome: muxHome)).detect(), timeout: .seconds(60))
+        let output = await run(tool, offerDetectArguments(muxHome: muxHome), timeout: .seconds(60))
         return MemorySource.parse(Data(output.stdout.utf8))
     }
+
+    /// The offer's detect: unasked, so never the export zips in ~/Downloads and ~/Desktop (LAUNCH-NO-TCC-PROMPTS).
+    static func offerDetectArguments(muxHome: String) -> [String] { MemoryImportCommand(target: .local(muxHome: muxHome)).detect() }
+
+    /// A run's detect: only the person's own (``ActionInvocation/isPersonsOwnRun``) lists the export zips in the
+    /// guarded ~/Downloads and ~/Desktop; automation names a zip instead (`source: zip:/path`) (LAUNCH-NO-TCC-PROMPTS).
+    static func detectArguments(muxHome: String, invocation: ActionInvocation) -> [String] { MemoryImportCommand(target: .local(muxHome: muxHome)).detect(exports: invocation.isPersonsOwnRun) }
 
     private static func muxHome(_ context: AppActionContext) -> String {
         HomeBrainHost.muxHome(tag: context.services.environment.tag).path
@@ -91,139 +142,24 @@ enum ChiefMemoryImportHandlers {
         return .local(muxHome: muxHome(context))
     }
 
-    /// One import or undo, off the main thread but for its dialog and toasts.
-    @MainActor
-    private struct Runner {
-        let tool: URL
-        let target: Destination
-        let context: AppActionContext
-        let window: NSWindow?
-
-        private var isLocal: Bool { if case .local = target { true } else { false } }
-
-        private func command(tokenFile: String?) -> MemoryImportCommand {
-            switch target {
-            case .local(let home): MemoryImportCommand(target: .local(muxHome: home))
-            case .cloud(let chief): MemoryImportCommand(target: .cloud(chief: chief, tokenFile: tokenFile ?? ""))
-            }
-        }
-
-        func detect() async -> [MemorySource] {
-            let arguments = MemoryImportCommand(target: .local(muxHome: ChiefMemoryImportHandlers.muxHome(context))).detect()
-            let output = await ChiefMemoryImportHandlers.run(tool, arguments, timeout: .seconds(60))
-            return MemorySource.parse(Data(output.stdout.utf8))
-        }
-
-        func askWhichSources(_ found: [MemorySource]) {
-            guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
-            var lines = [found.isEmpty ? ChiefMemoryImportStrings.nothingFound : ChiefMemoryImportStrings.lead]
-            if !found.isEmpty { lines.append(ChiefMemoryImportStrings.safety) }
-            if isLocal, !found.isEmpty { lines.append(ChiefMemoryImportStrings.restartNote) }
-            // Every source starts checked; the person unchecks what stays out.
-            let fields = found.enumerated().map { CmuxDialogField.check(id: String($0.offset), title: $0.element.title, on: true) }
-            var buttons: [CmuxDialogButton] = [.cancel(), CmuxDialogButton(id: "file", title: ChiefMemoryImportStrings.chooseFile)]
-            if !found.isEmpty { buttons.append(CmuxDialogButton(id: "import", title: ChiefMemoryImportStrings.importButton, role: .default)) }
-            let spec = CmuxDialogSpec(title: ChiefMemoryImportStrings.title, lines: lines, fields: fields, buttons: buttons,
-                                      identifier: "cmux.dialog.chief.importMemories")
-            let runner = self
-            CmuxDialogCenter.shared.present(spec, in: .window(window)) { answer in
-                switch answer.button {
-                case "import":
-                    let picked = found.enumerated().filter { answer.isOn(String($0.offset)) }.map(\.element.source)
-                    guard !picked.isEmpty else { return }
-                    // task-owner: the background import the person started; ends with its result toast
-                    Task { @MainActor in await runner.importSources(picked) }
-                case "file":
-                    guard let path = runner.chooseZip() else { return }
-                    // task-owner: the background import of the chosen file; ends with its result toast
-                    Task { @MainActor in await runner.importSources(["zip:" + path]) }
-                default:
-                    return
+    /// Binds the shared importer to this app's destination and process lifetime.
+    private static func runner(tool: URL, target: Destination, context: AppActionContext, window: NSWindow?) -> MemoryImportFlow {
+        let isLocal: Bool = if case .local = target { true } else { false }
+        return MemoryImportFlow(isLocal: isLocal, window: window, toastID: toastID,
+            run: { await run(tool, $0, timeout: $1) }, prepare: {
+                switch target {
+                case .local(let home):
+                    return MemoryImportFlow.Session(command: MemoryImportCommand(target: .local(muxHome: home)))
+                case .cloud(let chief):
+                    let (folder, file) = try await ChiefMoveHandlers.writeToken(context.services.cloud)
+                    return MemoryImportFlow.Session(command: MemoryImportCommand(target: .cloud(chief: chief, tokenFile: file.path)),
+                                                    cleanup: { discard(folder) })
                 }
-            }
-        }
-
-        private func chooseZip() -> String? {
-            let panel = NSOpenPanel()
-            panel.message = ChiefMemoryImportStrings.choosePrompt
-            panel.allowedContentTypes = [.zip]
-            panel.canChooseDirectories = false
-            panel.allowsMultipleSelection = false
-            return panel.runModal() == .OK ? panel.url?.path : nil
-        }
-
-        /// A dry run per source for the cost and the count, then the write, one source after the other.
-        func importSources(_ sources: [String]) async {
-            toast(ChiefMemoryImportStrings.working, duration: .seconds(600))
-            var tokenDir: URL?
-            defer { if let tokenDir { ChiefMemoryImportHandlers.discard(tokenDir) } }
-            var tokenFile: String?
-            if case .cloud = target {
-                do {
-                    let (dir, file) = try await ChiefMoveHandlers.writeToken(context.services.cloud)
-                    (tokenDir, tokenFile) = (dir, file.path)
-                } catch {
-                    return stop(ChiefMemoryImportStrings.failed + ": " + String(describing: error))
-                }
-            }
-            let command = command(tokenFile: tokenFile)
-            let batch = "b" + String(Int(Date().timeIntervalSince1970 * 1000))
-            var written = 0
-            for source in sources {
-                let plan = await ChiefMemoryImportHandlers.run(tool, command.dryRun(source), timeout: .seconds(600))
-                guard plan.status == 0, let report = MemoryImportReport.parse(Data(plan.stdout.utf8)) else {
-                    return stop(ChiefMemoryImportStrings.failed + ": " + plan.message)
-                }
-                if report.plan.new == 0 { continue }
-                if report.estCostUSD > Double(MemoryImportCommand.maxCostUSD) {
-                    return stop(ChiefMemoryImportStrings.tooCostly(String(format: "%.0f", report.estCostUSD)))
-                }
-                let wrote = await ChiefMemoryImportHandlers.run(tool, command.write(source, batch: batch), timeout: .seconds(3600))
-                guard wrote.status == 0, let done = MemoryImportReport.parse(Data(wrote.stdout.utf8)) else {
-                    if isLocal { _ = context.services.home.brain.ensure(asked: true) }
-                    return stop(ChiefMemoryImportStrings.failed + ": " + wrote.message)
-                }
-                written += done.written ?? 0
-            }
-            // The host was stopped for the write; the next message would start it, and so does this.
-            if isLocal { _ = context.services.home.brain.ensure(asked: true) }
-            guard written > 0 else { return stop(ChiefMemoryImportStrings.nothingNew) }
-            let handle = toast(ChiefMemoryImportStrings.done(written), action: .undo(ChiefMemoryImportStrings.undo), duration: .seconds(30))
-            let registry = context.registry
-            var arguments: [String: ActionValue] = [:]
-            if case .cloud(let chief) = target { arguments["chief"] = .string(chief) }
-            let invocation = ActionInvocation(arguments: arguments, origin: .user)
-            handle?.onAction = { _ = registry.perform(ChiefMemoryImportHandlers.undoActionID, invocation: invocation) }
-        }
-
-        func undo() async {
-            var tokenDir: URL?
-            defer { if let tokenDir { ChiefMemoryImportHandlers.discard(tokenDir) } }
-            var tokenFile: String?
-            if case .cloud = target {
-                do {
-                    let (dir, file) = try await ChiefMoveHandlers.writeToken(context.services.cloud)
-                    (tokenDir, tokenFile) = (dir, file.path)
-                } catch {
-                    return stop(ChiefMemoryImportStrings.failed + ": " + String(describing: error))
-                }
-            }
-            let output = await ChiefMemoryImportHandlers.run(tool, command(tokenFile: tokenFile).undo(), timeout: .seconds(300))
-            if isLocal { _ = context.services.home.brain.ensure(asked: true) }
-            if output.status == 0 { toast(ChiefMemoryImportStrings.undone) }
-            else if output.message.contains("nothing to undo") { toast(ChiefMemoryImportStrings.nothingToUndo) }
-            else { toast(ChiefMemoryImportStrings.failed + ": " + output.message) }
-        }
-
-        /// Shows `message` and ends the import or undo that called it.
-        private func stop(_ message: String) { toast(message) }
-
-        @discardableResult
-        private func toast(_ message: String, action: CmuxToast.Action? = nil, duration: Duration = .seconds(8)) -> CmuxToastHandle? {
-            guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return nil }
-            return CmuxToastCenter.shared.show(CmuxToast(id: ChiefMemoryImportHandlers.toastID, message: message, action: action, duration: duration),
-                                               in: window)
-        }
+            }, restart: { _ = context.services.home.brain.ensure(asked: true) }, onUndo: {
+                var arguments: [String: ActionValue] = [:]
+                if case .cloud(let chief) = target { arguments["chief"] = .string(chief) }
+                _ = context.registry.perform(undoActionID, invocation: ActionInvocation(arguments: arguments, origin: .user))
+            })
     }
 
     /// Deletes the Cloud token's folder, off the main thread.
@@ -232,12 +168,7 @@ enum ChiefMemoryImportHandlers {
         Task.detached(priority: .utility) { try? FileManager.checked.removeItem(at: folder) }
     }
 
-    struct Output: Sendable {
-        var status: Int32
-        var stdout: String
-        /// stderr, else stdout: what to show when the CLI fails.
-        var message: String
-    }
+    typealias Output = MemoryImportFlow.Output
 
     /// Runs the tool off the main actor (a transcript conversion can take seconds).
     static func run(_ tool: URL, _ arguments: [String], timeout: Duration) async -> Output {
@@ -251,4 +182,14 @@ enum ChiefMemoryImportHandlers {
             return Output(status: -1, stdout: "", message: String(describing: error))
         }
     }
+}
+
+extension PageDescriptor {
+    static let importHistory = PageDescriptor(
+        id: "cmux.import-history", resource: "import-history", namespaces: ["cmux.importHistory."],
+        nativeOps: [PageNativeOp.clipboardWrite])
+}
+
+extension InternalPageID {
+    static let importHistory = InternalPageID(rawValue: "import-history")
 }

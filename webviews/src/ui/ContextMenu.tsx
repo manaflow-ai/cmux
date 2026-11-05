@@ -1,9 +1,13 @@
-import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
-import { nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
-import { useEscapingPopup } from "./popupHost";
+import { useScrollEdges } from "./scrollEdges";
+import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
+import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { usePopupHost } from "./UiProvider";
+import { useNativePopup, type NativePopupDescription } from "./nativePopup";
+import type { NativePopupEvent } from "./popupProtocol";
+import { popupAction } from "./popupDescriptors";
 
 /** An action in the standalone context menu. */
 export interface ContextMenuItem {
@@ -41,6 +45,12 @@ export interface ContextMenuProps {
    * popup a child opened (a picker's search field), though the popup draws elsewhere on the page.
    */
   targets?: "own";
+  /** Declarative rows for WebPopupHost; rows are never mounted or scraped when supplied. */
+  native?: {
+    model: NativePopupDescription;
+    onEvent?(event: NativePopupEvent, item?: ContextMenuItem): void;
+    onDismiss?(): void;
+  };
 }
 
 /** The control a closed menu gives focus back to. */
@@ -68,16 +78,6 @@ function nativeRows(items: readonly ContextMenuItem[]): NativeMenuRow[] | null {
   return rows;
 }
 
-/** Inline, as the placement is: the agent pane does not load ui.css. */
-const MENU_ICON = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: 16,
-  height: 16,
-  flex: "none",
-} as const;
-
 /**
  * A point-anchored context menu for surfaces that do not use the shared Menu trigger.
  * It owns only the context-menu gesture; regular menus and selects should use `Menu`/`Select`.
@@ -102,26 +102,67 @@ export function ContextMenu({
   onOpen,
   ignore,
   targets,
+  native,
 }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
+  const [nativeAnchor, setNativeAnchor] = useState<AnchorBox | null>(null);
+  const [nativeOpen, setNativeOpen] = useState(false);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const popupTarget = useRef<HTMLElement | null>(null);
+  const nativeRequest = useRef(0);
   const menu = useRef<HTMLDivElement | null>(null);
   const host = usePopupHost();
+  const nativePopup = useNativePopup({
+    open: nativeOpen && native !== undefined,
+    model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    anchor: () => nativeAnchor,
+    onEvent: (event) => {
+      const action = event.type === "pick" && native ? popupAction(native.model, event.id) : undefined;
+      const item = event.id ? items.find((candidate) => candidate.id === event.id) : undefined;
+      native?.onEvent?.(event, item);
+      if (action && item && !item.disabled) {
+        item.onSelect();
+      }
+      if (action && !action.keepOpen) close();
+    },
+    onDismiss: () => {
+      close();
+      native?.onDismiss?.();
+    },
+  });
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  const edges = useScrollEdges();
   const attach = useCallback(
     (node: HTMLDivElement | null) => {
+      edges(node);
       menu.current = node;
       if (host) setShown(node);
     },
-    [host],
+    [host, edges],
+  );
+  useEffect(
+    () => () => {
+      nativeRequest.current += 1;
+      popupTarget.current?.removeAttribute("data-popup-open");
+      popupTarget.current = null;
+    },
+    [],
   );
   // No room above or below the pointer in the page: past the window's edge, as a Mac context menu
   // (popupHost.ts). The backdrop stays, so a click on the page still closes it.
   useEscapingPopup(
     host,
     shown,
-    () => point && { getBoundingClientRect: () => ({ left: point.x, right: point.x, top: point.y, bottom: point.y }) },
+    () =>
+      point && {
+        getBoundingClientRect: () => ({
+          left: point.x,
+          right: point.x,
+          top: point.y,
+          bottom: point.y,
+        }),
+      },
     { side: "bottom", align: "start", gap: 0, shell: "self" },
   );
   // Where the menu sits, measured before it paints.
@@ -146,7 +187,11 @@ export function ContextMenu({
   }, [place]);
   const enabled = items.filter((item) => !item.disabled);
   const close = (restoreFocus = false) => {
+    nativeRequest.current += 1;
     setPoint(null);
+    setNativeOpen(false);
+    popupTarget.current?.removeAttribute("data-popup-open");
+    popupTarget.current = null;
     const target = returnFocus.current;
     returnFocus.current = null;
     if (restoreFocus && target?.isConnected) target.focus({ preventScroll: true });
@@ -216,26 +261,51 @@ export function ContextMenu({
         if (targets === "own" && !(event.target instanceof Node && event.currentTarget.contains(event.target))) return;
         if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
         if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
+        const target = event.target instanceof Element ? event.target : null;
+        // Find the invoking HTML surface even when the pointer is over a nested SVG. The
+        // popup itself anchors at the pointer, preserving the context-menu gesture.
+        let nativeAnchor = target;
+        while (nativeAnchor && !(nativeAnchor instanceof HTMLElement)) nativeAnchor = nativeAnchor.parentElement;
+        const nativeTarget = nativeAnchor instanceof HTMLElement ? nativeAnchor : null;
+        if (native && nativePopup.available && !nativeTarget) return;
         event.preventDefault();
         onOpen?.();
+        popupTarget.current?.removeAttribute("data-popup-open");
+        popupTarget.current = null;
+        setPoint(null);
+        const requestId = nativeRequest.current + 1;
+        nativeRequest.current = requestId;
+        setNativeOpen(true);
         setActive(0);
-        const target = event.target instanceof Element ? event.target : null;
-        returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
+        const opener = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
+        popupTarget.current = opener;
+        opener?.setAttribute("data-popup-open", "");
+        returnFocus.current = opener;
         const at = { x: event.clientX, y: event.clientY };
-        const native = nativeMenu();
-        const rows = native && nativeRows(items);
-        if (!native || !rows) {
+        if (native && nativePopup.available) {
+          setNativeAnchor({
+            getBoundingClientRect: () => ({ left: at.x, right: at.x, top: at.y, bottom: at.y }),
+          });
+          setNativeOpen(true);
+          return;
+        }
+        const legacyMenu = nativeMenu();
+        const rows = legacyMenu && nativeRows(items);
+        if (!legacyMenu || !rows) {
+          setNativeOpen(false);
           setPoint(at);
           return;
         }
         // The rows as they were at the right-click: the menu runs the one chosen from them.
         const shown = items;
-        native({ items: rows, point: at }).then(
+        legacyMenu({ items: rows, point: at }).then(
           (reply) => {
+            if (nativeRequest.current !== requestId) return;
             // An older legacy bridge can acknowledge an unknown method with a successful null
             // value. That is not a native-menu dismissal (`{ picked: null }`); fall back to the
             // page menu so a right-click never disappears without an actionable surface.
-            if (!reply || typeof reply !== "object" || !("picked" in reply)) {
+            if (!hasNativeMenuPick(reply)) {
+              setNativeOpen(false);
               setPoint(at);
               return;
             }
@@ -244,11 +314,16 @@ export function ContextMenu({
             else close(true);
           },
           // A host without the native menu (an older app): the page draws it.
-          () => setPoint(at),
+          () => {
+            if (nativeRequest.current !== requestId) return;
+            setNativeOpen(false);
+            setPoint(at);
+          },
         );
       }}
     >
       {children}
+      <span aria-hidden="true" hidden data-popup-open={point || nativeOpen ? "" : undefined} />
       {point
         ? createPortal(
             // Placement is inline, not only in ui.css: a host that does not load ui.css (the agent
@@ -260,7 +335,7 @@ export function ContextMenu({
             >
               <div
                 ref={attach}
-                className={cx("ui-popup ui-glass ui-context-menu", popupClassName)}
+                className={cx("ui-popup ui-glass ui-context-menu ui-scroll-edge-fade", popupClassName)}
                 role="menu"
                 data-focus-ring="rows"
                 tabIndex={-1}
@@ -296,12 +371,16 @@ export function ContextMenu({
                     >
                       {/* A text label truncates with its full text as a tooltip; a composed label
                           (text plus a shortcut) keeps its own flex layout. */}
+                      {/* A toggle's check sits on the menu's state column and an icon in the
+                          14 box at the leading (popupSurface.css, "EVERY MENU ON ONE GRID"), so
+                          checked, unchecked and plain rows start their text on one line. */}
                       {item.checked !== undefined ? (
-                        <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
+                        <span className="ui-menu-check" aria-hidden="true">
                           {item.checked ? "✓" : null}
                         </span>
-                      ) : item.icon ? (
-                        <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
+                      ) : null}
+                      {item.icon ? (
+                        <span className="ui-menu-icon" aria-hidden="true">
                           {item.icon}
                         </span>
                       ) : null}

@@ -1,28 +1,87 @@
+import { experimentArm } from "../../experiments/experiment";
+import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
+import { BUBBLE } from "./transcriptSpacing";
+import {
+  footerAfter,
+  gridLength,
+  MARK_FOOTER,
+  MARK_INDICATOR,
+  MARK_STATUS,
+  MARK_STEP,
+  rowMark,
+  gridScale,
+  restBand,
+  tailGap,
+  TRANSCRIPT_RUN_GAP,
+  TRANSCRIPT_FOOTER_CONTROL,
+  TRANSCRIPT_INNER_GAP,
+  transcriptGap,
+} from "./transcriptGrid";
+import type { MachineResources } from "./machineResources";
+import type { AutoResumeStatus } from "./autoResumeStatus";
 import type { VideoInfo } from "./composer/videoAttachments";
+import type { AttachmentSource } from "./attachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
 import type { ChatUnavailable } from "./chatUnavailable";
 import type { ChatPresence, Participant } from "./multiplayer/participants";
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
+import type { NextStepAsk } from "./conversation/nextStepAsk";
 import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
+import type { SessionUsageStats } from "./usageStats";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
+import type { InboxNotice } from "./conversation/inboxNotice";
+import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { isRunGroup, SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW, WORKFLOW_CARD } from "./subagents/subagentRows";
+import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
+import { TASK_LINE, type StartedTask } from "./conversation/taskLineKind";
+import type { SubagentRetryNotice } from "./subagents/retryState";
+import {
+  isRunGroup,
+  SUBAGENT_DONE,
+  SUBAGENT_EMPTY,
+  SUBAGENT_OF,
+  SUBAGENT_ROW,
+  WORKFLOW_CARD,
+} from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
-import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
+import {
+  PASTE_CHIP_HEIGHT,
+  type PasteRange,
+  HUGE_PROMPT_HEAD_CHARS,
+  collapsedPromptHeight,
+  hasHugeTypedPart,
+  isHugePrompt,
+  promptHead,
+  promptParts,
+} from "./conversation/promptCollapse";
 import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
+import { agentMessage } from "./conversation/agentMessages";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
+import { MessagePlacement } from "./conversation/messagePlacement";
+import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
+import {
+  geometryFromArrays,
+  geometryFromIndex,
+  geometryOf,
+  type IndexedLayoutGeometry,
+  type LayoutGeometry,
+} from "./conversationGeometry";
+import { PlacedHeightIndex } from "./placedHeightIndex";
+
+export type { HeightChange, IndexedLayoutGeometry, LayoutGeometry } from "./conversationGeometry";
+export { applyHeightChanges, geometryFromHeights, geometryFromIndex } from "./conversationGeometry";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -35,7 +94,8 @@ export type AcpmuxBackgroundTask = {
   reason?: string;
   /// Claude Code's own words on how it ended (its task notification's summary).
   summary?: string;
-  /// The exit code, when the harness reports one (Codex does; Claude Code does not).
+  /// The exit code, when the harness reports one (Codex does; acpmux reads Claude Code's from its
+  /// summary).
   exitCode?: number;
 };
 
@@ -46,6 +106,8 @@ export type AcpmuxBackgroundTask = {
 export type AcpmuxBackgroundState = {
   state: "running" | AcpmuxBackgroundTask["state"];
   reason?: string;
+  /// The exit code its end reported (Codex's, and Claude Code's from its summary).
+  exitCode?: number;
   endedAt?: number;
 };
 
@@ -64,6 +126,75 @@ export type AcpmuxCompaction = {
 
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
+
+/// A session recap (acpmux `recap` record, `hub/away_recap.rs`): where the chat stands, shown when
+/// the person comes back after 5+ minutes away. Never a prompt; the daemon decides when.
+/// `key`: the chat and the record's seq, which the dismissal remembers (conversation/recapDismissed.ts).
+export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
+
+/// A turn the agent ran on its own, which nobody prompted (acpmux `background_turn` records): a
+/// background task or subagent finished (`task_notification`), a scheduled wakeup or /loop tick
+/// (`scheduled`), or a hook (`system`). `running` until its ended record; then `quiet` is acpmux's
+/// word on whether its reply has nothing new to tell (one short line, no question, no link), and
+/// `reason` how it ended (`prompt`: a prompt started a real turn while it ran).
+export type AcpmuxBackgroundTurn = {
+  id: string;
+  trigger: string;
+  running: boolean;
+  quiet?: boolean;
+  reason?: string;
+  /// A row of its own draws something, so its line opens to it. A turn whose events only update
+  /// rows that are not its own (a call an earlier turn started, a subagent's work) has none.
+  hasRows?: true;
+  /// What started it, when acpmux knows: the background task that ended and whether that is worth
+  /// a response (acpmux hub/background_cause.rs). A log from before acpmux said so has none.
+  cause?: AcpmuxBackgroundCause;
+  /// Its reply went onto the call that started the task (`AcpmuxBackgroundReaction`), so the
+  /// transcript draws no line for it.
+  attached?: true;
+};
+
+/// How much a background task's end is worth (Leo, 2026-11-03: "there's like... background tasks
+/// worth responding to and not worth responding to"), decided by acpmux from the task's own event
+/// in one table keyed by the task's kind and status: `silent` (an interim stop, a subagent's step,
+/// a stop, a monitor tick), `result` (a final report, a command that exited), `failure`.
+export type AcpmuxBackgroundWeight = "silent" | "result" | "failure";
+
+/// The task a background turn answered: its kind (`subagent`, `subagent_step`, `monitor`,
+/// `shell`, `unknown`), the notification's status, its weight, the tool call that started it
+/// (`origin`) and the notification's own summary.
+export type AcpmuxBackgroundCause = {
+  kind: string;
+  status: string;
+  weight: AcpmuxBackgroundWeight;
+  origin?: string;
+  summary?: string;
+};
+
+/// What a background turn left on the call that started its task: the agent's reply, which the
+/// opened call shows under its output, and `fresh` for a final result the person has not seen
+/// (a small mark at the row's edge until their next prompt).
+export type AcpmuxBackgroundReaction = {
+  turn: string;
+  weight: AcpmuxBackgroundWeight;
+  text?: string;
+  fresh?: true;
+  /// The task's end was interim (acpmux's cause status `interim`: Claude Code said the agent "is
+  /// waiting on its own background work"): it has not given its final report yet. A later end of
+  /// the same call replaces the reaction, which clears it.
+  interim?: true;
+};
+
+/// What a run of background-task notifications' line counts (conversation/backgroundRuns.ts): quiet
+/// task turns and finished shells, stopped shells, scheduled checks, other quiet background turns,
+/// and the ids of the rows it folds (Find and links open it for one).
+export type AcpmuxBackgroundRun = {
+  finished: number;
+  stopped: number;
+  scheduled: number;
+  other: number;
+  rows: string[];
+};
 
 /// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
 /// cannot keep (a `policy_unenforced` record): OpenCode's own settings decide what it asks
@@ -141,13 +272,41 @@ export type QueuedPrompt = {
   next?: boolean;
   sending?: boolean;
   images?: QueuedPromptImage[];
+  /// Not acpmux's: the pane holds it until the folder is trusted (trustHeld.ts).
+  held?: boolean;
+  /// A held prompt that waits for the chat's Cloud machine to wake instead (cloudWake.ts).
+  waking?: boolean;
   inlineParts?: PromptContentPart[];
   /// Another agent's message waiting here (direct.ts `queuedMessage`): it draws in the transcript
   /// as the message's received card (conversation/queuedMessages.ts), never as a queue row.
   message?: IncomingMessage;
+  /// acpmux's inbox notice waiting here (provenance `inbox_notice`, hub/inbox.rs): other agents'
+  /// messages, not the person's prompt. Like `message`, it draws in the transcript's one group of
+  /// waiting messages as its threads (conversation/queuedMessages.ts), never as a queue row.
+  inbox?: InboxNotice;
   /// A teammate's prompt in a shared chat (its `person_message` provenance): its row names them,
   /// and only they may change it (acpmux refuses another author's edit with `queue.not_author`).
   author?: Participant;
+  /// acpmux's ask to resume a failed subagent (subagents/retryState.ts `subagentRetryNotice`): its
+  /// row names the subagent instead of drawing the prompt's text.
+  retry?: SubagentRetryNotice;
+  /// Another agent's message the person's Stop holds (acpmux `queue_paused` with `reason: "stop"`,
+  /// hub/cancel.rs): it waits until the person's next turn completes or the queue is resumed, not
+  /// for the turn to end, and its card says so (conversation/QueuedMessageCard.tsx).
+  heldByStop?: true;
+  /// A guest's prompt that waits for the owner's Approve or Decline (acpmux `awaitingOwner`,
+  /// `_acpmux/queue_approve`): it never runs until approved (conversation/QueuedMessageCard.tsx).
+  awaitingOwner?: boolean;
+  /// The revision of the text the pane holds for it (a guest's edit makes a new one), which Approve
+  /// names: always from the same record as `prompt`.
+  revision?: number;
+  /// acpmux lists a newer revision whose whole text has not reached the pane yet: Approve waits.
+  updating?: boolean;
+  /// The newest revision acpmux listed or recorded for it, which `updating` waits for.
+  listedRevision?: number;
+  /// The queued incarnation acpmux names for a held prompt (its record's or listing's `turnId`),
+  /// which Approve names with the revision (`_acpmux/queue_approve` requires both).
+  turnId?: string;
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 /// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
@@ -159,14 +318,25 @@ export type PromptImage = {
   width?: number;
   height?: number;
   src?: string;
+  /// The app it came from (attachments.ts `AttachmentSource`), as acpmux kept it with the prompt.
+  source?: AttachmentSource;
 };
 /// Ordered ACP content. The daemon validates blockIndex/companionOf against the actual blocks.
 /// Local attachment identities and video previews survive echo; companions remain on the wire.
+/// `placed`: the composer put this attachment in the text (inlinePrompt.ts), so the sent bubble
+/// draws the prompt in this order; an unplaced prompt's parts have none (UserBubble.tsx).
 export type PromptContentPart =
   | { kind: "text"; text: string }
-  | (PromptImage & { kind: "image"; persisted?: false; attachmentId?: string; blockIndex?: number })
+  | (PromptImage & {
+      kind: "image";
+      persisted?: false;
+      attachmentId?: string;
+      blockIndex?: number;
+      placed?: true;
+    })
   | {
       kind: "file" | "document" | "audio" | "pasted";
+      placed?: true;
       id?: string;
       attachmentId?: string;
       companionOf?: number;
@@ -177,12 +347,31 @@ export type PromptContentPart =
       pageCount?: number;
       uri?: string;
       video?: VideoInfo;
+      source?: AttachmentSource;
     };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
 /// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
 /// SHA-256 of its bytes; one the pane only sent so far has the composer's id (`local`) until
 /// acpmux names it, so an edit cannot keep or drop it by id yet.
 export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
+
+/// A turn's tokens as Anthropic counts them: what the model wrote (`output`) apart from what it read,
+/// which is the fresh input, the prompt cache's reads and its writes. The running line adds up each
+/// model call's (direct.ts `turnTokenSplit`); a finished turn's comes from its `turn_result`.
+export type TurnTokenSplit = { output: number; input: number; cacheRead: number; cacheWrite: number };
+
+/// One retry of a turn's failed model request, as acpmux logs it (`turn_retrying`): Claude Code's
+/// `system/api_retry` (attempt of maxRetries, error, errorStatus) or Codex's stream error.
+export type AcpmuxTurnRetry = {
+  attempt?: number;
+  maxRetries?: number;
+  error?: string;
+  errorStatus?: number;
+};
+
+/// The client's row that carries the running turn's retries (direct.ts): kind "typing", so no
+/// view draws it; the live line reads it (conversation/turns.ts `withRetry`).
+export const TURN_RETRY = "turn-retry";
 
 export type AcpmuxRow = {
   id: string;
@@ -191,6 +380,9 @@ export type AcpmuxRow = {
   kind: string;
   /// The acpmux event a turn summary came from, where a fork through that turn ends.
   seq?: number;
+  /// The daemon's stable identity for a turn. Turn results can be replayed with a new seq, so
+  /// transcript rows that belong to one turn use this identity when it is available.
+  turnId?: string;
   text?: string;
   streaming?: boolean;
   pending?: boolean;
@@ -206,6 +398,18 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// A recap row's recap.
+  recap?: AcpmuxRecap;
+  /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
+  background?: AcpmuxBackgroundTurn;
+  /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
+  inBackground?: string;
+  /// An agent reply to the person's own prompt (conversation/turns.ts answeringPerson): its text
+  /// draws even when it is only punctuation (visibleMessage.ts).
+  answersPerson?: true;
+  /// A run of background-task notifications folded under one line (conversation/backgroundRuns.ts):
+  /// drawn as a background turn's line, with what it counts and the rows it folds.
+  backgroundRun?: AcpmuxBackgroundRun;
   /// A policy note's policy and why the chat's harness cannot keep it.
   policyUnenforced?: AcpmuxPolicyUnenforced;
   /// An agent pair row's pause (conversation/AgentPairNote.tsx).
@@ -219,21 +423,46 @@ export type AcpmuxRow = {
   received?: AcpmuxOfferResult;
   /// A prompt that is not the person's: another agent's message, or harness bookkeeping
   /// (conversation/incomingMessage.ts).
-  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" | "hidden" }>;
+  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" | "inbox" | "hidden" }>;
   /// The prompt as the agent got it, when the row shows something else (an incoming message's
   /// body): what Retry sends again.
   resend?: string;
   /// Another agent's message still waiting in the queue (conversation/queuedMessages.ts): the
   /// queue entry's promptId, which its ⋯ menu steers, edits or deletes, and whether it was sent
   /// now already (acpmux marks it `next`; it runs right after the turn).
-  queuedMessage?: { promptId: string; next?: boolean };
+  /// `lead`: the first queued message, which explains a Stop hold for the run.
+  /// `heldByStop`: the person's Stop holds it (QueuedPrompt `heldByStop`).
+  /// A person's (a guest's) waiting prompt names them (`person`): `held` while it waits for the
+  /// owner's Approve, `declined` once the owner declined it (one quiet line, never removed silently).
+  /// `revision` is the held prompt's as this row draws it, which Approve names (a guest's edit since
+  /// makes acpmux answer `queue.stale`).
+  queuedMessage?: {
+    promptId: string;
+    next?: boolean;
+    lead?: boolean;
+    heldByStop?: boolean;
+    person?: Participant;
+    held?: boolean;
+    declined?: boolean;
+    revision?: number;
+    /// A newer revision is on its way: the card says so and offers no Approve until it shows.
+    updating?: boolean;
+  };
+  /// A flattened inbox delivery that came from a queued message. Keep the source queue target
+  /// separate from `queuedMessage` so one wrapper prompt does not become every delivery's identity.
+  inboxQueue?: { promptId: string; next?: boolean; lead?: boolean; heldByStop?: boolean };
   /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
   /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
   untyped?: boolean;
   /// A started sessions row's chats, oldest first (started/StartedSessionCard.tsx).
   started?: StartedSession[];
+  /// A finished turn's task line's sub-sessions, in the order it started them (conversation/TaskLine.tsx).
+  tasks?: StartedTask[];
   toolCount?: number;
   durationMs?: number;
+  /// A turn summary's tokens, when its harness reported them on the `turn_result` (Claude Code:
+  /// its main loop's, acpmux hub/turn_usage.rs).
+  tokens?: TurnTokenSplit;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
@@ -255,8 +484,24 @@ export type AcpmuxRow = {
   viaCli?: string;
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
+  /// A turn summary of the chat's last turn, which a failed turn's Retry asks acpmux to retry
+  /// (turns.ts), even when its prompt is an attempt acpmux sent and draws nothing.
+  retryable?: boolean;
+  /// A turn summary whose footer offers Retry with `prompt` (turns.ts retryTargetAt): the chat's last
+  /// turn, or the last one a prompt opened when only notices and reminders came after it.
+  retryTarget?: true;
+  /// The turn's completed edit diff proves it changed files. Retry keeps this hint in its tooltip;
+  /// missing or incomplete checkpoint data stays neutral (conversation/turns.ts).
+  changedFiles?: true;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
   answerId?: string;
+  /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each
+  /// run of tool calls between them, in order; undefined when the agent said nothing.
+  turnCopy?: TurnCopyPart[];
+  /// A footer turns.ts `supersededFooters` added where the person came in on a stretch of a turn (a
+  /// steer that landed in it, or a new prompt over a turn with no summary): the stretch counts as
+  /// ended, and the footer offers its Copy.
+  superseded?: boolean;
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
@@ -265,18 +510,29 @@ export type AcpmuxRow = {
   permission?: AcpmuxPermission;
   /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
   question?: AgentQuestion;
+  /// A `nextStep` row's tagged ask and, once a prompt answered it, the answer
+  /// (conversation/nextStepAsk.ts, NextStepCard.tsx).
+  nextStep?: { ask: NextStepAsk; answer?: string };
   /// A `permissionRecord` row's answer, its ask in `permission` (permissions/record.ts).
   decision?: PermissionDecision;
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
+  /// A Worked-for row's actual open state, including a provisional key from paged history.
+  foldOpen?: boolean;
   /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
+  /// A reply to the person (not a short note) shown inside an open "Worked for": settled, yet it
+  /// keeps its own action row (hasReplyActions; conversation/turns.ts shapeTurn).
+  foldedReply?: boolean;
   /// A run of finished tool calls folded under one summary line (Debug toggle
   /// `agentPane.debug.codexToolRuns`, on by default; conversation/turns.ts `codexRuns`,
   /// conversation/toolRunSummary.ts).
   /// False keeps a run waiting for edit permission in tool rows without collapsing it.
   foldRun?: boolean;
+  /// A run of one-line rows carrying messages between agents, folded under one line
+  /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
+  messageRun?: AcpmuxMessageRun;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
   /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
@@ -284,6 +540,13 @@ export type AcpmuxRow = {
   /// A running turn's status line before the turn's first output: it reads "Thinking" beside the
   /// turn's time (WorkingFor.tsx).
   thinkingNow?: boolean;
+  /// The running turn's harness retries a model request that failed (acpmux `turn_retrying`,
+  /// hub/turn_retry.rs): on the client's `TURN_RETRY` row while it retries, and on the live line,
+  /// which then says the model cannot be reached instead of "Thinking" (conversation/Thinking.tsx).
+  retry?: AcpmuxTurnRetry;
+  /// On the `TURN_RETRY` row: how long the turn's finished retries took, which the live line's
+  /// "Thinking" time leaves out (conversation/turns.ts `withRetry`).
+  retriedMs?: number;
   /// A running turn's status line drawn as the turn's last row (Debug Settings
   /// `agentPane.debug.liveLineBelow`, conversation/turns.ts): no rule under it, and its clock
   /// never stops while the turn runs.
@@ -297,6 +560,29 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// The Codex-style live line names a command still running in an earlier run, which that run
+  /// draws no row for (conversation/turns.ts `lineCall`, `codexRuns`): its call id. While the reader
+  /// is scrolled up, the call stays out of its run when the line lets go of it
+  /// (conversation/turnEndHold.ts `callsToHold`).
+  linedCall?: string;
+  /// `doing` names the latest step, finished, which the live line holds until the next step
+  /// (conversation/turns.ts `liftedStep`): "Ran grep …".
+  doingDone?: boolean;
+  /// How long that finished step took, its own start to its own end (conversation/turns.ts
+  /// `liftedStep`): the live line says it beside the step, never the turn's time.
+  doingForMs?: number;
+  /// What the Codex-style live line says when it names no call (conversation/turns.ts
+  /// `codexLiveTurn`): the agent waits on its foreground subagents (`liveAgents` of them still
+  /// running), or writes its reply. Neither reads "Thinking" (Leo, 2026-11-03: "i think the
+  /// "thinking" accounting is also off pretty frequently").
+  liveState?: "subagents" | "writing";
+  liveAgents?: number;
+  /// With the line reading "Thinking" past the first step: how long the turn's thoughts streamed,
+  /// summed (conversation/turns.ts `thoughtTime`), the time it shows beside the word.
+  thoughtMs?: number;
+  /// The live line's clock is the turn's whole time, past its first step: it reads "4m" beside the label, or "2s · 4m" after a step's own time, so
+  /// the time never reads as what the line names (conversation/Thinking.tsx).
+  turnTotal?: boolean;
   /// The call in flight sends another agent a message (conversation/turns.ts `sendingTo`: a shell
   /// `acpmux send`, a sub-session's `send_message`): the line reads "Sending message to
   /// <doingSendTo>", and the sub-session `doingSendSession` by its name once the list has it.
@@ -304,7 +590,12 @@ export type AcpmuxRow = {
   doingSendSession?: string;
   doingDraft?: boolean;
   untimed?: boolean;
+  /// The live line's turn, by its prompt's row id (conversation/thinkingVerbs.ts): kept from send to
+  /// the echo, so the line's verb stays one word for the whole turn.
+  verbKey?: string;
   quietKey?: string;
+  /// When the reply `quietKey` names was written, on this page's clock (conversation/turns.ts).
+  quietAt?: number;
   /// The call in flight is a command: the line offers "⌃B to run in background" (BackgroundHint.tsx;
   /// never on the command's own row), and leads with the terminal glyph when it names it
   /// (WorkingFor.tsx).
@@ -313,7 +604,8 @@ export type AcpmuxRow = {
   /// it is open the row names the call, so the line does not (conversation/turns.ts `ownRow`).
   doingGroup?: string;
   doingGroupOpen?: boolean;
-  /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
+  /// A "Worked for" disclosure whose fold mixes the agent's messages with its work reads "N previous
+  /// messages", as Codex's does (conversation/turns.ts `foldMixesMessages`).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
   queued?: string;
@@ -327,6 +619,12 @@ export type AcpmuxRow = {
   /// The summary of a turn a prompt sent now ended, not Stop or Esc (direct.ts): the turn goes on
   /// under that prompt, so it draws no "You stopped after" (conversation/turns.ts).
   continued?: boolean;
+  /// A stopped turn's summary that acpmux ended itself because the agent never answered Stop
+  /// (`cancelForced`, hub/cancel.rs). It draws as any stop; only the footer's tooltip says so.
+  stopForced?: true;
+  /// A steer logged after its turn's Stop and never read: drawn as a plain message below the stop
+  /// (direct.ts `deferLateSteers`), until acpmux runs it again as the next prompt.
+  afterStop?: true;
   /// A waiting steer's promptId, which its Send now names (conversation/PendingSteer.tsx).
   steerPromptId?: string;
   /// A prompt's promptId as acpmux recorded it (its `user_message` record's): the thread rail keys
@@ -337,6 +635,10 @@ export type AcpmuxRow = {
   /// The last turn's footer when the reader stopped that turn and nothing followed: it offers
   /// Continue (conversation/turns.ts, TurnRows.tsx TurnFooter).
   resumable?: boolean;
+  /// The last turn's footer when that turn failed after doing work, or with no prompt to send again
+  /// (a turn a notice started): its error card leads with Continue, which resumes the turn with its
+  /// context, instead of Retry (conversation/errorRecovery.ts).
+  continuable?: boolean;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
   /// A todo list whose turn has ended: a step left in progress no longer spins (conversation/turns.ts).
@@ -349,10 +651,38 @@ export type AcpmuxRow = {
   /// The rows a run absorbed (conversation/turns.ts `mergeShortNotes`): its own, the short note and
   /// the run after it, so Find and a shell's count reach each (chatFind.ts).
   joined?: string[];
+  /// The messages other sessions sent that the agent has not read yet, drawn as one group
+  /// (conversation/pendingMessages.ts, PendingMessagesCard.tsx), each once, oldest first.
+  pendingMessages?: { rows: readonly AcpmuxRow[]; displayRows?: readonly AcpmuxRow[]; flat?: boolean };
+  /// A received row expanded from an inbox notice; used to keep its waiting run flat.
+  inboxDelivery?: true;
+  inboxDeliveryBatch?: true;
+  /// Metadata retained for a preview-only inbox delivery so opening it can hydrate its thread.
+  inboxThread?: {
+    threadId: string;
+    label?: string;
+    sender: string;
+    preview: string;
+    count: number;
+    promptIds: readonly string[];
+    fromSession?: string;
+    fromHarness?: string;
+  };
+  laneNoticeBatch?: {
+    kind: "report" | "inbox";
+    rows: readonly AcpmuxRow[];
+    verdicts: Partial<Record<"SHIP" | "BLOCK" | "FIX" | "HOLD", number>>;
+    threads: readonly { id: string; sender: string }[];
+  };
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).
   subagents?: Subagent[];
+  /// On a background turn's line: the subagent whose report started the turn, which the line names
+  /// (subagents/runningTray.ts `withSubagentLines`; conversation/BackgroundTurnLine.tsx).
+  subagentReport?: Subagent;
+  /// That report is the subagent's first, drawn right under its "Subagent finished" line.
+  subagentReportFirst?: true;
 };
 
 export type AcpmuxActivity = {
@@ -390,6 +720,12 @@ export type AcpmuxActivity = {
     images?: string[];
     /// A shell that went on in the background: running there, then how it ended.
     background?: AcpmuxBackgroundState;
+    /// The agent's reaction to its background task ending (`AcpmuxBackgroundReaction`).
+    reaction?: AcpmuxBackgroundReaction;
+    /// The person approved this call's permission ask (Allow, Always allow, or a switch to the
+    /// harness's highest mode while its card was open): the row says "Approved" at its edge
+    /// instead of a receipt line of its own (direct.ts `markApproved`).
+    approved?: true;
   };
 };
 
@@ -484,6 +820,8 @@ export type AcpmuxPermission = {
   kind?: string;
   /// The tool call it asks about: a subagent's own call when a subagent asks (summary/SubagentStatusList.tsx).
   toolCallId?: string;
+  /// Proposed changes from this ask only; these have not been applied to the workspace.
+  diffs?: AcpmuxFileDiff[];
   pending: boolean;
   options: {
     id: string;
@@ -503,10 +841,15 @@ export type AcpmuxPermission = {
 export type AcpmuxCatalogModel = {
   id: string;
   name?: string;
+  /** Daemon catalog metadata is not proof the account reported this model. */
+  curated?: boolean;
+  declared?: boolean;
   unavailable?: string;
   shortName?: string;
   family?: string;
   efforts?: string[];
+  /** Present when the catalog/profile explicitly supplied the effort capability, including []. */
+  effortsDeclared?: boolean;
   defaultEffort?: string;
   fast?: boolean;
   inlineFast?: boolean;
@@ -556,6 +899,18 @@ export type AcpmuxContextBreakdown = {
   maxTokens: number;
 };
 
+/// A Claude Code chat's plan usage limits as acpmux reports them (claude_stdio `usage_limits`):
+/// `id` is `session` (5 hours), `weekly`, `weekly_opus` or `weekly_sonnet` (Codex's other lengths are
+/// their minutes, `60m`, or their slot, `primary`); `usedPercent` is 0-100; `resetsAt` is unix
+/// seconds, only when the harness said when the window resets; `windowMins` is the window's length
+/// when Codex named it. `plan` (Codex's `planType`, such as `pro`) and `credits` (the balance, or
+/// unlimited) only when the harness reported them; Claude Code names neither.
+export type AcpmuxUsageLimits = {
+  windows: { id: string; usedPercent: number; resetsAt?: number; windowMins?: number }[];
+  plan?: string;
+  credits?: { balance?: string; unlimited?: boolean };
+};
+
 /// Optional Labs workflow payload. acpmux does not emit this field yet; keeping the wire shape
 /// here gives the future event a typed adapter seam without deriving workflow state from rows.
 export type AcpmuxWorkflowWire = {
@@ -582,13 +937,40 @@ export type AcpmuxWorkflowWire = {
  * (`notListedAtOpen`), or it left the list while the pane showed it (`leftListWhileShown`). */
 export type MissingSessionReason = "notListedAtOpen" | "leftListWhileShown";
 
+/// Whether the pane's link to acpmux is up. A snapshot's `connection` names why the client emitted
+/// it ("connected", "session changed", a streamed event's kind, "failed" for a refused request on
+/// an open socket), not the link's state: only a lost ("disconnected") or opening ("connecting…")
+/// connection is down. Never compare it with "connected" to ask whether the link is up.
+export function linkUp(connection: string): boolean {
+  return connection !== "disconnected" && !connection.startsWith("connecting");
+}
+
 export type AcpmuxSnapshot = {
   type: "snapshot";
+  /** The selected chat's daemon-owned retry, including the last automatic attempt. */
+  autoResume?: AutoResumeStatus;
   protocolVersion: number;
   rows: AcpmuxRow[];
+  /// The chat's latest TodoWrite/update_plan checklist (liveProgress.ts), beside the rows so Session
+  /// Info's Progress updates without rescanning the transcript on every streamed token. `ended` once
+  /// its turn stopped or a later prompt came in.
+  progress?: {
+    plan: AcpmuxPlanEntry[];
+    completed?: number;
+    total?: number;
+    ended?: boolean;
+  };
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
+  /// Agent ids whose usage/progress changed in this snapshot. This lets rows subscribe without
+  /// rescanning every agent on a token update.
+  subagentProgress?: Record<
+    string,
+    { agents?: { done: number; started: number; failed?: number; queued?: number }; tokens?: number; toolUses?: number }
+  >;
+  /// Monotonic structural revision for the subagent list; usage-only updates do not change it.
+  subagentStructureVersion?: number;
   sessions: AcpmuxSessionEntry[];
   /// Who else has a shared chat open and who of them types (multiplayer/participants.ts).
   presence?: ChatPresence;
@@ -602,6 +984,8 @@ export type AcpmuxSnapshot = {
   peerConnected?: Record<string, boolean>;
   /// Each peer's link state (`connected`, `reconnecting`, …), as `_acpmux/status` last said (environments.ts).
   peerStates?: Record<string, string>;
+  /// Each peer's cached one-minute resource reading, as bounded by the pane's native status filter.
+  peerResources?: Record<string, MachineResources>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   summary?: {
@@ -611,14 +995,28 @@ export type AcpmuxSnapshot = {
     /// Context-window tokens used of the session's window, from the agent's last usage update, and
     /// `setup`, the part the agent took before the conversation (its system prompt, tools and
     /// memory), when the harness reports it (`_meta.acpmux.setup`).
-    usage?: { used: number; size: number; setup?: number };
+    usage?: {
+      used: number;
+      size: number;
+      setup?: number;
+      /// When the chat's prompt cache lapses (unix ms; acpmux claude_stdio/prompt_cache.rs).
+      cacheExpiresAt?: number;
+    };
     /// What the context holds by category, as Claude Code's /context said after the last turn
     /// (acpmux `contextBreakdown`); unset for other harnesses. Each list holds at most 50 rows,
     /// the largest.
     contextBreakdown?: AcpmuxContextBreakdown;
+    /// What the session spends (acpmux `usageStats`, usageStats.ts): 24h tokens and cost, its
+    /// autocompact cap, its subagents. Unset while the harness has no readable transcript.
+    usageStats?: SessionUsageStats;
     host?: string;
+    /// The machine acpmux runs the chat on (acpmux `machine`), for the `/status` card only:
+    /// unlike `host` it is set for a local chat too.
+    machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// The folders the chat sees beside its own (acpmux `additionalDirectories`, cmux#32811).
+    additionalDirectories?: readonly string[];
     branch?: string;
     worktree?: string;
     title?: string;
@@ -635,7 +1033,11 @@ export type AcpmuxSnapshot = {
     baseUrl?: string;
     route?: string;
     settingsSources?: unknown;
-    usageLimits?: string;
+    /// acpmux's structured limits, or a harness's own text for them.
+    usageLimits?: AcpmuxUsageLimits | string;
+    /// False when acpmux knows the sign-in has no plan usage limits (an API key, a cloud
+    /// provider): the `/status` card hides the row. Unset: they apply, reported or not yet.
+    usageLimitsApply?: boolean;
     /// The model the agent last reported, when the pane draws a pick (`model`) it has not
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
     confirmedModel?: string;
@@ -676,6 +1078,8 @@ export type AcpmuxSnapshot = {
     toolsMutable?: boolean;
   };
   connection: string;
+  /** The first request that crossed its progress threshold while the socket stayed open. */
+  daemonWaitingSince?: number;
   /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
   /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
   /// acpmux that names none. Unset in a snapshot no client built (fixtures).
@@ -684,8 +1088,14 @@ export type AcpmuxSnapshot = {
   /// wire to a chat on another machine lists `acp.trust.set` (cx-1bhjj); acpmux never lists it,
   /// so a remote browser still cannot answer.
   answersTrust?: boolean;
+  /// The connection is the app's wire to a chat on the person's OWN Cloud machine: the Cloud API
+  /// said the signed-in caller owns it (`vmKind: "owner"`), and that machine's daemon checks the
+  /// same answer again at each start. A disposable VM of the person's own is its own boundary, so
+  /// Codex and opencode chats send there (remoteEditing.ts). Never set for a team machine,
+  /// another person's computer or a remote browser.
+  ownerCloud?: boolean;
   /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
-  /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so the Inspector's Connectors offer
+  /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so Session Info's Connectors offer
   /// Reconnect.
   reconnectsMcp?: boolean;
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
@@ -704,18 +1114,37 @@ export type AcpmuxSnapshot = {
   chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
+  /**
+   * The agent's guess at the person's next prompt (acpmux's `prompt_suggestion` update, Claude
+   * Code's prompt suggestions), for the composer's ghost text: set only between turns, while no
+   * newer prompt or turn start came after it, and never during a replay. `seq` is its record's, so
+   * the composer can tell one suggestion from the next. An older acpmux never sends one.
+   */
+  promptSuggestion?: { text: string; seq: number };
+  /// How many of the shown chat's turns this client saw end: it only grows, so an end is seen even
+  /// when React draws a turn's start and end as one render (App.tsx `pane.tabState`).
+  turnsEnded?: number;
   /// The running turn's output tokens so far, its model calls' generated tokens added up,
   /// subagents' included (direct.ts `turnTokens`); unset when the harness does not report each
   /// call or the client missed the turn's start.
   turnTokens?: number;
-  /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
-  /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
-  silentTurn?: true;
+  /// The turn's output (`turnTokens`) beside what its calls read, when every call this turn named
+  /// its input and output (`inputTokens`, `cachedReadTokens`, `cachedWriteTokens`, `outputTokens`,
+  /// claude_stdio/inbound.rs); unset otherwise.
+  turnTokenSplit?: TurnTokenSplit;
+  /// Stop (or Esc) was sent and the running turn has not ended yet (direct.ts `cancel`): Stop
+  /// turns and says it is stopping, so a press never looks like it did nothing.
+  stopping?: true;
+  /// The prompt the running turn runs, by its root (direct.ts `turnPrompt`): acpmux's continuation
+  /// of a cut turn counts as that turn. Unset when no turn runs or its prompt is not known.
+  turnPrompt?: string;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
   /// events carry the peer's clock; unset when they share a clock or it is not known yet.
   clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
+  /// acpmux serves the owner's Approve and Decline of a guest's prompt (initialize `queueApproval`).
+  queueApproval?: boolean;
   canHandoff?: boolean;
   handoff?: HandoffClientState;
   permissionGroups?: PermissionClientState;
@@ -726,6 +1155,12 @@ export type AcpmuxSnapshot = {
   /// The latest prompts withdrawn from the queue (acpmux `queue_removed`), newest last: they left it
   /// without running, so no row comes for them (VirtualTranscript keeps no room for one).
   queueWithdrawn?: readonly string[];
+  /// The rows of the steers the agent has not read yet (direct.ts `waitingSteers`), oldest first, only
+  /// while two or more wait: the transcript draws other sessions' among them as one card.
+  waitingSteers?: readonly string[];
+  /// While two or more steers wait: the row of the person's newest one, the only one that offers
+  /// Send now (direct.ts `newestOwnSteer`, conversation/PendingSteer.tsx).
+  newestOwnSteer?: string;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
@@ -747,6 +1182,8 @@ export type AcpmuxSnapshot = {
     /** `unavailable` is only a failed model probe (a timeout, a rate limit): the harness may run. */
     probeFailed?: boolean;
     pickable?: boolean;
+    /** The declared launcher or route kind; routers cannot represent a harness family. */
+    kind?: string;
     /** acpmux's family for the harness (`_acpmux/harnesses` `family`): joins it to a catalog harness. */
     family?: string;
     /** `_acpmux/harnesses` `icon`: the profile's own icon value (a brand id, an emoji, an SF
@@ -768,13 +1205,33 @@ export type AcpmuxSnapshot = {
     };
   }[];
   canLoadOlder: boolean;
+  /**
+   * The chat's prompts older than the rows it holds, from acpmux's prompt index (one read at open):
+   * the thread rail lays out every turn from the first frame, and pages loaded later fill them in
+   * instead of adding ticks. Each is a `user` row (`user-<seq>`, its promptId and the start of its
+   * text) that opens a turn. Absent while unread, and for a chat with no older history.
+   */
+  earlierPrompts?: readonly AcpmuxRow[];
+  /**
+   * The chat's prompt count from its summary (`turnCount`), while the pane does not hold every prompt
+   * yet (the prompt index has not answered, or the daemon has none) and older history is left: the
+   * thread rail starts at the height that many prompts take. Absent once `earlierPrompts` is read.
+   */
+  promptCount?: number;
   /** The oldest event seq the pane holds: it moves with each older read, even one that drew no row. */
   historyFrom?: number;
   /** The agent's slash commands, for the composer's `/` menu. */
   commands?: SlashCommand[];
   /** A harness switch the pane draws ahead of acpmux (harnessSwitch.ts): starting, applying to
    * the next turn while one streams (deferred), or failed with acpmux's reason. */
-  switching?: { harness: string; name: string; phase: "starting" | "deferred" | "failed"; error?: string };
+  switching?: {
+    harness: string;
+    name: string;
+    phase: "starting" | "deferred" | "failed";
+    error?: string;
+    /// The start refusal's code, for the failed card's one-click way out (startRefusal.ts).
+    code?: string;
+  };
   /** A `cmux://session/<id>` link named this session and the daemon has none: the pane says so
    * instead of showing another chat. Unset once a session is selected. */
   missingSession?: string;
@@ -804,31 +1261,57 @@ export type PreparedRow = {
   lexedLength: number;
   /// Measured text by its source, kept across a streaming row's versions; null where it can't be measured.
   prepared: Map<string, PreparedText | null>;
+  /// A plain user row's final line height, keyed by text, font, line height and width.
+  plainHeight?: { key: string; height: number };
 };
 
 export type ConversationLayout = {
   tops: Float64Array;
   heights: Float64Array;
   totalHeight: number;
+  /// Container-owned space before each content row; hover-only footers own no space.
+  gaps?: Float64Array;
+  /// Each row's kind for the gap rules (transcriptGrid.ts rowMark): prompts, messages and the live
+  /// line, so placement after DOM-empty rows are skipped picks the same gaps.
+  marks?: Uint8Array;
+  /// The composer gap under the last drawn row (transcriptGrid.ts tailGap).
+  tailGap?: number;
+  /// The interface scale the gaps were placed at (transcriptGrid.ts gridScale).
+  scale?: number;
+  /// Over a floating stack, the band under the last drawn row before the rest gap: a trailing turn
+  /// footer's action row lies there (transcriptGrid.ts restBand).
+  restBand?: number;
+  /// Room above the first row for history not loaded yet (conversation/olderReserve.ts): every top
+  /// and the total include it. Absent is 0.
+  origin?: number;
 };
 
 /// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
-/// Vertical padding of a user bubble (`.cv-user__bubble`).
-const USER_BUBBLE_PADDING = 16;
+/// The bubble's vertical padding, both sides (`.cv-user__bubble`): what its line leaves of a 44px
+/// one-line bubble (transcriptSpacing.ts `BUBBLE.oneLine`), at least the 4px base each side.
+const userBubblePadding = () =>
+  2 * Math.max(gridLength("base") * chromeScale, (BUBBLE.oneLine * chromeScale - metrics().lineHeight) / 2);
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
 const USER_STATUS_HEIGHT = 20;
 /// The transcript's rhythm (`--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and `--cv-turn-gap`
 /// in conversation/conversation.css): a meta row 4px under its message on a 24px line, 8px between
 /// messages, 16px between turns (the paragraph gap plus a small separator).
-const META_GAP = 4;
-const META_ROW = 24;
-const MESSAGE_GAP = 8;
-/// A sub-session card (subagents/AgentCard.css): its 10px margins, 12px padding and 24px head, and
-/// while it works or waits on the person, its 16px doing line.
-const cardHeight = (state: string) => 46 + (state === "working" || state === "input" ? 16 : 0);
+const META_GAP = 0;
+/// Grid lengths scale with the Interface Size as their CSS tokens do (desktop.css `calc(Npx *
+/// var(--cmux-interface-scale, 1))`). layoutConversation sets the factor once per pass, so the row
+/// estimates match the drawn rows at any size.
+let chromeScale = 1;
+const META_ROW_PT = gridLength("transcript-action-control");
+const metaRow = () => META_ROW_PT * chromeScale;
+/// A reply footer's line: its 32 buttons (transcriptGrid.ts `TRANSCRIPT_FOOTER_CONTROL`).
+const footerRow = () => TRANSCRIPT_FOOTER_CONTROL * chromeScale;
+const MESSAGE_GAP = 0;
+/// A collapsed sub-session disclosure (subagents/AgentCard.css): one 26px line plus its transcript
+/// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
+const cardHeight = (_state: string) => 32;
 
 /// A sub-session reply under its card (SubsessionCallCard.tsx `Cut`): up to three 16px detail lines of
 /// about 60 characters, and the toggle once it is cut.
@@ -838,15 +1321,85 @@ function replyHeight(reply: string): number {
 }
 
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
-const TOOL_RUN_TOP = 2;
-const TOOL_ROW_HEIGHT = 22;
-const TOOL_RUN_BOTTOM = 4;
+const TOOL_RUN_TOP = 0;
+/// A step row: a tool run, the live run line over its work, or a one-line row (transcriptGrid.ts
+/// MARK_STEP).
+const isStepRow = (row: AcpmuxRow) =>
+  row.kind === "activity" || row.kind === WORKED || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
+/// The running turn's live line, drawn as its last row (`below`, conversation/turns.ts).
+export const isLiveLine = (row: AcpmuxRow) =>
+  row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
+/// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
+/// finished", "Scheduled check", a compaction): 22 tall, with the run gap above it
+/// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot (#29965); the waiting
+/// messages' head draws over it (pendingMessages.ts `withWaitingRows`). Under a status row it took the footer's
+/// slot a block gap away, 55 and 70 from its neighbours (Leo, 2026-11-03: "this is pretty bad
+/// spacing and formatting"; design/transcript-spacing.md rule 3).
+export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
+  isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
+/// A row's kind for the gap rules (transcriptGrid.ts transcriptGap), `prev` the drawn row above it.
+/// A compact live line keeps its 22px height and composer gap, but is a live indicator for
+/// spacing: classifying it as another step would swallow the run gap before Thinking.
+export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
+  isStepRow(row) ? MARK_STEP : isLiveStep(row, prev) ? MARK_INDICATOR : isStatusRow(row) ? MARK_STATUS : rowMark(row);
+const LIVE_STEP_EDGE = "+step";
+/// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
+/// #29965), `--cv-tool-row-height`.
+const TOOL_ROW_PT = 22;
+const toolRowHeight = () => TOOL_ROW_PT * chromeScale;
+const TOOL_RUN_BOTTOM = 0;
+/// A one-line row that is not a tool run (`isLineRow`) draws one tool row's line, as a one-call run
+/// does (#29965; Leo, 2026-11-01: "doesn't make sense for these to be spaced differently"). On the
+/// grid the run adds no frame of its own (the stack's gap is the spacing), so the frame is 0.
+const LINE_FRAME = TOOL_RUN_TOP + TOOL_RUN_BOTTOM;
+const lineRow = () => LINE_FRAME + toolRowHeight();
+/// A message row (a send, SentMessageLine.tsx and AgentMessageRow.tsx; another agent's received line;
+/// a folded group's head): one tool row (the single look, conversation/messageLineLook.ts, the
+/// default), and in the stacked gallery look its first line's own line under it while it is shut and
+/// has one.
+const messagePreviewLine = (shown: boolean) =>
+  shown && messageLineLook() === "stacked" ? MESSAGE_PREVIEW_LINE_PT * chromeScale : 0;
+const messageRowHeight = (preview: boolean) => toolRowHeight() + messagePreviewLine(preview);
 
 /// Ordinary tool rows use the compact rhythm. Notes and specialized MCP cards keep a conservative
 /// estimate until their renderer reports its measured height (a wait can contain several three-line replies).
-function activityStepHeight(item: AcpmuxActivity): number {
+/// A short interim note folded into a run (conversation.css `.cv-tool-note`): its text on 20px
+/// lines at the column's width, with the plain status gap above and below it. A note that wraps
+/// draws a line per wrap, so it is estimated from its text as a reply is (cmux#31148).
+const NOTE_LINE = 20;
+/// The room above and below a note (#30400's --cv-note-gap): the run gap, as for any prose by a run,
+/// since a run's lines are otherwise flush (conversation.css `.cv-tool-note`).
+const noteGap = () => TRANSCRIPT_RUN_GAP * chromeScale;
+/// The prepared texts of those notes, for their estimates; cleared past 256, as a row's are.
+const notePrepared = new Map<string, PreparedText | null>();
+function noteHeight(text: string | undefined, width: number): number {
+  if (notePrepared.size > 256) notePrepared.clear();
+  // `.cv-tool-note` wraps with the default `white-space: normal`, so a newline or a run of spaces in
+  // the note draws as one space: measure the text that way, not as the replies' pre-wrap.
+  const flat = text?.replace(/\s+/g, " ").trim();
+  const lines = flat ? textHeight(flat, width, notePrepared, undefined, NOTE_LINE) : NOTE_LINE;
+  return Math.max(NOTE_LINE, lines) + 2 * noteGap();
+}
+/// The chat's reply to a subagent's end under its finished line (ReactionMark.tsx `ReactionReply`):
+/// its text on the notes' 20px lines at the rows' text column, with no margin of its own.
+const reactionPrepared = new Map<string, PreparedText | null>();
+const REACTION_INSET_PT = gridLength("transcript-text-gap");
+function reactionReplyHeight(text: string | undefined, width: number): number {
+  // Drawn only in the arms that put a task's end on its call (ReactionMark.tsx `ReactionReply`).
+  if (!text || !reactsOnCall(experimentArm(backgroundReactionLook))) return 0;
+  if (reactionPrepared.size > 256) reactionPrepared.clear();
+  return Math.max(
+    NOTE_LINE,
+    textHeight(text, Math.max(1, width - REACTION_INSET_PT * chromeScale), reactionPrepared, undefined, NOTE_LINE),
+  );
+}
+function activityStepHeight(item: AcpmuxActivity, width: number): number {
   const tool = item.tool;
-  if (!tool) return 26;
+  if (!tool) return item.kind === "note" ? noteHeight(item.text, width) : 26;
+  // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
+  // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is.
+  const message = agentMessage(tool);
+  if (message) return messageRowHeight(Boolean(message.text.trim()));
   const mcp = mcpCall(tool);
   if (mcp) {
     const subsession = subsessionCall(tool, mcp);
@@ -861,11 +1414,14 @@ function activityStepHeight(item: AcpmuxActivity): number {
             cardHeight(session.state) +
             (session.reply && session.state !== "working" ? replyHeight(session.reply) : 0),
           0,
-        ) + TOOL_ROW_HEIGHT,
+        ) + toolRowHeight(),
       );
     // A start's card, its doing line while it starts, and its prompt (cut like a reply).
     if (subsession.tool === "start" && subsession.prompt)
-      return cardHeight("working") + replyHeight(subsession.prompt) + TOOL_ROW_HEIGHT;
+      return cardHeight("working") + replyHeight(subsession.prompt) + toolRowHeight();
+    // A message sent to a sub-session is the sent-message row a shell `acpmux send` draws
+    // (SubsessionCallCard.tsx SentLine, SentMessageLine.tsx): one tool row.
+    if (subsession.tool === "send") return messageRowHeight(Boolean(subsession.text.trim()));
     return 40;
   }
   switch (tool.kind) {
@@ -877,48 +1433,110 @@ function activityStepHeight(item: AcpmuxActivity): number {
     case "fileChange":
     case "search":
     case "fetch":
-      return TOOL_ROW_HEIGHT;
+      return toolRowHeight();
     default:
       return 26;
   }
 }
-/// How many lines of another agent's message its card shows before it is cut
-/// (conversation/IncomingMessageCard.tsx, `.cv-received__body[data-cut]`).
-// Agent and lane reports keep enough context to show a compact table or a few links before the
-// card folds. The open control still reveals the complete Markdown body.
-export const RECEIVED_LINES = 8;
+/// Whether a call sends another agent a message (toolGroups.ts `SentEntry`): cheap checks first.
+const sendsMessage = (tool: NonNullable<AcpmuxActivity["tool"]>): boolean =>
+  Boolean(
+    agentMessage(tool) ||
+    acpmuxSendCalls(tool) ||
+    acpmuxMcpSends(tool) ||
+    (() => {
+      const mcp = mcpCall(tool);
+      return mcp !== undefined && subsessionCall(tool, mcp)?.tool === "send";
+    })(),
+  );
+/// A folded run's lines as ToolRows draws them (TurnRows.tsx, toolGroups.ts `runStretches`): the
+/// work between coordination cards folds under one summary line per stretch, and every card the run
+/// keeps in sight is its own row. A run of agent-to-agent messages ("Sent to lane-a", a command,
+/// "Sent to lane-b") is a line per entry, not the one summary line a run of plain work is, or each
+/// such run grows by its other lines when it mounts and the scroll thumb jumps (Leo, 2026-10-25:
+/// "when I'm seeing all of these agent messages back and forth, that's when it sort of, like, gets
+/// confused").
+function foldedRunSteps(row: AcpmuxRow, groups: readonly ToolGroup[], width: number): number {
+  // `.cv-tools` and `.cv-tool-run` stack their lines flush (conversation.css), 22 apart.
+  const stretches = runStretches(row, groups);
+  return stretches.reduce(
+    (height, stretch) =>
+      height +
+      (stretch.fold
+        ? toolRowHeight()
+        : stretch.groups.reduce((sum, group) => sum + foldedGroupHeight(group, width), 0)),
+    0,
+  );
+}
+
+/// An entry a folded run keeps on its own line: a group starts closed there (ToolGroupRow.tsx
+/// `folded`), one line, as a sent message's row is (SentMessageLine.tsx); anything else is its calls.
+function foldedGroupHeight(group: ToolGroup, width: number): number {
+  if (group.type === "send")
+    return messageRowHeight(group.send.state !== "failed" && Boolean(group.send.text?.trim() || group.send.file));
+  // A group of sends starts closed: its head, a message row naming the recipients
+  // (SentMessageLine.tsx `SentMessageGroup`, MessageGroupHead.tsx).
+  if (group.type === "sendGroup") return messageRowHeight(true);
+  if (group.type === "group") return toolRowHeight();
+  // `.cv-tool-group` lists its calls flush too.
+  const items = "items" in group ? group.items : [group.item];
+  return items.reduce((sum, item) => sum + activityStepHeight(item, width), 0);
+}
+
 /// The prepared texts of those messages, for their estimates; cleared past 256, as a row's are.
 const receivedPrepared = new Map<string, PreparedText | null>();
-const TURN_GAP = 16;
-/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). A steer the agent has not read yet
-/// puts Send now first in that row (PendingSteer.tsx), including a Chief's prompt and a prompt of
-/// images alone.
-const userMetaHeight = (row: AcpmuxRow) => {
-  const chief = row.from === "chief" || chiefEnvelope(row.text) !== undefined;
-  return (
-    (row.text && !row.failed && !row.queued && !chief ? META_GAP + META_ROW : 0) +
-    (row.steer === "waiting" && !row.text?.trim() ? META_GAP + META_ROW : 0)
-  );
-};
+/// A row keeps no gap of its own on the grid (grid.md 5.5): the stack gives it.
+const TURN_GAP = 0;
+/// The rest gap (Leo 2026-11-01: "more space between composer and latest messages ... tho maybe not
+/// as much as claude code"): from the newest row's line (a turn footer's action row, laid in the band
+/// under its reply (transcriptGrid.ts `restBand`), or the running turn's live line) to the top of the
+/// floating bottom stack (the running tray, else the composer card). About two and a half body lines, as Codex leaves under its action row; Claude Code
+/// leaves about four and a half. The last row's own turn gap is part of it, and the room under the
+/// last row adds the rest (`restRoom`). leo-workspace design/chat-transcript.md.
+/// settled-spacing: rest-gap (schemas/layout-grid/settled-spacing.json)
+export const REST_GAP = 56;
+/// What the room under the last row adds over a floating stack to the last row's turn gap. The
+/// gallery compares other values through `<html data-rest-gap>` (composerRestGap.gallery.ts).
+export function restRoom(): number {
+  const set = typeof document === "undefined" ? undefined : document.documentElement.dataset.restGap;
+  const gap = set === undefined || !Number.isFinite(Number(set)) ? REST_GAP : Number(set);
+  return Math.max(0, gap - TURN_GAP);
+}
+/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx). Under a bubble it takes no layout
+/// height, waiting steer or sent (design/grid.md 5.5: the action row is laid in the turn gap), so
+/// sending a steer changes no row's height. A waiting prompt of images alone has no bubble to lay
+/// the row under, so its row (Send now first, PendingSteer.tsx) stays in flow.
+const userMetaHeight = (row: AcpmuxRow) => (row.steer === "waiting" && !row.text?.trim() ? META_GAP + metaRow() : 0);
 /// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
 const AUTHOR_HEIGHT = 22;
-const chromeHeight = (row: AcpmuxRow) =>
+const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
   row.kind === "user"
-    ? USER_BUBBLE_PADDING +
+    ? userBubblePadding() +
       userMetaHeight(row) +
       (row.status ? USER_STATUS_HEIGHT : 0) +
       (row.author ? AUTHOR_HEIGHT : 0)
-    : 0;
+    : 0; // Reply controls overlay the container gap.
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
-const USER_BUBBLE_SIDES = 24;
+const userBubbleSides = () => 2 * BUBBLE.paddingInline * chromeScale;
 /// Space between a row's markdown blocks, the list indent and the quote's bar and padding.
-const BLOCK_GAP = 14;
+const blockGap = () => TRANSCRIPT_INNER_GAP * chromeScale;
 const LIST_INDENT = 28;
 const QUOTE_INDENT = 21;
-/// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset.
+/// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset. An
+/// unlabeled fence has no header row (CodeHeader.tsx), only the inset above and below; a box-drawing
+/// diagram's lines are 1.15 of its font (conversation.css `.cv-codeblock--diagram`).
 const CODE_CHROME = 58.5;
 const CODE_PADDING = 13;
+const UNLABELED_CODE_CHROME = 2 * CODE_PADDING;
+const DIAGRAM_LINE_RATIO = 1.15;
+/// The text's share of a card's width: the body's 13px and 1px margins and the plain card's 8px and
+/// 12px padding (conversation.css `.cv-codeblock__body`, `.cv-code-plain`).
+const CODE_TEXT_INSET = 34;
+/// The room an unlabeled card's first line keeps after its end for the corner actions
+/// (conversation.css `--cv-code-corner-reserve`, 30px an action and 5): copy on a diagram, wrap and
+/// copy on a highlighted card.
+const codeCornerReserve = (diagram: boolean) => (diagram ? 1 : 2) * 30 + 5;
 /// Table rows: 23px lines with 17px of padding.
 const TABLE_ROW_HEIGHT = 40;
 const SCROLLBAR_HEIGHT = 15;
@@ -926,15 +1544,22 @@ const SCROLLBAR_HEIGHT = 15;
 const FALLBACK_CHAR_WIDTH = 8;
 /// The chat's one column (`--cv-column` and `--cv-inset` in conversation/conversation.css): 720px,
 /// 62.5% of a wider pane up to 800px (or the cap Debug Settings' `agent.chatWidth` picks, chatWidth.ts),
-/// centered, at least the page edge from each side.
-const PAGE_EDGE = 18;
-export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) {
-  const column = Math.min(max, Math.max(min, paneWidth * share));
-  const inset = Math.max(PAGE_EDGE, (paneWidth - column) / 2);
-  return { inset, width: paneWidth - 2 * inset };
+/// centered, at least the page edge from each side. `endReserve` is room a card keeps at the
+/// column's right (the computer use live preview, `--cv-inset-end`): the column's end moves in to
+/// leave it, its start stays.
+const PAGE_EDGE = gridLength("icon-box");
+/// The column's own width (`--cv-column`), before the 4 grid's 0-7 px leftover joins it.
+export const transcriptColumnSpan = (paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) =>
+  Math.min(max, Math.max(min, paneWidth * share));
+export function transcriptColumn(paneWidth: number, chat: ChatColumn = chatColumn(), endReserve = 0) {
+  const column = transcriptColumnSpan(paneWidth, chat);
+  // On the 4 grid (design/grid.md 5.5), as `round(down, ..., 4px)` in conversation.css.
+  const inset = Math.max(PAGE_EDGE * gridScale(), 4 * Math.floor((paneWidth - column) / 8));
+  const insetEnd = Math.max(inset, endReserve);
+  return { inset, insetEnd, width: paneWidth - inset - insetEnd };
 }
-export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn) =>
-  Math.max(120, transcriptColumn(paneWidth, column).width);
+export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn, endReserve = 0) =>
+  Math.max(120, transcriptColumn(paneWidth, column, endReserve).width);
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
 export function markdownBlocks(source: string): Token[] {
@@ -1010,17 +1635,156 @@ const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSA
 /// (`below`), which the footer takes the place of at its height when the turn ends: the reply keeps
 /// the one gap, so the end moves nothing (the message gap there slid the reply down 4px at every
 /// turn's end). App.tsx marks the same rows `acpmux-row--before-footer`.
+/// Whether a reply draws its own action row (MessageActions.tsx ReplyActions). None does: a turn has
+/// one action row, its footer at the bottom, whose Copy copies the whole turn (conversation/turnCopy.ts),
+/// as Claude Code desktop draws it (Leo, 2026-10-31: "claude code doesn't have individual copy
+/// pastable things for the entire thing, only the bottom. ironically we have literally the complete
+/// opposite. so let's invert our behaviour"). This replaces the per-reply row of 2026-10-29. The
+/// callers' height plumbing stays until ReplyActions goes in a follow-up.
+export const hasReplyActions = (_row: AcpmuxRow, _next: AcpmuxRow | undefined) => false;
+/// Whether a reply keeps the room its own action row took on 2026-10-30 (its meta gap and 24px line,
+/// then the message gap: 36px under its text) though it draws no row there now. Leo, 2026-11-01, on a
+/// capture of that build: "i like this spacing kinda i prefer it to what we have now tho it's just
+/// minor differences". Every finished reply with text that something follows (a prompt, a steer,
+/// another agent's message, a tool run), as `hasReplyActions` read it then; never the reply over its
+/// turn's footer (the footer is its row), nor one still streaming. Inside an opened "Worked for"
+/// (`settled`) only a reply to the person (`foldedReply`, which kept its action row) keeps it; a short
+/// note there stays quiet. So a turn's end, which marks its earlier replies settled, moves nothing. App.tsx marks the rows `acpmux-row--reply-room` (conversation.css
+/// `--cv-reply-room`); the estimate counts it as the action row's chrome.
+export const keepsReplyRoom = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  row.kind === "assistant" &&
+  next !== undefined &&
+  !isBeforeFooter(row, next) &&
+  row.streaming !== true &&
+  (row.settled !== true || row.foldedReply === true) &&
+  (row.text ?? "").trim().length > 0;
 export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
   (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
+/// A status row: one quiet line the transcript draws in the tool rows' column among the replies (a
+/// tool run, a background task's or a subagent's end, a background turn's line, a compaction, a
+/// failover, a policy the harness cannot keep, a paused agent pair, a session start, another agent's
+/// message or notice); an
+/// edited-files card is a card, not a line. Between two replies it sits in the middle of the gap, as
+/// Claude Code desktop's do (Leo, 2026-10-30: "see how claude code has those centered tool calls /
+/// id like more alignment too"): `statusEdge`.
+export const isStatusRow = (row: AcpmuxRow | undefined) =>
+  row !== undefined && (row.kind === "user" ? isIncomingLine(row.incoming?.kind) : isStatusKind(row));
+/// `incoming` is read once per call here and in isLineRow: layoutConversation asks both of every
+/// row, hidden bookkeeping included, and rowLayoutLinearity.test.ts counts those reads.
+const isIncomingLine = (kind: string | undefined) => kind === "message" || kind === "notice";
+const isStatusKind = (row: AcpmuxRow) =>
+  row.kind === "backgroundTask" ||
+  row.kind === SUBAGENT_DONE ||
+  row.kind === "compaction" ||
+  row.kind === "failover" ||
+  row.kind === "policyUnenforced" ||
+  row.kind === "agentPair" ||
+  row.kind === "sessionStart" ||
+  row.kind === BACKGROUND_TURN ||
+  row.kind === TASK_LINE ||
+  row.kind === MESSAGE_RUN ||
+  (row.kind === "activity" && isToolRun(row));
+/// A tool run with at least one call, not an edited-files card (turnChanges/sessionRows.ts
+/// `isEditRow`): a run of thoughts alone may draw nothing, so it keeps its own spacing. One pass
+/// over the row's items.
+function isToolRun(row: AcpmuxRow): boolean {
+  const card = row.foldRun === undefined && !isFoldedCopy(row);
+  let tool = false;
+  for (const item of row.items ?? []) {
+    if (!item.tool) continue;
+    tool = true;
+    if (card && (item.tool.kind === "edit" || item.tool.kind === "fileChange") && item.tool.status !== "pending")
+      return false;
+  }
+  return tool;
+}
+/// Where a row stands next to a status row, read from the next drawn row alone as the other edges
+/// are (no pass over the turn). A reply over a status row: its action row (MessageActions.tsx
+/// ReplyActions, its meta gap and line) is the room above the line (`before-status`), or, for a
+/// reply without one (a copy inside an opened "Worked for", one still streaming), the plain gap
+/// (`before-status-plain`). A status row over a reply takes the same room under its line: the action
+/// row's (`before-reply`), or the plain gap over a copy inside an opened fold (`before-reply-plain`),
+/// whose replies draw no action row. A status row takes that room only between two replies: one
+/// under a prompt (a turn that starts with a tool) keeps its own spacing, so `prev`, the drawn row
+/// above, is read for that side alone. App.tsx marks the rows `acpmux-row--<edge>` (conversation.css
+/// `--cv-status-gap`, `--cv-status-gap-plain`).
+export type StatusEdge = "before-status" | "before-status-plain" | "before-reply" | "before-reply-plain";
+export const statusEdge = (
+  row: AcpmuxRow,
+  next: AcpmuxRow | undefined,
+  prev: AcpmuxRow | undefined,
+): StatusEdge | undefined =>
+  row.kind === "assistant"
+    ? // A reply that keeps its room (`keepsReplyRoom`) ends at that room, whatever follows it.
+      isStatusRow(next) && !isBeforeFooter(row, next) && !keepsReplyRoom(row, next)
+      ? hasReplyActions(row, next)
+        ? "before-status"
+        : "before-status-plain"
+      : undefined
+    : next?.kind === "assistant" && prev?.kind === "assistant" && isStatusRow(row)
+      ? // The same room as above the line, read from the same reply, so the two always match.
+        hasReplyActions(prev, row)
+        ? "before-reply"
+        : "before-reply-plain"
+      : undefined;
+/// The room above and below a status row between two replies, line box to text box
+/// (conversation.css `--cv-status-gap`): a reply's action row (its meta gap and line) and the step's
+/// 2px top margin; between the copies inside an opened fold, the plain gap.
+/// On the grid (grid.md 5.5) the block gap above and below a status row already centres it, so these
+/// add nothing (conversation.css `--cv-status-gap`, `--cv-status-gap-plain`: 0).
+const STATUS_GAP = 0;
+const STATUS_GAP_PLAIN = 0;
+/// How much a row's estimate changes at a status edge, against the bottom it has elsewhere.
+function statusDelta(row: AcpmuxRow, edge: StatusEdge | undefined): number {
+  if (edge === "before-status") return -MESSAGE_GAP;
+  if (edge === "before-status-plain") return STATUS_GAP_PLAIN - TOOL_RUN_TOP - MESSAGE_GAP;
+  if (edge === undefined) return 0;
+  const gap = edge === "before-reply" ? STATUS_GAP : STATUS_GAP_PLAIN;
+  // A tool run and a one-line row (another agent's line, a notice) both end at the run gap elsewhere.
+  if (row.kind === "activity" || isLineRow(row)) return gap - TOOL_RUN_BOTTOM;
+  return gap - MESSAGE_GAP;
+}
 /// The row kind of another agent's message while it waits in the queue (conversation/queuedMessages.ts):
 /// its received card after the running turn, until acpmux starts it.
 export const QUEUED_MESSAGE = "queuedMessage";
+/// The row kind of the one group of messages that wait for the agent (conversation/pendingMessages.ts).
+export const PENDING_MESSAGES = "pendingMessages";
+export const LANE_NOTICE_BATCH = "laneNoticeBatch";
+/// The row kind of a run of one-line rows that carries messages between agents, folded under one
+/// line (conversation/messageRuns.ts, MessageRunLine.tsx).
+export const MESSAGE_RUN = "messageRun";
+/// What a message run's line says (conversation/messageRuns.ts): the messages sent and received, the
+/// other calls (counted as a tool run counts them), failures, whether one still runs, and the ids of
+/// the rows it folds (Find and links open it for one).
+export type AcpmuxMessageRun = {
+  sent: number;
+  received: number;
+  work: AcpmuxActivity[];
+  failed: number;
+  running: boolean;
+  rows: string[];
+};
+/// A one-line activity row drawn on the tool rows' line: another agent's message, a task's notice and
+/// an inbox notice (each a user row, IncomingMessageCard.tsx and InboxNoticeCard.tsx), a report
+/// batch's head (LaneNoticeBatch.tsx) and the waiting messages' head (PendingMessagesCard.tsx).
+/// App.tsx marks it `acpmux-row--line` and joins it to the step rows beside it.
+export const isLineRow = (row: AcpmuxRow) =>
+  row.kind === LANE_NOTICE_BATCH ||
+  row.kind === MESSAGE_RUN ||
+  row.kind === PENDING_MESSAGES ||
+  (row.kind === "user" && !row.received && isIncomingRunLine(row.incoming?.kind));
+const isIncomingRunLine = (kind: string | undefined) => isIncomingLine(kind) || kind === "inbox";
 /// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
 const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
 /// The row after `index` that draws something.
 export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
   for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
+  return undefined;
+}
+/// The drawn row above `index` (`statusEdge` reads it for a status row over a reply).
+export function prevDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
+  for (let prev = index - 1; prev >= 0; prev -= 1) if (!drawsNothing(rows[prev]!)) return rows[prev];
   return undefined;
 }
 /// The chat's last footer ends at the message gap, not the turn gap: no band over the composer
@@ -1030,15 +1794,90 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
 export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "turnSummary" &&
   (!next ||
+    next.kind === PENDING_MESSAGES ||
+    next.kind === LANE_NOTICE_BATCH ||
     ((next.kind === "user" || next.kind === QUEUED_MESSAGE) &&
-      (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
-/// What the row after a row changes about its height (`beforeFooter`), as one key.
-const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  isBeforeFooter(row, next) ? "footer" : isLastFooter(row, next) ? "last" : row.lastTurn ? "last-turn" : undefined;
+      (next.received !== undefined ||
+        next.incoming?.kind === "message" ||
+        next.incoming?.kind === "notice" ||
+        next.incoming?.kind === "inbox")));
+/// The footer whose actions show at rest (App.tsx `acpmux-row--final-footer`): the chat's last
+/// ended turn, as ChatGPT's and Claude's last reply keep Copy in sight, until the person's next
+/// prompt opens a turn. Another agent's message, a notice, a recap or a background line drawn under
+/// it leaves it shown (Leo, 2026-11-04: "we don't have ... the thing always showing at hte bottom").
+export function finalFooterId(rows: readonly AcpmuxRow[]): string | undefined {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    // An empty footer (turns.ts isEmptyFooter: a turn of bookkeeping with no answer) draws nothing
+    // at rest, so the answer above it keeps its row in sight.
+    if (row.kind === "turnSummary" && !isBlankFooter(row)) return row.id;
+    if (row.kind === "turnSummary") continue;
+    // A later turn's own work (one another agent's message started, or one with no summary yet)
+    // or the person's own prompt: that turn's footer, not this one, is the chat's last.
+    if (row.lastTurn || isTurnWork(row)) return undefined;
+    if (row.kind === "user" && !row.incoming && row.received === undefined) return undefined;
+  }
+  return undefined;
+}
+/// turns.ts isEmptyFooter, which this module cannot import.
+const isBlankFooter = (row: AcpmuxRow) =>
+  row.status !== "failed" &&
+  row.status !== "error" &&
+  !row.text &&
+  !row.resumable &&
+  !(row.retryable === true && (row.turnCopy?.length ?? 0) > 0);
+const isTurnWork = (row: AcpmuxRow) =>
+  row.kind === "assistant" ||
+  row.kind === "activity" ||
+  row.kind === "plan" ||
+  row.kind === WORKED ||
+  row.kind === WORKING ||
+  row.kind === THINKING ||
+  row.kind === ACTIVITY_LINE;
+/// A completed turn followed by more of this chat's assistant. Incoming agents are user rows,
+/// so a user/agent speaker change keeps the full turn gap. Check only the next drawn row.
+export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  row.kind === "turnSummary" &&
+  next !== undefined &&
+  (next.kind === "assistant" ||
+    next.kind === "activity" ||
+    next.kind === "plan" ||
+    next.kind === WORKED ||
+    next.kind === WORKING ||
+    next.kind === THINKING ||
+    next.kind === ACTIVITY_LINE);
+/// What the row after a row changes about its height (`beforeFooter`, and the room a reply keeps,
+/// `keepsReplyRoom`), as one key.
+const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined, prev: AcpmuxRow | undefined) => {
+  const status = statusEdge(row, next, prev);
+  if (isLiveStep(row, prev)) return LIVE_STEP_EDGE;
+  const edge = status ? `${footerEdge(row, next) ?? ""}${STATUS_EDGE}${status}` : footerEdge(row, next);
+  return keepsReplyRoom(row, next) ? `${edge ?? ""}${ACTIONS_EDGE}` : edge;
+};
+const STATUS_EDGE = "+";
+const ACTIONS_EDGE = "+actions";
+const footerEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  isBeforeFooter(row, next)
+    ? "footer"
+    : isContinuationFooter(row, next)
+      ? "continuation"
+      : isLastFooter(row, next)
+        ? "last"
+        : row.lastTurn
+          ? "last-turn"
+          : undefined;
 
-function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, lastTurn = false): number {
+function fallbackRowHeight(
+  row: AcpmuxRow,
+  width: number,
+  beforeFooter = false,
+  lastTurn = false,
+  actions = false,
+): number {
   const finish = (height: number) =>
-    height === 0 || !lastTurn ? height : height + TURN_GAP - (row.kind === "activity" ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
+    height === 0 || !lastTurn
+      ? height
+      : height + TURN_GAP - (row.kind === "activity" || isLineRow(row) ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
     // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
@@ -1055,43 +1894,70 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
       const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.canonical ?? entry.path));
       return finish(14 + editedCardHeight(files.size, plain.length));
     }
-    // A folded run (Debug toggle) draws one summary line until opened.
-    if (row.foldRun && row.items && isFoldedRun(row.items))
-      return finish(TOOL_RUN_TOP + TOOL_ROW_HEIGHT + TOOL_RUN_BOTTOM);
+    // A folded run (the Codex-style runs) that keeps an entry in sight (a message to another agent)
+    // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
+    if (row.foldRun && row.items?.length) {
+      const groups = toolGroups(row.items);
+      if (groups.some(staysInSight)) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
+      if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
+    }
     const items = row.items ?? [];
-    const steps = items.length ? items.reduce((height, item) => height + activityStepHeight(item), 0) : TOOL_ROW_HEIGHT;
+    let steps = items.length
+      ? items.reduce((height, item) => height + activityStepHeight(item, width), 0)
+      : toolRowHeight();
+    // Adjacent calls that each sent a message draw as one closed group's line (toolGroups.ts
+    // `sendGroup`), not a line per call. One call's batch is one step already.
+    if (items.filter((item) => item.tool && sendsMessage(item.tool)).length > 1)
+      for (const group of toolGroups(items))
+        if (group.type === "sendGroup" && group.items.length > 1)
+          steps +=
+            messageRowHeight(true) - group.items.reduce((height, item) => height + activityStepHeight(item, width), 0);
     return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + steps);
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
-  // An agent a shell call started (subagents/AgentRunCard.tsx): its card with its model line, its
-  // reply once it ended, and the Raw toggle's row.
-  if (isRunGroup(row)) {
-    const agent = row.subagents![0]!;
-    const reply = agent.result && agent.state !== "running" ? replyHeight(agent.result) : 0;
-    return finish(cardHeight("working") + reply + TOOL_ROW_HEIGHT);
-  }
+  // An agent a shell call started (subagents/AgentRunCard.tsx): one collapsed disclosure line; its
+  // reply and Raw are measured once the reader opens it.
+  if (isRunGroup(row)) return finish(cardHeight("working"));
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
-  if (row.kind === WORKFLOW_CARD) return finish(86);
+  // WorkflowCard: head, metadata, latest line, progress bar and focus line.
+  if (row.kind === WORKFLOW_CARD) return finish(124);
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
   // The child view's 28px "Subagent of" pill with 8px above and below it.
   if (row.kind === SUBAGENT_OF) return finish(44);
+  // Empty child copy is measured on mount; start with two body lines.
+  if (row.kind === SUBAGENT_EMPTY) return finish(2 * metrics().lineHeight);
   // The 27px disclosure line, and the live status lines in its place.
-  // The running turn's line as its last row is the footer's height (META_ROW, conversation.css
-  // `.cv-worked.is-below`) and the normal turn gap, so the end-of-turn swap keeps its place.
-  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(META_ROW + TURN_GAP);
-  if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return finish(35);
+  // The running turn's line as its last row is the footer's slot (footerRow(), conversation.css
+  // `.cv-worked.is-below`; transcriptGrid.ts MARK_FOOTER_SLOT), so the end-of-turn swap keeps its place.
+  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(footerRow());
+  // A finished work disclosure is one activity line, including when opened. Its estimate and
+  // MARK_STEP use the same 22px rhythm as the calls it reveals (transcript-spacing.md rule 3).
+  if (row.kind === WORKED) return finish(toolRowHeight());
+  if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
-  if (row.kind === ACTIVITY_LINE) return row.below ? finish(META_ROW + TURN_GAP) : finish(36);
+  if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
   // The 20px date line with 8px above it.
-  if (row.kind === DATE) return finish(36);
+  if (row.kind === DATE) return finish(20);
   // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
   // reader clicks Load preview, the transcript's ResizeObserver measures the head over its frame.
   if (row.kind === PREVIEW) return finish(previewCardHeight(row.text, false));
-  // The render card: its 36px head over the frame before it reports a height, and 6px below.
-  if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 6);
+  // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
+  // and its muted line, then a 36px row of answers; answered, the question over the answer in 8px.
+  if (row.kind === NEXT_STEP && row.nextStep) {
+    const { ask, answer } = row.nextStep;
+    const perLine = Math.max(120, width - 32) / 7.5;
+    const lines = (text: string | undefined) => (text ? Math.max(1, Math.ceil(text.length / perLine)) : 0);
+    return finish(
+      answer === undefined
+        ? 24 + 2 + (lines(ask.question) + lines(ask.detail)) * 20 + 8 + 36
+        : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
+    );
+  }
+  // The render card: its 36px head over the frame before it reports a height, and 8px below.
+  if (row.kind === RENDER) return finish(36 + RENDER_FRAME_MIN_HEIGHT + 8);
   // Card padding and border, title, button row.
   if (row.kind === "permission") return finish(87);
   // A suggested tasks card (offer/SuggestedTasks.tsx): its 28px heading, about 84px per open task
@@ -1107,29 +1973,47 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     return finish(
       8 + 2 + row.started.reduce((sum, child) => sum + (hasStatusLine(child) ? 50 : 34), 0) + (row.started.length - 1),
     );
+  // A finished turn's task lines (conversation/TaskLine.tsx): one tool row each.
+  if (row.kind === TASK_LINE && row.tasks) return finish(row.tasks.length * toolRowHeight());
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return finish(row.agentPair?.resumed ? 37 : 37 + 24);
+  // A session recap (conversation/RecapNote.tsx): its card, a line per 70 characters of recap.
+  if (row.kind === "recap")
+    return finish(
+      24 +
+        Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
+          metrics().lineHeight,
+    );
   // A session start: its facts line (conversation/SessionStartNote.tsx); the full facts open
   // below when asked.
-  if (row.kind === "sessionStart") return finish(37);
+  if (row.kind === "sessionStart") return finish(toolRowHeight());
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
-  if (row.kind === "plan" && row.plan) return finish(40 + row.plan.length * 24);
-  // A turn's footer: its meta line, then the normal turn gap. An empty footer (only hover controls,
-  // conversation/turns.ts isEmptyFooter) takes no extra line; its gap still fits the hover controls.
-  if (row.kind === "turnSummary")
-    return finish(isEmptyFooter(row) ? Math.max(META_ROW, TURN_GAP) : META_ROW + TURN_GAP);
+  // Ended, it folds to its one 24px progress line unless the reader opened it, which adds the items.
+  if (row.kind === "plan" && row.plan) {
+    const items = row.plan.length * 24;
+    return finish(40 + (row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : items));
+  }
+  // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
+  // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
+  if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
+  // A finished subagent's line, and the chat's reply to its end under it on the reply's own lines
+  // (conversation.css `.cv-tools > .cv-reaction-reply`; ReactionMark.tsx), which the row draws in
+  // the default `background-reaction-look` arm.
+  if (row.kind === SUBAGENT_DONE)
+    return finish(toolRowHeight() + reactionReplyHeight(row.subagents?.[0]?.reaction?.text, width));
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
-    row.kind === SUBAGENT_DONE ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
     row.kind === "plan" ||
-    row.kind === "typing"
+    row.kind === "typing" ||
+    row.kind === BACKGROUND_TURN
   )
-    return finish(37);
-  return finish(8 + messageBelow(beforeFooter) + chromeHeight(row) + textLines * metrics().lineHeight);
+    // A standalone note is one `.cv-tools` line: a grid row (conversation.css), no frame of its own.
+    return finish(toolRowHeight());
+  return finish(messageBelow(beforeFooter) + chromeHeight(row, actions) + textLines * metrics().lineHeight);
 }
 
 /// A link target the page opens: absolute http and https only (replyHref.ts).
@@ -1174,8 +2058,10 @@ function textHeight(
   width: number,
   prepared: Map<string, PreparedText | null>,
   used?: Set<string>,
+  /// The rows' line height when it is not the prose's (a folded note's 20px lines).
+  lineHeight = metrics().lineHeight,
 ): number {
-  const { measureFont, lineHeight } = metrics();
+  const { measureFont } = metrics();
   // Keyed by font too: a new chat font measures the text again.
   const key = `${measureFont}\n${text}`;
   used?.add(key);
@@ -1206,22 +2092,44 @@ function listHeight(
   used?: Set<string>,
 ): number {
   const inner = width - LIST_INDENT;
-  return list.items.reduce((sum, item) => {
-    const nested = item.tokens.filter((token): token is Tokens.List => token.type === "list");
-    const text = measuredText(
-      item.tokens.filter((token) => token.type !== "list"),
-      nested.length ? "" : item.text,
-    );
-    // An empty item (or one still streaming in) still draws its bullet's line.
-    const own = text ? textHeight(text, inner, prepared, used) : 0;
-    return (
-      sum +
-      Math.max(
-        metrics().lineHeight,
-        own + nested.reduce((total, child) => total + listHeight(child, inner, prepared, used), 0),
-      )
-    );
-  }, 0);
+  // `.cv-list` stacks its items with the inner gap (conversation.css), scaled per pass.
+  const itemGaps = Math.max(0, list.items.length - 1) * blockGap();
+  return (
+    itemGaps +
+    list.items.reduce((sum, item) => {
+      const nested = item.tokens.filter((token): token is Tokens.List => token.type === "list");
+      const text = measuredText(
+        item.tokens.filter((token) => token.type !== "list"),
+        nested.length ? "" : item.text,
+      );
+      // An empty item (or one still streaming in) still draws its bullet's line.
+      const own = text ? textHeight(text, inner, prepared, used) : 0;
+      return (
+        sum +
+        Math.max(
+          metrics().lineHeight,
+          own + nested.reduce((total, child) => total + listHeight(child, inner, prepared, used), 0),
+        )
+      );
+    }, 0)
+  );
+}
+
+/** A fenced code card's estimated height in a column `width` wide, without its outer margin. */
+export function codeCardHeight(text: string, info: string | undefined, width: number): number {
+  // marked keeps the fence's whole info string (`text title="tree"`); the card reads its first word
+  // (Markdown.tsx), so `text title="tree"` draws unlabeled.
+  const lang = info?.trim().split(/\s/, 1)[0];
+  const lines = text.split("\n");
+  const { codeCharWidth, codeLineHeight, blockCodeSize } = metrics();
+  const unlabeled = isUnlabeledLang(lang);
+  const diagram = isDiagram(text, lang);
+  const room = width - CODE_TEXT_INSET;
+  const reserve = unlabeled ? codeCornerReserve(diagram) : 0;
+  const scrolls = lines.some((line, index) => line.length * codeCharWidth + (index ? 0 : reserve) > room);
+  const chrome = unlabeled ? UNLABELED_CODE_CHROME : CODE_CHROME;
+  const lineHeight = diagram ? blockCodeSize * DIAGRAM_LINE_RATIO : codeLineHeight;
+  return chrome + lines.length * lineHeight + (scrolls ? SCROLLBAR_HEIGHT : 0);
 }
 
 function blockHeight(
@@ -1243,12 +2151,8 @@ function blockHeight(
       );
     case "hr":
       return 2;
-    case "code": {
-      const lines = (block as Tokens.Code).text.split("\n");
-      const { codeCharWidth, codeLineHeight } = metrics();
-      const scrolls = lines.some((line) => line.length * codeCharWidth > width - CODE_PADDING);
-      return CODE_CHROME + lines.length * codeLineHeight + (scrolls ? SCROLLBAR_HEIGHT : 0);
-    }
+    case "code":
+      return codeCardHeight((block as Tokens.Code).text, (block as Tokens.Code).lang, width);
     case "table":
       return (1 + (block as Tokens.Table).rows.length) * TABLE_ROW_HEIGHT;
     case "paragraph":
@@ -1296,6 +2200,25 @@ export const onlyQuietThoughts = (row: AcpmuxRow) =>
   (row.items?.length ?? 0) > 0 &&
   mergeThoughts(row.items!).every((item) => isThought(item) && isQuietThought(item));
 
+/**
+ * UserBubble renders this narrow class as literal spans. Keep the fast path deliberately
+ * conservative: anything whose Markdown meaning could differ from its source stays on the
+ * parser-backed estimator until the DOM can measure it. Every Markdown marker promptMarkdown.ts
+ * looks for (`$` too) is excluded here, so a row PromptText sends to Markdown never lands here.
+ */
+const PLAIN_MARKDOWN_CHARS = "\\`*_~<>[]{}#|&/$";
+
+function isPlainUserPrompt(text: string): boolean {
+  return (
+    text.length > 0 &&
+    text.trim() === text &&
+    !/[\r\n\t]/.test(text) &&
+    !PLAIN_MARKDOWN_CHARS.split("").some((character) => text.includes(character)) &&
+    !/^- *(?:- *){2,}$/.test(text) &&
+    !/^(?:[-+*]\s|\d+[.)]\s|!\s?)/.test(text)
+  );
+}
+
 function measuredRowHeight(
   row: AcpmuxRow,
   width: number,
@@ -1303,70 +2226,207 @@ function measuredRowHeight(
   beforeFooter = false,
   lastTurn = false,
   sessionId?: string,
+  continuation = false,
+  /// Whether a reply keeps its action row's room (`keepsReplyRoom`).
+  actions = false,
 ): number {
   const finish = (height: number) =>
-    height === 0 || !lastTurn ? height : height + TURN_GAP - (row.kind === "activity" ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
+    height === 0 || !lastTurn
+      ? height
+      : height + TURN_GAP - (row.kind === "activity" || isLineRow(row) ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
-  if (row.received) return finish(26 + MESSAGE_GAP);
+  if (row.received) return finish(metaRow());
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
-  if (row.kind === "turnSummary") return fallbackRowHeight(row, width, beforeFooter);
+  if (row.kind === "turnSummary") {
+    if (isOverlayFooter(row)) return 0;
+    return footerRow();
+  }
   // The live activity line under a plan has a label, but its row still reserves the footer slot.
-  if (row.kind === ACTIVITY_LINE && row.below) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
-  // Another agent's message: one 26px line in `.cv-received`'s 2px margins, then its glass card
-  // (4px above, 6px below, 8px padding each side, 22px in from the icon column and 12px padding
-  // across), its text cut to RECEIVED_LINES lines (opened, the row measures itself); a notice is a
-  // tool row's line under `.cv-tools`' 2px margin (conversation/IncomingMessageCard.tsx). Each with
-  // the row's message gap.
-  // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
+  // On the grid every activity line is the footer slot's one line, live or not (fallbackRowHeight).
+  if (row.kind === ACTIVITY_LINE) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  // A message run's line (conversation/messageRuns.ts): its rows, when open, are rows of their own.
+  if (row.kind === MESSAGE_RUN) return finish(lineRow());
+  // A task notification from another agent is a tool row's line (conversation/IncomingMessageCard.tsx)
+  // in the one-line rows' frame (lineRow).
+  // The messages that wait, as one group (conversation/PendingMessagesCard.tsx): its head is a
+  // one-line row; opened, each sender's 22px head, then each of its messages as its own row draws
+  // it, 24px in, less the frame the row gives a row, which the group has once.
+  if (row.kind === LANE_NOTICE_BATCH && row.laneNoticeBatch) {
+    // Shut, a waiting inbox batch's head draws its senders under its count (stacked look); a
+    // delivered one names them only in its hover (LaneNoticeBatch.tsx `received`).
+    if (!messageOpened(sessionId, row.id)) {
+      const waiting = row.laneNoticeBatch.rows.some(
+        (member) => member.kind === "queuedMessage" || member.steer === "waiting",
+      );
+      return finish(lineRow() + messagePreviewLine(row.laneNoticeBatch.kind === "inbox" && waiting));
+    }
+    const head = finish(lineRow());
+    // An inbox batch's messages sit on its own columns, with no indent (LaneNoticeBatch.css).
+    const inner = row.laneNoticeBatch.kind === "inbox" ? width : width - 24;
+    return (
+      head +
+      row.laneNoticeBatch.rows.reduce(
+        (height, member) =>
+          height + measuredRowHeight(member, Math.max(80, inner), cache, false, false, sessionId) - LINE_FRAME,
+        0,
+      )
+    );
+  }
+  if (row.kind === PENDING_MESSAGES && row.pendingMessages) {
+    // One message waiting draws as its own line, with no group head (PendingMessagesCard.tsx).
+    const shown = row.pendingMessages.displayRows ?? row.pendingMessages.rows;
+    if (shown.length === 1 && shown[0]!.incoming?.kind === "message")
+      return measuredRowHeight(shown[0]!, width, cache, beforeFooter, lastTurn, sessionId);
+    // Shut, its head draws the senders under the count (stacked look).
+    if (!messageOpened(sessionId, row.id)) return finish(lineRow() + messagePreviewLine(true));
+    const head = finish(lineRow());
+    const senders = new Set<string>();
+    let height = head;
+    for (const member of row.pendingMessages.displayRows ?? row.pendingMessages.rows) {
+      const from =
+        member.incoming?.kind === "message"
+          ? (member.incoming.message.sessionId ?? member.incoming.message.name)
+          : member.id;
+      if (!row.pendingMessages.flat && member.kind !== LANE_NOTICE_BATCH && !senders.has(from)) {
+        senders.add(from);
+        height += 22;
+      }
+      // A Stop-held queued message's lead note sits above its received line. Keep the
+      // virtualized group estimate in sync with `.cv-received__queued-head`'s 18px line.
+      const heldLead = member.queuedMessage?.lead && member.queuedMessage.heldByStop ? 18 : 0;
+      height +=
+        heldLead + measuredRowHeight(member, Math.max(80, width - 24), cache, false, false, sessionId) - LINE_FRAME;
+    }
+    return height;
+  }
   if (row.incoming?.kind === "message") {
-    // In Minimal Mode a closed message is its line alone, images too; one the person opened
-    // (incomingOpened.ts) is its whole card, uncut.
-    const minimal = chatDisplay().minimal;
-    const opened = messageOpened(sessionId, row.id);
-    if (minimal && !opened) return finish(26 + 4 + MESSAGE_GAP);
+    // A message that says nothing but "." draws nothing (visibleMessage.ts isBareAgentText).
+    if (isVisiblyEmptyMessage(row)) return finish(0);
+    // One line in the one-line rows' frame (lineRow()); one the person opened
+    // (incomingOpened.ts) adds its panel (2px above, 4px below, 8px padding each side, 24px in
+    // from the icon column and 10px padding across): the whole text
+    // (conversation/IncomingMessageCard.tsx), its images' 128px, and Details' 24px line.
+    const line = lineRow();
+    // Shut, its first line sits under the sender (stacked look); a tool's notice keeps its title
+    // on the line (IncomingMessageCard.tsx).
+    if (!messageOpened(sessionId, row.id)) return finish(line + messagePreviewLine(!row.incoming.message.notice));
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
-    const lines = text ? textHeight(text, Math.max(80, width - 46), receivedPrepared) : lineHeight;
-    const limit = RECEIVED_LINES * lineHeight;
-    // .cv-user__more: a 20px control with 4px above it, only on a closed long card.
-    const more = !opened && lines > limit + 1 ? 24 : 0;
-    const card = 4 + 16 + (opened ? lines : Math.min(lines, limit)) + more + 6;
-    return finish(26 + 4 + card + MESSAGE_GAP + (row.images?.length ? 128 : 0));
+    const lines = text ? textHeight(text, Math.max(80, width - 44), receivedPrepared) : lineHeight;
+    const details = row.incoming.message.raw.trim() === text ? 0 : 24;
+    return finish(line + 2 + 4 + 16 + lines + (row.images?.length ? 128 : 0) + details);
   }
-  if (row.incoming?.kind === "notice") return finish(2 + 26 + MESSAGE_GAP);
+  if (row.incoming?.kind === "notice") return finish(lineRow());
+  if (row.incoming?.kind === "inbox") {
+    // acpmux's inbox notice (conversation/InboxNoticeCard.tsx): a received line per thread, under
+    // the group's line when the group look holds two or more; an opened thread adds its panel as
+    // an opened message does, its text read from the notice (else its preview).
+    const { threads } = row.incoming.notice;
+    const line = toolRowHeight();
+    // The group's head is a tool row (MessageGroupHead.tsx) on the one-line rows' line.
+    const head = toolRowHeight();
+    const grouped = threads.length > 1 && foldsThreads(inboxNoticeLook());
+    if (grouped && !messageOpened(sessionId, row.id))
+      return finish(head + LINE_FRAME + messagePreviewLine(inboxNoticeLook() !== "group-count"));
+    const { lineHeight } = metrics();
+    if (receivedPrepared.size > 256) receivedPrepared.clear();
+    let height = (grouped ? head : 0) + (threads.length > 1 && inboxNoticeLook() === "card" ? 6 : 0);
+    for (const thread of threads) {
+      height += line;
+      // Shut, its preview sits under the sender (stacked look).
+      if (!messageOpened(sessionId, inboxThreadKey(row.id, thread.threadId))) {
+        height += messagePreviewLine(true);
+        continue;
+      }
+      const text = thread.messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
+      const inset = grouped ? 24 : 0;
+      height += 2 + 4 + 16 + (text ? textHeight(text, Math.max(80, width - 44 - inset), receivedPrepared) : lineHeight);
+    }
+    return finish(height + LINE_FRAME);
+  }
+  // Empty or zero-width message text has no article; attachments and incoming cards returned
+  // above remain visible through `isVisiblyEmptyMessage`'s content checks.
+  if (isVisiblyEmptyMessage(row)) return finish(0);
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return finish(0);
   // A preview row's text is its address, not prose: the card's height is fixed.
-  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
+  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
   let entry = cache.get(row.id);
   if (!entry) {
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
     cache.set(row.id, entry);
   }
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
-  if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
-    lexIncrementally(entry, row.text);
+  // A huge prompt opens collapsed to its first lines whatever it holds (conversation/PromptText.tsx):
+  // its height is those lines and Show more, never a lex or measure of megabytes of text.
+  // A prompt recorded in parts is huge by its typed parts alone (a pasted block is a chip).
+  if (
+    row.kind === "user" &&
+    !pasted &&
+    row.from !== "chief" &&
+    isHugePrompt(row.text) &&
+    (!row.inlineParts || hasHugeTypedPart(row.inlineParts)) &&
+    !chiefEnvelope(row.text)
+  ) {
+    const height =
+      messageBelow(beforeFooter) +
+      chromeHeight(row, actions) +
+      collapsedPromptHeight(Number.POSITIVE_INFINITY, metrics().lineHeight);
+    return finish(beforeFooter ? height : Math.max(34, height));
   }
-  const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
+  const plainUser =
+    row.kind === "user" &&
+    !pasted &&
+    !row.images?.length &&
+    !row.retryAttachments?.length &&
+    !row.from &&
+    !chiefEnvelope(row.text) &&
+    isPlainUserPrompt(row.text);
+  const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - userBubbleSides() : width);
   const usedPrepared = new Set<string>();
   let contentHeight: number;
-  if (pasted) {
-    // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
-    // however long it is (conversation/UserBubble.tsx).
-    const { lineHeight } = metrics();
-    contentHeight = 0;
-    for (const part of promptParts(row.text, row.pasted!))
-      contentHeight +=
-        part.kind === "paste"
-          ? PASTE_CHIP_HEIGHT
-          : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared, usedPrepared));
+  if (plainUser) {
+    // UserBubble -> PromptText draws this as literal spans, so avoid preparing Markdown tokens.
+    const plainWidth = Math.min(contentWidth, chatColumn().prose);
+    const { measureFont, lineHeight } = metrics();
+    const plainKey = `${measureFont}\n${lineHeight}\n${plainWidth}\n${row.text}`;
+    if (entry.plainHeight?.key === plainKey) contentHeight = entry.plainHeight.height;
+    else {
+      contentHeight = textHeight(row.text, plainWidth, entry.prepared, usedPrepared);
+      entry.plainHeight = { key: plainKey, height: contentHeight };
+    }
   } else {
-    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
-    contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
-    for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
+    if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
+      lexIncrementally(entry, row.text);
+    }
+    if (pasted) {
+      // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
+      // however long it is (conversation/UserBubble.tsx).
+      const { lineHeight } = metrics();
+      contentHeight = 0;
+      for (const part of promptParts(row.text, row.pasted!))
+        contentHeight +=
+          part.kind === "paste"
+            ? PASTE_CHIP_HEIGHT
+            : Math.max(
+                lineHeight,
+                // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its
+                // head is all there is to measure.
+                textHeight(
+                  isHugePrompt(part.text) ? promptHead(part.text, HUGE_PROMPT_HEAD_CHARS) : part.text,
+                  contentWidth,
+                  entry.prepared,
+                  usedPrepared,
+                ),
+              );
+    } else {
+      if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+      contentHeight = (entry.blocks.length - 1) * blockGap();
+      for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
+    }
   }
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
   // trim stale revisions once per row, never once per token or across the transcript. `usedPrepared`
@@ -1376,19 +2436,25 @@ function measuredRowHeight(
   // Chief's draws its own bubble (ChiefPromptBubble.tsx).
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
     contentHeight = collapsedPromptHeight(contentHeight, metrics().lineHeight);
-  const height = messageBelow(beforeFooter) + chromeHeight(row) + contentHeight;
-  return finish(beforeFooter ? height : Math.max(34, height));
+  const height = messageBelow(beforeFooter) + chromeHeight(row, actions) + contentHeight;
+  return finish(height);
 }
 
 /// A row's estimated height at a width, kept by the row object: rows are immutable (a change is a
 /// new object), so a long chat's layout measures only the rows that changed since the last one.
 /// The row's edge is kept too: a reply's height changes when its turn's footer arrives after it, and
 /// a footer's when a prompt follows it.
-export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: "footer" | "last" | "last-turn" }>;
+export type RowHeights = WeakMap<AcpmuxRow, { width: number; height: number; edge?: string }>;
+
+/// A footer with nothing to show at rest (turns.ts isEmptyFooter) lays its hover controls over the gap
+/// and takes no height. A reply's footer is a row of its own: ChatGPT's 32 line of buttons, 8 under
+/// the reply (transcriptGrid.ts `MARK_FOOTER_ROW`; Leo, 2026-11-02: "didn't i always say we can do it
+/// like chatgpt").
+export const isOverlayFooter = (row: AcpmuxRow) => row.kind === "turnSummary" && isEmptyFooter(row);
 
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
-  rows: AcpmuxRow[],
+  rows: readonly AcpmuxRow[],
   width: number,
   cache = new Map<string, PreparedRow>(),
   measureOverride?: (row: AcpmuxRow, width: number) => number | undefined,
@@ -1399,10 +2465,16 @@ export function layoutConversation(
   /// The chat the rows are from, which keys the messages the person opened (incomingOpened.ts).
   sessionId?: string,
 ): ConversationLayout {
+  const gaps = new Float64Array(rows.length);
+  const marks = new Uint8Array(rows.length);
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
+  const messages = new MessagePlacement(rows, previous?.layout);
+  const scale = gridScale();
+  chromeScale = scale;
   let start = 0;
-  if (previous) {
+  // Kept rows keep their gaps only at the scale they were placed at.
+  if (previous && (previous.layout.scale ?? 1) === scale) {
     const limit = Math.min(rows.length, previous.rows.length);
     while (start < limit && rows[start] === previous.rows[start]) start += 1;
     // A row after the kept ones can change the height of the last kept row that draws (a footer
@@ -1411,39 +2483,82 @@ export function layoutConversation(
     while (drawn >= 0 && drawsNothing(rows[drawn]!)) drawn -= 1;
     if (
       drawn >= 0 &&
-      rowEdge(rows[drawn]!, nextDrawnRow(rows, drawn)) !== rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn))
+      rowEdge(rows[drawn]!, nextDrawnRow(rows, drawn), prevDrawnRow(rows, drawn)) !==
+        rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn), prevDrawnRow(previous.rows, drawn))
     )
       start = drawn;
+    if (previous.layout.gaps) gaps.set(previous.layout.gaps.subarray(0, start));
+    if (previous.layout.marks) marks.set(previous.layout.marks.subarray(0, start));
     tops.set(previous.layout.tops.subarray(0, start));
     heights.set(previous.layout.heights.subarray(0, start));
   }
   let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
+  let previousContent = start - 1;
+  while (previousContent >= 0 && heights[previousContent] === 0) previousContent -= 1;
+  let beforeContent = previousContent - 1;
+  while (beforeContent >= 0 && heights[beforeContent] === 0) beforeContent -= 1;
   // Hidden bookkeeping can span many rows. Keep the next drawn row for the whole
   // pass: searching anew for every hidden row makes one run quadratic.
   let nextDrawn = start;
+  // The drawn row above the current one, carried along the pass for the same reason.
+  let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
-    tops[index] = top;
     const row = rows[index]!;
+    marks[index] = gridMark(row, prevDrawn);
+    messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;
       while (nextDrawn < rows.length && drawsNothing(rows[nextDrawn]!)) nextDrawn += 1;
     }
-    const edge = rowEdge(row, rows[nextDrawn]);
+    const prev = prevDrawn;
+    if (!drawsNothing(row)) prevDrawn = row;
+    const edge = rowEdge(row, rows[nextDrawn], prev);
     const kept = known?.get(row);
     let height: number;
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;
     else {
       const customHeight = measureOverride?.(row, width);
-      height =
-        customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
-          ? customHeight
-          : measuredRowHeight(row, width, cache, edge === "footer", edge === "last-turn", sessionId);
+      const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
+      height = custom
+        ? customHeight
+        : edge === LIVE_STEP_EDGE
+          ? toolRowHeight()
+          : measuredRowHeight(
+              row,
+              width,
+              cache,
+              edge?.startsWith("footer") === true,
+              edge?.startsWith("last-turn") === true,
+              sessionId,
+              edge?.startsWith("continuation") === true,
+              edge?.endsWith(ACTIONS_EDGE) === true,
+            );
+      // A row that draws nothing stays at 0; a custom renderer's height is its own.
+      if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
       known?.set(row, { width, height, edge });
     }
+    if (height > 0) {
+      if (previousContent >= 0) gaps[index] = transcriptGap(marks[previousContent]!, marks[index]!) * scale;
+      top += gaps[index]!;
+      beforeContent = previousContent;
+      previousContent = index;
+    }
+    tops[index] = top;
     heights[index] = height;
     top += height;
   }
-  return { tops, heights, totalHeight: top };
+  const layout = {
+    tops,
+    heights,
+    gaps,
+    marks,
+    tailGap: tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0, footerAfter(marks, heights)) * scale,
+    restBand: restBand(footerAfter(marks, heights)) * scale,
+    scale,
+    totalHeight: top,
+  };
+  messages.finish(rows, layout);
+  return layout;
 }
 
 /// Places rows again over `estimate`, taking a row's height from `heightAt` when it has one.
@@ -1454,46 +2569,217 @@ export function placeRows(
   estimate: ConversationLayout,
   heightAt: (index: number) => number | undefined,
   previous?: { layout: ConversationLayout; kept: number },
+  /// Where the first row starts (ConversationLayout.origin). Kept rows keep their places only at it.
+  origin = 0,
 ): ConversationLayout {
   const tops = new Float64Array(estimate.heights.length);
   const heights = new Float64Array(estimate.heights.length);
-  const kept = previous ? Math.min(previous.kept, previous.layout.heights.length, heights.length) : 0;
+  // The gaps take the Interface Size now, not the estimate's (it may predate a change), and the kept
+  // rows keep their places only at the scale they were placed at.
+  const scale = gridScale();
+  const kept =
+    previous && (previous.layout.scale ?? 1) === scale && (previous.layout.origin ?? 0) === origin
+      ? Math.min(previous.kept, previous.layout.heights.length, heights.length)
+      : 0;
   if (kept > 0) {
     tops.set(previous!.layout.tops.subarray(0, kept));
     heights.set(previous!.layout.heights.subarray(0, kept));
   }
-  let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : 0;
+  let top = kept > 0 ? tops[kept - 1]! + heights[kept - 1]! : origin;
+  let previousContent = kept - 1;
+  while (previousContent >= 0 && heights[previousContent] === 0) previousContent -= 1;
+  let beforeContent = previousContent - 1;
+  while (beforeContent >= 0 && heights[beforeContent] === 0) beforeContent -= 1;
+  const marks = estimate.marks;
   for (let index = kept; index < heights.length; index += 1) {
-    tops[index] = top;
     // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
     const known = heightAt(index);
     const height = known !== undefined && known >= 0 ? known : estimate.heights[index];
+    if (height > 0) {
+      if (previousContent >= 0)
+        top += marks ? transcriptGap(marks[previousContent]!, marks[index]!) * scale : (estimate.gaps?.[index] ?? 0);
+      beforeContent = previousContent;
+      previousContent = index;
+    }
+    tops[index] = top;
     heights[index] = height;
     top += height;
   }
-  return { tops, heights, totalHeight: top };
+  return {
+    tops,
+    heights,
+    gaps: estimate.gaps,
+    marks,
+    tailGap: marks
+      ? tailGap(marks[previousContent] ?? 0, marks[beforeContent] ?? 0, footerAfter(marks, heights)) * scale
+      : estimate.tailGap,
+    restBand: marks ? restBand(footerAfter(marks, heights)) * scale : estimate.restBand,
+    scale,
+    totalHeight: top,
+    ...(origin ? { origin } : {}),
+  };
 }
 
-function upperBound(values: Float64Array, target: number): number {
-  let low = 0;
-  let high = values.length;
-  while (low < high) {
-    const middle = (low + high) >>> 1;
-    if (values[middle] <= target) low = middle + 1;
-    else high = middle;
+/// `layout` with its first row starting at `origin` instead (ConversationLayout.origin): one pass
+/// over the tops, run only when the room above the rows changes, never per streamed token.
+export function withOrigin(layout: ConversationLayout, origin: number): ConversationLayout {
+  const by = origin - (layout.origin ?? 0);
+  if (by === 0) return layout;
+  const tops = new Float64Array(layout.tops.length);
+  for (let index = 0; index < tops.length; index += 1) tops[index] = layout.tops[index]! + by;
+  const { origin: _, ...rest } = layout;
+  return { ...rest, tops, totalHeight: layout.totalHeight + by, ...(origin ? { origin } : {}) };
+}
+
+/// A transcript placed by drawn heights: its rows' geometry (an immutable gap-aware index once
+/// rows draw, the estimate's arrays before), and the estimate's marks and tail metrics. It carries
+/// no `tops` or `heights` arrays: readers ask `geometry`, so a drawn height or a streamed token
+/// never copies every row.
+export type PlacedLayout = {
+  geometry: LayoutGeometry;
+  /// The content's height: the rows' end (origin included), or more where App adds room under them.
+  totalHeight: number;
+  gaps?: Float64Array;
+  marks?: Uint8Array;
+  tailGap?: number;
+  scale?: number;
+  restBand?: number;
+  origin?: number;
+};
+
+/// Any placed transcript: an estimate (arrays) or a placement (geometry).
+export type TranscriptLayout = ConversationLayout | PlacedLayout;
+
+/// The geometry of either kind of layout: O(1), nothing is copied.
+export const layoutGeometry = (layout: TranscriptLayout): LayoutGeometry => geometryOf(layout);
+
+/// An estimate, unplaced, as a PlacedLayout starting at `origin` (before any row draws). O(1).
+export function placedFromEstimate(estimate: ConversationLayout, origin = 0): PlacedLayout {
+  const by = origin - (estimate.origin ?? 0);
+  const { tops, heights, ...rest } = estimate;
+  return {
+    ...rest,
+    geometry: geometryFromArrays(tops, heights, estimate.totalHeight, by),
+    totalHeight: estimate.totalHeight + by,
+    origin: origin || undefined,
+  };
+}
+
+/// `layout` with its first row starting at `origin` instead (withOrigin for a placement): O(1).
+export function placedWithOrigin(layout: PlacedLayout, origin: number): PlacedLayout {
+  const by = origin - (layout.origin ?? 0);
+  if (by === 0) return layout;
+  const geometry = layout.geometry;
+  const indexed = "index" in geometry ? (geometry as IndexedLayoutGeometry) : undefined;
+  const moved: LayoutGeometry = indexed
+    ? geometryFromIndex(indexed.index, indexed.origin + by)
+    : {
+        ...geometry,
+        totalHeight: geometry.totalHeight + by,
+        topAt: (at) => geometry.topAt(at) + by,
+        upperBoundTop: (target) => geometry.upperBoundTop(target - by),
+        scan: (from, to, visit) => geometry.scan(from, to, (at, top, height) => visit(at, top + by, height)),
+      };
+  return { ...layout, geometry: moved, totalHeight: layout.totalHeight + by, origin: origin || undefined };
+}
+
+/// What a placement may skip: rows from `kept` up to `from` are the last placement's except
+/// `changed` (indices in that span whose height may differ). Rows from `from` on are placed again.
+export type PlacedReuse = {
+  layout: PlacedLayout;
+  kept: number;
+  from?: number;
+  changed?: readonly number[];
+};
+
+/**
+ * `placeRows` through the gap-aware index (placedHeightIndex.ts): the same tops, heights, total,
+ * tail gap and rest band for every input, up to float rounding of the sums. A reused placement
+ * keeps its index; only `changed` rows and the rows from `from` on are read, each in O(log rows),
+ * so a streamed token or a drawn height costs O(log rows + rows placed again), not O(rows).
+ * With no reusable `previous` (another scale or origin, no index) every row is read once.
+ */
+export function placeRowsIndexed(
+  estimate: ConversationLayout,
+  heightAt: (index: number) => number | undefined,
+  previous?: PlacedReuse,
+  /// Where the first row starts (ConversationLayout.origin). Kept rows keep their places only at it.
+  origin = 0,
+): PlacedLayout {
+  const count = estimate.heights.length;
+  const scale = gridScale();
+  const marks = estimate.marks;
+  const resolve = (index: number) => {
+    // A drawn 0 is a row that draws nothing (App.tsx drawnHeightOf): it takes no room.
+    const known = heightAt(index);
+    return known !== undefined && known >= 0 ? known : estimate.heights[index]!;
+  };
+  const prior = previous?.layout.geometry;
+  const reusable =
+    previous &&
+    prior &&
+    "index" in prior &&
+    (previous.layout.scale ?? 1) === scale &&
+    (previous.layout.origin ?? 0) === origin &&
+    Boolean(previous.layout.marks) === Boolean(marks)
+      ? (prior as IndexedLayoutGeometry).index
+      : undefined;
+  const kept = reusable ? Math.max(0, Math.min(previous!.kept, reusable.count, count)) : 0;
+  let index: PlacedHeightIndex;
+  if (!reusable || kept === 0) {
+    const heights = new Float64Array(count);
+    for (let at = 0; at < count; at += 1) heights[at] = resolve(at);
+    index = PlacedHeightIndex.fromRows(heights, marks, marks ? undefined : estimate.gaps, {
+      between: marks ? (before, next) => transcriptGap(before, next) * scale : undefined,
+    });
+  } else {
+    index = reusable;
+    const from = Math.max(kept, Math.min(previous!.from ?? kept, reusable.count, count));
+    for (const at of previous!.changed ?? [])
+      if (at >= kept && at < from)
+        index = index.update(at, resolve(at), marks?.[at], marks ? undefined : estimate.gaps?.[at]);
+    const tail = new Float64Array(count - from);
+    for (let at = from; at < count; at += 1) tail[at - from] = resolve(at);
+    index = index.splice(
+      from,
+      tail,
+      marks?.subarray(from, count),
+      marks ? undefined : estimate.gaps?.subarray(from, count),
+    );
   }
-  return low;
+  const geometry = geometryFromIndex(index, origin);
+  // A turn footer that draws nothing after the last drawn row (transcriptGrid.ts footerAfter):
+  // only the trailing rows that draw nothing are read.
+  let footer = false;
+  if (marks)
+    for (let at = count - 1; at >= 0 && index.heightAt(at) === 0; at -= 1)
+      if (index.markAt(at) === MARK_FOOTER) {
+        footer = true;
+        break;
+      }
+  const { last, beforeLast } = index.lastMarks;
+  return {
+    geometry,
+    totalHeight: geometry.totalHeight,
+    gaps: estimate.gaps,
+    marks,
+    tailGap: marks ? tailGap(last, beforeLast, footer) * scale : estimate.tailGap,
+    restBand: marks ? restBand(footer) * scale : estimate.restBand,
+    scale,
+    ...(origin ? { origin } : {}),
+  };
 }
 
 export function visibleLayoutRange(
-  layoutModel: ConversationLayout,
+  layoutModel: TranscriptLayout,
   scrollTop: number,
   viewportHeight: number,
   overscan = 4,
 ) {
-  if (layoutModel.tops.length === 0) return { first: 0, last: 0 };
-  const first = Math.max(0, upperBound(layoutModel.tops, Math.max(0, scrollTop)) - 1 - overscan);
-  const last = Math.min(layoutModel.tops.length, upperBound(layoutModel.tops, scrollTop + viewportHeight) + overscan);
+  const geometry = layoutGeometry(layoutModel);
+  if (geometry.count === 0) return { first: 0, last: 0 };
+  const first = Math.max(0, geometry.upperBoundTop(Math.max(0, scrollTop)) - 1 - overscan);
+  const last = Math.min(geometry.count, geometry.upperBoundTop(scrollTop + viewportHeight) + overscan);
   return { first, last };
 }
 
@@ -1516,7 +2802,7 @@ export function mergeRowRanges(ranges: RowRange[]): RowRange[] {
 /// frames reach, with a margin for uneven frames: the rows between them and the capped lead are
 /// never on screen, so they are not built (cx-j33s4).
 export function scrollLeadRanges(
-  layoutModel: ConversationLayout,
+  layoutModel: TranscriptLayout,
   scrollTop: number,
   delta: number,
   viewportHeight: number,
@@ -1533,6 +2819,9 @@ export function scrollLeadRanges(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
+import { runStretches, staysInSight, toolGroups, type ToolGroup } from "./conversation/toolGroups";
+import { acpmuxSendCalls } from "./conversation/acpmuxSends";
+import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
 import { previewCardHeight } from "./conversation/previewUrl";
@@ -1542,6 +2831,7 @@ import {
   DATE,
   isEmptyFooter,
   isFoldedCopy,
+  NEXT_STEP,
   PREVIEW,
   RENDER,
   THINKING,
@@ -1554,31 +2844,33 @@ import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { chatDisplay, currentChatMetrics } from "./chatDisplay";
+import { currentChatMetrics } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
+import { inboxThreadKey } from "./conversation/inboxNotice";
+import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
+import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
+import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
+import { planOpen } from "./conversation/planOpen";
 
-/// The pane's fallback accessible name and problem-only header status.
+/// The pane's fallback accessible name and problem-only header status. A handshake that is
+/// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that
+/// lasts is the one line above the composer (HostError.tsx HostUnavailableLine), never a header
+/// Reconnecting (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD"). `hostRecovering`: the
+/// pane is asking the host again after its daemon went away, so a dropped socket is quiet too.
 export function paneHeader(
   snapshot: AcpmuxSnapshot,
   t: Translate = translate,
+  { hostRecovering = false }: { hostRecovering?: boolean } = {},
 ): { title: string; status: string; detail?: string } {
   const harness = snapshot.summary?.harness;
   const title = harness
     ? agentName(harness, snapshot.catalog?.find((entry) => entry.id === harness)?.name)
     : t("header.agentChat");
-  // Initial connecting and normal turn events are quiet. The client includes the failure
-  // after `connecting:` while retrying, and keeps it until a successful connection.
+  // Initial connecting, retrying and normal turn events are quiet.
   const connection = snapshot.connection;
-  const retrying = connection.startsWith("connecting:") || connection === "reconnecting";
   const failed = /^(error|failed)(:|$)/i.test(connection) || connection === "fork failed";
   const status =
-    connection === "disconnected"
-      ? t("header.disconnected")
-      : retrying
-        ? t("header.reconnecting")
-        : failed
-          ? t("header.failed")
-          : "";
+    connection === "disconnected" && !hostRecovering ? t("header.disconnected") : failed ? t("header.failed") : "";
   if (!status) return { title, status };
   const reason = connection.includes(":") ? connection.slice(connection.indexOf(":") + 1).trim() : undefined;
   let rowError: string | undefined;

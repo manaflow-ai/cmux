@@ -50,6 +50,28 @@ fn a_binarys_build_is_read_from_its_bytes() {
 }
 
 #[test]
+fn a_binarys_build_is_never_rustcs_own_version() {
+    // ELF keeps .rodata (the stamp) before .comment (rustc's line), but the
+    // stamp may also be missing or come after it.
+    let rustc = b"\x00rustc version 1.95.0 (59807616e 2026-04-14)\x00";
+    let llvm = b"\x00clang LLVM (rustc version 1.95.0 (59807616e 2026-04-14))\x00";
+    let stamp = b"\x00acpmux 0.1.0 (3bdf1d5d4 2026-11-02)\x00";
+    for (bytes, want) in [
+        ([&rustc[..], stamp].concat(), Some("3bdf1d5d4 2026-11-02")),
+        ([&stamp[..], rustc].concat(), Some("3bdf1d5d4 2026-11-02")),
+        ([&llvm[..], stamp].concat(), Some("3bdf1d5d4 2026-11-02")),
+        (rustc.to_vec(), None),
+        ([&rustc[..], b"rustc 1.94.0 (4a4ef493e 2026-03-02)"].concat(), None),
+        // A binary from before the `acpmux ` marker: its bare version line.
+        ([&rustc[..], b"0.1.0 (0db068d0e 2026-11-01)"].concat(), Some("0db068d0e 2026-11-01")),
+        // The marker wins over an earlier bare line.
+        ([&b"9 (aaaaaaa 2026-01-01)\x00"[..], stamp].concat(), Some("3bdf1d5d4 2026-11-02")),
+    ] {
+        assert_eq!(embedded_build(&bytes).as_deref(), want, "{}", String::from_utf8_lossy(&bytes));
+    }
+}
+
+#[test]
 fn only_the_daemons_own_turns_and_permission_prompts_make_it_busy() {
     let ls = json!({"sessions": [
         {"name": "mid-turn", "status": "idle", "turn": {"startedAt": 1}, "pendingPermissions": 0},
@@ -217,6 +239,13 @@ struct FakePeer {
     /// Right after the next copy, the process that keeps the host's update
     /// lease ends: the connection that held the lock dropped.
     lease_ends_after_copy: std::cell::Cell<bool>,
+    /// Right after the next copy the host goes away (a GCP VM stopped while
+    /// idle): every later ssh fails with these words of ssh's.
+    gone_after_copy: std::cell::Cell<Option<&'static str>>,
+    /// The next copy drops part way, with these words of scp's.
+    copy_drops: std::cell::Cell<Option<&'static str>>,
+    /// Set once the host went away ([`FakePeer::gone_after_copy`]).
+    gone: std::cell::Cell<Option<&'static str>>,
 }
 
 #[cfg(unix)]
@@ -227,6 +256,9 @@ impl Remote for FakePeer {
 
     fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
         assert!(stdin.is_none(), "host update feeds no stdin");
+        if let Some(why) = self.gone.get() {
+            return Ok(RemoteOut { ok: false, stdout: String::new(), stderr: why.to_owned() });
+        }
         let out = self.sh(script).output()?;
         Ok(RemoteOut {
             ok: out.status.success(),
@@ -243,8 +275,16 @@ impl Remote for FakePeer {
     }
 
     fn push(&self, local: &Path, remote: &str) -> Result<()> {
-        // As scp: a `~/` path is under the remote home.
-        std::fs::copy(local, self.home.join(remote.strip_prefix("~/").unwrap_or(remote)))?;
+        // As scp: a `~/` path is under the remote home. Written from a child
+        // process (`test_exec`): the update runs the pushed binary next.
+        if let Some(why) = self.copy_drops.take() {
+            return Err(anyhow!("scp to fake failed: {why}"));
+        }
+        let dest = self.home.join(remote.strip_prefix("~/").unwrap_or(remote));
+        crate::test_exec::write_executable(dest, std::fs::read(local)?);
+        if let Some(why) = self.gone_after_copy.take() {
+            self.gone.set(Some(why));
+        }
         if let Some((rel, text)) = self.after_copy.borrow_mut().take() {
             self.write(rel, text);
         }
@@ -273,6 +313,9 @@ impl FakePeer {
             home,
             after_copy: Default::default(),
             lease_ends_after_copy: Default::default(),
+            gone_after_copy: Default::default(),
+            copy_drops: Default::default(),
+            gone: Default::default(),
         };
         for dir in ["fakebin", ".local/bin", UNITS, "proc/4242", "run", "binaries", ".acpmux"] {
             std::fs::create_dir_all(peer.home.join(dir)).unwrap();
@@ -382,10 +425,9 @@ impl FakePeer {
     }
 
     fn exe(&self, rel: &str, text: &str) {
-        use std::os::unix::fs::PermissionsExt;
-        self.write(rel, text);
-        let mode = std::fs::Permissions::from_mode(0o755);
-        std::fs::set_permissions(self.home.join(rel), mode).unwrap();
+        let path = self.home.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        crate::test_exec::write_executable(path, text);
     }
 
     fn read(&self, rel: &str) -> String {
@@ -557,19 +599,137 @@ fn a_pushed_binary_that_does_not_run_is_never_installed() {
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
 }
 
+/// Leo, 2026-11-03, on a toast "Couldn't update gcp-codex-swarm-03: ssh gcp-codex-swarm-03 failed:
+/// Timeout, server gcp-codex-swarm-03...internal not responding.": the GCP pool stops idle VMs, so
+/// a host can go away while its binary is pushed. Nothing is installed or restarted before the
+/// push ends, so that is `unreachable` (the app's quiet "offline; it will update when it's
+/// back"), never a `pushFailed` the app shows as a failure.
+#[test]
+#[cfg(unix)]
+fn a_host_that_goes_away_during_the_push_is_unreachable() {
+    let drops = [
+        ("ssh", "Timeout, server fake.us-west1-c.c.example.internal not responding.\r\n"),
+        ("ssh", "Connection to 10.0.0.7 closed by remote host.\r\n"),
+        ("ssh", "ssh: connect to host 10.0.0.7 port 22: No route to host\r\n"),
+        ("scp", "client_loop: send disconnect: Broken pipe lost connection"),
+    ];
+    for (i, (how, why)) in drops.into_iter().enumerate() {
+        let peer = FakePeer::new(&format!("gone-during-push-{i}"));
+        peer.offer(NEW, Some(NEW));
+        match how {
+            "ssh" => peer.gone_after_copy.set(Some(why)),
+            _ => peer.copy_drops.set(Some(why)),
+        }
+        let up = peer.update(false);
+        assert_eq!(
+            (up.outcome, up.reason.as_deref()),
+            (Outcome::Failed, Some("unreachable")),
+            "{why}: {up:?}"
+        );
+        // Nothing was installed or restarted: the next connect runs it again.
+        assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)), "{why}");
+        assert_eq!(peer.daemon(), OLD, "{why}");
+    }
+}
+
+/// A push that fails on the host itself, not on the way there, still shows.
+#[test]
+fn only_ssh_losing_the_host_reads_as_unreachable() {
+    for why in [
+        "ssh fake failed: Timeout, server fake not responding.",
+        "ssh fake failed: ssh: Could not resolve hostname fake: Name or service not known",
+        "ssh fake failed: kex_exchange_identification: Connection reset by peer",
+        "ssh fake failed: Connection closed by 10.0.0.7 port 22",
+        "scp to fake failed: lost connection",
+    ] {
+        assert!(lost_the_host(&anyhow!("{why}")), "{why}");
+    }
+    for why in [
+        "ssh fake failed: the pushed acpmux does not run on this host",
+        "ssh fake failed: mkdir: cannot create directory: No space left on device",
+        "scp to fake failed: scp: ~/.local/bin/.acpmux-new/acpmux: Permission denied",
+    ] {
+        assert!(!lost_the_host(&anyhow!("{why}")), "{why}");
+    }
+}
+
+/// A cmux Cloud VM's daemon as cmux runs it: no `acpmux.service` of acpmux's
+/// own, or one the `~/.acpmux` daemon does not run under, or a unit someone
+/// else wrote. `cmux link machine update --to-bundled` owns that daemon.
+#[cfg(unix)]
+const CLOUD_SHAPES: [&str; 3] = ["no unit", "daemon outside the unit", "unit someone else wrote"];
+
+#[cfg(unix)]
+fn cloud_vm(tag: &str, shape: &str) -> FakePeer {
+    let peer = FakePeer::new(tag);
+    peer.write("etc/cmux/vm-kind", "team\n");
+    let unit = format!("{UNITS}/acpmux.service");
+    match shape {
+        "no unit" => {
+            std::fs::remove_file(peer.home.join(&unit)).unwrap();
+            std::fs::remove_file(peer.home.join("active-acpmux.service")).unwrap();
+            peer.under("run-cmux-tui-0123.scope");
+        }
+        "daemon outside the unit" => peer.under("session-26.scope"),
+        "unit someone else wrote" => peer.write(&unit, &format!("{SYSTEMD_UNIT}# theirs\n")),
+        other => panic!("no shape {other}"),
+    }
+    peer
+}
+
 #[test]
 #[cfg(unix)]
 fn a_cloud_vm_is_left_to_cmux_link_machine_update() {
-    let peer = FakePeer::new("cloud-vm");
-    peer.write("etc/cmux/vm-kind", "cloud\n");
-    peer.offer(NEW, Some(NEW));
-    for if_idle in [false, true] {
-        let up = peer.update(if_idle);
-        assert_eq!(up.outcome, Outcome::Failed, "{up:?}");
-        assert_eq!(up.reason.as_deref(), Some("cloudMachine"));
-        assert!(up.error.as_deref().unwrap_or_default().contains("--to-bundled"), "{up:?}");
-        peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+    for shape in CLOUD_SHAPES {
+        let peer = cloud_vm(&format!("cloud-vm-{}", shape.replace(' ', "-")), shape);
+        peer.offer(NEW, Some(NEW));
+        for if_idle in [false, true] {
+            let up = peer.update(if_idle);
+            assert_eq!(up.outcome, Outcome::Failed, "{shape}: {up:?}");
+            assert_eq!(up.reason.as_deref(), Some("cloudMachine"), "{shape}");
+            assert!(up.error.as_deref().unwrap_or_default().contains("--to-bundled"), "{up:?}");
+            peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+        }
     }
+}
+
+/// A cmux Cloud VM the fleet set up as a lane host (2026-10-30)
+/// runs acpmux's own `acpmux.service` from `~/.local/bin/acpmux`, beside
+/// cmux Cloud's `~/.cmux/bin/acpmux`, which is the only one `cmux link
+/// machine update` replaces. Nobody else updates that daemon, so `host
+/// update` (and the self-update timer) does.
+#[test]
+#[cfg(unix)]
+fn a_cloud_vm_whose_daemon_is_acpmux_service_is_updated() {
+    let peer = FakePeer::new("cloud-vm-own-unit");
+    peer.write("etc/cmux/vm-kind", "team\n");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(false);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)));
+    assert_eq!(peer.daemon(), NEW);
+    assert!(peer.take_calls().contains(&"systemctl --user restart acpmux.service".to_owned()));
+}
+
+/// The check both probes share: only acpmux's own unit with the daemon
+/// under it lifts the Cloud VM mark, and a host without the mark is never one.
+#[test]
+#[cfg(unix)]
+fn the_cloud_check_lifts_the_mark_only_for_acpmux_service() {
+    let said = |peer: &FakePeer| {
+        let script = format!("{}echo \"cloud=$acpmux_cloud\"", cloud_vm_check());
+        let out = peer.exec(&script, None).unwrap();
+        assert!(out.ok, "{}", out.stderr);
+        out.stdout.lines().last().unwrap_or_default().to_owned()
+    };
+    for shape in CLOUD_SHAPES {
+        let peer = cloud_vm(&format!("cloud-check-{}", shape.replace(' ', "-")), shape);
+        assert_eq!(said(&peer), "cloud=1", "{shape}");
+    }
+    let own = FakePeer::new("cloud-check-own");
+    assert_eq!(said(&own), "cloud=", "no mark");
+    own.write("etc/cmux/vm-kind", "team\n");
+    assert_eq!(said(&own), "cloud=", "acpmux.service runs the daemon");
 }
 
 #[test]
@@ -765,7 +925,10 @@ fn without_systemd_the_detached_daemon_is_updated_checked_and_rolled_back() {
     assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
     assert_eq!(peer.daemon(), NEW);
     let calls = peer.take_calls();
-    assert!(calls.contains(&"acpmux daemon shutdown --keep-agents".to_owned()), "{calls:?}");
+    assert!(
+        calls.contains(&"acpmux daemon shutdown --keep-agents --restart".to_owned()),
+        "{calls:?}"
+    );
     assert!(calls.contains(&"acpmux --json daemon start".to_owned()), "{calls:?}");
     // A newer binary whose daemon never answers: back to NEW, detached.
     peer.offer("b2c3d4e5f 2026-10-22", None);
@@ -1282,6 +1445,55 @@ impl Remote for Unreachable {
     fn spawn(&self, script: &str) -> Result<std::process::Child> {
         panic!("a held peer was reached: {script}")
     }
+
+    fn reachable(&self) -> Result<()> {
+        panic!("a held peer was reached")
+    }
+}
+
+/// A host that does not answer: down, or behind a hop that stalls.
+struct Down;
+
+impl Remote for Down {
+    fn host(&self) -> &str {
+        "leo@big-box"
+    }
+
+    fn exec(&self, script: &str, _: Option<&[u8]>) -> Result<RemoteOut> {
+        panic!("a host that does not answer was asked to run {script}")
+    }
+
+    fn push(&self, _: &Path, remote: &str) -> Result<()> {
+        panic!("a host that does not answer got {remote}")
+    }
+
+    fn spawn(&self, script: &str) -> Result<std::process::Child> {
+        panic!("a host that does not answer was asked to lock: {script}")
+    }
+
+    fn reachable(&self) -> Result<()> {
+        Err(anyhow!("leo@big-box is unreachable over ssh: no answer within 20 s"))
+    }
+}
+
+/// Leo, 2026-10-29: "Couldn't update <host>: acpmux ran past its 900.0 seconds deadline and was
+/// stopped; it exited". A host that does not answer fails at once as `unreachable`, before its lock
+/// or probe: nothing waits on its ssh, and the app retries it quietly once it is back.
+#[test]
+fn a_host_that_does_not_answer_is_unreachable_before_anything_runs() {
+    let opts = UpdateOptions { binary_dir: None, if_idle: false, keep_newer: true, caller: None };
+    let up = update_locked(&Down, &opts);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("unreachable")),
+        "{up:?}"
+    );
+    let row = up.to_json("big-box", "leo@big-box");
+    assert_eq!(
+        row["error"].as_str(),
+        Some("leo@big-box is unreachable over ssh: no answer within 20 s"),
+        "{row}"
+    );
 }
 
 /// Leo, 2026-10-26: a machine reserved for someone else ("cmux16 is reserved for lawrencecchen
@@ -1551,10 +1763,55 @@ fn a_daemon_plist_launchd_cannot_read_stops_nothing() {
         (Outcome::Failed, Some("launchdRefused")),
         "{up:?}"
     );
-    assert!(up.error.as_deref().unwrap_or("").contains("acpmux host setup writes it again"));
+    assert!(up.error.as_deref().unwrap_or("").contains("acpmux machine setup writes it again"));
     assert_eq!(peer.daemon(), OLD, "the old daemon still runs");
     assert!(peer.exists("loaded"));
     assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+}
+
+/// cosmic-gray (2026-10-31): the cmux NIGHTLY app installs acpmux as a
+/// link into its bundle and runs the daemon as its own LaunchAgent, with no
+/// `com.acpmux.daemon.plist`. The update refused only at the restart, after
+/// it had replaced the app's link with a hard link to the old binary. Now it
+/// refuses before it pushes anything, and the link is as it was.
+#[test]
+#[cfg(unix)]
+fn a_mac_whose_acpmux_the_cmux_app_runs_is_left_as_it_was() {
+    let bin = "Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+    for (shape, app_link, app_job) in
+        [("app", true, true), ("app-link", true, false), ("app-job", false, true)]
+    {
+        let peer = FakePeer::new(shape);
+        peer.under_launchd();
+        let link = peer.home.join(".local/bin/acpmux");
+        let target = peer.home.join(bin);
+        if app_link {
+            peer.exe(bin, &fake_acpmux(OLD, Some(OLD)));
+            std::fs::remove_file(&link).unwrap();
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+        }
+        if app_job {
+            std::fs::remove_file(peer.home.join("Library/LaunchAgents/com.acpmux.daemon.plist"))
+                .unwrap();
+            peer.write("Library/LaunchAgents/com.cmux.acpmux.daemon.3f9c2a.plist", "<plist/>\n");
+        }
+        peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+        let up = peer.update_with(true, true);
+        assert_eq!(
+            (up.outcome, up.reason.as_deref()),
+            (Outcome::Failed, Some("appManaged")),
+            "{shape}: {up:?}"
+        );
+        assert!(up.error.as_deref().unwrap_or("").contains("cmux app"), "{shape}: {up:?}");
+        if app_link {
+            let meta = std::fs::symlink_metadata(&link).unwrap();
+            assert!(meta.file_type().is_symlink(), "{shape}: the app's link is still a link");
+            assert_eq!(std::fs::read_link(&link).unwrap(), target, "{shape}");
+            assert_eq!(peer.read(bin), fake_acpmux(OLD, Some(OLD)), "{shape}: the app's binary");
+        }
+        assert!(peer.exists("loaded"), "{shape}: launchd was not touched");
+        peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+    }
 }
 
 #[cfg(unix)]

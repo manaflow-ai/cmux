@@ -11,11 +11,13 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 fail() { printf '%s\n' "$@" >&2; exit 1; }
-git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+# git_q, and no background git maintenance in the scratch repositories.
+source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 
 src="$TMP/src"
 mkdir -p "$src/scripts/cmux-next" "$src/cmux-tui/crates/acpmux" "$src/Native/OptChat/optchat-chief" "$TMP/bin"
 cp "$ROOT/scripts/cmux-next/build-acpmux.sh" "$ROOT/scripts/cmux-next/build-optchat-chief.sh" "$src/scripts/cmux-next/"
+mkdir -p "$src/scripts/lib"; cp "$ROOT/scripts/lib/rust-targets.sh" "$src/scripts/lib/"
 echo '[package]' > "$src/cmux-tui/crates/acpmux/Cargo.toml"
 echo '[package]' > "$src/Native/OptChat/optchat-chief/Cargo.toml"
 printf '[toolchain]\nchannel = "1.95.0"\n' > "$src/cmux-tui/rust-toolchain.toml"
@@ -62,6 +64,7 @@ run "$src/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path >
 dev="$TMP/dev"
 mkdir -p "$dev/scripts/cmux-next" "$dev/cmux-tui/crates/acpmux" "$dev/tree"
 cp "$ROOT/scripts/cmux-next/build-acpmux.sh" "$dev/scripts/cmux-next/"
+mkdir -p "$dev/scripts/lib"; cp "$ROOT/scripts/lib/rust-targets.sh" "$dev/scripts/lib/"
 echo '[package]' > "$dev/cmux-tui/crates/acpmux/Cargo.toml"
 printf '#!/usr/bin/env bash\n[[ "$1" == acpmux-path ]] && echo %q\n' "$dev/tree/acpmux" > "$dev/scripts/cmux-next/pin-cmux-tui.sh"
 printf '#!/bin/sh\necho "$FAKE_ARCHS"\n' > "$TMP/bin/lipo"

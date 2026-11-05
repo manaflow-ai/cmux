@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import IOSurface
 import Testing
 
 /// cx-6so.23: a terminal shown again (a tab closed over it, a cold workspace switched back to)
 /// drew blank for 2-3 frames before its content. A revealed terminal shows its content from the
 /// first frame: never an empty pane.
-@MainActor @Suite(.serialized) struct TerminalRevealFrameTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct TerminalRevealFrameTests {
     /// What one sample of the pane showed.
     enum Shown: Equatable, CustomStringConvertible {
         case none, blank, text

@@ -206,7 +206,7 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
             "fake-ask": fake("fake", json!({"FAKE_ASK_MODE": "1"})),
             // Falls over to a profile that starts in full access by itself and refuses mode changes.
             "fake-full-fo": {"argv": ["python3", FAKE], "family": "fake",
-                             "env": {"FAKE_FULL_ACCESS": "1"}, "fallback": "fake-claims"},
+                             "env": {"FAKE_FULL_ACCESS": "1", "FAKE_AUTH_FAIL": "1"}, "fallback": "fake-claims"},
             "fake-claims": fake("fake", json!({"FAKE_FULL_ACCESS": "1", "FAKE_NEW_MODE": "full-access",
                                               "FAKE_LOAD_MODE": "full-access", "FAKE_SET_MODE_FAIL": "1"})),
         },
@@ -298,7 +298,8 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
 
     // A chat in full access that fell over to a profile which starts in full access by itself and
     // refuses cmux's mode change: that agent's mode is its own, so it lends nothing. (The child
-    // runs on a profile that takes its mode.)
+    // runs on a profile that takes its mode.) A sign-in failure fails over (FAKE_AUTH_FAIL); a usage
+    // limit waits for its reset on the same account since #27924.
     decide("failover", "trusted");
     let fo = app.new_session(&root.join("failover"), "fake-full-fo").await;
     let limit = json!({"sessionId": fo, "prompt": [{"type": "text", "text": "limit: now"}]});

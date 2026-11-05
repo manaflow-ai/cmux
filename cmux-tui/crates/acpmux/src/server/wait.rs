@@ -2,6 +2,10 @@
 //! state sequence is read before the first check, every hub event
 //! re-evaluates, and peer sessions are re-read once a second, so a change
 //! between "list" and "subscribe" cannot be missed.
+//!
+//! `until: ["promptOutcome"]`, `sessionId` and `promptId` instead await that
+//! accepted prompt's ledger result (`requests.rs`), without submitting work.
+//! The explicit until value makes older daemons reject an unsupported query.
 
 use super::*;
 use crate::no_panic::JsonExt;
@@ -101,7 +105,11 @@ impl TurnEnded {
 /// state sequence the resolution must exceed), `timeoutMs`, and `turnEnded`
 /// (`{turnId, startedAt}`: a session also resolves once that turn ended,
 /// `turnEnded`).
-pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+pub(super) async fn wait(
+    hub: &Arc<Hub>,
+    params: &Value,
+    caller: Option<&str>,
+) -> Result<Value, RpcError> {
     let until: Vec<Until> = match params.get("until").and_then(Value::as_array) {
         Some(a) if !a.is_empty() => a
             .iter()
@@ -133,7 +141,7 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         .unwrap_or_default();
     let mut ids: Vec<String> = Vec::new();
     if keys.is_empty() {
-        for s in hub.all_session_summaries() {
+        for s in hub.live_session_summaries() {
             let slot = s.get("waitsForSlot").and_then(Value::as_bool).unwrap_or(false);
             if (Until::Running.matches(&s) || slot)
                 && let Some(id) = s.get("sessionId").and_then(Value::as_str)
@@ -158,6 +166,25 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         return Ok(json!({"sessions": [], "timedOut": false, "resolved": []}));
     }
     let mut events = hub.subscribe();
+    // A caller must name a lane and wait for completion, not merely watch global activity.
+    let completion =
+        turn_ended.is_some() || until.iter().any(|u| matches!(u, Until::Ready | Until::Done));
+    let completion_ids: Vec<String> = ids
+        .iter()
+        .filter(|id| {
+            turn_ended.as_ref().is_none_or(|ended| {
+                hub.resolve(id)
+                    .ok()
+                    .and_then(|s| s.turn())
+                    .is_some_and(|t| t.turn_id == ended.turn_id)
+            })
+        })
+        .cloned()
+        .collect();
+    let _lane_wait = hub.lane_report_wait(
+        if completion && !keys.is_empty() { caller } else { None },
+        &completion_ids,
+    );
     // Counted from its subscription until it answers or its request ends.
     let _open = OpenWait::new(&hub.open_waits);
     let deadline = timeout.map(|t| tokio::time::Instant::now() + t);
@@ -166,6 +193,7 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
     // Since when each chat's row has said its failed turn's retry is being decided.
     let mut deciding: HashMap<String, tokio::time::Instant> = HashMap::new();
     let mut evaluate = |hub: &Hub| -> (Vec<Value>, Vec<Value>) {
+        hub.wait_evaluations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let now = tokio::time::Instant::now();
         let summaries = hub.session_summaries_of(&ids);
         let mut rows = Vec::new();
@@ -209,6 +237,19 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         let (rows, resolved) = evaluate(hub);
         let finished = if all { resolved.len() == ids.len() } else { !resolved.is_empty() };
         if finished {
+            if !keys.is_empty() {
+                let consumed: Vec<Value> = resolved
+                    .iter()
+                    .filter(|row| {
+                        turn_ended.as_ref().is_none_or(|ended| {
+                            row.pointer("/lastTurn/turnId").and_then(Value::as_str)
+                                == Some(ended.turn_id.as_str())
+                        })
+                    })
+                    .cloned()
+                    .collect();
+                hub.lane_report_wait_read(caller, &consumed);
+            }
             return Ok(json!({"sessions": rows, "resolved": resolved, "timedOut": false}));
         }
         let poll = tokio::time::sleep(std::time::Duration::from_millis(1000));
@@ -220,7 +261,8 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
                     r = events.recv() => match r {
                         // Another chat's record changes none of these: the poll still
                         // catches a change that logs no record.
-                        Ok(ev) if !concerns(&ev, &ids) => continue,
+                        // A chunk of streamed output changes no row a wait reads.
+                        Ok(ev) if !concerns(&ev, &ids) || streamed(&ev) => continue,
                         Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => break,
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                             // Daemon shutting down.
@@ -279,6 +321,21 @@ fn holds_for_retry(
 fn concerns(ev: &crate::hub::HubEvent, ids: &[String]) -> bool {
     let row = ev.remote.as_ref().and_then(|r| r.summary.get("sessionId")).and_then(Value::as_str);
     ids.iter().any(|id| *id == ev.session_id || Some(id.as_str()) == row)
+}
+
+/// Whether `ev` is a chunk of a chat's streamed output (its reply, its thinking, a replayed
+/// prompt). It changes none of the fields a wait reads (status, pending permissions, unread, the
+/// running and the last turn, the waited slot): every such change logs a record of its own
+/// (`status`, `turn_result`, `background_turn`, ...), and the 1 s poll reads one that logs none.
+/// So a streaming chat costs its waiters nothing per token (HOT PATH AUDIT area F, row A1).
+// perf-hot: 0.1us acpmux-wait-wake (every record any chat logs, per open wait)
+fn streamed(ev: &crate::hub::HubEvent) -> bool {
+    let kind = ev.record.kind.as_str();
+    ev.remote.is_none()
+        && matches!(
+            kind.strip_suffix(".replay").unwrap_or(kind),
+            "agent_message_chunk" | "agent_thought_chunk" | "user_message_chunk"
+        )
 }
 
 /// One `_acpmux/wait` in `Hub::open_waits` while it lives.
@@ -367,3 +424,7 @@ mod turn_ended_tests {
         assert!(TurnEnded::parse(None).is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "wait_stream_tests.rs"]
+mod wait_stream_tests;

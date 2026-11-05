@@ -40,8 +40,10 @@ extension SidebarListViewComponents {
         let sidebarFrame = scroll.convert(scroll.bounds, to: nil)
         let slack = Metrics.space6
         guard windowPoint.x > sidebarFrame.maxX + slack || windowPoint.x < sidebarFrame.minX - slack else { return false }
+        // A group's one row leaves the sidebar as its workspace, as its member row did (a group goes to a window only).
+        let payload = drag.standingWorkspace.map { DragPayload.workspaces([$0]) } ?? drag.payload
         let members: [WorkspaceID]
-        switch drag.payload {
+        switch payload {
         case let .workspaces(ids): members = ids
         case let .group(group): members = model.group(group)?.workspaces.map(\.id) ?? []
         case .item: members = [] // a link row stays in the sidebar
@@ -54,7 +56,7 @@ extension SidebarListViewComponents {
         // past the sidebar's edge, outside the row (dogfood nxdog13).
         let grabbed = CGPoint(x: lift.minX + drag.grabOffsetX, y: lift.minY + drag.grabOffsetY)
         let offer = SidebarDragHandoff(
-            payload: drag.payload, workspaceIDs: members, rowScreenFrame: rowFrame,
+            payload: payload, workspaceIDs: members, rowScreenFrame: rowFrame,
             grabOffset: DragGrabPoint.screenOffset(of: grabbed, in: lift, flipped: isFlipped),
             screenPoint: screenPoint, image: drag.lift.snapshotImage(), imageOnGlass: drag.lift.isGlass
         )

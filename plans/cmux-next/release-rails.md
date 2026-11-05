@@ -251,7 +251,10 @@ does not point at. On feat-cmux-next pushes that touch `cmux-tui/crates/`, the c
 wrangler.jsonc it keeps one `cloud-image-stale` issue up to date and closes it when the images
 match again. The workflow job stays green (a warning only): staleness is not a code red and never
 blocks a landing. The daily schedule in the workflow is dormant until feat-cmux-next reaches main
-(GitHub schedules run only from the default branch). Fix: rebake from a published tip cmux-tui,
+(GitHub schedules run only from the default branch). A stale report dispatches the checked-in bake
+workflow once per stale image kind; a successful kept bake uploads its candidate and the completion
+receiver dispatches the promotion workflow, which uploads a reviewable channel diff. Landing that
+diff and the normal development deploy remain required. The manual repair remains: rebake from a published tip cmux-tui,
 smoke (`--expect-capabilities <bake json>` checks the fresh clone's handshake), record, promote.
 `web/scripts/cmux-vm-image/capabilities-probe.ts` reads an existing image's handshake on one clone.
 
@@ -302,7 +305,8 @@ deploy-staging and on `workflow_dispatch target=promote`:
   - spacing: production code changed at least 6 h ago.
   - G1 staging-proven: the newest feat-cmux-next push whose deploy-staging job and smoke step
     passed at least 60 minutes ago, with no red staging deploy in those 60 minutes; it must
-    descend from production's commit.
+    descend from production's commit, or contain a patch-equivalent copy of every backend
+    commit unique to production.
   - G2: no open issue labeled `cmux-next-regression` with `P0` or `P1` (beads are not readable
     from CI; the chief labels an issue or sets the hold).
   - G3: every DO migration tag the candidate adds over production is listed in
@@ -460,6 +464,43 @@ after the deploy:
    TEAM_NOT_FOUND, so order does not matter and the current state wins.
 3. Confirm one accepted delivery (200 in the endpoint's delivery log, Worker log `stack webhook`
    status 200) and that a recovered team change shows in the API. Record it on the bead.
+
+### Production migrations from CI (2026-11-03)
+
+Leo, 2026-11-03: "we're the only ones using nightly/prod so we might as well just flick the switch
+and yolo it's not like there's much data here anyways". Scope: schema cmux_vm of cmux-prod main and
+the PlanetScale role cmux-vm-owner only; classic's `public` schema is never read or written.
+
+`gh workflow run cmux-vm.yml --ref feat-cmux-next -f action=migrate-production -f dry_run=true`
+runs job migrate-production in environment cmux-vm-production
+(`scripts/cmux-next/release/prod-owner.ts`):
+
+- Fails closed (exit 1, nothing checked out) until the environment holds
+  PLANETSCALE_SERVICE_TOKEN_ID and PLANETSCALE_SERVICE_TOKEN. dry_run=false also needs
+  VERCEL_TOKEN and CMUX_UITEST_STACK_EMAIL/_PASSWORD for the apply's cmux-old compat gate.
+- Inspect (both modes, read-only): `pscale role list cmux-prod main`; the owner of every object in
+  cmux_vm and what each owner owns outside it, from the catalogs through the Worker's own login;
+  whether cmux_vm.schema_migrations exists.
+- dry_run=true (the default): then `db-release.ts plan` and `rehearse` (with `--adopt-through 0009`
+  when untracked) on a throwaway branch copy. Nothing on main changes.
+- dry_run=false: holds the release advisory lock from the inspection through the owner change
+  (adopt and apply take it again themselves), and decides ownership before any write. It passes when cmux-vm-owner owns everything;
+  reassigns (`pscale role reassign <id> --successor <cmux-vm-owner's pg role>`) when one other
+  PlanetScale role owns all of cmux_vm and nothing outside it; refuses several owners, postgres,
+  pscale_admin, a SQL role with no PlanetScale record, or an empty schema (bootstrap stays manual).
+  cmux-vm-owner is created with no inherited roles, or its password is reset (the only way to log in
+  as an existing role); the login stays in the process, masked. After a create or reassign it waits
+  7 minutes (PITR lag), then `adopt --through 0009` when untracked, then `apply --confirm-production`
+  with `--allow-contract` for every contract file. The staging check reads staging through a 2 h
+  pscale read role. After an adopt it waits 7 minutes again, so the apply's rehearsal copy has the
+  adopted rows. After the apply it grants the Worker role (cmux-vm-worker) USAGE on cmux_vm and every
+  table privilege schema-requirements.ts names (migrations carry no GRANT), then requires the Worker's
+  schema check to find no missing privilege. The lock session uses the direct port 5432.
+  Receipts upload as the artifact `cmux-vm-migrate-production-receipts`.
+
+Rollback: the apply receipt lists each file's Rollback section, newest first; an adopt is undone by
+deleting the adopted rows of cmux_vm.schema_migrations. The owner change is undone by
+`pscale role reassign <cmux-vm-owner id> --successor <old pg role>`.
 
 ## Lessons from the first production attempts (2026-10-09)
 

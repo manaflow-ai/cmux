@@ -9,7 +9,7 @@
   color: var(--page-text);
   accent-color: var(--page-text);
 }
-.timeline-board button { cursor: pointer; }
+.timeline-board button { cursor: default; }
 .timeline-board button:disabled { cursor: default; opacity: .45; }
 .timeline-board button:focus-visible, .timeline-board input[type="checkbox"]:focus-visible { outline: 2px solid var(--page-text-3); outline-offset: 3px; }
 .timeline-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }

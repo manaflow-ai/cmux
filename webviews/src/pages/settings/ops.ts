@@ -29,6 +29,8 @@ export type ManagedInfo = { source: string; reason: string; team?: string | null
 /** One `cmux.settings.list` row: the schema row plus what applies now. */
 export type ListRow = {
   key: string;
+  /** Raw user preference, null when unset; distinguishes an explicit default from absence. */
+  stored?: unknown;
   value: unknown;
   default: unknown;
   customized: boolean;
@@ -121,6 +123,42 @@ export type DeviceRow = {
   full_access_help?: string;
 };
 
+/** One entry of a menu's tree: a row key, `-` for a separator, or a submenu with its rows (the
+ * app's `folder:<name>`, or the person's `group:<id>` with a title). */
+export type MenuNode = string | { key: string; title?: string; items: MenuNode[] };
+
+/** A right-click menu's arrangement (Swift `ContextMenuLayout`): the whole menu as a tree, and
+ * the rows it hides (kept in place). */
+export type MenuLayout = { items: MenuNode[]; hidden: string[] };
+
+/** One row a menu's arrangement can place: an action, a submenu, or a folder (`folder:<name>`). */
+export type MenuRow = {
+  key: string;
+  title: string;
+  kind: "item" | "submenu" | "folder";
+  /** An SF Symbol the page shows from `cmux-page://cmux.settings/symbol/<name>`; null for none. */
+  symbol: string | null;
+  /** The folder key the app generates the row in; null for the top level. */
+  home: string | null;
+};
+
+/** One right-click menu in Settings > Menus. */
+export type ContextMenuState = {
+  id: string;
+  title: string;
+  /** workspace, tabs, terminal, browser or other: where the list groups it. */
+  area: string;
+  customized: boolean;
+  rows: MenuRow[];
+  /** The app's own arrangement (what Reset draws). */
+  generated: MenuLayout;
+  /** The arrangement drawn now: every row once, hidden ones in place. */
+  layout: MenuLayout;
+};
+
+/** Settings > Menus as the app serves it (`context_menus` in the host lists). */
+export type ContextMenusHostState = { show_customize_item: boolean; menus: ContextMenuState[] };
+
 /** Settings > Devices as the app serves it (`devices` in the host lists), every text localized. */
 export type DevicesHostState = {
   title: string;
@@ -137,8 +175,26 @@ export type DevicesHostState = {
   activity: Array<{ time: string; what: string; subject: string }>;
 };
 
+/** This Mac joined to a team with the one-line join: its consent switches, both off until the person turns them on. */
+export type DevicesJoinState = {
+  title: string;
+  /** "Joined to <team> as <name>". */
+  joined: string;
+  help: string;
+  error: string | null;
+  /** A consent write is in flight: both switches are disabled until it ends. */
+  busy: boolean;
+  /** acpmux's record is known: without it both switches are disabled (an off nobody confirmed). */
+  known: boolean;
+  /** The label of the action that turns both off while the record is unknown; null while it is known. */
+  revoke_all: string | null;
+  switches: Array<{ surface: "screen" | "control"; title: string; help: string; on: boolean }>;
+};
+
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
 export type HostLists = {
+  /** Existing Debug preference, forwarded unchanged for the normal picker placement fallback. */
+  harness_placement?: string;
   /** The app is a DEV build: the Development category shows (Settings > Development). */
   dev_build?: boolean;
   rooms: HostListRow[] | null;
@@ -155,6 +211,9 @@ export type HostLists = {
     levels: string[];
     current: Record<string, string | null>;
     config?: GhosttyTheme | null;
+    /** The Mac's own light or dark (the side of a light/dark pair the terminals use). The page's
+     * prefers-color-scheme is its window's, which a light or dark App Theme sets. */
+    system_scheme?: "light" | "dark";
   };
   terminal?: { ghostty_config: string; shell_integration: string | null };
   /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
@@ -170,12 +229,18 @@ export type HostLists = {
   server?: ServerHostState | null;
   /** Settings > Devices (plans/cmux-next/add-device-DESIGN.md): every device, its texts localized by the app. */
   devices?: DevicesHostState | null;
+  /** Settings > Devices: this joined Mac's Screen sharing and Control consent (labs.machineJoin); null unless joined. */
+  devices_join?: DevicesJoinState | null;
   /** Settings › Import: the import suggestion cards, every text localized by the host (ui/ImportCards.tsx parses it). */
   import_suggestions?: unknown;
   /** Updates > Web UI: the web UI served between app updates; null unless the bundle takes them (NIGHTLY). */
   web_updates?: WebUpdatesState | null;
+  /** Updates > App Update: the app update's status, a download's progress and the buttons; every text localized by the host. */
+  app_update?: AppUpdateState | null;
   /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
   voice_input?: { on: boolean } | null;
+  /** Settings > Menus: every right-click menu's rows and the person's arrangement of it. */
+  context_menus?: ContextMenusHostState;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
@@ -235,6 +300,8 @@ export type IPhoneHostState = {
   allowed: boolean;
   status_title: string;
   status: string;
+  /** The Sign In button's title while the status says to sign in; null (or absent from an older host) otherwise. */
+  sign_in?: string | null;
   /** `off`, `unavailable`, `connecting`, `online` or `waiting`. */
   phase: string;
   account_title: string;
@@ -287,6 +354,24 @@ export type ComputerUsePhase =
   | "ready"
   | "version_mismatch";
 
+/**
+ * Updates > App Update (the app's UpdaterService): what the update does now, whether or not the
+ * person asked (a background download and its failure show here; the sidebar shows only the staged
+ * update's Restart to Update). `progress` is 0...1, null while unmeasured, absent with no bar.
+ * Every text is the host's.
+ */
+export type AppUpdateState = {
+  title: string;
+  phase: string;
+  status: string;
+  detail: string | null;
+  progress?: number | null;
+  actions: { id: AppUpdateAction; title: string; prominent: boolean }[];
+};
+
+/** A button of the App Update card (Swift `SettingsUpdateAction`). */
+export type AppUpdateAction = "check" | "update" | "cancel_download" | "retry" | "install";
+
 /** A web update the app keeps: its commit and when that commit landed (unix seconds). */
 export type WebUpdateVersion = { commit: string; committed_at: number };
 
@@ -313,6 +398,10 @@ export type ComputerUseState = {
   screen_recording: boolean | null;
   /** The helper app's name, null when this build has no signed helper. */
   helper: string | null;
+  /** Legacy Computer Use is off: its helper can't verify this cmux build (not team-signed). */
+  host_unverified?: boolean;
+  /** Driver "upstream" was chosen, but this build has no upstream helper: the legacy helper runs. */
+  upstream_fallback?: boolean;
 };
 
 /** One button of the Accounts part; the host localizes every text. */
@@ -369,9 +458,104 @@ export type AccountsCmux = {
   error: string | null;
 };
 
+/** An inline team name form (New Team, Rename Team); the field starts at `value`. */
+export type AccountsTeamForm = {
+  kind: "create" | "rename";
+  title: string;
+  help: string;
+  value: string;
+  placeholder: string;
+  maxLength: number;
+  submit: string;
+  cancel: string;
+  error: string | null;
+  busy: boolean;
+};
+
+/** The open team's details. Admins get `buttons` (`team.rename`, `team.delete`); members `readOnly`. */
+export type AccountsTeamDetails = {
+  loading: string | null;
+  error: string | null;
+  facts: Array<{ label: string; value: string }>;
+  membersTitle: string;
+  members: Array<{ id: string; name: string; detail: string | null; role: string; you: string | null }>;
+  /** Pending invitations; null unless the person is an admin. */
+  invitationsTitle: string | null;
+  invitations: Array<{ id: string; email: string; role: string; expires: string | null }> | null;
+  noInvitations: string | null;
+  buttons: AccountsButton[];
+  readOnly: string | null;
+  rename: AccountsTeamForm | null;
+  confirm: { text: string; confirm: string; cancel: string; error: string | null; busy: boolean } | null;
+};
+
+/** One team with the person's role; `toggle` runs `team.details`. */
+export type AccountsTeamRow = {
+  id: string;
+  name: string;
+  role: string;
+  roleKind: "admin" | "member" | "unknown";
+  active: string | null;
+  open: boolean;
+  toggle: AccountsButton;
+  detail: AccountsTeamDetails | null;
+};
+
+/**
+ * The account's teams with roles, the open team's details and the create, rename and delete forms.
+ * Gestures run as `team.<gesture>`: `details`, `new`, `create` (`name`), `rename`, `saveName`
+ * (`team`, `name`), `delete`, `confirmDelete`, `cancel`. Null when signed out.
+ */
+export type AccountsTeamList = {
+  title: string;
+  newTeam: AccountsButton;
+  rows: AccountsTeamRow[];
+  empty: string | null;
+  create: AccountsTeamForm | null;
+  notice: { kind: "success" | "neutral" | "danger" | "attention"; text: string } | null;
+  /** Invitations to the person; null when there are none. */
+  received: AccountsReceivedInvitations | null;
+};
+
+/** One invitation addressed to the person: `accept` runs `team.accept`, `decline` runs
+ * `team.decline`, each with the invitation's id as `team`. */
+export type AccountsReceivedInvitation = {
+  id: string;
+  team: string;
+  detail: string;
+  expires: string | null;
+  accept: AccountsButton;
+  decline: AccountsButton;
+};
+
+/** Invitations to You: the teams that invited one of the person's verified emails. */
+export type AccountsReceivedInvitations = {
+  title: string;
+  rows: AccountsReceivedInvitation[];
+  error: string | null;
+};
+
 /** The Accounts part as the host draws it (texts already localized by the app). */
+export type GitHubConnectionState = {
+  title: string;
+  detail: string;
+  busy: boolean;
+  connect: string;
+  disconnect: string;
+  confirm: string;
+  cancel: string;
+  refresh: string;
+  canConnect: boolean;
+  connections: Array<{ id: string; account: string; status: string; permissions: string[]; canDisconnect: boolean }>;
+  /** The Sign In button's title while nobody is signed in to cmux; null (or absent from an older host) otherwise. */
+  signIn?: string | null;
+};
+
 export type AccountsState = {
+  github?: GitHubConnectionState;
   teams: AccountsTeams | null;
+  /** Older hosts omit it. */
+  teamList?: AccountsTeamList | null;
   refresh: string;
   refreshing: boolean;
   /** cmux's own account: who is signed in, sign in, switch and sign out. */
@@ -380,8 +564,18 @@ export type AccountsState = {
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
 };
 
-/** One Accounts gesture; `secret` only for the paste form's save and send, `team` for selectTeam. */
-export type AccountsRun = { action: string; provider?: string; account?: string; secret?: string; team?: string };
+/**
+ * One Accounts gesture; `secret` only for the paste form's save and send, `team` for selectTeam and
+ * the `team.*` gestures, `name` for a team create or rename.
+ */
+export type AccountsRun = {
+  action: string;
+  provider?: string;
+  account?: string;
+  secret?: string;
+  team?: string;
+  name?: string;
+};
 
 /** One Settings > Agents row: a harness acpmux knows (never its command line or env). */
 export type AgentHarnessRow = {
@@ -475,7 +669,7 @@ export type HarnessRow = {
   latest?: string | null;
   outdated?: boolean;
   /** Only from evidence (a profile's check or a probe's sign-in error). */
-  auth?: "signedIn" | "signedOut" | "unknown";
+  auth?: "signedIn" | "signedOut" | "expired" | "unknown";
   /** How to update it; `elevated`: needs sudo, so the page shows `command` and never runs it. */
   update?: { command: string; elevated: boolean } | null;
   /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */
@@ -484,6 +678,28 @@ export type HarnessRow = {
   autoUpdate?: boolean;
   /** What auto-update last did for it. */
   lastAutoUpdate?: { ok: boolean; detail: string } | null;
+  /** When acpmux last checked it (ms since the epoch); the card shows the newest as "Checked 5m ago". */
+  checkedAt?: number | null;
+};
+
+/** One provider account routing may use (acpmux `_acpmux/accounts`): the CLI's own login (`builtin`)
+ * or an account added in a shadow home. Folders arrive under `~`; actions name the id only. */
+export type ProviderAccount = {
+  id: string;
+  family: "codex" | "claude" | string;
+  name: string;
+  /** Its own login folder; null is the CLI's default (`defaultHome`). */
+  home: string | null;
+  defaultHome?: string | null;
+  /** The folder whose settings and chats a shadow home shares. */
+  shadowOf: string | null;
+  signedIn: boolean;
+  plan: string | null;
+  /** Shown on this local Settings page only. */
+  email: string | null;
+  /** Routing may move chats onto it. */
+  enabled: boolean;
+  builtin: boolean;
 };
 
 /** The Harnesses part: acpmux's harnesses (the host reads `_acpmux/harnesses`). */
@@ -492,6 +708,8 @@ export type HarnessesState = {
   /** `unavailable`: no acpmux in this app; `unreachable`: its daemon did not answer. */
   problem: "unavailable" | "unreachable" | null;
   harnesses: HarnessRow[];
+  /** acpmux's provider accounts; null or absent from a daemon without `_acpmux/accounts`. */
+  accounts?: ProviderAccount[] | null;
   /** Receipts and terminal observations from the captured update owner. */
   jobs?: Array<{
     machine: string;
@@ -523,15 +741,50 @@ export type HarnessesRun = {
     | "updateAll"
     | "autoUpdate"
     | "resumeUpdate"
-    | "dismissUpdate";
+    | "dismissUpdate"
+    | "accountEnable"
+    | "accountAdd"
+    | "accountSignIn";
   id?: string;
+  /** With `accountEnable` and `accountSignIn`: a listed account id. */
+  account?: string;
+  /** With `accountAdd`: the provider family that gets a new shadow-home account. */
+  family?: string;
   /** With `resumeUpdate` and `dismissUpdate`: the retained intent key, not a new operation id. */
   intent?: string;
-  /** With `autoUpdate`: turn it on or off for `id`. */
+  /** With `autoUpdate` (for `id`) and `accountEnable` (for `account`): turn it on or off. */
   on?: boolean;
   /** With `refresh`: the daemon checks every harness again (after an update). */
   recheck?: boolean;
 };
+
+/** Settings > Accounts > Cloud Environments (`cmux.settings.environments.state`,
+ * plans/cmux-next/cloud-environments-DESIGN.md): the team's environments on the cmux-next Cloud path.
+ * `status` is CloudDO's; the page localizes it. `error` texts come from the host. */
+export type CloudEnvironmentStatus = "unbuilt" | "building" | "ready" | "stale" | "failed";
+export type CloudEnvironmentRow = {
+  id: string;
+  name: string;
+  repo: string | null;
+  setup_script: string;
+  status: CloudEnvironmentStatus | string;
+  /** The last failed build's message and its log tail; null otherwise. */
+  error: string | null;
+  log_tail: string | null;
+};
+export type CloudEnvironmentsState = {
+  /** False on the classic Cloud path or while signed out: the card explains instead of listing. */
+  available: boolean;
+  loading: boolean;
+  environments: CloudEnvironmentRow[];
+  error: string | null;
+};
+/** One Cloud Environments gesture: Refresh, Save (create, or edit with `id`), Build, Delete. */
+export type CloudEnvironmentsRun =
+  | { action: "refresh" }
+  | { action: "save"; id?: string; name: string; repo?: string; setup_script?: string }
+  | { action: "build"; id: string }
+  | { action: "delete"; id: string };
 
 /** Settings > Devices (`cmux.settings.devices.state`): this Mac and the person's other devices on
  * the device hub, Mac Screen access to this Mac, relays and the access history. The host sends
@@ -742,12 +995,15 @@ export type ChannelBuild = {
   /** GitHub's compare from the installed build's commit; null for that build or an unknown commit. */
   compare_url: string | null;
   health: "promoted" | "held" | "pulled" | "pending";
-  health_title: string;
+  health_title: string | null;
   pulled_reason: string | null;
   /** This Mac runs it ("You Are Here"). */
   installed: boolean;
   /** This Mac kept a copy for rollback. */
   kept: boolean;
+  /** The row offers Switch (`cmux.settings.channels.switch_build`): any build but the installed
+   * and pulled ones, on an app that follows a feed. Absent from older hosts. */
+  switch?: boolean;
   prs: { number: number; url: string }[];
 };
 
@@ -783,7 +1039,16 @@ export type ChannelsState = {
   title: string;
   installed: string;
   switch: ChannelSwitch | null;
-  labels: { you_are_here: string; following: string; kept: string; compare: string; commit: string; release: string };
+  labels: {
+    you_are_here: string;
+    following: string;
+    kept: string;
+    compare: string;
+    commit: string;
+    release: string;
+    /** The rows' Switch button; absent from older hosts. */
+    switch?: string;
+  };
   tracks: ChannelTrack[];
   /** The app's local acpmux daemon: its build, and whether it is up to date or restarting. */
   daemon?: { title: string; value: string } | null;
@@ -805,6 +1070,9 @@ export type SettingsOps = {
   /** Native: the card's Go Back: restarts once into a kept build of a slower channel (the person's gesture only). */
   "cmux.settings.channels.go_back": [{ ring: string; build: string }, Record<string, never>];
   "cmux.settings.channels.update_machine": [{ id: string }, Record<string, never>];
+  /** Native: a build row's Switch: restarts once into that build, older or newer, downloading it
+   * first unless it is kept (the person's gesture only). */
+  "cmux.settings.channels.switch_build": [{ build: string }, Record<string, never>];
   /** Native: Settings > Mobile's Remove: the phone leaves the account's devices (the person's gesture only). */
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
   /** Native: Settings > Devices' Remove: the device leaves every store that lets it in (the person's gesture only). */
@@ -813,6 +1081,8 @@ export type SettingsOps = {
   "cmux.settings.devices.full_access": [{ id: string; on: boolean }, { error?: string }];
   /** Native: Settings > Machines' "Dedicated agent machine" switch on a Cloud machine (on: the person's gesture only). */
   "cmux.settings.machines.vm_host": [{ id: string; on: boolean }, { error?: string }];
+  /** Native: Settings > Devices' Screen sharing or Control switch of this joined Mac (on: the person's gesture only). */
+  "cmux.settings.devices.join_consent": [{ surface: "screen" | "control"; on: boolean }, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Server's Restart…: opens the host's confirm, never restarts by itself (the person's gesture only). */
@@ -821,12 +1091,18 @@ export type SettingsOps = {
   "cmux.settings.server.pair": [Record<string, never>, Record<string, never>];
   /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
   "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
+  /** Native: Updates > App Update's buttons (Restart to Update only on the person's own click); the host lists follow. */
+  "cmux.settings.app_update.run": [{ action: AppUpdateAction }, Record<string, never>];
   /** Native: Updates > Web UI's Check Now (updates.web.check); the host lists follow the check. */
   "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
   /** Native: Updates > Web UI's Roll Back (updates.web.rollback), from the next safe point. */
   "cmux.settings.web_updates.rollback": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
   "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
+  /** Native: Settings > Menus saves a menu's arrangement; null (Reset) removes it (the person's gesture only). */
+  "cmux.settings.context_menus.set": [{ menu: string; layout: MenuLayout | null }, Record<string, never>];
+  /** Native: Settings > Menus turns Customize Menu… at the end of every menu on or off. */
+  "cmux.settings.context_menus.show_item": [{ show: boolean }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
@@ -839,6 +1115,10 @@ export type SettingsOps = {
   "cmux.settings.harnesses.state": [Record<string, never>, HarnessesState];
   /** Native: one Harnesses gesture (a terminal tab for sign-in, or a refresh). */
   "cmux.settings.harnesses.run": [HarnessesRun, unknown];
+  /** Native: Settings > Accounts > Cloud Environments (CloudDO through the Cloud app server). */
+  "cmux.settings.environments.state": [Record<string, never>, CloudEnvironmentsState];
+  /** Native: one Cloud Environments gesture; Build and Delete ask natively first; a failure answers `error`. */
+  "cmux.settings.environments.run": [CloudEnvironmentsRun, { error?: string | null }];
   /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */
@@ -875,6 +1155,9 @@ export type SettingsOps = {
   /** Native: the bytes the person's own background images take. */
   "cmux.settings.backdrop.image.usage": [Record<string, never>, { bytes: number; folder?: string }];
   "cmux.settings.backdrop.image.folder": [Record<string, never>, { id: string | null }];
+  /** Native: the moving wallpaper that is the macOS screen saver; id null when it is not an aerial,
+   * `pending` while macOS has not downloaded it. Writes nothing. */
+  "cmux.settings.backdrop.image.screen_saver": [Record<string, never>, { id: string | null; pending: boolean }];
   /** Native: opens the Wallpaper pane of System Settings, where macOS downloads its wallpapers. */
   "cmux.settings.backdrop.wallpaper_settings": [Record<string, never>, Record<string, never>];
   /** Native: a workspace's own background (cx-t2x.5); `value` null follows appearance.background. */
@@ -1003,6 +1286,8 @@ export const settingsPageActions = [
   "palette.computerUse.screenRecording",
   "import.card",
   "importFromBrowser",
+  // Settings > Mobile's Sign In, where the iPhone card says to sign in (msg 3790).
+  "palette.auth.signIn",
 ] as const;
 
 export type SettingsPageAction = (typeof settingsPageActions)[number];

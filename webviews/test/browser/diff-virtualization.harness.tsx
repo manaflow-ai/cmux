@@ -5,6 +5,8 @@
 // patch is served from a blob URL through the viewer's own patchURL path, so
 // it streams and parses exactly as a patch from the host does.
 // As src/diff/dev.ts does: the stylesheet imported normally, the English labels.
+// The standalone browser harness must install the shared design tokens before the diff surface.
+import "../../src/pages/shared/desktop.css";
 import "../../src/styles.css";
 import { diffViewerLabelsFor } from "../../src/labels";
 import { mountDiffSurface } from "../../src/surfaces/diffSurface";
@@ -142,6 +144,7 @@ function fixturePatch(): string {
     );
     return [...rewritten, ...smallFiles(50)].join("");
   }
+  if (fixture === "comments") return smallFiles(1).join("");
   if (fixture === "mixed") return mixedPatch();
   if (fixture === "huge") {
     const bundle = addedFilePatch(

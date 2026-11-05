@@ -23,7 +23,7 @@ let dom: JSDOM;
 let root: Root | undefined;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { url: "cmux-page://cmux.changelog/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", { url: "cmux-page://cmux.changelog/#/?design=ledger" });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,

@@ -198,7 +198,7 @@ final class ImportProfileRow: NSView {
         if FileManager.default.fileExists(atPath: conventionalURL.path) {
             return NSWorkspace.shared.icon(forFile: conventionalURL.path)
         }
-        return NSImage.icon(.browser, size: 16)
+        return NSImage.icon(.browser, size: 30) // the icon view's side: a bitmap glyph is not stretched up
     }
 
     /// The cmux profiles this row can go into: "New Profile" (its own,

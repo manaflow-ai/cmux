@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextSettings
 @testable import CmuxNextPages
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -14,7 +15,7 @@ import WebKit
 /// that reads it adds nothing to the number.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(10)),
-       .enabled(if: ProcessInfo.processInfo.environment["CMUX_PAGE_CLAIM_BENCH"] != nil))
+       .enabled(if: ProcessInfo.processInfo.environment["CMUX_PAGE_CLAIM_BENCH"] != nil), .closesItsWindows)
 struct PageHostPoolClaimReadyBenchmark {
     static let readyProbe = """
     (() => {

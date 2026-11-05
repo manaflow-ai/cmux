@@ -61,11 +61,12 @@ extension NewChatPlacement {
     /// failed move shows it where it is.
     @MainActor static func dock(_ key: String, from controller: PaneController) {
         let services = controller.services
+        let machineID = controller.daemon.machineID
         services.registry.track(Task { @MainActor [weak controller] in
-            var found = services.locateTab(key)
+            var found = services.locateTab(key, onMachine: machineID)
             if found == nil {
-                for await located in ObservationStream({ services.locateTab(key) != nil }) where located {
-                    found = services.locateTab(key)
+                for await located in ObservationStream({ services.locateTab(key, onMachine: machineID) != nil }) where located {
+                    found = services.locateTab(key, onMachine: machineID)
                     break
                 }
             }
@@ -85,8 +86,9 @@ extension NewChatPlacement {
     /// `source`, the pane it moved from (the store may still list it there).
     @MainActor static func focusWhenShown(_ key: String, in content: WorkspaceContentController,
                                                   leaving source: LayoutPaneID, services: AppServices) {
+        let machineID = content.daemon.machineID
         func pane() -> LayoutPaneID? {
-            guard let model = services.locateTab(key)?.1,
+            guard let model = services.locateTab(key, onMachine: machineID)?.1,
                   let id = services.paneController(for: model)?.layoutPaneID, id != source else { return nil }
             return id
         }

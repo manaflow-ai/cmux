@@ -29,15 +29,21 @@ extension PageFactory {
     /// The channels page's engine options.
     static let homeChannelsEngineOptions = PageEngineOptions.standard
 
+    /// `cmux.app.edit {command}` on the Channels page: its route, and the provider whose `run` the page sets once its view exists.
+    static func homeChannelsEditRoute() -> (route: PageRoute, edits: PageEditProvider) {
+        let edits = PageEditProvider()
+        return (PageRoute(prefix: PageNativeOp.edit, provider: edits), edits)
+    }
+
     /// The React channels Home (a tab next to the native Home, or the docked Home's Channels view:
     /// only there `cmux.host.home.switchView` answers).
     func homeChannelsWebPage(dock: HomeDockView? = nil) -> PageWebView? {
         let provider = DaemonCredentialPageProvider(daemon: services.daemon, chief: services.home.chief)
-        let edits = PageEditProvider()
+        let (editRoute, edits) = Self.homeChannelsEditRoute()
         var routes = [PageRoute(prefix: "cmux.host.credential.", provider: provider),
                       PageRoute(prefix: ChiefProfilePageRoute.prefix, provider: ChiefProfilePageRoute(owner: services.home.chief)),
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
-                      PageRoute(prefix: PageNativeOp.edit, provider: edits)]
+                      editRoute]
         if let dock { routes.append(PageRoute(prefix: HomeSwitchPageRoute.prefix, provider: HomeSwitchPageRoute(dock: dock))) }
         guard let page = PageWebView(descriptor: .homeChannels, routes: routes,
                                      options: Self.homeChannelsEngineOptions, surface: .home) else { return nil }
@@ -60,16 +66,6 @@ extension PageFactory {
         }
         services.home.homeDidOpen(asked: true)
         return page
-    }
-}
-
-extension PageFactory {
-    /// `cmux.app.edit {command}` on the Channels page: `run` gets the composer menu's command, only
-    /// on the person's click or key in the page (a paste puts their pasteboard into the page).
-    static func homeChannelsEditRoute(run: @escaping @MainActor (AgentPaneEditCommand) -> Void) -> PageRoute {
-        let edits = PageEditProvider()
-        edits.run = run
-        return PageRoute(prefix: PageNativeOp.edit, provider: edits)
     }
 }
 
@@ -191,7 +187,7 @@ final class DaemonCredentialPageProvider: PageProvider {
 
     static var tooOld: String {
         String(localized: "homeChannels.daemon.tooOld",
-               defaultValue: "This cmux daemon is too old to serve this page, and cmux cannot restart it. Update the cmux-tui binary that cmux uses, then open this tab again.",
+               defaultValue: "This page needs a newer cmux background service, and cmux can't restart it. Update cmux, then open this tab again.",
                table: "Handlers", bundle: .module)
     }
 

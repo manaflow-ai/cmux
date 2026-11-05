@@ -7,9 +7,13 @@ use crate::rpc::Message;
 use std::collections::VecDeque;
 use std::os::fd::AsRawFd;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use tokio::sync::mpsc;
+
+/// A host's own end once no daemon controls it ([`OrphanExit`]).
+mod orphan;
+use orphan::Orphan;
 
 /// Entry point of `acpmux __agent-host`: read the spawn spec from stdin,
 /// start the harness, answer on stdout, then serve controllers until the
@@ -86,6 +90,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     cmd.args(&spec.args)
         .env_clear()
         .envs(spec.env.iter().map(|(k, v)| (k, v)))
+        // What this host started is found by it after the host is killed (`end_left_behind`).
+        .env(super::HOST_MARK, &nonce)
         .current_dir(&spec.cwd)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -94,6 +100,9 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // started (background shells included).
         .process_group(0)
         .kill_on_drop(false);
+    // Never at background class while it starts (`cpu_class.rs`): the daemon lowers it once its
+    // session's start is over.
+    crate::cpu_class::start_at_normal(&mut cmd);
     // Bind before the harness starts, so a failure leaves nothing running.
     let _ = std::fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)
@@ -107,6 +116,9 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         // Both a missing folder and a missing program fail as ENOENT: say which.
         if e.kind() == std::io::ErrorKind::NotFound && !spec.cwd.exists() {
             anyhow!("the folder {} does not exist", spec.cwd.display())
+        } else if e.kind() == std::io::ErrorKind::PermissionDenied && !can_enter(&spec.cwd) {
+            // The start's chdir fails as EACCES too, which read as the program's own.
+            anyhow!("the folder {} cannot be entered by this user", spec.cwd.display())
         } else {
             anyhow!(e).context(format!("spawn harness process {}", spec.program))
         }
@@ -122,7 +134,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         caller_token: spec.caller_token(),
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
-        host_build: crate::hub::BUILD.to_owned(),
+        host_build: crate::hub::build().to_owned(),
         socket: spec.socket.clone(),
     };
     if let Err(e) = write_record_atomic(&record_path(&spec.hosts_dir, &spec.session_id), &record) {
@@ -193,15 +205,23 @@ enum Event {
     DrainOver(u64),
     /// [`POOLED_OWNER_WAIT`] passed since the host started serving.
     OwnerWaitOver,
+    /// The output held after a carry (its carry's number) is read now, its prompt or not
+    /// (`claude_stdio/carry.rs`).
+    HoldOver(u64),
+    /// With no controller: a wait (its generation) ended, or its census answered (`Some`,
+    /// `host/orphan.rs`).
+    Orphan(u64, Option<bool>),
 }
 
-/// How long a pooled host waits for its first controller. A daemon that
-/// started it attaches within its pool start budget (90 s, `hub/pool`) or
-/// ends it; one that died before it attached (SIGKILL right after the
-/// spawn) never will, and a pooled host never waits for a next daemon, so it
-/// ends. It never relied on the daemon's systemd unit for that: the host may
-/// be in its own scope (`scope.rs`).
-pub(crate) const POOLED_OWNER_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
+/// How long a pooled host waits for its first controller. A daemon may be
+/// alive but starved while it attaches, so this is deliberately well beyond a
+/// normal start and is only a cleanup hazard for a host whose daemon never
+/// returns. A host that died before it attached (SIGKILL right after the
+/// spawn) still ends here; it never waits for a next daemon. It never relied
+/// on the daemon's systemd unit: the host may be in its own scope (`scope.rs`).
+// timeout: an unowned pooled host needs a finite leak bound when no daemon can
+// observe or end it; 30 minutes leaves a busy machine time to attach.
+pub(crate) const POOLED_OWNER_WAIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
 /// Debug builds only: [`POOLED_OWNER_WAIT`] in milliseconds, for the
 /// lifetime test; passed on by the host launch (`link.rs`). Release builds
@@ -231,17 +251,45 @@ fn pooled_without_owner(pooled: bool, last_owner: Option<u64>) -> bool {
 /// a quiet period passes.
 const DRAIN_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Encoded frames to one connection's writer (`super::encode_frame`).
+#[derive(Clone)]
+struct FrameTx(mpsc::UnboundedSender<Arc<[u8]>>);
+
+impl FrameTx {
+    /// Encodes and sends `frame`; an error when the connection is gone or the frame is
+    /// over the limit (the writer used to stop at such a frame; the owner is dropped).
+    fn send(&self, frame: HostFrame) -> Result<(), ()> {
+        self.send_encoded(super::encode_frame(&frame).ok_or(())?)
+    }
+
+    fn send_encoded(&self, bytes: Arc<[u8]>) -> Result<(), ()> {
+        self.0.send(bytes).map_err(|_| ())
+    }
+}
+
 struct Controller {
     id: u64,
-    tx: mpsc::UnboundedSender<HostFrame>,
+    tx: FrameTx,
     /// Entries flow only after `Resume`.
     resumed: bool,
+}
+
+/// One retained entry ([`State::push`]).
+struct Retained {
+    h: u64,
+    /// The entry's frame, as sent.
+    bytes: Arc<[u8]>,
+    weight: usize,
+    /// A next daemon needs it in its log (`orphan::needs_a_daemon`).
+    needed: bool,
 }
 
 struct State {
     record: HostRecord,
     spec: SpawnSpec,
-    entries: VecDeque<(u64, Entry, usize)>,
+    /// Retained entries as their encoded frames: encoded once in `push`, sent as is
+    /// (live and on resume), weighed by their size.
+    entries: VecDeque<Retained>,
     weight: usize,
     next_h: u64,
     acked_h: u64,
@@ -251,7 +299,7 @@ struct State {
     stderr_done: bool,
     leader_code: Option<Option<i32>>,
     /// Connections that have not said `Hello` yet.
-    pending_conns: Vec<(u64, mpsc::UnboundedSender<HostFrame>)>,
+    pending_conns: Vec<(u64, FrameTx)>,
     controller: Option<Controller>,
     /// Unbounded: a harness that stops reading never blocks the loop; what
     /// waits here is bounded by the controller, which waits for answers.
@@ -272,8 +320,21 @@ struct State {
     /// The connection of the last controller that said `Hello`, also when
     /// a failed send already dropped it as the controller.
     last_owner: Option<u64>,
+    /// Close a controller that sends `Hello` (debug builds' test seam,
+    /// [`claim_hello_exit`]), exercising the process-exit/closed-link path.
+    hello_exit: bool,
     /// Never answer `Hello` (debug builds' test seam, [`claim_hello_stall`]).
     stall_hello: bool,
+    /// Claude's output lines after a carry, read once the next turn's prompt came
+    /// (`claude_stdio/carry.rs` `holding`), oldest first.
+    held: VecDeque<String>,
+    /// The carry that holds the output now (its number, `claude_stdio/carry.rs` `holding`), and
+    /// whether its bound passed: each carry holds once, with a bound of its own.
+    hold: (u64, bool),
+    /// Its own end once no daemon controls it, and what it tracks for it (`host/orphan.rs`).
+    orphan: Orphan,
+    /// The output ended: what a carry held is read, and no carry holds more.
+    read_all: bool,
 }
 
 /// The debug builds' hello-stall seam's variable ([`claim_hello_stall`]):
@@ -289,6 +350,47 @@ pub(super) const HELLO_STALL_DIR_ENV: &str = "ACPMUX_TEST_HOST_HELLO_STALL_DIR";
 fn claim_hello_stall() -> bool {
     #[cfg(debug_assertions)]
     if let Some(dir) = std::env::var_os(HELLO_STALL_DIR_ENV)
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        return entries.flatten().any(|e| {
+            e.file_name().to_string_lossy().starts_with("stall-")
+                && std::fs::remove_file(e.path()).is_ok()
+        });
+    }
+    false
+}
+
+/// Debug builds only: `ACPMUX_TEST_HOST_HELLO_EXIT_DIR` names a directory of
+/// `exit-*` marker files. A host that removes one closes its controller
+/// connection before answering `Hello`, as an exited host does. Release
+/// builds have no seam.
+#[cfg(debug_assertions)]
+pub(super) const HELLO_EXIT_DIR_ENV: &str = "ACPMUX_TEST_HOST_HELLO_EXIT_DIR";
+
+fn claim_hello_exit() -> bool {
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os(HELLO_EXIT_DIR_ENV)
+        && let Ok(entries) = std::fs::read_dir(dir)
+    {
+        return entries.flatten().any(|e| {
+            e.file_name().to_string_lossy().starts_with("exit-")
+                && std::fs::remove_file(e.path()).is_ok()
+        });
+    }
+    false
+}
+
+/// Debug builds only: `ACPMUX_TEST_HOST_QUERY_STALL_DIR` in the harness's
+/// environment (a profile's `env`; the host clears its own) names a directory
+/// of `stall-*` marker files too. A host that removes one as a `Query` comes
+/// leaves that query unanswered, as a host whose answer sits behind a backlog
+/// nobody reads, so the daemon's integration tests can drive the query's
+/// timeout; each marker stalls one query. Release builds have no seam.
+#[cfg_attr(not(debug_assertions), allow(unused_variables))]
+fn claim_query_stall(harness_env: &[(String, String)]) -> bool {
+    #[cfg(debug_assertions)]
+    if let Some((_, dir)) =
+        harness_env.iter().find(|(k, _)| k == "ACPMUX_TEST_HOST_QUERY_STALL_DIR")
         && let Ok(entries) = std::fs::read_dir(dir)
     {
         return entries.flatten().any(|e| {
@@ -395,13 +497,19 @@ impl Started {
         }
         {
             let tx = events_tx.clone();
+            let signals_log = signals_log(&spec.hosts_dir);
+            let session = spec.session_id.clone();
             tokio::spawn(async move {
                 let Ok(mut term) =
                     tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                 else {
                     return;
                 };
+                // Who sent it goes to the home's `agent-host-signals.log` (`daemon/term_sender.rs`).
+                crate::daemon::term_sender::record();
                 if term.recv().await.is_some() {
+                    let sender = crate::daemon::term_sender::settled().await;
+                    note_term(&signals_log, &session, sender);
                     let _ = tx.send(Event::Term).await;
                 }
             });
@@ -426,6 +534,8 @@ impl Started {
             {
                 *fast = true;
             }
+            tr.prompt_suggestions.store(t.prompt_suggestions, std::sync::atomic::Ordering::SeqCst);
+            tr.set_recap(t.recap.as_deref());
             if let Some(sid) = &t.claude_session_id
                 && let Ok(mut slot) = tr.session_id.try_lock()
             {
@@ -458,7 +568,12 @@ impl Started {
             unadoptable: false,
             under: Vec::new(),
             last_owner: None,
+            hello_exit: claim_hello_exit(),
             stall_hello: claim_hello_stall(),
+            held: VecDeque::new(),
+            hold: (0, false),
+            orphan: Orphan::default(),
+            read_all: false,
         };
         // The app-server's initialize goes out at spawn, before the hub's.
         if let Some(cx) = state.codex.clone() {
@@ -481,6 +596,7 @@ impl Started {
             });
         }
 
+        state.orphan_follow(&events_tx).await; // Its wait starts with no event (`host/orphan.rs`).
         while let Some(event) = events.recv().await {
             match event {
                 // Output after the Exit entry (an escaped process) is dropped.
@@ -490,10 +606,20 @@ impl Started {
                     permit_out = false;
                     drain_gen += 1;
                     drain_armed = false;
-                    state.on_stdout(line).await;
+                    state.held.push_back(line);
+                    state.read_held(&events_tx).await;
+                }
+                Event::HoldOver(hold) => {
+                    if state.hold.0 == hold {
+                        state.hold.1 = true;
+                    }
+                    state.read_held(&events_tx).await;
                 }
                 Event::Stdout(None) => {
                     permit_out = false;
+                    // What a carry held is read before the output's end.
+                    state.read_all = true;
+                    state.read_held(&events_tx).await;
                     if state.exit_h.is_none() {
                         state.end_background_shells().await;
                         state.codex_closed();
@@ -555,10 +681,11 @@ impl Started {
                     let (mut rd, mut wr) = stream.into_split();
                     // Unbounded: the retained entries already bound it, and a
                     // slow owner must not be dropped (it would never return).
-                    let (tx, mut rx) = mpsc::unbounded_channel::<HostFrame>();
+                    let (tx, mut rx) = mpsc::unbounded_channel::<Arc<[u8]>>();
+                    let tx = FrameTx(tx);
                     tokio::spawn(async move {
-                        while let Some(frame) = rx.recv().await {
-                            if write_frame(&mut wr, &frame).await.is_err() {
+                        while let Some(bytes) = rx.recv().await {
+                            if wr.write_all(&bytes).await.is_err() || wr.flush().await.is_err() {
                                 break;
                             }
                         }
@@ -576,8 +703,15 @@ impl Started {
                     });
                     state.pending_conns.push((id, tx));
                 }
-                Event::Frame(id, frame) => state.on_frame(id, frame).await,
+                Event::Frame(id, frame) => {
+                    state.on_frame(id, frame).await;
+                    // The next turn's prompt may have come: what a carry held is read.
+                    state.read_held(&events_tx).await;
+                }
                 Event::Written(receipt, written) => state.receipt(receipt, written),
+                Event::Orphan(generation, census) => {
+                    state.orphan_look(&events_tx, generation, census).await;
+                }
             }
             if state.unadoptable {
                 // As SIGTERM: end the harness while its group is ours, then the host.
@@ -593,7 +727,13 @@ impl Started {
             if state.finished() {
                 break;
             }
-            let wanted = !state.stdout_done && state.weight <= state.spec.buffer_cap;
+            if state.orphan_follow(&events_tx).await {
+                break;
+            }
+            // Nothing more is read while a carry holds what was read (`read_held`).
+            let wanted = !state.stdout_done
+                && state.weight <= state.spec.buffer_cap
+                && state.held.is_empty();
             if wanted && !permit_out && pace_tx.try_send(()).is_ok() {
                 permit_out = true;
             }
@@ -622,6 +762,38 @@ impl Started {
     }
 }
 
+/// Entry `h` as the frame it is sent and kept as (encoded once), and whether a next daemon
+/// needs it (`orphan::needs_a_daemon`). An entry over the frame limit (a writer stop would
+/// lose it) is kept as what [`over_frame_limit`] puts in its place, or, when that is over
+/// the limit too (an answer whose id alone is), as a stderr note. Never an empty frame:
+/// None only if even the note cannot be encoded.
+fn encode_entry(h: u64, entry: &Entry, max: usize) -> Option<(Arc<[u8]>, bool)> {
+    let encode = |e: &Entry| {
+        super::encode_frame_within(&super::EntryFrame::Entry { h, e }, max)
+            .map(|bytes| (bytes, orphan::needs_a_daemon(e)))
+    };
+    encode(entry)
+        .or_else(|| encode(&over_frame_limit(h, entry)))
+        .or_else(|| encode(&over_frame_limit_note(h)))
+}
+
+/// What is kept in place of entry `h` when its frame is over the limit: an answer becomes
+/// an error answer with its id, so the request it answers is not left waiting; anything
+/// else becomes a stderr note.
+fn over_frame_limit(h: u64, entry: &Entry) -> Entry {
+    if let Entry::In { msg } = entry
+        && let Some(id) = msg.get("id").filter(|id| !id.is_null() && msg.get("method").is_none())
+    {
+        let err = crate::rpc::RpcError::internal("agent answer was over the frame limit");
+        return Entry::In { msg: Message::err(id.clone(), err).into_value() };
+    }
+    over_frame_limit_note(h)
+}
+
+fn over_frame_limit_note(h: u64) -> Entry {
+    Entry::Err { line: format!("[entry {h} over the frame limit dropped]") }
+}
+
 impl State {
     /// Note the processes under this host before its harness group is
     /// ended, while the harness still parents what it moved out of it.
@@ -635,19 +807,27 @@ impl State {
 
     /// Number and retain one entry, and send it to a resumed controller.
     fn push(&mut self, entry: Entry) {
-        self.next_h += 1;
-        let h = self.next_h;
-        let weight = entry.weight();
+        self.orphan.note_entry(&entry);
+        let h = self.next_h + 1;
+        // One serialization per entry: the bytes are sent and kept (perf100: the entry was
+        // serialized to weigh it, copied to send it and serialized again to write it).
+        let Some((bytes, needed)) = encode_entry(h, &entry, super::MAX_FRAME) else {
+            // Not even a one-line note fits a frame: nothing to number, send or keep.
+            tracing::warn!(h, "an agent host entry and its note are over the frame limit");
+            return;
+        };
+        self.next_h = h;
         if matches!(entry, Entry::Exit { .. }) {
             self.exit_h = Some(h);
         }
+        let weight = bytes.len().saturating_add(32);
         if let Some(c) = self.controller.as_ref().filter(|c| c.resumed)
-            && c.tx.send(HostFrame::Entry { h, e: entry.clone() }).is_err()
+            && c.tx.send_encoded(bytes.clone()).is_err()
         {
             // The connection closed; the next owner resumes from the buffer.
             self.controller = None;
         }
-        self.entries.push_back((h, entry, weight));
+        self.entries.push_back(Retained { h, bytes, weight, needed });
         self.weight += weight;
     }
 
@@ -671,9 +851,9 @@ impl State {
             return;
         }
         self.acked_h = h.min(self.next_h);
-        while self.entries.front().is_some_and(|(eh, _, _)| *eh <= self.acked_h) {
-            if let Some((_, _, w)) = self.entries.pop_front() {
-                self.weight -= w;
+        while self.entries.front().is_some_and(|e| e.h <= self.acked_h) {
+            if let Some(e) = self.entries.pop_front() {
+                self.weight -= e.weight;
             }
         }
     }
@@ -683,12 +863,18 @@ impl State {
     async fn end_background_shells(&mut self) {
         if let Some(tr) = self.translator.clone() {
             for m in tr.end_background_shells().await {
-                self.push(Entry::In { msg: m.to_value() });
+                self.push(Entry::In { msg: m.into_value() });
             }
         }
     }
 
     /// The exit entry follows the last output line and stderr line.
+    /// The harness's output is held back by the buffer cap (or a carry), so no more is read
+    /// until a daemon drains it: the main loop's `wanted` read condition is false.
+    pub(super) fn output_held_back(&self) -> bool {
+        !self.stdout_done && (self.weight > self.spec.buffer_cap || !self.held.is_empty())
+    }
+
     fn maybe_push_exit(&mut self) {
         if self.exit_h.is_none()
             && self.stdout_done
@@ -702,6 +888,32 @@ impl State {
     /// The harness ended and the controller logged its exit.
     fn finished(&self) -> bool {
         self.exit_h.is_some_and(|h| self.acked_h >= h)
+    }
+
+    /// Reads the held output lines in order, until a carry holds the rest (`claude_stdio/carry.rs`
+    /// `holding`): each carry's hold starts its own bound ([`crate::claude_stdio::CARRY_HOLD_MAX`]),
+    /// also one made while an earlier carry still holds.
+    async fn read_held(&mut self, events: &mpsc::Sender<Event>) {
+        while !self.holds(events) {
+            let Some(line) = self.held.pop_front() else { return };
+            self.on_stdout(line).await;
+        }
+    }
+
+    /// Whether a carry holds the output now: one that holds anew starts its bound.
+    fn holds(&mut self, events: &mpsc::Sender<Event>) -> bool {
+        let carry = self.translator.as_ref().and_then(|tr| tr.holding());
+        let Some(carry) = carry.filter(|_| !self.read_all) else { return false };
+        if self.hold.0 != carry {
+            self.hold = (carry, false);
+            let events = events.clone();
+            // task-owner: one bounded wait; the runtime ends it with the host.
+            tokio::spawn(async move {
+                tokio::time::sleep(crate::claude_stdio::CARRY_HOLD_MAX).await;
+                let _ = events.send(Event::HoldOver(carry)).await;
+            });
+        }
+        !self.hold.1
     }
 
     async fn on_stdout(&mut self, line: String) {
@@ -736,14 +948,14 @@ impl State {
             } else if let Some(tr) = self.translator.clone() {
                 if claude_answer {
                     for m in tr.fail_pending("agent answer was over the size limit").await {
-                        self.push(Entry::In { msg: m.to_value() });
+                        self.push(Entry::In { msg: m.into_value() });
                     }
                 }
             } else if let Ok(v) = serde_json::from_str::<Value>(&line)
                 && let Some(id) = v.get("id").filter(|_| v.get("method").is_none())
             {
                 let err = crate::rpc::RpcError::internal("agent answer was over the size limit");
-                self.push(Entry::In { msg: Message::err(id.clone(), err).to_value() });
+                self.push(Entry::In { msg: Message::err(id.clone(), err).into_value() });
             }
             return;
         }
@@ -759,7 +971,7 @@ impl State {
                 self.push(Entry::Tap {
                     dir: TapDir::In,
                     msg: Message::notification(&kind, crate::codex_app_server::redact(&raw))
-                        .to_value(),
+                        .into_value(),
                 });
             }
             self.codex_out(cx.from_server(&raw));
@@ -767,7 +979,7 @@ impl State {
         }
         let Some(tr) = self.translator.clone() else {
             match Message::parse(&line) {
-                Ok(m) => self.push(Entry::In { msg: m.to_value() }),
+                Ok(m) => self.push(Entry::In { msg: m.into_value() }),
                 Err(_) => self.push(Entry::Err { line: format!("[non-json stdout] {line}") }),
             }
             return;
@@ -780,16 +992,18 @@ impl State {
             }
         };
         // Keep the raw Claude line in the log under its own kind.
+        // Translated first, so the raw line moves into its record instead of being
+        // copied; the raw record still comes first.
+        let translated = tr.inbound(&raw).await;
         self.push(Entry::Tap {
             dir: TapDir::In,
-            msg: crate::claude_stdio::logged_line(&raw).to_value(),
+            msg: crate::claude_stdio::logged_line_owned(raw).into_value(),
         });
-        let translated = tr.inbound(&raw).await;
         for l in tr.take_stdin_replies().await {
             self.write_claude_line(l);
         }
         for m in translated {
-            self.push(Entry::In { msg: m.to_value() });
+            self.push(Entry::In { msg: m.into_value() });
         }
     }
 
@@ -828,6 +1042,7 @@ impl State {
     /// Logs a line's receipt (`WRITTEN_METHOD`) as an entry, which reaches this controller or
     /// the next one exactly once.
     fn receipt(&mut self, receipt: u64, written: bool) {
+        self.orphan.unwritten = self.orphan.unwritten.saturating_sub(1);
         let note = serde_json::json!({"receipt": receipt, "written": written});
         self.push(Entry::Tap {
             dir: TapDir::Out,
@@ -852,6 +1067,7 @@ impl State {
         {
             self.max_out_id = self.max_out_id.max(n);
         }
+        self.orphan.note_request(&message);
         if let Some(cx) = self.codex.clone() {
             self.push(Entry::Tap {
                 dir: TapDir::Out,
@@ -895,7 +1111,16 @@ impl State {
             return;
         };
         if let ControllerFrame::Hello { min, max, token, .. } = &frame {
-            if self.stall_hello {
+            // An orphaned host that ends its harness answers once its exit is logged (`orphan.rs`).
+            let waits = self.hello_waits();
+            if self.hello_exit {
+                // Drop the pending writer so the controller observes EOF. A
+                // live host remains available for the daemon's explicit
+                // cleanup, while a closed link is the terminal failure signal.
+                self.pending_conns.retain(|(pid, _)| *pid != id);
+                return;
+            }
+            if self.stall_hello || self.orphan.hold_hello(id, &frame, waits) {
                 return;
             }
             let Some(pos) = self.pending_conns.iter().position(|(pid, _)| *pid == id) else {
@@ -939,14 +1164,11 @@ impl State {
             ControllerFrame::Resume { after } => {
                 // The controller logged everything through `after`.
                 self.drop_through(after);
-                let backlog: Vec<HostFrame> = self
-                    .entries
-                    .iter()
-                    .map(|(h, e, _)| HostFrame::Entry { h: *h, e: e.clone() })
-                    .collect();
+                let backlog: Vec<Arc<[u8]>> =
+                    self.entries.iter().map(|e| e.bytes.clone()).collect();
                 let Some(c) = self.controller.as_mut() else { return };
-                for frame in backlog {
-                    if c.tx.send(frame).is_err() {
+                for bytes in backlog {
+                    if c.tx.send_encoded(bytes).is_err() {
                         self.controller = None;
                         return;
                     }
@@ -966,6 +1188,8 @@ impl State {
                 self.on_line(msg).await;
                 // Behind every line of it: the writer answers once they are written.
                 // Its stdin writer stopped (the harness's stdin closed): never written.
+                self.orphan.unwritten =
+                    self.orphan.unwritten.saturating_add(usize::from(receipt.is_some()));
                 if let Some(receipt) = receipt
                     && self.stdin_tx.send(Stdin::Receipt(receipt)).is_err()
                 {
@@ -974,33 +1198,12 @@ impl State {
             }
             ControllerFrame::Ack { h } => self.drop_through(h),
             ControllerFrame::Terminate { grace_ms } => {
-                if let Some(pg) = self
-                    .pgid
-                    .filter(|_| self.leader_alive.load(std::sync::atomic::Ordering::SeqCst))
-                {
-                    self.under = tokio::task::spawn_blocking(|| {
-                        super::tree::descendants(&[std::process::id()])
-                    })
-                    .await
-                    .unwrap_or_default();
-                    // SAFETY: the harness leads this process group.
-                    unsafe { libc::killpg(pg, libc::SIGTERM) };
-                    let grace = std::time::Duration::from_millis(grace_ms);
-                    let alive = self.leader_alive.clone();
-                    // A bounded kill deadline, not synchronization: the exit
-                    // entry is the signal that the harness ended.
-                    tokio::spawn(async move {
-                        tokio::time::sleep(grace).await;
-                        if alive.load(std::sync::atomic::Ordering::SeqCst) {
-                            // SAFETY: the leader is unreaped, so the group is ours.
-                            unsafe { libc::killpg(pg, libc::SIGKILL) };
-                        }
-                    });
-                }
+                self.terminate_group(std::time::Duration::from_millis(grace_ms)).await;
                 if let Some(c) = self.controller.as_ref() {
                     let _ = c.tx.send(HostFrame::TerminateAck);
                 }
             }
+            ControllerFrame::Query { .. } if claim_query_stall(&self.spec.env) => {}
             ControllerFrame::Query { id } => {
                 let (claude_session_id, modes, config_options) = match self.translator.clone() {
                     Some(tr) => (
@@ -1081,6 +1284,37 @@ fn record_present(spec: &SpawnSpec, nonce: &str) -> bool {
 /// (the daemon's home was deleted, or a daemon removed the record), no daemon
 /// can ever adopt this host: it ends like SIGTERM. Every event only triggers a
 /// stat; a record rewritten in place (write, then rename) is still present.
+/// The file a host notes each SIGTERM it ends on: `agent-host-signals.log` in the acpmux home
+/// (the parent of `hosts/`, or of `hosts/pool/` for a pooled host). Hosts write no other log, so
+/// without it nothing said who ended a host (manaflow-ai/cmuxterm-hq#6338).
+pub(crate) fn signals_log(hosts_dir: &Path) -> PathBuf {
+    let hosts = if hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME) {
+        hosts_dir.parent().unwrap_or(hosts_dir)
+    } else {
+        hosts_dir
+    };
+    hosts.parent().unwrap_or(hosts).join(SIGNALS_LOG)
+}
+
+/// The name of [`signals_log`].
+pub(crate) const SIGNALS_LOG: &str = "agent-host-signals.log";
+
+/// Appends one line for a SIGTERM this host ends on: when, which host and session, and its
+/// sender when the kernel named one. Best effort: a failed write changes nothing.
+fn note_term(log: &Path, session: &str, sender: Option<i32>) {
+    use std::io::Write as _;
+    let from =
+        sender.map_or_else(|| "an unknown sender".to_owned(), crate::daemon::term_sender::describe);
+    let line = format!(
+        "{} agent host {} (session {session}) stopping: SIGTERM from {from}\n",
+        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+        std::process::id()
+    );
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(log) {
+        let _ = file.write_all(line.as_bytes());
+    }
+}
+
 fn watch_record(
     spec: &SpawnSpec,
     nonce: &str,
@@ -1112,6 +1346,14 @@ fn watch_record(
     watch
 }
 
+/// This user may chdir into `dir` (search permission, what a spawn's chdir needs).
+fn can_enter(dir: &std::path::Path) -> bool {
+    use std::os::unix::ffi::OsStrExt as _;
+    let Ok(c) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else { return false };
+    // SAFETY: `c` is a valid NUL-terminated path for the call's duration.
+    unsafe { libc::access(c.as_ptr(), libc::X_OK) == 0 }
+}
+
 #[cfg(test)]
 mod tests {
     /// A pooled host ends at the end of its wait only when no controller
@@ -1135,5 +1377,51 @@ mod tests {
         // SAFETY: signal 0 to this test's own child only checks existence.
         assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
         assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
+    }
+
+    /// An entry too big for one frame is kept as a frame that fits, never as an empty one:
+    /// an answer whose id alone is over the limit becomes a stderr note, which a next daemon
+    /// does not need.
+    #[test]
+    fn an_entry_whose_replacement_is_over_the_limit_too_is_kept_as_a_note() {
+        use super::{Entry, encode_entry};
+        let answer = Entry::In { msg: serde_json::json!({"id": "x".repeat(300), "result": {}}) };
+        let (bytes, needed) = encode_entry(5, &answer, 200).expect("a note fits");
+        assert!(!needed, "a stderr note keeps no orphaned host waiting");
+        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
+        assert_eq!(body["h"], 5);
+        assert_eq!(body["e"]["line"], "[entry 5 over the frame limit dropped]", "{body}");
+
+        let small = Entry::In { msg: serde_json::json!({"id": 1, "result": "y".repeat(300)}) };
+        let (bytes, needed) = encode_entry(6, &small, 200).expect("the error answer fits");
+        assert!(needed, "an answer is logged by a next daemon");
+        let body: serde_json::Value = serde_json::from_slice(&bytes[4..]).unwrap();
+        assert_eq!(body["e"]["msg"]["id"], 1, "{body}");
+        assert!(body["e"]["msg"]["error"].is_object(), "{body}");
+
+        assert!(encode_entry(7, &small, 20).is_none(), "nothing fits: no empty frame");
+    }
+
+    /// An entry too big for one frame is replaced, not dropped with its connection: an
+    /// answer by an error answer to the same id, anything else by a stderr note.
+    #[test]
+    fn an_entry_over_the_frame_limit_is_answered_or_noted() {
+        use super::{Entry, TapDir, over_frame_limit};
+        let answer =
+            Entry::In { msg: serde_json::json!({"jsonrpc": "2.0", "id": 7, "result": {}}) };
+        let Entry::In { msg } = over_frame_limit(3, &answer) else { panic!("not an answer") };
+        assert_eq!(msg["id"], 7);
+        assert_eq!(msg["error"]["message"], "agent answer was over the frame limit");
+        assert!(msg.get("result").is_none());
+
+        let update =
+            serde_json::json!({"jsonrpc": "2.0", "method": "session/update", "params": {}});
+        for entry in [
+            Entry::In { msg: update },
+            Entry::Tap { dir: TapDir::In, msg: serde_json::json!({"id": 1, "result": {}}) },
+        ] {
+            let Entry::Err { line } = over_frame_limit(4, &entry) else { panic!("not a note") };
+            assert_eq!(line, "[entry 4 over the frame limit dropped]");
+        }
     }
 }

@@ -43,6 +43,42 @@ describe("composer fit steps", () => {
     expect(missing).toEqual([]);
   });
 
+  test("a width step skips the quiet row without outranking the hiding rules", () => {
+    // The guard skips the plain quiet row only: ComposerFoot draws the same
+    // `.acpmux-composer-bar.acpmux-composer-foot` in both footer looks, so it reads
+    // `data-footer-look` on that element, and with the plain footer off the row still takes every
+    // step. New Tab's row takes the steps in either footer look.
+    // The steps come after the rules that lay a part of another form out of the row, so they must stay
+    // less specific than those: the row's measured fit (#24151, data-fit-model="icon" at a width whose
+    // step only asks for "family") has to keep winning. A bare `:not([data-footer-look="plain"])` adds
+    // an attribute, ties the hiding rule at (0,4,0) and brings back a label the fit had taken away.
+    const GUARD = ':where(:not(.acpmux-composer-foot[data-footer-look="plain"]))';
+    const bare = blocks
+      .filter(({ body }) =>
+        /:not\((\.acpmux-composer-foot)?\[data-footer-look="plain"\]\)/.test(body.replaceAll(GUARD, "")),
+      )
+      .map(({ width }) => width);
+    expect(bare, `use ${GUARD}, which adds no specificity`).toEqual([]);
+    // Every rule that lays a label out of the row carries the guard. The widths' other rules (the
+    // row's gaps and insets) are the row's spacing, which both looks take.
+    const unguarded = blocks
+      .filter(({ body }) =>
+        body
+          .split("}")
+          .some(
+            (rule) =>
+              rule.includes("[data-fit-part=") && rule.includes(".acpmux-composer-bar") && !rule.includes(GUARD),
+          ),
+      )
+      .map(({ width }) => width);
+    expect(unguarded, "every label step skips the quiet row").toEqual([]);
+    // And the element itself is never the guard: that would skip the steps in both looks.
+    expect(
+      blocks.filter(({ body }) => /:not\(\.acpmux-composer-foot\)/.test(body)).map(({ width }) => width),
+      "the quiet row is the plain look, not .acpmux-composer-foot",
+    ).toEqual([]);
+  });
+
   test("every row step's width has its container query", () => {
     const rowWidths = [
       ...new Set(ROW_FIT_STEPS.map(({ step }) => COMPOSER_FIT_STEPS[step])),

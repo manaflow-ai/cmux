@@ -90,7 +90,7 @@ first; do not invent keys the schema does not list.
 - Browser: `browser.defaultEngine`, `browser.hostsToOpenInEmbeddedBrowser` (user-only), `browser.links.*`, `browser.hibernation`.
 - Diff and files: `diff.layout` (`split | unified`), `diff.wordWrap`, `files.textEditor` (user-only).
 - Computer Use: `computerUse.enabled` (off by default), `computerUse.driver`; both user-only.
-- Shortcuts: `shortcuts.bindings.<actionId>` = `"cmd+b"`, `["ctrl+b","c"]`, `null`, or `""` to unbind. Action ids in [references/shortcut-actions.md](references/shortcut-actions.md).
+- Shortcuts: `shortcuts.bindings.<actionId>` = `"cmd+b"`, `["ctrl+b","c"]`, `{"any": ["ctrl+tab","cmd+]"]}` for several keys on one action, `null`, or `""` to unbind. Action ids in [references/shortcut-actions.md](references/shortcut-actions.md).
 
 ## The bundled helper is classic-only
 

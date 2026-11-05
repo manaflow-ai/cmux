@@ -19,6 +19,7 @@ path = "src/main.rs"
 
 [dependencies]
 optchat-core = { path = "../optchat-core" }
+chief-kernel = { path = "../chief-kernel" }
 optchat-host = { path = "../optchat-host" }
 # Claude Code's stream-json lines and token counts, shared with the Cloud
 # Chief's turn runner (Native/OptChat/chief-turn); the library only.
@@ -33,6 +34,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 libc = "0.2"
+# The `watch` tool's `until` (src/watch.rs).
+regex = "1"
 # The native engine's Messages API client (blocking, like optchat-host's).
 ureq = { version = "2", features = ["json"] }
 # Link previews (src/link_preview): URLs as the guard checks them (ureq's own

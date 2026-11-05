@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -17,6 +18,9 @@ struct AppEnvironment: Sendable {
     let noActivate: Bool
     /// DEBUG showcase profile requested by `--showcase` or `CMUX_NEXT_SHOWCASE=1`.
     let showcase: Bool
+    /// DEBUG-only auth capture fixture. This composes isolated, offline auth
+    /// dependencies for fleet captures; it is never enabled in release builds.
+    let authCaptureFixture: Bool
     /// A PR capture slot's neutral shell home (``captureShellHome(_:)``): this run is under capture, so its
     /// terminals start their shells with that folder's rc files and its panes name the showcase Mac.
     var captureShellHome: String?
@@ -39,7 +43,9 @@ struct AppEnvironment: Sendable {
     /// so prompts and tools pick the same colors as in Ghostty. Also the
     /// daemon's launch overrides, so terminals it creates without a
     /// per-terminal `env` match. Resolved once per launch.
-    let terminalEnvironment: [String: String]
+    var terminalEnvironment: [String: String]
+    /// Resolved by the Rust CLI before any credential-bearing service or daemon starts.
+    var cloudConfiguration: CloudConfiguration?
     /// Ghostty resources directory and bundled CLI helper for shell
     /// integration (`GhosttyShellIntegration`). Resolved once per launch.
     var ghosttyResources: String?
@@ -98,17 +104,22 @@ struct AppEnvironment: Sendable {
         let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
 #if DEBUG
         let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || ProcessInfo.processInfo.arguments.contains("--showcase")
+        let authCaptureFixture = environment["CMUX_NEXT_AUTH_CAPTURE_FIXTURE"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("--auth-capture-fixture")
 #else
         let showcase = false
+        let authCaptureFixture = false
 #endif
         let launch = LaunchIdentity.current()
         return AppEnvironment(
             launch: launch,
             noActivate: noActivate,
             showcase: showcase,
+            authCaptureFixture: authCaptureFixture,
             captureShellHome: captureShellHome(environment),
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
+            cloudConfiguration: nil,
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()
         )
@@ -173,14 +184,11 @@ struct AppEnvironment: Sendable {
     }
 
     /// `CMUX_CAPTURE_SHELL_HOME`: the folder a PR capture slot (cmuxterm-hq capture-host) writes neutral shell
-    /// startup files into and names in the clone's `LSEnvironment`. Nil unless it is an absolute path to a folder.
+    /// startup files into and names in the clone's `LSEnvironment`, or that a DEBUG launch passes in its environment
+    /// (the media tours; `LaunchIdentity.inheritedKeys` keeps it). Nil unless it is an absolute path to a folder.
+    /// The check itself is `MacName.captureShellHome`, which this Mac's names under capture read too.
     nonisolated static func captureShellHome(_ environment: [String: String],
-                                             isFolder: (String) -> Bool = { path in
-                                                 var folder: ObjCBool = false
-                                                 return FileManager.checked.fileExists(atPath: path, isDirectory: &folder)
-                                                     && folder.boolValue
-                                             }) -> String? {
-        guard let path = environment["CMUX_CAPTURE_SHELL_HOME"], path.hasPrefix("/"), isFolder(path) else { return nil }
-        return path
+                                             isFolder: (String) -> Bool = MacName.existingFolder) -> String? {
+        MacName.captureShellHome(environment, isFolder: isFolder)
     }
 }

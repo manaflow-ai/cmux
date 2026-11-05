@@ -1,3 +1,4 @@
+import CmuxNextFeed
 import CmuxHomeCore
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -65,14 +66,17 @@ extension HomeService {
     // else the Hosted (cloud) Chief. Settings > Chief's Engine row (`home.chiefEngine`) forces
     // either one. The Chief tab, the page's first conversation and the list's Main all follow it.
 
-    /// The default Chief is this Mac's (``HomeChiefDefault/prefersLocal(localRunning:)``).
+    /// The default Chief is this Mac's (``HomeChiefDefault/prefersLocal(localRunning:)``), unless this
+    /// Mac's Chief teleported: then where it went decides (``HomeChiefFollow/prefersLocal(_:)``).
     var prefersLocalChief: Bool {
-        HomeChiefDefault(setting: services.settings?.snapshot.homeChiefEngine).prefersLocal(localRunning: localChiefRunning)
+        chiefFollow.prefersLocal(HomeChiefDefault(setting: services.settings?.snapshot.homeChiefEngine).prefersLocal(localRunning: localChiefRunning))
     }
 
     /// The Chief's conversation the Chief tab and Home's page show first: the default Chief's
     /// (``HomeCloudChiefs/chiefTab(local:localHasHistory:choice:prefersLocal:)``).
     var defaultChiefConversation: String? {
+        // A teleported Chief: the conversation where it answers now (HomeService+ChiefRoster).
+        if let followed = chiefFollow.conversation { return followed }
         let local = HomeChiefName.select(from: conversations)
         return tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: hostedChief.choice,
                                   prefersLocal: prefersLocalChief)
@@ -88,6 +92,27 @@ extension HomeService {
                 guard let self, let connection = local.connection,
                       local.supports(DaemonCapability.workspaceKind.rawValue) else { continue }
                 ensureHomeWorkspace(connection)
+            }
+        }
+    }
+
+    /// Keeps the default Chief's transcript showing the Feed's open notices (``HomeFeedRow``: lines for
+    /// the person only, never sent to the Chief), following the Feed, which Chief is the default and
+    /// Settings > Chief > Show the Feed in Chief (`home.feedInChief`, on by default). Leo 2026-10-20:
+    /// "we don't necessarily want to bother the chief with lots of TMI type information, but we want
+    /// to make it like easily accessible ... you can opt out if you want".
+    func observeFeedRows() {
+        // task-owner: lives as long as the service; event-driven (Observation)
+        feedRowsObservation = Task { [weak self] in
+            for await (rows, conversation) in ObservationStream({ [weak self] () -> ([HomeFeedRow], String?) in
+                guard let self, services.settings?.snapshot.homeFeedInChief ?? true else { return ([], nil) }
+                // Requests (approvals, questions) stay in the Feed, where they can be answered.
+                let notices = services.feed.model.visibleItems.lazy.filter { $0.type == .notice && !$0.isArchived }
+                return (notices.prefix(HomeFeedRow.limit).map {
+                    HomeFeedRow(id: $0.id, source: $0.poster.label, title: $0.title, url: $0.context.url, date: $0.createdAt)
+                }, defaultChiefConversation)
+            }) {
+                self?.homeStore.setFeedRows(rows, in: conversation.map { CmuxHomeCore.ConversationID($0) })
             }
         }
     }
@@ -151,5 +176,37 @@ extension HomeService {
 
     @concurrent nonisolated static func localChiefRuns(_ home: ChiefHome) async -> Bool {
         ChiefHostStop.runningHostPID(home: home) != nil
+    }
+
+    // MARK: Teleport: Home follows this Mac's Chief wherever `cmux chief move` took it, with no step
+    // from the person (a963, 2026-11-03), and the location chip shows on its conversation.
+
+    /// Where this Mac's Chief went (`AppServices.chiefTeleport`, which follows its home's
+    /// `moved.json` with a file watch) and the conversation Home follows it to: a hosted Chief's
+    /// main conversation for cmux Cloud. A Chief moved to an SSH host or a Mac mini stays "away":
+    /// Home has no path to a Chief home on another machine yet (`host serve` splices only the main
+    /// session, chief-migration-DESIGN.md 7), so no host is reachable and the chip says where it is.
+    var chiefFollow: HomeChiefFollow {
+        HomeChiefFollow(whereabouts: services.chiefTeleport.whereabouts, chiefs: directory.chiefs, reachableHost: nil)
+    }
+
+    /// Whether `conversation` shows the Chief's location chip: this Mac's default Chief (the one
+    /// `cmux chief move` moves), or the conversation Home followed it to.
+    func showsTeleport(conversation: String) -> Bool {
+        HomeChiefName.select(from: conversations)?.id == conversation || chiefFollow.conversation == conversation
+    }
+
+    /// A teleport or a return (the marker written or removed, or the moved Chief's record read)
+    /// re-runs the Chief tab check, so the tab and the page follow the Chief. The stream emits only
+    /// the follow decision, so an unrelated directory change wakes nothing.
+    func observeChiefTeleport() {
+        let teleport = services.chiefTeleport
+        teleport.startFollowing()
+        // task-owner: lives as long as the service; event-driven (Observation over the marker's file watch)
+        chiefTeleportObservation = Task { [weak self] in
+            for await _ in ObservationStream({ [weak self] in self?.chiefFollow }).dropFirst() {
+                self?.refreshChiefTab()
+            }
+        }
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 
 /// cmux: what a click on a bubble's link opens. Every destination is re-checked at click
 /// time with `MarkdownLinkPolicy` (only http, https and mailto, plus a host's extra
@@ -35,6 +36,11 @@ extension ChatController {
         let other = NSApp.currentEvent?.modifierFlags.intersection(.deviceIndependentFlagsMask).isSuperset(of: [.command, .shift]) == true
         switch linkTarget(hit, at: p) {
         case let .text(url)?:
+            // An agent-message fold's row: expands or collapses in place (HomeStore.toggleAgentMessages).
+            if let url, let group = HomeAgentMessageRow.group(toggledBy: url) {
+                intents?.toggleAgentMessages(group)
+                return true
+            }
             // An app link (a workspace, pane, tab, chat or Chief subagent) or a path goes to the host, never to the system.
             if let url, url.isCmuxAppLink || url.isHomePathLink { onAppLink?(url) } else if let url { onOpenLink(url, other) }
         case let .card(raw, url)?:

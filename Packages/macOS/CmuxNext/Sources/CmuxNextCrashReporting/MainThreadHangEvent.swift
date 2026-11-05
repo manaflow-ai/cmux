@@ -145,7 +145,13 @@ extension CrashReporter {
     /// Does nothing when crash reporting is off.
     public nonisolated func reportHang(duration: Duration, addresses: [UInt],
                                        otherThreads: [(name: String, addresses: [UInt])] = []) {
+        reportHang(MainThreadHangEvent(duration: duration, addresses: addresses, otherThreads: otherThreads))
+    }
+
+    /// Sends one hang event (``MainThreadHangReporter`` calls this for each
+    /// hang its budget admits). Does nothing when crash reporting is off.
+    public nonisolated func reportHang(_ hang: MainThreadHangEvent) {
         guard isStarted else { return }
-        SentrySDK.capture(event: MainThreadHangEvent(duration: duration, addresses: addresses, otherThreads: otherThreads).event())
+        SentrySDK.capture(event: hang.event())
     }
 }

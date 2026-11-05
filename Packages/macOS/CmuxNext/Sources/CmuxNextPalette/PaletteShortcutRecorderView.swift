@@ -68,6 +68,7 @@ final class PaletteShortcutRecorderView: NSView {
         noneLabel.isHidden = state.currentKeycaps != nil
         recorded.keycaps = state.recorded?.keycaps ?? []
         recorded.isHidden = state.recorded == nil
+        message.font = Typography.body
         message.stringValue = state.message ?? ""
         rowViews.forEach { $0.removeFromSuperview() }
         let options = state.options

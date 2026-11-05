@@ -17,6 +17,7 @@ import { PullRequestCardBody, type KnownPullRequest } from "./PullRequestCard";
 import type { HoverCard } from "./useHoverCard";
 // The card's rules, for every page that shows it (the agent pane, the changelog).
 import "./linkCard.css";
+import { useTranscriptReadOnly } from "../conversation/readOnly";
 
 /// `href`'s host, or `href` when it doesn't parse.
 export function linkHost(href: string): string {
@@ -57,6 +58,8 @@ export function LinkHoverCard({
   side?: "top" | "bottom";
 }) {
   const t = useT();
+  // Read only: the link opens in the reader's own browser as a plain link; cmux's tabs are the owner's.
+  const readOnly = useTranscriptReadOnly();
   const host = linkHost(href);
   // Any http(s) link opens in a cmux tab as a click on it does (`browser.openIn` with cmux's own id,
   // which spends the click's gesture); `browser.open` takes only a turn's local preview page.
@@ -73,11 +76,15 @@ export function LinkHoverCard({
         <span className="cv-link-preview__site">{title}</span>
         {address && <span className="cv-link-preview__target">{address}</span>}
       </span>
-      <button type="button" className="cv-link-preview__open" onClick={onOpen}>
-        {t("image.open")}
-        <span aria-hidden="true">↗</span>
-      </button>
-      <OpenInMenu url={href} onOpenInPane={openInCmux} onOpenChange={hover.menuChanged} />
+      {!readOnly && (
+        <>
+          <button type="button" className="cv-link-preview__open" onClick={onOpen}>
+            {t("image.open")}
+            <span aria-hidden="true">↗</span>
+          </button>
+          <OpenInMenu url={href} onOpenInPane={openInCmux} onOpenChange={hover.menuChanged} />
+        </>
+      )}
     </div>
   );
   return (

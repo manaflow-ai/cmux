@@ -4,6 +4,7 @@
 use super::*;
 
 use crate::harness_health::{REFRESH_EVERY, Subject};
+use cmux_json::JsonSet as _;
 
 impl Hub {
     /// Every configured harness as the health check sees it.
@@ -49,14 +50,16 @@ impl Hub {
             self.health.set_auto_update(id, on).map_err(RpcError::internal)?;
             update |= on;
         }
-        let mut rows = self.health.rows();
+        let rows;
         if flag("refresh") || check_latest {
             // Before the login environment is read, PATH may miss harnesses
             // and a sign-in the login shell exports is not seen: a check
             // waits for startup, as the daemon's own does (`run_health`).
             self.wait_startup().await;
             rows = self.health.check(self.health_subjects().await, check_latest).await;
-        } else if rows.is_empty() {
+        } else {
+            // Even a persisted health snapshot needs the current profile's login command:
+            // account-home changes are not reflected in the cached row.
             self.wait_startup().await;
             rows = self.health.first_check(self.health_subjects().await).await;
         }
@@ -124,10 +127,10 @@ impl Hub {
                 };
                 let mut out = json!({"id": id, "ok": ok});
                 if let Some(v) = version(&id) {
-                    out["version"] = json!(v);
+                    out.set("version", json!(v));
                 }
                 if let Some(e) = error {
-                    out["error"] = json!(e);
+                    out.set("error", json!(e));
                 }
                 out
             })

@@ -49,6 +49,7 @@
 //! `--allow-dangerously-skip-permissions`.
 
 use super::*;
+use cmux_json::JsonSet as _;
 #[cfg(target_os = "linux")]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 #[cfg(target_os = "linux")]
@@ -162,7 +163,7 @@ pub(super) fn claude_settings(endpoint: Option<&str>) -> String {
         "permissions": {"disableBypassPermissionsMode": "disable", "ask": ASK_TOOLS},
     });
     if let Some(url) = endpoint {
-        v["env"] = json!({"ANTHROPIC_BASE_URL": url});
+        v.set("env", json!({"ANTHROPIC_BASE_URL": url}));
     }
     v.to_string()
 }
@@ -755,15 +756,42 @@ pub(super) fn wrap(
     Ok((exec.to_string_lossy().into_owned(), out))
 }
 
+/// The first word of `argv` a remote chain refuses (`REFUSED_ARGS`), skipping
+/// acpmux's own `--disallowedTools NAME` (`tools::disallowed_args`: a built-in
+/// tool the chat started without, such as the AskUserQuestion that `acpmux new
+/// --prompt-file`, `--report-to` and `--worktree` leave out, or an MCP server
+/// it turned off). Such a pair only takes a tool away, so the chain keeps it;
+/// refusing it refused every remote Claude start those flags make. Any other
+/// spelling, or a value that is not a plain tool name (a pattern such as
+/// `Bash(rm:*)`), is still refused.
+fn refused_arg(argv: &[String]) -> Option<&String> {
+    let refused = |a: &str| REFUSED_ARGS.iter().any(|r| a == *r || a.starts_with(&format!("{r}=")));
+    // A name, never a flag: `--disallowedTools --settings` must not hide the --settings after it.
+    let tool_name = |n: &str| {
+        n.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
+            && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    };
+    let mut words = argv.iter();
+    while let Some(word) = words.next() {
+        if word == "--disallowedTools" {
+            match words.next() {
+                Some(name) if tool_name(name) => continue,
+                _ => return Some(word),
+            }
+        }
+        if refused(word) {
+            return Some(word);
+        }
+    }
+    None
+}
+
 fn claude_args(
     endpoint: Option<&Endpoint>,
     profile: &HarnessProfile,
     mut args: Vec<String>,
 ) -> Result<Vec<String>, String> {
-    let refused = |a: &String| {
-        REFUSED_ARGS.iter().any(|r| a.as_str() == *r || a.starts_with(&format!("{r}=")))
-    };
-    if let Some(bad) = profile.argv.iter().find(|a| refused(a)) {
+    if let Some(bad) = refused_arg(&profile.argv) {
         return Err(format!("a remote chain never runs Claude Code with {bad}"));
     }
     #[cfg(target_os = "linux")]
@@ -828,6 +856,11 @@ fn linux_keeper_args_with_exe(
             return Err("IPv6 loopback API routes are unavailable until the keeper handshake carries the family".into());
         }
         out.extend(["--api-port".into(), port.to_string(), "--api-loopback-v4".into()]);
+    }
+    // A router on another host (a cloud VM's sr2 :4016): open that port as the
+    // macOS profile does; 80 and 443 are open already.
+    if let Some((port, false)) = bound.api_port.filter(|(p, _)| !matches!(p, 80 | 443)) {
+        out.extend(["--api-remote-port".into(), port.to_string()]);
     }
     out.push("--".into());
     out.push("/usr/bin/env".into());
@@ -1473,6 +1506,33 @@ mod endpoint_tests {
         }
     }
 
+    #[test]
+    fn acpmuxs_own_disallowed_tools_pass_and_other_tool_args_do_not() {
+        let ok = |argv: &[&str]| {
+            claude_args(bound(None).endpoint.as_ref(), &profile(argv, &[]), vec![]).is_ok()
+        };
+        // `acpmux new --prompt-file` / `--report-to` from a peer, and a chat with a server off.
+        assert!(ok(&["claude", "--disallowedTools", "AskUserQuestion"]));
+        assert!(ok(&[
+            "claude",
+            "--disallowedTools",
+            "AskUserQuestion",
+            "--disallowedTools",
+            "mcp__claude_ai_Gmail"
+        ]));
+        for argv in [
+            &["claude", "--disallowedTools"][..],
+            &["claude", "--disallowedTools", "Bash(rm:*)"],
+            &["claude", "--disallowedTools", "--settings"],
+            &["claude", "--disallowedTools=AskUserQuestion"],
+            &["claude", "--disallowed-tools", "AskUserQuestion"],
+            &["claude", "--disallowedTools", "AskUserQuestion", "--allowedTools", "Bash"],
+            &["claude", "--disallowedTools", "AskUserQuestion", "--dangerously-skip-permissions"],
+        ] {
+            assert!(!ok(argv), "{argv:?}");
+        }
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_refuses_loader_profile_env() {
@@ -1500,18 +1560,20 @@ mod endpoint_tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_canary_attempts_both_persistence_renames() {
-        use std::os::unix::fs::PermissionsExt;
         let root = std::env::temp_dir().join(format!("canary-renames-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(root.join("bin")).unwrap();
         let probe = canary_persistence_probe(&root, true).unwrap().unwrap();
         let log = root.join("renames");
         let mv = root.join("bin/mv");
-        std::fs::write(&mv, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$RENAME_LOG\"\nexit 1\n")
-            .unwrap();
-        std::fs::set_permissions(&mv, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_exec::write_executable(
+            &mv,
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"$RENAME_LOG\"\nexit 1\n",
+        );
         let helper = root.join("bin/helper");
-        std::fs::write(&helper, "#!/bin/sh\ncase \"$1\" in __remote-sandbox-canary-rename) echo rename=0;; *) echo unix=unknown;; esac\n").unwrap();
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_exec::write_executable(
+            &helper,
+            "#!/bin/sh\ncase \"$1\" in __remote-sandbox-canary-rename) echo rename=0;; *) echo unix=unknown;; esac\n",
+        );
         let out = std::process::Command::new("/bin/bash")
             .args(["-c", CANARY, "canary", "/nonexistent/outside", "0"])
             .arg(&root)
@@ -1815,6 +1877,30 @@ mod endpoint_tests {
         assert!(text.contains("--proxy-port 8118"));
         assert!(text.contains("--api-port 41234 --api-loopback-v4"));
         assert!(text.contains("-- /usr/bin/env -u CLAUDE_CONFIG_DIR"));
+    }
+
+    /// A cloud VM's Claude reaches its router on another tailnet host and a
+    /// port other than 80/443 (sr2 :4016). macOS opens that port in Seatbelt;
+    /// the Linux keeper must open it too, or every request 403s inside the
+    /// sandbox ("destination denied by network policy").
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_wrap_opens_a_remote_api_port() {
+        let bound = bound(Some(Endpoint { url: "http://100.120.48.119:4016".into(), own: false }));
+        let (_, args) =
+            linux_wrap(&bound, &profile(&["claude"], &[]), "/bin/claude".into(), vec![]).unwrap();
+        let text = args.join(" ");
+        assert!(text.contains("--api-remote-port 4016"), "{text}");
+        assert!(!text.contains("--api-loopback-v4"), "{text}");
+        let https = bound_https();
+        let (_, args) =
+            linux_wrap(&https, &profile(&["claude"], &[]), "/bin/claude".into(), vec![]).unwrap();
+        assert!(!args.join(" ").contains("--api-remote-port"), "443 is open already");
+    }
+
+    #[cfg(target_os = "linux")]
+    fn bound_https() -> Bound {
+        bound(Some(Endpoint { url: "https://api.anthropic.com".into(), own: false }))
     }
 
     #[cfg(target_os = "linux")]

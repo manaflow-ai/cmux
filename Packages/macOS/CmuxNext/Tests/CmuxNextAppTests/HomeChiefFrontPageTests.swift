@@ -10,7 +10,7 @@ import Testing
 @MainActor @Suite(.serialized) struct HomeChiefFrontPageTests {
     @Test func theHeroSaysWhatTheChiefDoesAboveTheRows() {
         let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
-        panel.hero.setAvatar(picture: nil, text: HomeChiefAvatar.defaultText)
+        panel.hero.setAvatar(picture: nil, text: nil, name: "Chief")
         panel.layoutSubtreeIfNeeded()
         #expect(!panel.hero.isHidden)
         #expect(panel.hero.frame.height > HomeFirstRunHero.pictureSide)
@@ -31,7 +31,7 @@ import Testing
     /// Switching card, then the action rows, and nothing it shows runs past its bottom (the field).
     @Test func aGrowingFieldNeverLeavesThePanelUnderIt() {
         let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
-        panel.hero.setAvatar(picture: nil, text: HomeChiefAvatar.defaultText)
+        panel.hero.setAvatar(picture: nil, text: nil, name: "Chief")
         panel.setShortcuts(terminal: "⌘T", agent: "⌘I", switching: HomeSwitchKeys(
             tabByNumber: "⌃1…9", workspaceByNumber: "⌘1…9", nextPreviousTab: "⌘]", nextPreviousWorkspace: "⇧⌘]",
             focusBackForward: nil))
@@ -80,14 +80,20 @@ import Testing
         #expect(panel.pet.title == HomeStrings.firstRunShowPet)
     }
 
-    /// The hero shows the header's face: the profile's picture, else its text, else 🫡.
+    /// The hero shows the header's face: the profile's picture, else its emoji, else the monogram.
     @Test func theHeroShowsTheChiefsFace() {
         let hero = HomeFirstRunHero(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
-        hero.setAvatar(picture: nil, text: HomeChiefAvatar.headerText(nil, hasPicture: false))
-        #expect(hero.glyph.stringValue == "🫡")
+        hero.setAvatar(picture: nil, text: nil, name: "Chief")
+        #expect(hero.monogram?.initials == "CH")
+        #expect(hero.glyph.isHidden)
+        #expect(!hero.picture.isHidden)
+        hero.setAvatar(picture: nil, text: "🐙", name: "Chief")
+        #expect(hero.monogram == nil)
+        #expect(hero.glyph.stringValue == "🐙")
         #expect(!hero.glyph.isHidden)
         #expect(hero.picture.isHidden)
-        hero.setAvatar(picture: NSImage(size: NSSize(width: 8, height: 8)), text: nil)
+        hero.setAvatar(picture: NSImage(size: NSSize(width: 8, height: 8)), text: nil, name: "Chief")
+        #expect(hero.monogram == nil)
         #expect(hero.glyph.isHidden)
         #expect(!hero.picture.isHidden)
     }

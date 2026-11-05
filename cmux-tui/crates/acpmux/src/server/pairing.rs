@@ -116,14 +116,13 @@ const REDEEM_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 /// answer it, and close.
 pub(super) async fn serve_redeem<S>(
     hub: Arc<Hub>,
-    ws: tokio_tungstenite::WebSocketStream<S>,
+    ws: &mut tokio_tungstenite::WebSocketStream<S>,
     secret: String,
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let (mut sink, mut source) = ws.split();
     let first = tokio::time::timeout(REDEEM_WAIT, async {
-        while let Some(Ok(frame)) = source.next().await {
+        while let Some(Ok(frame)) = ws.next().await {
             if let Frame::Text(t) = frame {
                 return Some(t.to_string());
             }
@@ -135,7 +134,7 @@ pub(super) async fn serve_redeem<S>(
     .flatten();
     let Some(Ok(Message::Request { id, method: m, params })) = first.map(|f| Message::parse(&f))
     else {
-        let _ = sink.close().await;
+        super::ws_shutdown::close(ws, false).await;
         return;
     };
     let reply = if m == method::MUX_PAIR_REDEEM {
@@ -147,8 +146,8 @@ pub(super) async fn serve_redeem<S>(
         Ok(v) => Message::ok(id, v),
         Err(e) => Message::err(id, e),
     };
-    let _ = sink.send(Frame::Text(line.to_value().to_string().into())).await;
-    let _ = sink.close().await;
+    let _ = ws.send(Frame::Text(line.to_value().to_string().into())).await;
+    super::ws_shutdown::close(ws, false).await;
 }
 
 async fn redeem(hub: &Arc<Hub>, secret: &str, params: Value) -> Result<Value, RpcError> {
@@ -219,6 +218,9 @@ pub(super) async fn dispatch(
             | method::MUX_PAIR_LIST
             | method::MUX_PAIR_REVOKE
             | method::MUX_PAIR_ISSUE
+            | method::MUX_MACHINE_CONSENT_SET
+            | method::MUX_MACHINE_CONSENT_REFUSED
+            | method::MUX_MACHINE_CONSENT_GET
             | method::MUX_PAIR_SET
             | method::MUX_PAIR_REDEEM
     ) {
@@ -232,8 +234,42 @@ pub(super) async fn dispatch(
         method::MUX_PAIR_LIST => Ok(hub.pairing.list()),
         method::MUX_PAIR_REVOKE => revoke(hub, params).await,
         method::MUX_PAIR_SET => set(hub, conn, params).await,
+        method::MUX_MACHINE_CONSENT_SET => machine_consent(conn, params),
+        method::MUX_MACHINE_CONSENT_REFUSED => {
+            let surface = params.get("surface").and_then(Value::as_str).unwrap_or_default();
+            if !matches!(surface, "screen" | "control") {
+                Err(RpcError::invalid_params("surface must be screen or control"))
+            } else {
+                crate::cli::cloud_join::record_consent_refusal(surface)
+                    .map(|_| serde_json::json!({"recorded":true}))
+                    .map_err(|_| RpcError::internal("consent refusal could not be recorded"))
+            }
+        }
+        method::MUX_MACHINE_CONSENT_GET => Ok(crate::cli::cloud_join::consent_status()),
         _ => issue(hub, conn, params),
     })
+}
+
+/// A same-user shell/PTY cannot prove the app's person key. Both grants and
+/// revocations require the original local person-proof handshake, never mesh.
+fn machine_consent(conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    let surface = params
+        .get("surface")
+        .and_then(Value::as_str)
+        .filter(|surface| matches!(*surface, "screen" | "control"))
+        .ok_or_else(|| RpcError::invalid_params("surface must be screen or control"))?;
+    if !conn.is_person() || conn.origin != Origin::Local || conn.origin.web_class() {
+        return Err(crate::hub::person::person_required(
+            "changing this machine's screen or control consent; use the local cmux app",
+        ));
+    }
+    let granted = params
+        .get("granted")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| RpcError::invalid_params("granted must be true or false"))?;
+    let consent = crate::cli::cloud_join::set_consent_for_person(surface, granted)
+        .map_err(|_| RpcError::internal("local consent store unavailable"))?;
+    Ok(json!({"consent":consent}))
 }
 
 /// `_acpmux/pair_set {id, fullAccess}`: on only from the person, since it

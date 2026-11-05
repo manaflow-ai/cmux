@@ -15,6 +15,9 @@ extension UpdatesSettings {
     /// `updates.downloadAutomatically`.
     public nonisolated static let downloadAutomaticallyPath = ["updates", "downloadAutomatically"]
     public nonisolated static let downloadAutomaticallyDefault = false
+    /// `updates.oneClickInstall`: One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). Off: the Update Ready card asks before the restart.
+    public nonisolated static let oneClickInstallPath = ["updates", "oneClickInstall"]
+    public nonisolated static let oneClickInstallDefault = false
     /// `updates.meteredNetwork`: What automatic downloads do on a metered link.
     public nonisolated static let meteredNetworkPath = ["updates", "meteredNetwork"]
     public nonisolated static let meteredNetworkDefault: UpdatesMeteredSetting = .deferLowData
@@ -34,6 +37,9 @@ extension UpdatesSettings {
     /// `updates.showWhatsNew`: The bottom-left "cmux Updated!" card after an update (WHATS-NEW-AFTER-UPDATE W1; never a top-of-sidebar item); managed config can force it off.
     public nonisolated static let showWhatsNewPath = ["updates", "showWhatsNew"]
     public nonisolated static let showWhatsNewDefault = true
+    /// `updates.showFeatureTips`: Feature tips: one small callout per launch at a new feature's control, from its What's New highlight (leo-workspace design/feature-tips.md). Followed by the agent chat (AgentPaneDisplaySetting.followedAppPaths).
+    public nonisolated static let showFeatureTipsPath = ["updates", "showFeatureTips"]
+    public nonisolated static let showFeatureTipsDefault = true
     /// `updates.idleInstallMaxWaitSeconds`: Nightly idle install (#20295): the longest it waits for agent turns, foreground commands and input before installing anyway; the relaunch keeps every terminal and agent.
     public nonisolated static let idleInstallMaxWaitPath = ["updates", "idleInstallMaxWaitSeconds"]
     public nonisolated static let idleInstallMaxWaitDefault: Double = 600
@@ -101,6 +107,16 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .toggle,
                 default: .bool(UpdatesSettings.downloadAutomaticallyDefault),
                 keywords: ["update", "download", "background", "metered"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.oneClickInstallPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.oneClickInstall", "Update in One Click"),
+                help: SettingsText.keyed("settings.updates.oneClickInstall.help", "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.oneClickInstallDefault),
+                keywords: ["update", "install", "restart", "relaunch", "one click"]
             ),
             SettingDescriptor(
                 UpdatesSettings.meteredNetworkPath,
@@ -171,6 +187,16 @@ nonisolated enum UpdateSettingsSchema {
                 kind: .toggle,
                 default: .bool(UpdatesSettings.showWhatsNewDefault),
                 keywords: ["whats new", "release notes", "changelog", "update", "sidebar"]
+            ),
+            SettingDescriptor(
+                UpdatesSettings.showFeatureTipsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.showFeatureTips", "Show Feature Tips"),
+                help: SettingsText.keyed("settings.updates.showFeatureTips.help", "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back."),
+                kind: .toggle,
+                default: .bool(UpdatesSettings.showFeatureTipsDefault),
+                keywords: ["tips", "whats new", "new feature", "hint", "callout"]
             ),
             SettingDescriptor(
                 UpdatesSettings.idleInstallMaxWaitPath,

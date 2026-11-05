@@ -2,14 +2,27 @@
 // The composer's states (Composer.tsx, ComposerPickers.tsx, ComposerContext.tsx: the prompt,
 // the mode and model chips, the location row, Send and Stop), through the pane's own inputs: the
 // `ready` answer's draft and new-chat fields, and the snapshot.
-import { agentPaneEntry } from "../../gallery/format";
+import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { minutesAgo } from "../../gallery/clock";
-import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
+import {
+  assistant,
+  CATALOG,
+  chat,
+  CWD,
+  noChat,
+  session,
+  SESSION_ID,
+  summary,
+  user,
+} from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
+import type { MarkdownFieldElement } from "./MarkdownField";
 import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
 import { SCREEN_RECORDING_POSTER_JPEG } from "../../gallery/fixtures/videoPoster";
+import { LOGIN_TESTS_MP4 } from "../../gallery/fixtures/toolImages";
+import { parseProbes, pickFrameTimes } from "./composer/videoFramePick";
 
 /// A screen recording on the Desktop, as the host's `video.info` reads it (AgentPaneVideoInfo.swift).
 const VIDEO_PATH = "/Users/dev/Desktop/Screen Recording 2026-10-25 at 10.42.13.mov";
@@ -19,6 +32,21 @@ const VIDEO_INFO = {
   height: 1080,
   poster: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
   frames: [5300, 15900, 26500, 37100].map((atMs) => ({ atMs, data: SCREEN_RECORDING_POSTER_JPEG })),
+  // Its gray probes (24×24 cells, two a second up to 48): an editor, a terminal from 12 s, a browser
+  // from 30 s, so the scene pick (composer/videoFramePick.ts) finds two cuts.
+  probes: Array.from({ length: 48 }, (_, index) => {
+    const atMs = Math.round(((index + 0.5) * 42_400) / 48);
+    const gray = atMs < 12_000 ? 40 : atMs < 30_000 ? 200 : 120;
+    return { atMs, cells: btoa(String.fromCharCode(...new Uint8Array(24 * 24).fill(gray))) };
+  }),
+};
+/// The host's `video.frames` answer for the times the page picks from those probes (1280 px in the
+/// app; the poster stands in for each here).
+const VIDEO_FRAMES = {
+  frames: pickFrameTimes(VIDEO_INFO.durationMs, parseProbes(VIDEO_INFO) ?? []).map(({ atMs }) => ({
+    atMs,
+    data: SCREEN_RECORDING_POSTER_JPEG,
+  })),
 };
 
 /// Drops a screenshot and the screen recording on the composer, as Finder does (Leo's capture).
@@ -37,6 +65,63 @@ function dropScreenshotAndVideo(ctx: PlayContext) {
   const drop = new view.Event("drop", { bubbles: true, cancelable: true });
   Object.defineProperty(drop, "dataTransfer", { value: { files, types: ["Files"] } });
   ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
+}
+
+/// The `attachment-inline-reorder` scenes: two screenshots, 1 (blue) and 2 (amber), pasted side by
+/// side at the end of the prompt's text.
+async function pasteTwoScreenshots(ctx: PlayContext) {
+  const view = ctx.document.defaultView!;
+  view.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+  const files = await Promise.all(
+    ["#5b8def", "#e0a84f"].map(async (color, index) => {
+      const canvas = ctx.document.createElement("canvas");
+      canvas.width = 480;
+      canvas.height = 300;
+      const drawing = canvas.getContext("2d")!;
+      drawing.fillStyle = color;
+      drawing.fillRect(0, 0, 480, 300);
+      drawing.fillStyle = "white";
+      drawing.font = "160px system-ui";
+      drawing.fillText(String(index + 1), 200, 210);
+      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+      return new view.File([blob], `Screenshot ${index + 1}.png`, { type: "image/png" });
+    }),
+  );
+  const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+  field.acpmuxMarkdownField!.setCaret("Which layout reads better?".length);
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"], getData: () => "" } });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-md [data-inline-attachment] img").length === 2);
+}
+
+/// The `attachment-inline-caret` scene: a screenshot pasted between "Compare this" and "with".
+async function pasteComparison(ctx: PlayContext) {
+  const view = ctx.document.defaultView!;
+  view.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+  const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+  const handle = field.acpmuxMarkdownField!;
+  handle.setCaret(13);
+  const canvas = ctx.document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 180;
+  const drawing = canvas.getContext("2d")!;
+  drawing.fillStyle = "#5783b5";
+  drawing.fillRect(0, 0, 320, 180);
+  drawing.fillStyle = "white";
+  drawing.font = "24px system-ui";
+  drawing.fillText("Before and after", 36, 96);
+  const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/png"));
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", {
+    value: {
+      files: [new view.File([blob], "comparison.png", { type: "image/png" })],
+      types: ["Files"],
+      getData: () => "",
+    },
+  });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md-inline img"));
 }
 
 // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, then Send comes in after the
@@ -65,9 +150,27 @@ async function openEffortMenu(ctx: PlayContext): Promise<HTMLElement> {
   return openEffortSubmenu(ctx);
 }
 
-/// With the model menu open, opens its Effort submenu (pressing the model button again would close
-/// the menu); resolves with the submenu's popup.
+/// With the model menu open, resolves with the current model's effort levels: its side dropdown
+/// beside the running row (#27948) when the row has one, else the Effort submenu, opened (pressing
+/// the model button again would close the menu).
 async function openEffortSubmenu(ctx: PlayContext): Promise<HTMLElement> {
+  const RUNNING = ".acpmux-quick-model-effort[data-running] .acpmux-quick-effort-trigger";
+  const side = () => ctx.document.querySelector<HTMLElement>(RUNNING) ?? undefined;
+  const row = () =>
+    [...ctx.document.querySelectorAll<HTMLElement>('.acpmux-quick-menu [role="menuitem"]')].find((item) =>
+      item.textContent?.trim().startsWith("Effort"),
+    );
+  await ctx.waitFor(() => side() ?? row());
+  if (side()) {
+    await ctx.focus({ selector: RUNNING });
+    await ctx.press("ArrowRight");
+    let dropdown: HTMLElement | undefined;
+    await ctx.waitFor(() => {
+      dropdown = ctx.document.querySelector<HTMLElement>(".acpmux-quick-effort-menu") ?? undefined;
+      return dropdown;
+    });
+    return dropdown!;
+  }
   // A submenu row opens on hover or from the keyboard: Base UI's submenu trigger ignores a mouse
   // press while it opens on hover. Enter on the focused row opens it, as a keyboard user does.
   await ctx.focus({ role: "menuitem", name: /^Effort/ });
@@ -84,6 +187,19 @@ async function openEffortSubmenu(ctx: PlayContext): Promise<HTMLElement> {
 }
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
+const historyPageB = user("B: update the retry helper", 6);
+const historyPageC = user("C: add the 429 test", 3);
+const historyPageRows = [
+  historyPageB,
+  assistant("Updated the helper.", 5),
+  historyPageC,
+  assistant("Added the test.", 2),
+];
+const historyPageOlderRows = [
+  user("A: inspect the backoff path", 9),
+  assistant("Inspected the path.", 8),
+  ...historyPageRows,
+];
 // Three prompts waiting for the running turn.
 const waiting = [
   { id: "q1", prompt: "Then add a test for the 429 path" },
@@ -129,6 +245,48 @@ const pictured = {
   images: [
     { id: "a".repeat(64), mimeType: "image/svg+xml", name: "sidebar.png", src: shot(220) },
     { id: "b".repeat(64), mimeType: "image/svg+xml", name: "image.png", src: shot(150, 2458, 1180) },
+  ],
+};
+
+// Leo's message (2026-11-05): three screen recordings (8, 7 and 8 frames), queued behind a
+// running turn. acpmux lists each video's frames as images; the card draws
+// one tile per attachment, a video at its first frame with its length, in one row ("uh this was a
+// weird preview idk i guess i accidentally queued?").
+const recording = (name: string, seconds: number, count: number) => ({
+  frames: Array.from({ length: count }, (_, at) => ({
+    id: `${name}-${at}`.padEnd(64, "0"),
+    mimeType: "image/jpeg",
+    name: `${name} frame at 0:0${at}.0`,
+    src: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
+  })),
+  part: {
+    kind: "file" as const,
+    name,
+    mimeType: "video/quicktime",
+    video: {
+      durationMs: seconds * 1000,
+      width: 320,
+      height: 180,
+      poster: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
+      frames: Array.from({ length: count }, (_, at) => ({ atMs: at * 1000, data: SCREEN_RECORDING_POSTER_JPEG })),
+    },
+  },
+});
+const recordings = [
+  recording("Screen Recording 2026-11-04 at 16.01.10.mov", 16, 8),
+  recording("Screen Recording 2026-11-04 at 16.02.41.mov", 23, 7),
+  recording("Screen Recording 2026-11-04 at 16.03.55.mov", 9, 8),
+];
+const withVideos = {
+  id: "q1",
+  prompt: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit.",
+  images: recordings.flatMap((video) => video.frames),
+  inlineParts: [
+    {
+      kind: "text" as const,
+      text: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit.",
+    },
+    ...recordings.map((video) => video.part),
   ],
 };
 
@@ -188,6 +346,38 @@ const waitingSteerSr2 = () => {
 const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
   return { ...running, summary: { ...running.summary!, steering: steers } };
+};
+
+// Leo, 2026-11-03: "this looks kinda weird when i send now and there was a previously steered
+// message". An earlier steer Claude has not read, and a prompt queued after it; Send now on the
+// queued prompt makes it a steer under the same promptId, and the agent reads both at its next step.
+const steerThenQueued = (sentNow: boolean) => {
+  const rows = [
+    user("Add retries", 6),
+    assistant("Adding retries to the fetch loop…", 3, { streaming: true }),
+    user("Use the cache dir, not tmp", 1, {
+      id: "user-steer-earlier",
+      steer: "waiting",
+      steerPromptId: "p-steer-earlier",
+    }),
+  ];
+  const queued = "Then add a test for the 429 path";
+  const running = sentNow
+    ? chat([...rows, user(queued, 0.2, { id: "user-steer-now", steer: "waiting", steerPromptId: "p-queued-now" })], {
+        isWorking: true,
+        newestOwnSteer: "user-steer-now",
+      })
+    : chat(rows, { isWorking: true, queue: [{ id: "p-queued-now", prompt: queued }] });
+  return {
+    ...running,
+    summary: {
+      ...running.summary!,
+      harness: "claude-sr2",
+      family: "claude-sr2",
+      steering: true,
+      backgroundsWork: true,
+    },
+  };
 };
 
 // A new chat in CWD beside a recent chat there with a PR (the suggested prompt's source).
@@ -313,7 +503,7 @@ const composerControls = {
     currentModeId: "bypassPermissions",
     availableModes: [
       { id: "ask", name: "Ask before edits", description: "Review changes before they run" },
-      { id: "bypassPermissions", name: "Full access", description: "Run actions without approval" },
+      { id: "bypassPermissions", name: "Bypass permissions", description: "Run actions without approval" },
     ],
   },
 };
@@ -441,6 +631,36 @@ const CLAUDE_ULTRACODE_OFF = {
   ],
 };
 
+// The chat font setting reaches the draft as well as the conversation, in either composer.
+const fontSizeVariants: Record<string, AgentPaneVariant> = Object.fromEntries(
+  [14, 21, 28].flatMap((size) =>
+    ["chat", "new-chat", "new-tab"].map((context) => [
+      `font-size-${context}-${size}`,
+      {
+        note: `Chat text at ${size}px, including the draft's headings and code.`,
+        display: { "agentPane.display.font.size": size },
+        ready: {
+          newSession: context !== "chat",
+          ...(context === "new-tab"
+            ? { newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" } }
+            : {}),
+          cwd: CWD,
+          draft: "### Review the retry helper\nKeep `fetch` idempotent.\n\n```ts\nawait retry(request)\n```",
+        },
+        snapshot:
+          context !== "chat"
+            ? onBranch("main")
+            : chat([
+                assistant(
+                  "# Retry plan\nThe body follows your font size.\n\n| Attempt | Wait |\n|---|---|\n| 1 | 1 second |",
+                  1,
+                ),
+              ]),
+      },
+    ]),
+  ),
+);
+
 export default agentPaneEntry({
   id: "agent-pane.composer",
   title: "Composer",
@@ -488,6 +708,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/MentionMenu.tsx#MentionMenu",
   ],
   variants: {
+    ...fontSizeVariants,
     "new-chat": {
       note: "A new chat: empty prompt; the card's footer row holds the folder and computer, under a hairline.",
       ready: { newSession: true, cwd: CWD },
@@ -496,7 +717,7 @@ export default agentPaneEntry({
       }),
     },
     "side-session": {
-      note: "A side session (/btw): the empty prompt reads Reply in this session…, and /btw is not offered in it.",
+      note: "A side session (/btw) is available by default: the empty prompt reads Reply in this session…, and /btw is not offered in it.",
       snapshot: sideSession,
     },
     // Leo 2026-10-18: an idle new chat suggests the open PR another chat in this checkout made, Tab
@@ -549,7 +770,7 @@ export default agentPaneEntry({
     },
     "agent-home-path": {
       note: "Play: a chat the folder field serves (no folder list from the host): the field reads as a menu row, never a native text box.",
-      ready: { cwd: AGENT_HOME, chooseFolder: true },
+      ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
       snapshot: noChat([], {
         summary: { sessionId: "", cwd: AGENT_HOME, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
@@ -634,7 +855,7 @@ export default agentPaneEntry({
         const item = { selector: ".acpmux-composer-foot .acpmux-model .acpmux-picker-button" };
         await ctx.waitFor(() => ctx.document.querySelector(item.selector));
         await ctx.click(item);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=tablist] [role=tab]"));
       },
     },
     "footer-harness-unpicked": {
@@ -797,14 +1018,16 @@ export default agentPaneEntry({
     // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
     // the prompt as typed; a click puts it back in the prompt, × removes it (pastedText.ts).
     "text-pasted": {
-      note: "A 40-line paste: a Pasted text chip (first words, Pasted text · 40 lines) over the typed prompt, × on hover.",
+      note: "A 130-line paste (780 words, over the 750-word limit): a Pasted text card (its first lines faded, Pasted text · 130 lines) over the typed prompt, × on hover.",
       ready: { draft: "Why does the build fail?" },
       snapshot: chat(finished),
       play: async (ctx) => {
+        // The strip view (Settings): this state shows the strip; inline is the default.
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
         const view = ctx.document.defaultView!;
         const data = new view.DataTransfer();
         const log = Array.from(
-          { length: 40 },
+          { length: 130 },
           (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
         );
         data.setData("text/plain", log.join("\n"));
@@ -813,6 +1036,67 @@ export default agentPaneEntry({
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pasted"));
         await ctx.hover({ selector: ".acpmux-attachment-pasted" });
+      },
+    },
+    // Leo (2026-11-01): "bro this is a TERRIBLE text preview we need to do better for these text
+    // type attachments' previews". In the default inline view the paste is a small page of its first
+    // lines in the prompt's line (composer/TextAttachmentCard.tsx), never its name underlined.
+    "text-pasted-inline": {
+      note: "A 131-line paste in the default inline view: a card of its first lines, faded, over Pasted text · 131 lines, after the typed words.",
+      ready: { draft: "Why does the build fail? " },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const data = new view.DataTransfer();
+        const log = Array.from(
+          { length: 130 },
+          (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
+        );
+        data.setData("text/plain", ["Ran a command, read a file", ...log].join("\n"));
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: data });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-md-inline-chip[data-preview="text"]'));
+        const card = ctx.find({ selector: '.acpmux-md-inline-chip[data-preview="text"]' });
+        if (!card.querySelector(".acpmux-text-card__lines")?.textContent?.startsWith("Ran a command, read a file"))
+          throw new Error("the inline paste card must show the paste's first lines");
+        if (!/131 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
+          throw new Error("the inline paste card must say its line count");
+      },
+    },
+    // Leo (2026-10-28): "double paste of long block text should reveal it instead of duplicating
+    // the paste", "if you paste that and then paste again, then you don't have to click it. It just
+    // does it." The same block pasted again opens its chip, as a click does (pastedChips.ts).
+    "text-pasted-again": {
+      note: "The same 130-line log pasted twice: the second paste opens the first's Pasted text chip, its text in the prompt after the typed words, and no second chip.",
+      ready: { draft: "Why does the build fail? " },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const log = Array.from(
+          { length: 130 },
+          (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
+        ).join("\n");
+        const paste = () => {
+          const data = new view.DataTransfer();
+          data.setData("text/plain", log);
+          const event = new view.Event("paste", { bubbles: true, cancelable: true });
+          Object.defineProperty(event, "clipboardData", { value: data });
+          ctx.find({ selector: ".acpmux-md" }).dispatchEvent(event);
+        };
+        // The Pasted text chip: in the prompt's line (the default inline view), or in the strip.
+        const PASTED = '.acpmux-md-inline-chip[data-kind="file"], .acpmux-attachment-pasted';
+        paste();
+        await ctx.waitFor(() => ctx.document.querySelector(PASTED));
+        paste();
+        // Either way the second paste went: its text in the prompt with no chip, or a second chip.
+        await ctx.waitFor(() => {
+          const chips = ctx.document.querySelectorAll(PASTED).length;
+          const prompt = ctx.document.querySelector(".acpmux-md")?.textContent ?? "";
+          return chips > 1 || (chips === 0 && prompt.includes("step 130: compiling"));
+        });
+        if (ctx.document.querySelector(PASTED))
+          throw new Error("the same long paste again must open its chip, never add a second");
       },
     },
     "quick-image-attached": {
@@ -856,7 +1140,7 @@ export default agentPaneEntry({
       },
     },
     "file-saved-as-path": {
-      note: "Pasted files (a text file, a zip, a video) are saved by the chat's host; each chip names the file and says it goes as a file path.",
+      note: 'Pasted files (a text file, a zip, a video) are saved by the chat\'s host; each file chip names the file and links the saved copy, and the video is the square tile with its play glyph (Leo, 2026-10-26: "Just do the square.").',
       snapshot: chat(finished),
       native: {
         "chat.upload": {
@@ -883,14 +1167,18 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         field.dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-link[data-saved]").length === 3);
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelectorAll(".acpmux-attachment-link[data-saved]").length === 2 &&
+            ctx.document.querySelector(".acpmux-attachment-video[title='repro.mov']"),
+        );
         const links = ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachment-link[data-saved]");
         const chips = [...links].map((chip) => ({
           name: chip.querySelector(".acpmux-attachment-link-name")?.textContent,
           note: chip.querySelector(".acpmux-attachment-link-note")?.textContent,
           path: chip.title,
         }));
-        for (const name of ["notes.md", "build-logs.zip", "repro.mov"]) {
+        for (const name of ["notes.md", "build-logs.zip"]) {
           const chip = chips.find((entry) => entry.name === name);
           if (!chip) throw new Error(`no saved chip names ${name}`);
           if (chip.note) throw new Error(`${name}'s chip must not expose delivery mechanics`);
@@ -902,7 +1190,7 @@ export default agentPaneEntry({
       },
     },
     "file-not-attached": {
-      note: "A pasted file no content block takes, in a chat whose host saves nothing: no chip, and the note says why.",
+      note: "A pasted file no content block takes, in a chat whose host saves nothing: its failed tile keeps its name, says why in its tooltip and offers one retry button.",
       snapshot: chat(finished),
       // A host that saves nothing refuses both the staged upload and the older single call.
       native: {
@@ -910,6 +1198,8 @@ export default agentPaneEntry({
         "chat.upload": { nativeError: { code: "unsupported" } },
       },
       play: async (ctx) => {
+        // The strip view (Settings): this state shows the strip; inline is the default.
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
         const view = ctx.document.defaultView!;
         const file = new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
           type: "application/zip",
@@ -918,7 +1208,14 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
         field.dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelector("output.acpmux-attachment-note"));
+        await ctx.waitFor(() => {
+          const failed = ctx.document.querySelector<HTMLElement>(".acpmux-attachment-failed");
+          return Boolean(
+            failed?.querySelector(".acpmux-attachment-failed-name")?.textContent === "build-logs.zip" &&
+            failed.getAttribute("title")?.includes("build-logs.zip") &&
+            failed.querySelectorAll(".acpmux-attachment-retry").length === 1,
+          );
+        });
       },
     },
     "image-sent-as-path": {
@@ -989,7 +1286,7 @@ export default agentPaneEntry({
       },
     },
     "video-dropped": {
-      note: 'Leo, 2026-10-25: "also why dont we have previews of videos we should". A screen recording dropped from the Desktop beside a screenshot, in a chat on this Mac: the host knows its path (chat.attach.dropped) and reads its poster and length off its main thread (video.info), so its chip is the poster in the image\'s tile with a play glyph and "0:42"; a click plays it in Quick Look. Before, it was a bare file name.',
+      note: 'Leo, 2026-10-25: "also why dont we have previews of videos we should". A screen recording dropped from the Desktop beside a screenshot, in a chat on this Mac: the host knows its path (chat.attach.dropped) and reads its poster and length off its main thread (video.info), so its chip is the poster in the image\'s tile with a play glyph and "0:42"; a click plays it in the pane (video-playing). Before, it was a bare file name.',
       snapshot: chat(finished),
       native: {
         "chat.attach.dropped": {
@@ -999,10 +1296,36 @@ export default agentPaneEntry({
           ],
         },
         "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
       },
       play: async (ctx) => {
         dropScreenshotAndVideo(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+      },
+    },
+    "video-playing": {
+      note: "Leo, 2026-11-02: \"this i can't play a video preview inside cmux next? i feel like i should be able to\". A click on the dropped recording's ▶ plays it in the pane: the composer's tile is too small for a player's controls, so the player opens large over the pane, playing with sound and its scrub, mute and pause, on the URL the host streams the file by in byte ranges (`media.load`). Held still at 1 s for the capture. Before, a click handed it to Quick Look.",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
+        "media.load": { src: `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+      },
+      play: async (ctx) => {
+        dropScreenshotAndVideo(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-video img"));
+        await ctx.click({ selector: ".acpmux-attachment-video-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer .cv-media__frame.is-playing"));
+        const video = ctx.document.querySelector<HTMLVideoElement>(".acpmux-image-viewer video")!;
+        video.pause();
+        video.currentTime = 1;
+        await ctx.waitFor(() => !video.seeking && video.readyState >= 2);
       },
     },
     "video-reading": {
@@ -1016,6 +1339,7 @@ export default agentPaneEntry({
           ],
         },
         "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
       },
       nativeDelayMs: { "video.info": 3_600_000 },
       play: async (ctx) => {
@@ -1043,13 +1367,154 @@ export default agentPaneEntry({
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pending .acpmux-attachment-spinner"));
+        // Inline (the default) spins in the text at the caret; the strip spins in its chip.
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(
+            ".acpmux-md-inline-chip[data-state='loading'] .acpmux-md-inline-spinner, .acpmux-attachment-pending .acpmux-attachment-spinner",
+          ),
+        );
+      },
+    },
+    "attachment-inline-caret": {
+      note: 'Leo: "How many motherfucking times have I said, like the macOS fucking iMessage app?" A screenshot is pasted between words at the caret. Backspace removes the atom in one press; undo restores it. The strip remains available in Settings.',
+      snapshot: chat(finished),
+      ready: { draft: "Compare this with the previous result." },
+      play: pasteComparison,
+    },
+    "attachment-inline-reorder": {
+      note: 'Leo, 2026-11-02: "I can\'t drag to reorder these inline attachments very easily anymore". Two screenshots in the text, the pointer away: no × shows. A press anywhere on a thumbnail and a drag moves it in the text (composer-inline-reorder.browser.test.ts).',
+      snapshot: chat(finished),
+      ready: { draft: "Which layout reads better?" },
+      play: pasteTwoScreenshots,
+    },
+    "attachment-inline-reorder-hover": {
+      note: "The pointer on the first screenshot: its small × shows in the top-right corner, and only there; the rest of the thumbnail is where a drag starts.",
+      snapshot: chat(finished),
+      ready: { draft: "Which layout reads better?" },
+      play: async (ctx) => {
+        await pasteTwoScreenshots(ctx);
+        await ctx.hover({ selector: ".acpmux-md [data-inline-attachment] .acpmux-attachment-image" });
+      },
+    },
+    "attachment-inline-arrow": {
+      note: 'Leo: "i dont want left arrow to be selecting them??? just jump over them treat them like it\'s one character". The screenshot pasted after "Compare this", then Left: the caret jumps to before the chip, which stays unselected. Right jumps back after it; Shift+arrow takes it as one unit.',
+      snapshot: chat(finished),
+      ready: { draft: "Compare this with the previous result." },
+      play: async (ctx) => {
+        await pasteComparison(ctx);
+        const editor = ctx.find({ selector: ".acpmux-md" });
+        const view = ctx.document.defaultView!;
+        editor.dispatchEvent(new view.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-md .ProseMirror-selectednode"));
+      },
+    },
+    "attachment-inline-image-and-file": {
+      note: 'Leo: "How many motherfucking times have I said, like the macOS fucking iMessage app?" A screenshot pasted after "Compare this" and a notes file pasted after "the notes in" sit in the text where they were pasted, as iMessage places them. With the strip view, both sit above the text.',
+      snapshot: chat(finished),
+      ready: { draft: "Compare this with the notes in and summarize." },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+        const handle = field.acpmuxMarkdownField!;
+        const paste = (file: File) => {
+          const event = new view.Event("paste", { bubbles: true, cancelable: true });
+          Object.defineProperty(event, "clipboardData", {
+            value: { files: [file], types: ["Files"], getData: () => "" },
+          });
+          ctx.find({ selector: ".acpmux-md" }).dispatchEvent(event);
+        };
+        const canvas = ctx.document.createElement("canvas");
+        canvas.width = 320;
+        canvas.height = 180;
+        const drawing = canvas.getContext("2d")!;
+        drawing.fillStyle = "#5783b5";
+        drawing.fillRect(0, 0, 320, 180);
+        drawing.fillStyle = "white";
+        drawing.font = "24px system-ui";
+        drawing.fillText("Before and after", 36, 96);
+        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((value) => resolve(value!), "image/png"));
+        handle.setCaret("Compare this".length);
+        paste(new view.File([blob], "comparison.png", { type: "image/png" }));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
+        // An atom in the text is one position of the paragraph; the strip view adds none.
+        const atoms = ctx.document.querySelectorAll("[data-inline-attachment]").length;
+        handle.setCaret("Compare this with the notes in".length + atoms);
+        paste(new view.File(["# Notes\nRetry after 5 failures.\n"], "notes.md", { type: "text/markdown" }));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-link[data-saved]"));
+      },
+    },
+    // #26545's review at 2b4ccd42: in the prompt, a PDF, a video and an image that cannot be drawn
+    // keep the strip chip's preview, open, play and fallback (composer/inlineAttachments.tsx).
+    "attachment-inline-pdf": {
+      note: "Inline view: a kept draft's PDF in the prompt's text is the strip's PDF card (sheet, name, page count), and a click on its sheet opens the PDF viewer.",
+      snapshot: chat(finished),
+      ready: { draft: "Summarize the design notes." },
+      native: { "chat.draftAttachments.get": [KEPT_PDF] },
+      play: async (ctx) => {
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+        const card = "[data-inline-attachment] .acpmux-attachment-document[data-page-count='2']";
+        await ctx.waitFor(() => ctx.document.querySelector(card));
+        if (ctx.find({ selector: `${card} .acpmux-attachment-document-name` }).textContent !== "design-notes.pdf")
+          throw new Error("the inline PDF card must name its file");
+        await ctx.click({ selector: "[data-inline-attachment] .acpmux-attachment-document-open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pdf-viewer"));
+      },
+    },
+    "attachment-inline-video": {
+      note: "Inline view: a dropped screen recording in the prompt's text is the strip's video tile, its poster with a play glyph and 0:42; a click plays it in Quick Look.",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+            { path: VIDEO_PATH, folder: false },
+          ],
+        },
+        "video.info": VIDEO_INFO,
+        "video.frames": VIDEO_FRAMES,
+      },
+      play: async (ctx) => {
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+        dropScreenshotAndVideo(ctx);
+        // Both in the text and drawn (the screenshot's thumbnail is made off the main thread).
+        await ctx.waitFor(() => ctx.document.querySelectorAll("[data-inline-attachment] img").length === 2);
+        await ctx.waitFor(() => ctx.document.querySelector("[data-inline-attachment] .acpmux-attachment-video img"));
+        if (ctx.find({ selector: "[data-inline-attachment] .acpmux-attachment-video-length" }).textContent !== "0:42")
+          throw new Error("the inline video tile must show its length");
+        // The screenshot's loading tile became its narrower thumbnail as the waits ended: let that
+        // frame's shift report before the hover is measured.
+        const view = ctx.document.defaultView!;
+        await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
+        await ctx.hover({ selector: "[data-inline-attachment] .acpmux-attachment-video" });
+      },
+    },
+    "attachment-inline-image-failed": {
+      note: "Inline view: a kept draft's image whose bytes cannot be drawn says Couldn't load image in the prompt's text, as the strip's does, with Retry and its x.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      ready: { draft: "What is in this screenshot?" },
+      native: { "chat.draftAttachments.get": [KEPT_BROKEN_IMAGE] },
+      play: async (ctx) => {
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "inline" });
+        const tile = "[data-inline-attachment] .acpmux-attachment-image-failed";
+        await ctx.waitFor(() => ctx.document.querySelector(tile));
+        const chip = ctx.find({ selector: tile });
+        if (chip.querySelector(".acpmux-attachment-failed-text")?.textContent !== "Couldn't load image")
+          throw new Error("an inline image that cannot be drawn must say Couldn't load image");
+        if (!chip.querySelector("button.acpmux-attachment-retry"))
+          throw new Error("an inline image that cannot be drawn must offer Retry");
+        if (!chip.querySelector("button.acpmux-attachment-remove[aria-label]"))
+          throw new Error("an inline image that cannot be drawn must keep its remove button");
+        await ctx.hover({ selector: tile });
       },
     },
     "attachment-reorder": {
       note: "Leo, 2026-10-24: \"we ought to be able to drag and reorder images if we're seeing the non-inline attachment composer\". Three pasted screenshots; the first is being dragged past the second (it lifts and moves as the pointer goes), and the prompt sends them in the strip's order. Option-Left/Right moves a focused chip.",
       snapshot: chat(finished),
       play: async (ctx) => {
+        // The strip view (Settings): this state shows the strip; inline is the default.
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
         const view = ctx.document.defaultView!;
         const files = await Promise.all(
           ["#5b8def", "#e0a84f", "#62b67a"].map(async (color, index) => {
@@ -1066,8 +1531,11 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-image img").length === 3);
-        const chips = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachment-image")];
+        // The strip's chips: the text keeps each one's place in a hidden atom of its own.
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll(".acpmux-attachments .acpmux-attachment-image img").length === 3,
+        );
+        const chips = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachments .acpmux-attachment-image")];
         const from = chips[0]!.getBoundingClientRect();
         const to = chips[1]!.getBoundingClientRect();
         const at = (x: number) => ({
@@ -1089,6 +1557,8 @@ export default agentPaneEntry({
       snapshot: chat(finished),
       native: { "chat.upload.begin": { nativeError: { code: "io", userMessage: "The disk is full." } } },
       play: async (ctx) => {
+        // The strip view (Settings): this state shows the strip; inline is the default.
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
         const view = ctx.document.defaultView!;
         const files = [
           // Not a picture after all: it goes as a file, and the app refuses it.
@@ -1101,6 +1571,32 @@ export default agentPaneEntry({
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-failed").length === 2);
+      },
+    },
+    "image-original-failed": {
+      note: "A pasted screenshot whose full-size original the app could not save: its preview stays staged and still sends, with a Retry badge whose tooltip says why.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      native: { "chat.upload.begin": { nativeError: { code: "io", userMessage: "The disk is full." } } },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const canvas = new view.OffscreenCanvas(320, 200);
+        const paint = canvas.getContext("2d")!;
+        paint.fillStyle = "#3a7bd5";
+        paint.fillRect(0, 0, 320, 200);
+        paint.fillStyle = "#ffffff";
+        paint.fillRect(40, 60, 240, 16);
+        const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "screenshot.png", {
+          type: "image/png",
+        });
+        pasteFiles(ctx, [file]);
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-attachment-image .acpmux-attachment-original-retry"),
+        );
+        const badge = ctx.find({ selector: ".acpmux-attachment-original-retry" });
+        if (!badge.getAttribute("title")?.includes("The disk is full."))
+          throw new Error("the Retry badge's tooltip must say why the original failed");
       },
     },
     draft: {
@@ -1142,9 +1638,9 @@ export default agentPaneEntry({
       note: "A turn running: Send becomes Stop.",
       snapshot: chat(working, { isWorking: true }),
     },
-    // Leo 2026-10-20: the empty prompt mid-turn teaches its keys, as Claude's composer does.
+    // Leo 2026-11-03: mid-turn the empty prompt keeps Claude desktop's placeholder; Send names the keys.
     "working-hint-steer": {
-      note: "A turn running for an agent that steers: the empty prompt says ↵ steers and ⌘↵ queues.",
+      note: "A turn running for an agent that steers: the empty prompt says Type / for commands; Send's tooltip names ↵ steer and ⌘↵ queue.",
       snapshot: steering(true),
     },
     "working-hint-queue": {
@@ -1175,22 +1671,28 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cancel[data-escape-armed] svg"));
       },
     },
+    // Leo 2026-10-21: "IDK IF IM ACTUALLY STOPPING YOU". Stop (or Esc) sent, the turn not ended yet.
+    "working-stopping": {
+      note: "Stop or Esc was sent and the agent has not ended its turn yet: Stop turns and the empty prompt says Stopping…, until the turn ends.",
+      snapshot: chat(working, { isWorking: true, stopping: true }),
+    },
     "working-steer": {
-      note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now, as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; Stop sits left of the mic, as in Claude's desktop app.",
+      note: "A prompt typed while the turn runs: Stop's slot before the mic turns into the one Send (↵ in Claude's look), which puts the prompt into the turn as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; its tooltip names both keys. No second ↵ control (Leo 2026-10-31).",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
         await ctx.waitFor(() => {
-          const steer = ctx.document.querySelector(".acpmux-steer-now");
-          return steer?.getAttribute("aria-label") === "Steer now" && steer.textContent?.trim() === "";
+          const sends = ctx.document.querySelectorAll(".acpmux-composer-actions :is(.acpmux-send, .acpmux-cancel)");
+          return (
+            sends.length === 1 &&
+            sends[0]!.getAttribute("title") === "↵ steer · ⌘↵ queue" &&
+            ctx.document.querySelector(".acpmux-composer-actions > .acpmux-send + .acpmux-fit-mic")
+          );
         });
-        await ctx.waitFor(() =>
-          ctx.document.querySelector('.acpmux-composer-actions > button[aria-label="Stop"] + .acpmux-fit-mic'),
-        );
       },
     },
     "working-queue": {
-      note: "The same for an agent that cannot steer: no ↵ control; Return and ⌘Return queue the prompt.",
+      note: "The same for an agent that cannot steer: the one Send queues, as Return and ⌘Return do.",
       snapshot: steering(false),
       ready: { draft: "Use the new tokenizer instead" },
     },
@@ -1205,7 +1707,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent": {
-      note: "Another agent's message waiting behind the turn: no queue row; it is its received card in the transcript after the turn, Read after this turn, its actions (Steer, Edit message, Delete) in its ⋯ menu (QueuedMessageCard.tsx). The person's prompt is the queue's one row, unchanged.",
+      note: "Another agent's message waiting behind the turn: no queue row; it waits in the transcript's one collapsed group after the turn, no Read after this turn, its actions (Copy; ⋯ Send now, Dismiss) on its line (QueuedMessageCard.tsx). The person's prompt is the queue's one row, unchanged.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1219,7 +1721,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent-open": {
-      note: "Play: the waiting agent's message opened in the transcript: its glass card under its line, as Markdown.",
+      note: "Play: the waiting agent's message opened in the transcript: its whole text as Markdown in the panel under its line.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1232,14 +1734,17 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: '[data-queued-message="q1"] .cv-received__toggle' });
+        // It waits as its own line; with others it waits in their one collapsed group (PendingMessagesCard.tsx).
+        if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle'));
+        await ctx.click({ selector: '[data-queued-message="q1"] .cv-disclosure__toggle' });
         await ctx.waitFor(() =>
-          ctx.document.querySelector('[data-queued-message="q1"] .cv-received__toggle[aria-expanded="true"]'),
+          ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle[aria-expanded="true"]'),
         );
       },
     },
     "queued-from-agent-lane-report": {
-      note: "Leo's lane report reference waiting behind a running turn: its received card in the transcript, sender header, rendered Markdown table and links, the long body folded to eight lines.",
+      note: "Leo's lane report reference waiting behind a running turn: its received line in the transcript; opened, the From line, rendered Markdown table and links, whole.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1297,6 +1802,10 @@ export default agentPaneEntry({
     "queued-images": {
       note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
+    },
+    "queued-videos": {
+      note: 'Leo\'s message with three screen recordings (23 frames), queued behind a running turn: three tiles in one row, each video one tile at its first frame with its length (Leo, 2026-11-05: "uh this was a weird preview idk i guess i accidentally queued?").',
+      snapshot: chat(working, { isWorking: true, queue: [withVideos, { id: "q2", prompt: "And update the README" }] }),
     },
     "queued-images-edit": {
       note: "Play: Edit message (the ⋯ menu) on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",
@@ -1368,6 +1877,38 @@ export default agentPaneEntry({
         await ctx.waitFor(() => prompt() === "draft");
       },
     },
+    "history-recall-older-page": {
+      checks: {
+        layoutShiftMax: {
+          value: 0.12,
+          reason: "The delayed older page intentionally inserts transcript rows above the composer.",
+        },
+      },
+      note: "Play: recall C, then an older page arrives while the field still shows it; ↑ continues with B instead of jumping to A.",
+      snapshot: chat(historyPageRows),
+      play: async (ctx) => {
+        const prompt = () =>
+          ctx.document.querySelector(".acpmux-composer-prompt .acpmux-md-root")?.textContent?.trim() ?? "";
+        await ctx.click({ selector: ".acpmux-composer-prompt" });
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "C: add the 429 test");
+        // Model the transcript page arriving after the user has started browsing. Row ids for B and
+        // C are kept from the mounted snapshot; only the older A turn is prepended.
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        const bridge = (
+          ctx.document.defaultView as unknown as {
+            cmuxAcpmuxBridge?: { receive(snapshot: AcpmuxSnapshot): void };
+          }
+        ).cmuxAcpmuxBridge;
+        if (!bridge) throw new Error("gallery pane bridge is unavailable");
+        bridge.receive(chat(historyPageOlderRows));
+        // Prove the prepend arrived before exercising recall. Without this wait, a dropped bridge
+        // update would leave the original B,C snapshot in place and still make the next ↑ return B.
+        await ctx.waitFor(() => ctx.document.querySelector(`[data-row-id="${historyPageOlderRows[0]!.id}"]`));
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "B: update the retry helper");
+      },
+    },
     "queued-steering": {
       note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts follow it, one muted line each.",
       snapshot: chat(working, {
@@ -1420,6 +1961,20 @@ export default agentPaneEntry({
         const after = actions?.getBoundingClientRect();
         if (!before || !after || before.top !== after.top || before.height !== after.height)
           throw new Error("the steer's action row moved when Send now left");
+      },
+    },
+    "steer-send-now-queued-after-steer": {
+      note: "Play: an earlier steer Claude has not read, and a prompt queued after it. Send now on the queued prompt makes it a steer the agent reads with the earlier one at its next step: neither offers Send now or the X again, and both show their normal hover actions.",
+      snapshot: steerThenQueued(false),
+      native: { "chat.queue.edit": { ok: true } },
+      afterCall: { "chat.queue.edit": steerThenQueued(true) },
+      play: async (ctx) => {
+        await ctx.hover({ text: "Then add a test for the 429 path" });
+        await ctx.click({ selector: ".acpmux-queued-steer" });
+        // The queued prompt is now a steer in the transcript, under the earlier one.
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".cv-user")].some((n) => n.textContent?.includes("Then add a test")),
+        );
       },
     },
     "steer-marks": {
@@ -1524,6 +2079,18 @@ export default agentPaneEntry({
       note: "Another harness and model in the chips.",
       snapshot: chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }),
     },
+    // A Codex chat on a Cloud machine (remoteEditing.ts): a team machine's wire refuses it, the
+    // person's own machine (`ownerCloud`) sends.
+    "codex-cloud-team": {
+      note: "A Codex chat on a team Cloud machine: no Send, and a note says this agent cannot be driven from here.",
+      ready: { draft: "Add retries with backoff to the fetch helper" },
+      snapshot: cloudCodex(),
+    },
+    "codex-cloud-own": {
+      note: "A Codex chat on the person's own Cloud machine: the normal composer, with Send.",
+      ready: { draft: "Add retries with backoff to the fetch helper" },
+      snapshot: cloudCodex(true),
+    },
     // The location row is a new chat's only (locationRow.ts): these show it before the first send.
     "tray-long-branch": {
       note: "A new chat's location row keeps a long branch readable without moving the composer.",
@@ -1552,13 +2119,60 @@ export default agentPaneEntry({
       },
     },
     "add-menu": {
-      note: "Play: open +; Attach files or images comes first and opens the file chooser, and the menu rises out of +.",
+      note: "Play: open +; Attach files or images comes first and opens the file chooser, the Search section offers Search chats and Search pages, and the menu rises out of +.",
       snapshot: chat(finished, {
         commands: [{ name: "compact", description: "Clear conversation history but keep a summary in context" }],
       }),
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="attach"]'));
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="add.files"]'));
+        // The Search section: Search chats and Search pages open the app's palette pages.
+        for (const id of ["agentPane.searchChats", "history.search"])
+          if (!ctx.document.querySelector(`.acpmux-composer-plus [data-value="${id}"]`))
+            throw new Error(`the + menu lost ${id}`);
+      },
+    },
+    // Leo, 2026-10-31: "our + button is ass" / "inside chat and in the composer it's ass". The chat
+    // advertises 30 skills (synthetic names), Plan and Goal: + lists attach, then Plan, Goal, @, then one
+    // Commands and skills… row, then the searches, each row one line, in a bounded panel; no skill is
+    // a row (recent ones: gallery agent-pane.composer-plus).
+    "add-menu-skills": {
+      note: "Play: open + in a chat with 30 skills, Plan and Goal: attach rows, then Plan, Goal, Mention, then one Commands and skills… row (no skill rows), then Search; icon, title and a muted description on one line, in a bounded panel.",
+      snapshot: ((base) => ({
+        ...base,
+        summary: {
+          ...base.summary!,
+          promptCapabilities: { image: true },
+          modes: {
+            currentModeId: "default",
+            availableModes: [
+              { id: "default", name: "Ask before edits" },
+              { id: "plan", name: "Plan" },
+            ],
+          },
+        },
+      }))(
+        chat(finished, {
+          commands: [
+            { name: "goal", description: "Set a goal for this chat", source: "agent" },
+            { name: "compact", description: "Clear conversation history but keep a summary in context" },
+            ...Array.from({ length: 30 }, (_, index) => ({
+              name: `${["cloud", "deploy", "review", "search", "docs"][index % 5]}-skill-${index + 1}`,
+              description: `Sample skill ${index + 1}: a long description that runs past the menu's right edge`,
+              source: "skill" as const,
+            })),
+          ],
+        }),
+      ),
+      native: { "composer.capture": null },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="add.files"]'));
+        // test/composer-plus-menu-shape.browser.test.ts holds the shape: no skill rows, one-line rows,
+        // a bounded panel. The play only opens it, so the same state draws the menu before the fix.
+        const rows = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-composer-plus .acpmux-menu-item")];
+        for (const id of ["add.files", "add.screenshot", "add.window", "add.mode.plan", "add.goal", "add.mention"])
+          if (!rows.some((row) => row.dataset.value === id)) throw new Error(`the + menu lost ${id}`);
       },
     },
     // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the
@@ -1585,7 +2199,7 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
-        await ctx.click({ selector: '.acpmux-composer-plus [data-value="screenshot"]' });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         // Back in the prompt, to type about the capture (the + menu does not take focus back).
         await ctx.waitFor(() => ctx.document.activeElement?.closest(".acpmux-composer-prompt"));
@@ -1604,7 +2218,7 @@ export default agentPaneEntry({
       native: { "composer.capture": null },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
-        await ctx.click({ selector: '.acpmux-composer-plus [data-value="window"]' });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.window"]' });
         const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
           .cmuxGalleryLog;
         await ctx.waitFor(() =>
@@ -1634,7 +2248,7 @@ export default agentPaneEntry({
       native: { "composer.capture": { tooLarge: true, name: "Screenshot 2026-10-11 14.32.05.png" } },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
-        await ctx.click({ selector: '.acpmux-composer-plus [data-value="screenshot"]' });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
         await ctx.waitFor(() =>
           ctx.document
             .querySelector(".acpmux-attachment-note")
@@ -1828,6 +2442,12 @@ export default agentPaneEntry({
             row.textContent?.includes("README.md"),
           ),
         );
+        // The rows replace "Searching…" and the list grows up from the composer. waitFor answers
+        // that DOM change before it paints, so without these frames the growth was measured as
+        // Ctrl-J's layout shift. The list has opened at once with no entrance animation since #24980.
+        const frame = () => new Promise((resolve) => ctx.document.defaultView!.requestAnimationFrame(resolve));
+        await frame();
+        await frame();
         const before = ctx.find(prompt).getAttribute("aria-activedescendant");
         await ctx.press("Control+j");
         await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-activedescendant") !== before);
@@ -1849,7 +2469,7 @@ export default agentPaneEntry({
         const prompt = { selector: "[contenteditable='true']" } as const;
         await ctx.focus(prompt);
         await ctx.type("Read @ini");
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row[role=option]") !== null);
         await ctx.press("Enter");
         await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
         await ctx.type("now");
@@ -1989,8 +2609,28 @@ export default agentPaneEntry({
         );
       },
     },
+    "slash-menu-cmux-descriptions": {
+      note: "Play: type /; import starts a new chat with the transcript as its first prompt, and fork opens a new chat.",
+      snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], { commands: [] }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        const row = (name: string) =>
+          [...ctx.document.querySelectorAll("#acpmux-slash-menu [role='option']")].find(
+            (option) => option.querySelector(".acpmux-slash-name")?.textContent === `/${name}`,
+          );
+        await ctx.waitFor(() => !!row("import") && !!row("fork"));
+        if (
+          row("import")?.querySelector(".acpmux-slash-description")?.textContent !==
+          "Start a new chat with this transcript as its first prompt"
+        )
+          throw new Error("/import description does not explain the transcript's first prompt");
+        if (!row("fork")?.querySelector(".acpmux-slash-description")?.textContent?.includes("new chat"))
+          throw new Error("/fork description does not describe its new chat");
+      },
+    },
     "reasoning-claude": {
-      note: "Play: the model button reads Medium with no Fast word; its menu ends on a checked Fast mode row, and its Effort submenu lists the levels Opus 5.5 offers (Low, Medium, High, Max) and no Fast.",
+      note: "Play: the model button reads Medium with no Fast word; its menu ends on a checked Fast mode row, and its effort levels (inline in the current row, or the Effort submenu) are the ones Opus 5.5 offers (Low, Medium, High, Max), with no Fast.",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
         configOptions: [
           {
@@ -2029,7 +2669,12 @@ export default agentPaneEntry({
           throw new Error("Fast mode must be a checked row of the menu");
         // The menu is open: a second press on the model button would close it.
         const levels = await openEffortSubmenu(ctx);
-        const names = [...levels.querySelectorAll(".acpmux-menu-label")].map((node) => node.textContent?.trim());
+        // A submenu row names its level in its label; an inline segment in its aria-label ("Opus 5.5 · Low").
+        const names = [...levels.querySelectorAll('[role="menuitemradio"]')].map(
+          (node) =>
+            node.querySelector(".acpmux-menu-label")?.textContent?.trim() ??
+            node.getAttribute("aria-label")?.split(" · ").pop(),
+        );
         // The fixture's Opus 5.5 offers Low, Medium, High and Max (no Extra High, so no Ultracode).
         const expected = ["Low", "Medium", "High", "Max"];
         if (names.join("|") !== expected.join("|")) throw new Error(`Effort lists ${names.join(", ")}`);
@@ -2062,7 +2707,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: Codex keeps its bolt directly beside the model name in the model picker; the model button's menu has no Fast mode row; a click on the bolt sends Fast.",
+      note: "Play: Codex keeps Fast mode in the model button's menu as one toggle row; the composer has no separate lightning control.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -2083,16 +2728,14 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        const bolt = { selector: ".acpmux-model .acpmux-fast" };
-        await ctx.waitFor(() => ctx.document.querySelector(bolt.selector));
-        if (ctx.find(bolt).getAttribute("aria-pressed") !== "false") throw new Error("the bolt must start off");
-        if (!ctx.find(bolt).closest(".acpmux-model")) throw new Error("the bolt must sit beside the model picker");
+        if (ctx.document.querySelector(".acpmux-fast")) throw new Error("the composer must draw no speed bolt");
         await openModelMenu(ctx);
-        if (ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
-          throw new Error("Codex's Fast mode is the bolt, not a menu row as well");
-        await ctx.press("Escape");
-        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-menu"));
-        await ctx.click(bolt);
+        const fast = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu .acpmux-quick-fast");
+        if (!fast) throw new Error("Codex's model menu must expose Fast mode");
+        if (fast.getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start off");
+        await ctx.click({ selector: ".acpmux-quick-menu .acpmux-quick-fast" });
+        // The agent-pane snapshot is static; the live ComposerPickers fixture checks the
+        // resulting Fast mode state. This play verifies the row is present and clickable.
       },
     },
     "model-menu-keyboard": {
@@ -2153,7 +2796,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-menu": {
-      note: "Play: open the model button's Effort submenu; it lists only the model's levels and checks the current one.",
+      note: "Play: open the model button's effort levels (inline in the current row, or its Effort submenu); they list only the model's levels and check the current one.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-reasoning",
@@ -2221,13 +2864,16 @@ export default agentPaneEntry({
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
       play: async (ctx) => {
-        await openModelMenu(ctx);
+        // A new chat's menu has a rail, so the button opens the columns.
+        await ctx.click(MODEL_BUTTON);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]"));
         // The rail's tabs draw a mark alone; each names its harness.
-        await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
+        const codex = '.acpmux-cols-tab[aria-label="Codex"]';
+        await ctx.click({ selector: codex });
         await ctx.waitFor(
           () =>
-            ctx.find({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' }).getAttribute("aria-pressed") ===
-              "true" && ctx.document.querySelector('.acpmux-quick-body [role="menuitemradio"]') !== null,
+            ctx.find({ selector: codex }).getAttribute("aria-selected") === "true" &&
+            ctx.document.querySelector(".acpmux-cols [role=listbox] [role=option]") !== null,
         );
       },
     },
@@ -2241,7 +2887,7 @@ export default agentPaneEntry({
       }),
     },
     "access-menu": {
-      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest.",
+      note: "A Claude chat's mode menu is Claude Code's own: Mode, then Auto (Recommended), Manual, Accept edits, Plan and Bypass permissions with their descriptions and keys 1 to 5, tight rows, the accent check on the chosen one. The button is the mode's symbol and its name, no pill at rest. Manual is hovered with a neutral wash; Bypass keeps only its check.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-access",
@@ -2272,6 +2918,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: '[aria-label="Mode"]' });
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+        await ctx.hover({ role: "menuitemradio", name: /Manual/ });
       },
     },
     "access-menu-codex": {
@@ -2354,7 +3001,10 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(".acpmux-separator")) throw new Error("composer still has a stray divider");
         // The free space sits only between the left cluster and mic/Send (hq#1957 item 15).
         const actions = ctx.find({ selector: ".acpmux-composer-actions" });
-        if (ctx.document.defaultView!.getComputedStyle(actions).marginLeft === "0px")
+        const bar = ctx.find({ selector: ".acpmux-composer-inner" });
+        const leftItems = [...bar.children].filter((child) => child !== actions);
+        const leftEnd = Math.max(...leftItems.map((child) => child.getBoundingClientRect().right));
+        if (!(actions.getBoundingClientRect().left > leftEnd))
           throw new Error("composer controls lost the flexible gap between left and right groups");
         await ctx.press("ArrowDown");
         await ctx.press("Escape");
@@ -2367,6 +3017,16 @@ export default agentPaneEntry({
       note: "The daemon connection dropped.",
       snapshot: chat(finished, { connection: "disconnected" }),
     },
+    // Leo 2026-10-29: "i literally can't stop you i clicked the stop button and it didnt do anything".
+    "working-stop-reconnecting": {
+      note: "Play: Stop while the pane reconnects to acpmux mid-turn (an acpmux restart): the app refuses the cancel, and the composer says Stopping… until the Stop goes out on the reconnect (stopThroughReconnect.ts).",
+      snapshot: chat(working, { isWorking: true, connection: "disconnected" }),
+      native: { "chat.cancel": { nativeError: { code: "native.not_connected" } } },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: "Stop" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cancel[data-stopping]"));
+      },
+    },
   },
 });
 
@@ -2376,6 +3036,22 @@ function withSummary(
   summary: Partial<NonNullable<ReturnType<typeof chat>["summary"]>>,
 ): ReturnType<typeof chat> {
   return { ...snapshot, summary: { ...snapshot.summary!, ...summary } };
+}
+
+/// A Codex chat on the Cloud machine `cloud-1`, over the app's remote wire; `ownerCloud` when the
+/// signed-in person owns that machine.
+function cloudCodex(ownerCloud?: true): ReturnType<typeof chat> {
+  const snapshot = chat(finished, {
+    harness: "codex",
+    model: "gpt-6-astra",
+    title: "Codex chat",
+    sessions: [
+      session({ sessionId: SESSION_ID, title: "Codex chat", harness: "codex", host: "cloud-1", hostKind: "cloud" }),
+    ],
+    origin: "remote",
+    ownerCloud,
+  });
+  return withSummary(snapshot, { host: "cloud-1", peer: "cloud-1", hostKind: "cloud" });
 }
 
 /// Every footer button (+, the one model button with its effort, the mode; Fast mode on, which only

@@ -25,7 +25,7 @@ export function DomainListEditor({ row, value, disabled, labelId }: EditorProps)
       title={text(row.title)}
       defaultLabel={text(row.default_label) || text(row.title)}
       onPick={(name) => (name === null ? store.reset(row.key) : store.set(row.key, name))}
-      onPreview={(name) => (name ? store.preview(row.key, name) : store.previewEnd(row.key))}
+      onPreview={(name, owner) => (name ? store.preview(row.key, name, owner) : store.previewEnd(row.key, owner))}
     />
   );
 }

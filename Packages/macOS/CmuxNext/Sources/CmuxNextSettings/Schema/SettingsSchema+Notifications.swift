@@ -11,11 +11,8 @@ nonisolated enum NotificationSettingsSchema {
         let defaults = NotificationPreferences()
         let attention = AttentionSettings()
         let sameAsAbove = SettingsText.keyed("settings.default.sameAsAbove", "Same as above")
-        let sources: [(NotificationSource, SettingText)] = [
-            (.agent, SettingsText.keyed("settings.notifications.source.agent", "Agents")),
-            (.terminal, SettingsText.keyed("settings.notifications.source.terminal", "Terminal Programs")),
-            (.cli, SettingsText.keyed("settings.notifications.source.cli", "cmux notify")),
-        ]
+        let sources: [(NotificationSource, SettingText)] = [NotificationSource.agent, .terminal, .cli]
+            .map { ($0, $0.settingsTitle) }
         var rows = [
             SettingDescriptor(
                 ["notifications", "dismissal"], section: .notifications, group: dismissal,
@@ -138,6 +135,15 @@ nonisolated enum NotificationSettingsSchema {
                 kind: .toggle, default: .bool(defaults.feedMirror.agentPermissionPrompts),
                 keywords: ["cloud", "iphone", "push", "approve", "allow"]
             ),
+            // Chief Home's pinned Needs you card: opt-in, the Feed always lists the requests (Leo 2026-11-03).
+            SettingDescriptor(
+                HomeNeedsYouSetting.configPath, section: .notifications, group: feed,
+                title: SettingsText.keyed("settings.feed.needsYouInChief", "Pin Needs You in Chief"),
+                help: SettingsText.keyed("settings.feed.needsYouInChief.help",
+                                        "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them."),
+                kind: .toggle, default: .bool(HomeNeedsYouSetting.fallback),
+                keywords: ["chief", "home", "needs you", "requests", "permissions", "approve", "pinned"]
+            ),
             SettingDescriptor(
                 ["notifications", "attention", "style"], section: .notifications, group: ring,
                 title: SettingsText.keyed("settings.attention.style", "Style"),
@@ -226,6 +232,13 @@ nonisolated enum NotificationSettingsSchema {
                 help: SettingsText.keyed("settings.attention.moveToTop.help",
                                         "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane."),
                 kind: .toggle, default: .bool(attention.movesToTop), keywords: ["reorder", "sort", "bump"]
+            ),
+            SettingDescriptor(
+                ["notifications", "attention", "moveToTopOnAgentFinish"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.moveToTopOnAgentFinish", "Move the Workspace to the Top When Its Agent Finishes"),
+                help: SettingsText.keyed("settings.attention.moveToTopOnAgentFinish.help",
+                                        "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane."),
+                kind: .toggle, default: .bool(attention.movesToTopOnAgentFinish), keywords: ["reorder", "sort", "bump", "agent", "done", "finished"]
             ),
             SettingDescriptor(
                 ["notifications", "mutedWorkspaces"], section: .notifications, group: banners,

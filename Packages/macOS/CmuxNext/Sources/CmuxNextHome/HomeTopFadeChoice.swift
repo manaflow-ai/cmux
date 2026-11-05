@@ -14,13 +14,13 @@ public nonisolated enum HomeTopFadeChoice: String, Sendable, CaseIterable, Tunab
 
     public var tunableTitle: String {
         switch self {
-        case .glassBand: "A. Glass band (current)"
+        case .glassBand: "A. Glass band"
         case .softMask: "B. Soft tall fade"
         case .progressiveBlur: "C. Progressive blur"
         case .materialHairline: "D. Material band, hairline"
         case .edgeShadow: "E. Hard edge, shadow when scrolled"
         case .belowPill: "F. Fade below the pill"
-        case .backgroundTint: "G. Background tint"
+        case .backgroundTint: "G. Background tint (default)"
         case .messagesBar: "H. Messages blurred bar"
         }
     }

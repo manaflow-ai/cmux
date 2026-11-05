@@ -4,6 +4,7 @@ import { expect, test } from "bun:test";
 import {
   belowCheckout,
   byRecentUse,
+  chooserRows,
   groupByRepo,
   guessProjectRepo,
   isMainCheckout,
@@ -13,6 +14,7 @@ import {
   worktreeName,
   type RepoFolder,
 } from "./projectRepos";
+import { githubRepository } from "./githubRepository";
 
 const cmux = (branch: string) => ({ root: "/Users/me/src/cmux", name: "cmux", branch });
 const lane = (name: string): RepoFolder => ({
@@ -122,6 +124,43 @@ test("the host's repos are checked before use", () => {
   });
   expect(parseProjectRepos(undefined)).toEqual({});
   expect(parseProjectRepos([1])).toEqual({});
+});
+
+test("GitHub remotes normalize to one identity before project grouping", () => {
+  const cases: Array<[unknown, string | undefined]> = [
+    ["manaflow-ai/cmux", "manaflow-ai/cmux"],
+    ["github.com/manaflow-ai/cmux", "manaflow-ai/cmux"],
+    ["https://github.com/manaflow-ai/cmux.git", "manaflow-ai/cmux"],
+    ["https://www.github.com/manaflow-ai/cmux/", "manaflow-ai/cmux"],
+    ["ssh://git@github.com/manaflow-ai/cmux.git", "manaflow-ai/cmux"],
+    ["git://github.com/manaflow-ai/cmux.git", "manaflow-ai/cmux"],
+    ["git@github.com:manaflow-ai/cmux.git", "manaflow-ai/cmux"],
+    ["https://github.com/acme/.github.git", "acme/.github"],
+    ["git@github.com:acme/_tools.git", "acme/_tools"],
+    ["acme/-dash", "acme/-dash"],
+    ["acme/..", undefined],
+    ["https://gitlab.com/manaflow-ai/cmux.git", undefined],
+    ["https://github.com/manaflow-ai/cmux/issues", undefined],
+    ["github.com/manaflow-ai/cmux/extra", undefined],
+    ["not a repository", undefined],
+    [null, undefined],
+  ];
+  for (const [remote, expected] of cases) expect(githubRepository(remote)).toBe(expected);
+
+  const parsed = parseProjectRepos({
+    "/Users/me/src/cmux": {
+      root: "/Users/me/src/cmux",
+      name: "cmux",
+      github: "https://github.com/manaflow-ai/cmux.git",
+    },
+    "/Users/me/.cmux/worktrees/cmux/fix": {
+      root: "/Users/me/src/cmux",
+      name: "cmux",
+      branch: "fix",
+      github: "git@github.com:manaflow-ai/cmux.git",
+    },
+  });
+  expect(Object.values(parsed).map((repo) => repo.github)).toEqual(["manaflow-ai/cmux", "manaflow-ai/cmux"]);
 });
 
 test("a folder inside a checkout is named by its path below it, never as the checkout", () => {
@@ -328,4 +367,80 @@ test("a folder named like a lane but outside a lane root stays listed", () => {
     "/Users/me/Projects/design--notes",
   ]);
   expect(projectRows(plain.map((folder) => ({ cwd: folder.id, label: folder.label }))).length).toBe(2);
+});
+
+// Leo, "why is this all misaligned in the agent chat project selectin": the agent chat's project
+// picker listed two lanes' worktrees (`~/wt/lanes/<lane>/cmux`) as two "cmux" projects of their own.
+test("the project chooser lists a lane's worktree under its repository, and finds it by search", () => {
+  const main = { root: "/Users/sample/Projects/cmux", name: "cmux", branch: "main", github: "sample/cmux" };
+  const projects = [
+    { cwd: "/Users/sample/wt/lanes/lane-adopt/cmux", label: "cmux" },
+    { cwd: "/Users/sample/wt/lanes/next-reds/cmux", label: "cmux" },
+    { cwd: "/Users/sample/Projects/cmux", label: "cmux", repo: main },
+    { cwd: "/Users/sample/Projects", label: "Projects" },
+    { cwd: "/srv/atlas", label: "atlas", peer: "build-box", host: "build-box" },
+  ];
+  const cwds = (query: string, current?: string) => chooserRows(projects, query, current).map((row) => row.cwd);
+  // One cmux row (its main checkout), the plain folder, then the other machine's folder.
+  expect(cwds("")).toEqual(["/Users/sample/Projects/cmux", "/Users/sample/Projects", "/srv/atlas"]);
+  // The current folder leads its repository's row.
+  expect(cwds("", "/Users/sample/wt/lanes/next-reds/cmux")[0]).toBe("/Users/sample/wt/lanes/next-reds/cmux");
+  // A search for the repository lists it once; one that names a lane finds that lane's worktree.
+  expect(cwds("cmux")).toEqual(["/Users/sample/Projects/cmux"]);
+  expect(cwds("next-reds")).toEqual(["/Users/sample/wt/lanes/next-reds/cmux"]);
+  expect(cwds("wt/lanes")).toEqual(["/Users/sample/wt/lanes/lane-adopt/cmux", "/Users/sample/wt/lanes/next-reds/cmux"]);
+  expect(cwds("build")).toEqual(["/srv/atlas"]);
+  // A linked worktree the host read keeps its repository, wherever it lives.
+  const read = [
+    { cwd: "/Users/sample/Projects/cmux", label: "cmux", repo: main },
+    {
+      cwd: "/Users/sample/scratch/fix-login",
+      label: "fix-login",
+      repo: { ...main, top: "/Users/sample/scratch/fix-login", branch: "fix-login" },
+    },
+  ];
+  expect(chooserRows(read, "").map((row) => row.cwd)).toEqual(["/Users/sample/Projects/cmux"]);
+  expect(chooserRows(read, "fix").map((row) => row.cwd)).toEqual(["/Users/sample/scratch/fix-login"]);
+});
+
+test("a lane's worktree under wt/lanes is named for its repository and its lane", () => {
+  expect(guessProjectRepo("/Users/sample/wt/lanes/next-reds/cmux")).toMatchObject({
+    name: "cmux",
+    branch: "next-reds",
+  });
+});
+
+test("a folder the host said nothing about joins its nearest named checkout, found by its path", () => {
+  const outer = { root: "/w/outer", top: "/w/outer", name: "outer", branch: "main" };
+  const inner = { root: "/w/outer/vendor/inner", top: "/w/outer/vendor/inner", name: "inner", branch: "main" };
+  const groups = groupByRepo([
+    { id: "/w/outer", label: "outer", repo: outer },
+    { id: "/w/outer/vendor/inner", label: "inner", repo: inner },
+    { id: "/w/outer/vendor/inner/src/lib", label: "lib" },
+    { id: "/w/outer/docs", label: "docs" },
+    { id: "/w/outerness", label: "outerness" },
+  ]);
+  const byName = new Map(groups.map((group) => [group.name, group.members.map((member) => member.id)]));
+  expect(byName.get("inner")).toEqual(["/w/outer/vendor/inner", "/w/outer/vendor/inner/src/lib"]);
+  expect(byName.get("outer")).toEqual(["/w/outer", "/w/outer/docs"]);
+  // A sibling whose name only starts like the checkout's is no folder inside it.
+  expect(byName.get("outerness")).toEqual(["/w/outerness"]);
+});
+
+test("grouping thousands of folders stays linear", () => {
+  const many: RepoFolder[] = [];
+  for (let index = 0; index < 5000; index++) {
+    const root = `/Users/me/p/project-${index}`;
+    many.push(
+      index % 3 === 0
+        ? { id: `${root}/sub`, label: "sub" }
+        : { id: root, label: `project-${index}`, repo: { root, top: root, name: `project-${index}` } },
+    );
+  }
+  const started = performance.now();
+  const groups = groupByRepo(many);
+  const elapsed = performance.now() - started;
+  expect(groups.length).toBeGreaterThan(3000);
+  // Before: each unnamed folder scanned every checkout (5,000 x 6,700 prefix checks).
+  expect(elapsed).toBeLessThan(150);
 });

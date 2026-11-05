@@ -128,7 +128,16 @@ fn list_resources(
     operation: &str,
 ) -> Result<Value, ResourceError> {
     let path = mux.resolve_resource_path(scope, selectors)?;
-    let snapshot = public_session_snapshot(mux)?;
+    // A pane or tab list inside one workspace reads that workspace's rows
+    // only, under the registry lock alone (CLI-1: the whole snapshot held
+    // both global locks for each CLI `tab list`); every other list reads
+    // the session snapshot.
+    let snapshot = match &path.workspace {
+        Some(workspace) if matches!(collection, "panes" | "tabs") => {
+            crate::resource_api::public_workspace_topology(mux, workspace)?
+        }
+        _ => public_session_snapshot(mux)?,
+    };
     let path_index = SnapshotPathIndex::new(&snapshot);
     let values = snapshot[collection]
         .as_array()
@@ -267,6 +276,31 @@ fn pane_neighbor(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, Res
 /// field stays in the stored intent and its fingerprint). No observer sees
 /// the workspace without the flag.
 fn create_workspace(
+    mux: &Arc<Mux>,
+    request: ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    // `placement` names the new workspace's place in the sidebar order for
+    // this create (an agent's workspace on top, #29875); absent: the
+    // `workspaces.newPlacement` setting.
+    match create_placement(&request.fields)? {
+        Some(placement) => placement.scoped(|| create_workspace_placed(mux, request)),
+        None => create_workspace_placed(mux, request),
+    }
+}
+
+fn create_placement(
+    fields: &serde_json::Map<String, Value>,
+) -> Result<Option<crate::user_settings::NewWorkspacePlacement>, ResourceError> {
+    let Some(value) = optional_string(fields, "placement")? else { return Ok(None) };
+    crate::user_settings::NewWorkspacePlacement::from_wire(&value).map(Some).ok_or_else(|| {
+        validation_error(
+            "placement must be top, after_current or bottom",
+            json!({"field":"placement","value":value}),
+        )
+    })
+}
+
+fn create_workspace_placed(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {

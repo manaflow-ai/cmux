@@ -12,7 +12,7 @@ import Testing
         MacDevice(id: "cccc-3333", name: "Studio", isOnline: true),
     ]
 
-    func input(_ macs: [MacDevice] = macs, link: [String: String] = ["bbbb-2222": "Connected · WebRTC direct"],
+    func input(_ macs: [MacDevice] = macs, link: [String: String] = ["bbbb-2222": "Connected"],
                connection: [String: MacConnection] = ["bbbb-2222": .connected], now: Date = now) -> MacFilterMemo.Input {
         MacFilterMemo.Input(macs: macs, connection: connection, linkStatus: link, live: true, now: now)
     }
@@ -36,7 +36,7 @@ import Testing
     @Test func filterRowsMatchTheMenuTextOnlineFirst() {
         let entries = MacFilterMemo().entries(input())
         #expect(entries.map(\.id) == ["bbbb-2222", "cccc-3333", "aaaa-1111"])
-        #expect(entries[0] == .init(id: "bbbb-2222", title: "Aziz's MacBook Pro 2222", detail: "Online · Connected · WebRTC direct"))
+        #expect(entries[0] == .init(id: "bbbb-2222", title: "Aziz's MacBook Pro 2222", detail: "Connected"))
         #expect(entries[1].detail == "Online · Not connected")
         #expect(entries[2] == .init(id: "aaaa-1111", title: "Aziz's MacBook Pro 1111", detail: "Last seen 4m ago"))
     }

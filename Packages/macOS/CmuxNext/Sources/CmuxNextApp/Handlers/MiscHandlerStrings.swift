@@ -1,3 +1,6 @@
+import CmuxNextActions
+import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 
 /// User-facing reasons for typed "unavailable" and "failed" action
@@ -32,7 +35,11 @@ enum MiscHandlerStrings {
     static var notInThisWindow: String { String(localized: "handlers.misc.unavailable.windowKind", defaultValue: "Not available in this window.", table: "MiscHandlers", bundle: .module) }
     static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "No pane is focused.", table: "MiscHandlers", bundle: .module) }
     /// The sheet that asks for a terminal's resume command (Set/Edit Resume Command).
-    static var daemonOffline: String { String(localized: "handlers.misc.failed.daemonOffline", defaultValue: "The cmux-tui daemon is not connected.", table: "MiscHandlers", bundle: .module) }
+    /// A pane verb on a pane still opening (`PaneNotReady`, P0 2026-10-30): it was not sent.
+    static var paneNotReady: String { String(localized: "handlers.misc.failed.paneNotReady", defaultValue: "This pane is still opening; try again in a moment.", table: "MiscHandlers", bundle: .module) }
+    /// A create's target was a pending pane whose own create was never made (`PendingPaneNotCreated`, P0 2026-10-30).
+    static var pendingPaneNotCreated: String { String(localized: "handlers.misc.failed.pendingPaneNotCreated", defaultValue: "The pane it was for was not created.", table: "MiscHandlers", bundle: .module) }
+    static var daemonOffline: String { String(localized: "handlers.misc.failed.daemonOffline", defaultValue: "cmux's background service isn't connected.", table: "MiscHandlers", bundle: .module) }
     static var printUnavailable: String { String(localized: "handlers.misc.failed.printUnavailable", defaultValue: "This page can't be printed now.", table: "MiscHandlers", bundle: .module) }
     static var noPageURL: String { String(localized: "handlers.misc.failed.noPageURL", defaultValue: "The page has no URL.", table: "MiscHandlers", bundle: .module) }
     static var hardReloadEngine: String { String(localized: "handlers.misc.failed.hardReloadEngine", defaultValue: "This browser engine cannot bypass the cache; use Reload Page.", table: "MiscHandlers", bundle: .module) }
@@ -41,20 +48,13 @@ enum MiscHandlerStrings {
         String(localized: "handlers.misc.failed.noNotificationToCopy", defaultValue: "There are no notifications to copy.", table: "MiscHandlers", bundle: .module)
     }
     static var noPrompt: String { String(localized: "handlers.misc.failed.noPrompt", defaultValue: "No agent has been given a prompt yet.", table: "MiscHandlers", bundle: .module) }
-    /// `agent.openSessionTab` with a peer `host` this Mac mirrors, but no live chat of it named `session`.
-    static func noPeerSession(_ session: String, _ peer: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.noPeerSession", defaultValue: "%1$@ has no running chat named %2$@.", table: "MiscHandlers", bundle: .module), peer, session)
-    }
-    /// `agent.openSessionTab` with a peer `host` where more than one live chat has the name `session`.
-    static func ambiguousPeerSession(_ session: String, _ peer: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.ambiguousPeerSession", defaultValue: "%1$@ has more than one chat named %2$@. Name it by its session id.", table: "MiscHandlers", bundle: .module), peer, session)
-    }
     static var sessionRequired: String { String(localized: "handlers.misc.failed.sessionRequired", defaultValue: "Name the acpmux session to open (session).", table: "MiscHandlers", bundle: .module) }
     static var noAgentSession: String { String(localized: "handlers.misc.failed.noAgentSession", defaultValue: "The focused terminal has no agent session to fork.", table: "MiscHandlers", bundle: .module) }
     static var noAgentPane: String { String(localized: "handlers.misc.failed.noAgentPane", defaultValue: "The focused pane is not showing an agent chat.", table: "MiscHandlers", bundle: .module) }
-    static var forkTerminalAgents: String { String(localized: "handlers.misc.failed.forkTerminalAgents", defaultValue: "A terminal agent forks with Claude Code or Codex only. Open it as a chat to fork it.", table: "MiscHandlers", bundle: .module) }
-    static var noForkTarget: String { String(localized: "handlers.misc.failed.noForkTarget", defaultValue: "Focus an agent chat, or a terminal running Claude Code or Codex, to fork it.", table: "MiscHandlers", bundle: .module) }
+    static var forkTerminalAgents: String { String(localized: "handlers.misc.failed.forkTerminalAgents", defaultValue: "This terminal's agent cannot fork. Open it as a chat to fork it.", table: "MiscHandlers", bundle: .module) }
+    static var noForkTarget: String { String(localized: "handlers.misc.failed.noForkTarget", defaultValue: "Focus an agent chat, or a terminal running an agent, to fork it.", table: "MiscHandlers", bundle: .module) }
     static var gitNeedsAgentChat: String { String(localized: "handlers.misc.failed.gitNeedsAgentChat", defaultValue: "Commit and Push work in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
+    static var nothingReadAloud: String { String(localized: "handlers.misc.failed.nothingReadAloud", defaultValue: "Nothing is being read aloud.", table: "MiscHandlers", bundle: .module) }
     static var noAgentChat: String { String(localized: "handlers.misc.failed.noAgentChat", defaultValue: "Dictation works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var switchModelNeedsFocus: String { String(localized: "handlers.misc.failed.switchModelNeedsFocus", defaultValue: "Switch Model… opens a menu, so it needs focus.", table: "MiscHandlers", bundle: .module) }
     static var switchModelNeedsAgentChat: String { String(localized: "handlers.misc.failed.switchModelNeedsAgentChat", defaultValue: "Switch Model… works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
@@ -67,6 +67,8 @@ enum MiscHandlerStrings {
     static var channelsCannotStep: String { String(localized: "handlers.misc.failed.channelsCannotStep", defaultValue: "Channels did not move to another conversation.", table: "MiscHandlers", bundle: .module) }
     static var archiveChatNeedsAgentChat: String { String(localized: "handlers.misc.failed.archiveChatNeedsAgentChat", defaultValue: "Archive Chat works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var searchFilesNeedsAgentChat: String { String(localized: "handlers.misc.failed.searchFilesNeedsAgentChat", defaultValue: "Search Files… works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
+    static var sideQuestionNeedsFocus: String { String(localized: "handlers.misc.failed.sideQuestionNeedsFocus", defaultValue: "Ask a Side Question… opens the chat's composer, so it needs focus.", table: "MiscHandlers", bundle: .module) }
+    static var sideQuestionNeedsAgentChat: String { String(localized: "handlers.misc.failed.sideQuestionNeedsAgentChat", defaultValue: "Ask a Side Question… works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var continueInNeedsFocus: String { String(localized: "handlers.misc.failed.continueInNeedsFocus", defaultValue: "Continue In… requires focus; use cmux acp continue for a headless handoff.", table: "MiscHandlers", bundle: .module) }
     static var quickChatNeedsFocus: String { String(localized: "handlers.misc.failed.quickChatNeedsFocus", defaultValue: "Start Agent opens from the keyboard, palette or menu. It does not take the keyboard for automation.", table: "MiscHandlers", bundle: .module) }
     static var quickChatUnavailable: String { String(localized: "handlers.misc.failed.quickChatUnavailable", defaultValue: "Start Agent needs the agent page, which this build does not include.", table: "MiscHandlers", bundle: .module) }
@@ -103,5 +105,17 @@ enum MiscHandlerStrings {
     static var noEditor: String { String(localized: "handlers.misc.failed.noEditor", defaultValue: "No app on this Mac edits text.", table: "MiscHandlers", bundle: .module) }
     static func appNotFound(_ app: String) -> String {
         String(format: String(localized: "handlers.misc.failed.appNotFound", defaultValue: "No app named %@ was found.", table: "MiscHandlers", bundle: .module), app)
+    }
+}
+
+extension ActionWorkFailure {
+    /// A person's failed optimistic create (Cmd-D, Ctrl-`, New Row, New Column) as the refusal HUD shows it: ``PendingPaneNotCreated``
+    /// and ``PaneNotReady`` in the app's language; no other daemon text (`ActionWorkFailure.notice(title:)`), and never `label`.
+    @MainActor static func create(_ label: String, _ error: any Error) -> ActionWorkFailure {
+        let notCreated = MiscHandlerStrings.pendingPaneNotCreated
+        if error is PendingPaneNotCreated { return ActionWorkFailure(log: "\(label): \(notCreated)", reason: notCreated) }
+        var failure = ActionWorkFailure(label, error)
+        if error is PaneNotReady { failure.message = MiscHandlerStrings.paneNotReady }
+        return failure
     }
 }

@@ -39,21 +39,27 @@ final class TabStripRevealController {
         applyPlusButtonMode()
         // task-owner: this controller (cancelled in deinit); event-driven (Observation).
         observation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.plusButton, TabTunables.restingControlOpacity.value) }) {
+            for await _ in ObservationStream({
+                (DesignSettings.shared.plusButton, TabTunables.restingControlOpacity.value, TabTunables.crowdedControls.value, TabTunables.crowdedControlOpacity.value)
+            }) {
                 self?.applyPlusButtonMode()
             }
         }
     }
 
-    /// `tabs.plusButton`: hover brightens the muted plus; always keeps it fully shown.
+    /// `tabs.plusButton`: hover brightens the muted plus and its pane-type chooser; always keeps both fully shown.
     func applyPlusButtonMode() {
-        guard let plus = strip?.newTabButton else { return }
-        // At rest the plus shows muted, so its kept room never reads as an empty gap (Leo 2026-10-19).
-        hover.restAlpha = TabTunables.restingControlOpacity.value
-        if DesignSettings.shared.plusButton == .hover {
-            if HoverReveal.owner(of: plus) == nil { hover.add(plus) }
-        } else {
-            hover.remove(plus)
+        guard let strip else { return }
+        // Hidden at rest while the tabs leave room; muted once they fill the bar, so its kept room never
+        // reads as an empty gap (Leo 2026-10-19, 2026-10-20).
+        hover.restAlpha = TabTunables.restingControlAlpha(crowded: strip.isCrowded)
+        // The chooser sits beside the plus, so it fades with it; it never shows next to a hidden plus.
+        for control in [strip.newTabButton, strip.newTabMenuButton] as [NSView] {
+            if DesignSettings.shared.plusButton == .hover {
+                if HoverReveal.owner(of: control) == nil { hover.add(control) }
+            } else {
+                hover.remove(control)
+            }
         }
     }
 

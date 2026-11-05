@@ -41,6 +41,7 @@ let shown: AcpmuxRow[] = [];
 let expanded = new Set<string>();
 // Prompts "sent" from the pane's composer (App's `chat.send`), which put the view at its latest message.
 let sends = 0;
+let controlPresses = 0;
 // Where the chat reopens (`__openAt`, the reader's saved place). Its row is in an older page that never
 // lands, so the open keeps paging back for it, unseen, until it gives up or a prompt is sent.
 let openAt: ScrollAnchor | undefined;
@@ -90,7 +91,22 @@ function Harness() {
                 height: 30,
                 pointerEvents: "auto",
               }}
-            />
+            >
+              {/* Production strips put this full-width context box around their controls. The
+                  blank part must still be a valid transcript-selection start surface. */}
+              <div className="acpmux-composer-context">
+                <button
+                  type="button"
+                  data-testid="bottom-selection-control"
+                  style={{ position: "absolute", right: 4, top: 4 }}
+                  onPointerDown={() => {
+                    controlPresses += 1;
+                  }}
+                >
+                  Keep control ownership
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -112,6 +128,7 @@ const draw = () => view.render(<Harness />);
   sends += 1;
   draw();
 };
+(window as unknown as { __controlPresses: () => number }).__controlPresses = () => controlPresses;
 (window as unknown as { __openAt: (anchor: ScrollAnchor) => void }).__openAt = (anchor) => {
   openAt = anchor;
   draw();

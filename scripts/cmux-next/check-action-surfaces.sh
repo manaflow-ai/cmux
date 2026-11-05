@@ -17,17 +17,29 @@
 # skip them (feat-cmux-next's autofix bots regenerate the exports).
 # Usage: scripts/cmux-next/check-action-surfaces.sh [package-root]
 set -euo pipefail
+# cmux-ci-warm-contract: swiftpm-v1
 # swift test builds and runs cmux-next's test host: fleet or GitHub runner only.
 # shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
 cmux_next_require_fleet check-action-surfaces.sh "swift test" "cmux-next generated files" \
   "cmux-ci run --class light --script scripts/cmux-next/check-action-surfaces.sh"
+# shellcheck source-path=SCRIPTDIR source=lib/warm-swiftpm.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/warm-swiftpm.sh"
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
 cd "$root"
+# Absolute from here: cmux_next_warm_build resolves it again, from this directory (a relative
+# PACKAGE-ROOT would otherwise name a folder inside itself).
+root="$PWD"
 # CMUX_ACTION_SURFACES_SKIP_BUILD=1: the package and its tests are already built
 # (the CI jobs run `swift build --build-tests` first), so swift test does not
 # plan the whole graph again.
-skip_build=()
-[[ "${CMUX_ACTION_SURFACES_SKIP_BUILD:-}" != 1 ]] || skip_build=(--skip-build)
-CMUX_CHECK_GENERATED_EXPORTS=1 exec swift test -j "${CMUX_NEXT_SWIFT_JOBS:-4}" ${skip_build[@]+"${skip_build[@]}"} \
-  --filter 'ActionSurfaceParityTests|ActionCatalogTests|ActionContractTests|CLISurfaceParityTests|LinkExportTests'
+filter='ActionSurfaceParityTests|ActionCatalogTests|ActionContractTests|CLISurfaceParityTests|LinkExportTests'
+if [[ "${CMUX_ACTION_SURFACES_SKIP_BUILD:-}" == 1 ]]; then
+  CMUX_CHECK_GENERATED_EXPORTS=1 exec swift test -j "${CMUX_NEXT_SWIFT_JOBS:-4}" --skip-build --filter "$filter"
+fi
+# Otherwise build in place under the warm contract (lib/warm-swiftpm.sh), then test that build.
+# The fleet grant (CMUX_CI_CPU_BUDGET, --jobs in the shared flags) wins over -j.
+jobs=(-j "${CMUX_NEXT_SWIFT_JOBS:-4}")
+[[ " ${cmux_next_swift_args[*]-} " != *" --jobs "* ]] || jobs=()
+cmux_next_warm_build "$root" ${jobs[@]+"${jobs[@]}"}
+CMUX_CHECK_GENERATED_EXPORTS=1 exec swift test ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} ${jobs[@]+"${jobs[@]}"} --skip-build --filter "$filter"

@@ -91,21 +91,33 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
     });
 
   /// Whether the prompt's scrollbar lane shows a thumb as the page draws it: some rows of the lane
-  /// differ from the field's padding beside it (a thumb), and some do not (no track).
+  /// differ from the field's padding beside it (a thumb), and some do not (no track). Since #24498
+  /// the prompt runs to the box's right edge, so only the lane's rows below the box's rounded top
+  /// corner (its rim) and above the mic and Send (where the track stops) can show a thumb.
   async function thumb(page: Page) {
     const box = await page.evaluate((selector) => {
       const field = document.querySelector<HTMLElement>(selector)!;
       const rect = field.getBoundingClientRect();
       const style = getComputedStyle(field);
       const borders = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+      const actions = document.querySelector(".acpmux-composer-actions")?.getBoundingClientRect();
+      const bottom = actions && actions.height > 0 ? Math.min(rect.bottom, actions.top) : rect.bottom;
+      // The nearest rounded box around the prompt: its corner's rows are the rim, not the lane.
+      let corner = 0;
+      for (let node = field.parentElement; node && !corner; node = node.parentElement) {
+        const box = node.getBoundingClientRect();
+        if (Math.abs(box.right - rect.right) > 2) continue;
+        corner = Math.max(0, box.top + parseFloat(getComputedStyle(node).borderTopRightRadius) - rect.top);
+      }
+      const top = rect.top + Math.ceil(corner);
       return {
         right: rect.right - parseFloat(style.borderRightWidth),
-        top: rect.top,
-        height: rect.height,
+        top,
+        height: Math.max(0, bottom - top),
         bar: Math.round(field.offsetWidth - field.clientWidth - borders),
       };
     }, FIELD);
-    if (box.bar <= 0) return { bar: box.bar, thumb: false, track: false };
+    if (box.bar <= 0 || box.height < 1) return { bar: box.bar, thumb: false, track: false };
     const shot = await page.screenshot({
       clip: { x: box.right - box.bar - 4, y: box.top, width: box.bar + 4, height: Math.floor(box.height) },
     });
@@ -131,8 +143,8 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
     return { bar: box.bar, thumb: drawn >= 8, track: drawn > png.height - 8 };
   }
 
-  /// Pastes `lines` long lines into the prompt, as the clipboard would (under 2,000 characters and
-  /// 20 lines, so it lands as text, not a Pasted text chip, pastedText.ts).
+  /// Pastes `lines` long lines into the prompt, as the clipboard would (under 750 words and
+  /// 10,000 characters, so it lands as text, not a Pasted text chip, pastedText.ts).
   async function paste(page: Page, lines: number) {
     await page.locator(EDITABLE).click();
     await page.evaluate(
@@ -158,72 +170,76 @@ await requireBrowserLane("composer-persistent-scrollbar.test.ts", async () => {
 
   for (const [name] of launchers) {
     describe(name, () => {
-      test("an overflowing draft keeps a thin thumb on every frame, through typing, idle, blur, focus and pointer leave", async () => {
-        current = browsers.get(name);
-        const page = await pane!.open();
-        await paste(page, 20);
+      // With the agent pane's scrollbar fade on too (its default, `data-cmux-scroller-fade`): it fades
+      // the transcript's thumb at rest, never the composer's (Leo 2026-10-21, ask-c8936f0e52).
+      for (const fade of [false, true])
+        test(`an overflowing draft keeps a thin thumb on every frame, through typing, idle, blur, focus and pointer leave${fade ? ", under the scrollbar fade" : ""}`, async () => {
+          current = browsers.get(name);
+          const page = await pane!.open();
+          await page.evaluate((on) => document.documentElement.toggleAttribute("data-cmux-scroller-fade", on), fade);
+          await paste(page, 20);
 
-        const seen: Record<string, Awaited<ReturnType<typeof thumb>>> = {};
-        await record(page);
-        // Typing at the end of the draft.
-        await page.keyboard.type(" and one more thing", { delay: 25 });
-        await painted(page, 3);
-        seen.typed = await thumb(page);
-        // An idle pause past any overlay fade (AppKit's starts under a second).
-        for (const at of [500, 1000, 1500, 2000, 2500]) {
-          await idle(page, 500);
-          seen[`idle ${at}ms`] = await thumb(page);
-        }
-        // Focus leaves the prompt.
-        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-        await painted(page, 3);
-        await idle(page, 1200);
-        seen.blurred = await thumb(page);
-        // Focus comes back.
-        await page.locator(EDITABLE).focus();
-        await painted(page, 3);
-        await idle(page, 1200);
-        seen.focused = await thumb(page);
-        // The pointer crosses the prompt and leaves it.
-        const box = (await page.locator(FIELD).boundingBox())!;
-        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-        await painted(page, 3);
-        await page.mouse.move(4, 4);
-        await painted(page, 3);
-        await idle(page, 1200);
-        seen.left = await thumb(page);
-        const frames = await recorded(page);
+          const seen: Record<string, Awaited<ReturnType<typeof thumb>>> = {};
+          await record(page);
+          // Typing at the end of the draft.
+          await page.keyboard.type(" and one more thing", { delay: 25 });
+          await painted(page, 3);
+          seen.typed = await thumb(page);
+          // An idle pause past any overlay fade (AppKit's starts under a second).
+          for (const at of [500, 1000, 1500, 2000, 2500]) {
+            await idle(page, 500);
+            seen[`idle ${at}ms`] = await thumb(page);
+          }
+          // Focus leaves the prompt.
+          await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+          await painted(page, 3);
+          await idle(page, 1200);
+          seen.blurred = await thumb(page);
+          // Focus comes back.
+          await page.locator(EDITABLE).focus();
+          await painted(page, 3);
+          await idle(page, 1200);
+          seen.focused = await thumb(page);
+          // The pointer crosses the prompt and leaves it.
+          const box = (await page.locator(FIELD).boundingBox())!;
+          await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+          await painted(page, 3);
+          await page.mouse.move(4, 4);
+          await painted(page, 3);
+          await idle(page, 1200);
+          seen.left = await thumb(page);
+          const frames = await recorded(page);
 
-        console.log(
-          `${name}: ${frames.length} frames, lane widths ${[...new Set(frames.map((frame) => frame.bar))].join(",")}`,
-        );
-        expect(frames.length).toBeGreaterThan(30);
-        // Every frame: the draft overflows, and the lane is there and thin.
-        const bad = frames.filter((frame) => !(frame.overflow > 0 && frame.bar > 0 && frame.bar <= THIN));
-        expect({ badFrames: bad.length, first: JSON.stringify(bad[0] ?? null) }).toEqual({
-          badFrames: 0,
-          first: "null",
+          console.log(
+            `${name}: ${frames.length} frames, lane widths ${[...new Set(frames.map((frame) => frame.bar))].join(",")}`,
+          );
+          expect(frames.length).toBeGreaterThan(30);
+          // Every frame: the draft overflows, and the lane is there and thin.
+          const bad = frames.filter((frame) => !(frame.overflow > 0 && frame.bar > 0 && frame.bar <= THIN));
+          expect({ badFrames: bad.length, first: JSON.stringify(bad[0] ?? null) }).toEqual({
+            badFrames: 0,
+            first: "null",
+          });
+          // Every sample: a thumb is drawn, on no track.
+          for (const [phase, sample] of Object.entries(seen))
+            expect({ phase, ...sample }).toEqual({ phase, bar: sample.bar, thumb: true, track: false });
+
+          // Cut back to a draft that fits: no thumb on any frame. The thin lane stays reserved and
+          // empty (overflow-y: scroll), so the draft never rewraps as it starts or stops overflowing.
+          await page.locator(EDITABLE).click();
+          await page.keyboard.press("ControlOrMeta+A");
+          await page.keyboard.type("short again");
+          await painted(page, 3);
+          await record(page);
+          await painted(page, 20);
+          await idle(page, 1200);
+          const fits = await recorded(page);
+          expect(fits.length).toBeGreaterThan(10);
+          expect(fits.filter((frame) => frame.overflow > 0 || frame.bar > THIN)).toEqual([]);
+          const fitted = await thumb(page);
+          expect(fitted).toEqual({ bar: fitted.bar, thumb: false, track: false });
+          await page.close();
         });
-        // Every sample: a thumb is drawn, on no track.
-        for (const [phase, sample] of Object.entries(seen))
-          expect({ phase, ...sample }).toEqual({ phase, bar: sample.bar, thumb: true, track: false });
-
-        // Cut back to a draft that fits: no thumb on any frame. The thin lane stays reserved and
-        // empty (overflow-y: scroll), so the draft never rewraps as it starts or stops overflowing.
-        await page.locator(EDITABLE).click();
-        await page.keyboard.press("ControlOrMeta+A");
-        await page.keyboard.type("short again");
-        await painted(page, 3);
-        await record(page);
-        await painted(page, 20);
-        await idle(page, 1200);
-        const fits = await recorded(page);
-        expect(fits.length).toBeGreaterThan(10);
-        expect(fits.filter((frame) => frame.overflow > 0 || frame.bar > THIN)).toEqual([]);
-        const fitted = await thumb(page);
-        expect(fitted).toEqual({ bar: fitted.bar, thumb: false, track: false });
-        await page.close();
-      });
     });
   }
 });

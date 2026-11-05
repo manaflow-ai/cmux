@@ -27,17 +27,17 @@ protocol FeedRowCellDelegate: AnyObject {
     func rowCodeExpand(_ id: String)
     func rowCopyCommand(_ id: String)
     func rowMenu(_ id: String) -> UIMenu
-    func rowSwipeActions(_ id: String) -> [FeedSwipeAction]
-    func rowSwipeBegan(_ id: String)
-    func rowSwipeOpenChanged(_ id: String, open: Bool)
     func rowWebHeight(_ id: String, _ height: CGFloat)
     var rowsSettled: Bool { get }
 }
 
 /// One Feed row, drawn with UIKit views only: no SwiftUI view tree, no
 /// hosting. `apply(_:)` places the reused subviews at a `FeedRowLayout`'s
-/// frames; nothing is measured here (verify/feed-perf-20261022.md).
-final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITextViewDelegate, UITextFieldDelegate,
+/// frames; nothing is measured here (verify/feed-perf-20261022.md). Its
+/// swipe actions are the table's own (`UIContextualAction`, from
+/// `FeedListController`): UIKit slides the cell, draws the actions, arms the
+/// full swipe and plays its haptic.
+final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegate,
     UIContextMenuInteractionDelegate {
     static let reuseID = "FeedRowCell"
 
@@ -45,7 +45,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     private(set) var layout: FeedRowLayout?
     private var id: String { layout?.key.item.id ?? "" }
 
-    /// Everything that slides with a swipe.
+    /// The row above its divider.
     private let row = UIView()
     private let divider = UIView()
     private let avatar = UIView()
@@ -54,6 +54,8 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     private let name = UILabel()
     private let source = UILabel()
     private let time = UILabel()
+    /// The last time VoiceOver reads, formatted once per date (a reused cell keeps it).
+    private var spokenDate: (date: Date, text: String)?
     private let menuButton = UIButton(type: .custom)
     // Parts a row may not show are made when a row first needs them, so a new cell (the list makes
     // one when it needs more mid-scroll) costs its avatar, header, body and footer, not every part.
@@ -167,26 +169,16 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     private let composerPlaceholder = UILabel()
     private let send = UIButton(type: .custom)
     private var footerButtons: [UIButton] = []
-    /// Swipe actions: the strip under the row and its buttons.
-    private let strip = UIView()
-    private var stripButtons: [FeedSwipeButton] = []
-    private var actions: [FeedSwipeAction] = []
-    private var offset: CGFloat = 0
-    private var dragStart: CGFloat?
-    private var armed = false {
-        didSet { if armed, !oldValue { UIImpactFeedbackGenerator(style: .medium).impactOccurred() } }
-    }
-    private let pan = UIPanGestureRecognizer()
-    private let closeTap = UITapGestureRecognizer()
 
-    override init(frame: CGRect) {
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         #if DEBUG
         let t0 = CACurrentMediaTime()
         defer { FeedCellTiming.log("init", t0) }
         #endif
-        super.init(frame: frame)
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .none
+        backgroundColor = .cmuxMobileBackground
         contentView.clipsToBounds = true
-        contentView.addSubview(strip)
         contentView.addSubview(row)
         row.backgroundColor = .cmuxMobileBackground
         contentView.addSubview(divider)
@@ -263,14 +255,6 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         row.addGestureRecognizer(header)
         row.addInteraction(UIContextMenuInteraction(delegate: self))
 
-        pan.name = RowSwipeActions.panName
-        pan.delegate = self
-        pan.addTarget(self, action: #selector(panned(_:)))
-        contentView.addGestureRecognizer(pan)
-        closeTap.addTarget(self, action: #selector(closeTapped))
-        closeTap.isEnabled = false
-        row.addGestureRecognizer(closeTap)
-
         // Made with the cell: the permission buttons, a reply and an answer, so no row allocates views mid-scroll.
         // Text is drawn on a background thread at commit (the labels' layers draw asynchronously):
         // a row's first draw no longer lands on the main thread's frame.
@@ -309,16 +293,9 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        if offset != 0 { setOffset(0, animated: false) }
-        armed = false
         if made.contains("web") { web.release() }
         resignQuestionOther()
         if composerText.value?.isFirstResponder == true { composerText.value?.resignFirstResponder() }
-    }
-
-    override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
-        // Heights come from the layout model; the cell never sizes itself.
-        attributes
     }
 
     // MARK: Applying a layout
@@ -334,13 +311,11 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         let t0 = CACurrentMediaTime()
         defer { FeedCellTiming.log("apply \(layout.key.item.id)", t0) }
         #endif
-        let same = self.layout?.key.item.id == layout.key.item.id
         self.layout = layout
         let item = shown ?? layout.key.item
         current = item
         let width = CGFloat(layout.key.width)
-        if !same { setOffset(0, animated: false) }
-        row.frame = CGRect(x: offset, y: 0, width: width, height: layout.dividerY)
+        row.frame = CGRect(x: 0, y: 0, width: width, height: layout.dividerY)
         // From the text column, as every list's separators (the avatar hangs in the gutter).
         divider.frame = CGRect(x: layout.column.minX, y: layout.dividerY, width: width - layout.column.minX,
                                height: layout.height - layout.dividerY)
@@ -376,12 +351,6 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         applyErrorAndReplies(layout)
         applyComposer(layout)
         applyFooter(layout)
-        actions = delegate?.rowSwipeActions(item.id) ?? []
-    }
-
-    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
-        get { actions.map { action in UIAccessibilityCustomAction(name: action.title) { _ in action.action(); return true } } }
-        set {}
     }
 
     /// The minute changed: only the time label moves.
@@ -390,12 +359,11 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         applyHeader(layout)
     }
 
-    /// The read flag changed (no layout change): the dot and the swipe actions.
+    /// The read flag changed (no layout change): the dot. The swipe actions are asked for at each swipe.
     func redraw(_ item: FeedItem) {
         current = item
         unread.isHidden = item.isRead
         unread.accessibilityElementsHidden = item.isRead
-        actions = delegate?.rowSwipeActions(item.id) ?? []
     }
 
     /// The Feed stopped scrolling: web bodies render now.
@@ -411,20 +379,27 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         let font = styles.font(.subheadline)
         let semibold = styles.font(.subheadline, weight: .semibold)
         let stamp = Self.relativeTime(item.createdAt, now: Date())
+        // VoiceOver reads when, not "3m": "Today at 2:05 PM". At accessibility sizes the time is
+        // hidden and the source line carries it.
+        if spokenDate?.date != item.createdAt { spokenDate = (item.createdAt, Self.fullDate.string(from: item.createdAt)) }
+        let date = spokenDate?.text ?? ""
+        time.accessibilityLabel = date
         let frame = layout.header
         if styles.isAccessibilitySize {
             // At accessibility sizes the source wraps under the name instead of truncating.
             name.attributedText = NSAttributedString(string: item.agentName, attributes: [.font: semibold, .foregroundColor: UIColor.label])
-            source.attributedText = NSAttributedString(string: "\(item.workspaceTitle) · \(stamp)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
+            source.attributedText = NSAttributedString(string: "\(item.place) · \(stamp)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
             time.isHidden = true
+            source.accessibilityLabel = item.place.isEmpty ? date : "in \(item.place), \(date)"
             let line = ceil(font.lineHeight)
             name.frame = CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: line)
             source.frame = CGRect(x: frame.minX, y: frame.minY + line + 2, width: frame.width, height: line)
             return
         }
         time.isHidden = false
+        source.accessibilityLabel = item.place.isEmpty ? nil : "in \(item.place)"
         name.attributedText = NSAttributedString(string: item.agentName, attributes: [.font: semibold, .foregroundColor: UIColor.label])
-        source.attributedText = NSAttributedString(string: "· \(item.workspaceTitle)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
+        source.attributedText = NSAttributedString(string: "· \(item.place)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
         time.attributedText = NSAttributedString(string: "· \(stamp)", attributes: [.font: font, .foregroundColor: UIColor.secondaryLabel])
         // HStack(spacing: 4): the time never truncates, then the name, then the source.
         let timeWidth = ceil(time.intrinsicContentSize.width)
@@ -545,7 +520,6 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
             }
             for (index, button) in buttons.enumerated() {
                 capsule(index).apply(button)
-                capsule(index).accessibilityHint = button.title.string.contains("Allow") ? "Approve with Face ID" : nil
             }
             used = buttons.count
         case .question(let card, let openTerminal):
@@ -688,7 +662,6 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     // MARK: Taps
 
     @objc private func openTapped(_ tap: UITapGestureRecognizer) {
-        guard offset == 0 else { return }
         // A link in the body: a web link opens in Safari; a file link opens the event, whose chat previews it.
         var url: URL?
         // Only inside the shown body (its hidden overflow under Show more holds links too).
@@ -705,7 +678,7 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     }
 
     @objc private func headerTapped(_ tap: UITapGestureRecognizer) {
-        guard offset == 0, let layout else { return }
+        guard let layout else { return }
         // Only the header line opens the tab (the answer card, its padding and gaps never navigate).
         let point = tap.location(in: row)
         if layout.header.insetBy(dx: 0, dy: -4).contains(point) { delegate?.rowOpen(id) }
@@ -730,136 +703,9 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
     }
 
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        guard offset == 0, let delegate else { return nil }
+        guard let delegate else { return nil }
         let id = id
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in delegate.rowMenu(id) }
-    }
-
-    // MARK: Swipe actions (Mail conventions, the rounded style of #24202)
-
-    private var width: CGFloat { bounds.width }
-    private var style: RowSwipeActionStyle { .standard }
-    private var revealWidth: CGFloat { style.revealWidth(count: actions.count) }
-    private var fullThreshold: CGFloat { max(width * 0.6, 160, revealWidth + 40) }
-    var isOpen: Bool { offset != 0 }
-
-    override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-        guard recognizer === pan else { return super.gestureRecognizerShouldBegin(recognizer) }
-        let velocity = pan.velocity(in: self)
-        guard abs(velocity.x) > abs(velocity.y) * 1.3 else { return false }
-        // No leading edge: a rightward pan opens the team drawer unless it closes open actions.
-        return velocity.x < 0 || isOpen
-    }
-
-    @objc private func panned(_ pan: UIPanGestureRecognizer) {
-        let translation = pan.translation(in: self).x
-        switch pan.state {
-        case .began, .changed:
-            if dragStart == nil {
-                dragStart = offset
-                delegate?.rowSwipeBegan(id)
-            }
-            var next = min((dragStart ?? 0) + translation, 0)
-            if actions.isEmpty { next = 0 }
-            let limit = width * 0.9
-            if abs(next) > limit { next = -(limit + (abs(next) - limit) * 0.25) }
-            armed = abs(next) > fullThreshold
-            setOffset(next, animated: false)
-        case .ended, .cancelled, .failed:
-            dragStart = nil
-            let velocity = pan.velocity(in: self).x
-            if armed, let first = actions.first {
-                perform(first)
-                return
-            }
-            let projected = abs(min(offset + velocity * 0.12, 0))
-            let open = projected > revealWidth / 2 && (velocity <= 0 || abs(offset) > revealWidth / 2)
-            setOffset(open ? -revealWidth : 0, animated: true)
-        default:
-            break
-        }
-    }
-
-    @objc private func closeTapped() { close() }
-
-    func close() {
-        guard isOpen else { return }
-        setOffset(0, animated: true)
-    }
-
-    /// Opens the actions (the demo driver).
-    func reveal() {
-        delegate?.rowSwipeBegan(id)
-        setOffset(-revealWidth, animated: true)
-    }
-
-    /// A full swipe: the row slides out, the action runs, the row comes back (or leaves).
-    func perform(_ action: FeedSwipeAction) {
-        armed = true
-        setOffset(-width, animated: true)
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(220))
-            if action.removesRow { action.action() }
-            self?.armed = false
-            self?.setOffset(0, animated: true)
-            guard !action.removesRow else { return }
-            try? await Task.sleep(for: .milliseconds(260))
-            action.action()
-        }
-    }
-
-    func perform(actionID: String) {
-        if let action = actions.first(where: { $0.id == actionID }) { perform(action) }
-    }
-
-    private func setOffset(_ value: CGFloat, animated: Bool) {
-        let wasOpen = isOpen
-        offset = value
-        closeTap.isEnabled = value != 0
-        layoutStrip()
-        let move = { self.row.frame.origin.x = value; self.layoutStrip() }
-        if animated, !UIAccessibility.isReduceMotionEnabled {
-            UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0,
-                           options: [.allowUserInteraction, .beginFromCurrentState], animations: move)
-        } else {
-            move()
-        }
-        if wasOpen != isOpen { delegate?.rowSwipeOpenChanged(id, open: isOpen) }
-    }
-
-    /// The trailing strip (RowSwipeActionStyle): capsules that grow together as the row slides;
-    /// an armed full swipe gives the outermost one all the room.
-    private func layoutStrip() {
-        let revealed = abs(offset)
-        let height = layout?.dividerY ?? bounds.height
-        strip.isHidden = revealed < 0.5
-        // A closed row (every row that scrolls in) has nothing to lay out here.
-        guard !strip.isHidden || !stripButtons.allSatisfy(\.isHidden) else { return }
-        strip.frame = CGRect(x: width - revealed, y: 0, width: revealed, height: height)
-        while stripButtons.count < actions.count {
-            let button = FeedSwipeButton()
-            button.addAction(UIAction { [weak self, weak button] _ in
-                guard let self, let id = button?.actionID, let action = self.actions.first(where: { $0.id == id }) else { return }
-                self.perform(action)
-            }, for: .touchUpInside)
-            stripButtons.append(button)
-            strip.addSubview(button)
-        }
-        let each = style.buttonWidth(revealed: revealed, count: actions.count)
-        var x = revealed - style.trailingInset
-        for (index, button) in stripButtons.enumerated() {
-            guard index < actions.count else { button.isHidden = true; continue }
-            let action = actions[index]
-            let outermost = index == 0
-            let buttonWidth = armed ? (outermost ? style.fullSwipeWidth(revealed: revealed) : 0) : each
-            x -= buttonWidth
-            button.isHidden = false
-            button.alpha = armed && !outermost ? 0 : 1
-            button.apply(action, width: buttonWidth, rowHeight: height, style: style)
-            button.frame = CGRect(x: x, y: 0, width: buttonWidth, height: height)
-            button.accessibilityIdentifier = "feed.swipe.\(action.id)"
-            x -= armed ? 0 : style.spacing
-        }
     }
 
     // MARK: Helpers
@@ -898,6 +744,14 @@ final class FeedRowCell: UICollectionViewCell, UIGestureRecognizerDelegate, UITe
         default: "sparkle"
         }
     }
+
+    private static let fullDate: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        formatter.doesRelativeDateFormatting = true
+        return formatter
+    }()
 
     static func relativeTime(_ date: Date, now: Date) -> String {
         let seconds = Int(now.timeIntervalSince(date))
@@ -1408,54 +1262,6 @@ final class FeedOptionRow: UIControl {
     }
 }
 
-/// One swipe action button (RowSwipeActionButton): a tinted capsule with a white symbol and its title under it.
-final class FeedSwipeButton: UIControl {
-    private let capsule = UIView()
-    private let symbol = UIImageView()
-    private let title = UILabel()
-    private(set) var actionID: String?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        capsule.isUserInteractionEnabled = false
-        addSubview(capsule)
-        symbol.tintColor = .white
-        symbol.contentMode = .center
-        capsule.addSubview(symbol)
-        title.textAlignment = .center
-        title.font = UIFont.preferredFont(forTextStyle: .caption1)
-        title.textColor = .secondaryLabel
-        addSubview(title)
-        isAccessibilityElement = true
-        accessibilityTraits = .button
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    func apply(_ action: FeedSwipeAction, width: CGFloat, rowHeight: CGFloat, style: RowSwipeActionStyle) {
-        actionID = action.id
-        accessibilityLabel = action.title
-        let showsTitle = rowHeight >= 80
-        let height = min(style.buttonHeight, width, showsTitle ? .infinity : max(0, rowHeight - 16))
-        let titleHeight: CGFloat = showsTitle ? ceil(title.font.lineHeight) : 0
-        let block = height + (showsTitle ? style.titleGap + titleHeight : 0)
-        let top = (rowHeight - block) / 2
-        capsule.frame = CGRect(x: 0, y: top, width: width, height: height)
-        capsule.layer.cornerRadius = height / 2
-        capsule.backgroundColor = UIColor(action.tint)
-        capsule.alpha = width < 1 ? 0 : 1
-        symbol.image = UIImage(systemName: action.systemImage, withConfiguration: UIImage.SymbolConfiguration(textStyle: .title3)
-            .applying(UIImage.SymbolConfiguration(weight: .medium)))
-        symbol.frame = capsule.bounds
-        title.isHidden = !showsTitle
-        title.text = action.title
-        let shown = width / style.buttonWidth
-        title.alpha = shown > 0.8 ? 1 : 0
-        let titleWidth = max(ceil(title.intrinsicContentSize.width), width)
-        title.frame = CGRect(x: (width - titleWidth) / 2, y: top + height + style.titleGap, width: titleWidth, height: titleHeight)
-    }
-}
 #if DEBUG
 
 /// DEBUG: how long a Feed cell's init and apply take (the rig's long frames).

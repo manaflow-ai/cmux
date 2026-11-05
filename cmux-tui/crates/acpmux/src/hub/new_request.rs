@@ -109,6 +109,16 @@ pub struct NewRequest {
     /// A sub-session's folder as its start checked it (`subsession_guard.rs`): its harness
     /// spawns only while `cwd` still leads to that very folder.
     pub checked_cwd: Option<super::subsession_guard::CheckedFolder>,
+    /// Folders the chat sees beside its own (`additional_dirs.rs`), already checked by the
+    /// caller.
+    pub additional_directories: Vec<PathBuf>,
+    /// The person asks for this chat (`Session::person`): this host's app, or a connection that
+    /// proved it is the person (`server/requests.rs` `person_asks`), never an agent's or a lane's
+    /// create. Its start waits as long as its harness works on it (`lifecycle.rs`).
+    pub person: bool,
+    /// The create asked to wait on its harness (`_meta.acpmux.waitStart`, `Session::wait_start`):
+    /// never honored from an agent's, a lane's or a remote connection (`server/requests.rs`).
+    pub wait_start: bool,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

@@ -40,7 +40,7 @@ struct DaemonHandoffAttachTests {
         services.windows.ordersWindowsIn = false
         services.daemon.start(handOff: { connection, identity in
             // As if the app had been updated to another build.
-            if case .restart = await launcher.handOffIfStale(identity: identity, using: connection, bundledCommit: "0000000") {
+            if case .restart = await launcher.handOffIfStale(identity: identity, using: connection, bundled: DaemonBuildStamp(commit: "0000000", id: "0000000")) {
                 return true
             }
             return false

@@ -91,6 +91,10 @@
   letter-spacing: var(--text-caption--letter-spacing);
 }
 
+.stats-tile-detail {
+  font-variant-numeric: tabular-nums;
+}
+
 .stats-tile-value {
   margin-top: 2px;
   font-size: var(--text-heading);

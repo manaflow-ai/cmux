@@ -209,10 +209,14 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     # default branch's workflow file, so a trigger here never ran.
     assert "pull_request_target" not in triggers
     push_trigger = triggers["push"]
-    # Every branch of this repository (forks never push here); tree-preflight
-    # is the filter: a push whose tree is published builds nothing.
+    # Every branch of this repository (forks never push here). Docs-only
+    # commits cannot publish a distinct runtime tree, so GitHub filters those
+    # pushes before tree-preflight; mixed commits still enter the workflow.
     assert push_trigger.get("branches") == ["**"]
-    assert "paths" not in push_trigger
+    assert push_trigger.get("paths-ignore") == ["cmux-tui/docs/**"]
+    retry = workflow_triggers(workflow("cmux-tui-artifacts-retry.yml"))
+    assert set(retry) == {"workflow_run"}
+    assert retry["workflow_run"]["workflows"] == ["cmux-tui artifacts"]
     preflight = workflow_job(artifacts, "tree-preflight")
     assert "runs-on:" in preflight and "ubuntu" in preflight
     assert "cmux_tui_tree_key.py" in preflight
@@ -435,7 +439,7 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
         block = workflow_job(bootstrap, job)
         assert (
             "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-            "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in block
+            "vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}" in block
         )
     assert (
         "runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
@@ -468,7 +472,7 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-pypi"]}
     }
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}" in bootstrap
     assert "id-token: write" in bootstrap
     assert "name: pypi-bootstrap" in bootstrap
     assert "PYPI_BOOTSTRAP_TOKEN" not in bootstrap
@@ -531,7 +535,7 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-crates"]}
     }
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}" in bootstrap
     assert 'RUST_TOOLCHAIN: "1.95.0"' in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
     assert "CARGO_BOOTSTRAP_TOKEN" in bootstrap
@@ -930,7 +934,7 @@ def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
 
     assert "SDK_RELEASE_APP_PRIVATE_KEY" not in revalidate_tags
     assert "actions/create-github-app-token@" not in revalidate_tags
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in cut_tags
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}" in cut_tags
     assert "actions/checkout@" not in cut_tags
     assert "actions/download-artifact@" not in cut_tags
     assert "actions/setup-node@" not in cut_tags
@@ -2347,23 +2351,35 @@ def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_t
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
-    # Every label it can resolve to is Blacksmith Linux; size and overflow wiring are free to change.
+    # Every label it can resolve to is Blacksmith Linux or the GCP fleet Linux label, which tree-preflight's
+    # linux-placement step emits only when the runner census shows an idle Linux member; size and overflow
+    # wiring are free to change.
     from runs_on_labels import disallowed_labels
-    assert disallowed_labels(daemon) == {}, (daemon, disallowed_labels(daemon))
+    fleet_linux = "cmux-fleet-linux-x64"
+    picker = next(step for step in jobs["tree-preflight"]["steps"] if step.get("id") == "linux-placement")
+    assert picker["env"]["FLEET_LINUX"] == fleet_linux, picker["env"]
+    assert picker["env"]["LINUX_ONLY"] == "cmux-next-daemon-tests", picker["env"]
+    assert picker["env"]["REQUIRE_LIVE_CAPACITY"] == "1", picker["env"]
+    placed = daemon.replace("needs.tree-preflight.outputs.linux_runner", f"'{fleet_linux}'")
+    assert set(disallowed_labels(placed)) <= {fleet_linux}, (daemon, disallowed_labels(placed))
     assert "cmux-next-daemon-macos-shadow" not in jobs
     shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
     shadow = shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"]["runs-on"]
     assert "MACOS_RUNNER_PR" not in shadow and "inputs.macos_runner" not in shadow
-    assert "vars." not in shadow, shadow
+    assert "vars.MACOS_RUNNER_26" not in shadow, shadow
+    assert "fromJSON(vars.RUNNER_POOLS).macos_15" in shadow, shadow
 
 if __name__ == "__main__":
     unittest.main()
 
 
-def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> None:
+def test_tree_publish_and_nightly_promotion_do_not_wait_for_daemon_tests() -> None:
     # Chief 2026-10-13 (hq-11): the daemon tests' macOS runner queues up to ~1 h,
-    # so trees publish without them; nightly-next promotion still needs them,
-    # through the daemon-tests.json marker that publish-tree-tested writes.
+    # so trees publish without them; the feat-cmux-next channel still needs
+    # them, through the daemon-tests.json marker that publish-tree-tested writes.
+    # Since 2026-10-28 nightly-next promotion does not (run 40651931144's daemon
+    # tests failed fetching Zig packages and held the feed): the tree-commit
+    # marker follows the publish. Leo, 2026-10-23: "we want no smoke tests".
     # cx-y0nf2: that holds on every ref, pins, next-batch/*, main and pull
     # requests included. cx-kfbom had made those publish after the tests,
     # marker first, because a feat-cmux-next push that found tree c77d397b3a9f
@@ -2395,61 +2411,32 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
     assert "publish-tree-tested" in promote["needs"]
     assert "needs.publish-tree.result" not in promote["if"]
     assert "needs.publish-tree-tested.result == 'success'" in promote["if"]
-    # request-nightly-next.sh checks the marker through tree-commit-marker.sh
-    # daemon-tested, the same check the tree-commit marker writer uses.
+    # Neither request-nightly-next.sh nor the tree-commit marker writer asks for
+    # the daemon tests; the marker job follows the publish, not them.
     script = (ROOT / "scripts/cmux-next/request-nightly-next.sh").read_text()
-    assert "tree-commit-marker.sh\" daemon-tested" in script
+    assert "daemon-tested" not in script
+    mark = jobs["mark-tree-commits"]
+    assert "publish-tree" in mark["needs"]
+    assert not {"cmux-next-daemon-tests", "publish-tree-tested"} & set(mark["needs"])
+    assert "daemon" not in mark["if"]
     checker = (ROOT / "scripts/cmux-next/tree-commit-marker.sh").read_text()
+    # The daemon-tested subcommand stays for its callers.
     assert "daemon-tests.json" in checker and '"separate"' in checker
+    tree_ready = checker.split("tree_ready() {", 1)[1].split("\n}\n", 1)[0]
+    assert "verify-key" in tree_ready and "daemon_tested" not in tree_ready
 
 
 
-def test_publish_attestation_uses_the_release_app_token_with_a_fallback() -> None:
-    # The first attestation try spends the release App's installation budget,
-    # not the github.token budget that ran out ("API rate limit exceeded for
-    # installation"). Both refusals fall back to github.token: a failed mint
-    # (the App lacks attestations:write) or absent credentials leave the
-    # step's token empty, and a minted token GitHub refuses (403) or an App
-    # budget that ran out fails only that try; tries 2 to 4 use github.token.
-    artifacts = workflow("cmux-tui-artifacts.yml")
-    document = yaml.load(artifacts, Loader=yaml.BaseLoader)
-    jobs = document["jobs"]
-    for name in ("publish", "publish-windows"):
-        job = jobs[name]
-        assert job["environment"] == "artifacts", name
-        assert job["env"]["CMUX_RELEASE_APP_CONFIGURED"] == (
-            "${{ secrets.CMUX_RELEASE_APP_ID != '' && secrets.CMUX_RELEASE_APP_KEY != '' }}"
-        ), name
-        steps = job["steps"]
-        mint = next(step for step in steps if step.get("id") == "attest_app_token")
-        assert mint["uses"] == "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"
-        assert mint["if"] == "env.CMUX_RELEASE_APP_CONFIGURED == 'true'"
-        # A failed mint never fails the job.
-        assert mint["continue-on-error"] == "true"
-        assert mint["with"] == {
-            "app-id": "${{ secrets.CMUX_RELEASE_APP_ID }}",
-            "private-key": "${{ secrets.CMUX_RELEASE_APP_KEY }}",
-            "owner": "${{ github.repository_owner }}",
-            "repositories": "${{ github.event.repository.name }}",
-            "permission-attestations": "write",
-        }
-        attests = [step for step in steps if "attest-build-provenance" in step.get("uses", "")]
-        assert len(attests) == 4, name
-        first, *retries = attests
-        assert steps.index(mint) < steps.index(first)
-        # Path 1: no token minted, so the first try uses github.token.
-        assert first["with"]["github-token"] == "${{ steps.attest_app_token.outputs.token || github.token }}", name
-        assert first["continue-on-error"] == "true", name
-        # Path 2: the App token was refused; every retry uses github.token.
-        for step in retries:
-            assert step["with"]["github-token"] == "${{ github.token }}", name
-            assert step["if"].endswith(".outcome == 'failure'"), name
-        assert "continue-on-error" not in retries[-1], name
-        # The App secrets appear only in the mint step and the presence flag.
-        for step in steps:
-            if step is not mint:
-                assert "CMUX_RELEASE_APP" not in yaml.dump(step), name
-                assert "attest_app_token" not in yaml.dump(step) or step is first, name
-    for name, job in jobs.items():
-        if name not in ("publish", "publish-windows"):
-            assert "CMUX_RELEASE_APP" not in yaml.dump(job), name
+def test_cmux_tui_preflight_seeds_canonical_key_before_docs_skip():
+    """Old immutable keys may be read but must not suppress the new publish."""
+    import subprocess
+    import yaml
+
+    document = yaml.safe_load(workflow("cmux-tui-artifacts.yml"))
+    inspect = next(s["run"] for s in document["jobs"]["tree-preflight"]["steps"] if s.get("id") == "inspect")
+    selection = inspect.split("          tree_ready=false", 1) if "          tree_ready=false" in inspect else inspect.split("tree_ready=false", 1)
+    selection = "tree_ready=false" + selection[1].split('if [[ "$tree_ready" == true ]]', 1)[0]
+    for ready, expected in (("legacy", "false"), ("canonical", "true")):
+        result = subprocess.run(["bash", "-c", 'key=canonical; legacy_key=legacy; tree_complete() { [[ "$1" == "' + ready + '" ]]; }; ' + selection + 'echo "$tree_ready"'], capture_output=True, text=True, check=True)
+        assert result.stdout.strip() == expected
+    assert '--version v2-legacy "$SOURCE_COMMIT"' in inspect

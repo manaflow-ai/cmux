@@ -7,6 +7,13 @@ import Testing
 /// stay choices beside it. Minimal (Leo 2026-10-20) is the schema's default (what Settings, the
 /// palette and `cmux settings` show for an unset key) and the first choice.
 struct NewTabTemplateCardsTests {
+    @Test func legacyComposerReadsAsMinimal() throws {
+        let root = try JSONValue.parse(Data(#"{"tabs":{"newTabTemplate":"composer"}}"#.utf8))
+        let (template, diagnostic) = NewTabTemplate.parse(root)
+        #expect(template == .minimal)
+        #expect(diagnostic == nil)
+    }
+
     @Test func cardsIsAValidSavedTemplate() throws {
         let root = try JSONValue.parse(Data(#"{"tabs":{"newTabTemplate":"cards"}}"#.utf8))
         let (template, diagnostic) = NewTabTemplate.parse(root)
@@ -22,7 +29,7 @@ struct NewTabTemplateCardsTests {
             Issue.record("tabs.newTabTemplate is not a choice")
             return
         }
-        #expect(choices.map(\.value) == ["minimal", "cards", "default", "composer", "threads", "console", "classic", "terminal"])
+        #expect(choices.map(\.value) == ["minimal", "cards", "default", "threads", "console", "classic", "terminal"])
         #expect(descriptor.isPaletteExposed)
     }
 }

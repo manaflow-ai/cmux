@@ -16,11 +16,15 @@ workspace = true
 hotpatch = ["dep:subsecond"]
 
 [dependencies]
+cmux-json.workspace = true
 cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
+# The daemon checks URLs with the URL parser (`url`); the app links the crate without it.
+cmux-bookmarks-core = { workspace = true, features = ["url"] }
 cmux-unix-socket.workspace = true
+cmux-url-input.workspace = true
 cmux-pty.workspace = true
 cmux-holder.workspace = true
 cmux-process.workspace = true
@@ -56,6 +60,7 @@ cmux-link.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
 parking_lot = { workspace = true, features = ["arc_lock"] }
+arc-swap.workspace = true
 fs4.workspace = true
 sha2.workspace = true
 socket2.workspace = true
@@ -80,6 +85,10 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
+# The link share bridge's room socket (agent_session_share_room.rs), the
+# client the cmux-tui binary already links for cmux.wire/1.
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),

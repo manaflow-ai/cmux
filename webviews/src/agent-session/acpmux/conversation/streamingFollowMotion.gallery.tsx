@@ -9,7 +9,10 @@ import { turnView } from "./turns";
 const paragraph = (index: number) =>
   `Streaming paragraph ${index}: the lighthouse keeper checked the glass, crossed the gallery, and watched the tide return beneath the window.`;
 
-type MotionVariant = "steady-reveal" | "smooth-follow" | "subtle-fade";
+/// `eased-follow` is the app's: the followed view's steps ease on the compositor (followGlide.ts).
+/// `steady-reveal` is the view before it, which took each new line in one frame. The other two are
+/// alternatives kept for comparison.
+type MotionVariant = "eased-follow" | "steady-reveal" | "smooth-follow" | "subtle-fade";
 
 function StreamingFollowMotionGallery({ variant }: { variant: MotionVariant }) {
   const [count, setCount] = useState(0);
@@ -28,9 +31,11 @@ function StreamingFollowMotionGallery({ variant }: { variant: MotionVariant }) {
       { id: `history-answer-${index}`, kind: "assistant", version: 1, at: index + 1, text: paragraph(index) },
     ]).flat();
     const text = Array.from({ length: count }, (_, index) => paragraph(index + 12)).join("\n\n");
+    // With the running turn's line under the reply, as the app draws it (Debug `liveLineBelow`).
     return turnView(
       [...history, { id: "streaming-answer", kind: "assistant", version: count + 1, at: 99, text, streaming }],
       new Set(),
+      { working: streaming, lineBelow: true, liveRuns: true },
     );
   }, [count, streaming]);
   const start = () => {
@@ -53,6 +58,7 @@ function StreamingFollowMotionGallery({ variant }: { variant: MotionVariant }) {
   return (
     <div
       className={`acpmux-shell streaming-follow-motion-gallery streaming-follow-motion-gallery--${variant}`}
+      data-follow-glide={variant === "eased-follow" ? undefined : "off"}
       style={{ height: "100%" }}
     >
       <div className="acpmux-main" data-dock="float">
@@ -128,9 +134,10 @@ export default componentEntry<{ variant: MotionVariant }>({
       import("./streamingFollowMotion.css"),
     ]),
   variants: {
+    "eased-follow": { props: { variant: "eased-follow" }, play: streamFollow },
     "steady-reveal": { props: { variant: "steady-reveal" }, play: streamFollow },
     "smooth-follow": { props: { variant: "smooth-follow" }, play: streamFollow },
     "subtle-fade": { props: { variant: "subtle-fade" }, play: streamFollow },
-    "stream-scrolled-up": { props: { variant: "steady-reveal" }, play: streamWhileScrolledUp },
+    "stream-scrolled-up": { props: { variant: "eased-follow" }, play: streamWhileScrolledUp },
   },
 });

@@ -63,13 +63,13 @@ public nonisolated enum CmuxDialogKeyHint: Equatable, Sendable {
         return []
     }
 
-    /// `title` then this keycap, the keycap smaller and in the secondary text color, as
-    /// macOS menus draw their keys. Call inside the view's theme scope (`performWithTheme`).
+    /// `title` then this keycap, the keycap smaller and in `hintColor` (default the secondary text
+    /// color), as macOS menus draw their keys. Call inside the view's theme scope (`performWithTheme`).
     @MainActor
-    public func attributedTitle(_ title: String, font: NSFont, color: NSColor) -> NSAttributedString {
+    public func attributedTitle(_ title: String, font: NSFont, color: NSColor, hintColor: NSColor? = nil) -> NSAttributedString {
         let text = NSMutableAttributedString(string: title, attributes: [.foregroundColor: color, .font: font])
         text.append(NSAttributedString(string: "  " + glyph, attributes: [
-            .foregroundColor: Palette.textSecondary,
+            .foregroundColor: hintColor ?? Palette.textSecondary,
             .font: Typography.caption,
         ]))
         return text

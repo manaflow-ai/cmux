@@ -54,17 +54,27 @@ Object.assign(scope, replacements);
 // and a scroll offset the test moves as the reader would.
 let viewport = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => viewport });
-// Wide enough for the minimap's usable gutter (ThreadMinimap RAIL_MIN_GUTTER).
+// Wide enough for the minimap's pane-edge rail in these layout tests.
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
-/// The rail's list clamps its offset as a browser does: rows are 10 px, the list as tall as the rail.
+// Read the pitch the mounted rail gives CSS; jsdom does not lay out its rows.
+const railPitch = () =>
+  Number.parseFloat(
+    dom.window.document
+      .querySelector<HTMLElement>(".acpmux-minimap__list")!
+      .style.getPropertyValue("--acpmux-minimap-pitch"),
+  );
+/// The rail's list clamps its offset as a browser does: rows use the mounted pitch, the list as tall as the rail.
 const listRoom = (node: HTMLElement) =>
   Math.max(
     0,
     // A spacer stands for the rows the list does not draw, as tall as its style says (tickWindow.ts).
     [...node.children].reduce(
       (sum, child) =>
-        sum + (child.querySelector("[data-tick]") ? 10 : Number.parseFloat((child as HTMLElement).style.height) || 0),
+        sum +
+        (child.querySelector("[data-tick]")
+          ? railPitch()
+          : Number.parseFloat((child as HTMLElement).style.height) || 0),
       0,
     ) - Number.parseFloat(node.parentElement?.style.height ?? "0"),
   );
@@ -130,7 +140,7 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
     expect(rail()).not.toBeNull();
     const height = Number.parseFloat(rail().style.height);
     // The rail's rows scroll: there are more than it has room for.
-    expect(TURNS * 10).toBeGreaterThan(height);
+    expect(TURNS * railPitch()).toBeGreaterThan(height);
     /// Where each lit tick draws in the rail, checked to be inside it and clear of any fade.
     const check = (at: number) => {
       const node = list();
@@ -141,8 +151,8 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
       const top = node.hasAttribute("data-fade-top") ? FADE : 0;
       const end = height - (node.hasAttribute("data-fade-bottom") ? FADE : 0);
       for (const index of current) {
-        const y = index * 10 - node.scrollTop;
-        if (y < top || y + 10 > end)
+        const y = index * railPitch() - node.scrollTop;
+        if (y < top || y + railPitch() > end)
           throw new Error(
             `at ${at} px the lit tick ${index} draws at ${y} px, outside ${top} to ${end} px of the rail`,
           );
@@ -166,7 +176,7 @@ test("the band shows whole while the reader scrolls down, and reaches the rail's
     await scrollTo(bottom);
     // At the bottom the last prompt is lit, the list is at its own end, and no fade is over it.
     expect(check(bottom).at(-1)).toBe(TURNS - 1);
-    expect(list().scrollTop + height).toBe(TURNS * 10);
+    expect(list().scrollTop + height).toBe(TURNS * railPitch());
     expect(list().hasAttribute("data-fade-bottom")).toBe(false);
   } finally {
     await act(async () => root.unmount());
@@ -222,8 +232,8 @@ for (const how of ["hover", "focus"] as const)
         const from = node.hasAttribute("data-fade-top") ? fade : 0;
         const to = height - (node.hasAttribute("data-fade-bottom") ? fade : 0);
         for (const lit of node.querySelectorAll<HTMLElement>('[data-tick][aria-current="true"]')) {
-          const y = Number(lit.dataset.tick) * 10 - node.scrollTop;
-          if (y < from || y + 10 > to)
+          const y = Number(lit.dataset.tick) * railPitch() - node.scrollTop;
+          if (y < from || y + railPitch() > to)
             outside.push(`at ${top} px tick ${lit.dataset.tick} at ${y} px, outside ${from} to ${to}`);
         }
         if (outside.length > 5) break;
@@ -282,7 +292,7 @@ async function pointerOnRail(sessionId: string) {
   };
   await scrollTo(0);
   placeList(list());
-  const y = LIST_TOP + 35;
+  const y = LIST_TOP + 3.5 * railPitch();
   const Event = (dom.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom.window.MouseEvent;
   await act(async () => {
     list()
@@ -292,7 +302,7 @@ async function pointerOnRail(sessionId: string) {
   /// The magnified tick and the one under the pointer, as the list now sits.
   const read = () => ({
     active: list().querySelector('[data-tone="active"]')?.getAttribute("data-tick"),
-    under: String(Math.floor((y - LIST_TOP + list().scrollTop) / 10)),
+    under: String(Math.floor((y - LIST_TOP + list().scrollTop) / railPitch())),
   });
   const close = async () => {
     await act(async () => root.unmount());
@@ -337,8 +347,9 @@ test("a key that focuses a tick off the list, with the pointer still on the rail
     const list = this.closest<HTMLElement>(".acpmux-minimap__list");
     if (!list || options?.preventScroll) return;
     const room = Number.parseFloat(list.parentElement?.style.height ?? "0");
-    const at = Number(this.dataset.tick) * 10;
-    const top = at < list.scrollTop ? at : at + 10 > list.scrollTop + room ? at + 10 - room : list.scrollTop;
+    const at = Number(this.dataset.tick) * railPitch();
+    const top =
+      at < list.scrollTop ? at : at + railPitch() > list.scrollTop + room ? at + railPitch() - room : list.scrollTop;
     if (top === list.scrollTop) return;
     list.scrollTop = top;
     list.dispatchEvent(new dom.window.Event("scroll"));
@@ -390,11 +401,11 @@ test("the rail keeps clear of the transcript's widest fades (the model reads the
   expect(fades.top).toBeGreaterThan(0);
   expect(fades.bottom).toBeGreaterThan(0);
   expect(TRANSCRIPT_FADE_TOP).toBeGreaterThanOrEqual(fades.top);
-  expect(TRANSCRIPT_FADE_BOTTOM).toBeGreaterThanOrEqual(fades.jump);
+  expect(TRANSCRIPT_FADE_BOTTOM).toBe(fades.jump);
 });
 
 // The rail is inside the transcript, so the transcript's mask fades it too: 18 px under the top once
-// scrolled from the start, and 18 px (56 px with Jump to latest) above the foot while more lies below.
+// scrolled from the start, and 18 px above the foot while more lies below, including with Jump to latest.
 // In a short pane the rail filled the view less 8 px each end, so the first and last lit ticks drew
 // in those fades at every offset short of the chat's two ends.
 test("in a short pane every lit tick stays clear of the transcript's faded edges, at any offset", async () => {
@@ -437,8 +448,8 @@ test("in a short pane every lit tick stays clear of the transcript's faded edges
       const to = viewport - (scroller.hasAttribute("data-fade-bottom") ? band : 0);
       const railTop = Number.parseFloat(rail.style.top);
       for (const tick of list.querySelectorAll<HTMLElement>('[data-tick][aria-current="true"]')) {
-        const y = railTop + Number(tick.dataset.tick) * 10 - list.scrollTop;
-        if (y < from || y + 10 > to)
+        const y = railTop + Number(tick.dataset.tick) * railPitch() - list.scrollTop;
+        if (y < from || y + railPitch() > to)
           clipped.push(`at ${at} px tick ${tick.dataset.tick} draws at ${y} px, outside ${from} to ${to} px`);
       }
     }

@@ -35,6 +35,8 @@ import { MarkdownStore } from "./store";
 import type { ReadingSettingsActions } from "./ReadingSettings";
 import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { MarkdownFontZoom, isMarkdownZoomCommand } from "./fontZoom";
+import { EditorFind } from "../editor/editorFind";
+import { markdownFindTarget } from "./markdownFind";
 import { L } from "./strings";
 import { hostTableWidths, storedTableWidths } from "./tables";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
@@ -248,6 +250,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     afterShow: (run) => requestAnimationFrame(() => run()),
   });
   const host = editorHost(store, client, strings, resolver, (href) => void router.follow(href));
+  const find = bindMarkdownFind(store, scroller);
   // A callback ref: React calls it with the element on mount and null on unmount.
   // Another document (a link, back, a reload from disk) brings its own comments in its config.
   let shownConfig = store.getState().config;
@@ -298,6 +301,12 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         else if (command === "resetTableWidths") editor?.resetTableWidths();
         else if (command === "resetContextTableWidths") editor?.resetTableWidthsAt(contextTarget);
         else if (command === "comments") editor?.setComments(parseComments(parseJSON(text)));
+        // Cmd-F, Cmd-G, Shift-Cmd-G, Cmd-E and Hide Find Bar: the app's shared find actions.
+        else if (command === "find") find.show(text);
+        else if (command === "findNext") find.next();
+        else if (command === "findPrevious") find.previous();
+        else if (command === "useSelectionForFind") find.useSelection();
+        else if (command === "hideFind") find.hide();
       },
     });
     // A right-click tells the host whether it was on a table (its menu then offers Reset Column
@@ -352,6 +361,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         onBack={() => void router.go(-1)}
         onForward={() => void router.go(1)}
         reading={readingActions(store, zoom)}
+        find={find}
       />
     </UiProvider>,
   );
@@ -362,6 +372,54 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
 
 const root = document.getElementById("root");
 if (root && document.documentElement.dataset.cmuxPage === "markdown") mountMarkdownPage(root);
+
+/**
+ * Find over the page (markdownFind.ts) in the code editor's find state. While the pill shows, an
+ * edit, a document the editor redraws, a link to another file or a switch between rich text and
+ * source searches again, once per frame, keeping the active match's place.
+ */
+function bindMarkdownFind(store: MarkdownStore, scroller: () => HTMLElement | null): EditorFind {
+  const find = new EditorFind();
+  find.attach(
+    markdownFindTarget({
+      mode: () => store.getState().mode,
+      doc: () => scroller()?.querySelector<HTMLElement>(".md-doc") ?? null,
+      source: () => scroller()?.querySelector<HTMLTextAreaElement>(".md-source") ?? null,
+      scroller,
+    }),
+  );
+  let frame = 0;
+  const refresh = () => {
+    if (frame || !find.getState().open) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      find.refresh();
+    });
+  };
+  // Highlights and selections are not DOM changes, so painting never wakes the observer.
+  const observer = new MutationObserver(refresh);
+  let observed: HTMLElement | null = null;
+  let mode = store.getState().mode;
+  const follow = () => {
+    const open = find.getState().open;
+    const target = open ? scroller() : null;
+    if (target !== observed) {
+      observer.disconnect();
+      observed?.removeEventListener("input", refresh);
+      observed = target;
+      observed?.addEventListener("input", refresh);
+      if (observed) observer.observe(observed, { subtree: true, childList: true, characterData: true });
+    }
+    const next = store.getState().mode;
+    if (next !== mode) {
+      mode = next;
+      refresh();
+    }
+  };
+  find.subscribe(follow);
+  store.subscribe(follow);
+  return find;
+}
 
 /** `text` as JSON, null when it is not. */
 function parseJSON(text: string | undefined): unknown {

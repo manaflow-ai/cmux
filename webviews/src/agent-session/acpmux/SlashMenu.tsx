@@ -1,7 +1,10 @@
-import React, { useCallback, useLayoutEffect, useRef } from "react";
+import React, { useCallback } from "react";
 import { useEscapingList } from "../../ui/popupHost";
+import { useScrollEdges } from "../../ui/scrollEdges";
+import { Listbox } from "../../ui/Listbox";
+import { useComposerListBox } from "./backdropLayer";
 import { useT } from "./i18n";
-import type { SlashCommand, SlashMatch } from "./slashCommands";
+import { shownName, type SlashCommand, type SlashMatch } from "./slashCommands";
 
 export function SlashMenu({
   matches,
@@ -17,61 +20,39 @@ export function SlashMenu({
   onPick(command: SlashCommand): void;
 }) {
   const t = useT();
-  const list = useRef<HTMLDivElement>(null);
-  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
-  const escape = useEscapingList("top", 6);
+  // Above the composer's box, or past the window's edge when the pane has no room there (cx-6k6cg).
+  // The list draws out of the box (backdropLayer.tsx): the box is what it stands beside.
+  const box = useComposerListBox();
+  const listEdges = useScrollEdges();
+  const escape = useEscapingList("top", 6, undefined, box);
   const setList = useCallback(
     (node: HTMLDivElement | null) => {
-      list.current = node;
+      listEdges(node);
       escape?.(node);
     },
-    [escape],
+    [escape, listEdges],
   );
-  useLayoutEffect(() => {
-    list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
-  }, [active]);
   // A native select or datalist cannot hold the matched-name bolding and descriptions.
-  if (matches.length === 0)
-    return (
-      <div
-        className="ui-popup ui-glass acpmux-slash-menu acpmux-slash-empty"
-        id="acpmux-slash-menu"
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        role="listbox"
-        aria-label={t("composer.commands")}
-      >
-        {empty}
-      </div>
-    );
   return (
-    <div
-      ref={setList}
+    <Listbox
+      listRef={setList}
+      items={matches}
+      getKey={(match) => `${match.command.source ?? "agent"}:${match.command.name}`}
+      textValue={(match) => shownName(match.command)}
+      label={t("composer.commands")}
+      autoFocus={false}
+      activeIndex={active}
+      onActiveIndexChange={onHover}
+      onOpen={(match) => onPick(match.command)}
+      getItemId={(_, index) => `acpmux-slash-${index}`}
       className="ui-popup ui-glass acpmux-slash-menu"
       id="acpmux-slash-menu"
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-      role="listbox"
-      aria-label={t("composer.commands")}
-    >
-      {/* Virtual focus: the prompt keeps focus and names the row through aria-activedescendant. */}
-      {matches.map((match, index) => (
-        <div
-          key={match.command.name}
-          id={`acpmux-slash-${index}`}
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="option"
-          tabIndex={-1}
-          aria-selected={index === active}
-          className={index === active ? "acpmux-slash-row acpmux-slash-active" : "acpmux-slash-row"}
-          onMouseMove={() => {
-            if (index !== active) onHover(index);
-          }}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            onPick(match.command);
-          }}
-        >
+      rowClassName="acpmux-slash-row"
+      empty={<div className="acpmux-slash-empty">{empty}</div>}
+      renderItem={(match) => (
+        <>
           <span className="acpmux-slash-name">
-            /<Highlighted name={match.command.name} ranges={match.ranges} />
+            /<Highlighted name={shownName(match.command)} ranges={match.ranges} />
           </span>
           {match.command.hint && <span className="acpmux-slash-hint">{match.command.hint}</span>}
           {match.command.source && match.command.source !== "agent" && (
@@ -86,9 +67,9 @@ export function SlashMenu({
           <span className="acpmux-slash-description">
             {match.command.descriptionKey ? t(match.command.descriptionKey) : match.command.description}
           </span>
-        </div>
-      ))}
-    </div>
+        </>
+      )}
+    />
   );
 }
 

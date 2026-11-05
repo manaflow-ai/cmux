@@ -62,17 +62,11 @@ extension TopPageRoute {
         case .settings: return .page(.settings)
         case .history: return .page(.history)
         case .bookmarks: return .page(.bookmarks)
+        case .automations: return .page(.automations)
         default: return nil
         }
     }
 
     static let homeAppID = "cmux/home"
     static let appStoreAppID = "cmux/app-store"
-}
-
-extension SidebarLayoutDocument {
-    /// The region of the section that holds item `id`.
-    func region(of id: LayoutItemID) -> SidebarRegion? {
-        locate(id).map { sections[$0.section].region }
-    }
 }

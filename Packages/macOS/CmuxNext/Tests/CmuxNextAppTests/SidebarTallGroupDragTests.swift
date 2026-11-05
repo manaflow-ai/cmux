@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextSidebar
 import Testing
@@ -17,7 +18,7 @@ import Testing
 ///
 /// The list: loose `w1`, `w2`, the tall group `tall` (eight members), short groups `s1` (one member) and `s2` (two
 /// members), loose `w3`.
-@MainActor @Suite(.serialized) struct SidebarTallGroupDragTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarTallGroupDragTests {
     static let section = "sec"
     static let tall = GroupID("tall"), s1 = GroupID("s1"), s2 = GroupID("s2")
 

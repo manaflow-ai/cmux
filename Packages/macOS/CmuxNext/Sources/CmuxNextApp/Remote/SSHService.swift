@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextServer
 import Foundation
 import Observation
 import os
@@ -30,6 +31,10 @@ final class SSHService {
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.ssh")
     /// Runs `remote.install` through the registry's confirmation (set by the handlers).
     @ObservationIgnored var offerInstall: ((SSHMachineSession) -> Void)?
+    /// The acting window (`WindowManager.active`): a connect records it as `connectingWindow`.
+    @ObservationIgnored var actingWindow: () -> String? = { nil }
+    /// A written Forget's acpmux peer removal (HQ #4877 break 8); tests replace its `remove`.
+    @ObservationIgnored let peerForgets: SSHPeerForgets
     /// Forgotten machines, so a stale registry echo does not bring them back.
     @ObservationIgnored private var forgotten: Set<String> = []
     /// Saved hosts on the home daemon's current connection (`SSHService+SavedHosts`).
@@ -50,6 +55,7 @@ final class SSHService {
         paths = SSHPaths.standard(bundleID: bundleID)
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         installer = RemoteInstaller(paths: paths)
+        peerForgets = SSHPeerForgets(cli: binary, environment: Self.environment)
     }
 
     /// Why SSH machines cannot connect in this build, or nil.
@@ -145,10 +151,10 @@ final class SSHService {
 
     // MARK: Connect, disconnect, forget
 
-    /// Connects to `destination` (or reconnects the saved machine it names).
+    /// Connects to `destination` (or reconnects the saved machine it names); `byPerson` as ``reconnect(_:byPerson:)``.
     @discardableResult
     func connect(destination text: String, session name: String?, binary: String? = nil, stateDir: String? = nil,
-                 offerInstall: Bool) throws -> SSHMachineSession {
+                 offerInstall: Bool, byPerson: Bool = true) throws -> SSHMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         let destination: SSHDestination
         do { destination = try SSHDestination(parsing: text) } catch { throw ActionFailure(message: RemoteStrings.invalidDestination(text, error)) }
@@ -159,7 +165,7 @@ final class SSHService {
             rememberHost(saved)
             saved.offersInstall = offerInstall
             if offerInstall { offerInstallWhenOld(saved) }
-            reconnect(saved)
+            reconnect(saved, byPerson: byPerson)
             logger.info("connect \(destination.description, privacy: .public): reusing \(saved.machineID, privacy: .public)")
             return saved
         }
@@ -173,6 +179,7 @@ final class SSHService {
             throw ActionFailure(message: RemoteStrings.invalidPath((error as? SSHHost.Invalid)?.field == "remote_state_dir" ? stateDir ?? "" : binary ?? ""))
         }
         forgotten.remove(host.machineID)
+        peerForgets.connected(host.machineID)
         // The same machine (route, session, state directory) with another
         // cmux-tui path: the old link goes and the record takes the new
         // path, so a connect never runs the old binary again (cx-vuvc).
@@ -183,8 +190,10 @@ final class SSHService {
         }
         let session = machines.sshSession(host.machineID) ?? makeSession(host)
         guard let session else { throw ActionFailure(message: RemoteStrings.noClient) }
+        if !byPerson, session.waitsForUser { return session }
         // Saved now, before the first connect succeeds (no session id yet).
         session.autoConnect = true
+        session.connectingWindow = actingWindow()
         rememberHost(session)
         session.offersInstall = offerInstall
         if offerInstall { offerInstallWhenOld(session) }
@@ -214,25 +223,29 @@ final class SSHService {
         return text
     }
 
-    func reconnect(_ session: SSHMachineSession) {
-        guard !policyDisabled else { return }
-        if session.linkStatus == .offline { session.connect() } else { session.wake(.user) }
+    func reconnect(_ session: SSHMachineSession, byPerson: Bool = true) {
+        guard !policyDisabled, byPerson || !session.waitsForUser else { return } // only a person takes over a session in use (G5)
+        if byPerson { session.connectingWindow = actingWindow() } // its "Connecting to…" row lists in the asking window (#31490)
+        // A retry gets a fresh error from the new attempt. Do not let the
+        // recovery sheet copy the previous attempt while the link is working.
+        session.lastError = nil
+        switch session.linkStatus.reconnectStep(daemonConnected: session.daemon.startup == .connected, daemonFailed: session.daemonFailure != nil,
+                                                retriesSpent: session.retriesSpent) {
+        case .connect: session.connect()
+        case .restart: session.restart()
+        case .reconnectDaemon: session.reconnectDaemon()
+        case .wake: session.wake(.user)
+        case .newAttempt:
+            session.beginConnectionAttempt()
+            session.wake(.user)
+        case .nothing: break
+        }
     }
 
     func disconnect(_ session: SSHMachineSession) {
         session.disconnect()
         updateSavedHost(session)
         logger.info("disconnected \(session.host.destination.description, privacy: .public)")
-    }
-
-    /// A Forget shown but not yet written: the machine is gone from this
-    /// run, while the saved list and the home session still hold it.
-    struct PendingForget {
-        let machineID: String
-        let label: String
-        /// The registry transport, with its `connect` flag.
-        let fields: [String: String]
-        let sessionID: String?
     }
 
     /// Disconnects and removes the machine from the saved list, with its
@@ -243,11 +256,11 @@ final class SSHService {
 
     /// Disconnects the machine and takes it out of this run at once; the
     /// writes wait for `commitForget` (the undo toast's end, `RemoteForgetUndo`).
-    func hide(_ session: SSHMachineSession) -> PendingForget {
+    func hide(_ session: SSHMachineSession) -> SSHPeerForgets.Pending {
         forgotten.insert(session.machineID)
-        let pending = PendingForget(machineID: session.machineID, label: session.host.label,
-                                    fields: Self.fields(Self.transport(session)) ?? [:],
-                                    sessionID: session.daemon.identity?.sessionID ?? recordID(for: session.host))
+        let pending = peerForgets.hide(machineID: session.machineID, label: session.host.label, destination: session.host.destination,
+                                       fields: Self.fields(Self.transport(session)) ?? [:],
+                                       sessionID: session.daemon.identity?.sessionID ?? recordID(for: session.host))
         session.close()
         _ = machines.removeSSH(session.machineID)
         return pending
@@ -255,23 +268,46 @@ final class SSHService {
 
     /// Undo of a hidden Forget: the machine comes back as it was saved, and
     /// connects again when it was set to connect.
-    func unhide(_ pending: PendingForget) {
+    func unhide(_ pending: SSHPeerForgets.Pending) {
         forgotten.remove(pending.machineID)
+        peerForgets.ended(pending)
         restore(pending.fields)
     }
 
     /// Writes a hidden Forget: the saved list entry and the home session's
     /// record with its personal organization go.
-    func commitForget(_ pending: PendingForget) async {
+    func commitForget(_ pending: SSHPeerForgets.Pending) async {
         // A connect to the same machine while the toast showed took it back.
-        guard forgotten.contains(pending.machineID), machines.sshSession(pending.machineID) == nil else { return }
+        peerForgets.ended(pending)
+        guard stillForgotten(pending) else { return }
         forgetSavedHost(pending.machineID)
-        guard let sessionID = pending.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue),
-              let home = machines.local.connection else { return }
-        do {
-            try await home.forgetSession(sessionID, force: true)
-        } catch {
-            logger.error("forget-session \(sessionID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+        if let sessionID = pending.sessionID, machines.local.supports(DaemonCapability.profiles.rawValue),
+           let home = machines.local.connection {
+            do {
+                try await home.forgetSession(sessionID, force: true)
+            } catch {
+                logger.error("forget-session \(sessionID, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+        // Last, after every write: the peer goes only while the Forget still holds and no other
+        // session reaches its route (checked again before each `host rm`).
+        let route = pending.destination
+        await peerForgets.removePeers(at: route) { [weak self] in
+            guard let self else { return false }
+            return stillForgotten(pending) && !machines.ssh.contains { SSHPeerForgets.sameRoute($0.host.destination, route) }
+        }
+    }
+
+    /// A connect to the same machine (while the toast showed, or during a write) takes it back.
+    private func stillForgotten(_ pending: SSHPeerForgets.Pending) -> Bool {
+        forgotten.contains(pending.machineID) && machines.sshSession(pending.machineID) == nil
+    }
+
+    /// Settings > Devices removed the acpmux peer at `peer` (`[user@]host`): the SSH machines that
+    /// reach the same route leave too, written at once (Remove for Good was confirmed already).
+    func forgetMachines(reachingPeer peer: String) async {
+        for session in machines.ssh where SSHPeerForgets.reaches(session.host.destination, peer: peer) {
+            await forget(session)
         }
     }
 
@@ -287,6 +323,8 @@ final class SSHService {
         let session = SSHMachineSession(host: host, binary: binary, paths: paths, environment: Self.environment,
                                         mainWork: mainWork)
         session.daemon.workTracker = machines.local.workTracker
+        session.daemon.onPaneNotReady = machines.local.onPaneNotReady
+        session.daemon.paneNotReadyText = machines.local.paneNotReadyText
         session.onStatusChange = { [weak self] session, status in self?.statusChanged(session, status) }
         machines.add(session)
         return session
@@ -336,10 +374,10 @@ final class SSHService {
         let (probe, answer) = checked
         logger.info("update check for \(session.host.destination.description, privacy: .public): \(answer.need, privacy: .public) (\(answer.reason, privacy: .public))")
         guard answer.need == "older" else { session.updateOffered = false; return }
-        // The keyed restart's rule (cx-3r9mt, hq-a3 2026-10-15): by itself only on an idle machine;
-        // else the person decides (Update available, then Update).
-        guard await agentDaemonIdleForUpdate(session) else {
-            logger.info("update of \(session.host.destination.description, privacy: .public) offered: the machine is not idle")
+        // By itself also while agents run (the daemon update never waits for idle); a machine whose
+        // agent daemon holds another client's person key is left to the person (Update available).
+        guard await agentDaemonAllowsAutomaticUpdate(session) else {
+            logger.info("update of \(session.host.destination.description, privacy: .public) offered: another client holds its person key, or its agent daemon status is unreadable")
             session.updateOffered = true
             autoUpdated.done(tried)
             return

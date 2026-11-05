@@ -20,7 +20,8 @@ extension DaemonService {
         let sequence = await connection.eventSequence()
         let held = await store.appliedThrough(sequence, since: epoch)
         guard held, self.connection === connection else {
-            logger.error("\(label, privacy: .public): the store did not catch up with the reply (\(sequence == nil ? "no event sequence" : "the connection changed", privacy: .public)); reading it may miss the command's result")
+            let cause = sequence == nil ? "no event sequence" : "the connection changed, or the store stopped catching up"
+            logger.error("\(label, privacy: .public): the store did not catch up with the reply (\(cause, privacy: .public)); reading it may miss the command's result")
             return false
         }
         return true
@@ -32,8 +33,8 @@ extension DaemonService {
     /// any client.
     ///
     /// - Throws: ``DaemonError/notConnected`` with no connection, or when the wait did not hold
-    ///   (``appliedThroughReply(on:after:)``: no event sequence after the reply, a drop during the wait, another
-    ///   connection now); the request's error.
+    ///   (``appliedThroughReply(on:after:)``: no event sequence after the reply, a drop during the wait, a store
+    ///   that stopped catching up, another connection now); the request's error.
     /// - Returns: The store's applied sequence after the wait.
     @discardableResult
     public func appliedThroughSyncBarrier() async throws -> UInt64 {

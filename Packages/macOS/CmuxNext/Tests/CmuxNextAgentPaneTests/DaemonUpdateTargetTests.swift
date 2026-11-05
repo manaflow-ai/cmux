@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
 
 /// The words of the daemon update (``DaemonUpdateTarget``): how a build string reads, the ledger
 /// that keeps one attempt per machine and build, the board, and the toggle.
-@Suite nonisolated struct DaemonUpdateTargetTests {
+@Suite(.closesItsWindows) nonisolated struct DaemonUpdateTargetTests {
     @Test func toggleIsOnByDefaultAndInDebugSettings() {
         #expect(AgentPaneTunables.updatePeersAutomatically.defaultValue)
         #expect(AgentPaneTunables.all.contains { $0.key == AgentPaneTunables.updatePeersAutomatically.key })
@@ -105,20 +106,25 @@ import Testing
     }
 
     /// A recorded failure or rollback the policy asks a notice for shows a toast naming the
-    /// machine; the same state without the ask, or any other state, shows none.
+    /// machine, with its reason in the toast's detail; the same state without the ask, or any
+    /// other state, shows none. A successful update never shows one (Leo, 2026-10-30: "i dont
+    /// think i need to see this").
     @Test @MainActor func aFailureTheBoardIsAskedToNoticeShowsOneToast() {
         let board = DaemonUpdateBoard()
-        var shown: [String] = []
-        board.showNotice = { shown.append($0.toast.message); return nil }
+        var shown: [CmuxToast] = []
+        board.showNotice = { shown.append($0.toast); return nil }
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16", state: .updating, notify: true))
+        board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16",
+                                      state: .updated(build: "46c97e9"), notify: true, build: "46c97e9"))
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16",
                                       state: .failed(reason: "disk full", rolledBack: false)))
         #expect(shown.isEmpty)
         board.apply(DaemonUpdateEvent(id: "acpmux-peer:cmux16", displayName: "cmux16", sshHost: "cmux16",
                                       state: .failed(reason: "disk full", rolledBack: false), notify: true))
         #expect(shown.count == 1)
-        #expect(shown.first?.contains("cmux16") == true && shown.first?.contains("disk full") == true)
-        #expect(DaemonUpdateBoard.noticeToast([DaemonUpdateEvent(id: "x", displayName: "x", state: .updating, notify: true)], details: true) == nil)
+        #expect(shown.first?.message.contains("cmux16") == true && shown.first?.detail == "disk full")
+        #expect(DaemonUpdateBoard.noticeToast([DaemonUpdateEvent(id: "x", displayName: "x", state: .updating, notify: true)]) == nil)
+        #expect(DaemonUpdateBoard.noticeToast([DaemonUpdateEvent(id: "x", displayName: "x", state: .updated(build: "46c97e9"), notify: true)]) == nil)
     }
 
     /// Leo's screen: three toasts stacked over the chat list and composer, one per machine (a
@@ -132,7 +138,6 @@ import Testing
         var shown: [DaemonUpdateBoard.Notice] = []
         func board() async -> DaemonUpdateBoard {
             let board = DaemonUpdateBoard(closedNoticeFile: file)
-            board.openDetails = {}
             board.showNotice = { shown.append($0); return nil }
             await board.settled()
             return board
@@ -155,7 +160,7 @@ import Testing
         #expect(grouped.detail?.components(separatedBy: "\n").count == 3)
         #expect(grouped.detail?.contains("Bootstrap failed: 125") == true)
         #expect(grouped.duration == CmuxToast.untilClosed)
-        #expect(grouped.action != nil, "no Details button")
+        #expect(grouped.action?.revealsDetails == true, "no Details button that shows the reasons in place")
 
         // Closed: no toast for this build again, in this run or after a relaunch.
         shown.last?.closed()
@@ -219,13 +224,56 @@ import Testing
         #expect(board.otherMachines?.lines == [tooOld])
     }
 
-    /// Details opens Settings > Updates when the app gives a way there; none without.
-    @Test func theGroupedToastHasDetailsOnlyWithSomewhereToGo() throws {
+    /// Leo's screen: a toast "Couldn't update <machine>: ssh <machine> failed: ssh: connect to host
+    /// <address> port 22: Operation timed out". A failure's headline names the machine in plain
+    /// words; the CLI's text, its address included, stays in the detail.
+    @Test func aFailuresHeadlineKeepsTheRawReasonInItsDetail() throws {
+        let raw = "ssh swarm-10 failed: ssh: connect to host 192.0.2.7 port 22: No route to host"
+        let failed = DaemonUpdateEvent(id: "acpmux-peer:swarm-10", displayName: "swarm-10",
+                                       state: .failed(reason: raw, rolledBack: false), notify: true)
+        let toast = try #require(DaemonUpdateBoard.noticeToast([failed]))
+        #expect(toast.message == DaemonUpdateBoard.headline(failed))
+        #expect(toast.message.contains("swarm-10") && !toast.message.contains("192.0.2.7") && !toast.message.contains("ssh"))
+        #expect(toast.detail?.contains(raw) == true)
+        let rolledBack = DaemonUpdateEvent(id: "acpmux-peer:b", displayName: "build-box",
+                                           state: .failed(reason: "new daemon reported 0123456ff", rolledBack: true), notify: true)
+        let kept = try #require(DaemonUpdateBoard.noticeToast([rolledBack]))
+        #expect(kept.message.contains("build-box") && !kept.message.contains("0123456ff"))
+        #expect(kept.detail?.contains("0123456ff") == true)
+    }
+
+    /// An offline machine is one quiet line in plain words, in its tooltip and in Settings >
+    /// Updates, never a toast; once it updates the line goes.
+    @Test @MainActor func anOfflineMachineHasOneQuietLineAndNoToast() {
+        let board = DaemonUpdateBoard()
+        var shown: [CmuxToast] = []
+        board.showNotice = { shown.append($0.toast); return nil }
+        board.apply(DaemonUpdateEvent(id: "acpmux-peer:swarm-10", displayName: "swarm-10", sshHost: "swarm-10", state: .offline, notify: true))
+        #expect(shown.isEmpty, "a toast for an offline machine")
+        #expect(board.detail(sshHost: "swarm-10") == DaemonUpdateBoard.line(.offline))
+        #expect(board.otherMachines?.lines == [DaemonUpdateBoard.offlineLine("swarm-10")])
+        #expect(board.otherMachines?.machines.first?.canUpdate == false)
+        #expect(DaemonUpdateBoard.offlineLine("swarm-10").contains("swarm-10"))
+        board.apply(DaemonUpdateEvent(id: "acpmux-peer:swarm-10", displayName: "swarm-10", sshHost: "swarm-10", state: .updated(build: "abc123def")))
+        #expect(board.otherMachines == nil)
+    }
+
+    /// Details shows the reason in the toast, never Settings (Leo 2026-10-29: "the FUCKING details
+    /// are FUCKING STUPID BECAUSE IT TAKES YOU TO FUCKING SETTINGS????"): one machine's toast says
+    /// what happened in plain words, and its reason is the detail Details shows.
+    @Test func detailsShowTheReasonInTheToastNotSettings() throws {
         let event = DaemonUpdateEvent(id: "acpmux-peer:build-box", displayName: "build-box",
                                       state: .failed(reason: "disk full", rolledBack: false), notify: true)
-        #expect(DaemonUpdateBoard.noticeToast([event], details: true)?.action != nil)
-        #expect(DaemonUpdateBoard.noticeToast([event], details: false)?.action == nil)
-        #expect(DaemonUpdateBoard.noticeToast([event], details: false)?.id == DaemonUpdateBoard.noticeID)
+        let toast = try #require(DaemonUpdateBoard.noticeToast([event]))
+        #expect(toast.id == DaemonUpdateBoard.noticeID)
+        #expect(toast.action?.revealsDetails == true)
+        #expect(toast.message.contains("build-box") && !toast.message.contains("disk full"))
+        #expect(toast.detail == "disk full", "the detail repeats the headline: \(toast.detail ?? "nil")")
+        let rolledBack = DaemonUpdateEvent(id: "acpmux-peer:build-box", displayName: "build-box",
+                                           state: .failed(reason: "the new daemon did not answer", rolledBack: true), notify: true)
+        let kept = try #require(DaemonUpdateBoard.noticeToast([rolledBack]))
+        #expect(kept.message.contains("build-box") && kept.detail == "the new daemon did not answer")
+        #expect(kept.message != toast.message)
     }
 
     /// Only the person closes the notice for the build. Its window closing (the toast center ends
@@ -247,6 +295,7 @@ import Testing
         let windows = (0..<2).map { _ in
             NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
         }
+        defer { windows.forEach { $0.closeAfterTest() } }
         var notices: [DaemonUpdateBoard.Notice] = []
         var handles: [CmuxToastHandle] = []
         let board = DaemonUpdateBoard()
@@ -281,7 +330,9 @@ import Testing
             NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
         }
         let behind = window(), front = window()
+        defer { behind.closeAfterTest(); front.closeAfterTest() }
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 80, height: 40), styleMask: [.nonactivatingPanel], backing: .buffered, defer: true)
+        defer { panel.closeAfterTest() }
         func rules(visible: Set<ObjectIdentifier>) -> DaemonUpdateBoard.NoticeWindowRules {
             var rules = DaemonUpdateBoard.NoticeWindowRules()
             rules.root = { $0 === panel ? front : $0 }
@@ -308,6 +359,7 @@ import Testing
             NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 120), styleMask: [.titled], backing: .buffered, defer: true)
         }
         let workspace = window(), otherSpace = window(), settings = window(), sheet = window()
+        defer { [workspace, otherSpace, settings, sheet].forEach { $0.closeAfterTest() } }
         var rules = DaemonUpdateBoard.NoticeWindowRules()
         rules.root = { $0 === sheet ? workspace : $0 }
         rules.isWorkspace = { $0 === workspace || $0 === otherSpace }

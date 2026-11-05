@@ -19,20 +19,22 @@ import {
   type CurrentPrincipalShape
 } from "@cmux/protocol"
 import { Effect, Layer, Redacted } from "effect"
-import { HttpRouter, HttpServer, HttpServerRequest } from "effect/unstable/http"
-import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { HttpRouter, HttpServer, HttpServerRequest } from "effect/http"
+import { HttpApiBuilder } from "effect/http-api"
 import { authenticate, mintAccessToken, publicJwks } from "./auth.ts"
 import type { Env } from "./env.ts"
 import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
 import { automationHookPath, automationHookSecret } from "./ingress/automation-hook.ts"
 import { codeRefOf } from "./code-check.ts"
+import { chiefJobGate, isChiefJobCreate } from "./chief-job-gate.ts"
 import type { CodeStorageError } from "./code-storage.ts"
 import { isProvider, providers, scopesToRequest } from "./integrations/providers.ts"
 import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
+import { pairInvite } from "./pair-invite-routes.ts"
 import { avatarGetRoute, avatarSetRoute, conversationMutate, conversationRead } from "./home-routes.ts"
 import { linkVerifiedAddress } from "./home-requests.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
@@ -271,6 +273,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const found = yield* Effect.tryPromise({ try: () => withAnySsoSession(env, { ...bare, stack_session: stackSession }), catch: gateUnreachable })
           submitter = found.sso_team ? { ...bare, sso_team: found.sso_team } : bare
         }
+        // Invite-code pairing: a person's invite for a new machine to type (pair-invite-routes.ts).
+        if (payload.op === "server.pair.invite") return yield* Effect.tryPromise({ try: () => pairInvite(env, principal, frame), catch: unreachable })
         // cmux server pairing: several owners in order (UserDO install, TeamDO host, PairingDO), each keyed by the code.
         if (payload.op === "server.pair.approve") {
           // Authorization already verified this exact request's Stack session. It is never an op param,
@@ -293,6 +297,19 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const refused = impl?.refuseScopes?.(env, scopesToRequest(env, impl, Array.isArray(cp?.scopes) ? (cp.scopes as Array<string>) : []))
           if (refused) {
             return { ok: false, op: payload.op, error: { code: "validation.invalid", message: refused, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
+          }
+        }
+        // A person's Cloud Chief job (cmux automation --target cloud, the Automations page): the free plan's cap first.
+        if (def.owner === "cloud:SchedulerDO" && isChiefJobCreate(payload.op, frame.params, principal)) {
+          const p = yield* principalFor(def.owner, principal)
+          const stub = env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!))
+          // A retried create (decided key) replays from the ledger; it is not a new job.
+          const refusal = yield* Effect.tryPromise({
+            try: async () => ((await rpc<boolean>(stub.isReplay(p.team!, p, { t: "op", ...frame }))) ? undefined : chiefJobGate(env, p, (cursor) => rpc<ReadResult>(stub.readOp(p.team!, p, "automation.list", { limit: 100, ...(cursor ? { cursor } : {}) })))),
+            catch: unreachable
+          })
+          if (refusal) {
+            return { ok: false, op: payload.op, error: { code: refusal.code, message: refusal.message, retryable: false, details: refusal.details }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `scheduler:${p.team}`, sequence: 0 }
           }
         }
         // Ops that pin automation code: the SchedulerDO checks the commit and its bundle in the team's repository first.
@@ -439,6 +456,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           catch: unreachable
         })
         if (!r.ok) {
+          if (r.code === "automation.moved") return yield* new BadRequest({ code: "selector.not_found", message: r.message })
           if (r.code === "selector.not_found" || r.code === "validation.invalid" || r.code === "cloud.machine.not_found" || r.code === "cloud.machine.not_bound" || r.code === "unknown_message") return yield* new BadRequest({ code: r.code, message: r.message })
           return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
         }

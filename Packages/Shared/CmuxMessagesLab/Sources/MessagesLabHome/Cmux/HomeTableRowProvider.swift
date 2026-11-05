@@ -42,7 +42,10 @@ final class HomeTableRowProvider: TranscriptCustomRowProvider {
                                         value: HomePlanRowProvider.Payload(raw: raw, card: card)) {
             return .custom(custom)
         }
-        guard let custom = try? CustomPart(kind: kind, version: HomeDiagramRowProvider.version(raw), value: Payload(raw: raw, table: table))
+        // A picture's file arriving later is a new version of the card (it draws the thumbnail then).
+        let pictures = (table.pictures ?? [:]).sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\u{1}")
+        guard let custom = try? CustomPart(kind: kind, version: HomeDiagramRowProvider.version(raw + "\u{0}" + pictures),
+                                           value: Payload(raw: raw, table: table))
         else { return nil }
         return .custom(custom)
     }
@@ -72,8 +75,13 @@ final class HomeTableRowProvider: TranscriptCustomRowProvider {
 
     func tapped(_ part: CustomPart, ref: PartRef) -> Bool {
         guard let payload = Self.payload(part) else { return false }
-        let links = payload.table.rows.flatMap { $0 }.flatMap { HomeTableCell(markdown: $0).links }
-        let items = links.map { (HomeCardLinks.title($0), $0) }
+        let cells = payload.table.rows.flatMap { $0 }.map { HomeTableCell(markdown: $0) }
+        let links = cells.flatMap(\.links)
+        // A picture opens full size (its file, in the app's viewer).
+        let pictures = cells.flatMap(\.images).compactMap { image in
+            payload.table.pictures?[image.source].map { (CmuxStrings.tableOpenPicture(image.alt), URL(fileURLWithPath: $0)) }
+        }
+        let items = pictures + links.map { (HomeCardLinks.title($0), $0) }
         guard !items.isEmpty else { return false }
         Task { @MainActor in HomeCardLinks.offer(items) }
         return true
@@ -89,31 +97,52 @@ struct HomeTableGrid {
     /// A column's natural width stops here (a long cell wraps instead of pushing the others out).
     static let maxNatural: CGFloat = 440
 
+    /// A picture in a cell: at most this tall, as wide as its column lets it.
+    static let pictureMaxHeight: CGFloat = 180
+    /// A picture column's natural width.
+    static let pictureWidth: CGFloat = 240
+
     let widths: [CGFloat]
     let heights: [CGFloat]
     let cells: [[NSAttributedString]]
+    /// Each cell's pictures (rows as `cells`), drawn over its text.
+    let pictures: [[[CGImage]]]
     let alignments: [HomeTable.Alignment]
     let cardWidth: CGFloat
     var height: CGFloat { heights.reduce(0, +) + 2 * Self.pad }
 
     init(_ table: HomeTable, available: CGFloat) {
-        let header = table.header.map { Self.attributed(HomeTableCell(markdown: $0), header: true) }
-        let body = table.rows.map { $0.map { Self.attributed(HomeTableCell(markdown: $0), header: false) } }
-        let all = [header] + body
+        let parsed = ([table.header] + table.rows).map { $0.map { HomeTableCell(markdown: $0) } }
+        // A picture with a file draws as a thumbnail; one without (not loaded yet, or not allowed) shows its alt text.
+        let pictures = parsed.map { $0.map { cell in cell.images.compactMap { Self.picture($0, in: table) } } }
+        let all = parsed.enumerated().map { r, row in
+            row.map { cell in
+                var cell = cell
+                let missing = cell.images.filter { Self.picture($0, in: table) == nil }.map { "[\($0.alt.isEmpty ? "image" : $0.alt)]" }
+                if !missing.isEmpty { cell.text = ([cell.text] + missing).filter { !$0.isEmpty }.joined(separator: " ") }
+                return Self.attributed(cell, header: r == 0)
+            }
+        }
         let natural = (0..<table.columns).map { c in
-            min(Self.maxNatural, all.map { Self.lineWidth($0[c]) }.max() ?? 0) + 2 * Self.cellPadX
+            let text = min(Self.maxNatural, all.map { Self.lineWidth($0[c]) }.max() ?? 0)
+            let picture = pictures.contains { !($0[checked: c] ?? []).isEmpty } ? Self.pictureWidth : 0
+            return max(text, picture) + 2 * Self.cellPadX
         }
         let room = max(1, available - 2 * Self.pad)
         let widths = HomeTableColumns.widths(natural: natural.map { $0.rounded(.up) }, available: room)
         self.widths = widths
-        heights = all.map { (row: [NSAttributedString]) -> CGFloat in
+        heights = zip(all, pictures).map { (row: [NSAttributedString], images: [[CGImage]]) -> CGFloat in
             var tallest: CGFloat = 0
-            for (text, width) in zip(row, widths) {
-                tallest = max(tallest, Self.textHeight(text, width: width - 2 * Self.cellPadX))
+            for (c, (text, width)) in zip(row, widths).enumerated() {
+                let inner = width - 2 * Self.cellPadX
+                let shots = (images[checked: c] ?? []).reduce(CGFloat(0)) { $0 + Self.pictureSize($1, width: inner).height + Self.cellPadY }
+                let words = text.length > 0 ? Self.textHeight(text, width: inner) : 0
+                tallest = max(tallest, shots + words, Self.textHeight(text, width: inner))
             }
             return tallest + 2 * Self.cellPadY
         }
         cells = all
+        self.pictures = pictures
         alignments = table.alignments
         cardWidth = min(available, widths.reduce(0, +) + 2 * Self.pad)
     }
@@ -129,7 +158,13 @@ struct HomeTableGrid {
         for (r, (row, rowHeight)) in zip(cells, heights).enumerated() {
             var x = card.minX + Self.pad
             for (c, (text, width)) in zip(row, widths).enumerated() {
-                let frame = CGRect(x: x + Self.cellPadX, y: y + Self.cellPadY, width: width - 2 * Self.cellPadX, height: rowHeight - 2 * Self.cellPadY)
+                var frame = CGRect(x: x + Self.cellPadX, y: y + Self.cellPadY, width: width - 2 * Self.cellPadX, height: rowHeight - 2 * Self.cellPadY)
+                for image in pictures[checked: r]?[checked: c] ?? [] {
+                    let size = Self.pictureSize(image, width: frame.width)
+                    HomeCardDraw.picture(ctx, image, in: CGRect(x: frame.minX, y: frame.minY, width: size.width, height: size.height))
+                    frame.origin.y += size.height + Self.cellPadY
+                    frame.size.height -= size.height + Self.cellPadY
+                }
                 HomeCardDraw.text(ctx, text, in: frame, alignment: alignments[checked: c] ?? .leading)
                 x += width
             }
@@ -138,6 +173,21 @@ struct HomeTableGrid {
                 HomeCardDraw.hairline(ctx, from: CGPoint(x: card.minX + Self.pad, y: y), to: CGPoint(x: card.maxX - Self.pad, y: y), strong: r == 0)
             }
         }
+    }
+
+    /// The picture `image` names, from the table's resolved files; nil when it has none.
+    static func picture(_ image: HomeTableCell.Image, in table: HomeTable) -> CGImage? {
+        guard let path = table.pictures?[image.source] else { return nil }
+        return HomeMarkdownPolicy.images.markdownImage(source: URL(fileURLWithPath: path).absoluteString, alt: image.alt)
+    }
+
+    /// A thumbnail's size: the picture's aspect, at most `width` wide and ``pictureMaxHeight`` tall,
+    /// never larger than its own points (a 2x screenshot at half its pixels).
+    static func pictureSize(_ image: CGImage, width: CGFloat) -> CGSize {
+        let w = CGFloat(image.width) / 2, h = CGFloat(image.height) / 2
+        guard w > 0, h > 0 else { return .zero }
+        let scale = min(1, max(1, width) / w, pictureMaxHeight / h)
+        return CGSize(width: (w * scale).rounded(), height: (h * scale).rounded())
     }
 
     static func attributed(_ cell: HomeTableCell, header: Bool) -> NSAttributedString {
@@ -318,6 +368,27 @@ enum HomeCardDraw {
         ctx.setLineWidth(strong ? 1 : 0.5)
         ctx.move(to: a)
         ctx.addLine(to: b)
+        ctx.strokePath()
+        ctx.restoreGState()
+    }
+
+    /// `image` in `rect` (y down), with rounded corners and a hairline edge.
+    static func picture(_ ctx: CGContext, _ image: CGImage, in rect: CGRect) {
+        guard rect.width > 0, rect.height > 0 else { return }
+        ctx.saveGState()
+        let path = CGPath(roundedRect: rect, cornerWidth: 8, cornerHeight: 8, transform: nil)
+        ctx.addPath(path)
+        ctx.clip()
+        // The row bitmap is y down: flip around the picture so it draws upright.
+        ctx.translateBy(x: rect.minX, y: rect.maxY)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(origin: .zero, size: rect.size))
+        ctx.restoreGState()
+        ctx.saveGState()
+        ctx.addPath(path)
+        ctx.setStrokeColor(Fixture.secondaryText.withAlphaComponent(0.25).cgColor)
+        ctx.setLineWidth(0.5)
         ctx.strokePath()
         ctx.restoreGState()
     }

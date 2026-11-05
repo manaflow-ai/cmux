@@ -79,6 +79,7 @@ impl Mux {
     /// `notification` event follow a successful commit only, so a client
     /// that acknowledges on the event reads the committed item.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_notification_effect(
         &self,
         actor: &crate::Actor,
@@ -402,16 +403,38 @@ impl Mux {
             &Feed,
         ) -> anyhow::Result<bool>,
     ) -> anyhow::Result<bool> {
+        self.read_feed_items_resolved(
+            || (),
+            |(), item| matches(item),
+            |(), extra, feed| commit(extra, feed),
+        )
+    }
+
+    /// `read_feed_items_in` whose selection is resolved under the feed lock
+    /// (`resolve`), so no notification can commit its ring and item between
+    /// what the selection saw and the items it reads.
+    pub(crate) fn read_feed_items_resolved<S>(
+        &self,
+        resolve: impl FnOnce() -> S,
+        matches: impl Fn(&S, &Item) -> bool,
+        commit: impl FnOnce(
+            &S,
+            Option<crate::workspace_registry::RegistryTransactionWrite<'_>>,
+            &Feed,
+        ) -> anyhow::Result<bool>,
+    ) -> anyhow::Result<bool> {
         let mut feed = lock(&self.feed_local);
+        let selection = resolve();
+        let matches = |item: &Item| matches(&selection, item);
         if !feed.items().iter().any(|item| item.is_unread() && matches(item)) {
-            commit(None, &feed)?;
+            commit(&selection, None, &feed)?;
             return Ok(false);
         }
         let mut next = (*feed).clone();
-        let (changes, _owned_elsewhere) = next.read_where(now_ms(), &matches);
+        let (changes, _owned_elsewhere) = next.read_where(now_ms(), matches);
         let write = |tx: &rusqlite::Transaction<'_>| write_feed_local_changes(tx, &changes);
         let wrote = !changes.is_empty();
-        if commit(wrote.then_some(&write), &next)? {
+        if commit(&selection, wrote.then_some(&write), &next)? {
             *feed = next;
             return Ok(wrote);
         }

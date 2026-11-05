@@ -59,6 +59,9 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     private var animator: UIViewPropertyAnimator?
     private var wasPastThreshold = false
     private var isTracking = false
+    /// Reduce Motion: the drawer settles in place instead of sliding (a drag
+    /// still follows the finger). Tests set it.
+    var reducesMotion: () -> Bool = { UIAccessibility.isReduceMotionEnabled }
 
     init(model: SidebarModel, sidebar: UIViewController, content: UIViewController) {
         self.model = model
@@ -211,26 +214,39 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         // UISpringTimingParameters takes velocity relative to the remaining distance.
         let relativeVelocity = abs(distance) > 0.5 ? velocity / distance : 0
         animator?.stopAnimation(true)
+        animator = nil
         setCorners(rounded: true)
         setSidebarPresent(true)
         publish(open: open)
-        let animator = theme.motion.drawer.animator(initialVelocity: relativeVelocity)
         offset = target
+        if reducesMotion() {
+            apply()
+            didSettle(open: open)
+            return
+        }
+        let animator = theme.motion.drawer.animator(initialVelocity: relativeVelocity)
         animator.addAnimations { [weak self] in self?.apply() }
         animator.addCompletion { [weak self] position in
             guard let self, position == .end else { return }
             self.animator = nil
-            self.model.progress = self.progress
-            if !open {
-                self.setCorners(rounded: false)
-                self.setSidebarPresent(false)
-            }
-            if open { UIAccessibility.post(notification: .screenChanged, argument: self.sidebarController.view) }
+            self.didSettle(open: open)
         }
         animator.isInterruptible = true
         self.animator = animator
         model.progress = open ? 1 : 0
         animator.startAnimation()
+    }
+
+    /// The drawer at rest: a closed card loses its corners and the sidebar
+    /// leaves the screen and the accessibility tree; an open one takes
+    /// VoiceOver's focus.
+    private func didSettle(open: Bool) {
+        model.progress = progress
+        if !open {
+            setCorners(rounded: false)
+            setSidebarPresent(false)
+        }
+        if open { UIAccessibility.post(notification: .screenChanged, argument: sidebarController.view) }
     }
 
     /// Captures the on-screen position (mid-animation included) as the start

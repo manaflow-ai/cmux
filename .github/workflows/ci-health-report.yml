@@ -50,7 +50,7 @@ jobs:
       issues: write
       contents: read
     name: Report CI health
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Measured against this repo: a window's run listings plus ~160 job
     # listings is a few hundred calls, and the Actions API answers each one
     # in seconds on a repo this size. 15 minutes was not enough headroom.
@@ -89,11 +89,16 @@ jobs:
           # CI_PR_POOL_ORDER is the one list that may also name owned pools.
           CMUX_CI_RUNNER_VARIABLES: |
             CI_AWS_SIDE_RUNNER=${{ vars.CI_AWS_SIDE_RUNNER }}
+            CI_DEV_COMPILE_RUNNER=${{ vars.CI_DEV_COMPILE_RUNNER }}
             CI_FAST_LANE_RUNNER=${{ vars.CI_FAST_LANE_RUNNER }}
             CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
+            CI_LINUX_GATE_OWNED_RUNNER=${{ vars.CI_LINUX_GATE_OWNED_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
             CI_NIGHTLY_NEXT_BUILD_RUNNER=${{ vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
+            CI_NIGHTLY_ONLY_RUNNER=${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
+            CI_NIGHTLY_ONLY_BUILDER_RUNNER=${{ vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER }}
+            CI_NIGHTLY_SIGN_RUNNER=${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
             CI_NIGHTLY_NEXT_TRUSTED_POOL=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_POOL }}
             CI_NIGHTLY_NEXT_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER }}
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}

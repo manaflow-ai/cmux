@@ -94,8 +94,16 @@ pub enum MuxEvent {
     /// The workspace/screen/pane/tab tree changed (from any frontend or
     /// the control socket).
     TreeChanged,
-    /// Delta subscribers need a coarse snapshot resync for a selection-only change.
-    TreeSelectionChanged,
+    /// The selection changed (focused workspace, active screens, panes or tabs). Delta subscribers resync
+    /// with a coarse snapshot, unless it names the one workspace whose selection a delta moved and they
+    /// read `selection-changed` (`tree-selection-deltas-v1`, #32408): its writer then sends that
+    /// workspace's selection as it is when written (`selection_changed_json`).
+    TreeSelectionChanged(Option<WorkspaceId>),
+    /// A workspace's title, color or icon changed through the state store (`workspace.update`), which
+    /// has no workspace revision. Delta subscribers resync with a coarse snapshot, unless they read
+    /// `workspace-presentation-changed` (`tree-selection-deltas-v1`): that workspace's entity, read
+    /// when written (#32408).
+    WorkspacePresentationChanged(WorkspaceId),
     /// One protocol-v7 lifecycle mutation. Coarse subscribers project this
     /// back to the legacy `tree-changed` event.
     TreeDelta(TreeDelta),
@@ -183,6 +191,12 @@ pub enum MuxEvent {
     /// The daemon's machine-level model spend readout changed. `None` means
     /// the readout is unavailable and frontends must hide it.
     MachineUsageChanged(Option<MachineUsage>),
+    /// The app supervisor committed an install-state change: its
+    /// `apps-changed` payload as apps clients get it (apps/supervisor.rs).
+    /// `subscribe` sends it only to a page relay whose page hears it
+    /// (page-router.json `events`); other connections hear it as apps
+    /// clients after their first `apps-*` command.
+    AppsChanged(Arc<Value>),
     /// Every workspace is gone.
     Empty,
 }

@@ -259,6 +259,58 @@ fn sessions_register_import_once_and_forget() {
     assert_eq!(listed["pins"], json!([]));
 }
 
+#[test]
+fn repeated_session_puts_emit_no_personal_changed() {
+    let mux = personal_mux();
+    let request = json!({"cmd":"put-session","session_id":"remote-1","machine_name":"build-box",
+        "session_name":"main","transport":{"kind":"ssh","host":"build-box"},
+        "capabilities":["profiles-v1"]});
+    let first = run(&mux, request.clone()).unwrap();
+    assert_eq!(first["created"], true);
+    let before = revision(&mux);
+    let events = mux.subscribe();
+    for _ in 0..16 {
+        let repeated = run(&mux, request.clone()).unwrap();
+        assert_eq!(repeated["created"], false);
+        assert_eq!(repeated["session"], first["session"]);
+    }
+    assert_eq!(revision(&mux), before);
+    assert!(!events.try_iter().any(|event| matches!(event, MuxEvent::PersonalChanged { .. })));
+    let mut changed = request;
+    changed["machine_name"] = json!("renamed-box");
+    let updated = run(&mux, changed).unwrap();
+    assert_eq!(updated["session"]["machine_name"], "renamed-box");
+    assert_eq!(updated["created"], false);
+    assert_eq!(revision(&mux), before + 1);
+    assert!(events.try_iter().any(|event| matches!(event, MuxEvent::PersonalChanged { .. })));
+}
+
+/// The app records each connected session with the capabilities its
+/// `identify` returned (SessionRegistrar). This daemon's own list must be
+/// accepted as it is: a refused `put-session` leaves the machine out of the
+/// registry, and the next launch does not restore it (P-AUSTIN B7a).
+#[test]
+fn put_session_records_this_daemons_whole_capability_list() {
+    let mux = personal_mux();
+    let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
+    let capabilities = identity["capabilities"].clone();
+    let put = run(
+        &mux,
+        json!({"cmd":"put-session","session_id":"remote-1","transport":{"kind":"ssh","host":"build-box"},
+               "capabilities":capabilities}),
+    )
+    .expect("put-session accepts the capability list identify returned");
+    assert_eq!(put["session"]["capabilities"], capabilities);
+    let listed = run(&mux, json!({"cmd":"list-personal"})).unwrap();
+    let recorded = listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|session| session["session_id"] == "remote-1")
+        .expect("the session is in the registry");
+    assert_eq!(recorded["capabilities"], capabilities);
+}
+
 /// `personal-mixed-order-v1`: groups and loose workspaces share one
 /// personal order (`workspace_group.update {top_index}`).
 #[test]

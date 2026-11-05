@@ -1,4 +1,4 @@
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextSettings
 public import CmuxNextDaemonService
 public import Foundation
@@ -52,6 +52,12 @@ public final class DiffPageRuntime {
         return DiffRepository(status: status)
     }
 
+    /// The repository `folder` is in on another machine (#25581), from that machine's session
+    /// host through `git`: nil when it is in none; throws when the machine did not answer.
+    public static func repository(at folder: URL, git: any DiffGitRunning) async throws(AgentPaneGitFailure) -> DiffRepository? {
+        DiffRepository(status: try await git.status(folder.path))
+    }
+
     /// The tab's grant (for `repository`'s root) and config, with `turn` as its
     /// Last turn. Fails with a ``DiffTabFailure`` the page shows.
     public func prepare(repository: DiffRepository, source: DiffOpenSource, turn: DiffTurn? = nil) -> Task<DiffTabReady, any Error> {
@@ -65,6 +71,22 @@ public final class DiffPageRuntime {
             }
             return DiffTabReady(grant: grant, config: DiffPageConfig.make(repository: repository, source: source, token: grant.token, turn: turn),
                                 turn: turn)
+        }
+    }
+
+    /// The grant and config of a tab that shows only `patch` (``DiffChatPatch``). No
+    /// sidecar reads it: the page fetches the patch file the grant lists. The grant's repository is
+    /// the session root itself, so its token names no folder of the person's.
+    public func prepare(chatPatch patch: DiffChatPatch) -> Task<DiffTabReady, any Error> {
+        let root = root
+        return Task {
+            let grant = try await Self.grant(root: root, repository: root.path)
+            if Task.isCancelled {
+                await Self.drop(grant)
+                throw CancellationError()
+            }
+            return DiffTabReady(grant: grant, config: DiffPageConfig.chatPatch(title: patch.title, token: grant.token, file: patch.file),
+                                turn: nil, chatPatch: patch)
         }
     }
 

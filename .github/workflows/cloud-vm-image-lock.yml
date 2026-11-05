@@ -22,6 +22,7 @@ on:
       - web/tests/vm-image-cmux-vm-dns.test.ts
       - web/tests/vm-image-cmux-vm-machine-health.test.ts
       - web/tests/vm-image-cmux-vm-promote-workflow.test.ts
+      - web/tests/vm-image-cmux-vm-github-auth.test.ts
       - web/services/vms/hygiene/cmux-machine-hygiene
       - .github/workflows/cloud-vm-image-lock.yml
       - .github/workflows/cloud-vm-image-bake.yml
@@ -35,9 +36,13 @@ concurrency:
   group: cloud-vm-image-lock-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   lock:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     defaults:
       run:
@@ -50,4 +55,4 @@ jobs:
         with:
           bun-version: "1.4.4"
       - run: bun install --frozen-lockfile
-      - run: bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts tests/vm-image-cmux-vm-dev-tree.test.ts tests/vm-image-cmux-vm-dns.test.ts tests/vm-image-cmux-vm-machine-health.test.ts tests/vm-image-cmux-vm-promote-workflow.test.ts
+      - run: bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts tests/vm-image-cmux-vm-dev-tree.test.ts tests/vm-image-cmux-vm-dns.test.ts tests/vm-image-cmux-vm-machine-health.test.ts tests/vm-image-cmux-vm-promote-workflow.test.ts tests/vm-image-cmux-vm-github-auth.test.ts

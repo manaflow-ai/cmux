@@ -3,6 +3,8 @@
 //! Unix sockets and WebSockets both call this module. The operation catalog is
 //! embedded as the one validation source so transport handlers cannot drift.
 
+use cmux_json::JsonSet as _;
+
 mod auxiliary;
 mod browser_engine;
 mod close_value;
@@ -36,7 +38,10 @@ use crate::resource::{
     NotificationPublicId, RequestEnvelope, RequestId, ResourceError, ResourceOperation,
     ResponseEnvelope, Selector, TerminalPublicId, WireDecimal, WorkspacePublicId,
 };
-use crate::resource_api::{ResourceMachineRequest, operation_failed, public_session_snapshot};
+use crate::resource_api::{
+    ResourceMachineRequest, operation_failed, public_session_snapshot, public_terminal_snapshot,
+    terminal_tab_ids_in_canonical_order,
+};
 use crate::workspace_registry::{ResourceEffectOutcome, ResourceEffectPreparation};
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 use mouse::{validate_browser_mouse, validate_terminal_mouse};
@@ -188,7 +193,7 @@ pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -
     let mut response = serde_json::to_value(ResponseEnvelope::failure(id, error))
         .expect("resource failure envelopes are serializable");
     if let Some(numeric_id) = numeric_id {
-        response["id"] = numeric_id;
+        response.set("id", numeric_id);
     }
     response
 }
@@ -282,8 +287,10 @@ fn dispatch_resource_request(
             }
             ResourceOperation::SessionPing => {
                 ensure_session_route(mux, &request.selectors)?;
-                let snapshot = public_session_snapshot(mux)?;
-                Ok(json!({"alive":true,"cursor":snapshot["cursor"]}))
+                // The cursor alone: a ping reads the topology frame, not the
+                // whole session snapshot.
+                let cursor = crate::resource_api::public_session_cursor(mux)?;
+                Ok(json!({"alive":true,"cursor":cursor}))
             }
             ResourceOperation::TerminalList => list_resources(mux, &request.selectors, "terminals"),
             // A conversation tab's content is not a browser (`conversation-tabs-v1`).
@@ -292,9 +299,7 @@ fn dispatch_resource_request(
                     mux.retain_browser_pages(&mut browsers);
                     browsers
                 }),
-            ResourceOperation::TerminalGet => {
-                get_resource(mux, &request.selectors, ResourceTarget::Terminal, "terminals")
-            }
+            ResourceOperation::TerminalGet => get_terminal(mux, &request.selectors),
             ResourceOperation::BrowserGet => {
                 let browser =
                     get_resource(mux, &request.selectors, ResourceTarget::Browser, "browsers")?;
@@ -342,6 +347,13 @@ fn list_resources(
     collection: &str,
 ) -> Result<Value, ResourceError> {
     let path = resolve_list_scope(mux, selectors)?;
+    // A terminal list inside one workspace reads that workspace's tabs and
+    // their terminals' rows, not the whole session (CLI-1).
+    if collection == "terminals"
+        && let Some(workspace) = path.workspace.clone()
+    {
+        return list_terminals_in_workspace(mux, &path, &workspace);
+    }
     let snapshot = public_session_snapshot(mux)?;
     let values = snapshot[collection]
         .as_array()
@@ -431,6 +443,156 @@ fn resource_is_in_path(
             "browsers" => path.browser.as_ref().is_none_or(|target| id == Some(target.as_str())),
             _ => true,
         }
+}
+
+/// `terminal.get`: the value `session.snapshot` lists for the terminal, read
+/// from its own rows (its host, its durable record, the tabs that show it,
+/// its live surface). Never the whole session snapshot: the bundled screen
+/// detector reads one terminal per output burst, and a snapshot of every
+/// workspace, screen and tab (each decorated from SQLite) per read held the
+/// projection lock that every command of the session waits on, so a large
+/// session's commands slowed with its size (a classic migration of 512
+/// workspaces went O(n²)).
+fn get_terminal(mux: &Mux, selectors: &ResourceSelectors) -> Result<Value, ResourceError> {
+    let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
+    let terminal_id =
+        path.terminal.ok_or_else(|| ResourceError::not_found("terminals", "<resolved>"))?;
+    // The snapshot publishes every terminal's pending directory before it
+    // reads; this one's is enough. Outside the projection lock, as there:
+    // publishing takes the state lock itself.
+    if let Some(surface) = mux.with_state(|state| state.terminal_catalog.get(&terminal_id).cloned())
+    {
+        surface.publish_pending_directory();
+    }
+    mux.with_resource_projection(|registry, state| {
+        Ok(terminal_value_locked(mux, registry, state, &terminal_id)?.map(|(value, _)| value))
+    })
+    .map_err(operation_failed)?
+    .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))
+}
+
+/// The terminal's first tab in canonical order: (pane, position, tab).
+type FirstTab = (crate::resource::PanePublicId, usize, crate::resource::TabPublicId);
+
+/// The value `session.snapshot` lists for `terminal_id`, read from its own
+/// rows (its host, its durable record, the tabs that show it, its live
+/// surface) under the registry and state locks the caller holds, with the
+/// first of its tabs in canonical order; `None` when the terminal is not
+/// listed (no live host, or a tombstoned record).
+fn terminal_value_locked(
+    mux: &Mux,
+    registry: &crate::workspace_registry::WorkspaceRegistry,
+    state: &crate::model::State,
+    terminal_id: &TerminalPublicId,
+) -> anyhow::Result<Option<(Value, Option<FirstTab>)>> {
+    let Some(host_id) = registry.live_terminal_host_id(terminal_id)? else {
+        return Ok(None);
+    };
+    // A resource row whose durable host is gone or tombstoned is not
+    // listed by the snapshot either.
+    let Some(durable) = registry.live_terminal_record(&host_id)? else {
+        return Ok(None);
+    };
+    let surface = state.terminal_catalog.get(terminal_id);
+    if let Some(surface) = surface {
+        let runtime_host = mux.resource_terminal_host_identity(surface).ok_or_else(|| {
+            anyhow::anyhow!("terminal {terminal_id} runtime omitted its durable identity")
+        })?;
+        anyhow::ensure!(
+            runtime_host.terminal_id == host_id,
+            "terminal {terminal_id} runtime references a mismatched durable host"
+        );
+    }
+    let tabs = registry.resource_tabs_of_content(terminal_id.as_str())?;
+    for tab in &tabs {
+        if let Some(tab_host_id) = &tab.terminal_id {
+            anyhow::ensure!(
+                *tab_host_id == host_id,
+                "terminal {terminal_id} references a mismatched durable host"
+            );
+        }
+    }
+    let first = tabs
+        .iter()
+        .map(|tab| (tab.pane_id.clone(), tab.position, tab.public_id.clone()))
+        .min_by(|left, right| {
+            (left.0.as_str(), left.1, left.2.as_str()).cmp(&(
+                right.0.as_str(),
+                right.1,
+                right.2.as_str(),
+            ))
+        });
+    let tab_ids = terminal_tab_ids_in_canonical_order(
+        tabs.into_iter().map(|tab| (terminal_id.clone(), tab.pane_id, tab.position, tab.public_id)),
+    )
+    .remove(terminal_id)
+    .unwrap_or_default();
+    let value = public_terminal_snapshot(terminal_id, &durable, surface.map(Arc::as_ref), tab_ids)?;
+    Ok(Some((value, first)))
+}
+
+/// `terminal.list` scoped to a workspace, screen, pane or tab: the terminals
+/// the snapshot lists there (a terminal belongs where its first tab is, its
+/// `tab_id`), in the snapshot's order (by that first tab), built from the
+/// workspace's stored tabs and each listed terminal's own rows. The whole
+/// session snapshot built every workspace, terminal, notification and
+/// projection under the registry and state locks to keep one pane's
+/// terminals (CLI-1: the largest lock holder under the L1 storm).
+fn list_terminals_in_workspace(
+    mux: &Mux,
+    path: &ResolvedResourcePath,
+    workspace: &WorkspacePublicId,
+) -> Result<Value, ResourceError> {
+    mux.with_resource_projection(|registry, state| {
+        let topology = registry.resource_topology_scoped(std::slice::from_ref(workspace))?;
+        let pane_screen = topology
+            .panes
+            .iter()
+            .map(|pane| (&pane.public_id, &pane.screen_id))
+            .collect::<HashMap<_, _>>();
+        let scope_tabs = topology
+            .tabs
+            .iter()
+            .filter(|tab| {
+                path.pane.as_ref().is_none_or(|id| &tab.pane_id == id)
+                    && path
+                        .screen
+                        .as_ref()
+                        .is_none_or(|id| pane_screen.get(&tab.pane_id).copied() == Some(id))
+                    && path.tab.as_ref().is_none_or(|id| &tab.public_id == id)
+            })
+            .collect::<Vec<_>>();
+        let scope_tab_ids = scope_tabs.iter().map(|tab| &tab.public_id).collect::<HashSet<_>>();
+        let mut seen = HashSet::new();
+        let mut listed = Vec::new();
+        for tab in &scope_tabs {
+            let crate::resource::ContentPublicId::Terminal(terminal_id) = &tab.content_id else {
+                continue;
+            };
+            if !seen.insert(terminal_id.clone())
+                || path.terminal.as_ref().is_some_and(|target| target != terminal_id)
+            {
+                continue;
+            }
+            let Some((value, Some(first))) =
+                terminal_value_locked(mux, registry, state, terminal_id)?
+            else {
+                continue;
+            };
+            if scope_tab_ids.contains(&first.2) {
+                listed.push((first, value));
+            }
+        }
+        listed.sort_by(|(left, _), (right, _)| {
+            (left.0.as_str(), left.1, left.2.as_str()).cmp(&(
+                right.0.as_str(),
+                right.1,
+                right.2.as_str(),
+            ))
+        });
+        Ok(Value::Array(listed.into_iter().map(|(_, value)| value).collect()))
+    })
+    .map_err(operation_failed)
 }
 
 fn get_resource(
@@ -788,13 +950,28 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         })
         .transpose()?;
     let workspace_id = notification_workspace(mux, &request.fields)?;
-    let scope = match (&terminal_id, &workspace_id) {
-        (Some(_), Some(_)) => {
-            return Err(validation_error("give terminal_id or workspace_id, not both", json!({})));
+    let notification_id = request
+        .fields
+        .get("notification_id")
+        .map(|value| {
+            // The catalog validates resource ids as strings; a non-string
+            // parses as "" and fails as a validation error, never a panic.
+            NotificationPublicId::parse(value.as_str().unwrap_or_default().to_string())
+        })
+        .transpose()?;
+    let scope = match (&terminal_id, &workspace_id, &notification_id) {
+        (Some(terminal), None, None) => crate::mux::NotificationClearScope::Terminal(terminal),
+        (None, Some(workspace), None) => crate::mux::NotificationClearScope::Workspace(workspace),
+        (None, None, Some(notification)) => {
+            crate::mux::NotificationClearScope::Notification(notification)
         }
-        (Some(terminal), None) => crate::mux::NotificationClearScope::Terminal(terminal),
-        (None, Some(workspace)) => crate::mux::NotificationClearScope::Workspace(workspace),
-        (None, None) => crate::mux::NotificationClearScope::Session,
+        (None, None, None) => crate::mux::NotificationClearScope::Session,
+        _ => {
+            return Err(validation_error(
+                "give at most one of terminal_id, workspace_id and notification_id",
+                json!({}),
+            ));
+        }
     };
     let mutation = request.mutation().map_err(resource_operation_error)?;
     let commit = mux
@@ -984,5 +1161,7 @@ mod frontend_browser_effect_tests;
 mod partial_create_tests;
 #[cfg(test)]
 mod split_focus_tests;
+#[cfg(test)]
+mod terminal_get_tests;
 #[cfg(test)]
 mod tests;

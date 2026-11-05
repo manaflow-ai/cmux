@@ -5,7 +5,8 @@ Two commands:
 
   first_turn_cost.py proxy DIR
       A Messages API stand-in on 127.0.0.1 (a free port, written to
-      DIR/port). It records every request (DIR/NNNN.req.json: one JSON head
+      DIR/port and then as one line on stdout, the line the guard waits
+      for). It records every request (DIR/NNNN.req.json: one JSON head
       line with the method, path and headers, credentials redacted, then the
       body) and answers every POST /v1/messages with one canned reply
       ("noted", end_turn; streamed when the request streams). No model runs,
@@ -31,6 +32,7 @@ import http.server
 import json
 import math
 import os
+import socketserver
 import sys
 import threading
 import urllib.error
@@ -116,11 +118,20 @@ def proxy(out):
     class Server(http.server.ThreadingHTTPServer):
         daemon_threads = True
 
+        def server_bind(self):
+            # HTTPServer.server_bind also names the bound address (socket.getfqdn), a reverse
+            # DNS lookup of 127.0.0.1: 35 s on aws-m4pro-4 and -8, so the guard gave up before
+            # the port was written (cx-rkzfny). The stand-in needs no name.
+            socketserver.TCPServer.server_bind(self)
+            self.server_name, self.server_port = self.server_address[:2]
+
     srv = Server(("127.0.0.1", 0), Handler)
     tmp = os.path.join(out, "port.tmp")
     with open(tmp, "w") as f:
         f.write(str(srv.server_address[1]))
     os.replace(tmp, os.path.join(out, "port"))
+    # The guard waits for this line or for this process to end (no fixed wait).
+    print(srv.server_address[1], flush=True)
     srv.serve_forever()
 
 

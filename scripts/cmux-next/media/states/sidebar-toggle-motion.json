@@ -1,0 +1,15 @@
+{
+  "title": "Sidebar toggle motion over synthetic split and browser content (Leo's overshoot report). Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/sidebar-toggle-motion.json --video --display-scale 2",
+  "settings": null,
+  "launch_args": ["--showcase"],
+  "steps": [
+    {"title": "Launch the synthetic sidebar fixture", "wait": 2},
+    {"title": "Open a workspace for the toggle", "cmux": ["workspace", "new", "--name", "Motion fixture"], "wait": 1},
+    {"title": "Focus the fixture workspace", "cmux": ["workspace", "name:Motion fixture", "focus"], "wait": 1},
+    {"title": "Split right for a second content surface", "cmux": ["action", "run", "splitRight"], "wait": 1},
+    {"title": "Split down for a third content surface", "cmux": ["action", "run", "splitDown"], "wait": 1},
+    {"title": "Open a browser surface beside the terminals", "cmux": ["tab", "new-browser", "--url", "https://example.com"], "wait": 4},
+    {"title": "Hide the left sidebar: capture its settling frames", "cmux": ["action", "run", "toggleSidebar"], "wait": 1},
+    {"title": "Show the left sidebar: capture its settling frames", "cmux": ["action", "run", "toggleSidebar"], "wait": 1}
+  ]
+}

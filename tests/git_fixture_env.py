@@ -6,6 +6,15 @@ TemporaryDirectory is removed ("Directory not empty: '.git'"). Importing this
 module turns that off for every git child of the importing test process;
 tests that build a git environment from scratch pass it through
 `without_auto_maintenance`.
+
+The environment does not reach a push into a local bare repository: git's
+local transport starts `git receive-pack` with GIT_CONFIG_COUNT and
+GIT_CONFIG_PARAMETERS cleared, and receive-pack then starts its own detached
+`git maintenance run --auto` in the bare repository. That writer's
+objects/maintenance.lock left "Directory not empty: 'objects'" behind in
+test_cmux_next_prepush_gate.py on 2026-11-03. A fixture that pushes into a
+bare repository puts CONFIG_FILE_OPT_OUT into the config file its
+GIT_CONFIG_GLOBAL names, which receive-pack does read.
 """
 
 from __future__ import annotations
@@ -14,6 +23,9 @@ import os
 from collections.abc import MutableMapping
 
 _KEY = "maintenance.auto"
+
+# Config-file text that turns auto maintenance off for receive-pack as well (module docstring).
+CONFIG_FILE_OPT_OUT = "[maintenance]\n\tauto = false\n[receive]\n\tautogc = false\n"
 
 
 def without_auto_maintenance(env: MutableMapping[str, str]) -> MutableMapping[str, str]:

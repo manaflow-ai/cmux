@@ -13,7 +13,7 @@ export interface PressReleaseHandlers {
   /** The row under the pointer while the press drags. */
   hover?(row: HTMLElement): void;
   /** Picks `row` (default: a mouse press and click on it, as rows pick on either). */
-  pick?(row: HTMLElement): void;
+  pick?(row: HTMLElement, event: PointerEvent): void;
   /** Released on `row`, after it was picked. */
   picked?(row: HTMLElement): void;
   /** Released after dragging away, not on a row. */
@@ -58,7 +58,7 @@ export function trackPressRelease(start: PressStart, handlers: PressReleaseHandl
     const held = Date.now() - startedAt >= PRESS_CLICK_MS;
     const row = moved || held ? rowAt(event) : null;
     if (row) {
-      (handlers.pick ?? clickRow)(row);
+      (handlers.pick ?? clickRow)(row, event);
       handlers.picked?.(row);
     } else if (moved && held) {
       handlers.close?.();

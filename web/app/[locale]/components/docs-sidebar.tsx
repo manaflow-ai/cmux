@@ -10,7 +10,7 @@ import {
 import { DocsSearchTrigger } from "./docs-search-dialog";
 import { ContentLocaleLink } from "./content-locale-link";
 import { DocsVersionPicker } from "./docs-version-picker";
-import { docsChannelUrl, type DocsChannel } from "@/app/lib/docs-channel";
+import { docsChannelUrl, docsNavPath, type DocsChannel } from "@/app/lib/docs-channel";
 
 function SidebarLink({
   item,
@@ -27,7 +27,9 @@ function SidebarLink({
   onNavigate?: () => void;
   t: (key: string) => string;
 }) {
-  const active = docsChannelUrl("release", pathname) === item.href;
+  // docsNavPath, not docsChannelUrl("release"): a nightly-only page (Base,
+  // cmux-next) must mark itself, not the release fallback (Getting Started).
+  const active = docsNavPath(pathname, locale) === item.href;
   return (
     <ContentLocaleLink
       href={docsChannelUrl(channel, item.href)}

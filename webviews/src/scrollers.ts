@@ -13,9 +13,9 @@
 // scripts/cmux-next/check-scrollbars.sh enforces that.
 //
 // One exception: a minimal scroller (`MINIMAL_SCROLLER_ATTRIBUTE`, the agent chat's composer) keeps
-// its thin thumb the whole time its content overflows (Leo 2026-10-21), unless the scrollbar fade
-// is on (`SCROLLER_FADE_ATTRIBUTE`; the agent pane turns it on by default since Lawrence
-// 2026-10-23, msg 11494: "auto-fades away").
+// its thin thumb the whole time its content overflows (Leo 2026-10-21), even under the scrollbar
+// fade (`SCROLLER_FADE_ATTRIBUTE`, on in the agent pane by default since Lawrence 2026-10-23, msg
+// 11494: "auto-fades away"), which fades the transcript's thumb only.
 //
 // Every scroller drawn here also widens and darkens its thumb while the pointer is near its
 // trailing edge (`NEAR_ATTRIBUTE`, `installScrollerProximity`), as a macOS overlay scroller does,
@@ -29,6 +29,8 @@ export type ScrollerStyle = "overlay" | "legacy";
 
 /** The attribute a scrolling element carries until `SCROLLING_HIDE_MS` after its last scroll. */
 export const SCROLLING_ATTRIBUTE = "data-cmux-scrolling";
+/** On a scrolling element whose scrollbar is hidden, so it needs no reveal or fade timer. */
+export const HIDDEN_SCROLLER_ATTRIBUTE = "data-cmux-hidden-scroller";
 /** How long a scroller stays after the last scroll step (AppKit's overlay fade starts about here). */
 export const SCROLLING_HIDE_MS = 800;
 
@@ -48,6 +50,10 @@ export const SHOWN_SCROLLER_ATTRIBUTE = "data-cmux-shown-scroller";
 export const SCROLLER_FADE_ATTRIBUTE = "data-cmux-scroller-fade";
 /** A shown scroller's full ink, in percent of the text color (`--cmux-scroller-thumb`'s). */
 const SHOWN_INK = 38;
+/// A fade out runs a third longer than its duration property (the host's, after ui.animationSpeed,
+/// Reduce Motion and animations off, so 0 stays 0): the pane's 180 ms move is 240 ms, the motion
+/// scale's longest step, so the thumb is seen to fade (Leo 2026-10-29).
+const FADE_OUT_STRETCH = 4 / 3;
 
 /** A duration custom property's value in ms (`120ms`, `0.18s`); 0 when it is unset or not one. */
 function durationMs(element: Element, property: string): number {
@@ -67,7 +73,8 @@ function durationMs(element: Element, property: string): number {
  */
 export function followShownScrollerFade(element: HTMLElement): () => void {
   const view = element.ownerDocument.defaultView;
-  if (!view?.MutationObserver) return () => {};
+  // A view that draws no frames (a test page made without them) runs no fade.
+  if (!view?.MutationObserver || typeof view.requestAnimationFrame !== "function") return () => {};
   const root = element.ownerDocument.documentElement;
   /// The ink the stylesheet gives `element` now (none at rest under the fade, else full).
   const resting = () =>
@@ -88,15 +95,22 @@ export function followShownScrollerFade(element: HTMLElement): () => void {
     if (!root.hasAttribute(SCROLLER_FADE_ATTRIBUTE)) return settle();
     target = to;
     const from = ink;
-    const ms = durationMs(element, to > from ? "--cmux-scroller-fade-in" : "--cmux-scroller-fade-out");
+    const ms =
+      to > from
+        ? durationMs(element, "--cmux-scroller-fade-in")
+        : durationMs(element, "--cmux-scroller-fade-out") * FADE_OUT_STRETCH;
     view.cancelAnimationFrame(frame);
     if (ms <= 0) return settle();
     const start = view.performance.now();
     const step = (now: number) => {
       const t = Math.min(1, Math.max(0, (now - start) / ms));
       if (t >= 1) return settle();
-      // Ease out, as the pane's other fades (--agent-ease-out).
-      ink = from + (to - from) * (1 - (1 - t) * (1 - t));
+      // A fade in eases out, as the pane's other fades (--agent-ease-out). A fade out eases in and
+      // out: eased out, three quarters of the ink went in the first half and the thumb read as
+      // vanishing at once (Leo 2026-10-29: "the scroll thumb should fade instead of disappearing
+      // instantly").
+      const eased = to > from ? 1 - (1 - t) * (1 - t) : t * t * (3 - 2 * t);
+      ink = from + (to - from) * eased;
       element.style.setProperty("--cmux-shown-scroller-ink", `${ink.toFixed(2)}%`);
       frame = view.requestAnimationFrame(step);
     };
@@ -149,6 +163,11 @@ const pending = new WeakMap<Element, unknown>();
 export function markScrolling(element: Element, timers: ScrollTimers = defaultTimers): void {
   const previous = pending.get(element);
   if (previous !== undefined) timers.clear(previous);
+  if (element.hasAttribute(HIDDEN_SCROLLER_ATTRIBUTE)) {
+    pending.delete(element);
+    element.removeAttribute(SCROLLING_ATTRIBUTE);
+    return;
+  }
   element.setAttribute(SCROLLING_ATTRIBUTE, "");
   pending.set(
     element,
@@ -662,8 +681,8 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
 /**
  * The minimal scroller (Leo 2026-10-21: "IF THERE ARE THINGS TO SCROLL, JUST KEEP THE SCROLLBAR
  * IN THE COMPOSER, LIKE CLAUDE DOES."): a thin thumb in `--cmux-scroller-thumb` on no track, drawn
- * the whole time the content overflows, never faded on input, focus, hover or resize, whatever the
- * macOS setting. Content that fits draws no thumb. The lane is reserved even then, so the content
+ * the whole time the content overflows, never faded on input, focus, hover or resize, and never at
+ * rest under the scrollbar fade, whatever the macOS setting. Content that fits draws no thumb. The lane is reserved even then, so the content
  * never rewraps as it starts or stops overflowing: `overflow-y: scroll`, the one exception to the
  * `auto` rule, since its track is transparent and a box with nothing to scroll draws no thumb.
  * (`scrollbar-gutter: stable` does not do it: WebKit ignores it on a custom scrollbar.) Take
@@ -676,6 +695,8 @@ export const MINIMAL_SCROLLER_ATTRIBUTE = "data-cmux-minimal-scroller";
 export const MINIMAL_SCROLLER_CSS = `
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}] {
   overflow-y: scroll;
+  /* Its own ink, so a fading transcript around it never lends it its 0% at rest. */
+  --cmux-shown-scroller-ink: 38%;
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar {
   width: var(--cmux-scroller-size);
@@ -695,12 +716,6 @@ export const MINIMAL_SCROLLER_CSS = `
   border: 2px solid transparent;
   border-radius: var(--cmux-scroller-size);
   background: color-mix(in srgb, currentColor var(--cmux-shown-scroller-ink, 38%), transparent) padding-box;
-}
-:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}] {
-  --cmux-shown-scroller-ink: 0%;
-}
-:root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
-  --cmux-shown-scroller-ink: 38%;
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
 :root[${SCROLLER_FADE_ATTRIBUTE}] [${MINIMAL_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover {

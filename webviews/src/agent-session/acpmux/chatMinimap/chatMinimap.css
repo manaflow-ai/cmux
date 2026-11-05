@@ -26,27 +26,29 @@
   border-bottom-color: var(--agent-muted);
   border-style: none;
 }
-/* What is on screen: a faint band, stronger under the pointer or while dragged (VS Code's slider). */
+/* What is on screen: a band with an edge, always visible (VS Code's slider with `showSlider: always`),
+   stronger under the pointer or while dragged. */
 .acpmux-chat-minimap__view {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 30%, transparent);
   will-change: transform;
   pointer-events: none;
 }
 .acpmux-chat-minimap__track:hover .acpmux-chat-minimap__view {
-  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 26%, transparent);
 }
 .acpmux-chat-minimap__track[data-dragging] .acpmux-chat-minimap__view {
-  background: color-mix(in srgb, var(--agent-text) 24%, transparent);
+  background: color-mix(in srgb, var(--agent-text) 34%, transparent);
 }
 /* Session Info floating over the chat's right side (design/session-info.md): the minimap steps
    aside while it is open, so neither lies over the other. Pushing, the chat narrows beside it and
    the minimap stays at the chat's new edge. */
-.acpmux-shell[data-inspector-chat-placement="overlay"] .acpmux-chat-minimap {
+.acpmux-shell[data-session-info-chat-placement="overlay"] .acpmux-chat-minimap {
   visibility: hidden;
 }
 /* The streaming reply's place while the minimap is frozen (ChatMinimap.tsx): a grey block with a soft

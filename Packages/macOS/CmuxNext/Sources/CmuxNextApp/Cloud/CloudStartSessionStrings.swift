@@ -1,3 +1,4 @@
+import CmuxNextCloudCredentials
 import Foundation
 
 /// What `cmux cloud start-session` says (``CloudStartSession``, ``CloudStartSessionAsks``): the
@@ -10,6 +11,12 @@ enum CloudStartSessionStrings {
         var agent: String
         var command: String
     }
+
+    // `cmux cloud relay-chat` (``CloudStartSession/bindRelayChat(into:context:reason:)``).
+    static var relayPromptRequired: String { String(localized: "cloud.relayChat.promptRequired", defaultValue: "Give the chat a prompt with --prompt.", table: "CloudSessions", bundle: .module) }
+    static var relayAgentRun: String { String(localized: "cloud.relayChat.agentRun", defaultValue: "An agent starts a Cloud chat with `cmux cloud start-session`, which asks the person first.", table: "CloudSessions", bundle: .module) }
+    static var relayUnavailable: String { String(localized: "cloud.relayChat.unavailable", defaultValue: "This Cloud sign-in has no relay chat. Use `cmux cloud start-session` instead.", table: "CloudSessions", bundle: .module) }
+    static var relayReplyTitle: String { String(localized: "cloud.relayChat.replyTitle", defaultValue: "Cloud Chat Reply", table: "CloudSessions", bundle: .module) }
 
     static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .module) }
     static var openChat: String { String(localized: "cloud.startSession.openChat", defaultValue: "Open Chat", table: "CloudSessions", bundle: .module) }
@@ -111,6 +118,40 @@ enum CloudStartSessionStrings {
     /// A run that answered `pending`: the same command again answers its end.
     static func stillStarting(_ asked: Asked) -> String {
         String(format: String(localized: "cloud.startSession.stillStarting", defaultValue: "%2$@ is still starting on %1$@. Run `%3$@` again to get its machine_id and session_id.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
+    }
+
+    // MARK: The ask as a dialog (``CloudAskDialogs``)
+
+    /// An agent's run once its card asks: it answers at once, naming the dialog and how to answer it.
+    static func askPending(_ asked: Asked, dialog: String) -> String {
+        String(format: String(localized: "cloud.startSession.askPending", defaultValue: "Asked the person in this chat to start %2$@ on %1$@ (Start or Not now, for 2 minutes). Run `%3$@` again to wait for their answer and get machine_id and session_id. They can also answer from their own terminal: `cmux agents dialog answer %4$@ --selection start`.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command, dialog)
+    }
+
+    /// An agent's Start on an ask the person did not delegate.
+    static func personRequired(_ dialog: String) -> String {
+        String(format: String(localized: "cloud.startSession.personRequired", defaultValue: "Only the person can choose Start: on the card in the chat, or with `cmux agents dialog answer %1$@ --selection start` in their own terminal. To let agents start Cloud sessions without asking, they can turn on Let Agents Use Cloud Without Asking in Settings > Machines. `--selection notNow` declines.", table: "CloudSessions", bundle: .module), dialog)
+    }
+
+    static func unknownChoice(_ dialog: String) -> String {
+        String(format: String(localized: "cloud.startSession.unknownChoice", defaultValue: "Answer %1$@ with `--selection start` or `--selection notNow`.", table: "CloudSessions", bundle: .module), dialog)
+    }
+
+    static func dialogGone(_ dialog: String) -> String {
+        String(format: String(localized: "cloud.startSession.dialogGone", defaultValue: "No Cloud start %1$@ waits for an answer: it was answered, timed out or ended. `cmux agents dialog list` shows what still waits.", table: "CloudSessions", bundle: .module), dialog)
+    }
+
+    static var loginInvalid: String {
+        String(localized: "cloud.startSession.loginInvalid", defaultValue: "Pass --login as pass (your own login), machine (the machine's own) or none.", table: "CloudSessions", bundle: .module)
+    }
+
+    /// Why a headless start (`cmux cloud start-session`) fails at once instead of asking about the login.
+    static func loginRefused(_ reason: CloudHarnessLoginDecision.Reason, _ asked: Asked) -> String {
+        let text = switch reason {
+        case .machineLoginMissing: String(localized: "cloud.startSession.machineLoginMissing", defaultValue: "%2$@ on %1$@ has no login of its own, and the login choice is machine. Sign in on the machine, or run it again with --login none.", table: "CloudSessions", bundle: .module)
+        case .consentFirst: String(localized: "cloud.startSession.consentNeeded", defaultValue: "%2$@ on %1$@ waits for your one-time OK to copy your Claude login to your own Cloud machines, which only you can give. Turn on Use My Claude Login on My Own Cloud Machines in Settings > Machines, then run `%3$@` again.", table: "CloudSessions", bundle: .module)
+        default: String(localized: "cloud.startSession.loginNeeded", defaultValue: "%2$@ on %1$@ has no login, and no login choice is kept for your Cloud machines. To give it your own login, start a session on a Cloud machine from cmux once and choose Yes (kept for every later machine). Or run it again with --login machine to use only a login the machine already has, or with --login none.", table: "CloudSessions", bundle: .module)
+        }
+        return String(format: text, asked.machine, asked.agent, asked.command)
     }
 
     static func notInChat(_ asked: Asked) -> String {

@@ -4,13 +4,13 @@
 public nonisolated struct AutoArchivePolicy: Equatable, Sendable {
     /// How idle workspaces leave the way (the setting's `style` values).
     public nonisolated enum Style: String, CaseIterable, Sendable {
-        /// A sidebar card lists them; Archive archives, Not Now waits a day. The default.
+        /// A sidebar card lists them; Archive archives, Always Archive switches to ``quiet``, the x waits a day.
         case suggest
         /// They archive on their own; a toast offers Undo.
         case quiet
         /// Only members of groups with their own rule archive on their own.
         case groups
-        /// Only Archive Idle Workspaces archives.
+        /// Only Archive Idle Workspaces archives; nothing pops up. The default.
         case manual
         /// Never in the background; group rules are ignored.
         case off
@@ -20,7 +20,7 @@ public nonisolated struct AutoArchivePolicy: Equatable, Sendable {
     /// Days a workspace stays idle before it counts (a group's own rule wins).
     public var idleDays: Double
 
-    public init(style: Style = .suggest, idleDays: Double = 3) {
+    public init(style: Style = .manual, idleDays: Double = 3) {
         self.style = style
         self.idleDays = idleDays
     }
@@ -28,7 +28,7 @@ public nonisolated struct AutoArchivePolicy: Equatable, Sendable {
     /// The policy a settings file names (`workspaces.autoArchive.style` and `.idleDays`); nil or an
     /// unknown style takes the default.
     public init(styleName: String?, idleDays: Double?) {
-        self.init(style: styleName.flatMap(Style.init(rawValue:)) ?? .suggest, idleDays: idleDays ?? 3)
+        self.init(style: styleName.flatMap(Style.init(rawValue:)) ?? .manual, idleDays: idleDays ?? 3)
     }
 
     /// `idleDays` in seconds.

@@ -13,8 +13,14 @@ extension UpdaterService {
     }
 
     /// Why switching to `target` is refused by `UpdateChannel`, or nil.
+    /// cmux NEXT's NIGHTLY counts as `nightly`; DEV follows no channel, so any pin refuses it.
     func managedChannelRefusal(_ target: AppChannelSwitchTarget) -> UpdaterUnavailable? {
-        guard let channel = managedChannel, channel != target else { return nil }
+        let targetChannel: AppChannelSwitchTarget? = switch target {
+        case .stable: .stable
+        case .nightly, .nightlyNext: .nightly
+        case .dev: nil
+        }
+        guard let channel = managedChannel, channel != targetChannel else { return nil }
         return UpdaterUnavailable.managedChannel(UpdaterStrings.channel(channel == .nightly ? .nightly : .stable))
     }
 
@@ -24,7 +30,9 @@ extension UpdaterService {
     /// An unknown channel name pins nothing.
     public func applyManagedPolicy(channel: String?, minimumVersion: String?) {
         let wasRequired = requiredMinimumVersion
+        // `UpdateChannel` names only stable or nightly (spec/enterprise.md 5.2).
         managedChannel = channel.flatMap { AppChannelSwitchTarget(rawValue: $0.lowercased()) }
+            .flatMap { [.stable, .nightly].contains($0) ? $0 : nil }
         managedMinimumVersion = minimumVersion?.trimmingCharacters(in: .whitespaces)
         applyDownloadPolicy()
         if requiredMinimumVersion != wasRequired { recheckRequiredUpdate() }
@@ -32,15 +40,10 @@ extension UpdaterService {
 
     /// The running app follows another channel than `UpdateChannel` names (a
     /// NIGHTLY app under `stable`): its own feed's updates do not download by
-    /// themselves; the channel switch is the way to the managed channel. RC
-    /// builds count as stable; DEV builds follow no channel.
+    /// themselves; the channel switch is the way to the managed channel.
     var isOffManagedChannel: Bool {
-        guard let managedChannel else { return false }
-        switch identity.track {
-        case .stable, .rc: return managedChannel != .stable
-        case .nightly: return managedChannel != .nightly
-        case .development: return false
-        }
+        guard let managedChannel, let own = identity.track.managedChannel else { return false }
+        return own != managedChannel
     }
 
     /// Shows the required update again (app activation, Sparkle start) while
@@ -63,5 +66,19 @@ extension UpdaterService {
         }
         guard let have = parts(version), let need = parts(minimum) else { return false }
         return have.lexicographicallyPrecedes(need)
+    }
+}
+
+extension UpdateTrack {
+    /// The `UpdateChannel` value (stable or nightly, spec/enterprise.md 5.2) a build on
+    /// this track counts as on. RC builds count as stable. Both nightly rings count as
+    /// nightly: cmux NEXT's nightly ring is a nightly channel too, though its feed, key
+    /// and app are its own. DEV builds follow no channel.
+    var managedChannel: AppChannelSwitchTarget? {
+        switch self {
+        case .stable, .rc: .stable
+        case .nightly, .nightlyNext: .nightly
+        case .development: nil
+        }
     }
 }

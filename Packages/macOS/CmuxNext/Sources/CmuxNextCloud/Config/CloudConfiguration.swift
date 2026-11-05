@@ -1,21 +1,25 @@
+import CmuxNextCompat
 public import Foundation
 
-/// Where this build's Cloud lives: the web API origin, the Stack project, the
-/// token Keychain service, and the sign-in callback scheme.
-///
-/// Values come from the bundle's `Info.plist` `LSEnvironment` (what
-/// `scripts/reload.sh` bakes into tagged builds), then the process
-/// environment. Release builds always use production. A Debug build built
-/// without `--direct-backend` points at a loopback origin with no server;
-/// ``backend`` says so, so Cloud actions can explain how to fix the build
-/// instead of timing out.
+/// Native adapters for Rust's fetched NEXT Cloud client configuration.
+/// ``from(selection:bundle:isDebugBuild:)`` is the app launch path. Backend
+/// origins and Stack credentials always come from the Rust selection.
 public struct CloudConfiguration: Sendable, Equatable {
+    private static let unavailableBundleID = "com.cmuxterm.app.cloud-unavailable"
+
+    /// Placeholder used only by test/capture composition roots that construct services before
+    /// the async runtime bootstrap. A real NEXT app never reaches CloudService with this value.
+    public static let unavailable = CloudConfiguration(
+        backend: .localOnly(inertURL), apiBaseURL: inertURL, authWebOrigin: inertURL,
+        stackBaseURL: inertURL, stackProjectID: "", stackPublishableClientKey: "",
+        isProductionAuth: false, callbackScheme: "cmux", bundleID: unavailableBundleID, isDebugBuild: true,
+        linkSource: .appServer)
     public enum Backend: Sendable, Equatable {
-        /// Production (`https://cmux.com`).
+        /// A production selection returned by the backend.
         case production
-        /// The tag's shared development stack (`--direct-backend`).
+        /// A non-production selection returned by the backend.
         case development(URL)
-        /// A loopback origin: `scripts/reload.sh` local backend mode.
+        /// A loopback origin selected for local development.
         case localOnly(URL)
     }
 
@@ -32,112 +36,215 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var isDebugBuild: Bool
     /// Where a Cloud machine's link socket comes from.
     public var linkSource: LinkSource = .legacy
+    /// The bundled CLI's selection for this launch; nil in legacy configuration fixtures.
+    public var runtimeSelection: CloudRuntimeSelection?
 
     public enum LinkSource: Sendable, Equatable {
         /// `/api/vm` list, create and attach endpoint and a `cmux-tui remote
         /// connect` process (frozen, contract 2.5). The default until the
-        /// first-party app packages ship in the bundle (cx-t2rz).
+        /// first-party app packages ship in the bundle (cx-t2rz), except NEXT DEV.
         case legacy
         /// The Cloud app server (contract 2.1, 2.3): the machine list,
         /// create and the `cloud.machine.connect` carrier socket, all on the
         /// cmux-next API Worker through the host credential relay (cx-t2rz).
-        /// Debug builds with `CMUX_NEXT_CLOUD_LINK=app` (launch env) or
-        /// `CMUX_CLOUD_LINK=app` (baked).
+        /// Signed NEXT DEV and every Debug build; `CMUX_NEXT_CLOUD_LINK=legacy` (launch env) or
+        /// `CMUX_CLOUD_LINK=legacy` (baked) keeps a Debug build on the classic link.
         case appServer
     }
 
-    /// Existing Stack token Keychain service (`<bundle id>.auth`); changing it
-    /// signs every user out (inventory.md "Auth").
+    /// Existing Stack token Keychain service (`<bundle id>.auth`). Signed NEXT
+    /// DEV scopes staging tokens separately so it never restores its old production session.
     public var keychainService: String {
         guard let bundleID, !bundleID.isEmpty else { return "com.cmuxterm.app.auth" }
-        return "\(bundleID).auth"
+        let service = "\(bundleID).auth"
+        return authStorageProject.map { "\(service).\($0)" } ?? service
     }
 
     /// The file-fallback token store directory the old app used.
     public var credentialsDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
+        credentialsDirectory(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    // This build's own token files, under `cmux/<bundle id>`: a namespace of
+    // its own that predates ``BuildIdentity`` and is not that resolver's
+    // `cmux/builds/<key>`. Routing it through the resolver would move every
+    // existing build's token store and sign people out, so the literal root
+    // stays here (its `move` row in scripts/cmux-next/state-roots-baseline.tsv),
+    // and moving it is its own change with a migration.
+    func credentialsDirectory(homeDirectory: URL) -> URL {
+        let directory = homeDirectory
             .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
             .appendingPathComponent(bundleID ?? "cmux", isDirectory: true)
+        return authStorageProject.map { directory.appendingPathComponent($0, isDirectory: true) } ?? directory
     }
 
-    /// `<scheme>://auth-callback`. `resolve` accepts only a scheme that forms this URL;
-    /// /dev/null stands in for a hand-built configuration with one that does not.
+    func authDefaultsKey(_ key: String) -> String {
+        authStorageProject.map { "\(key).\($0)" } ?? key
+    }
+
+    // The first signed DEV staging launch must not read production tokens or
+    // prime its cached user/team. A stable namespace preserves staging sign-in
+    // on subsequent launches and leaves the old production session untouched.
+    private var authStorageProject: String? {
+        guard let selection = runtimeSelection else {
+            return bundleID == Self.unavailableBundleID ? "bootstrap-unavailable" : nil
+        }
+        return selection.legacyStorage ? selection.authStorageNamespace : selection.authNamespace
+    }
+
+    static let signedDEVBundleID = "com.cmuxterm.app.debug.next"
+
+    /// The account selected for a signed NEXT DEV launch. This is launch metadata only;
+    /// backend origins and credentials still come from Rust's runtime selection.
+    public enum DevAccount: String, Sendable, Equatable {
+        case staging
+        case nightly
+    }
+
+    /// A signed DEV production selection adopts the running NIGHTLY session in memory.
+    public var adoptsNightlySession: Bool {
+        !isDebugBuild && bundleID == Self.signedDEVBundleID && runtimeSelection?.name == "prod"
+    }
+
+    public static func launchAccount(chosen: DevAccount, nightlyIsRunning: () -> Bool) -> DevAccount {
+        chosen == .nightly && !nightlyIsRunning() ? .staging : chosen
+    }
+
+    static let devAccountDefaultsKey = "cmux.next.dev.account"
+
+    public static func devAccount(environment: [String: String], defaults: UserDefaults) -> DevAccount {
+        let raw = environment["CMUX_NEXT_DEV_ACCOUNT"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let account = raw.flatMap(DevAccount.init(rawValue:)) {
+            defaults.set(account.rawValue, forKey: devAccountDefaultsKey)
+            return account
+        }
+        return defaults.string(forKey: devAccountDefaultsKey).flatMap(DevAccount.init(rawValue:)) ?? .staging
+    }
+
+    /// A signed NEXT DEV production launch may import the existing NIGHTLY session without
+    /// changing or clearing NIGHTLY's own token store. This is read-only metadata for CloudAuth.
+    public struct NightlySession: Sendable, Equatable {
+        public var keychainService: String
+        public var accessGroup: String
+        public var credentialsDirectory: URL
+    }
+
+    public var nightlySession: NightlySession? {
+        nightlySession(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    /// Pure counterpart of ``nightlySession``, for configuration contract tests.
+    func nightlySession(homeDirectory: URL) -> NightlySession? {
+        guard runtimeSelection?.name == "prod", !isDebugBuild, bundleID == Self.signedDEVBundleID else { return nil }
+        let nightly = BuildIdentity.nightlyBundleID
+        // NIGHTLY's own Application Support root, from the resolver keyed on
+        // NIGHTLY's identity (``BuildIdentity/appSupport(_:)``), never a literal
+        // root (per-build isolation S7, cx-is1kf.8). NIGHTLY is the one build
+        // that keeps the shared roots, so this stays the `cmux` directory while
+        // this signed DEV build's own roots are elsewhere.
+        let root = BuildIdentity(bundleID: nightly, bundledTag: nil)
+            .appSupport(Self.applicationSupportDirectory(homeDirectory: homeDirectory))
+        return NightlySession(
+            keychainService: "\(nightly).auth",
+            accessGroup: "7WLXT3NR37.\(nightly)",
+            credentialsDirectory: root.appendingPathComponent(nightly, isDirectory: true))
+    }
+
+    /// `~/Library/Application Support/cmux`: the directory
+    /// ``BuildIdentity/appSupport(_:)`` resolves a build's own state root under.
+    static func applicationSupportDirectory(homeDirectory: URL) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+    }
+
+    /// `<scheme>://auth-callback`. `/dev/null` stands in for a hand-built
+    /// configuration with one that does not.
     public var callbackURL: URL { URL(string: "\(callbackScheme)://auth-callback") ?? Self.inertURL }
 
-    /// Stands in where a literal URL failed to parse (tests parse every literal).
+    /// Stands in where a literal URL failed to parse.
     static let inertURL = URL(fileURLWithPath: "/dev/null")
-    static let productionOrigin = URL(string: "https://cmux.com") ?? inertURL
-    static let stackOrigin = URL(string: "https://api.stack-auth.com") ?? inertURL
-    static let localDevelopmentOrigin = URL(string: "http://localhost:3777") ?? inertURL
-    static let developmentProjectID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
-    static let developmentClientKey = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
-    static let productionProjectID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
-    /// Empty on purpose: the production project does not require a publishable
-    /// key, and a shipped key would break sign-in once its key set is revoked.
-    static let productionClientKey = ""
 
-    /// Pure resolution. `bundled` is the bundle's `LSEnvironment`; it wins
-    /// over `process` because a launch from a shell must not redirect a
-    /// tagged build to another backend.
-    public static func resolve(bundleID: String?, bundled: [String: String], process: [String: String],
-                               isDebugBuild: Bool) -> CloudConfiguration {
+    /// Creates the NEXT configuration directly from Rust's validated client-config response.
+    /// Bundle metadata controls only the native callback, never backend origins or Stack keys.
+    public static func from(selection: CloudRuntimeSelection, bundle: Bundle = .main,
+                            isDebugBuild: Bool) -> CloudConfiguration {
+        from(selection: selection, bundleID: bundle.bundleIdentifier,
+             bundled: bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:],
+             process: ProcessInfo.processInfo.environment, isDebugBuild: isDebugBuild)
+    }
+
+    /// Pure counterpart for configuration contract tests.
+    public static func from(selection: CloudRuntimeSelection, bundleID: String?,
+                            bundled: [String: String], process: [String: String],
+                            isDebugBuild: Bool) -> CloudConfiguration {
         let value = { (key: String) -> String? in
-            let raw = bundled[key] ?? process[key]
-            let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = (bundled[key] ?? process[key])?.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed?.isEmpty == false ? trimmed : nil
         }
-        let production = !isDebugBuild || value("CMUX_AUTH_ENVIRONMENT")?.lowercased() == "production"
+        let identity = bundleID ?? selection.bundleId
         let tag = value("CMUX_TAG").flatMap(sanitizedSchemeTag)
-        // A scheme that cannot form `<scheme>://auth-callback` is ignored (it trapped at sign-in).
-        let scheme = value("CMUX_AUTH_CALLBACK_SCHEME").flatMap { URL(string: "\($0)://auth-callback") == nil ? nil : $0 }
-            ?? (isDebugBuild ? (tag.map { "cmux-dev-\($0)" } ?? "cmux-dev") : defaultScheme(bundleID))
-        let stackBase = value("CMUX_STACK_BASE_URL").flatMap(URL.init(string:)) ?? stackOrigin
-        if production {
-            return CloudConfiguration(
-                backend: .production, apiBaseURL: productionOrigin, authWebOrigin: productionOrigin,
-                stackBaseURL: stackBase, stackProjectID: productionProjectID, stackPublishableClientKey: productionClientKey,
-                isProductionAuth: true, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild)
-        }
-        let devBackend = value("CMUX_DEV_BACKEND_URL").flatMap(URL.init(string:))
-        let api = value("CMUX_VM_API_BASE_URL").flatMap(URL.init(string:))
-            ?? value("CMUX_API_BASE_URL").flatMap(URL.init(string:))
-            ?? devBackend
-            ?? URL(string: "http://localhost:\(value("CMUX_PORT") ?? "3777")")
-            ?? localDevelopmentOrigin
-        let web = value("CMUX_AUTH_WWW_ORIGIN").flatMap(URL.init(string:)) ?? devBackend ?? api
-        let backend: Backend = isLoopback(api) && devBackend == nil ? .localOnly(api) : .development(api)
+        let scheme = value("CMUX_AUTH_CALLBACK_SCHEME").flatMap {
+            URL(string: "\($0)://auth-callback") == nil ? nil : $0
+        } ?? (identity == "com.cmuxterm.app.debug.next" ? "cmux-next-dev"
+            : isDebugBuild ? (tag.map { "cmux-dev-\($0)" } ?? "cmux-dev") : defaultScheme(identity))
         return CloudConfiguration(
-            backend: backend, apiBaseURL: api, authWebOrigin: web, stackBaseURL: stackBase,
-            stackProjectID: value("CMUX_STACK_PROJECT_ID") ?? developmentProjectID,
-            stackPublishableClientKey: value("CMUX_STACK_PUBLISHABLE_CLIENT_KEY") ?? developmentClientKey,
-            isProductionAuth: false, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild,
-            // CMUX_NEXT_CLOUD_LINK survives the launch: the app unsets every inherited
-            // CMUX_* variable but CMUX_NEXT_* (LaunchIdentity.stripInheritedEnvironment);
-            // CMUX_CLOUD_LINK works only when baked into the bundle's LSEnvironment.
-            linkSource: (value("CMUX_NEXT_CLOUD_LINK") ?? value("CMUX_CLOUD_LINK"))?.lowercased() == "app" ? .appServer : .legacy)
+            backend: selection.name == "prod" ? .production : .development(selection.apiOrigin),
+            apiBaseURL: selection.apiOrigin, authWebOrigin: selection.authWebOrigin,
+            stackBaseURL: selection.stackOrigin, stackProjectID: selection.stackProjectId,
+            stackPublishableClientKey: selection.stackClientKey, isProductionAuth: selection.name == "prod",
+            callbackScheme: scheme, bundleID: identity, isDebugBuild: isDebugBuild,
+            linkSource: .appServer, runtimeSelection: selection)
     }
 
-    /// This process's configuration.
-    /// The API Worker (`/v1/read`, `/v1/ops`, `/v1/auth/*`): production
-    /// auth uses cloud-api.cmux.dev, everything else the staging Worker. The
-    /// `CMUX_NEXT_FEED_API_URL` override is honored in debug builds only, so
-    /// a release build never sends a credential to another origin.
+    /// The selected backend's API origin. Rust has already validated and
+    /// allowlisted this value before constructing the native configuration.
     public func ownerAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        if isDebugBuild, let raw = environment["CMUX_NEXT_FEED_API_URL"], let url = URL(string: raw) { return url }
-        // Both are constant https literals (CloudCrashLiteralTests parses them); /dev/null stands in.
-        return URL(string: isProductionAuth ? "https://cloud-api.cmux.dev" : "https://cloud-api-staging.cmux.dev") ?? Self.inertURL
+        runtimeSelection?.apiOrigin ?? apiBaseURL
     }
 
-    public static func current(bundle: Bundle = .main, isDebugBuild: Bool) -> CloudConfiguration {
-        let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
-        return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,
-                       process: ProcessInfo.processInfo.environment, isDebugBuild: isDebugBuild)
+    /// The selected backend's platform origin for relay-first chat. Runtime
+    /// client configuration is authoritative; the API origin is the safe
+    /// fallback for legacy fixtures without a runtime selection.
+    public func relayAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        runtimeSelection?.platformOrigin ?? apiBaseURL
     }
 
-    static func isLoopback(_ url: URL) -> Bool {
-        guard let host = url.host?.lowercased() else { return true }
-        return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+    /// The selected backend's share API origin. The daemon may name the room's
+    /// origin directly; native code never infers it from build kind.
+    public func shareAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        runtimeSelection?.shareApiOrigin ?? apiBaseURL
     }
+
+    /// Whether a guest link's owner token may come from `api`, the API the daemon's share room names.
+    /// The backend selection is authoritative; native code never adds an origin by build kind.
+    public func acceptsShareAPI(_ api: URL) -> Bool {
+        api == (runtimeSelection?.shareApiOrigin ?? apiBaseURL)
+    }
+
+    /// Whether this compile has the bench hooks (`reload.sh --config bench`: `CMUX_BENCH_HOOKS`, never in a
+    /// shipped app). With them, a `cap<sha10>` capture build's Cloud is configured as a Debug build's (``isCaptureBuild(bundleID:benchHooks:)``).
+    public static var benchHooksCompiled: Bool {
+        #if CMUX_BENCH_HOOKS
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// Whether this is a PR capture's Release build: the bench configuration (`CMUX_BENCH_HOOKS`, which the
+    /// release and nightly pipelines refuse to ship, scripts/cmux-next/check-no-bench-hooks.sh) of the tag
+    /// `cap<sha10>` (cmuxterm-hq build-fleet/pr-capture `--release`). Its Cloud is configured as a Debug build's:
+    /// the development backend and the capture account's automatic sign-in, so a capture can drive the Release
+    /// paths (`DevTools.isEnabled` false, which this does not change) against a test account. A shipped build
+    /// has neither the hooks nor that bundle identifier, so it keeps production.
+    public static func isCaptureBuild(bundleID: String?, benchHooks: Bool) -> Bool {
+        guard benchHooks, let bundleID, bundleID.hasPrefix(captureBundlePrefix) else { return false }
+        let tag = bundleID.dropFirst(captureBundlePrefix.count)
+        return tag.count == 10 && tag.allSatisfy { ("0"..."9").contains($0) || ("a"..."f").contains($0) }
+    }
+
+    static let captureBundlePrefix = "com.cmuxterm.app.debug.cap"
 
     static func defaultScheme(_ bundleID: String?) -> String {
         switch bundleID {

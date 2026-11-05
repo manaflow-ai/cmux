@@ -3,10 +3,12 @@
 // contract (env.ts). A developer tool: its own labels are English, like the native gallery's.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  BACKGROUNDS,
   DEFAULT_ENV,
   DENSITIES,
   DYNAMIC_SIZES,
   frameQuery,
+  LOADS,
   LOCALES,
   NATIVE_WIDTHS,
   PSEUDO_LOCALES,
@@ -382,6 +384,21 @@ export function Stage({
   );
 }
 
+/** The background axis (env.ts BACKGROUNDS): an opaque window, or a picture behind the glass. */
+const BACKGROUND_LABELS: Record<(typeof BACKGROUNDS)[number], string> = {
+  none: "Background: none (opaque)",
+  light: "Background: light picture",
+  dark: "Background: dark picture",
+  busy: "Background: busy picture",
+};
+
+/** The load axis (env.ts LOADS, frame/load.ts): an idle machine, or one doing other work. */
+const LOAD_LABELS: Record<(typeof LOADS)[number], string> = {
+  none: "Load: idle machine",
+  busy: "Load: busy (a third of each frame)",
+  saturated: "Load: saturated (two thirds, stalls)",
+};
+
 export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: GalleryEnv) => void }) {
   const set = <K extends keyof GalleryEnv>(key: K, value: GalleryEnv[K]) => onChange({ ...env, [key]: value });
   const [moreOpen, setMoreOpen] = useState(false);
@@ -401,6 +418,8 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
     { value: "dark", label: "Dark" },
     { value: "light", label: "Light" },
   ];
+  const backgroundOptions = BACKGROUNDS.map((value) => ({ value, label: BACKGROUND_LABELS[value] }));
+  const loadOptions = LOADS.map((value) => ({ value, label: LOAD_LABELS[value] }));
   const frameOptions = [
     { value: "window", label: "Window" },
     { value: "component", label: "Component" },
@@ -432,6 +451,20 @@ export function Controls({ env, onChange }: { env: GalleryEnv; onChange: (env: G
         options={appearanceOptions}
         onChange={(value) => onChange(withColorScheme(env, value as GalleryEnv["colorScheme"]))}
         label="Appearance"
+      />
+      <Select
+        className={selectClass}
+        value={env.background ?? "none"}
+        options={backgroundOptions}
+        onChange={(value) => set("background", value as GalleryEnv["background"])}
+        label="Background"
+      />
+      <Select
+        className={selectClass}
+        value={env.load ?? "none"}
+        options={loadOptions}
+        onChange={(value) => set("load", value as GalleryEnv["load"])}
+        label="Load"
       />
       <button
         ref={(node) => {

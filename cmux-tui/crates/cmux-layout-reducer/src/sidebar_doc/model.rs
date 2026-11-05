@@ -38,6 +38,9 @@ pub const ARCHIVED_BY_MEMBERS: &str = "members";
 pub const AUTO_ARCHIVE_KEY: &str = "auto_archive";
 /// The longest idle time a group's rule may name: ten years, in hours.
 pub const MAX_AUTO_ARCHIVE_HOURS: i64 = 87_600;
+/// `Item::extra` key of a group: how its members list ([`GroupSort`]):
+/// `"name"` or `"recent"`. Absent: manual, the stored order.
+pub const GROUP_SORT_KEY: &str = "sort";
 /// The one Pinned section.
 pub const PINNED_SECTION_ID: &str = "sec_pinned";
 /// The prefix of a machine section id: `sec_m_<session_id>`.
@@ -486,6 +489,15 @@ impl Item {
         AutoArchiveRule::read(self.extra.get(AUTO_ARCHIVE_KEY)?)
     }
 
+    /// How a group's members list ([`GROUP_SORT_KEY`]); manual when unset.
+    pub fn group_sort(&self) -> GroupSort {
+        self.extra
+            .get(GROUP_SORT_KEY)
+            .and_then(Value::as_str)
+            .and_then(GroupSort::read)
+            .unwrap_or_default()
+    }
+
     /// The label stored with the item (an old tile's workspace name), drawn
     /// while the workspace is closed.
     pub fn label(&self) -> Option<&str> {
@@ -633,6 +645,10 @@ pub struct ItemPatch {
     /// A url item's favicon.
     #[serde(default, skip_serializing_if = "Patch::is_keep")]
     pub icon_url: Patch<String>,
+    /// The space whose windows draw the item (`extra.room`): a link, tab or
+    /// app moved into Pinned takes the acting window's space (spaces.md).
+    #[serde(default, skip_serializing_if = "Patch::is_keep")]
+    pub room: Patch<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -651,6 +667,45 @@ pub struct GroupPatch {
     /// hours; null goes back to the setting's default.
     #[serde(default, skip_serializing_if = "Patch::is_keep")]
     pub auto_archive: Patch<Value>,
+    /// How the group's members list ([`GROUP_SORT_KEY`]): `"manual"`,
+    /// `"name"` or `"recent"`; `"manual"` and null clear it.
+    #[serde(default, skip_serializing_if = "Patch::is_keep")]
+    pub sort: Patch<String>,
+}
+
+/// How a group's members list ([`GROUP_SORT_KEY`]). The stored order stays
+/// as it is; a client lists the members by the sort (the sidebar's group
+/// editor, Sort).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GroupSort {
+    /// The stored order (drag, Move to Top).
+    #[default]
+    Manual,
+    /// By title, A to Z.
+    Name,
+    /// Most recent activity first.
+    Recent,
+}
+
+impl GroupSort {
+    /// The sort a stored or sent value names; `None` for anything else.
+    pub fn read(value: &str) -> Option<GroupSort> {
+        match value {
+            "manual" => Some(GroupSort::Manual),
+            "name" => Some(GroupSort::Name),
+            "recent" => Some(GroupSort::Recent),
+            _ => None,
+        }
+    }
+
+    /// The stored value; `None` for manual (the key is removed).
+    pub fn value(self) -> Option<&'static str> {
+        match self {
+            GroupSort::Manual => None,
+            GroupSort::Name => Some("name"),
+            GroupSort::Recent => Some("recent"),
+        }
+    }
 }
 
 /// A group's auto-archive rule ([`AUTO_ARCHIVE_KEY`]).

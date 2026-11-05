@@ -8388,6 +8388,270 @@
         }
       }
     },
+    "tabs.zoom.exit": {
+      "comment": "A zoomed pane's indicator on its selected tab: tooltip and VoiceOver label; a click restores the layout.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit Zoom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ズームを終了"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إنهاء التكبير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izađi iz zumiranja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afslut zoom"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zoom beenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salir del zoom"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quitter le zoom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esci dallo zoom"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាកចេញពីការពង្រីក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "확대 종료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avslutt zoom"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zakończ powiększenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sair do zoom"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выйти из масштабирования"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ออกจากการซูม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yakınlaştırmadan çık"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вийти з масштабування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thoát thu phóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "退出缩放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "結束縮放"
+          }
+        }
+      }
+    },
+    "tabs.ax.zoomed": {
+      "comment": "VoiceOver: part of a tab's label while its pane is zoomed (the tab shows the zoom indicator).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoomed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ズーム中"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مكبّر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zumirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zoomet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gezoomt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ampliado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zoomé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingrandito"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានពង្រីក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "확대됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zoomet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Powiększone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ampliado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увеличено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซูมอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yakınlaştırıldı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Збільшено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã thu phóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已缩放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已縮放"
+          }
+        }
+      }
+    },
     "tabs.audio.unmute": {
       "comment": "A tab's speaker button: tooltip and VoiceOver action.",
       "extractionState": "manual",
@@ -8516,6 +8780,6503 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "取消分頁靜音"
+          }
+        }
+      }
+    },
+    "tabs.playground.crowded.compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compact tabs: one fixed width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンパクトなタブ: 固定幅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ألسنة مضغوطة: عرض ثابت واحد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompaktne kartice: jedna fiksna širina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompakte faner: én fast bredde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompakte Tabs: eine feste Breite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pestañas compactas: un ancho fijo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onglets compacts : une largeur fixe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schede compatte: una larghezza fissa"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងបង្រួម៖ ទទឹងថេរមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "컴팩트 탭: 고정 너비 하나"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompakte faner: én fast bredde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompaktowe karty: jedna stała szerokość"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abas compactas: uma largura fixa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Компактные вкладки: одна фиксированная ширина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บกะทัดรัด: ความกว้างคงที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompakt sekmeler: tek sabit genişlik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Компактні вкладки: одна фіксована ширина"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gọn: một độ rộng cố định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "紧凑标签页：一个固定宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "精簡分頁：一個固定寬度"
+          }
+        }
+      }
+    },
+    "tabs.playground.crowded.faviconClose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Favicon and close width (50 pt), two faded characters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファビコンと閉じるボタンの幅（50 pt）、フェードした 2 文字"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض الأيقونة وزر الإغلاق (50 pt) مع حرفين متلاشيين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Širina za favicon i zatvaranje (50 pt), dva izblijedjela znaka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bredde til favicon og luk (50 pt), to falmede tegn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Breite für Favicon und Schließen (50 pt), zwei ausgeblendete Zeichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancho de favicon y cierre (50 pt), dos caracteres difuminados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largeur favicon et fermeture (50 pt), deux caractères estompés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Larghezza favicon e chiusura (50 pt), due caratteri sfumati"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទឹងរូបតំណាង និងប៊ូតុងបិទ (50 pt) តួអក្សរស្រអាប់ពីរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파비콘과 닫기 너비(50pt), 흐려지는 두 글자"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bredde for favikon og lukk (50 pt), to falmede tegn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szerokość favikony i zamknięcia (50 pt), dwa wygaszone znaki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Largura de favicon e fechar (50 pt), dois caracteres esmaecidos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ширина значка и закрытия (50 pt), два затухающих символа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กว้างเท่าไอคอนและปุ่มปิด (50 pt) สองตัวอักษรจาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simge ve kapatma genişliği (50 pt), iki soluk karakter"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ширина значка й закриття (50 pt), два символи із затуханням"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rộng bằng biểu tượng và nút đóng (50 pt), hai ký tự mờ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "图标和关闭按钮宽度（50 pt），两个渐隐字符"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圖示與關閉按鈕寬度（50 pt），兩個淡出字元"
+          }
+        }
+      }
+    },
+    "tabs.playground.crowded.iconOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chrome: icon only, centered (32 pt)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chrome: アイコンのみ、中央揃え（32 pt）"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: أيقونة فقط في المنتصف (32 pt)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: samo ikona, centrirana (32 pt)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: kun ikon, centreret (32 pt)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: nur Symbol, zentriert (32 pt)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: solo icono, centrado (32 pt)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome : icône seule, centrée (32 pt)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: solo icona, centrata (32 pt)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome៖ តែរូបតំណាង នៅកណ្ដាល (32 pt)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: 아이콘만 가운데(32pt)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: bare ikon, sentrert (32 pt)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: tylko ikona, wyśrodkowana (32 pt)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: só ícone, centralizado (32 pt)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: только значок по центру (32 pt)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: ไอคอนอย่างเดียว กึ่งกลาง (32 pt)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: yalnızca simge, ortada (32 pt)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: лише значок по центру (32 pt)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome: chỉ biểu tượng, căn giữa (32 pt)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome：仅图标，居中（32 pt）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome：僅圖示，置中（32 pt）"
+          }
+        }
+      }
+    },
+    "tabs.playground.crowded.noFragments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "74 pt, no title under 30 pt: icon only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "74 pt、30 pt 未満ではタイトルなし: アイコンのみ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt بلا عنوان تحت 30 pt: أيقونة فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, bez naslova ispod 30 pt: samo ikona"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, ingen titel under 30 pt: kun ikon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, kein Titel unter 30 pt: nur Symbol"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, sin título bajo 30 pt: solo icono"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, pas de titre sous 30 pt : icône seule"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, nessun titolo sotto 30 pt: solo icona"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt គ្មានចំណងជើងក្រោម 30 pt៖ តែរូបតំណាង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74pt, 30pt 미만이면 제목 없음: 아이콘만"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, ingen tittel under 30 pt: bare ikon"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, bez tytułu poniżej 30 pt: tylko ikona"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, sem título abaixo de 30 pt: só ícone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, без заголовка уже 30 pt: только значок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt ไม่มีชื่อเมื่อแคบกว่า 30 pt: ไอคอนอย่างเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, 30 pt altında başlık yok: yalnızca simge"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, без назви вужче 30 pt: лише значок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt, không tiêu đề dưới 30 pt: chỉ biểu tượng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt，窄于 30 pt 不显示标题：仅图标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt，窄於 30 pt 不顯示標題：僅圖示"
+          }
+        }
+      }
+    },
+    "tabs.playground.crowded.scroll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrolling tabs: full width, scroll early (Tab Overflow: Scroll)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクロールするタブ: 幅を保ち、早めにスクロール（タブのはみ出し: スクロール）"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ألسنة قابلة للتمرير: عرض كامل وتمرير مبكر (فائض الألسنة: تمرير)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartice s pomicanjem: puna širina, ranije pomicanje (Preljev kartica: Pomicanje)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rullende faner: fuld bredde, ruller tidligt (Faneoverløb: Rul)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scrollende Tabs: volle Breite, früh scrollen (Tab-Überlauf: Scrollen)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pestañas con desplazamiento: ancho completo, desplazar antes (Desbordamiento: Desplazar)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onglets défilants : pleine largeur, défilement tôt (Débordement : Défiler)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schede a scorrimento: larghezza piena, scorrono prima (Overflow schede: Scorri)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងរមូរ៖ ទទឹងពេញ រមូរមុន (ផ្ទាំងលើស៖ រមូរ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크롤 탭: 전체 너비, 일찍 스크롤(탭 넘침: 스크롤)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rullende faner: full bredde, ruller tidlig (Faneoverflyt: Rull)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przewijane karty: pełna szerokość, wcześniejsze przewijanie (Nadmiar kart: Przewijaj)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abas com rolagem: largura total, rolam mais cedo (Excesso de abas: Rolar)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокручиваемые вкладки: полная ширина, ранняя прокрутка (Переполнение: Прокрутка)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บเลื่อนได้: กว้างเต็ม เลื่อนเร็วขึ้น (แท็บล้น: เลื่อน)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kayan sekmeler: tam genişlik, erken kaydırma (Sekme taşması: Kaydır)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прокручувані вкладки: повна ширина, раннє прокручування (Переповнення: Прокручування)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab cuộn: đủ rộng, cuộn sớm (Tràn tab: Cuộn)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "滚动标签页：完整宽度，更早滚动（标签页溢出：滚动）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "捲動分頁：完整寬度，提早捲動（分頁溢出：捲動）"
+          }
+        }
+      }
+    },
+    "tabs.playground.crowded.shipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Favicon, faded title start, then scroll (74 pt)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファビコンとフェードしたタイトルの先頭、その後スクロール（74 pt）"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأيقونة وبداية العنوان بتلاشٍ ثم التمرير (74 pt)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Favicon, izblijedjeli početak naslova, pa pomicanje (74 pt)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Favicon, falmet titelstart, derefter rulning (74 pt)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Favicon, ausgeblendeter Titelanfang, dann scrollen (74 pt)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Favicon, inicio del título difuminado y luego desplazamiento (74 pt)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Favicon, début du titre estompé, puis défilement (74 pt)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Favicon, inizio del titolo sfumato, poi scorrimento (74 pt)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបតំណាង ដើមចំណងជើងស្រអាប់ បន្ទាប់មករមូរ (74 pt)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파비콘, 흐려지는 제목 앞부분, 그다음 스크롤(74pt)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Favikon, falmet tittelstart, deretter rulling (74 pt)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Favikona, wygaszony początek tytułu, potem przewijanie (74 pt)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Favicon, início do título esmaecido, depois rolagem (74 pt)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок, начало заголовка с затуханием, затем прокрутка (74 pt)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไอคอน ต้นชื่อเรื่องจางลง แล้วเลื่อน (74 pt)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Simge, soluklaşan başlık başı, sonra kaydırma (74 pt)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значок, початок назви із затуханням, потім прокручування (74 pt)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biểu tượng, đầu tiêu đề mờ dần, rồi cuộn (74 pt)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "图标、渐隐的标题开头，然后滚动（74 pt）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圖示、淡出的標題開頭，然後捲動（74 pt）"
+          }
+        }
+      }
+    },
+    "tabs.playground.crowded.shortFade": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "74 pt with a short fade (8 pt)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "74 pt、短いフェード（8 pt）"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt مع تلاشٍ قصير (8 pt)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt s kratkim blijeđenjem (8 pt)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt med kort falmning (8 pt)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt mit kurzer Ausblendung (8 pt)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt con un difuminado corto (8 pt)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt avec un fondu court (8 pt)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt con sfumatura breve (8 pt)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt ជាមួយការស្រអាប់ខ្លី (8 pt)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "짧게 흐려지는 74pt(8pt)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt med kort falming (8 pt)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt z krótkim wygaszeniem (8 pt)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt com esmaecimento curto (8 pt)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt с коротким затуханием (8 pt)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt จางสั้น (8 pt)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kısa soluklaşmalı 74 pt (8 pt)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt із коротким затуханням (8 pt)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt với vùng mờ ngắn (8 pt)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt，短渐隐（8 pt）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "74 pt，短淡出（8 pt）"
+          }
+        }
+      }
+    },
+    "tabs.playground.crowded.wider": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wider: favicon and about eight characters (96 pt)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "広め: ファビコンと約 8 文字（96 pt）"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أعرض: الأيقونة ونحو ثمانية أحرف (96 pt)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šire: favicon i oko osam znakova (96 pt)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bredere: favicon og cirka otte tegn (96 pt)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Breiter: Favicon und etwa acht Zeichen (96 pt)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Más ancho: favicon y unos ocho caracteres (96 pt)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plus large : favicon et environ huit caractères (96 pt)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Più larga: favicon e circa otto caratteri (96 pt)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធំជាង៖ រូបតំណាង និងប្រហែលប្រាំបីតួអក្សរ (96 pt)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "더 넓게: 파비콘과 약 여덟 글자(96pt)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bredere: favikon og omtrent åtte tegn (96 pt)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szersze: favikona i około ośmiu znaków (96 pt)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mais larga: favicon e cerca de oito caracteres (96 pt)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шире: значок и около восьми символов (96 pt)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กว้างขึ้น: ไอคอนและราวแปดตัวอักษร (96 pt)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daha geniş: simge ve yaklaşık sekiz karakter (96 pt)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ширше: значок і близько восьми символів (96 pt)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rộng hơn: biểu tượng và khoảng tám ký tự (96 pt)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更宽：图标和约八个字符（96 pt）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更寬：圖示和約八個字元（96 pt）"
+          }
+        }
+      }
+    },
+    "tabs.playground.dark": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダーク"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "داكن"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tamno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mørk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dunkel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oscuro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sombre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scuro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ងងឹត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mørk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ciemny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escuro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тёмная"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มืด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koyu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Темна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "深色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "深色"
+          }
+        }
+      }
+    },
+    "tabs.playground.kind.agentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャット"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "دردشة الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentchat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agent-Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat d’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat dell’agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជជែកភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 채팅"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agentchat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czat agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чат агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan sohbeti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чат агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trò chuyện tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "智能体聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "代理程式聊天"
+          }
+        }
+      }
+    },
+    "tabs.playground.kind.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المتصفح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preglednik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Browser"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navegador"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navigateur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Browser"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីរុករក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "브라우저"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nettleser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przeglądarka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navegador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Браузер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เบราว์เซอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tarayıcı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Браузер"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình duyệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "浏览器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "瀏覽器"
+          }
+        }
+      }
+    },
+    "tabs.playground.kind.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminale"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទែមីណល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Терминал"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Термінал"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機"
+          }
+        }
+      }
+    },
+    "tabs.playground.light": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライト"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فاتح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svijetlo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lys"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hell"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clair"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiaro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្លឺ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "라이트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lys"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jasny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Светлая"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สว่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Açık"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Світла"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sáng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "浅色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "淺色"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ with a tiny ⌄ badge in its corner"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "角に小さな ⌄ バッジのある +"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ مع شارة ⌄ صغيرة في زاويته"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ s malom ⌄ oznakom u uglu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ med et lille ⌄-mærke i hjørnet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ mit einem winzigen ⌄-Abzeichen in der Ecke"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ con una pequeña insignia ⌄ en su esquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ avec un minuscule badge ⌄ dans son coin"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ con un minuscolo badge ⌄ nell’angolo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ មានស្លាក ⌄ តូចនៅជ្រុង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모서리에 작은 ⌄ 배지가 있는 +"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ med et lite ⌄-merke i hjørnet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ z małą plakietką ⌄ w rogu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ com um pequeno selo ⌄ no canto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ с крошечным значком ⌄ в углу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ ที่มีป้าย ⌄ เล็กที่มุม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Köşesinde küçük ⌄ rozeti olan +"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ з крихітною позначкою ⌄ у куті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ với huy hiệu ⌄ nhỏ ở góc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "角上带小 ⌄ 标记的 +"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "角落帶小 ⌄ 標記的 +"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.caret": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ with a caret inside: a click opens the kinds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中にキャレットのある +: クリックで種類を開く"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ بداخله سهم: النقرة تفتح الأنواع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ sa strelicom unutra: klik otvara vrste"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ med en pil indeni: et klik åbner typerne"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ mit Pfeil darin: ein Klick öffnet die Arten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ con un símbolo dentro: un clic abre los tipos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ avec un chevron dedans : un clic ouvre les types"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ con un simbolo dentro: un clic apre i tipi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ មានព្រួញខាងក្នុង៖ ការចុចបើកប្រភេទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "안에 화살표가 있는 +: 클릭하면 종류가 열림"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ med en pil inni: et klikk åpner typene"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ ze strzałką w środku: kliknięcie otwiera rodzaje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ com um sinal dentro: um clique abre os tipos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ со стрелкой внутри: щелчок открывает типы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ ที่มีลูกศรด้านใน: คลิกเปิดชนิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İçinde ok olan +: tıklama türleri açar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ зі стрілкою всередині: клацання відкриває типи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ có mũi tên bên trong: nhấp mở các loại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "内含箭头的 +：点击打开类型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "內含箭頭的 +：點按開啟類型"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.chevronFirst": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌄ before the +"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ の前に ⌄"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ قبل +"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ prije +"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ før +"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ vor dem +"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ antes del +"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ avant le +"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ prima del +"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ មុន +"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ 앞의 ⌄"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ før +"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ przed +"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ antes do +"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ перед +"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ ก่อน +"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ öncesinde ⌄"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ перед +"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ trước +"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ 在 + 之前"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⌄ 在 + 之前"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.chrome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chrome and Helium: a plain + after the last tab, kinds on right-click or hold"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chrome と Helium: 最後のタブの後ろに + だけ、種類は右クリックか長押し"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome وHelium: + بسيط بعد آخر لسان، والأنواع بالنقر الأيمن أو الضغط المطول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome i Helium: običan + nakon zadnje kartice, vrste desnim klikom ili držanjem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome og Helium: et enkelt + efter sidste fane, typer via højreklik eller hold"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome und Helium: ein einfaches + nach dem letzten Tab, Arten per Rechtsklick oder Halten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome y Helium: un + simple tras la última pestaña, tipos con clic derecho o mantener"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome et Helium : un simple + après le dernier onglet, types au clic droit ou appui long"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome ed Helium: un + semplice dopo l’ultima scheda, tipi con clic destro o pressione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome និង Helium៖ + ធម្មតាក្រោយផ្ទាំងចុងក្រោយ ប្រភេទតាមការចុចស្ដាំ ឬសង្កត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome과 Helium: 마지막 탭 뒤의 단순한 +, 종류는 오른쪽 클릭이나 길게 누르기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome og Helium: et enkelt + etter siste fane, typer med høyreklikk eller hold"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome i Helium: zwykły + po ostatniej karcie, rodzaje pod prawym klikiem lub przytrzymaniem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome e Helium: um + simples após a última aba, tipos com clique direito ou segurar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome и Helium: простой + после последней вкладки, типы по правому щелчку или удержанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome และ Helium: + ธรรมดาหลังแท็บสุดท้าย ชนิดอยู่ในคลิกขวาหรือกดค้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome ve Helium: son sekmeden sonra düz bir +, türler sağ tık veya basılı tutmada"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome і Helium: простий + після останньої вкладки, типи правим клацанням або утриманням"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome và Helium: + đơn sau tab cuối, các loại khi nhấp phải hoặc giữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome 和 Helium：最后一个标签页后的普通 +，类型在右键或长按中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chrome 與 Helium：最後一個分頁後的一般 +，類型在右鍵或長按中"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.filled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari: + in a filled rounded square"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari: 塗りつぶした角丸の四角に +"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + في مربع مستدير ممتلئ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + u ispunjenom zaobljenom kvadratu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + i en udfyldt afrundet firkant"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + in einem gefüllten abgerundeten Quadrat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + en un cuadrado redondeado relleno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari : + dans un carré arrondi plein"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + in un quadrato arrotondato pieno"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari៖ + ក្នុងការ៉េជ្រុងមូលពេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: 채워진 둥근 사각형 안의 +"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + i en fylt avrundet firkant"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + w wypełnionym zaokrąglonym kwadracie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + em um quadrado arredondado preenchido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + в залитом скруглённом квадрате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + ในสี่เหลี่ยมมุมมนแบบทึบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: dolgulu yuvarlak karede +"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + у заповненому заокругленому квадраті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: + trong ô vuông bo góc tô màu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari：填充圆角方块中的 +"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari：填滿圓角方塊中的 +"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.hoverChevron": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ with a ⌄ that shows only on hover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホバー中だけ ⌄ が出る +"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ مع ⌄ لا يظهر إلا عند التمرير فوقه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ sa ⌄ koji se vidi samo pri prelasku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ med en ⌄ der kun vises ved hover"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ mit einem ⌄, das nur beim Darüberfahren erscheint"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ con un ⌄ que solo aparece al pasar el puntero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ avec un ⌄ visible seulement au survol"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ con un ⌄ visibile solo al passaggio"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ ជាមួយ ⌄ ដែលបង្ហាញតែពេលដាក់ទស្សន៍ទ្រនិច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포인터를 올릴 때만 ⌄가 보이는 +"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ med en ⌄ som bare vises ved peker over"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ z ⌄ widocznym tylko po najechaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ com um ⌄ que aparece só ao passar o ponteiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ с ⌄, который виден только при наведении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ ที่มี ⌄ แสดงเฉพาะเมื่อชี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yalnızca üzerine gelince görünen ⌄ ile +"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ з ⌄, що видно лише під час наведення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ với ⌄ chỉ hiện khi rê chuột"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅在悬停时显示 ⌄ 的 +"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "僅在懸停時顯示 ⌄ 的 +"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.inMore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No +: New Tab and the kinds in the ⋮ menu (⌘T stays)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ なし: 新規タブと種類は ⋮ メニューに（⌘T はそのまま）"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بلا +: لسان جديد والأنواع في قائمة ⋮ (يبقى ⌘T)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bez +: Nova kartica i vrste u ⋮ meniju (⌘T ostaje)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet +: Ny fane og typerne i ⋮-menuen (⌘T bliver)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein +: Neuer Tab und die Arten im ⋮-Menü (⌘T bleibt)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sin +: Nueva pestaña y los tipos en el menú ⋮ (⌘T sigue)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pas de + : Nouvel onglet et les types dans le menu ⋮ (⌘T reste)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun +: Nuova scheda e i tipi nel menu ⋮ (⌘T resta)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មាន +៖ ផ្ទាំងថ្មី និងប្រភេទក្នុងម៉ឺនុយ ⋮ (⌘T នៅដដែល)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ 없음: 새 탭과 종류는 ⋮ 메뉴에(⌘T 유지)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen +: Ny fane og typene i ⋮-menyen (⌘T blir)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bez +: Nowa karta i rodzaje w menu ⋮ (⌘T zostaje)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem +: Nova aba e os tipos no menu ⋮ (⌘T continua)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без +: Новая вкладка и типы в меню ⋮ (⌘T остаётся)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มี +: แท็บใหม่และชนิดอยู่ในเมนู ⋮ (⌘T ยังอยู่)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ yok: Yeni sekme ve türler ⋮ menüsünde (⌘T kalır)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без +: Нова вкладка й типи в меню ⋮ (⌘T лишається)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có +: Tab mới và các loại trong menu ⋮ (giữ ⌘T)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有 +：新建标签页和类型在 ⋮ 菜单中（保留 ⌘T）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有 +：新分頁與類型在 ⋮ 選單中（保留 ⌘T）"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.labeled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ New Tab, with its label"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラベル付きの「+ 新規タブ」"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ لسان جديد، مع تسميته"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Nova kartica, s oznakom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Ny fane, med etiket"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Neuer Tab, mit Beschriftung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Nueva pestaña, con su etiqueta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Nouvel onglet, avec son libellé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Nuova scheda, con etichetta"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ ផ្ទាំងថ្មី ជាមួយស្លាក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "레이블이 있는 + 새 탭"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Ny fane, med etikett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Nowa karta, z etykietą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Nova aba, com rótulo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Новая вкладка, с подписью"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ แท็บใหม่ พร้อมป้ายชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etiketiyle + Yeni sekme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Нова вкладка, з підписом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ Tab mới, có nhãn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "带标签的“+ 新建标签页”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "帶標籤的「+ 新分頁」"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.large": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A larger +, the toolbar's button size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大きめの +、ツールバーのボタンサイズ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ أكبر بحجم أزرار شريط الأدوات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veći +, veličine dugmadi alatne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et større +, værktøjslinjens knapstørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein größeres +, in Symbolleisten-Tastengröße"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un + más grande, del tamaño de los botones de la barra"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un + plus grand, taille des boutons de la barre d’outils"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un + più grande, delle dimensioni dei pulsanti della barra"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ ធំជាង ទំហំប៊ូតុងរបារឧបករណ៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "더 큰 +, 도구 막대 버튼 크기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et større +, verktøylinjens knappestørrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Większy +, rozmiar przycisków paska narzędzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um + maior, no tamanho dos botões da barra"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Крупный +, размер кнопок панели инструментов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ ใหญ่ขึ้น ขนาดปุ่มแถบเครื่องมือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daha büyük +, araç çubuğu düğme boyutu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Більший +, розмір кнопок панелі інструментів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ lớn hơn, cỡ nút thanh công cụ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更大的 +，工具栏按钮大小"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更大的 +，工具列按鈕大小"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.plusMenu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One + that opens a small menu of kinds"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "種類の小さなメニューを開く + を 1 つ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ واحد يفتح قائمة صغيرة بالأنواع"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedan + koji otvara mali meni vrsta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et + der åbner en lille menu med typer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein +, das ein kleines Menü der Arten öffnet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un + que abre un menú pequeño de tipos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un + qui ouvre un petit menu de types"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un + che apre un piccolo menu di tipi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ មួយដែលបើកម៉ឺនុយប្រភេទតូច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "종류의 작은 메뉴를 여는 + 하나"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ett + som åpner en liten meny med typer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeden +, który otwiera małe menu rodzajów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um + que abre um pequeno menu de tipos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Один +, открывающий небольшое меню типов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ เดียวที่เปิดเมนูเล็กของชนิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Küçük bir tür menüsü açan tek +"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Один +, що відкриває маленьке меню типів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một + mở menu nhỏ các loại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一个打开类型小菜单的 +"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一個開啟類型小選單的 +"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.plusOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A plain + at the trailing end, kinds on right-click or hold"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "末尾に + だけ、種類は右クリックか長押し"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ بسيط في النهاية، والأنواع بالنقر الأيمن أو الضغط المطول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Običan + na kraju, vrste desnim klikom ili držanjem"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et enkelt + i enden, typer via højreklik eller hold"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein einfaches + am Ende, Arten per Rechtsklick oder Halten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un + simple al final, tipos con clic derecho o mantener"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un simple + à la fin, types au clic droit ou appui long"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un + semplice alla fine, tipi con clic destro o pressione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ ធម្មតានៅចុង ប្រភេទតាមការចុចស្ដាំ ឬសង្កត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끝에 단순한 +, 종류는 오른쪽 클릭이나 길게 누르기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et enkelt + i enden, typer med høyreklikk eller hold"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zwykły + na końcu, rodzaje pod prawym klikiem lub przytrzymaniem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um + simples no fim, tipos com clique direito ou segurar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Простой + в конце, типы по правому щелчку или удержанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ ธรรมดาที่ท้าย ชนิดอยู่ในคลิกขวาหรือกดค้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonda düz bir +, türler sağ tık veya basılı tutmada"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Простий + у кінці, типи правим клацанням або утриманням"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ đơn ở cuối, các loại khi nhấp phải hoặc giữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "末尾的普通 +，类型在右键或长按中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "尾端的一般 +，類型在右鍵或長按中"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.segmented": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ and ⌄ as one split capsule"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ と ⌄ を 1 つの分割カプセルに"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ و⌄ ككبسولة مقسومة واحدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ i ⌄ kao jedna podijeljena kapsula"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ og ⌄ som én delt kapsel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ und ⌄ als eine geteilte Kapsel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ y ⌄ como una cápsula dividida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ et ⌄ en une capsule partagée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ e ⌄ come un’unica capsula divisa"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ និង ⌄ ជាកន្សោមបំបែកមួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+와 ⌄를 나뉜 캡슐 하나로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ og ⌄ som én delt kapsel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ i ⌄ jako jedna dzielona kapsuła"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ e ⌄ como uma cápsula dividida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ и ⌄ одной разделённой капсулой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ และ ⌄ เป็นแคปซูลแบ่งเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tek bölünmüş kapsül olarak + ve ⌄"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ і ⌄ однією розділеною капсулою"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ và ⌄ thành một viên nang chia đôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ 和 ⌄ 合成一个分段胶囊"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ 與 ⌄ 合成一個分段膠囊"
+          }
+        }
+      }
+    },
+    "tabs.playground.newTab.shipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ and a separate ⌄ chooser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ と別の ⌄ 選択ボタン"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ ومحدد ⌄ منفصل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ i zaseban ⌄ birač"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ og en separat ⌄-vælger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ und eine separate ⌄-Auswahl"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ y un selector ⌄ aparte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ et un sélecteur ⌄ séparé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ e un selettore ⌄ separato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ និងប៊ូតុងជ្រើស ⌄ ដាច់ដោយឡែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+와 별도의 ⌄ 선택기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ og en egen ⌄-velger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ i osobny wybór ⌄"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ e um seletor ⌄ separado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ и отдельный выбор ⌄"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ และตัวเลือก ⌄ แยก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ ve ayrı bir ⌄ seçici"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ і окремий вибір ⌄"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ và nút chọn ⌄ riêng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ 和单独的 ⌄ 选择器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "+ 與獨立的 ⌄ 選擇器"
+          }
+        }
+      }
+    },
+    "tabs.playground.section.crowded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crowded Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "混雑したタブ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ألسنة مزدحمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretrpane kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fyldte faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volle Tab-Leiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pestañas llenas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onglets encombrés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schede affollate"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងច្រើនពេក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭이 많을 때"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fulle faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatłoczone karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abas lotadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Много вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บแออัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kalabalık sekmeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Багато вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhiều tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拥挤的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "擁擠的分頁"
+          }
+        }
+      }
+    },
+    "tabs.playground.section.newTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tab Control"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブのコントロール"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "زر لسان جديد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontrola nove kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontrol til ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuer-Tab-Steuerung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Control de nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bouton Nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Controllo nuova scheda"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប៊ូតុងផ្ទាំងថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 탭 컨트롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kontroll for ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przycisk nowej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Controle de nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопка новой вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni sekme denetimi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопка нової вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nút tab mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新标签页控件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新分頁控制項"
+          }
+        }
+      }
+    },
+    "tabs.playground.section.trailing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trailing Controls"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "末尾のコントロール"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عناصر التحكم الأخيرة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Završne kontrole"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afsluttende knapper"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Steuerelemente am Ende"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Controles finales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commandes de fin"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Controlli finali"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប៊ូតុងចុងរបារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끝쪽 컨트롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avsluttende knapper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przyciski końcowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Controles finais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопки в конце"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มท้ายแถบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sondaki denetimler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопки в кінці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nút cuối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "末尾控件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "尾端控制項"
+          }
+        }
+      }
+    },
+    "tabs.playground.shipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shipped: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出荷済み: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المنشور: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isporučeno: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Udgivet: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausgeliefert: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Publicado: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Livré : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rilasciato: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានចេញ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "출시됨: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lansert: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wydane: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lançado: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выпущено: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดตัวแล้ว: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yayınlanan: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Випущено: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã phát hành: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已发布：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已發布：%@"
+          }
+        }
+      }
+    },
+    "tabs.playground.tabCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個のタブ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld ألسنة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica: %lld"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld Tabs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld schede"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំង %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 %lld개"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karty: %lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладок: %lld"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld แท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld sekme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладок: %lld"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld 个标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld 個分頁"
+          }
+        }
+      }
+    },
+    "tabs.playground.trailing.before": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before: two ⋮ glyphs and sizes, columns 2 pt apart"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正前: ⋮ のグリフとサイズが 2 種類、列が 2 pt ずれる"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قبل: رمزان وحجمان لـ ⋮ وعمودان بفارق 2 pt"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prije: dva ⋮ glifa i veličine, kolone 2 pt razmaknute"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Før: to ⋮-glyffer og -størrelser, kolonner 2 pt fra hinanden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorher: zwei ⋮-Symbole und -Größen, Spalten 2 pt versetzt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Antes: dos glifos y tamaños de ⋮, columnas a 2 pt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avant : deux glyphes et tailles de ⋮, colonnes à 2 pt d’écart"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prima: due glifi e dimensioni di ⋮, colonne a 2 pt"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មុន៖ ⋮ ពីររូប និងពីរទំហំ ជួរឈរឃ្លាត 2 pt"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이전: ⋮ 글리프와 크기가 둘, 열이 2pt 어긋남"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Før: to ⋮-glyfer og -størrelser, kolonner 2 pt fra hverandre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przedtem: dwa glify i rozmiary ⋮, kolumny o 2 pt obok siebie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Antes: dois glifos e tamanhos de ⋮, colunas a 2 pt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Раньше: два глифа и размера ⋮, колонки сдвинуты на 2 pt"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ก่อน: ⋮ สองแบบและสองขนาด คอลัมน์ห่าง 2 pt"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce: iki ⋮ glifi ve boyutu, sütunlar 2 pt kayık"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Раніше: два гліфи й розміри ⋮, колонки зсунуті на 2 pt"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trước: hai ký hiệu và cỡ ⋮, cột lệch 2 pt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "之前：两种 ⋮ 字形和大小，列相差 2 pt"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "之前：兩種 ⋮ 字形與大小，欄相差 2 pt"
+          }
+        }
+      }
+    },
+    "tabs.playground.trailing.chromium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Both ⋮ Chromium's glyph at the toolbar's icon size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方の ⋮ を Chromium のグリフでツールバーのアイコンサイズに"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كلا ⋮ برمز Chromium بحجم أيقونات شريط الأدوات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oba ⋮ kao Chromium glif u veličini ikona alatne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Begge ⋮ som Chromium-glyf i værktøjslinjens ikonstørrelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beide ⋮ als Chromium-Symbol in Symbolleisten-Größe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ambos ⋮ con el glifo de Chromium al tamaño de los iconos de la barra"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les deux ⋮ en glyphe Chromium à la taille des icônes de la barre d’outils"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrambi i ⋮ con il glifo di Chromium alla dimensione delle icone"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⋮ ទាំងពីរជារូប Chromium ទំហំរូបតំណាងរបារឧបករណ៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "두 ⋮ 모두 도구 막대 아이콘 크기의 Chromium 글리프"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Begge ⋮ som Chromium-glyf i verktøylinjens ikonstørrelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oba ⋮ jako glif Chromium w rozmiarze ikon paska narzędzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ambos os ⋮ com o glifo do Chromium no tamanho dos ícones da barra"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оба ⋮ — глиф Chromium размером значков панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⋮ ทั้งสองใช้สัญลักษณ์ Chromium ขนาดไอคอนแถบเครื่องมือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İki ⋮ de araç çubuğu simge boyutunda Chromium glifi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обидва ⋮ — гліф Chromium розміром значків панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cả hai ⋮ dùng ký hiệu Chromium cỡ biểu tượng thanh công cụ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "两个 ⋮ 都用工具栏图标大小的 Chromium 字形"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "兩個 ⋮ 都用工具列圖示大小的 Chromium 字形"
+          }
+        }
+      }
+    },
+    "tabs.playground.trailing.grid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toolbar buttons in the tab bar's columns, one under each"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールバーのボタンをタブバーの列にそろえて 1 つずつ下に置く"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أزرار شريط الأدوات في أعمدة شريط الألسنة، واحد تحت كل منها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dugmad alatne trake u kolonama trake kartica, po jedno ispod svakog"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Værktøjslinjens knapper i fanebjælkens kolonner, én under hver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symbolleisten-Tasten in den Spalten der Tab-Leiste, je eine darunter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Botones de la barra de herramientas en las columnas de la barra de pestañas, uno bajo cada uno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boutons de la barre d’outils dans les colonnes de la barre d’onglets, un sous chacun"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulsanti della barra strumenti nelle colonne della barra delle schede, uno sotto ciascuno"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប៊ូតុងរបារឧបករណ៍តាមជួរឈររបារផ្ទាំង មួយនៅក្រោមនីមួយៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "도구 막대 버튼을 탭 막대 열에 맞춰 하나씩 아래에"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verktøylinjens knapper i fanelinjens kolonner, én under hver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przyciski paska narzędzi w kolumnach paska kart, po jednym pod każdym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Botões da barra de ferramentas nas colunas da barra de abas, um sob cada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопки панели инструментов в колонках панели вкладок, по одной под каждой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มแถบเครื่องมือตรงคอลัมน์ของแถบแท็บ ทีละปุ่มด้านล่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Araç çubuğu düğmeleri sekme çubuğunun sütunlarında, her birinin altında"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопки панелі інструментів у колонках панелі вкладок, по одній під кожною"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nút thanh công cụ theo cột của thanh tab, mỗi nút dưới một nút"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工具栏按钮对齐标签栏的列，一一对应在下方"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工具列按鈕對齊分頁列的欄，一一對應在下方"
+          }
+        }
+      }
+    },
+    "tabs.playground.trailing.horizontal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab bar … (pane), toolbar ⋮ (page): two roles, two glyphs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーは …（ペイン）、ツールバーは ⋮（ページ）: 役割ごとに別のグリフ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شريط الألسنة … (اللوحة) وشريط الأدوات ⋮ (الصفحة): دوران ورمزان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Traka kartica … (okno), alatna traka ⋮ (stranica): dvije uloge, dva glifa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanebjælke … (rude), værktøjslinje ⋮ (side): to roller, to glyffer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab-Leiste … (Bereich), Symbolleiste ⋮ (Seite): zwei Rollen, zwei Symbole"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barra de pestañas … (panel), barra de herramientas ⋮ (página): dos funciones, dos glifos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barre d’onglets … (volet), barre d’outils ⋮ (page) : deux rôles, deux glyphes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barra delle schede … (riquadro), barra strumenti ⋮ (pagina): due ruoli, due glifi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របារផ្ទាំង … (ផ្ទាំងរង) របារឧបករណ៍ ⋮ (ទំព័រ)៖ តួនាទីពីរ រូបពីរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 막대 …(패널), 도구 막대 ⋮(페이지): 두 역할, 두 글리프"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanelinje … (rute), verktøylinje ⋮ (side): to roller, to glyfer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasek kart … (panel), pasek narzędzi ⋮ (strona): dwie role, dwa glify"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barra de abas … (painel), barra de ferramentas ⋮ (página): dois papéis, dois glifos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель вкладок … (панель), панель инструментов ⋮ (страница): две роли, два глифа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบแท็บ … (บานหน้าต่าง) แถบเครื่องมือ ⋮ (หน้า): สองบทบาท สองสัญลักษณ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme çubuğu … (bölme), araç çubuğu ⋮ (sayfa): iki rol, iki glif"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель вкладок … (панель), панель інструментів ⋮ (сторінка): дві ролі, два гліфи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thanh tab … (khung), thanh công cụ ⋮ (trang): hai vai trò, hai ký hiệu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签栏 …（面板），工具栏 ⋮（页面）：两种角色，两种字形"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁列 …（面板），工具列 ⋮（頁面）：兩種角色，兩種字形"
+          }
+        }
+      }
+    },
+    "tabs.playground.trailing.inset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Both columns 4 pt further in, away from the pane's edge"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "両方の列をペインの端から 4 pt 内側へ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "العمودان أبعد بمقدار 4 pt عن حافة اللوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obje kolone 4 pt dalje unutra, dalje od ruba okna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Begge kolonner 4 pt længere inde, væk fra rudens kant"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beide Spalten 4 pt weiter innen, weg vom Rand des Bereichs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ambas columnas 4 pt más adentro, lejos del borde del panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les deux colonnes 4 pt plus à l’intérieur, loin du bord du volet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrambe le colonne 4 pt più all’interno, lontano dal bordo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជួរឈរទាំងពីរចូលក្នុង 4 pt ឆ្ងាយពីគែមផ្ទាំងរង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "두 열 모두 패널 가장자리에서 4pt 더 안쪽으로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Begge kolonner 4 pt lenger inn, bort fra rutens kant"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obie kolumny 4 pt dalej do środka, z dala od krawędzi panelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As duas colunas 4 pt mais para dentro, longe da borda do painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обе колонки на 4 pt дальше от края панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทั้งสองคอลัมน์เข้าด้านใน 4 pt ห่างจากขอบบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İki sütun da bölme kenarından 4 pt daha içeride"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обидві колонки на 4 pt далі від краю панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cả hai cột lùi vào 4 pt, xa mép khung"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "两列都向内移 4 pt，远离面板边缘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "兩欄都向內移 4 pt，遠離面板邊緣"
+          }
+        }
+      }
+    },
+    "tabs.playground.trailing.mergeToolbar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One ⋮ in the toolbar: the tab bar's rows join it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールバーに ⋮ を 1 つ: タブバーの項目をそこにまとめる"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⋮ واحد في شريط الأدوات: تنضم إليه عناصر شريط الألسنة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedan ⋮ na alatnoj traci: stavke trake kartica idu tamo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Én ⋮ i værktøjslinjen: fanebjælkens punkter flytter dertil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein ⋮ in der Symbolleiste: die Einträge der Tab-Leiste kommen dazu"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un ⋮ en la barra de herramientas: los elementos de la barra de pestañas se unen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un ⋮ dans la barre d’outils : les éléments de la barre d’onglets le rejoignent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un ⋮ nella barra strumenti: le voci della barra delle schede si uniscono"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⋮ មួយក្នុងរបារឧបករណ៍៖ ធាតុរបារផ្ទាំងចូលរួមនៅទីនោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "도구 막대에 ⋮ 하나: 탭 막대 항목이 그곳으로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Én ⋮ i verktøylinjen: fanelinjens elementer flyttes dit"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeden ⋮ na pasku narzędzi: pozycje paska kart trafiają tam"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um ⋮ na barra de ferramentas: os itens da barra de abas se juntam"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Один ⋮ на панели инструментов: пункты панели вкладок переходят туда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⋮ เดียวในแถบเครื่องมือ: รายการแถบแท็บย้ายไปที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Araç çubuğunda tek ⋮: sekme çubuğunun öğeleri oraya katılır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Один ⋮ на панелі інструментів: пункти панелі вкладок переходять туди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một ⋮ trên thanh công cụ: mục của thanh tab gộp vào"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工具栏一个 ⋮：标签栏的项目并入其中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工具列一個 ⋮：分頁列的項目併入其中"
+          }
+        }
+      }
+    },
+    "tabs.playground.trailing.mergeTop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One ⋮ in the tab bar: the toolbar's rows join it"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーに ⋮ を 1 つ: ツールバーの項目をそこにまとめる"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⋮ واحد في شريط الألسنة: تنضم إليه عناصر شريط الأدوات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedan ⋮ na traci kartica: stavke alatne trake idu tamo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Én ⋮ i fanebjælken: værktøjslinjens punkter flytter dertil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein ⋮ in der Tab-Leiste: die Einträge der Symbolleiste kommen dazu"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un ⋮ en la barra de pestañas: los elementos de la barra de herramientas se unen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un ⋮ dans la barre d’onglets : les éléments de la barre d’outils le rejoignent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un ⋮ nella barra delle schede: le voci della barra strumenti si uniscono"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⋮ មួយក្នុងរបារផ្ទាំង៖ ធាតុរបារឧបករណ៍ចូលរួមនៅទីនោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 막대에 ⋮ 하나: 도구 막대 항목이 그곳으로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Én ⋮ i fanelinjen: verktøylinjens elementer flyttes dit"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeden ⋮ na pasku kart: pozycje paska narzędzi trafiają tam"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um ⋮ na barra de abas: os itens da barra de ferramentas se juntam"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Один ⋮ на панели вкладок: пункты панели инструментов переходят туда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⋮ เดียวในแถบแท็บ: รายการแถบเครื่องมือย้ายไปที่นั่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme çubuğunda tek ⋮: araç çubuğunun öğeleri oraya katılır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Один ⋮ на панелі вкладок: пункти панелі інструментів переходять туди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một ⋮ trên thanh tab: mục của thanh công cụ gộp vào"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签栏一个 ⋮：工具栏的项目并入其中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁列一個 ⋮：工具列的項目併入其中"
+          }
+        }
+      }
+    },
+    "tabs.playground.trailing.oneIconSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every icon one size (16 pt) and one 24 pt hit box"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのアイコンを 1 サイズ（16 pt）、クリック範囲を 24 pt に統一"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كل أيقونة بحجم واحد (16 pt) ومنطقة نقر 24 pt"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaka ikona jedne veličine (16 pt) i područje klika od 24 pt"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle ikoner én størrelse (16 pt) og ét 24 pt klikområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedes Symbol eine Größe (16 pt) und ein 24-pt-Klickbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cada icono de un tamaño (16 pt) y un área de clic de 24 pt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chaque icône d’une taille (16 pt) et une zone de clic de 24 pt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ogni icona di una dimensione (16 pt) e un’area di clic di 24 pt"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបតំណាងទាំងអស់ទំហំមួយ (16 pt) និងតំបន់ចុច 24 pt"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 아이콘 한 크기(16pt)와 24pt 클릭 영역"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle ikoner én størrelse (16 pt) og ett 24 pt klikkområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Każda ikona w jednym rozmiarze (16 pt) i obszar kliknięcia 24 pt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cada ícone de um tamanho (16 pt) e uma área de clique de 24 pt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Все значки одного размера (16 pt) и область нажатия 24 pt"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทุกไอคอนขนาดเดียว (16 pt) และพื้นที่คลิก 24 pt"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her simge tek boyut (16 pt) ve tek 24 pt tıklama alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Усі значки одного розміру (16 pt) і область натискання 24 pt"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mọi biểu tượng một cỡ (16 pt) và vùng nhấp 24 pt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有图标同一大小（16 pt）和 24 pt 点击区域"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "所有圖示同一大小（16 pt）與 24 pt 點按區域"
+          }
+        }
+      }
+    },
+    "tabs.playground.trailing.shipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One ⋮ size, one column (shipped fix)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⋮ のサイズを 1 つ、列を 1 つに（出荷済みの修正）"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حجم واحد لـ ⋮ وعمود واحد (الإصلاح المنشور)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedna veličina ⋮, jedna kolona (isporučena ispravka)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Én ⋮-størrelse, én kolonne (udgivet rettelse)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine ⋮-Größe, eine Spalte (ausgelieferte Korrektur)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un tamaño de ⋮, una columna (corrección publicada)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une taille de ⋮, une colonne (correctif livré)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una dimensione di ⋮, una colonna (correzione rilasciata)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⋮ ទំហំមួយ ជួរឈរមួយ (ការជួសជុលបានចេញ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⋮ 크기 하나, 열 하나(출시된 수정)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Én ⋮-størrelse, én kolonne (lansert retting)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeden rozmiar ⋮, jedna kolumna (wydana poprawka)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um tamanho de ⋮, uma coluna (correção lançada)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Один размер ⋮, одна колонка (выпущенное исправление)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "⋮ ขนาดเดียว คอลัมน์เดียว (การแก้ไขที่เปิดตัว)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tek ⋮ boyutu, tek sütun (yayınlanan düzeltme)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Один розмір ⋮, одна колонка (випущене виправлення)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một cỡ ⋮, một cột (bản sửa đã phát hành)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一种 ⋮ 大小，一列（已发布的修复）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一種 ⋮ 大小，一欄（已發布的修正）"
+          }
+        }
+      }
+    },
+    "tabs.playground.windowTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar Playground"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーのプレイグラウンド"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ساحة تجربة شريط الألسنة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igralište trake s karticama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legeplads for fanebjælken"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab-Leisten-Spielwiese"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zona de pruebas de la barra de pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bac à sable de la barre d’onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Area di prova della barra delle schede"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងសាកល្បងរបារផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭 막대 플레이그라운드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lekeplass for fanelinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plac zabaw paska kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Playground da barra de abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Песочница панели вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สนามทดลองแถบแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme çubuğu deneme alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пісочниця панелі вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sân thử thanh tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签栏试验场"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁列試驗場"
+          }
+        }
+      }
+    },
+    "tabs.playground.section.cornerRadius": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Corner Radius"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "角丸の半径"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نصف قطر الزاوية"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Radijus uglova"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hjørneradius"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Eckenradius"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Radio de esquina"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Rayon des coins"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Raggio degli angoli"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កាំជ្រុង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "모서리 반경"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hjørneradius"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Promień narożnika"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Raio do canto"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Радиус углов"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "รัศมีมุม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Köşe yarıçapı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Радіус кутів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Bán kính góc"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "圆角半径"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "圓角半徑"}}
+      }
+    },
+    "tabs.playground.corner.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Radius %1$@ pt, padding %2$@ pt"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "半径 %1$@ pt、パディング %2$@ pt"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نصف القطر %1$@ نقطة، الحشوة %2$@ نقطة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Radijus %1$@ pt, razmak %2$@ pt"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Radius %1$@ pt, afstand %2$@ pt"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Radius %1$@ pt, Abstand %2$@ pt"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Radio %1$@ pt, margen %2$@ pt"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Rayon %1$@ pt, marge %2$@ pt"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Raggio %1$@ pt, spaziatura %2$@ pt"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កាំ %1$@ pt គម្លាត %2$@ pt"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "반경 %1$@pt, 여백 %2$@pt"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Radius %1$@ pt, avstand %2$@ pt"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Promień %1$@ pt, odstęp %2$@ pt"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Raio %1$@ pt, espaçamento %2$@ pt"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Радиус %1$@ пт, отступ %2$@ пт"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "รัศมี %1$@ pt ระยะห่าง %2$@ pt"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yarıçap %1$@ pt, boşluk %2$@ pt"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Радіус %1$@ пт, відступ %2$@ пт"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Bán kính %1$@ pt, đệm %2$@ pt"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "半径 %1$@ pt，内边距 %2$@ pt"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "半徑 %1$@ pt，內距 %2$@ pt"}}
+      }
+    },
+    "tabs.playground.corner.caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tabs and inner fills: %@ pt"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "タブと内側の塗り: %@ pt"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "علامات التبويب والتعبئة الداخلية: %@ نقطة"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Kartice i unutrašnje ispune: %@ pt"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Faner og indre udfyldning: %@ pt"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Tabs und innere Flächen: %@ pt"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Pestañas y rellenos internos: %@ pt"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Onglets et remplissages intérieurs : %@ pt"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Schede e riempimenti interni: %@ pt"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ទាំងរង និងការបំពេញខាងក្នុង៖ %@ pt"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "탭과 안쪽 채우기: %@pt"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Faner og indre fyll: %@ pt"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Karty i wypełnienia wewnętrzne: %@ pt"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Abas e preenchimentos internos: %@ pt"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Вкладки и внутренние заливки: %@ пт"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แท็บและพื้นด้านใน: %@ pt"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Sekmeler ve iç dolgular: %@ pt"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вкладки й внутрішні заливки: %@ пт"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Thẻ và vùng tô bên trong: %@ pt"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "标签页和内部填充：%@ pt"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "分頁與內部填色：%@ pt"}}
+      }
+    },
+    "tabs.playground.section.pinnedGap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めタブの間隔"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pinned Tabs Gap"
+          }
+        }
+      }
+    },
+    "tabs.playground.pinned.shipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ間隔、区切り線、タブ間隔"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, divider, tab gap"
+          }
+        }
+      }
+    },
+    "tabs.playground.pinned.before": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前: 4 pt 追加、区切り線なし"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Before: 4 pt extra, no divider"
+          }
+        }
+      }
+    },
+    "tabs.playground.pinned.uniform": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ間隔のみ: 区切り線なし、追加の余白なし"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap only: no divider, no extra space"
+          }
+        }
+      }
+    },
+    "tabs.playground.pinned.wide": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "広め: 6 pt、区切り線、6 pt"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wider: 6 pt, divider, 6 pt"
+          }
+        }
+      }
+    },
+    "tabs.playground.pinned.tall": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ間隔、高い区切り線 (タブの高さ - 8 pt)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, tall divider (tab height less 8 pt)"
+          }
+        }
+      }
+    },
+    "tabs.playground.pinned.strong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ間隔、濃い区切り線"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab gap, stronger divider"
+          }
+        }
+      }
+    },
+    "tabs.playground.pinned.safari": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari: 広い余白、区切り線なし (12 pt)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Safari: wide space, no divider (12 pt)"
           }
         }
       }

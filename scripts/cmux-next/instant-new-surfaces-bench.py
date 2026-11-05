@@ -8,19 +8,46 @@ the display frame at which the result shows (`visible_ms`, `frames_to_visible`),
 daemon's object replaced the provisional one (`confirmed_ms`) and its BenchSpans marks.
 
 Two phases: `idle`, then `load` (every core busy with `yes`, plus `--storm` workers looping the
-tag's CLI against its daemon). With `--budget-frames N` the run fails when any command's p95
+tag's CLI against its daemon). With `--budget-frames N` (which times the warm arm alone unless `--arms` says otherwise) the run fails when any command's p95
 display frame of visibility (1 = the first frame drawn after the key) is above N or a key's main-thread time is above `--budget-key-ms`.
 
-`--commands` picks the commands (default all); `--workspaces 10,100` runs every phase again at
+`--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split,
+`link_home`, the same link from Home's dock alone (a new column beside it), `split_browser`, Split Browser Right,
+and `dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, run only when named, warm arm); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
+Three arms of each command (`--arms`, default all; bench_arms.py), each reported with p50/p95/p99/max of
+visible_ms, confirmed_ms and key_ms:
+
+  warm   the `idle` phase at every workspace count (`idle`, or `idle@<n>ws` with --workspaces; SUMMARY keeps each count
+         apart): each press after a shown terminal, its shell prompt
+         (1 s), 0.4 s after the press before the undo, and 0.3 s after it, so the Ctrl-` stand-in and the New Tab
+         page spare are ready
+  quick  two quick presses (`--quick-runs`, default 6, per command): the command's key through `debug.key` (not
+         timed), then at once the timed press, with no wait for a stand-in or spare to refill
+  cold   cold, no wait (`--cold-launches`, default 2, launches per command): the app quits and launches again, and
+         the timed press is the launch's first, as soon as a terminal is focused (no shell prompt wait, no warm-up)
+
+The bench's HEADLINE per command is the WORST arm (a missed run first, else the highest p95, then the highest max),
+printed as `HEADLINE instant-new-surfaces/<command> visible_ms = <arm> arm ...`; the warm arm alone never stands for
+the bench.
+
 Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
-       [--workspaces 10,100] [--out DIR] [--json FILE]
+       [--workspaces 10,100] [--arms warm,quick,cold] [--quick-runs 6] [--cold-launches 2] [--out DIR] [--json FILE]
+Fleet: cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/instant-new-surfaces.sh
+       --ref SHA --artifact artifacts/instant-new-surfaces.json [--arg=--runs=12]
 """
 import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
+# `--bench=new-pane-start-state` (scripts/measure/instant-new-surfaces.sh passes it through): the fleet entry
+# runs scripts/cmux-next/new-pane-start-state-bench.py on the same tagged app instead, with the same arguments.
+if "--bench=new-pane-start-state" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-pane-start-state-bench.py")
+    os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=new-pane-start-state"]])
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id  # noqa: E402
+import bench_arms  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -35,6 +62,13 @@ parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--hang-stacks", action="store_true",
                     help="as the every-action sweep: hang watchdog at 8 ms, the agent pane mock (Cmd-N opens its New Tab page), "
                          "and each run's longest main-thread stall with its whole stack (64 frames) in the row and the log")
+parser.add_argument("--native-new-tab", action="store_true", help="run with tabs.nativeNewTabPage on (Cmd-T opens the native New Tab page)")
+parser.add_argument("--arms", default=None,
+                    help="the arms to time (bench_arms.py; default warm,quick,cold, or warm alone with --budget-frames: a "
+                         "budget run judges the warm rows only, so its time and its pass or fail do not change)")
+parser.add_argument("--quick-runs", type=int, default=6, help="quick arm: pairs of presses per command")
+parser.add_argument("--cold-launches", type=int, default=2, help="cold arm: launches per command, each timing its first press")
+parser.add_argument("--link-url", default="", help="link_right's page (default: a local file page in the scratch folder)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
@@ -46,12 +80,24 @@ BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*")
 SCRATCH = tempfile.mkdtemp(prefix=f"instant-{TAG}-")
 open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
-open(CONFIG, "w").write("{}\n")
+LINK_PAGE = os.path.join(SCRATCH, "link.html")
+open(LINK_PAGE, "w").write("<!doctype html><title>link</title><body style='background:#2a6'><h1>link page</h1></body>\n")
+LINK_URL = opts.link_url or "file://" + LINK_PAGE
+PAGE_COMMANDS = ("link_right", "link_home", "split_browser")  # the app reports page_ms (the new pane's page painted) for these
+open(CONFIG, "w").write(json.dumps({"tabs": {"nativeNewTabPage": True}} if opts.native_new_tab else {}) + "\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
            "CMUX_BUNDLE_ID": BUNDLE_ID, "CMUX_BUNDLED_CLI_PATH": CLI}
 LAUNCHED, LOAD = [], []
 COMMANDS = [c for c in opts.commands.split(",") if c]
+if opts.arms is None:
+    opts.arms = "warm" if opts.budget_frames else "warm,quick,cold"
+ARMS = [a for a in opts.arms.split(",") if a]
+if set(ARMS) - set(bench_arms.ARMS):
+    parser.error(f"--arms: one of {', '.join(bench_arms.ARMS)}")
+# The key of each command, for the quick arm's first (untimed) press.
+KEYS = {"split_right": ("d", ["command"]), "split_down": ("d", ["command", "shift"]), "new_tab": ("t", ["command"]),
+        "new_terminal": ("`", ["control"]), "new_workspace": ("n", ["command"])}
 
 
 def run(*args, timeout=30):
@@ -125,27 +171,127 @@ def stop_load():
 
 def undo(command, window, before_panes):
     """Back to one terminal pane in the bench workspace."""
-    if command == "new_workspace":
+    if command in ("new_workspace", "dock_respawn"):  # a dock leaves two panes: the workspace goes, the next run gets a fresh one
         rpc("action.run", {"action": "closeWorkspace"})
         wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
         return
+    if command == "link_home":  # the new column's tab has the focus: its close leaves Home's dock alone again
+        rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
+        wait(lambda: len(panes()) <= before_panes, 10)
+        return
     rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
     wait(lambda: len(panes()) <= before_panes and (focused() or {}).get("kind") == "terminal", 10)
+
+
+def home_dock():
+    """Home shown with its dock alone and focused (`link_home`): `home.show` from a script, as the sidebar's Home row."""
+    if len(panes()) == 1 and (focused() or {}).get("kind") != "terminal":
+        return True
+    rpc("action.run", {"action": "home.show", "wait": True})
+    return wait(lambda: len(panes()) == 1 and (focused() or {}).get("kind") != "terminal", 10)
+
+
+def ready(command, settle=True):
+    """The pane a timed press starts from: Home's dock for `link_home`, else a shown terminal."""
+    return home_dock() if command == "link_home" else ensure_terminal(settle)
 
 
 def focused():
     return next((p for p in panes() if p.get("focused")), None)
 
 
-def ensure_terminal():
-    """A shown terminal workspace: `newTab` from a script makes one terminal; focus: true shows it."""
+def ensure_terminal(settle=True):
+    """A shown terminal workspace: `newTab` from a script makes one terminal; focus: true shows it.
+    `settle` False (the cold arm): no wait for the shell prompt."""
     if (focused() or {}).get("kind") == "terminal":
         return True
     reply = rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": "instant-bench"}, "wait": True})
     print("newTab:", json.dumps(reply)[:300], flush=True)
-    ok = wait(lambda: (focused() or {}).get("kind") == "terminal", 30)
-    time.sleep(1)  # test harness: shell prompt
+    ok = wait(lambda: (focused() or {}).get("kind") == "terminal", 30, step=0.25 if settle else 0.02)
+    if settle:
+        time.sleep(1)  # test harness: shell prompt
     return ok
+
+
+def timed(command, phase, index, arm=None):
+    """One timed `bench_create` of `command` (the key goes through the real key path in the app), printed."""
+    # `link_home` is the app's `link_right` from Home's dock (LinkOpener reads the source, not the command).
+    sent = "link_right" if command == "link_home" else command
+    params = {"action": "bench_create", "command": sent}
+    if sent == "link_right":
+        params["url"] = LINK_URL
+    result = rpc("debug.new_tab", params, timeout=20) or {}
+    result.update({"phase": phase, "run": index, "command": command})
+    if arm:
+        result["arm"] = arm
+    marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
+    print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
+          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} marks={marks} "
+          f"err={result.get('error')}", flush=True)
+    return result
+
+
+def arm_quick(window):
+    """Per command, `--quick-runs` pairs: the command's key (debug.key, not timed), then at once the timed press of
+    the same command, so it finds the stand-in or spare the first press took. Both results are undone."""
+    rows = []
+    for command in COMMANDS:
+        if command not in KEYS:
+            continue  # no key (link_right, split_browser): timed by the warm arm alone
+        for index in range(opts.quick_runs):
+            if not ensure_terminal():
+                rows.append({"phase": "quick", "run": index, "command": command, "arm": "quick", "error": "no focused terminal"})
+                continue
+            before = len(panes())
+            name, modifiers = KEYS[command]
+            rpc("debug.key", {"key": name, "modifiers": modifiers, "window": window})
+            rows.append(timed(command, "quick", index, arm="quick"))
+            time.sleep(0.4)  # test harness: let the creations' shells start before closing them
+            # The first of the two results, then the second (undo waits for one terminal pane again).
+            if command == "new_workspace":
+                rpc("action.run", {"action": "closeWorkspace"})
+            elif command in ("split_right", "split_down"):
+                rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
+                wait(lambda: len(panes()) <= before + 1, 10)
+            else:
+                rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
+            time.sleep(0.3)  # test harness: the first close lands
+            undo(command, window, before)
+            time.sleep(0.3)
+    return rows
+
+
+def arm_cold(relaunch):
+    """Per command, `--cold-launches` launches: the app quits and launches again (`relaunch`), and the timed press is
+    the launch's first, as soon as a terminal is focused, with no shell prompt wait and no warm-up wait."""
+    rows = []
+    for index in range(opts.cold_launches):
+        for command in COMMANDS:
+            try:
+                relaunch()
+            except SystemExit as error:  # bench_launch.LaunchError and other launch refusals: a missed run
+                print(f"cold {command} #{index}: launch failed: {error}", flush=True)
+                rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": f"launch: {error}"})
+                continue
+            if command != "new_workspace" and not ready(command, settle=False):
+                rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": "no focused start pane"})
+                continue
+            rows.append(timed(command, "cold", index, arm="cold"))
+    return rows
+
+
+def arm_samples(rows, command, metric):
+    """{arm: samples} of `metric` for `command`: warm is the idle phase at every workspace count, pooled (SUMMARY has each)."""
+    out = {}
+    if "warm" in ARMS:
+        # The idle phase at every workspace count (`idle`, or `idle@<n>ws` with --workspaces): a phase name with a
+        # count never matched `== "idle"`, so a --workspaces run reported its warm arm as "no arm ran".
+        out["warm"] = [r.get(metric) for r in rows if (r.get("phase") or "").split("@")[0] == "idle" and not r.get("arm")
+                       and r.get("command") == command]
+    for arm in ("quick", "cold"):
+        if arm in ARMS:
+            out[arm] = [r.get(metric) for r in rows if r.get("arm") == arm and r.get("command") == command]
+    return out
 
 
 def bench(phase, window):
@@ -154,18 +300,13 @@ def bench(phase, window):
         sys.exit("no focused terminal: " + json.dumps(panes())[:800])
     for command in COMMANDS:
         for index in range(opts.runs):
-            if command != "new_workspace" and not ensure_terminal():
-                sys.exit("no focused terminal: " + json.dumps(panes())[:800])
+            if command != "new_workspace" and not ready(command):
+                sys.exit("no focused start pane: " + json.dumps(panes())[:800])
             before = len(panes())
             if opts.hang_stacks:
                 rpc("debug.hangs", {"clear": True})
-            result = rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=20) or {}
-            result.update({"phase": phase, "run": index})
+            result = timed(command, phase, index)
             rows.append(result)
-            marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
-            print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
-                  f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} marks={marks} "
-                  f"err={result.get('error')}", flush=True)
             time.sleep(0.4)  # test harness: let the creation's shell start before closing it
             if opts.hang_stacks:
                 result["hangs"] = longest_stall(rpc("debug.hangs", {"limit": 8}) or {})
@@ -225,6 +366,7 @@ def frame_of(row, key="visible_ms"):
 
 def summary(rows):
     out = {}
+    rows = [r for r in rows if not r.get("arm")]  # the quick and cold arms are reported by bench_arms
     for phase in sorted({r["phase"] for r in rows}):
         for command in COMMANDS:
             sel = [r for r in rows if r["phase"] == phase and r.get("command") == command]
@@ -239,6 +381,9 @@ def summary(rows):
                 "first_frame_ms_p50": pct([(r.get("frames") or {}).get("first_tick_ms") for r in sel], .5),
                 "confirmed_p50": pct([r.get("confirmed_ms") for r in sel], .5),
                 "confirmed_p95": pct([r.get("confirmed_ms") for r in sel], .95),
+                "page_p50": pct([r.get("page_ms") for r in sel], .5),
+                "page_p95": pct([r.get("page_ms") for r in sel], .95),
+                "page_max": pct([r.get("page_ms") for r in sel], 1),
             }
     return out
 
@@ -280,14 +425,25 @@ def main():
            "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(SCRATCH, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
     if opts.hang_stacks:
         env.update({"CMUX_NEXT_HANG_THRESHOLD_MS": "8", "CMUX_NEXT_AGENT_PANE_MOCK": "1", "ACPMUX_AGENT_LAUNCH": "deny"})
-    # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
-    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
-    try:
-        launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
-    finally:
-        app = launcher.process
-    SOCKET = launcher.socket
-    CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
+    def launch():
+        global app, SOCKET
+        # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
+        launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
+        try:
+            launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
+        finally:
+            app = launcher.process
+        SOCKET = launcher.socket
+        CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
+
+    def relaunch():
+        """The cold arm's launch: the running app quits (cleanup), then a new launch; returns its window."""
+        cleanup()
+        LAUNCHED.clear()
+        launch()
+        return window_key()
+
+    launch()
     time.sleep(2)  # test harness: shell prompt
     window = window_key()
     rows = []
@@ -304,8 +460,26 @@ def main():
                 rows += bench(phase + suffix, window)
             finally:
                 stop_load()
+    if "quick" in ARMS:
+        rows += arm_quick(window)
+    if "cold" in ARMS:
+        rows += arm_cold(relaunch)  # last: it relaunches the app
+        if not app or app.poll() is not None:
+            try:
+                launch()  # a failed last relaunch: the report below reads nothing from the app, cleanup needs none
+            except SystemExit as error:
+                print(f"cold: no app after the cold arm ({error}); the report is written from the rows", flush=True)
     result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
+    print("", flush=True)
+    result["arms"] = {command: {metric: bench_arms.report(f"instant-new-surfaces/{command}", metric, "ms",
+                                                          arm_samples(rows, command, metric),
+                                                          out=lambda line: print(line, flush=True))
+                                for metric in ("visible_ms", "confirmed_ms", "key_ms") + (("page_ms",) if command in PAGE_COMMANDS else ())}
+                      for command in COMMANDS}
+    result["headline"] = {command: {"metric": "visible_ms", "arm": arms["visible_ms"]["headline"]}
+                          for command, arms in result["arms"].items()}
+    result["headline_rule"] = bench_arms.RULE
     if opts.json:
         open(opts.json, "w").write(json.dumps(result, indent=1))
     if opts.budget_frames:

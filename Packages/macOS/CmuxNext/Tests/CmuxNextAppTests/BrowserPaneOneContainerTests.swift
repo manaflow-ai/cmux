@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// Edge containers batch 1 (Leo 2026-10-12, "the browser pane's rounding"): a browser pane drew
@@ -10,7 +11,7 @@ import Testing
 /// outlined box that held only the page, so the page's top corners rounded under the toolbar.
 /// Like a terminal pane, a browser pane has one rounded content area below its tab strip; the
 /// toolbar sits inside it and the page is square and flush under the toolbar.
-@MainActor @Suite(.serialized) struct BrowserPaneOneContainerTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BrowserPaneOneContainerTests {
     struct Pane {
         let window: NSWindow
         let pane: PaneContentView
@@ -36,6 +37,7 @@ import Testing
         }
 
         func tearDown() {
+            chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
             page.close()

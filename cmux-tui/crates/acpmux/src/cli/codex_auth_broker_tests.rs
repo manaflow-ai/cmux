@@ -155,7 +155,9 @@ async fn broker_uses_codex_refresh_and_pins_account_without_leaking_errors() {
     let holder = prepare(&home.0).unwrap();
     home.auth(u64::MAX);
     let codex = home.0.join("fake-codex");
-    std::fs::write(&codex, r#"#!/usr/bin/env python3
+    crate::test_exec::write_executable(
+        &codex,
+        r#"#!/usr/bin/env python3
 import os, sys, json, base64, time
 for line in sys.stdin:
     r = json.loads(line)
@@ -174,8 +176,8 @@ for line in sys.stdin:
         with open(path, 'w', opener=lambda p,f: os.open(p,f,0o600)) as f:
             json.dump({'auth_mode':'chatgpt','tokens':{'access_token':'e30.'+payload+'.sig','account_id':'account-one','refresh_token':'rotated-private'}}, f)
     print(json.dumps({'id':r['id'],'result':result}), flush=True)
-"#).unwrap();
-    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
+"#,
+    );
     let mut terminate =
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
     let mut owner = Owner::start(&home.0, &codex, &holder, &mut terminate).await.unwrap().unwrap();
@@ -201,18 +203,77 @@ for line in sys.stdin:
 }
 
 #[tokio::test]
+async fn owner_stop_unlocks_when_a_detached_child_keeps_the_lock_fd() {
+    inherited_lock_after_shutdown(true).await;
+}
+
+#[tokio::test]
+async fn owner_drop_preserves_the_lock_until_inherited_descriptors_close() {
+    inherited_lock_after_shutdown(false).await;
+}
+
+async fn inherited_lock_after_shutdown(stop: bool) {
+    let home = Home::new();
+    let holder = prepare(&home.0).unwrap();
+    let codex = home.0.join("fake-codex");
+    crate::test_exec::write_executable(
+        &codex,
+        r#"#!/usr/bin/env python3
+import json, sys
+for line in sys.stdin:
+    request = json.loads(line)
+    if request.get('id') is not None:
+        print(json.dumps({'id': request['id'], 'result': {}}), flush=True)
+"#,
+    );
+    let mut terminate =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+    let mut owner = Owner::start(&home.0, &codex, &holder, &mut terminate).await.unwrap().unwrap();
+
+    // Model an unrelated fork retaining only this lock's open-file description.
+    // Passing fd 3 explicitly works on every Unix platform without /proc or
+    // /dev/fd symlink assumptions, and keeps other tests' descriptors private.
+    let fd = holder.as_raw_fd();
+    let mut command = Command::new("sleep");
+    command.arg("30").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    command.kill_on_drop(true);
+    // SAFETY: the child calls only async-signal-safe dup2/fcntl before exec.
+    unsafe {
+        command.pre_exec(move || {
+            let ok = if fd == 3 {
+                libc::fcntl(fd, libc::F_SETFD, 0) == 0
+            } else {
+                libc::dup2(fd, 3) == 3
+            };
+            if ok { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+        });
+    }
+    let mut child = command.spawn().unwrap();
+    drop(holder);
+    assert!(prepare(&home.0).is_err());
+    if stop {
+        owner.stop().await;
+    }
+    drop(owner);
+    let child_is_alive = child.try_wait().unwrap().is_none();
+    let next = prepare(&home.0);
+    child.kill().await.unwrap();
+    child.wait().await.unwrap();
+    assert!(child_is_alive, "the descriptor holder must outlive shutdown");
+    assert_eq!(next.is_ok(), stop, "only confirmed stop may explicitly unlock");
+}
+
+#[tokio::test]
 async fn stalled_owner_cancellation_releases_inherited_lock() {
     let home = Home::new();
     let holder = prepare(&home.0).unwrap();
     let codex = home.0.join("stalled-codex");
-    std::fs::write(
+    crate::test_exec::write_executable(
         &codex,
         r#"#!/bin/sh
 sleep 30
 "#,
-    )
-    .unwrap();
-    std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
+    );
     let (sender, mut receiver) = tokio::sync::oneshot::channel();
     let mut start = Box::pin(Owner::start_with_cancel(
         &home.0,

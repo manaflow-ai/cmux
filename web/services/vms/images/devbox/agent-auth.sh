@@ -45,6 +45,30 @@ cmux_agent_own_login_allowed() {
   [ "$cmux_aa_kind" = owner ]
 }
 
+# 0 when the machine's creator's own Claude login was transferred here: the
+# app's credential transfer (cmux CloudCredentialInstaller, run only for the
+# machine's creator) records `own` as the choice and writes the login to
+# ~/.claude/settings.json's env as CLAUDE_CODE_OAUTH_TOKEN. A team machine
+# then runs Claude on that login instead of the shared team mode (Leo,
+# 2026-11-01: "team or no team the thing should just work ... it's your
+# machine"). A `/login` or `cr use own` alone never does this, and without a
+# transferred login a team machine stays in shared-machine mode.
+cmux_agent_creator_login() {
+  [ "$1" = claude ] || return 1
+  [ "$(cmux_agent_auth_choice claude)" = own ] || return 1
+  cmux_aa_settings="${HOME:-/root}/.claude/settings.json"
+  [ -f "$cmux_aa_settings" ] && [ ! -L "$cmux_aa_settings" ] || return 1
+  python3 -I -c '
+import json, sys
+try:
+    env = json.load(open(sys.argv[1])).get("env")
+except Exception:
+    sys.exit(1)
+token = env.get("CLAUDE_CODE_OAUTH_TOKEN") if isinstance(env, dict) else None
+sys.exit(0 if isinstance(token, str) and token.strip() else 1)
+' "$cmux_aa_settings" 2>/dev/null
+}
+
 # 0 when <agent> has its own sign-in on this machine.
 #   claude    a /login session in its credentials file, or a long-lived
 #             token from `claude setup-token`
@@ -154,14 +178,25 @@ print(code("claude"), code("codex"), code("opencode"))
 #   env             CMUX_<AGENT>_AUTH pins this launch
 #   chosen          `cr use` recorded the mode
 #   login           no choice; the agent has its own sign-in here
+#                   (on a team machine: the creator's transferred Claude
+#                   login, cmux_agent_creator_login)
 #   team-account    no choice or sign-in; the team has an account for it
 #   no-team-account no choice or sign-in; the team has none
 #   team-unreachable no choice or sign-in; CodeRouter cannot be reached from
 #                   this machine, so team mode could not work
+#   no-team-plane   no choice or sign-in; the machine has no CodeRouter origin
+#                   at all (no model plane in its boot env, persisted copy or
+#                   image), so team mode has nothing to send to and the agent
+#                   shows its own sign-in instead of "Not logged in"
 #   team-unknown    no choice or sign-in; the account check got no answer,
 #                   so the long-standing default (team) applies
 cmux_agent_auth_resolve() {
   if ! cmux_agent_own_login_allowed; then
+    if cmux_agent_creator_login "$1"; then
+      cmux_agent_auth_mode=own
+      cmux_agent_auth_reason=login
+      return 0
+    fi
     cmux_agent_auth_mode=team
     cmux_agent_auth_reason=shared-machine
     return 0
@@ -180,6 +215,10 @@ cmux_agent_auth_resolve() {
     cmux_agent_auth_reason=login
     return 0
   fi
+  case "${CMUX_CODEROUTER_URL-}" in
+    https://*) ;;
+    *) cmux_agent_auth_mode=own; cmux_agent_auth_reason=no-team-plane; return 0 ;;
+  esac
   if cmux_agent_team_access "$1"; then cmux_aa_rc=0; else cmux_aa_rc=$?; fi
   case "$cmux_aa_rc" in
     0) cmux_agent_auth_mode=team; cmux_agent_auth_reason=team-account ;;
@@ -196,11 +235,17 @@ cmux_agent_drop_model_plane_env() {
   cmux_aa_origin="${CMUX_CODEROUTER_URL-}"
   cmux_aa_origin="${cmux_aa_origin%/}"
   cmux_aa_openai="${OPENAI_BASE_URL-}"
-  if [ -n "${ANTHROPIC_BASE_URL-}" ] && { [ "$ANTHROPIC_BASE_URL" = "${CMUX_CLAUDE_TEAM_BASE_URL-}" ] || [ "${ANTHROPIC_BASE_URL%/}" = "$cmux_aa_origin" ]; }; then
+  # With no origin (no-team-plane), a base URL paired with the placeholder key
+  # is the model plane's: a machine that persisted only the OpenAI pair has a
+  # CodeRouter URL and no CMUX_CODEROUTER_URL, and an own login must never be
+  # sent there. With an origin, only a URL that is the origin's is dropped.
+  if [ -n "${ANTHROPIC_BASE_URL-}" ] && { [ "$ANTHROPIC_BASE_URL" = "${CMUX_CLAUDE_TEAM_BASE_URL-}" ] || [ "${ANTHROPIC_BASE_URL%/}" = "$cmux_aa_origin" ] || { [ -z "$cmux_aa_origin" ] && [ "${ANTHROPIC_API_KEY-}" = "$cmux_aa_placeholder" ]; }; }; then
     unset ANTHROPIC_BASE_URL
   fi
   if [ "${ANTHROPIC_API_KEY-}" = "$cmux_aa_placeholder" ]; then unset ANTHROPIC_API_KEY; fi
-  if [ -n "$cmux_aa_origin" ] && [ "${cmux_aa_openai%/}" = "$cmux_aa_origin/v1" ]; then unset OPENAI_BASE_URL; fi
+  if [ -n "$cmux_aa_openai" ] && if [ -n "$cmux_aa_origin" ]; then [ "${cmux_aa_openai%/}" = "$cmux_aa_origin/v1" ]; else [ "${OPENAI_API_KEY-}" = "$cmux_aa_placeholder" ]; fi; then
+    unset OPENAI_BASE_URL
+  fi
   if [ "${OPENAI_API_KEY-}" = "$cmux_aa_placeholder" ]; then unset OPENAI_API_KEY; fi
   # The usage headers name the cmux workspace and terminal; they mean nothing
   # to any other endpoint.
@@ -254,18 +299,94 @@ cmux_codex_apply_auth_mode() {
     CODEX_HOME="${HOME:-/root}/.config/cmux/codex-team"
     mkdir -p "$CODEX_HOME" 2>/dev/null || return 1
     chmod 0700 "$CODEX_HOME" 2>/dev/null || return 1
-    {
-      echo 'model_provider = "cmux"'
-      echo '[model_providers.cmux]'
-      echo 'name = "cmux"'
-      printf 'base_url = "%s/v1"\n' "${CMUX_CODEROUTER_URL%/}"
-      echo 'env_key = "OPENAI_API_KEY"'
-      echo 'wire_api = "responses"'
-      echo 'requires_openai_auth = false'
-      echo 'supports_websockets = false'
-    } > "$CODEX_HOME/config.toml.tmp" 2>/dev/null || return 1
-    chmod 0600 "$CODEX_HOME/config.toml.tmp" 2>/dev/null || return 1
-    mv -f "$CODEX_HOME/config.toml.tmp" "$CODEX_HOME/config.toml" 2>/dev/null || return 1
+    # The image installs cmux's file hooks in the user's default ~/.codex
+    # home before a shared (team) launch selects this isolated CODEX_HOME.
+    # Codex 0.162 reads hooks.json from that default path but reads its
+    # hooks.state trust table from CODEX_HOME/config.toml. Carry only the
+    # cmux-owned trusted hashes across; dropping them makes every file hook
+    # show "needs review" even though the bake trusted it. Serialize the
+    # complete rewrite: two panes can launch at once during image verify.
+    # A default config that cannot be read keeps the hashes this home already
+    # has (a trusted_hash is the hook's content hash, so a kept one never
+    # trusts a hook that changed since) and logs it on stderr. In a config
+    # that reads, an entry without a string trusted_hash is a hook the user
+    # has not approved (or revoked): it is logged and left untrusted here too.
+    : > "$CODEX_HOME/config.toml.cmux-lock" 2>/dev/null || return 1
+    chmod 0600 "$CODEX_HOME/config.toml.cmux-lock" 2>/dev/null || return 1
+    (
+      flock 9 || exit 1
+      python3 -I - "$HOME/.codex/config.toml" "$CODEX_HOME/config.toml" "$HOME/.codex/hooks.json" "${CMUX_CODEROUTER_URL%/}" <<'CMUX_CODEX_COPY_HOOK_TRUST' || exit 1
+import json, os, pathlib, sys, tempfile, tomllib
+
+source, target, hooks = map(pathlib.Path, sys.argv[1:4])
+base_url = sys.argv[4]
+prefix = str(hooks) + ":"
+
+
+def trust_table(path):
+    """path's hooks.state table ({} when the file is absent)."""
+    try:
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    hooks_table = document.get("hooks", {})
+    state = hooks_table.get("state", {}) if isinstance(hooks_table, dict) else None
+    if not isinstance(state, dict):
+        raise ValueError("hooks.state is not a table")
+    return state
+
+
+def log(message):
+    print(f"cmux: codex team home: {message}", file=sys.stderr)
+
+
+try:
+    state = trust_table(source)
+except (OSError, ValueError, UnicodeError) as error:
+    log(f"cannot read Codex hook trust from {source} ({error}); keeping the trust this home has")
+    try:
+        trusted = {key: entry["trusted_hash"] for key, entry in trust_table(target).items()
+                   if key.startswith(prefix) and isinstance(entry, dict) and isinstance(entry.get("trusted_hash"), str)}
+    except (OSError, ValueError, UnicodeError):
+        trusted = {}
+else:
+    trusted = {}
+    for key, entry in state.items():
+        if not key.startswith(prefix):
+            continue
+        digest = entry.get("trusted_hash") if isinstance(entry, dict) else None
+        if isinstance(digest, str):
+            trusted[key] = digest
+            continue
+        log(f"skipping Codex hook trust entry {json.dumps(key, ensure_ascii=False)} in {source}: it has no string trusted_hash, so it stays untrusted")
+lines = [
+    'model_provider = "cmux"',
+    "",
+    "[model_providers.cmux]",
+    'name = "cmux"',
+    f"base_url = {json.dumps(base_url + '/v1')}",
+    'env_key = "OPENAI_API_KEY"',
+    'wire_api = "responses"',
+    'requires_openai_auth = false',
+    'supports_websockets = false',
+    "",
+]
+for key, digest in trusted.items():
+    # TOML accepts UTF-8 directly; JSON's default surrogate escapes are
+    # rejected by TOML parsers for non-BMP path characters.
+    lines.extend([f"[hooks.state.{json.dumps(key, ensure_ascii=False)}]", f"trusted_hash = {json.dumps(digest)}", ""])
+content = "\n".join(lines)
+fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=".config.toml.")
+try:
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as output:
+        output.write(content)
+    os.replace(temporary, target)
+finally:
+    try: os.unlink(temporary)
+    except FileNotFoundError: pass
+CMUX_CODEX_COPY_HOOK_TRUST
+    ) 9>"$CODEX_HOME/config.toml.cmux-lock" || return 1
     OPENAI_API_KEY=$cmux_aa_placeholder
     export CODEX_HOME OPENAI_API_KEY
     return 0

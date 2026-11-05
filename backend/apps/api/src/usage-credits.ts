@@ -24,6 +24,17 @@ export type CreditReserve =
   | { readonly ok: true; readonly held_micros: number; readonly replayed: boolean }
   | { readonly ok: false; readonly code: "credits.insufficient"; readonly balance_micros: number; readonly available_micros: number; readonly needed_micros: number }
   | { readonly ok: false; readonly code: "credits.settled" }
+  | { readonly ok: false; readonly code: "credits.rate_limited"; readonly calls: number; readonly limit: number; readonly window_s: number; readonly retry_after_s: number }
+
+/**
+ * Paid model calls one chief may start per window (holds plus charges), counted in this ledger so
+ * an object restart cannot reset it. The guard after the 2026-10-28 staging drain (looping
+ * compactors at up to 365 calls a minute per chief). Over a cap the hold is refused (fails closed).
+ */
+export interface ChiefCallCap {
+  readonly perMinute: number
+  readonly perHour: number
+}
 
 export interface CreditBalance {
   readonly balance_micros: number
@@ -40,6 +51,7 @@ export const ensureCreditTables = (storage: DurableObjectStorage) => {
   sql.exec(`CREATE INDEX IF NOT EXISTS credit_entry_at ON credit_entry (at)`)
   sql.exec(`CREATE INDEX IF NOT EXISTS credit_entry_chief ON credit_entry (chief, at)`)
   sql.exec(`CREATE TABLE IF NOT EXISTS credit_hold (id TEXT PRIMARY KEY, micros INTEGER NOT NULL, chief TEXT, conversation TEXT, at INTEGER NOT NULL)`)
+  sql.exec(`CREATE INDEX IF NOT EXISTS credit_hold_chief ON credit_hold (chief, at)`)
   sql.exec(`CREATE TABLE IF NOT EXISTS credit_state (id INTEGER PRIMARY KEY CHECK (id = 1), balance INTEGER NOT NULL)`)
   // The conversations told "out of credits" since the balance was last positive (one notice each).
   sql.exec(`CREATE TABLE IF NOT EXISTS credit_notice (conversation TEXT PRIMARY KEY, at INTEGER NOT NULL)`)
@@ -125,7 +137,25 @@ const checkRef = (v: string | null) => {
   if (v !== null) checkId(v, 64)
 }
 
-export const creditReserve = (storage: DurableObjectStorage, id: string, maxMicros: number, chief: string | null, conversation: string | null, now: number): CreditReserve => {
+/** The chief's calls started since `since` (open holds and charges; a released hold never reached a provider) and the oldest one's time. */
+const chiefCalls = (sql: SqlStorage, chief: string, since: number): { n: number; oldest: number } => {
+  const e = sql.exec<{ n: number; t: number | null }>(`SELECT COUNT(*) AS n, MIN(at) AS t FROM credit_entry WHERE chief = ? AND at >= ? AND kind IN ('charge', 'expired')`, chief, since).one()
+  const h = sql.exec<{ n: number; t: number | null }>(`SELECT COUNT(*) AS n, MIN(at) AS t FROM credit_hold WHERE chief = ? AND at >= ?`, chief, since).one()
+  const times = [e.t, h.t].filter((t): t is number => t !== null).map(Number)
+  return { n: Number(e.n) + Number(h.n), oldest: times.length > 0 ? Math.min(...times) : since }
+}
+
+/** The first window of `cap` this chief is over, or null. */
+const overCap = (sql: SqlStorage, chief: string, cap: ChiefCallCap, now: number): Extract<CreditReserve, { code: "credits.rate_limited" }> | null => {
+  for (const [limit, windowMs] of [[cap.perMinute, 60_000], [cap.perHour, 3600_000]] as const) {
+    if (!(limit > 0)) continue
+    const c = chiefCalls(sql, chief, now - windowMs)
+    if (c.n >= limit) return { ok: false, code: "credits.rate_limited", calls: c.n, limit, window_s: windowMs / 1000, retry_after_s: Math.max(1, Math.ceil((c.oldest + windowMs - now) / 1000)) }
+  }
+  return null
+}
+
+export const creditReserve = (storage: DurableObjectStorage, id: string, maxMicros: number, chief: string | null, conversation: string | null, now: number, cap?: ChiefCallCap): CreditReserve => {
   checkId(id)
   checkRef(chief)
   checkRef(conversation)
@@ -135,6 +165,8 @@ export const creditReserve = (storage: DurableObjectStorage, id: string, maxMicr
     const open = sql.exec<{ micros: number }>(`SELECT micros FROM credit_hold WHERE id = ?`, id).toArray()[0]
     if (open) return { ok: true, held_micros: Number(open.micros), replayed: true }
     if (sql.exec(`SELECT 1 FROM credit_entry WHERE key = ?`, `charge:${id}`).toArray().length > 0) return { ok: false, code: "credits.settled" }
+    const limited = chief !== null && cap ? overCap(sql, chief, cap, now) : null
+    if (limited) return limited
     const balance = balanceOf(sql)
     const available = balance - heldOf(sql)
     if (available <= 0 || available < max) return { ok: false, code: "credits.insufficient", balance_micros: balance, available_micros: available, needed_micros: max }

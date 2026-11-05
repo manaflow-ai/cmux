@@ -17,35 +17,47 @@ public struct MobileHostPairRequest: Sendable, Equatable, Hashable {
     /// When the backend registered the phone's device (hostd's `registered_at_ms`), shown in
     /// the prompt so a device made minutes ago stands out; nil from an older hostd.
     public var registeredAt: Date?
+    public var transport: MobileHostPairedDevice.Transport
     /// The pre-approval the phone presented from this Mac's pairing code (``MobileHostPairTokens``),
     /// nil without one. A secret: never logged, never kept with a waiting request.
     public var pairToken: String?
 
     public init(phoneDeviceID: String, name: String, identityKey: String, approvalKey: String, registeredAt: Date? = nil,
-                pairToken: String? = nil) {
+                pairToken: String? = nil, transport: MobileHostPairedDevice.Transport = .hostd) {
         self.phoneDeviceID = phoneDeviceID
         self.name = name
         self.identityKey = identityKey
         self.approvalKey = approvalKey
         self.registeredAt = registeredAt
         self.pairToken = pairToken
+        self.transport = transport
+    }
+
+    /// The first 4 bytes of the key ``MobileHostPairedDevice/fingerprint`` hashes, as hex: shown beside
+    /// the phone's name in the Allow prompt so a look-alike name with another key stands out.
+    public var shortFingerprint: String {
+        String(MobileHostPairedDevices.fingerprint(transport == .hostd ? approvalKey : identityKey).prefix(8))
     }
 
     /// The same device asking with the same keys (a retry, whatever its registration date).
     public func sameKeys(as other: MobileHostPairRequest) -> Bool {
-        phoneDeviceID == other.phoneDeviceID && identityKey == other.identityKey && approvalKey == other.approvalKey
+        transport == other.transport && phoneDeviceID == other.phoneDeviceID && identityKey == other.identityKey && approvalKey == other.approvalKey
     }
 }
 
 /// One phone the user allowed on this Mac.
 public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable {
+    public enum Transport: String, Sendable, Codable, Hashable { case hostd, iroh }
+    public var transport: Transport
     public var id: String
     public var name: String
     public var identityKey: String
     public var approvalKey: String
     public var pairedAt: Date
 
-    public init(id: String, name: String, identityKey: String, approvalKey: String, pairedAt: Date) {
+    public init(id: String, name: String, identityKey: String, approvalKey: String, pairedAt: Date,
+                transport: Transport = .hostd) {
+        self.transport = transport
         self.id = id
         self.name = name
         self.identityKey = identityKey
@@ -53,8 +65,19 @@ public struct MobileHostPairedDevice: Sendable, Equatable, Codable, Identifiable
         self.pairedAt = pairedAt
     }
 
+    private enum CodingKeys: String, CodingKey { case id, name, identityKey, approvalKey, pairedAt, transport }
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        name = try values.decode(String.self, forKey: .name)
+        identityKey = try values.decode(String.self, forKey: .identityKey)
+        approvalKey = try values.decode(String.self, forKey: .approvalKey)
+        pairedAt = try values.decode(Date.self, forKey: .pairedAt)
+        transport = try values.decodeIfPresent(Transport.self, forKey: .transport) ?? .hostd
+    }
+
     /// The first 8 bytes of the approval key's SHA-256 as hex, as acpmux lists it.
-    public var fingerprint: String { MobileHostPairedDevices.fingerprint(approvalKey) }
+    public var fingerprint: String { MobileHostPairedDevices.fingerprint(transport == .hostd ? approvalKey : identityKey) }
 }
 
 /// The phones this Mac trusts for one signed-in user, and the requests the
@@ -88,22 +111,23 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 
     public func decision(for request: MobileHostPairRequest) -> Decision {
         if devices.contains(where: {
-            $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey && $0.approvalKey == request.approvalKey
+            $0.transport == request.transport && $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey && $0.approvalKey == request.approvalKey
         }) { return .trusted }
-        if denied.contains(where: { $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey }) { return .denied }
+        if request.transport == .hostd, denied.contains(where: { $0.id == request.phoneDeviceID && $0.identityKey == request.identityKey }) { return .denied }
         return .ask
     }
 
     /// The user allowed the request: its keys replace any older keys of that device.
     public mutating func approve(_ request: MobileHostPairRequest, at date: Date) {
-        devices.removeAll { $0.id == request.phoneDeviceID }
-        denied.removeAll { $0.id == request.phoneDeviceID }
+        devices.removeAll { $0.id == request.phoneDeviceID && $0.transport == request.transport }
+        if request.transport == .hostd { denied.removeAll { $0.id == request.phoneDeviceID } }
         devices.append(MobileHostPairedDevice(id: request.phoneDeviceID, name: request.name, identityKey: request.identityKey,
-                                       approvalKey: request.approvalKey, pairedAt: date))
+                                       approvalKey: request.approvalKey, pairedAt: date, transport: request.transport))
     }
 
     /// The user refused the request.
     public mutating func deny(_ request: MobileHostPairRequest) {
+        guard request.transport == .hostd else { return }
         denied.removeAll { $0.id == request.phoneDeviceID }
         denied.append(Denied(id: request.phoneDeviceID, identityKey: request.identityKey))
         // Keep the newest refusals only; each refused key costs a prompt anyway.
@@ -111,8 +135,8 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
     }
 
     /// Removed in Settings, or the phone signed out. Its keys stop working at once.
-    public mutating func remove(_ id: String) {
-        devices.removeAll { $0.id == id }
+    public mutating func remove(_ id: String, transport: MobileHostPairedDevice.Transport = .hostd) {
+        devices.removeAll { $0.id == id && $0.transport == transport }
     }
 
     /// The acpmux pairing name of phone `id`'s own credential (acpmux role `phone`): what
@@ -124,20 +148,22 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 
     /// The approvers acpmux gets (`_acpmux/approvers_set`).
     /// The pairing of `phone`, a phone of the account, if it is paired here (by its link id).
+    public var hostdDevices: [MobileHostPairedDevice] { devices.filter { $0.transport == .hostd } }
+
     public func pairing(of phone: MobileHostKnownPhone) -> MobileHostPairedDevice? {
-        devices.first { phone.owns($0.id) }
+        hostdDevices.first { phone.owns($0.id) }
     }
 
     /// The paired phones (link ids) that are among the account's `phones`: only these get an
     /// acpmux credential, so a phone removed from the account while this Mac was not running
     /// (still paired here, with no row in Settings > Devices) never holds Full access.
     public func listed(in phones: [MobileHostKnownPhone]) -> Set<String> {
-        Set(devices.map(\.id).filter { id in phones.contains { $0.owns(id) } })
+        Set(hostdDevices.map(\.id).filter { id in phones.contains { $0.owns(id) } })
     }
 
     public func approversParams(macDevice: String) -> [String: Any] {
         ["macDevice": macDevice,
-         "approvers": devices.map { ["id": $0.id, "publicKey": $0.approvalKey, "name": $0.name] }]
+         "approvers": hostdDevices.filter { !$0.approvalKey.isEmpty }.map { ["id": $0.id, "publicKey": $0.approvalKey, "name": $0.name] }]
     }
 
     /// Lowercase or uppercase hex; nil for anything else.
@@ -172,34 +198,70 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
 }
 
 /// ``MobileHostPairedDevices`` in `<directory>/paired-devices.json`, mode 0600, sealed by its
-/// digest in `seal` (``MobileHostPairingSealStore``).
-public struct MobileHostPairedDevicesFile: Sendable {
+/// digest in `seal` (``MobileHostPairingSealStore``). The iPhone host owns one per state directory, so
+/// its reads, saves and this run's record of the list in force are those of one file.
+public final class MobileHostPairedDevicesFile: Sendable {
+    public static let fileName = "paired-devices.json"
     public let file: URL
     let seal: any MobileHostPairingSealStore
+    /// Saves and withdrawals queued or running.
+    private let saving = Mutex(0)
+    /// Written by a quit deadline that cut off a save (``markCutOffIfSaving()``), beside the file.
+    let cutOffMarker: URL
+    /// Whether this file object cleared the seal for a cut-off save (``sealClearedForCutOff()``).
+    private let clearedForCutOff = Mutex(false)
+    /// Writes the cut-off marker (tests inject a disk that refuses it).
+    private let writeMarker: @Sendable (URL) throws -> Void
+    /// Told once the cut-off fact is safe without the quit's record (the marker is on disk, or the seal
+    /// is cleared): the record may stop naming this file.
+    private let cutOffSettled: @Sendable () -> Void
 
-    public init(directory: URL, seal: any MobileHostPairingSealStore) {
-        file = directory.appendingPathComponent("paired-devices.json", isDirectory: false)
+    /// Before any read or save it queues (the first item on the file's queue), a save the last quit cut
+    /// off makes the stored list stop counting (``distrustIfCutOff(recorded:)``).
+    ///
+    /// - Parameters:
+    ///   - lastQuitCutOff: Whether the last quit's record names this file as cut off (asked on the
+    ///     file's queue): it fails closed also when its marker could not be written.
+    ///   - cutOffSettled: Told once a cut-off save's fact is safe without the record.
+    ///   - writeMarker: Writes the marker at a quit deadline (nil: an atomic empty file).
+    public init(directory: URL, seal: any MobileHostPairingSealStore, lastQuitCutOff: @escaping @Sendable () -> Bool = { false },
+                cutOffSettled: @escaping @Sendable () -> Void = {}, writeMarker: (@Sendable (URL) throws -> Void)? = nil) {
+        file = directory.appendingPathComponent(Self.fileName, isDirectory: false)
+        cutOffMarker = directory.appendingPathComponent("paired-devices.cut-off", isDirectory: false)
         self.seal = seal
+        self.cutOffSettled = cutOffSettled
+        self.writeMarker = writeMarker ?? { try Data().blockingWrite(to: $0, options: .atomic) }
+        queue.async { [self] in distrustIfCutOff(recorded: lastQuitCutOff()) }
     }
 
-    /// One serial queue for every list's reads and writes: they leave the caller's thread (the
+    /// One serial queue for the list's reads and writes: they leave the caller's thread (the
     /// seal is a Keychain item, and the iPhone host calls from the main actor) and keep its order.
     /// Registered in plans/cmux-next/threading-model.md.
-    private static let queue = DispatchQueue(label: "com.cmuxterm.mobile.paired-devices", qos: .utility)
+    private let queue = DispatchQueue(label: "com.cmuxterm.mobile.paired-devices", qos: .utility)
 
-    /// Per file, the digest of the newest list this run saved: in this run only that list counts,
+    /// Shared-list transactions (``MobileHostPairedStore``) run on this file's queue, so its saves and quit's
+    /// drain cover both transports.
+    func enqueue(_ operation: @escaping @Sendable () -> Void) {
+        saving.withLock { $0 += 1 }
+        queue.async { [self] in
+            defer { saving.withLock { $0 -= 1 } }
+            operation()
+        }
+    }
+
+    /// The digest of the newest list this run saved (nil: none yet): in this run only that list counts,
     /// so no list a later save replaced (a phone removed, a phone's keys replaced) is trusted again,
     /// also when the Keychain refused to forget its digest and its exact bytes are put back. Empty
-    /// after ``withdrawTrust()``: no list counts until the next save. One digest per file, however
-    /// many saves a run makes. Only the Keychain outlives the process, so across a relaunch a
-    /// Keychain that refuses every write of the app's own item keeps the last list it recorded
-    /// trusted (logged as a fault).
-    private static let inForce = Mutex<[String: Data]>([:])
+    /// after ``withdrawTrust()``: no list counts until the next save. One digest, however
+    /// many saves a run makes. Only the Keychain outlives the process, so across a relaunch (a new
+    /// file object) a Keychain that refuses every write of the app's own item keeps the last list it
+    /// recorded trusted (logged as a fault).
+    private let inForce = Mutex<Data?>(nil)
 
     /// `load` on the queue, after every save queued before it.
     public func loadInBackground(userID: String) async -> MobileHostPairedDevices {
         await withCheckedContinuation { continuation in
-            Self.queue.async { continuation.resume(returning: self.load(userID: userID)) }
+            queue.async { continuation.resume(returning: self.load(userID: userID)) }
         }
     }
 
@@ -207,7 +269,9 @@ public struct MobileHostPairedDevicesFile: Sendable {
     /// caller's list is the one in force from the call on. A failure is logged. `done` (tests) gets
     /// whether the new list was written and recorded.
     public func saveInBackground(_ devices: MobileHostPairedDevices, then done: (@Sendable (Bool) -> Void)? = nil) {
-        Self.queue.async {
+        saving.withLock { $0 += 1 }
+        queue.async {
+            defer { self.saving.withLock { $0 -= 1 } }
             do {
                 try self.save(devices)
                 done?(true)
@@ -222,35 +286,104 @@ public struct MobileHostPairedDevicesFile: Sendable {
     /// on the queue, right after the read, the stored list stops counting, in this run and in the
     /// Keychain, so a quit's flush (or a crash) after this turn trusts no list with that phone.
     public func withdrawTrust() {
-        Self.queue.async {
-            Self.inForce.withLock { $0[file.path] = Data() }
+        saving.withLock { $0 += 1 }
+        queue.async { [self] in
+            defer { saving.withLock { $0 -= 1 } }
+            inForce.withLock { $0 = Data() }
             if !seal.clearDigest(), !seal.clearDigest() {
                 Self.logger.fault("iPhone pairing: the Keychain refuses to clear the pairing seal; until it takes a write, the stored list can count again after a relaunch")
             }
         }
     }
 
-    /// Drops this run's record for this file, as a relaunch does (tests).
-    func forgetThisRun() {
-        Self.inForce.withLock { $0[file.path] = nil }
+    /// Whether a save or a withdrawal is queued or running.
+    public var isSaving: Bool {
+        saving.withLock { $0 > 0 }
+    }
+
+    /// What a quit deadline found for this file (``markCutOffIfSaving()``).
+    public enum CutOff: Sendable, Equatable {
+        /// No save was in flight.
+        case notSaving
+        /// A save was cut off, and the marker is on disk.
+        case marked
+        /// A save was cut off, and the marker could not be written (a fault): only the quit's record
+        /// names it, which the next launch also checks.
+        case unmarked
+    }
+
+    /// A quit deadline's end, on its own thread, while a save may be cut off (a removal among them):
+    /// when one is queued or running, it writes the cut-off marker. It never calls the Keychain (a hung
+    /// securityd must not hold the process's end): the next launch clears the seal (``distrustIfCutOff(recorded:)``).
+    public func markCutOffIfSaving() -> CutOff {
+        guard isSaving else { return .notSaving }
+        do {
+            try writeMarker(cutOffMarker)
+            return .marked
+        } catch {
+            Self.logger.fault("iPhone pairing: a quit cut off a paired-phones save and its marker was not written (\(String(describing: error), privacy: .public)); only the quit's record names it")
+            return .unmarked
+        }
+    }
+
+    /// On the file's queue, first: when the last quit cut off a save (its marker, or its record:
+    /// `recorded`), no stored list counts in this run, and the seal is cleared, so after it the stored
+    /// list no longer matches its seal and every phone pairs again (the digest rule of ``load(userID:)``).
+    ///
+    /// The fact must outlive this launch until the clear is done: the quit's record keeps naming the
+    /// file until ``cutOffSettled`` is told, which happens once the marker is on disk (written now, before
+    /// the clear, when only the record named the save) or the seal is cleared. The clear counts as a save
+    /// in flight, so a quit deadline during a hung clear names the file again (``markCutOffIfSaving()``).
+    /// A Keychain that refuses the clear keeps the list refused for this run, and the marker (or, when
+    /// none could be written, the record) for the next launch (a fault).
+    private func distrustIfCutOff(recorded: Bool) {
+        let marked = FileManager.checked.fileExists(atPath: cutOffMarker.path)
+        guard marked || recorded else { return }
+        inForce.withLock { $0 = Data() }
+        var durable = marked
+        if !marked {
+            do {
+                try writeMarker(cutOffMarker)
+                durable = true
+            } catch {
+                Self.logger.fault("iPhone pairing: the last quit cut off a paired-phones save and its marker was not written at launch either (\(String(describing: error), privacy: .public)); the quit's record keeps naming it")
+            }
+        }
+        if durable { cutOffSettled() }
+        saving.withLock { $0 += 1 }
+        defer { saving.withLock { $0 -= 1 } }
+        guard seal.clearDigest() || seal.clearDigest() else {
+            if durable {
+                Self.logger.fault("iPhone pairing: the last quit cut off a paired-phones save and the Keychain refuses to clear the seal; no phone is trusted in this run, and the marker stays for the next launch")
+            } else {
+                Self.logger.fault("iPhone pairing: the last quit cut off a paired-phones save, the Keychain refuses to clear the seal and no marker could be written; no phone is trusted in this run, and the quit's record keeps naming it for the next launch")
+            }
+            return
+        }
+        try? FileManager.checked.removeItem(at: cutOffMarker)
+        cutOffSettled()
+        clearedForCutOff.withLock { $0 = true }
+        Self.logger.error("iPhone pairing: the last quit cut off a paired-phones save; the seal is cleared, every phone pairs again")
+    }
+
+    /// Whether this launch cleared the seal for a save the last quit cut off (its notice says so).
+    public func sealClearedForCutOff() async -> Bool {
+        await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+            queue.async { [self] in done.resume(returning: clearedForCutOff.withLock { $0 }) }
+        }
     }
 
     /// How many digests this run remembers for this file (tests).
     func rememberedDigests() -> Int {
-        Self.inForce.withLock { $0[file.path] == nil ? 0 : 1 }
+        inForce.withLock { $0 == nil ? 0 : 1 }
     }
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.pairing")
 
-    /// App quit only (`applicationWillTerminate`, under its reviewed blocking allowance): waits, up
-    /// to `limit`, for the saves already queued, a removal's among them.
-    public static func flush(within limit: TimeInterval = 2) {
-        // concurrency-allow: app quit only, inside allowBlocking(.terminate) in applicationWillTerminate; bounded by `limit` (2 s).
-        let done = DispatchSemaphore(value: 0)
-        queue.async { done.signal() }
-        if done.blockingWait(timeout: .now() + limit) == .timedOut {
-            logger.error("iPhone pairing: queued saves did not finish before quit")
-        }
+    /// The app's quit: returns, holding no thread, once the saves already queued ran, a removal's among
+    /// them. No limit of its own: the quit awaits it after its deadline is armed.
+    public func drained() async {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
     }
 
     /// The stored list when it is the one this app saved last (its digest matches the seal's) and
@@ -261,7 +394,7 @@ public struct MobileHostPairedDevicesFile: Sendable {
     public func load(userID: String) -> MobileHostPairedDevices {
         guard let data = try? Data(contentsOf: file) else { return MobileHostPairedDevices(userID: userID) }
         guard let sealed = seal.digest(), sealed == MobileHostPairingSeal.digest(data),
-              Self.inForce.withLock({ $0[file.path].map { $0 == sealed } ?? true }) else {
+              inForce.withLock({ $0.map { $0 == sealed } ?? true }) else {
             Self.logger.error("iPhone pairing: paired-devices.json is not the list this app saved; no phone is trusted until it pairs again")
             return MobileHostPairedDevices(userID: userID)
         }
@@ -278,7 +411,7 @@ public struct MobileHostPairedDevicesFile: Sendable {
         let data = try encoder.encode(devices)
         let digest = MobileHostPairingSeal.digest(data)
         // From here on only this list counts in this run, whatever the Keychain does below.
-        Self.inForce.withLock { $0[file.path] = digest }
+        inForce.withLock { $0 = digest }
         // The old digest goes first: until the new one is recorded no copy of any list counts, so a
         // crash, or a Keychain that refuses the new digest (logged there), trusts nothing, never an
         // older list put back. The new list is written even when the Keychain keeps the old digest:
@@ -337,4 +470,30 @@ public struct MobileHostPairedLoad: Sendable {
         forgotten = []
         return (trimmed, forgot)
     }
+}
+
+/// The iPhone host's paired-phones file as a quit deadline sees it, from any thread: the host sets it
+/// on the main actor whenever its file changes, and the deadline's end asks it to mark a cut-off save.
+public final class MobileHostPairedQuitWatch: Sendable {
+    private let file = Mutex<MobileHostPairedDevicesFile?>(nil)
+
+    public init() {}
+
+    public func watch(_ file: MobileHostPairedDevicesFile?) {
+        self.file.withLock { $0 = file }
+    }
+
+    /// At a quit deadline: the names for the quit's record when a save of the file is cut off
+    /// (``MobileHostPairedDevicesFile/markCutOffIfSaving()``): its name, and a note when its marker
+    /// could not be written.
+    public func markCutOffIfSaving() -> [String] {
+        switch file.withLock({ $0 })?.markCutOffIfSaving() ?? .notSaving {
+        case .notSaving: []
+        case .marked: [MobileHostPairedDevicesFile.fileName]
+        case .unmarked: [MobileHostPairedDevicesFile.fileName, Self.unmarkedNote]
+        }
+    }
+
+    /// The record's note for a cut-off save whose marker was not written.
+    public static let unmarkedNote = "paired-devices.cut-off (not written)"
 }

@@ -81,6 +81,9 @@ import CmuxNextWakeupsTestSupport
         updater.stagedRefresh.replaceable = { true }
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
         updater.tipCheck.startCheck = { checks.count += 1 }
+        // No live release push: the Worker's first frame repeats the newest published build, which reads the
+        // feed outside the schedule under test (#32090 found the same in UpdateStagedYieldsToNewerTests).
+        updater.releasePush.connect = { _ in ReleasePushListenerTests.FakeSocket() }
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: 3600, downloadAutomatically: downloadAutomatically, ring: "nightly")
         updater.start()
         return Harness(updater: updater, clock: clock, feed: feed, sparkle: sparkle, policy: policy, checks: checks)
@@ -338,11 +341,16 @@ import CmuxNextWakeupsTestSupport
         let h = Self.make(Self.nightly)
         h.sparkle.staged = "300"
         h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
-        try await h.clock.waitForSleeper()
+        // Other timers sleep on this clock too: `waitForSleeper` returned on one of those while the
+        // staged probe's task had not read the clock yet, so the advance below pushed its hour to
+        // 3900 s and the probe never ran (runs 41243133170, 41282022128, 41358792657). Wait for the
+        // probe's own deadline, an hour from now.
+        let probeAt = h.clock.now.advanced(by: .seconds(3600))
+        try #require(await eventually { h.clock.sleeperDeadlines.contains(probeAt) }, "the staged probe never slept for the person's hour")
         h.clock.advance(by: .seconds(TipUpdateCheck.interval))
         try await Task.sleep(for: .milliseconds(100))
         #expect(h.feed.fetches == 0, "a NIGHTLY probed its staged update at the tip interval")
         h.clock.advance(by: .seconds(3600 - TipUpdateCheck.interval))
-        #expect(await eventually { h.feed.fetches == 1 }, "the NIGHTLY's hourly probe never ran")
+        #expect(await eventually { h.feed.fetches == 1 }, "the NIGHTLY's hourly probe never ran, or ran with another read (\(h.feed.fetches) reads)")
     }
 }

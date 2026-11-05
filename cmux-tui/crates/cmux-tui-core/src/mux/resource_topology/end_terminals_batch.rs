@@ -31,7 +31,7 @@ impl Mux {
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<EndedTerminalBatch> {
         let _creation_handoff =
-            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
+            self.resource_creation_handoff.write().unwrap_or_else(PoisonError::into_inner);
         let _creation_fence =
             self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner);
         let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);

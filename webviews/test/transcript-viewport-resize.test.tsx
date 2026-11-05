@@ -2,6 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -50,18 +51,8 @@ Object.assign(scope, replacements);
 // jsdom has no layout: a viewport the test resizes (the pane's tab strip showing or hiding) over a
 // long conversation, and a scroll offset kept as the browser keeps it.
 let viewport = 600;
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => viewport });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
-const offsets = new WeakMap<object, number>();
-Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
-  configurable: true,
-  get(this: object) {
-    return offsets.get(this) ?? 0;
-  },
-  set(this: object, value: number) {
-    offsets.set(this, value);
-  },
-});
+installJsdomScroller(dom.window as never, () => viewport);
 
 // The glides the transcript starts (content that grew at the latest row slides in).
 const glides: unknown[] = [];
@@ -96,8 +87,7 @@ const turns = Array.from({ length: 30 }, (_, index) => [
 test("a resized chat at its latest message stays there in the same frame, without a glide", async () => {
   const root = createRoot(dom.window.document.getElementById("root")!);
   const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
-  const latest = () =>
-    parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - viewport;
+  const latest = () => scrollerEnd(dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!);
   try {
     await act(async () =>
       root.render(
@@ -118,6 +108,39 @@ test("a resized chat at its latest message stays there in the same frame, withou
       expect(painted).toBe(latest());
       expect(glides).toEqual([]);
     }
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// A downward wheel is input but not an intent to leave the latest reply. The browser clamps a
+// followed offset when content shrinks; that clamp must not be mistaken for upward reader input.
+test("content shrinking after downward input keeps following the next reply growth", async () => {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+  const latest = () => scrollerEnd(scroller());
+  const render = async (rows: AcpmuxRow[]) =>
+    await act(async () =>
+      root.render(
+        <VirtualTranscript rows={turnView(rows, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
+    );
+  const shorter = turns.slice(0, -3);
+  try {
+    await render(turns);
+    // Learn the shortened boundary without input, then restore the longer followed viewport.
+    await render(shorter);
+    const clamped = latest();
+    await render(turns);
+    expect(scroller().scrollTop).toBe(latest());
+    await act(async () => {
+      scroller().dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 100, bubbles: true }));
+      scroller().scrollTop = clamped;
+    });
+    await render(shorter);
+    expect(scroller().scrollTop).toBe(latest());
+    await render(turns);
+    expect(scroller().scrollTop).toBe(latest());
   } finally {
     await act(async () => root.unmount());
   }

@@ -102,7 +102,15 @@ fn remote_normalization_handles_inline_globals_and_unknown_actions() {
     normalize_remote_resource_args(&mut inline_nested).unwrap();
     assert_eq!(inline_nested, ["connect", "--session=dev"]);
 
-    let mut unknown = ["--json", "remote", "frobnicate"].map(str::to_string).to_vec();
+    // A word that is not a remote action may be an app action's CLI name
+    // (`remote new-group`): normalization leaves it for the public CLI, which
+    // runs that action or refuses the word as an unknown remote action.
+    let mut app_word = ["--json", "remote", "frobnicate"].map(str::to_string).to_vec();
+    normalize_remote_resource_args(&mut app_word).unwrap();
+    assert_eq!(app_word, ["--json", "remote", "frobnicate"]);
+
+    // After a remote flag the word is the remote family's own, and unknown.
+    let mut unknown = ["remote", "--json", "frobnicate"].map(str::to_string).to_vec();
     let error = normalize_remote_resource_args(&mut unknown).unwrap_err();
     assert_eq!(error, localization::catalog().remote_client.unknown_action("remote", "frobnicate"));
 }

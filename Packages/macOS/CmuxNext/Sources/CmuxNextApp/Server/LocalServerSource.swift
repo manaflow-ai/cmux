@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextServer
 import CmuxNextSettings
@@ -42,7 +43,7 @@ final class LocalServerSource: ServerSource {
     /// The CLI's usage exit code: this `cmux` has no `server` or `host` verbs.
     nonisolated static let usageExit: Int32 = 2
 
-    private let binary: URL?
+    private let cli: BundledExecutable
     private let hostName: String
     private let watchedFiles: [URL]
     private let runCLI: RunCLI
@@ -57,9 +58,9 @@ final class LocalServerSource: ServerSource {
     private var lastSnapshot: ServerSnapshot?
     private var lastUnavailable: String?
 
-    init(binary: URL?, hostName: String, watchedFiles: [URL], runCLI: @escaping RunCLI,
+    init(cli: BundledExecutable, hostName: String, watchedFiles: [URL], runCLI: @escaping RunCLI,
          fix: @escaping Fix, makeWatcher: @escaping MakeWatcher, localFixes: [HealthCheckID: HealthFix] = [:]) {
-        self.binary = binary
+        self.cli = cli
         self.hostName = hostName
         self.watchedFiles = watchedFiles
         self.runCLI = runCLI
@@ -70,22 +71,15 @@ final class LocalServerSource: ServerSource {
 
     /// The App's source: the bundled CLI, the user-mode server's files, and
     /// fixes through the privileged helper.
-    static func app(fixer: ServerHealthFixer = .helper) -> LocalServerSource {
+    static func app(cli: BundledExecutable, fixer: ServerHealthFixer = .helper) -> LocalServerSource {
         LocalServerSource(
-            binary: bundledCLI(),
-            hostName: (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "",
+            cli: cli,
+            hostName: MacName.captureOverride ?? (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "",
             watchedFiles: watchedFiles(home: FileManager.default.homeDirectoryForCurrentUser),
             runCLI: { executable, arguments in await runProcess(executable, arguments) },
             fix: { await fixer.fix($0) },
             makeWatcher: fileWatcher,
             localFixes: ServerHealthFixer.localFixes)
-    }
-
-    /// `Contents/Resources/bin/cmux`, or nil when this build does not carry it.
-    static func bundledCLI(bundle: Bundle = .main) -> URL? {
-        guard let url = bundle.resourceURL?.appendingPathComponent("bin/cmux"),
-              FileManager.default.isExecutableFile(atPath: url.path) else { return nil }
-        return url
     }
 
     /// The user-mode server's files on macOS (cmux-server-core layout): the
@@ -145,10 +139,10 @@ final class LocalServerSource: ServerSource {
             readAgain = true
             return
         }
-        let binary = binary, hostName = hostName, runCLI = runCLI, localFixes = localFixes
+        let cli = cli, hostName = hostName, runCLI = runCLI, localFixes = localFixes
         // task-owner: LocalServerSource, one status read at a time; cancelled by stop().
         reading = Task { @MainActor [weak self] in
-            let event = await Self.read(binary: binary, hostName: hostName, runCLI: runCLI, localFixes: localFixes)
+            let event = await Self.read(binary: cli.resolve(), hostName: hostName, runCLI: runCLI, localFixes: localFixes)
             guard let self, !Task.isCancelled else { return }
             reading = nil
             emit(event)

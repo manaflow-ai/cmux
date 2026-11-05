@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextAppCore
 import CmuxNextDaemon
 import Testing
 
@@ -47,14 +48,14 @@ import Testing
     @Test func theUndoOfABulkCloseFindsItsOneItemOfSeveralMembers() {
         let bulk = ClosedItem(id: "closed_bulk", kind: .workspace, name: "x", memberNames: ["x", "y", "z"])
         let older = ClosedItem(id: "closed_old", kind: .workspace, name: "x", memberNames: ["x"])
-        let found = WorkspaceGroupClose.matching(names: ["x", "y", "z"], group: nil, fresh: [bulk, older])
+        let found = ClosedItemMatch(names: ["x", "y", "z"], group: nil, fresh: [bulk, older])
         #expect(found.workspaces == ["closed_bulk"])
         #expect(found.missing.isEmpty)
     }
 
     @Test func theUndoOfAnOlderDaemonsCloseFindsOneItemPerWorkspace() {
         let items = ["x", "y"].map { (name: String) in ClosedItem(id: "closed_\(name)", kind: .workspace, name: name) }
-        let found = WorkspaceGroupClose.matching(names: ["x", "y", "z"], group: nil, fresh: items)
+        let found = ClosedItemMatch(names: ["x", "y", "z"], group: nil, fresh: items)
         #expect(found.workspaces == ["closed_x", "closed_y"])
         #expect(found.missing == ["z"], "z has not arrived yet")
     }

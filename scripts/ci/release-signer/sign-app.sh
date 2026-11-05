@@ -270,7 +270,7 @@ if [[ "$MODE" == helper-first ]]; then
   [[ -n "$submitted_cdhash" ]] || { echo "error: could not resolve the Computer Use helper CDHash" >&2; exit 1; }
   echo "==> notarizing the Computer Use helper ($submitted_cdhash)"
   notary_status=0
-  run_signer "$R" notary-submit --config-file /dev/null --api-key-file "$secrets/api-key.json" \
+  notary_submit "$R" --config-file /dev/null --api-key-file "$secrets/api-key.json" \
     --wait --max-wait-seconds "$helper_wait" "$computer_use" > "$work/notary.log" 2>&1 || notary_status=$?
   cat "$work/notary.log"
   submission="$(grep -oiE 'submission id:? *[0-9a-f-]{36}' "$work/notary.log" | grep -oE '[0-9a-f-]{36}' | head -n 1 || true)"
@@ -380,7 +380,8 @@ for rel in "${machos[@]}"; do [[ "$rel" == Contents/PlugIns/* ]] && clear["$rel"
 
 # 4. The Chromium engine (feat-cmux-next scripts/cmux-next/sign-cef.sh, blob
 # 42525cf0): the framework, its Libraries and the shim get no entitlements;
-# of the "<product> Helper*.app" apps, GPU and Renderer get allow-jit.
+# of the "<product> Helper*.app" apps, the plain one, GPU and Renderer get
+# allow-jit (CEF 156 starts renderers from the plain helper).
 # The remote browser host in Contents/Helpers (rbh_sign of
 # scripts/cmux-next/remote-browser-host-layout.sh, blob 654ee654): its helper
 # apps by the same rule, the host app with no entitlements. Then every other
@@ -388,7 +389,7 @@ for rel in "${machos[@]}"; do [[ "$rel" == Contents/PlugIns/* ]] && clear["$rel"
 cef_helper() { # <helper.app>
   exe_of "$1"
   case "$1" in
-    *" Helper (GPU).app" | *" Helper (Renderer).app") ent["$exe"]="$jit" ;;
+    *" Helper.app" | *" Helper (GPU).app" | *" Helper (Renderer).app") ent["$exe"]="$jit" ;;
     *) clear["$exe"]=1 ;;
   esac
 }

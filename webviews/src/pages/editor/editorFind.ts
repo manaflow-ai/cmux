@@ -4,6 +4,9 @@
 // implements it over Monaco's model; tests pass a fake), and this class owns the query, the
 // matches, the active one and when the pill shows. React reads it through subscribe/getState.
 
+/** How many matches the pill collects and decorates; Replace All still replaces every one. */
+export const MATCH_LIMIT = 10_000;
+
 /** One match, in Monaco's 1-based line and column terms. */
 export interface FindRange {
   startLineNumber: number;
@@ -14,8 +17,12 @@ export interface FindRange {
 
 /** What find needs from the editor. */
 export interface FindTarget {
-  /** Every match of `query` in the document, in order (literal text, not a pattern). */
-  findMatches(query: string, matchCase: boolean): FindRange[];
+  /**
+   * The matches of `query` in the document, in order (literal text, not a pattern): the first
+   * `MATCH_LIMIT` for the pill (so a huge file cannot freeze every keystroke), or all of them with
+   * `all`, which only Replace All asks for.
+   */
+  findMatches(query: string, matchCase: boolean, all?: boolean): FindRange[];
   /**
    * Where the search starts: the start of the selection (the caret when nothing is selected), so
    * the match the pill selected stays the first candidate as the query grows a letter at a time.
@@ -106,16 +113,23 @@ export class EditorFind {
   replace = () => {
     const match = this.state.matches[this.state.active];
     if (!match || !this.canReplace() || !this.state.replaceOpen) return;
-    const index = this.state.active;
     this.target?.replace?.([match], this.state.replacement);
-    // The replaced match is gone; the one after it takes its index.
-    this.search({ ...this.state, active: index }, false);
+    // The next match is the first one after the text just written: a replacement that contains
+    // the query would otherwise be found again in the same place, and Replace never moved on.
+    const lines = this.state.replacement.split("\n");
+    const written = {
+      lineNumber: match.startLineNumber + lines.length - 1,
+      column: (lines.length === 1 ? match.startColumn : 1) + lines[lines.length - 1]!.length,
+    };
+    this.search(this.state, written);
   };
 
   /** Writes the replacement over every match, as one undo step. */
   replaceAll = () => {
     if (!this.state.matches.length || !this.canReplace() || !this.state.replaceOpen) return;
-    this.target?.replace?.(this.state.matches, this.state.replacement);
+    // The pill may hold only the first MATCH_LIMIT: the rest are found again for the replace.
+    const every = this.target?.findMatches(this.state.query, this.state.matchCase, true) ?? this.state.matches;
+    this.target?.replace?.(every, this.state.replacement);
     this.search({ ...this.state, active: 0 }, false);
   };
 
@@ -163,12 +177,14 @@ export class EditorFind {
     this.target?.show(this.state.matches, active);
   }
 
-  private search(next: EditorFindState, fromCaret: boolean): void {
+  /** `from`: true starts at the caret; a position starts there; false keeps the active index. */
+  private search(next: EditorFindState, from: boolean | { lineNumber: number; column: number }): void {
     const matches = next.open && next.query && this.target ? this.target.findMatches(next.query, next.matchCase) : [];
     let active = 0;
     if (matches.length) {
-      if (fromCaret && this.target) {
-        const { lineNumber, column } = this.target.caret();
+      const start = from === true ? this.target?.caret() : from === false ? undefined : from;
+      if (start) {
+        const { lineNumber, column } = start;
         const at = matches.findIndex((match) => !before(match, lineNumber, column));
         active = at < 0 ? 0 : at;
       } else {

@@ -1,0 +1,11 @@
+{
+  "title": "Home New Message: Close New Message (the row's x) drops the draft and its row",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "Go to Home", "cmux": ["action", "run", "home.show"], "wait": 4, "shot": false,
+     "optional": "the Chief's daemon may not start on this runner"},
+    {"title": "Fixture conversations", "rpc": {"method": "debug.home.sidebar_fixture", "params": {"count": 5, "pinned": 3}}, "wait": 1, "shot": false},
+    {"title": "New Message", "rpc": {"method": "debug.home.sidebar_fixture", "params": {"new_message": 3}}, "wait": 3, "shot": false},
+    {"title": "Close New Message: the draft and its row go", "cmux": ["action", "run", "home.closeNewMessage"], "wait": 2}
+  ]
+}

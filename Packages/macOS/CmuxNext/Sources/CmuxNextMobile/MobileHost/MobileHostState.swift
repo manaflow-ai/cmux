@@ -27,6 +27,13 @@ public struct MobileHostState: Sendable, Equatable {
     public var teamID: String?
     /// This Mac's mobile device id, once online.
     public var deviceID: String?
+    /// Rust-owned Remote Control policy, replayed with every Settings state update so a late app
+    /// observer cannot miss the initial or an acknowledgement state event.
+    public var sessionExposureConfigured = false
+    public var exposedSessionIDs: Set<String> = []
+    public var blockedSessionIDs: Set<String> = []
+    public var sessionExposureAvailable = false
+    public var sessionExposureKnown = false
 
     public init(phase: Phase = .off) {
         self.phase = phase
@@ -47,8 +54,20 @@ public struct MobileHostState: Sendable, Equatable {
         case .removed:
             phase = .removed
             phones = []
-        case .needToken, .needAcpmux, .pairRequest, .unpaired, .needBrowser, .browserStop, .needSurface, .surfaceStop:
+            sessionExposureAvailable = false
+            sessionExposureKnown = false
+        case .needToken, .needAcpmux, .needCloudLinks, .pairRequest, .unpaired, .needBrowser, .browserStop, .needSurface, .surfaceStop:
             break
+        case let .sessionExposureState(available, configured, sessions, blockedSessions):
+            sessionExposureAvailable = available
+            sessionExposureConfigured = configured
+            exposedSessionIDs = Set(sessions)
+            blockedSessionIDs = Set(blockedSessions)
+            sessionExposureKnown = true
+        case .sessionExposureError:
+            // Rust has failed closed; stale allow/block sets must not keep the UI lit.
+            sessionExposureAvailable = false
+            sessionExposureKnown = true
         case .phoneUp(var link):
             link.since = now
             phones.removeAll { $0.sessionID == link.sessionID }
@@ -76,5 +95,7 @@ public struct MobileHostState: Sendable, Equatable {
     public mutating func reset(to phase: Phase) {
         self.phase = phase
         phones = []
+        sessionExposureAvailable = false
+        sessionExposureKnown = false
     }
 }

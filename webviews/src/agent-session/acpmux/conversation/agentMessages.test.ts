@@ -51,6 +51,39 @@ test("acpmux_send, as harnesses name it behind the cmux server or on its own", (
   expect(agentMessage(call("mcp__cmux__acpmux_send", { text: "y" }))).toBeUndefined();
 });
 
+test("acpmux team_send and inbox_reply", () => {
+  expect(agentMessage(call("mcp__acpmux__team_send", { to: "@team/reviewer", body: "PR is up." }))).toEqual({
+    channel: "agent",
+    to: "@team/reviewer",
+    text: "PR is up.",
+  });
+  // Codex's shape.
+  expect(
+    agentMessage(
+      call("acpmux", { server: "acpmux", tool: "team_send", arguments: { to: "@lawrence/coordinator", body: "Hi" } }),
+    ),
+  ).toEqual({ channel: "agent", to: "@lawrence/coordinator", text: "Hi" });
+  // A reply names the thread's sender, or the session its JSON result says it went to.
+  const reply = (thread: string, output?: string) => ({
+    ...call("mcp__acpmux__inbox_reply", { thread, text: "On it." }),
+    output,
+  });
+  expect(agentMessage(reply("from:lane-a/pr:42", "Sent into thread from:lane-a/pr:42 (promptId p1)."))).toEqual({
+    channel: "agent",
+    to: "lane-a",
+    text: "On it.",
+  });
+  expect(agentMessage(reply("pr:42"))?.to).toBe("pr:42");
+  expect(agentMessage(reply("from:lane-a", JSON.stringify({ sessionId: "s-123", threadId: "from:lane-a" })))?.to).toBe(
+    "s-123",
+  );
+  // Another server's tool of the same name, or no recipient: an ordinary tool row.
+  expect(agentMessage(call("mcp__slack__team_send", { to: "x", body: "y" }))).toBeUndefined();
+  expect(agentMessage(call("mcp__acpmux__team_send", { body: "y" }))).toBeUndefined();
+  expect(agentMessage(call("mcp__acpmux__inbox_reply", { text: "y" }))).toBeUndefined();
+  expect(agentMessage(call("mcp__acpmux__inbox_read", { thread: "from:a" }))).toBeUndefined();
+});
+
 test("a send's delivery: sending, sent, queued, delivered or failed, from its state and result", async () => {
   const { messageDelivery } = await import("./agentMessages");
   const done = (output?: string) => ({ status: "completed", output });
@@ -72,6 +105,26 @@ test("a send's delivery: sending, sent, queued, delivered or failed, from its st
   // tell-coordinator's receipt.
   expect(messageDelivery(done("delivered to leoli-24 (id 9defc4d0ed87)\n"))).toBe("delivered");
   expect(messageDelivery(done("error: no session named grid\n"))).toBe("failed");
+});
+
+test("Chief tell outcomes expose refusals while keeping done, queued and noop successful", async () => {
+  const { messageDelivery, notDeliveredReason } = await import("./agentMessages");
+  const done = (output: string) => ({ status: "completed", output });
+  expect(messageDelivery(done("outcome: queued. Queued for delivery to a1"))).toBe("queued");
+  expect(messageDelivery(done("outcome: done. sent"))).toBe("sent");
+  expect(messageDelivery(done("outcome: noop. a1 already has this message (key k); it was not sent again"))).toBe(
+    "sent",
+  );
+  const cancelled = 'outcome: refused. a1 was cancelled; control(action: "restart") brings it back';
+  expect(messageDelivery(done(cancelled))).toBe("failed");
+  expect(notDeliveredReason({ output: cancelled })).toBe("stopped");
+  const deleted = "outcome: refused. a1 finished and its cloud VM vm-1 was deleted after its work was pushed";
+  expect(messageDelivery(done(deleted))).toBe("failed");
+  expect(notDeliveredReason({ output: deleted })).toBe("noAgent");
+  // A tell's own text can contain the word "refused" without turning an echoed
+  // message into a refusal receipt.
+  const text = "Please tell me why this was refused";
+  expect(messageDelivery(done(text), { channel: "agent", text, to: "a1" })).toBe("sent");
 });
 
 test("a subagent's agentId resolves to its description; an unknown id reads short", async () => {
@@ -177,4 +230,17 @@ test("a short message never erases its receipt's words, and a recipient named li
     ),
   ).toBe("queued");
   expect(messageDelivery(done("Message not delivered to not"), say("hi", "not"))).toBe("failed");
+});
+
+test("Chief tell keeps the entire message and only recognizes its own tool", () => {
+  const message = "Please verify the result. ".repeat(30) + "Keep this last sentence.";
+  for (const name of ["tell", "optchat.tell", "mcp__optchat__tell"])
+    expect(agentMessage(call(name, { id: "a1", message }))).toEqual({ channel: "agent", to: "a1", text: message });
+  expect(agentMessage(call("optchat", { server: "optchat", tool: "tell", arguments: { id: "a1", message } }))).toEqual({
+    channel: "agent",
+    to: "a1",
+    text: message,
+  });
+  expect(agentMessage(call("mcp__other__tell", { id: "a1", message }))).toBeUndefined();
+  expect(agentMessage(call("tell", { message }))).toBeUndefined();
 });

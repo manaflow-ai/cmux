@@ -126,6 +126,9 @@ if (( ${#shim_archs[@]} == 2 )); then
   x86_shim="$(shim_for x86_64 "$x86_dir")"
   universal_key="$(printf '%s %s' "$(cat "$arm_shim/.build-key")" "$(cat "$x86_shim/.build-key")" | shasum -a 256 | awk '{print $1}')"
   shim_out="$cache_root/shim/universal-${universal_key:0:16}"
+  # A use refreshes the entry, so build-cef-shim.sh's week-old pruning of
+  # this directory keeps it.
+  touch -c "$shim_out" 2>/dev/null || true
   if [[ ! -f "$shim_out/.build-key" ]]; then
     shim_tmp="$(mktemp -d "$cache_root/shim/.universal.XXXXXX")"
     lipo -create "$arm_shim/libcmux_cef_shim.dylib" "$x86_shim/libcmux_cef_shim.dylib" -output "$shim_tmp/libcmux_cef_shim.dylib"
@@ -306,7 +309,10 @@ printf '%s' "$shim_key $product" > "$binary_stamp"
 
 # 4. Sign inside out, unless nothing changed since the last signature.
 stamp="$stamp_dir/signed"
-stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key $product $identity"
+# sign-cef.sh's own hash is in the key, so a change to its signing rules (the
+# plain helper's allow-jit, say) re-signs a warm build.
+sign_rules="$(shasum -a 256 "$SCRIPT_DIR/sign-cef.sh" | cut -c1-16)"
+stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key $product $identity $sign_rules"
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$stamp_value" ]] &&
   codesign --verify "$frameworks/$FW_NAME" >/dev/null 2>&1 &&
   codesign --verify "$frameworks/$product Helper.app" >/dev/null 2>&1; then

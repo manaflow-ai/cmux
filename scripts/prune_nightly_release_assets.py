@@ -291,6 +291,11 @@ def check_source_archive_retention(
             )
 
 
+# The newest builds no rule deletes: the newest and the one a feed rollback serves
+# (nightly-next-rollback.yml checks that the build it falls back to is downloadable).
+ROLLBACK_FLOOR = 2
+
+
 def partition_assets(
     assets: list[ReleaseAsset], keep_builds: int, total_assets: int, max_assets: int
 ) -> tuple[list[ReleaseAsset], list[int]]:
@@ -304,7 +309,7 @@ def partition_assets(
         to_delete.extend(sorted(assets_by_build[build], key=deletion_order))
 
     assets_after_prune = total_assets - len(to_delete)
-    for build in reversed(ordered_builds[:keep_builds]):
+    for build in reversed(ordered_builds[ROLLBACK_FLOOR:keep_builds]):
         if assets_after_prune <= max_assets:
             break
         build_assets = sorted(assets_by_build[build], key=deletion_order)
@@ -314,7 +319,7 @@ def partition_assets(
     if assets_after_prune > max_assets:
         raise RuntimeError(
             f"Cannot reduce release from {total_assets} to {max_assets} assets "
-            f"without deleting the newest immutable build"
+            f"without deleting the newest {ROLLBACK_FLOOR} immutable builds"
         )
 
     check_source_archive_retention(assets, to_delete)
@@ -343,8 +348,9 @@ def is_rate_limit_error(error: GitHubAPIError | subprocess.CalledProcessError) -
 
 def main() -> int:
     args = parse_args()
-    if args.keep_builds < 1:
-        print("--keep-builds must be at least 1", file=sys.stderr)
+    if args.keep_builds < ROLLBACK_FLOOR:
+        print(f"--keep-builds must be at least {ROLLBACK_FLOOR} (the newest build and the one a rollback serves)",
+              file=sys.stderr)
         return 2
     if args.max_assets < 1:
         print("--max-assets must be at least 1", file=sys.stderr)

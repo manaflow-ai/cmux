@@ -180,6 +180,31 @@
       "group": "exact"
     },
     {
+      "query": "copy session file paths",
+      "expect": ["action:agentChat.copySessionFilePaths"],
+      "group": "exact"
+    },
+    {
+      "query": "copy transcript file",
+      "expect": ["action:agentChat.copyTranscriptFile"],
+      "group": "exact"
+    },
+    {
+      "query": "copy harness config",
+      "expect": ["action:agentChat.copyHarnessConfigFile"],
+      "group": "exact"
+    },
+    {
+      "query": "copy harness settings",
+      "expect": ["action:agentChat.copyHarnessSettingsFile"],
+      "group": "exact"
+    },
+    {
+      "query": "copy acpmux session file",
+      "expect": ["action:agentChat.copyAcpmuxSessionFile"],
+      "group": "exact"
+    },
+    {
       "query": "split",
       "expect": ["action:splitRight", "action:splitDown"],
       "group": "partial"
@@ -213,6 +238,11 @@
       "query": "term",
       "expect": ["action:newSurface", "action:terminal.setTheme"],
       "group": "partial"
+    },
+    {
+      "query": "new agent chat on",
+      "expect": ["action:palette.newAgentChatOn"],
+      "group": "exact"
     },
     {
       "query": "agent",

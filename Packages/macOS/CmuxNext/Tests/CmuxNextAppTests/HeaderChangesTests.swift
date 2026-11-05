@@ -26,12 +26,13 @@ struct HeaderChangesTests {
         #expect(toggles.headerState(chat: row.chat, store: row.store).lit == [])
     }
 
-    @Test func changesJoinsThePanelsRightOfTheChatInOrder() {
+    @Test func changesUsesTheChatAsItsPlacementSource() {
         let row = Row(), toggles = AgentChatSplitToggles()
         row.click("splitRight", toggles: toggles)
         row.click("openDiffViewer", toggles: toggles)
-        #expect(row.order == ["chat", "terminal", "changes"])
-        // Beside the terminal, the chat's own folder still names the diff.
+        #expect(row.invocations["openDiffViewer"]?.target?.id == row.chat)
+        #expect(row.invocations["openDiffViewer"]?.newColumnBeside == true)
+        // The shared placement owner measures the whole right column from the chat.
         #expect(row.invocations["openDiffViewer"]?["path"]?.stringValue == row.cwd)
     }
 

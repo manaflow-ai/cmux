@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Stamp the cmux NEXT nightly identity into a prepared app's Info.plist.
 
-    nightly_next_identity.py PLIST
+    nightly_next_identity.py [--legacy] PLIST
+
+--legacy is the cmux NIGHTLY-identity copy (nightly.yml legacy-signer-app): the
+same edits with that identity's values in the env, then the auth callback
+override dropped, as scripts/ci/nightly-next-legacy-identity.sh does on a Mac
+(cmux NIGHTLY signs in through its default cmux-nightly scheme).
 
 The edits nightly.yml build-sign-notarize-nightly's "Inject nightly identities
 and metadata" makes with PlistBuddy for the nightly-next track (not the notary
@@ -69,7 +74,15 @@ def stamp(plist: dict) -> None:
     plist["CMUXCommit"] = env("SHORT_SHA")
 
 
+def drop_auth_callback_override(plist: dict) -> None:
+    environment = plist.get("LSEnvironment")
+    if isinstance(environment, dict):
+        environment.pop("CMUX_AUTH_CALLBACK_SCHEME", None)
+
+
 def main(argv: list[str]) -> int:
+    legacy = argv[:1] == ["--legacy"]
+    argv = argv[1:] if legacy else argv
     if len(argv) != 1:
         sys.exit(__doc__)
     path = argv[0]
@@ -78,6 +91,8 @@ def main(argv: list[str]) -> int:
     fmt = plistlib.FMT_BINARY if data.startswith(b"bplist00") else plistlib.FMT_XML
     plist = plistlib.loads(data)
     stamp(plist)
+    if legacy:
+        drop_auth_callback_override(plist)
     with open(path, "wb") as handle:
         plistlib.dump(plist, handle, fmt=fmt, sort_keys=False)
     return 0

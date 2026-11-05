@@ -18,7 +18,7 @@ const server = await createServer({
   logLevel: "error",
 });
 await server.listen();
-const browser = await chromium.launch();
+const browser = await chromium.launch({ channel: "chrome" });
 const observations = [];
 try {
   for (const variant of ["compact", "expanded"]) {

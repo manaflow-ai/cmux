@@ -1,3 +1,4 @@
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import Foundation
@@ -5,8 +6,9 @@ import os
 
 /// Relays acpmux's chat index into the daemon's project list
 /// (plans/cmux-next/projects.md section 3). acpmux already watches the chat
-/// roots and `ChatsFeed` mirrors its index, so no second watcher reads them:
-/// on each index change this sends one complete `project.observe` per harness
+/// roots and groups its index (`_acpmux/chat_projects`), so no second watcher
+/// reads them and the app holds no copy of the index: on each index change
+/// (`ChatsFeed`'s signal) this sends one complete `project.observe` per harness
 /// whose project set changed. On each new daemon connection it first sends
 /// `project.sync`, which makes the daemon reread the editor sources. It holds
 /// no rule: refusals, merge and the user's overlay are the daemon's.
@@ -36,31 +38,22 @@ final class ProjectsImport {
         }
     }
 
-    /// The batches for `chats`, leaving out each harness whose fingerprint is
-    /// already `sent`. A harness in `sent` with no chat left gets an empty
-    /// complete list. Sorted by harness, entries by path. Nothing while the
-    /// index is not `complete` (still scanning, or turned off): a partial
-    /// list sent as complete would drop the harness from its projects.
-    nonisolated static func batches(_ chats: [AcpmuxChat], sent: [String: Int], complete: Bool = true) -> [Batch] {
-        guard complete else { return [] }
-        var newest: [String: [String: Int64]] = [:]
-        for chat in chats {
-            guard let cwd = chat.cwd, cwd.hasPrefix("/") else { continue }
-            let used = Int64((chat.updatedAt.timeIntervalSince1970 * 1000).rounded())
-            newest[chat.harness, default: [:]][cwd] = max(newest[chat.harness]?[cwd] ?? .min, used)
+    /// The batches for acpmux's grouped `projects`, leaving out each harness whose fingerprint is
+    /// already `sent`. A harness in `sent` with no project left gets an empty complete list. Sorted
+    /// by harness, entries by path. Nothing while the index is not ready or chats are off: a
+    /// partial list sent as complete would drop the harness from its projects.
+    nonisolated static func batches(_ projects: AcpmuxChatProjects, sent: [String: Int]) -> [Batch] {
+        guard projects.ready, projects.enabled else { return [] }
+        var bySource: [String: [Batch.Entry]] = [:]
+        for project in projects.projects {
+            bySource[project.harness, default: []].append(Batch.Entry(path: project.path, lastUsedMs: project.lastUsedMs))
         }
-        for source in sent.keys where newest[source] == nil { newest[source] = [:] }
-        return newest.keys.sorted().compactMap { source in
-            let entries = (newest[source] ?? [:]).sorted { $0.key < $1.key }.map { Batch.Entry(path: $0.key, lastUsedMs: $0.value) }
+        for source in sent.keys where bySource[source] == nil { bySource[source] = [] }
+        return bySource.keys.sorted().compactMap { source in
+            let entries = (bySource[source] ?? []).sorted { $0.path < $1.path }
             let batch = Batch(source: source, entries: entries)
             return sent[source] == batch.fingerprint ? nil : batch
         }
-    }
-
-    /// `batches` over a mirror snapshot, off the main actor: it groups every chat (5000+ on a
-    /// real Mac) on each index change (cx-9c8m.6).
-    @concurrent nonisolated static func batches(of store: AcpmuxChatsStore, sent: [String: Int], complete: Bool) async -> [Batch] {
-        batches(store.chats, sent: sent, complete: complete)
     }
 
     private weak var services: AppServices?
@@ -109,18 +102,22 @@ final class ProjectsImport {
         let id = ObjectIdentifier(connection)
         let fresh = connectionID != id
         if fresh { sent = [:] }
-        let feed = services.chatsFeed
-        // A copy-on-write snapshot (O(1) here); the walk over every chat runs off the main actor.
-        let store = feed?.store ?? AcpmuxChatsStore()
-        let complete = (feed?.isReady ?? false) && (feed?.isEnabled ?? false)
+        // acpmux groups its own index (`_acpmux/chat_projects`): a few rows, read off the main
+        // actor, never a walk over every chat here.
+        let socket = services.chatsFeed?.socketPath
         let alreadySent = sent
         let client = ProjectStateClient(connection: connection)
-        // task-owner: awaited at once by `sending` below. Only this task holds the snapshot, so it
-        // is released when the batches are ready, not after the sends: a held snapshot would make
-        // the next main-actor store change copy all 5000 chats.
-        let grouping = Task { await Self.batches(of: store, sent: alreadySent, complete: complete) }
         sending = Task { [weak self] in
-            let batches = await grouping.value
+            var batches: [Batch] = []
+            if let socket {
+                do {
+                    batches = Self.batches(try await AcpmuxChatProjects.read(socketPath: socket), sent: alreadySent)
+                } catch {
+                    // Nothing is sent (a partial list would drop projects). The next index change or
+                    // daemon connection relays again: an event that can make the read succeed.
+                    self?.logger.error("project list read failed: \(String(describing: error), privacy: .public)")
+                }
+            }
             var delivered: [String: Int] = [:]
             var synced = !fresh
             guard fresh || !batches.isEmpty else {

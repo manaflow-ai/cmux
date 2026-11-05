@@ -35,10 +35,14 @@
 //! `ease_out_quad`) that restart from the value on screen on a new target,
 //! with the strip geometry in `TabStripGeometry` (design-tokens.json
 //! `motion.tweens`, `motion.tabStrip`).
+//!
+//! Hover timing and rules live in [`hover`]: the hover card state machine,
+//! tooltip hover intent, the safe triangle and the row card's placement.
 
 mod clock;
 mod color;
 mod fade;
+pub mod hover;
 mod marquee;
 mod policy;
 #[cfg(feature = "settings")]

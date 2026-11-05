@@ -7,7 +7,7 @@ import Foundation
 /// member's place, so the undo toast and Cmd-Z restore it as it was.
 public nonisolated struct SidebarGroupRestore: Hashable, Sendable {
     public var name: String
-    public var color: GroupColor
+    public var color: GroupTint
     public var isCollapsed: Bool
     public var members: [WorkspaceID]
 
@@ -15,7 +15,7 @@ public nonisolated struct SidebarGroupRestore: Hashable, Sendable {
     public static func capture(_ id: GroupID, in sections: [SidebarSection]) -> SidebarGroupRestore? {
         for section in sections {
             for case let .group(group) in section.nodes where group.id == id {
-                return SidebarGroupRestore(name: group.name, color: group.color, isCollapsed: group.isCollapsed,
+                return SidebarGroupRestore(name: group.name, color: group.tint, isCollapsed: group.isCollapsed,
                                            members: group.workspaces.map(\.id))
             }
         }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022. */
+/* cmux-tui mux protocol 12, IR 4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -173,6 +173,26 @@ export type CellPixelSurface = {
   "width_px": number;
 };
 
+export type ChiefWorkAgent = {
+  "id": string;
+  "name": string;
+  "startedAt": (bigint) | null;
+  "state": "working" | "waiting" | "idle" | "failed";
+  "task": (string) | null;
+  "updatedAt": (bigint) | null;
+};
+
+export type ChiefWorkTask = {
+  "command": string;
+  "detail": (string) | null;
+  "endedAt": (bigint) | null;
+  "id": string;
+  "sessionId": string;
+  "startedAt": (bigint) | null;
+  "status": "running" | "done" | "failed" | "cancelled" | "unknown";
+  "title": string;
+};
+
 export type ClientInfo = {
   "attached": Array<Id>;
   "client": bigint;
@@ -220,6 +240,8 @@ export type ColumnPin = {
   "mode": string;
   "role"?: (string) | null;
 };
+
+export type ColumnSide = "left" | "right";
 
 export type ConversationChange = {
   /** kind conversation. */
@@ -643,6 +665,18 @@ export type Layout = ({ "type": "leaf" } & {
   "type": "stack";
 });
 
+export type LayoutSizePaneWidth = {
+  "pane": Id;
+  "width": number;
+};
+
+export type LayoutSizeSplitRatio = {
+  "ratio": number;
+  "split": Id;
+};
+
+export type LayoutSizeValue = (LayoutSizeSplitRatio) | (LayoutSizePaneWidth);
+
 export type LayoutUndoConfirmationRequired = {
   "closes_panes": Array<Id>;
   "confirmation_required": true;
@@ -822,6 +856,12 @@ export type ReadScrollbackResult = {
 export type ReattachViewResult = {
   "participant": string;
   "state": SizeState;
+};
+
+export type RemoteHostAppResult = {
+  "host_pid": number;
+  "secret": string;
+  "socket": string;
 };
 
 export type RenderCursor = {
@@ -1005,6 +1045,19 @@ export type Screen = {
   "zoomed_pane": (Id) | null;
 };
 
+export type SelectionPane = {
+  "active_tab": bigint;
+  "focused_at": bigint;
+  "id": Id;
+};
+
+export type SelectionScreen = {
+  "active": boolean;
+  "active_pane": Id;
+  "id": Id;
+  "panes": Array<SelectionPane>;
+};
+
 export type SendExpectAgent = {
   "session"?: (string) | null;
 };
@@ -1026,6 +1079,12 @@ export type ServerStatsHistogram = {
   "p99": bigint;
 };
 
+export type ServerStatsHookQueue = {
+  "queued_events": bigint;
+  "reset_dropped_events": bigint;
+  "undeliverable_events": bigint;
+};
+
 export type ServerStatsJournalWriter = {
   "batch_size": ServerStatsHistogram;
   "batches": bigint;
@@ -1042,6 +1101,18 @@ export type ServerStatsJournalWriter = {
   "terminal_queued": bigint;
 };
 
+export type ServerStatsLockDetail = {
+  "by_hold_p99": Array<ServerStatsLockSiteDetail>;
+  "by_hold_total": Array<ServerStatsLockSiteDetail>;
+  "contended_acquisitions": bigint;
+  "hold_us": ServerStatsHistogram;
+  "holder": (ServerStatsLockHolder) | null;
+  "last_stall": (ServerStatsLockStall) | null;
+  "sites": bigint;
+  "stalls": bigint;
+  "wait_us": ServerStatsHistogram;
+};
+
 export type ServerStatsLockHolder = {
   "held_for_us": bigint;
   "site": string;
@@ -1054,10 +1125,26 @@ export type ServerStatsLockSite = {
   "site": string;
 };
 
+export type ServerStatsLockSiteDetail = {
+  "acquisitions": bigint;
+  "hold_max_us": bigint;
+  "hold_p99_us": bigint;
+  "hold_total_us": bigint;
+  "site": string;
+  "wait_max_us": bigint;
+  "wait_p99_us": bigint;
+  "wait_total_us": bigint;
+};
+
 export type ServerStatsLockStall = {
   "blocker": (string) | null;
   "waited_us": bigint;
   "waiter": string;
+};
+
+export type ServerStatsLocks = {
+  "registry": ServerStatsLockDetail;
+  "state": ServerStatsLockDetail;
 };
 
 export type ServerStatsRegistryLock = {
@@ -1092,7 +1179,9 @@ export type ServerStatsResourceProjection = {
 
 export type ServerStatsResult = {
   "connections": ServerStatsConnections;
+  "hook_queue"?: ServerStatsHookQueue;
   "journal_writer": (ServerStatsJournalWriter) | null;
+  "locks"?: ServerStatsLocks;
   "registry_lock": ServerStatsRegistryLock;
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
@@ -1104,7 +1193,10 @@ export type ServerStatsWritePath = {
   "effect_intent_batches": bigint;
   "effect_intent_failures": bigint;
   "effect_intents": bigint;
+  "registry_wal_frame_bytes"?: bigint;
   "request_effect_commits": bigint;
+  "wal_commits"?: bigint;
+  "wal_synced_commits"?: bigint;
   "writer_registry_locks": bigint;
 };
 

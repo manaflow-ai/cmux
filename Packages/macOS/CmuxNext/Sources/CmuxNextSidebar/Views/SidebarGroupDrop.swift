@@ -21,11 +21,11 @@ import AppKit
         registerUndo(list, ids, origin: origin, anchor: nil)
     }
 
-    /// Groups `ids` with `anchor`, at the anchor's row, as a named and colored group, with Cmd-Z.
+    /// Groups `ids` with `anchor`, at the anchor's row, as a named group with no color, with Cmd-Z.
     @discardableResult
     static func group(_ list: SidebarListView, _ ids: [WorkspaceID], onto anchor: WorkspaceID, origin: DropPosition?) -> GroupID {
         let group = GroupID.make(), sections = list.model.sections
-        list.model.send(.createGroup(group, name: SidebarGroup.named(""), color: SidebarGroupBand.newGroupColor(in: sections),
+        list.model.send(.createGroup(group, name: SidebarGroup.named(""), color: .none,
                                      workspaces: [anchor] + ids, anchor: anchor))
         registerUndo(list, ids, origin: origin, anchor: anchor)
         return group
@@ -34,7 +34,7 @@ import AppKit
     /// Registers Cmd-Z for a drop that grouped `ids`.
     static func registerUndo(_ list: SidebarListView, _ ids: [WorkspaceID], origin: DropPosition?, anchor: WorkspaceID?) {
         // The sidebar document puts its own undo step (toast and the window's undo stack) for the same drop.
-        guard SidebarDocStore.current?.isActive != true else { return }
+        guard list.model.docDrag?.document?.isActive != true else { return }
         guard let origin, let undoManager = list.window?.undoManager else { return }
         let record = SidebarGroupUndo(list: list, ids: ids, origin: origin, anchor: anchor)
         // The record is the target and the retained object, so it lives as long as the undo entry.

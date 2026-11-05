@@ -10,8 +10,8 @@ extension ScreenContentView {
         ColumnStrip(layout: layout, geometry: geometry, gap: context.style.stripGap)
     }
 
-    /// Feeds the current layout, geometry and focus to the reducer. Returns
-    /// true if the spring needs frames. A reveal that snaps (animation off,
+    /// Feeds the layout, geometry and focus to the reducer and presents once (or a close's `leadIfPending` does).
+    /// Returns true if the spring needs frames. A reveal that snaps (animation off,
     /// Reduce Motion) shows the `auto` scrollbar like the spring frames it
     /// replaces, only when `showsScrollbarOnSnap`: the caller passes false
     /// for a window resize, launch, or a view out of its window.
@@ -19,7 +19,11 @@ extension ScreenContentView {
     func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true,
                     showsScrollbarOnSnap: Bool = false) -> Bool {
         lastFocused = focused
-        defer { leadIfPending() }
+        // The camera this change sets decides which of its closing panes show (FRAME OWNER S3d), before its first frame.
+        defer {
+            settleClosing()
+            leadIfPending()
+        }
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // Inner first (scroll-areas-DESIGN.md K2): areas, then rows, then the strip.
         let areasNeedFrames = syncAreas(focused: focused, source: source, animated: animate, reveals: reveals)
@@ -27,7 +31,7 @@ extension ScreenContentView {
         guard let strip else {
             scrollState = ColumnScrollState()
             settleCarried()
-            applyPresentation()
+            if !leadsFrame { applyPresentation() }
             // Resetting the camera can start a carried pane off screen. Keep its spring
             // ticking while this workspace stays visible (Lucas 2026-10-19).
             return hasMotion || rowsNeedFrames
@@ -37,7 +41,7 @@ extension ScreenContentView {
                                                anchor: ScreenDividers(screen: self).dragAnchorColumn))
         settleCarried()
         if effects.snapped && showsScrollbarOnSnap { scrollbarFlash = true }
-        let needsFrames = apply(effects)
+        let needsFrames = apply(effects, presents: !leadsFrame)
         return needsFrames || hasMotion || rowsNeedFrames
     }
 
@@ -80,7 +84,7 @@ extension ScreenContentView {
     func endUserScroll(timestamp: TimeInterval) {
         scrollbarFlash = true
         // The landing presents the strip (now, or on the fling's frames): nothing waits for a tick.
-        panPresentationPending = false
+        frameInput.panPresentationPending = false
         apply(scrollState.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion)))
     }
 
@@ -92,9 +96,9 @@ extension ScreenContentView {
     }
 
     @discardableResult
-    private func apply(_ effects: ColumnScrollEffects) -> Bool {
+    private func apply(_ effects: ColumnScrollEffects, presents: Bool? = nil) -> Bool {
         if effects.reportOnSettle { reportScrollOnSettle = true }
-        if !effects.needsFrames { applyPresentation() }
+        if presents ?? !effects.needsFrames { applyPresentation() }
         if let pane = effects.focus {
             lastFocused = pane
             context.model.focus(pane, source: .scroll)

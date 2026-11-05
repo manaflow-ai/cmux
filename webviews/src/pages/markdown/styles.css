@@ -63,6 +63,19 @@ body,
   height: 100%;
 }
 
+/* The viewer is a reading surface. `--cmux-reading-background` (WebTheme.swift) is clear over a
+   background picture, which hides what is behind the window, so the page shows the App Theme's one
+   veil like the terminals (user 2026-11-02); where the desktop reads through (glass, a translucent
+   theme, Window Glass) it is the page color made opaque, so no faint text from behind the window
+   reads through the document (user 2026-10-31). An older host without it gets the opaque
+   `--cmux-surface-solid`. The native theme bootstrap forces
+   `html{background:var(--cmux-surface-background) !important}` (WebTheme.bootstrapScript), so these
+   page backgrounds are `!important` too: `:root` outranks `html`. The `markdown.theme` paper
+   (light, dark) below, at `:root[...]`, still wins over this one. */
+:root {
+  background: var(--cmux-reading-background, var(--cmux-surface-solid, var(--cmux-surface-background, Canvas))) !important;
+}
+
 /* R139: the page selects nothing by default (shared/desktop.css); the document (.md-doc) is
    `.selectable` and the source textarea is a field. */
 body {
@@ -78,6 +91,33 @@ body {
   flex-direction: column;
   height: 100vh;
   min-width: 0;
+}
+
+/* Find (Cmd-F): the shared find pill at the top right of the document, under the toolbar, where
+   every pane's pill sits. The host takes no height, so opening find never moves the document. */
+.md-find-host {
+  position: relative;
+  height: 0;
+  z-index: var(--layer-overlay);
+}
+.md-find {
+  position: absolute;
+  top: var(--find-pill-inset, 10px);
+  right: var(--find-pill-inset, 10px);
+  left: var(--find-pill-inset, 10px);
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.md-find > .find-pill {
+  min-width: 0;
+}
+::highlight(cmux-md-find) {
+  background-color: light-dark(rgba(255, 199, 0, 0.42), rgba(255, 199, 0, 0.34));
+}
+::highlight(cmux-md-find-active) {
+  background-color: light-dark(#ff9632, #e8821e);
+  color: #1a1208;
 }
 
 .md-page-message {
@@ -409,32 +449,26 @@ body {
   overscroll-behavior-x: contain;
 }
 
-/* A wide table fades out at each edge with more table past it (tables.ts sets `data-overflow`
-   to "start", "end" or both), so it shows that it scrolls sideways even while macOS hides the
-   overlay scrollbar (user 2026-10-20: tables must scroll "such that it's intuitive"). A table
-   that fits has no attribute and no fade. */
-.md-prose .tableWrapper[data-overflow] {
-  --cmux-md-table-fade: 2.5em;
-  -webkit-mask-image: var(--cmux-md-table-mask);
-  mask-image: var(--cmux-md-table-mask);
+/* A table uses the pane, not only the reading column (user 2026-10-31: "the markdown viewer can't
+   expand?"). A top-level table's box reaches from the pane's left padding to its right padding:
+   the box starts `--md-table-breakout` left of the column and keeps that much padding, so the
+   table itself starts where the text does and grows right up to the pane's padding before it
+   scrolls. When the column fills the pane (a narrow pane, Full Width) the breakout is 0. The pane
+   is the size container (`.md-scroll`), so 100cqw is its width without its scrollbar.
+   No edge of a table is faded out (user 2026-10-31: "it blurs the edges of the tables? why
+   blur?"): the box's thin sideways scrollbar (scrollers.ts SIDEWAYS_SCROLLER_ATTRIBUTE, set by
+   tables.ts) shows that it scrolls, with the overlay scrollbar hidden too. */
+.md-scroll {
+  container-type: inline-size;
 }
 
-.md-prose .tableWrapper[data-overflow="end"] {
-  --cmux-md-table-mask: linear-gradient(to right, black calc(100% - var(--cmux-md-table-fade)), transparent);
-}
-
-.md-prose .tableWrapper[data-overflow="start"] {
-  --cmux-md-table-mask: linear-gradient(to left, black calc(100% - var(--cmux-md-table-fade)), transparent);
-}
-
-.md-prose .tableWrapper[data-overflow="start end"] {
-  --cmux-md-table-mask: linear-gradient(
-    to right,
-    transparent,
-    black var(--cmux-md-table-fade),
-    black calc(100% - var(--cmux-md-table-fade)),
-    transparent
-  );
+.md-prose > .tableWrapper {
+  --md-table-breakout: max(0px, (100cqw - 2 * var(--cmux-md-page-padding) - 100%) / 2);
+  box-sizing: border-box;
+  width: calc(100% + 2 * var(--md-table-breakout));
+  max-width: none;
+  margin-left: calc(-1 * var(--md-table-breakout));
+  padding-left: var(--md-table-breakout);
 }
 
 /* Table borders (MARKDOWN-OBSIDIAN-PARITY, user 2026-10-19: in transparency mode "when the border
@@ -453,7 +487,11 @@ body {
   white-space: normal;
 }
 
-/* `markdown.tables: "wrap"`: tables fit the column and their cells wrap instead. */
+/* `markdown.tables: "wrap"`: tables fit the column and their cells wrap instead (no breakout). */
+:root[data-cmux-md-tables="wrap"] .md-prose > .tableWrapper {
+  --md-table-breakout: 0px;
+}
+
 :root[data-cmux-md-tables="wrap"] .md-prose table {
   width: 100%;
   min-width: 0 !important;
@@ -493,12 +531,39 @@ body {
   caret-color: transparent;
 }
 
-.md-prose :is(td, th).selectedCell::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--cmux-md-selection-color);
-  pointer-events: none;
+/* User 2026-10-28 ("highlighting full table cells is still weird"): the fill was an ::after layer
+   above the cell in --cmux-md-selection-color, which the app sets to the theme's opaque terminal
+   selection color, so selected cells were flat gray blocks with their words hidden. Native text
+   selection never draws that color as is: WebKit (the app's engine) paints an opaque ::selection
+   color through Color::blendWithWhite, the translucent color (alpha 0.6, 0.667, 0.733 or 0.8,
+   the least whose channels stay >= 0) that over white looks like the given one. The cell fill does
+   the same, as a background under the text: it matches the text selection in the rest of the
+   document, the page shows through it, and the words stay on top. A translucent color is kept. */
+.md-prose {
+  /* Inside rgb(from …) only: 1 for a translucent color, 0 for an opaque one. */
+  --md-cell-selection-keep: sign(1 - alpha);
+  --md-cell-selection-alpha: clamp(0.6, round(up, 1 - min(r, g, b) / 255, calc(1 / 15)), 0.8);
+  --md-cell-selection-color: rgb(
+    from var(--cmux-md-selection-color)
+      calc(
+        var(--md-cell-selection-keep) * r + (1 - var(--md-cell-selection-keep)) *
+          (r - 255 * (1 - var(--md-cell-selection-alpha))) / var(--md-cell-selection-alpha)
+      )
+      calc(
+        var(--md-cell-selection-keep) * g + (1 - var(--md-cell-selection-keep)) *
+          (g - 255 * (1 - var(--md-cell-selection-alpha))) / var(--md-cell-selection-alpha)
+      )
+      calc(
+        var(--md-cell-selection-keep) * b + (1 - var(--md-cell-selection-keep)) *
+          (b - 255 * (1 - var(--md-cell-selection-alpha))) / var(--md-cell-selection-alpha)
+      )
+      / calc(var(--md-cell-selection-keep) * alpha + (1 - var(--md-cell-selection-keep)) * var(--md-cell-selection-alpha))
+  );
+}
+
+.md-prose :is(td, th).selectedCell {
+  background-image: linear-gradient(var(--md-cell-selection-color), var(--md-cell-selection-color));
+  background-clip: padding-box;
 }
 
 /* Column resizing (tables.ts ResizableTableView): a handle on the hovered column's right edge. */
@@ -600,10 +665,16 @@ body {
   color: var(--md-tok-light);
 }
 
+/* The token scheme is the paper's: a fixed `markdown.theme` paper (light or dark) wins over the App
+   Theme's appearance, which `prefers-color-scheme` follows (colorScheme.ts picks the same for diagrams). */
 @media (prefers-color-scheme: dark) {
-  .md-code [style*="--md-tok-dark"] {
+  :root:not([data-cmux-md-theme="light"]) .md-code [style*="--md-tok-dark"] {
     color: var(--md-tok-dark);
   }
+}
+
+:root[data-cmux-md-theme="dark"] .md-code [style*="--md-tok-dark"] {
+  color: var(--md-tok-dark);
 }
 
 .md-diagram {
@@ -764,7 +835,7 @@ body {
 [data-read-only="true"] .md-prose a,
 [data-read-only="true"] .md-prose sup[data-type="footnote_reference"],
 .md-prose [data-type="footnote_definition"] > dt {
-  cursor: pointer;
+  cursor: default;
 }
 
 .md-prose .md-link-broken,
@@ -817,7 +888,7 @@ body {
   color: var(--cmux-md-link-color);
   font: inherit;
   text-align: start;
-  cursor: pointer;
+  cursor: default;
 }
 
 .md-link-bubble-target:hover .md-link-bubble-url {
@@ -1176,7 +1247,7 @@ body {
   --page-hover: rgb(0 0 0 / 0.05); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
   --page-selection: rgb(0 0 0 / 0.08); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
   --page-elevated: #ffffff; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
-  background: #ffffff; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  background: #ffffff !important; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
 }
 
 :root[data-cmux-md-theme="dark"] {
@@ -1189,7 +1260,7 @@ body {
   --page-hover: rgb(255 255 255 / 0.06); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
   --page-selection: rgb(255 255 255 / 0.1); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
   --page-elevated: #2a2a2a; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
-  background: #1c1c1e; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  background: #1c1c1e !important; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
 }
 
 /* Obsidian syntax (obsidian.ts, MARKDOWN-OBSIDIAN-PARITY): Live Preview style. The file keeps the
@@ -1377,7 +1448,7 @@ body {
   border-radius: 9px 9px 9px 3px;
   background: var(--cmux-accent);
   opacity: 0.85;
-  cursor: pointer;
+  cursor: default;
 }
 
 .cmux-comment-button:hover,
@@ -1423,7 +1494,7 @@ body {
   background: none;
   color: var(--cmux-md-muted-color);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 
 .cmux-comment-delete:hover {

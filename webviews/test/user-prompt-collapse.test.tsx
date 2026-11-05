@@ -51,9 +51,11 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
-const { act } = await import("react");
+const { act, Profiler } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
+const { PromptText } = await import("../src/agent-session/acpmux/conversation/PromptText");
+const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
 const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
 const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
@@ -100,7 +102,143 @@ const click = (element: Element) =>
 const body = () => host.querySelector(".cv-user__text")!;
 const toggle = () => host.querySelector<HTMLButtonElement>(".cv-user__more");
 
+// Supply layout that JSDOM does not perform, while keeping the real component, effects and
+// observer lifecycle. The profiler counts commits, not timings on the test machine.
+function measuredPrompt(
+  initialHeight: number,
+  run: (fixture: {
+    render: (text: string) => void;
+    resize: (height: number) => void;
+    commits: string[];
+    measurements: () => number;
+  }) => void,
+) {
+  act(() => root.unmount());
+  resetTranscriptDisclosure();
+  root = createRoot(host);
+  const computed = dom.window.getComputedStyle;
+  const observer = scope.ResizeObserver;
+  const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
+  const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
+  const observers = new Set<() => void>();
+  const commits: string[] = [];
+  let height = initialHeight;
+  let measurements = 0;
+  const readHeight = () => {
+    measurements += 1;
+    return height;
+  };
+  Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: readHeight });
+  Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
+  Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({ height: readHeight() }),
+  });
+  scope.ResizeObserver = class {
+    constructor(private changed: () => void) {}
+    observe() {
+      observers.add(this.changed);
+    }
+    disconnect() {
+      observers.delete(this.changed);
+    }
+  };
+  const show = (text: string) => text;
+  try {
+    run({
+      render: (text) =>
+        act(() =>
+          root.render(
+            <Profiler id="prompt" onRender={(_id, phase) => commits.push(phase)}>
+              <div className="cv-user__bubble">
+                <PromptText rowId="measured-prompt" text={text} show={show} />
+              </div>
+            </Profiler>,
+          ),
+        ),
+      resize: (next) => {
+        height = next;
+        expect(observers.size).toBe(1);
+        act(() => {
+          observers.values().next().value!();
+        });
+      },
+      commits,
+      measurements: () => measurements,
+    });
+  } finally {
+    act(() => root.unmount());
+    root = createRoot(host);
+    scope.ResizeObserver = observer;
+    Object.assign(dom.window, { getComputedStyle: computed });
+    if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
+    else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
+    if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
+    else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+  }
+}
+
 try {
+  test("measuring a short prompt confirms its first render without a second commit", () => {
+    measuredPrompt(20, ({ render, resize, commits, measurements }) => {
+      const text = "Keep every visible row rendered";
+      render(text);
+      expect(measurements()).toBeGreaterThan(0);
+      expect(body().textContent).toBe(text);
+      expect(toggle()).toBeNull();
+      expect(commits).toEqual(["mount"]);
+      const before = measurements();
+      resize(40);
+      expect(measurements()).toBeGreaterThan(before);
+      expect(commits).toEqual(["mount"]);
+    });
+  });
+
+  test("measuring a long prompt confirms its initial clamp without a second commit", () => {
+    measuredPrompt(240, ({ render, commits, measurements }) => {
+      const text = lines(12);
+      render(text);
+      expect(measurements()).toBeGreaterThan(0);
+      expect(body().textContent).toBe(text);
+      expect(body().classList.contains("is-clamped")).toBe(true);
+      expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+      expect(commits).toEqual(["mount"]);
+    });
+  });
+
+  test("a measured prompt folds and unfolds when its width crosses ten lines", () => {
+    measuredPrompt(20, ({ render, resize }) => {
+      const text = "word ".repeat(12).trim();
+      render(text);
+      resize(240);
+      expect(body().classList.contains("is-clamped")).toBe(true);
+      expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+      resize(40);
+      expect(body().classList.contains("is-clamped")).toBe(false);
+      expect(toggle()).toBeNull();
+      expect(body().textContent).toBe(text);
+    });
+  });
+
+  test("new content ignores the previous prompt measurement and still follows later resize", () => {
+    measuredPrompt(240, ({ render, resize }) => {
+      render("A short guess that wraps in a narrow bubble");
+      expect(body().classList.contains("is-clamped")).toBe(true);
+      // Same mounted component, different text: the old short guess must not override a new
+      // long guess, and the new measurement must be able to correct that guess either way.
+      resize(40);
+      render(lines(12));
+      expect(toggle()).toBeNull();
+      resize(240);
+      expect(body().classList.contains("is-clamped")).toBe(true);
+      render("Replacement short text");
+      expect(body().classList.contains("is-clamped")).toBe(true);
+      resize(40);
+      expect(toggle()).toBeNull();
+      expect(body().textContent).toBe("Replacement short text");
+    });
+  });
+
   test("a 2,000-line prompt opens collapsed on its first lines, faded, with Show more", () => {
     resetTranscriptDisclosure();
     const text = lines(2000);
@@ -283,6 +421,84 @@ try {
       expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
       expect(body().classList.contains("is-clamped")).toBe(false);
     } finally {
+      Object.assign(dom.window, { getComputedStyle: computed });
+      if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
+      else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
+      if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
+      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+    }
+  });
+
+  test("a prompt mount does not read animation styles until the person toggles its fold", () => {
+    resetTranscriptDisclosure();
+    const duration = foldMotion.duration;
+    const reducedMotion = foldMotion.reducedMotion;
+    const animate = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "animate");
+    let durationReads = 0;
+    Object.defineProperty(dom.window.HTMLElement.prototype, "animate", {
+      configurable: true,
+      value: () => ({ cancel() {} }),
+    });
+    foldMotion.reducedMotion = () => false;
+    foldMotion.duration = () => {
+      durationReads += 1;
+      return 0;
+    };
+    try {
+      act(() => root.unmount());
+      root = createRoot(host);
+      render(prompt("user-fold-style", lines(20)));
+      expect(durationReads).toBe(0);
+      click(toggle()!);
+      expect(body().classList.contains("is-clamped")).toBe(false);
+      expect(durationReads).toBe(1);
+    } finally {
+      foldMotion.duration = duration;
+      foldMotion.reducedMotion = reducedMotion;
+      if (animate) Object.defineProperty(dom.window.HTMLElement.prototype, "animate", animate);
+      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).animate;
+    }
+  });
+
+  test("a short prompt still observes a later font or width change past the fold", () => {
+    resetTranscriptDisclosure();
+    const computed = dom.window.getComputedStyle;
+    const observer = scope.ResizeObserver;
+    const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
+    const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
+    const observers = new Set<() => void>();
+    let drawnHeight = 20;
+    Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get: () => drawnHeight,
+    });
+    Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
+    Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ height: drawnHeight }),
+    });
+    scope.ResizeObserver = class {
+      constructor(private changed: () => void) {}
+      observe() {
+        observers.add(this.changed);
+      }
+      disconnect() {
+        observers.delete(this.changed);
+      }
+    };
+    try {
+      render(prompt("user-short-geometry", "word ".repeat(12).trim()));
+      expect(toggle()).toBeNull();
+      expect(observers.size).toBeGreaterThan(0);
+      // A later font load or narrower pane wraps the same mounted prompt past ten lines.
+      drawnHeight = 240;
+      act(() => {
+        for (const changed of observers) changed();
+      });
+      expect(body().classList.contains("is-clamped")).toBe(true);
+      expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      scope.ResizeObserver = observer;
       Object.assign(dom.window, { getComputedStyle: computed });
       if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
       else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;

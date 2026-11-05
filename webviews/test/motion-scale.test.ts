@@ -7,7 +7,7 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
-import { MOTION_EASE_OUT, MOTION_MS } from "../src/motion/scale.generated";
+import { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING, MOTION_SPRING_STEP } from "../src/motion/scale.generated";
 import { SCALE, SRC, scan, scanText } from "./motion-scale";
 
 const finds = (file: string, text: string) => scanText(file, text).map((violation) => violation.line);
@@ -25,6 +25,18 @@ describe("motion scale", () => {
     const desktop = fs.readFileSync(path.join(SRC, "pages/shared/desktop.css"), "utf8");
     for (const step of SCALE.steps) expect(desktop).toContain(`--cmux-motion-${step.name}: ${step.ms}ms;`);
     expect(desktop).toContain(`--cmux-ease-out: cubic-bezier(${SCALE.easeOut.join(", ")});`);
+    expect(desktop).toContain(`--cmux-ease-spring: ${MOTION_SPRING};`);
+    expect<string>(MOTION_SPRING_STEP).toBe(SCALE.spring.step);
+  });
+
+  test("the spring starts and ends at rest and settles inside its step", () => {
+    const points = SCALE.spring.points;
+    expect(points[0]).toEqual([0, 0]);
+    expect(points.at(-1)).toEqual([1, 100]);
+    // Visibly settled (within 1% of rest) from 58% of its run on: about 140 ms of the 240 ms step.
+    const settled = points.filter(([value]) => Math.abs(value - 1) > 0.01).at(-1)![1];
+    expect((settled / 100) * MOTION_MS[MOTION_SPRING_STEP]).toBeLessThanOrEqual(MOTION_MS.large);
+    expect(MOTION_SPRING).toMatch(/^linear\(0, .* 1\)$/);
   });
 
   // What the scan caught on the base before the scale (feat-cmux-next, 2026-10-20).

@@ -34,8 +34,13 @@ public struct CookieImportRequester: Sendable, Equatable {
         self.latestMessage = latestMessage
     }
 
+    /// The name a Chief's run shows (`caller.home_chat`): its turn's session is temporary and has
+    /// no tab, so the panel names the Chief and reveals Home's chat (#32960).
+    static let chiefName = "Chief"
+
     /// Finds who asked among the open tabs: the agent chat whose session is
-    /// `caller.agent_session`, else the terminal whose id is `caller.terminal_id`.
+    /// `caller.agent_session`, else Home's chat for a Chief's turn (`caller.home_chat`), else
+    /// that session's acpmux chat, else the terminal whose id is `caller.terminal_id`.
     ///
     /// - Parameters:
     ///   - invocation: The run; its caller fields name the requester.
@@ -43,11 +48,17 @@ public struct CookieImportRequester: Sendable, Equatable {
     ///   - chat: The acpmux chat of a session (title and latest reply), nil when unknown.
     public init(_ invocation: ActionInvocation, among tabs: [CookieImportCandidate],
                 chat: (String) -> (title: String?, preview: String?)?) {
-        if let session = invocation.callerAgentSession {
-            let found = tabs.first { $0.agentSession == session }
-            let latest = chat(session)
-            self.init(kind: .agentChat, name: found?.title ?? latest?.title ?? session, workspace: found?.workspace,
-                      tabID: found?.tabID, latestMessage: latest?.preview)
+        let session = invocation.callerAgentSession
+        let latest = session.flatMap(chat)
+        if let session, let found = tabs.first(where: { $0.agentSession == session }) {
+            self.init(kind: .agentChat, name: found.title, workspace: found.workspace, tabID: found.tabID,
+                      latestMessage: latest?.preview)
+        } else if invocation.callerHomeChat {
+            let home = tabs.first(where: \.isHomeChat)
+            self.init(kind: .agentChat, name: Self.chiefName, workspace: home?.workspace, tabID: home?.tabID,
+                      latestMessage: latest?.preview)
+        } else if let session {
+            self.init(kind: .agentChat, name: latest?.title ?? session, latestMessage: latest?.preview)
         } else if let terminal = invocation.callerTerminal, let found = tabs.first(where: { $0.terminalIDs.contains(terminal) }) {
             self.init(kind: .terminal, name: found.title, workspace: found.workspace, tabID: found.tabID)
         } else {

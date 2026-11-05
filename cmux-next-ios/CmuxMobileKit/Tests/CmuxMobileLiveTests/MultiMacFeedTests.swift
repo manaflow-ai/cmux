@@ -102,6 +102,97 @@ import Testing
         #expect(feed.actions != nil)
     }
 
+    @Test func silentTerminalLedgerHasABoundedRequestAndFeedStillRefreshes() async throws {
+        UserDefaults.standard.removeObject(forKey: Self.teamKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
+        let feed = FeedStore(items: [])
+        let live = coordinator(store: emptyStore(), feed: feed,
+                               dialer: PerMacDialer(acpmux: Self.acpmux(Answers()), silentNotifications: true))
+        defer { live.stop() }
+        live.showing(macIDs: ["m1"])
+        #expect(await live.waitUntil(within: .seconds(3)) { live.sessions["m1"]?.acpmux.isReady == true })
+        let session = try #require(live.sessions["m1"])
+        session.terminalFeed.requestDeadline = .milliseconds(20)
+        let request = try #require(session.terminalFeed.request)
+        do {
+            _ = try await request("list-notifications", ["limit": 100], session.workspaces.connectionSerial)
+            Issue.record("The silent ledger unexpectedly replied")
+        } catch let error as LinkError {
+            #expect(error.code == DaemonClient.replyTimeout)
+        }
+        await feed.retry { await live.reconnectFeeds() }
+        #expect(feed.refreshError == nil)
+        #expect(session.acpmux.isReady)
+    }
+
+    @Test func feedRecoverySkipsSleepingMacsAndStartsOnlineMacsTogether() async {
+        UserDefaults.standard.removeObject(forKey: Self.teamKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
+        let store = emptyStore()
+        let live = coordinator(store: store, feed: FeedStore(items: []), dialer: PerMacDialer())
+        defer { live.stop() }
+        store.teams[0].macs.append(MacDevice(id: "sleeping", name: "Demo sleeping Mac", isOnline: false))
+        let (entered, record) = AsyncStream<String>.makeStream()
+        let (release, resume) = AsyncStream<Void>.makeStream()
+        var started = Set<String>()
+        let deadline = Task {
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            record.finish()
+            resume.finish()
+        }
+        defer { deadline.cancel() }
+        let work = Task { @MainActor in
+            await live.reconnectFeeds { macID in
+                started.insert(macID)
+                record.yield(macID)
+                // Both calls must enter before either can complete.
+                if macID == "m1" { for await _ in release { break } }
+            }
+            record.finish()
+        }
+        for await _ in entered {
+            if started.count == 2 { break }
+        }
+        #expect(started == ["m1", "m2"])
+        resume.yield(())
+        resume.finish()
+        await work.value
+    }
+
+    @Test func retryReopensFailedFeedChannelOnConnectedMac() async throws {
+        UserDefaults.standard.removeObject(forKey: Self.teamKey)
+        defer { UserDefaults.standard.removeObject(forKey: Self.teamKey) }
+        let feed = FeedStore(items: [])
+        let store = emptyStore()
+        let dialer = PerMacDialer(acpmux: Self.acpmux(Answers()))
+        let live = coordinator(store: store, feed: feed, dialer: dialer)
+        defer { live.stop() }
+        live.showing(macIDs: ["m1"])
+        #expect(await live.waitUntil(within: .seconds(3)) { live.sessions["m1"]?.acpmux.isReady == true })
+        let session = try #require(live.sessions["m1"])
+        let link = try #require(session.currentLink)
+        let dials = dialer.dialCount("m1")
+        let channel = try await link.openChannel(service: "acpmux", args: [:])
+        await session.acpmux.bind(channel)
+        #expect(session.acpmux.isReady)
+        // End the channel's receive stream while its Mac link stays connected.
+        // Do not reset the hub or inject a diagnostic: teardown must do that.
+        await channel.close(code: "eof", reason: "remote closed")
+        #expect(await live.waitUntil(within: .seconds(3)) { !session.acpmux.isReady })
+        #expect(session.acpmux.lastError != nil)
+        await feed.refresh()
+        #expect(feed.refreshError != nil)
+
+        await feed.retry { await live.reconnectFeed(macID: "m1") }
+
+        #expect(session.currentLink === link)
+        #expect(dialer.dialCount("m1") == dials)
+        #expect(session.acpmux.isReady)
+        #expect(session.chatsError == nil)
+        #expect(feed.refreshError == nil)
+        #expect(feed.item(id: "ask-perm-m1") != nil)
+    }
+
     /// The user's report: the second Mac's agent asks, the first Mac is the
     /// chosen one, and both are connected. Deny reaches the second Mac only.
     @Test func anAskFromTheOtherMacIsAnsweredOnThatMac() async throws {

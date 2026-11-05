@@ -1,0 +1,122 @@
+{
+ "id": "found-desync-cmd-n-page",
+ "priority": "P1",
+ "title": "fuzz finding (desync): at the first Cmd-N of a fresh launch, the app's own world check (debug.desync) checks every window (none unsettled) and finds no G1, W1 or W4",
+ "why": "Action fuzz, layout set, 2026-10-31T08:xxZ (STATUS items 1002, 1022): after each Cmd-N, G1 'page window (618, 268, 892, 692) covers no pane' (x11 on feat-tip-fixes-v2, job f2f3083bac80ab71101d03ac; x10 on v2.2.10-opt, job 2efedfc30af35b895f12b6fe; cmux20). At the first Cmd-N of a launch, W1 'appkit content:pane_* (PageWebView) != model agentPage' and W4 'chromium page nil != model tab_*' (v2.2.10-opt, v2.2.11-opt 78ca62c225bb0943594e3cd2). W1/W4 need the app to be inactive while the cold New Tab page's Chromium page attaches; on feat builds the app's window becomes key in the slot, so W1/W4 do not occur there and only G1 makes this journey red on the feat base. The fix is #29272. first_in_app + fresh_app: only the first Cmd-N of a launch starts a cold New Tab page (an earlier journey in the lease would start Chromium and could hide W1/W4). check.unsettled must be empty: debug.desync skips W1-W4 for an unsettled window. The rpc steps keep debug.desync, debug.focus and debug.layers in result.json as evidence.",
+ "source": "scripts/journeys/fuzz.py (ext_fuzz) recorded findings, not shrunk (one action); review of #29274 (FIX at 6e1b67e71e0)",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "fresh_app"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "fuzz_run",
+   "sequence": [
+    {
+     "a": "new_workspace",
+     "t": "slow"
+    }
+   ],
+   "set": "layout",
+   "shrink": false,
+   "budget_s": 90
+  },
+  {
+   "do": "wait",
+   "seconds": 3
+  },
+  {
+   "do": "rpc",
+   "method": "debug.desync",
+   "params": {
+    "check": true
+   }
+  },
+  {
+   "do": "rpc",
+   "method": "debug.focus"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.layers"
+  },
+  {
+   "do": "expect",
+   "title": "3 s after Cmd-N: every window checked (none unsettled), so the W1-W4 checks below read a settled window",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.desync",
+      "params": {
+       "check": true
+      },
+      "path": "check.unsettled",
+      "len": 0
+     }
+    }
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "then: no G1 (every page window covers its pane), no W1 (first responder matches the model), no W4 (the applier's Chromium page is the model's); the daemon agrees with the app; the window is not blank",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.desync",
+      "params": {
+       "check": true
+      },
+      "path": "check.violations",
+      "lacks": "\"G1\""
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.desync",
+      "params": {
+       "check": true
+      },
+      "path": "check.violations",
+      "lacks": "\"W1\""
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.desync",
+      "params": {
+       "check": true
+      },
+      "path": "check.violations",
+      "lacks": "\"W4\""
+     }
+    },
+    {
+     "smoke_frame": {
+      "min_lines": 1
+     }
+    },
+    {
+     "fuzz_daemon_agrees": {}
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "smoke_close_all"
+  }
+ ],
+ "first_in_app": true
+}

@@ -4,7 +4,10 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
+import CmuxNextFiles
 import CmuxNextLayout
+import CmuxNextTabs
 
 /// Tab actions (category `.tab` except `tabGroup.*`): create, close,
 /// select, reorder, rename, pin, and move to other panes, splits, columns,
@@ -19,6 +22,7 @@ enum TabHandlers {
         TabHandlers.bindMoreActions(into: registry, context: ctx)
         PaneTabBarHandlers.bind(into: registry, context: ctx)
         TabRestart.bind(into: registry, context: ctx)
+        registry.bindEffect("debug.tabBarPlayground", effect: { [playground = TabBarPlaygroundWindow()] _ in playground.show(); return .done })
     }
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -136,7 +140,7 @@ enum TabHandlers {
         // `cmux pane <id> focus` / `cmux screen <id> focus`: the same reveal, by target.
         registry.bind("pane.focus", invoke: { invocation in
             guard let ref = invocation.target, ref.kind == .pane else { return ctx.refuse(RefusalStrings.paneArgumentRequired) }
-            revealPane(paneID: ref.id, ctx: ctx)
+            revealPane(paneID: ref.id, invocation: invocation, ctx: ctx)
         })
         registry.bind("screen.focus", invoke: { invocation in
             guard let ref = invocation.target, ref.kind == .screen else { return ctx.refuse(RefusalStrings.noScreen("")) }
@@ -158,34 +162,29 @@ enum TabHandlers {
     }
 
     /// pane.focus: the pane's workspace and screen shown, the pane focused.
-    static func revealPane(paneID: String, ctx: AppActionContext) {
+    /// On the invocation's machine; a bare id two machines share is refused (cmux#30755).
+    static func revealPane(paneID: String, invocation: ActionInvocation, ctx: AppActionContext) {
         guard ActionRunScope.viewChangeAllowed() else { return }
-        for (workspace, _) in ctx.services.machines.allWorkspaces {
-            for screen in workspace.screens {
-                if let pane = screen.panes.first(where: { $0.id == paneID || $0.resourceID?.rawValue == paneID }) {
-                    return reveal(workspace: workspace, screen: screen, pane: pane, tab: nil, ctx: ctx)
-                }
-            }
-        }
-        let _: Bool? = ctx.notFound(RefusalStrings.noPaneID(paneID))
+        guard let pane = ctx.targetPane(paneID, invocation) ?? ctx.notFound(RefusalStrings.noPaneID(paneID)),
+              let (workspace, screen) = owner(of: pane, ctx) ?? ctx.notFound(RefusalStrings.noPaneID(paneID)) else { return }
+        reveal(workspace: workspace, screen: screen, pane: pane, tab: nil, ctx: ctx)
     }
 
     /// screen.focus: the screen's workspace shown, the screen selected.
     static func revealScreen(screenID: String, ctx: AppActionContext) {
         guard ActionRunScope.viewChangeAllowed() else { return }
-        for (workspace, _) in ctx.services.machines.allWorkspaces {
-            if let screen = workspace.screens.first(where: { $0.id == screenID || $0.resourceID?.rawValue == screenID }) {
+        // Each machine's index, local first (the order `allWorkspaces` walked).
+        for daemon in ctx.services.machines.daemons {
+            if let screen = daemon.store.screen(idOrResource: screenID), let workspace = daemon.store.workspace(holding: screen) {
                 return reveal(workspace: workspace, screen: screen, pane: nil, tab: nil, ctx: ctx)
             }
         }
         let _: Bool? = ctx.notFound(RefusalStrings.noScreen(screenID))
     }
 
+    /// The workspace and screen holding this very `pane`, from each machine's index (O(machines)).
     private static func owner(of pane: PaneModel, _ ctx: AppActionContext) -> (WorkspaceModel, ScreenModel)? {
-        for (workspace, _) in ctx.services.machines.allWorkspaces {
-            if let screen = workspace.screens.first(where: { $0.panes.contains { $0 === pane } }) { return (workspace, screen) }
-        }
-        return nil
+        ctx.services.machines.daemons.lazy.compactMap { $0.store.location(of: pane) }.first.map { ($0.workspace, $0.screen) }
     }
 
     /// The one reveal of tab.focus, pane.focus and screen.focus: the window
@@ -277,11 +276,11 @@ enum TabHandlers {
                 // On one of several selected tabs, Pin pins them all unless all are pinned (Chrome's Pin Tabs).
                 let strip = invocation.actsOnTabSelection ? ctx.services.paneController(for: pane)?.stripModel : nil
                 let ids = strip?.actingTabs(for: StripTabID(tab.id)) ?? [StripTabID(tab.id)], pin = strip?.pinsAll(ids) ?? !tab.pinned
-                return ids.forEach { commands.setTabPinned($0.rawValue, pinned: pin, origin: invocation.origin) }
+                return ids.forEach { commands.setTabPinned($0.rawValue, pinned: pin, origin: invocation.origin, machineID: invocation.targetMachineID) }
             }
             guard let (pane, id) = ctx.tab(invocation) else { return }
             guard let tab = pane.tab(id) ?? ctx.refuse(RefusalStrings.sessionLocalCannotPin) else { return }
-            commands.setTabPinned(id.rawValue, pinned: !tab.pinned, origin: invocation.origin)
+            commands.setTabPinned(id.rawValue, pinned: !tab.pinned, origin: invocation.origin, machineID: invocation.targetMachineID)
         })
         // A tab only this app holds (an internal page, a session-only browser tab) has no daemon
         // record to pin: its menu has no Pin row, rather than one that refuses.
@@ -291,10 +290,41 @@ enum TabHandlers {
         }
         // The tab menu reads Pin Tab or Unpin Tab for the right-clicked tab.
         ActionTargetTitles.set("palette.toggleTabPin", in: registry) { invocation in
-            guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return nil }
+            guard let id = invocation.target?.id, let (tab, _) = ctx.targetTab(id, invocation) else { return nil }
             return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
         }
         PinnedPage.bind(registry, ctx: ctx)
+        // Edit Source and Open as Page (u18051, u18462): a rendered page and its source in the code editor, one action apart.
+        for (id, asText) in [("browser.editSource", true), ("file.openAsPage", false)] as [(ActionID, Bool)] {
+            registry.bindEffect(id, effect: { switchView($0, ctx, asText: asText) })
+            ActionTargetVisibility.hide(id, in: registry) { otherView($0, ctx, asText: asText) == nil }
+        }
+    }
+
+    /// The file the targeted (else focused) tab's other view shows (``FileOpenKind/otherView(asText:editorFile:markdownFile:pageURL:)``).
+    private static func otherView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> (file: URL, machine: DaemonService, tab: String)? {
+        let s = ctx.services
+        guard let id = (invocation.target?.kind == .tab ? invocation.target?.id : nil) ?? s.windows.active?.focusedPane?.stripModel.selectedID?.rawValue else { return nil }
+        let key = FilePageHandlers.providerKey(id, s)
+        if let kind = FilePageKind.allCases.first(where: { $0.page == LocalPageTab.page(of: key) }) {
+            guard let location = FilePageHandlers.service(kind, s).location(key),
+                  location.machine.isLocal || FilePageKind.isMarkdown(location.file),
+                  let file = FileOpenKind.otherView(asText: asText, editorFile: kind == .editor ? location.file : nil,
+                                                   markdownFile: kind == .markdown ? location.file : nil, pageURL: nil) else { return nil }
+            return (file, location.machine, id)
+        }
+        guard let file = FileOpenKind.otherView(asText: asText, editorFile: nil, markdownFile: nil,
+                                                pageURL: ctx.targetTab(id, invocation)?.0.url ?? s.cache.existingBrowser(id)?.tab.state.url?.absoluteString) else { return nil }
+        return (file, s.daemon, id)
+    }
+
+    private static func switchView(_ invocation: ActionInvocation, _ ctx: AppActionContext, asText: Bool) -> ActionEffect {
+        guard let location = otherView(invocation, ctx, asText: asText) else { return .refused(FilePageStrings.notAFile) }
+        // The source pane is the tab's own, found on its machine (#28731), as the menu row resolved it.
+        let source = ctx.targetTab(location.tab, invocation).flatMap { ctx.services.paneController(for: $0.1) }
+            ?? ctx.services.paneController(showingTab: location.tab) // an app-only tab (a Cloud file page) has no store record
+        ctx.services.linkOpener.openFile(location.file, on: location.machine, from: source, asText: asText)
+        return .done
     }
 
     /// Optimistic rename; an empty name clears it on the daemon.

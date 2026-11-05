@@ -16,6 +16,376 @@ def git(cwd, *args):
 
 
 class ReleaseNotesTests(unittest.TestCase):
+    def test_pr_body_description_is_plain_and_deterministic(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        body = """## Summary\n\nInternal implementation details.\n\n## Changelog\n\nFixed: [Tabs](https://cmux.com/tabs) keep their position after restart\n\n## Testing\n\n- not user copy\n"""
+        self.assertEqual(notes.pr_description(body), "Tabs keep their position after restart.")
+        self.assertEqual(
+            notes.pr_description(
+                "## Summary\n\nInternal implementation details that must stay hidden.\n"
+                "\n## Changelog\n\nFixed: Tabs keep their position after a restart,\n"
+                "across every workspace window."
+            ),
+            "Tabs keep their position after a restart, across every workspace window.",
+        )
+        self.assertEqual(notes.pr_description("## Changelog\n\nnone\n"), "")
+        for placeholder in ("Fixed: none", "Fixed: N/A", "Fixed:", "N/A"):
+            with self.subTest(placeholder=placeholder):
+                self.assertEqual(notes.pr_description("## Summary\n" + placeholder, "Tabs stay put"), "Tabs stay put.")
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nTabs stay put after restart. The next sentence is implementation detail."),
+            "Tabs stay put after restart.",
+        )
+        for punctuation in (".", "!", "?", "。", "！", "？"):
+            with self.subTest(punctuation=punctuation):
+                self.assertEqual(notes.pr_description(
+                    f"## Changelog\n\nFixed: Tabs stay put{punctuation} Another sentence. A third sentence."),
+                    f"Tabs stay put{punctuation}")
+        self.assertEqual(notes.pr_description("", "Tabs stay put. Extra detail."), "Tabs stay put.")
+        self.assertEqual(notes.pr_description("## Summary\n\n\"Tabs stay put.\" More detail."), "\"Tabs stay put.\"")
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nTabs restore e.g. pinned panes after restart."),
+            "Tabs restore e.g. pinned panes after restart.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nChoose “Keep tabs.” after restart."),
+            "Choose “Keep tabs.” after restart.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nSee https://cmux-platform.example/run/123 for details." , "Tabs stay put"),
+            "Tabs stay put.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nThe run is on gcp-codex-lane-2.us-west1.c.example.internal." , "Tabs stay put"),
+            "Tabs stay put.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Changelog\n\nFixed: The run is 0123456789abcdef0123 and uses cmux-platform." , "Tabs stay put"),
+            "Tabs stay put.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nImplementation details.\n\n## Changelog\n\nnone", "Tabs stay put"),
+            "Tabs stay put.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Summary\n\nTabs stay put after a restart,\nacross every workspace window."),
+            "Tabs stay put after a restart, across every workspace window.",
+        )
+        self.assertEqual(
+            notes.pr_description("## Changelog\n\nFixed: Tabs stay put after a restart,\nacross every workspace window."),
+            "Tabs stay put after a restart, across every workspace window.",
+        )
+
+    def test_summary_lines_carry_no_work_tracking_codes_or_infrastructure(self):
+        # Leo 2026-11-02, on What's New rows: "why is the what's new the 0 information density one".
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_codes", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        self.assertEqual(
+            notes.summary_entry("P0 RESIZE KEYS K4: Ctrl-Shift-J/K move a row edge one exact step (#31001)"),
+            ("changed", "Ctrl-Shift-J/K move a row edge one exact step"))
+        self.assertIsNone(notes.summary_entry("P0 RESIZE F1 part 1 of 2 (#31002)"))
+        self.assertEqual(notes.summary_entry("Chrome glyphs come from one bitmap (REOPEN-F7 part A2)"),
+                         ("changed", "Chrome glyphs come from one bitmap"))
+        self.assertEqual(notes.summary_entry("Cmux NEXT agent pane: a file drag rings the composer"),
+                         ("changed", "A file drag rings the composer"))
+        self.assertIsNone(notes.summary_entry("Start the Native link in ad hoc builds"))
+        self.assertIsNone(notes.summary_entry("Cancelled, skipped and superseded runs are not counted as failing"))
+        # No filler under a title: a PR body with nothing usable gives no description.
+        self.assertEqual(notes.pr_description("", "The run uses cosmic-gray."), "")
+
+    def test_description_safety_and_sentence_boundaries(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        unsafe = (
+            "See https://private.example/changes for details.",
+            "See private.example/changes for details.",
+            "The run uses cosmic-gray.",
+            "The session is 01234567-89ab-cdef-0123-456789abcdef.",
+            "The session is aid-0123456789abcdef.",
+            "Tabs stay put after work in cmux-platform.",
+        )
+        for text in unsafe:
+            for heading in ("Summary\n", "Changelog\nFixed:"):
+                with self.subTest(text=text, heading=heading):
+                    description = notes.pr_description(f"## {heading} {text}", "Tabs stay put")
+                    self.assertEqual(description, "Tabs stay put.")
+            # Never the filler line (Leo 2026-11-02, "the 0 information density one").
+            self.assertEqual(notes.pr_description("", text), "")
+        for text in (
+            "Tabs restore e.g. pinned panes after restart.",
+            "Tabs restore i.e. reopen after restart.",
+            "Tabs restore e.g. pinned panes etc. after restart.",
+            "Tabs restore e.g. pinned panes, i.e. saved panes, etc. after restart.",
+            "'Tabs stay put.'",
+            '"Tabs stay put."',
+            "“Tabs stay put.”",
+            "‘Tabs stay put.’",
+            'Choose "Keep tabs." after restart.',
+            "Choose “Keep tabs.” after restart.",
+            "Choose 'Keep tabs.' after restart.",
+            "Choose ‘Keep tabs.’ after restart.",
+            "Don't close tabs after choosing 'Keep tabs.' on restart.",
+            "Don't close tabs after choosing ‘Keep tabs.’ on restart.",
+            "Zoom stays at 1.5 after restart.",
+            "Tabs wait... then restore after restart.",
+        ):
+            with self.subTest(text=text):
+                description = notes.pr_description(f"## Summary\n{text} More detail.")
+                self.assertEqual(description, text)
+                args = type("Args", (), {"short": "1.0.0-nightly.1", "date": "2026-10-30"})()
+                digest = notes.summary_whats_new_digest(args, [
+                    {"group": "fixed", "title": "Tabs stay put", "description": description}])
+                self.assertIsNotNone(digest)
+                self.assertEqual(digest["entries"][0]["summary"]["en"], text)
+
+    def test_private_sources_are_rejected_before_markdown_normalization(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        unsafe = (
+            "The run is on cmux12s-mac-mini.",
+            "See //10.0.0.1/private for details.",
+            "See [the run](https://private.example/run) for details.",
+            "The value is session_id_abcdefghij.",
+            "See [the run](https://cmux.com.private.example/run) for details.",
+            "See [the run](https://github.com/manaflow-ai-private/cmux) for details.",
+        )
+        for text in unsafe:
+            for prefix in ("## Summary\n", "## Changelog\nFixed: "):
+                with self.subTest(text=text, prefix=prefix):
+                    self.assertEqual(notes.pr_description(prefix + text, "Tabs stay put"), "Tabs stay put.")
+
+    def test_sentence_ending_no_and_etc_stop_description_extraction(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        for text, first in (
+            ("Choose yes or no. Tabs restore. Panes remain.", "Choose yes or no."),
+            ("Restore tabs, panes, etc. Keep your layout. Resume work.", "Restore tabs, panes, etc."),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(notes.pr_description("## Summary\n" + text), first)
+                self.assertEqual(notes.pr_description("## Summary\n" + first), first)
+
+    def test_complete_quoted_sentences_still_end_description_extraction(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        for opening, closing in (("'", "'"), ('"', '"'), ("‘", "’"), ("“", "”")):
+            with self.subTest(opening=opening):
+                first = f"{opening}Tabs stay put.{closing}"
+                self.assertEqual(notes.pr_description(
+                    f"## Summary\n{first} {opening}Panes stay open.{closing} More detail."), first)
+                self.assertEqual(notes.pr_description(
+                    f"## Summary\nDon't close tabs. {opening}Keep tabs.{closing}"), "Don't close tabs.")
+
+    def test_public_links_remain_allowed(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        self.assertEqual(
+            notes.pr_description("## Summary\nSee [the changelog](https://github.com/manaflow-ai/cmux/pull/12345) for details."),
+            "See the changelog for details.",
+        )
+
+    def test_pr_body_timeout_returns_media_style_empty_fallback(self):
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        with mock.patch.object(notes.subprocess, "run", side_effect=notes.subprocess.TimeoutExpired("gh", 10)):
+            body = notes.pr_body(123, None)
+        self.assertEqual(body, "")
+        self.assertEqual(notes.pr_description(body, "Tabs stay put"), "Tabs stay put.")
+        with mock.patch.object(notes.subprocess, "run", side_effect=FileNotFoundError("gh")):
+            self.assertEqual(notes.pr_body(123, None), "")
+        with mock.patch.object(notes.subprocess, "run") as run:
+            self.assertEqual(notes.pr_body(123, None, deadline=0), "")
+            run.assert_not_called()
+
+    def test_pr_body_outage_obeys_shared_budget(self):
+        import importlib.util
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        elapsed = 0
+
+        def timeout(*args, **kwargs):
+            nonlocal elapsed
+            elapsed += kwargs["timeout"]
+            raise notes.subprocess.TimeoutExpired("gh", kwargs["timeout"])
+
+        with mock.patch.object(notes.time, "monotonic", side_effect=lambda: elapsed), \
+                mock.patch.object(notes.subprocess, "run", side_effect=timeout) as run:
+            for number in range(200):
+                body = notes.pr_body(number, None, deadline=25)
+                self.assertEqual(notes.pr_description(body, "Tabs stay put"), "Tabs stay put.")
+            self.assertEqual(elapsed, 25)
+            self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list], [10, 10, 5])
+
+    def test_backend_descriptions_are_internal_and_summary_digest_uses_description(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        self.assertTrue(notes.internal_change("fix: encode snapshot cutoff for Postgres"))
+        self.assertFalse(notes.internal_change("fix: tabs keep their position"))
+        args = type("Args", (), {"short": "1.0.0-nightly.1", "date": "2026-10-30"})()
+        digest = notes.summary_whats_new_digest(args, [{"group": "fixed", "title": "Tabs keep their position", "description": "They stay put after restart."}])
+        self.assertEqual(digest["entries"][0]["summary"]["en"], "They stay put after restart.")
+
+    def test_build_pr_descriptions_are_embedded_and_backend_items_are_hidden(self):
+        since = self.head
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", "fix: tabs keep their position after restart (#123)")
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", "fix: encode snapshot cutoff for Postgres (#124)")
+        head = git(self.repo, "rev-parse", "HEAD")
+        fixture = os.path.join(self.repo, "pr-fixture.json")
+        with open(fixture, "w") as out:
+            json.dump({"bodies": {
+                "123": "<!-- generated -->\n## Changelog\n\nFixed: [Tabs](https://cmux.com/tabs) keep their position after restart. More detail. Even more detail.",
+                "124": "## Summary\n\nInternal database cutoff plumbing.",
+            }, "files": {}}, out)
+        notes_dir = os.path.join(self.repo, "pr-notes")
+        env = {**os.environ, "CMUX_RELEASE_NOTES_PR_FIXTURE": fixture}
+        result = subprocess.run(
+            [sys.executable, SCRIPT, "build", "--build", "9", "--short", "1.0.0-nightly.9", "--date", "2026-10-30",
+             "--head", head, "--since", since, "--out", notes_dir, "--pr-descriptions"],
+            cwd=self.repo, env=env, capture_output=True, text=True, check=True,
+        )
+        self.assertTrue(result.stdout.strip())
+        with open(os.path.join(notes_dir, "9.json")) as source:
+            notes = json.load(source)
+        by_pr = {item["pr"]: item for item in notes["items"]}
+        self.assertEqual(by_pr[123]["description"], "Tabs keep their position after restart.")
+        self.assertTrue(by_pr[124]["internal"])
+        self.assertEqual([line["title"] for line in notes["summary"]], ["Tabs keep their position after restart"])
+        self.assertEqual(notes["whatsNew"]["entries"][0]["summary"]["en"], "Tabs keep their position after restart.")
+
+    def test_invalid_descriptions_fall_back_without_dropping_the_change(self):
+        since = self.head
+        title = "Tabs keep their position after restart"
+        git(self.repo, "commit", "-q", "--allow-empty", "-m", f"fix: {title} (#123)")
+        head = git(self.repo, "rev-parse", "HEAD")
+        fixture = os.path.join(self.repo, "invalid-description-fixture.json")
+        notes_dir = os.path.join(self.repo, "invalid-description-notes")
+        invalid = [f"Resolves {reference}." for reference in (
+            "#12345", "issue 12345", "PR #12345", "pull request 12345", "cx-abc123")]
+        invalid += [
+            "- fix: keep tabs in place",  # Plain copy is still a commit subject after stripping the bullet.
+            "- fix(tabs): keep tabs in place",
+            "Fixed: none", "Fixed: N/A", "Fixed: n/a", "Fixed:", "N/A", "Summary: N/A",
+            "The run is on cmux12s-mac-mini.",
+            "See //10.0.0.1/private for details.",
+            "See [the run](https://private.example/run) for details.",
+            "The value is session_id_abcdefghij.",
+        ]
+        for description in invalid:
+            for section in ("## Summary\n", "## Changelog\nFixed: "):
+                with self.subTest(description=description, section=section):
+                    with open(fixture, "w") as out:
+                        json.dump({"bodies": {"123": f"{section}{description}"}}, out)
+                    subprocess.run(
+                        [sys.executable, SCRIPT, "build", "--build", "9", "--short", "1.0.0-nightly.9",
+                         "--date", "2026-10-30", "--head", head, "--since", since, "--out", notes_dir,
+                         "--pr-descriptions"], cwd=self.repo,
+                        env={**os.environ, "CMUX_RELEASE_NOTES_PR_FIXTURE": fixture},
+                        capture_output=True, text=True, check=True,
+                    )
+                    with open(os.path.join(notes_dir, "9.json")) as source:
+                        notes = json.load(source)
+                    expected = title + "."
+                    self.assertEqual(notes["items"][0]["description"], expected)
+                    self.assertEqual(notes["summary"][0]["description"], expected)
+                    entries = notes["whatsNew"]["entries"]
+                    self.assertEqual(len(entries), 1)
+                    self.assertEqual(entries[0]["id"], "summary-0")
+                    self.assertEqual(entries[0]["summary"]["en"], expected)
+
+    def test_digest_rejects_invalid_description_without_dropping_valid_title(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        args = type("Args", (), {"short": "1.0.0-nightly.1", "date": "2026-10-30"})()
+        digest = notes.summary_whats_new_digest(args, [{
+            "group": "fixed", "title": "Tabs stay put", "description": "fix: keep tabs in place."}])
+        self.assertIsNotNone(digest)
+        self.assertEqual(digest["entries"][0]["summary"]["en"], "Tabs stay put.")
+
+    def test_low_density_rows_never_reach_the_digest(self):
+        # Leo 2026-11-02, "the 0 information density one": work-stream codes, a code-only subject,
+        # a summary that is a piece of its title, and every pipeline line read as "improved".
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_density", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        self.assertEqual(
+            notes.summary_entry("P0 RESIZE KEYS K4: Ctrl-Shift-J/K move a row edge one exact step (#32001)"),
+            ("changed", "Ctrl-Shift-J/K move a row edge one exact step"))
+        self.assertEqual(
+            notes.summary_entry("Cmux-tui + app: hidden terminals no longer wake the app (SWITCH FRAMES SF-5 B) (#3)"),
+            ("fixed", "Hidden terminals no longer wake the app"))
+        self.assertEqual(notes.summary_entry("Chrome glyphs keep size and scale (REOPEN-F7 part A2)"),
+                         ("changed", "Chrome glyphs keep size and scale"))
+        self.assertIsNone(notes.summary_entry("P0 RESIZE F1 part 1 of 2 (#32002)"))
+        self.assertEqual(notes.summary_entry("Pick a model (GPT-5 only) per chat"),
+                         ("changed", "Pick a model (GPT-5 only) per chat"))
+        # A code-only subject takes its pull request's description as its line.
+        subject = "P0 RESIZE F1 part 1 of 2 (#32002)"
+        lines = notes.summarize_changes([subject], descriptions={
+            subject: "Closing a pane no longer tears down its terminal during the close animation."})
+        self.assertEqual(lines, [{"group": "fixed",
+                                  "title": "Closing a pane no longer tears down its terminal during the close animation"}])
+        for piece in ("And name the check that refuses it", "(alternates) to Cloud", "8 under the run", "Size and scale"):
+            self.assertTrue(notes.is_fragment(piece), piece)
+        for whole in ("Not one globe.", "macOS windows keep their shadow", "Turn it on from the Command Palette"):
+            self.assertFalse(notes.is_fragment(whole), whole)
+        # The validator refuses the codes in a curated entry.
+        validate = notes._description_validator()
+        for text in ("P0 RESIZE keys move a row.", "Glyphs share a bitmap (REOPEN-F7).", "Panes close faster, part 1 of 2."):
+            problems = validate.Problems("entry")
+            validate.check_text(problems, "summary", text, "summary", "en")
+            self.assertTrue(problems.items, text)
+
+    def test_long_digest_title_fallback_never_makes_a_fragment_the_summary(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_descriptions", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        args = type("Args", (), {"short": "1.0.0-nightly.1", "date": "2026-10-30"})()
+        title = "Sidebar rows keep their order, even when a workspace is renamed while another one is dragged"
+        for description in (None, "", "fix: keep rows in place.", "See issue #12345."):
+            with self.subTest(description=description):
+                line = {"group": "fixed", "title": title}
+                if description is not None:
+                    line["description"] = description
+                digest = notes.summary_whats_new_digest(args, [line])
+                self.assertIsNotNone(digest)
+                self.assertEqual(len(digest["entries"]), 1)
+                entry = digest["entries"][0]
+                self.assertEqual(entry["title"]["en"], "Sidebar rows keep their order")
+                # "Even when …" is the rest of the sentence, not one of its own: the summary is the
+                # whole line, which the page shows as the one title (Leo 2026-11-02: "the 0
+                # information density one", on rows whose line was a piece of the title).
+                self.assertEqual(entry["summary"]["en"], title + ".")
+        description = "Your layout stays stable as you rename workspaces."
+        digest = notes.summary_whats_new_digest(args, [
+            {"group": "fixed", "title": title, "description": description}])
+        self.assertEqual(digest["entries"][0]["summary"]["en"], description)
+
     def test_digest_titles_are_unique_when_long_lines_share_a_first_clause(self):
         # Review of #22099: short_title cuts both lines to "Sidebar rows keep their order",
         # and the pre-publish check rejects a digest that shows one title twice.
@@ -32,6 +402,20 @@ class ReleaseNotesTests(unittest.TestCase):
         digest = notes.summary_whats_new_digest(args, lines)
         titles = [entry["title"]["en"].lower() for entry in digest["entries"]]
         self.assertEqual(len(titles), len(set(titles)), titles)
+
+    def test_short_title_never_cuts_inside_parentheses(self):
+        # Leo 2026-11-01: What's New showed "Routing follow-ups (trim recovered route" over
+        # "Prepared presets only, cap before split).", one line cut at a comma inside its parens.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("release_notes_parens", SCRIPT)
+        notes = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(notes)
+        line = "Routing follow-ups (trim recovered route, prepared presets only, cap before split)"
+        self.assertIsNone(notes.short_title(line, 60))
+        self.assertEqual(
+            notes.short_title("Routing follow-ups (trim route, presets only), and the cap moves before the split in every pass", 60),
+            "Routing follow-ups (trim route, presets only)",
+        )
 
     def setUp(self):
         self.repo = tempfile.mkdtemp()
@@ -73,6 +457,24 @@ class ReleaseNotesTests(unittest.TestCase):
         notes = self.build(added, build="3")
         self.assertEqual(notes["highlights"], [])
         self.assertEqual(notes["changes"], ["sidebar: tidy"])
+
+    def test_added_then_reverted_highlight_is_absent_from_notes_and_digest(self):
+        path = "release-notes/next/highlights/reverted-tray.md"
+        with open(os.path.join(self.repo, path), "w") as f:
+            f.write("title: Reverted tray\naction: palette.checkForUpdates | Try it\n\nA reverted feature.\n")
+        git(self.repo, "add", path)
+        git(self.repo, "commit", "-q", "-m", "feat: Add tray highlight")
+        git(self.repo, "revert", "--no-edit", "HEAD")
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        # The checkout can contain an untracked stale copy; the source tree wins.
+        with open(os.path.join(self.repo, path), "w") as f:
+            f.write("title: Stale tray\n\nDo not publish this.\n")
+        for since in (self.base, ""):
+            with self.subTest(since=since):
+                notes = self.build(since)
+                self.assertEqual([h["id"] for h in notes["highlights"]], ["update-card"])
+                self.assertEqual([e["id"] for e in notes["whatsNew"]["entries"]], ["update-card"])
+                self.assert_valid_digest(notes["whatsNew"])
 
     def test_a_long_summary_line_without_a_clause_stays_out_of_the_digest(self):
         since = self.head

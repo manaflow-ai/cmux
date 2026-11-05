@@ -43,82 +43,52 @@ nonisolated public struct PulledBuild: Equatable, Sendable, Decodable {
     }
 }
 
-/// The pulled-build banner (nightly train, section 2): when the running build is on the feed's
-/// pulled list, the update notice card says so and offers two choices: "Wait for the Fix"
-/// (the default: the fix-forward build installs through the normal background update) and
-/// "Roll Back" to the build this Mac kept (``UpdateDropBack/failure(to:stateDirectories:)``),
-/// shown only when that rollback would run and asked about first (``confirmRollBack``). The list
-/// is read at launch and after every Sparkle update cycle (scheduled, launch, wake, or asked for);
-/// nothing polls.
+/// The feed's pulled list (nightly train, section 2), read at launch and after every Sparkle update
+/// cycle (scheduled, launch, wake, or asked for); nothing polls. A pulled build never shows a banner
+/// or a rollback choice (Leo 2026-10-29: "why the fuck am I even getting a thing that I can download
+/// that I can just— that was pulled in the first place? Just fucking cancel it"): the updater drops
+/// a staged pulled build and gets the newest good one, and a running pulled build updates to the
+/// newest good one (``UpdaterService/followPulled()``).
 @MainActor
 @Observable
 public final class PulledBuildWatch {
     /// The running build's entry on the pulled list, or nil.
     public private(set) var pulled: PulledBuild?
-    /// The kept build a rollback would go to, or nil (none kept, or it cannot read the stores).
-    public private(set) var rollbackTarget: KeptVersion?
-    /// Every build on the pulled list: the Updated card leaves them out when it counts the newer
-    /// builds ("2 builds behind newest"), since no Mac is offered them.
+    /// Every build seen on the pulled list since launch: the Updated card leaves them out when it counts the newer
+    /// builds ("2 builds behind newest"), and the updater never installs one.
     public private(set) var pulledBuilds: [String] = []
-    /// The build whose banner the person answered "Wait for the Fix" (kept in defaults).
-    public private(set) var waitingBuild: String?
-    /// A rollback that failed: its reason replaces the detail line.
-    public private(set) var rollbackFailure: String?
     /// The daemons' state roots for the rollback's store check (set by the App).
     @ObservationIgnored public var stateDirectories: () -> [URL?] = { [nil] }
-    /// Asks the person before Roll Back quits into the kept build (set by the App: the registry's
-    /// confirmation presenter for `updates.rollback`, the same question as the palette and menu).
-    /// Calls `proceed` only when confirmed; the default has nobody to ask, so nothing runs.
-    @ObservationIgnored public var confirmRollBack: @MainActor (_ proceed: @escaping @MainActor () -> Void) -> Void = { _ in }
+    /// Runs after every read of the list (set by the updater).
+    @ObservationIgnored var onRefresh: @MainActor () -> Void = {}
     @ObservationIgnored let build: String
     @ObservationIgnored let feedURL: () -> String
-    @ObservationIgnored let fetch: @Sendable (URL) async -> Data?
-    @ObservationIgnored let rollbackCheck: @MainActor (_ stateDirectories: [URL?]) async -> KeptVersion?
-    @ObservationIgnored let rollBack: @MainActor (_ build: String, _ stateDirectories: [URL?]) async -> String?
-    @ObservationIgnored let defaults: UserDefaults
+    /// Reads one list (replaced by tests).
+    @ObservationIgnored var fetch: @Sendable (URL) async -> Data?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
-    /// The rollback check ran for the current pulled build.
-    @ObservationIgnored private var rollbackChecked = false
-    /// A rollback is running: another Roll Back press is ignored.
-    @ObservationIgnored private var rollingBack = false
 
-    static let waitingKey = "cmux.next.updates.pulledBuildWaiting"
-
-    init(build: String, defaults: UserDefaults, feedURL: @escaping () -> String,
-         fetch: @escaping @Sendable (URL) async -> Data? = PulledBuildWatch.download,
-         rollbackCheck: @escaping @MainActor (_ stateDirectories: [URL?]) async -> KeptVersion?,
-         rollBack: @escaping @MainActor (_ build: String, _ stateDirectories: [URL?]) async -> String?) {
+    init(build: String, feedURL: @escaping () -> String,
+         fetch: @escaping @Sendable (URL) async -> Data? = PulledBuildWatch.download) {
         self.build = build
-        self.defaults = defaults
         self.feedURL = feedURL
         self.fetch = fetch
-        self.rollbackCheck = rollbackCheck
-        self.rollBack = rollBack
-        waitingBuild = defaults.string(forKey: Self.waitingKey)
     }
 
     /// The watch for `updater`'s running build and feed (the test feed while one is in use).
-    /// The closures hold the updater weakly: it owns this watch.
+    /// The closure holds the updater weakly: it owns this watch.
     convenience init(updater: UpdaterService) {
-        self.init(build: updater.identity.build, defaults: updater.defaults,
+        self.init(build: updater.identity.build,
                   feedURL: { [weak updater] in
                       guard let updater else { return "" }
                       return updater.testFeedURL ?? updater.identity.feed().url
-                  },
-                  rollbackCheck: { [weak updater] directories in
-                      guard let updater else { return nil }
-                      return try? await UpdateDropBack(updater).run(checkOnly: true, stateDirectories: directories)
-                  },
-                  rollBack: { [weak updater] build, directories in
-                      guard let updater else { return nil }
-                      return await UpdateDropBack(updater).failure(to: build, stateDirectories: directories)
                   })
     }
 
     /// Reads the pulled list at launch and after every update cycle `controller` finishes.
-    func start(controller: UpdateController?) {
+    @discardableResult
+    func start(controller: UpdateController?) -> Task<Void, Never> {
         controller?.onUpdateCycleFinished = { [weak self] in self?.refresh() }
-        refresh()
+        return refresh()
     }
 
     /// Reads the pulled list now (joins a read in flight).
@@ -127,72 +97,31 @@ public final class PulledBuildWatch {
         if let refreshTask { return refreshTask }
         let urls = PulledBuild.listURLs(feedURL: feedURL()), fetch = fetch, build = build
         let task = Task { [weak self] in
-            var entry: PulledBuild?
-            var all: [String] = []
-            for url in urls {
-                guard let data = await fetch(url) else { continue }
-                let list = PulledBuild.decode(data)
-                all += list.map(\.build).filter { !all.contains($0) }
-                if entry == nil, let found = list.first(where: { $0.build == build }) { entry = found }
+            // Every list at once, so a read waits one request's time (a legacy feed has two).
+            let lists = await withTaskGroup(of: (Int, Data?).self) { group in
+                for (index, url) in urls.enumerated() { group.addTask { (index, await fetch(url)) } }
+                var lists = [Data?](repeating: nil, count: urls.count)
+                for await (index, data) in group { lists[index] = data }
+                return lists
             }
-            if self?.pulledBuilds != all { self?.pulledBuilds = all }
-            await self?.apply(entry)
-            self?.refreshTask = nil
+            let read = lists.compactMap { $0 }.flatMap(PulledBuild.decode)
+            guard let self else { return }
+            self.refreshTask = nil
+            // A pulled build stays pulled for the life of this process: a read that fails, in whole
+            // or for one of its lists, never forgets one (the feed never un-pulls a build).
+            var all = self.pulledBuilds
+            for entry in read where !all.contains(entry.build) { all.append(entry.build) }
+            if self.pulledBuilds != all { self.pulledBuilds = all }
+            if self.pulled == nil, let entry = read.first(where: { $0.build == build }) { self.pulled = entry }
+            self.onRefresh()
         }
         refreshTask = task
         return task
     }
 
-    private func apply(_ entry: PulledBuild?) async {
-        guard let entry else {
-            pulled = nil
-            rollbackTarget = nil
-            rollbackChecked = false
-            rollbackFailure = nil
-            return
-        }
-        // The check verifies the app's signature, so it runs once per pulled build, not every cycle.
-        if pulled?.build != entry.build || !rollbackChecked {
-            rollbackTarget = await rollbackCheck(stateDirectories())
-            rollbackChecked = true
-        }
-        pulled = entry
-    }
-
-    /// The notice card while the running build is pulled and the person has not chosen to wait.
-    public var card: UpdateCard? {
-        guard let pulled, waitingBuild != pulled.build else { return nil }
-        return .pulled(reason: rollbackFailure ?? pulled.reason, rollbackVersion: rollbackTarget?.shortVersion)
-    }
-
-    /// A banner button (or its x, which is "Wait for the Fix").
-    public func perform(_ action: UpdateCardAction) {
-        guard let pulled else { return }
-        switch action {
-        case .rollBack:
-            guard let target = rollbackTarget, !rollingBack else { return }
-            // Destructive (it quits and relaunches): asks first; Cancel leaves the banner as it was.
-            confirmRollBack { [weak self] in self?.startRollBack(to: target) }
-        case .waitForFix:
-            waitingBuild = pulled.build
-            defaults.set(pulled.build, forKey: Self.waitingKey)
-        case .update, .releaseNotes, .retry, .details:
-            break
-        }
-    }
-
-    /// Runs the confirmed rollback to `target`; a second confirmed press while one runs is ignored.
-    private func startRollBack(to target: KeptVersion) {
-        guard !rollingBack else { return }
-        rollbackFailure = nil
-        rollingBack = true
-        let directories = stateDirectories(), rollBack = rollBack
-        Task { [weak self] in
-            // Success relaunches into the kept build; only a failure comes back.
-            let failure = await rollBack(target.build, directories)
-            self?.rollingBack = false
-            if let failure { self?.rollbackFailure = failure }
-        }
+    /// Whether `build` is on the pulled list as last read.
+    func isPulled(_ build: String) -> Bool {
+        pulledBuilds.contains(build)
     }
 
     /// `pulled.json` over HTTPS, never from a cache; nil on any failure (a missing list is the

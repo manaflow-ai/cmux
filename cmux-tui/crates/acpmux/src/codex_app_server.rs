@@ -18,9 +18,14 @@ use std::sync::{Arc, Mutex};
 
 #[cfg(unix)]
 use crate::codex_auth_file::{self, AccessFile};
+use cmux_json::JsonSet as _;
 
 mod background;
 pub use background::TERMINATE;
+mod usage_limits;
+#[cfg(test)]
+mod usage_limits_tests;
+pub use usage_limits::{is_plan_snapshot, usage_limits};
 
 /// The cmux-codex-acp translator, with Codex's background terminals beside
 /// it (`background.rs`).
@@ -98,7 +103,7 @@ impl AuthGate {
             "chatgptAccountId": file.account_id,
         });
         if let Some(previous) = self.previous_account_id.as_deref() {
-            params["previousAccountId"] = Value::String(previous.to_owned());
+            params.set("previousAccountId", Value::String(previous.to_owned()));
         }
         Out::Server(serde_json::json!({
             "jsonrpc": "2.0", "id": id, "method": "account/login/start", "params": params
@@ -490,66 +495,14 @@ pub fn split(outs: Vec<Out>) -> Split {
     s
 }
 
-/// `Message::from_value`, moving the fields out of the translator's value
-/// instead of copying them: each streamed delta is one `session/update`, and
-/// the copy of its params was most of the bridge's work per delta.
+/// `Message::from_value` (it moves the fields; nothing is copied).
 fn into_message(v: Value) -> Result<Message, RpcError> {
-    let Value::Object(mut obj) = v else { return Message::from_value(v) };
-    let method = match obj.remove("method") {
-        Some(Value::String(m)) => Some(m),
-        _ => None,
-    };
-    let id = obj.remove("id").filter(|v| !v.is_null());
-    match (method, id) {
-        (Some(method), Some(id)) => {
-            Ok(Message::Request { id, method, params: obj.remove("params") })
-        }
-        (Some(method), None) => Ok(Message::Notification { method, params: obj.remove("params") }),
-        (None, Some(id)) => {
-            let error = match obj.remove("error") {
-                Some(e) if !e.is_null() => Some(
-                    serde_json::from_value::<RpcError>(e.clone())
-                        .unwrap_or_else(|_| RpcError::internal(e.to_string())),
-                ),
-                _ => None,
-            };
-            Ok(Message::Response { id, result: obj.remove("result"), error })
-        }
-        (None, None) => Err(RpcError::new(-32600, "Invalid request: no method or id")),
-    }
+    Message::from_value(v)
 }
 
-/// `Message::to_value`, moving the params instead of copying them.
+/// `Message::into_value`, moving the params instead of copying them.
 pub fn into_value(m: Message) -> Value {
-    let mut obj = serde_json::Map::new();
-    obj.insert("jsonrpc".into(), Value::from("2.0"));
-    match m {
-        Message::Request { id, method, params } => {
-            obj.insert("id".into(), id);
-            obj.insert("method".into(), Value::String(method));
-            if let Some(p) = params {
-                obj.insert("params".into(), p);
-            }
-        }
-        Message::Notification { method, params } => {
-            obj.insert("method".into(), Value::String(method));
-            if let Some(p) = params {
-                obj.insert("params".into(), p);
-            }
-        }
-        Message::Response { id, result, error } => {
-            obj.insert("id".into(), id);
-            match error {
-                Some(e) => {
-                    obj.insert("error".into(), serde_json::to_value(e).unwrap_or(Value::Null));
-                }
-                None => {
-                    obj.insert("result".into(), result.unwrap_or(Value::Null));
-                }
-            }
-        }
-    }
-    Value::Object(obj)
+    m.into_value()
 }
 
 /// The session-log kind of a raw app-server line (`codex.<method>`, or
@@ -766,6 +719,38 @@ mod tests {
             );
         }
     }
+    /// Codex refuses a config with `[permissions]` profiles and no `default_permissions`
+    /// when it loads a thread's config again before each model request on a ChatGPT
+    /// login (workspace routing): every turn of a new chat failed with "failed to load
+    /// workspace requirements: invalid input parameter" (Lucas, 2026-11-05).
+    #[test]
+    fn a_new_threads_permission_profile_comes_with_its_default() {
+        let tr = translator();
+        // The handshake first: a session request waits for `initialize`. Codex 0.164.0's
+        // user agent, as Lucas's app-server answered it.
+        let init = split(tr.inner.start());
+        tr.inner.from_server(&json!({"id":init.server[0]["id"], "result":{
+            "userAgent":"acpmux/0.164.0 (Mac OS 26.1.0; arm64) unknown (acpmux; 0.1)"}}));
+        let out = tr.inner.from_client(
+            &json!({"id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}),
+        );
+        let start = out
+            .iter()
+            .find_map(|o| match o {
+                Out::Server(v) if v["method"] == "thread/start" => Some(v),
+                _ => None,
+            })
+            .expect("thread/start");
+        let config = start["params"]["config"].as_object().expect("the thread's config");
+        let profiles: Vec<&String> =
+            config.keys().filter(|k| k.starts_with("permissions.")).collect();
+        assert!(!profiles.is_empty(), "no permission profile: {start}");
+        for key in profiles {
+            let id = key.trim_start_matches("permissions.");
+            assert_eq!(config.get("default_permissions"), Some(&json!(id)), "{start}");
+        }
+    }
+
     #[cfg(unix)]
     fn running_translator() -> Arc<Translator> {
         let tr = translator();

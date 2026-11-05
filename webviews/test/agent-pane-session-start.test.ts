@@ -22,9 +22,15 @@ const record = (steps: Step[], from = 1) =>
   }));
 
 /// A daemon over a fake socket: attach answers with `history`'s newest `page` events; `push` sends live ones.
-function fakeDaemon(history: ReturnType<typeof record>, harness = "claude-sr2", page = history.length) {
+function fakeDaemon(
+  history: ReturnType<typeof record>,
+  harness = "claude-sr2",
+  page = history.length,
+  detail: Record<string, unknown> = {},
+) {
   let socket: any;
   const session = {
+    ...detail,
     sessionId: CHAT,
     cwd: "/Users/dev/fun/cmux",
     title: "x",
@@ -232,4 +238,28 @@ test("a failover drops the last harness's context breakdown", async () => {
   );
   const { summary } = await connect(daemon);
   expect(summary()?.contextBreakdown).toBeUndefined();
+});
+
+test("the session detail's usage limits reach the summary, and malformed ones read as unreported", async () => {
+  const usageLimits = {
+    windows: [
+      { id: "session", usedPercent: 38, resetsAt: 1_793_570_400 },
+      { id: "weekly", usedPercent: 12.5 },
+    ],
+  };
+  const history = () => record([["mux", "user_message", { text: "hello" }]]);
+  const reported = await connect(fakeDaemon(history(), "claude-sr2", 1, { usageLimits }));
+  expect(reported.summary()?.usageLimits).toEqual(usageLimits);
+
+  // A window without an id or a finite percent is dropped; none left is no report at all.
+  const mixed = { windows: [{ id: "weekly", usedPercent: 40 }, { usedPercent: 5 }, { id: "x", usedPercent: "1" }] };
+  const kept = await connect(fakeDaemon(history(), "claude-sr2", 1, { usageLimits: mixed }));
+  expect(kept.summary()?.usageLimits).toEqual({ windows: [{ id: "weekly", usedPercent: 40 }] });
+  for (const malformed of [{ windows: "weekly" }, { windows: [{ id: "session" }] }, null, 42]) {
+    const dropped = await connect(fakeDaemon(history(), "claude-sr2", 1, { usageLimits: malformed }));
+    expect(dropped.summary()?.usageLimits).toBeUndefined();
+  }
+  // A harness that reports its limits as text keeps them.
+  const plain = await connect(fakeDaemon(history(), "claude-sr2", 1, { usageLimits: "Weekly: 62% remaining" }));
+  expect(plain.summary()?.usageLimits).toBe("Weekly: 62% remaining");
 });

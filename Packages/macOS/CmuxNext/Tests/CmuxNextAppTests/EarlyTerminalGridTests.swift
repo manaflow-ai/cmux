@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-23: "for cmd d and then cmd w, we need to trigger TUI resize much faster, even
@@ -15,6 +16,7 @@ import Testing
 /// view's size now to the size it rests at (`bounds.size + sizeChange`), in the turn that starts the motion.
 /// Frames step at a fixed 120 Hz dt; the display link never ticks.
 @MainActor
+@Suite(.closesItsWindows)
 struct EarlyTerminalGridTests {
     /// A pane's content that records what the layout tells it.
     final class Content: NSView, PaneMotionSettling, PaneMotionTargeting {
@@ -84,6 +86,7 @@ struct EarlyTerminalGridTests {
     /// rests at, it is told once (nothing again at landing), and no frame holds the grids.
     @Test func aSplitGivesEveryPaneItsRestingSizeInTheKeysTurn() throws {
         let screen = Screen(Self.pair)
+        defer { screen.window.closeAfterTest() }
         let changes = screen.model.splitSizingChanges(splitting: "p2", axis: .horizontal)
         _ = screen.model.showSplitSizing(changes)
         screen.show(Self.pairSplit)
@@ -106,6 +109,7 @@ struct EarlyTerminalGridTests {
     /// and no frame holds the grids.
     @Test func aCloseGivesTheGrowingPanesTheirRestingSizeInTheKeysTurn() throws {
         let screen = Screen(Self.row)
+        defer { screen.window.closeAfterTest() }
         var heldFrames = 0
         screen.settle(&heldFrames)
         for content in screen.provider.contents.values { content.restingSizes.removeAll() }
@@ -129,6 +133,7 @@ struct EarlyTerminalGridTests {
     /// press's turn (one more), never a size it will not rest at.
     @Test func aSplitDuringASplitRetellsOnlyTheNewRestingSize() throws {
         let screen = Screen(Self.pair)
+        defer { screen.window.closeAfterTest() }
         _ = screen.model.showSplitSizing(screen.model.splitSizingChanges(splitting: "p2", axis: .horizontal))
         screen.show(Self.pairSplit)
         for _ in 1...6 { screen.root.advanceFrame(Self.dt) }

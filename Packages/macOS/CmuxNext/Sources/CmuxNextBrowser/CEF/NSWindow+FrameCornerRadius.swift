@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 extension NSWindow {
     /// Radius of this window's own corners: AppKit's value when it reports
@@ -16,6 +17,7 @@ extension NSWindow {
         return Self.fallbackFrameCornerRadius
     }
 
-    /// The macOS 26 titled-window corner radius, when AppKit reports none.
-    private static let fallbackFrameCornerRadius: CGFloat = 16
+    /// The macOS 26 titled-window corner radius, when AppKit reports none (the tabs are
+    /// concentric with it, `Metrics.tabCornerRadius`).
+    private static var fallbackFrameCornerRadius: CGFloat { Metrics.standardWindowCornerRadius }
 }

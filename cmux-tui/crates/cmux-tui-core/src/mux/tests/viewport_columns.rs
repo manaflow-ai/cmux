@@ -337,3 +337,88 @@ fn viewport_self_swap_is_a_noop_without_undo_history_or_events() {
     });
     assert!(events.try_iter().next().is_none());
 }
+
+/// R3b (Lawrence 2026-10-31, "creating new columns must never resize
+/// existing columns"), on the live store: every create that makes a column
+/// (New Column right and left, beside the focused, a zoomed or the only
+/// pane, the second new column, a tab dropped into a new column) leaves every
+/// column that was there at its width exactly; the new column is new space at
+/// its own width. A split inside a column (Cmd-D) changes no column's width.
+#[test]
+fn every_column_create_keeps_the_width_of_every_column_there() {
+    let mux = test_mux();
+    let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+    let only = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let pane_of =
+        |surface: &Arc<Surface>| mux.with_state(|state| state.pane_of(surface.id).unwrap());
+    // Each column's id and width, in strip order.
+    let widths = || {
+        mux.with_state(|state| {
+            state.workspaces[0].screens[0]
+                .layout_columns
+                .iter()
+                .map(|column| (column.id, column.width))
+                .collect::<Vec<_>>()
+        })
+    };
+    // Every column of `before` is still there at the same width, and `added`
+    // new columns appeared.
+    let kept = |before: &[(SplitId, f32)], added: usize, what: &str| {
+        let after = widths();
+        assert_eq!(after.len(), before.len() + added, "{what}: {after:?}");
+        for (id, width) in before {
+            let now = after.iter().find(|(candidate, _)| candidate == id).map(|(_, w)| *w);
+            assert_eq!(now, Some(*width), "{what}: column {id} was {width}, now {now:?}");
+        }
+        after
+    };
+
+    // The first column beside a single pane: the split tree becomes a
+    // full-width column, next to the new one.
+    let second = mux.new_pane_right(only, 0.6667, Some((51, 22))).unwrap();
+    let second = pane_of(&second);
+    let columns = widths();
+    assert_eq!(columns.iter().map(|(_, width)| *width).collect::<Vec<_>>(), vec![1.0, 0.6667]);
+    // The second new column, from the one just made.
+    let third = mux.new_pane_right(second, 0.6667, Some((51, 22))).unwrap();
+    let third = pane_of(&third);
+    let columns = kept(&columns, 1, "the second new column");
+    // Cmd-D: a split inside a column; no column changes width.
+    mux.split(third, SplitDir::Right, Some((25, 22))).unwrap();
+    kept(&columns, 0, "a split inside a column");
+
+    // Columns of uneven widths, then a new column beside the focused one,
+    // right of it and left of it (`column-left-v1`).
+    assert!(mux.set_viewport_pane_width(only, 0.45));
+    assert!(mux.set_viewport_pane_width(second, 0.8));
+    let before = widths();
+    let right = mux.new_pane_right(only, 0.5, Some((38, 22))).unwrap();
+    let before = kept(&before, 1, "new column right");
+    let left = mux
+        .new_column_with_options_as(
+            &Actor::Daemon,
+            second,
+            0.3,
+            true,
+            TerminalSpawnOptions::default(),
+            Some((24, 22)),
+        )
+        .unwrap();
+    let left = pane_of(&left.surface);
+    let before = kept(&before, 1, "new column left");
+
+    // Beside a zoomed pane: the zoom ends, the widths stay.
+    let zoomed = pane_of(&right);
+    mux.zoom_pane(Some(zoomed), ZoomMode::On).unwrap();
+    let _ = mux.new_pane_right(zoomed, 0.5, Some((38, 22))).unwrap();
+    let before = kept(&before, 1, "new column beside a zoomed pane");
+
+    // A tab dropped into a new column, between columns and at the end.
+    let extra = mux.new_tab(Some(left), None, Some((24, 22))).unwrap();
+    let after_column = before.first().map(|(id, _)| *id);
+    mux.move_tab_to_column(extra.id, left, after_column, Some(0.4), None, None).unwrap();
+    let before = kept(&before, 1, "tab dropped between columns");
+    let extra = mux.new_tab(Some(second), None, Some((24, 22))).unwrap();
+    mux.move_tab_to_column(extra.id, second, None, Some(0.55), None, None).unwrap();
+    kept(&before, 1, "tab dropped at the end");
+}

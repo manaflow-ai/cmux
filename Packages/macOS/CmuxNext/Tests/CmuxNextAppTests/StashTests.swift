@@ -6,6 +6,7 @@ import CmuxNextDaemonService
 import CmuxNextHistory
 import CmuxNextStash
 import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -13,13 +14,13 @@ import Testing
 /// Stashed page's model follows stash changes another client makes, restores and deletes
 /// through the daemon, and pasted OneTab text imports as groups; Save and Close (StashHandlers)
 /// closes a tab or a whole workspace into a stash, and Show Stashed Tabs opens the page.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct StashTests {
     /// A stash stored or deleted outside the page (as the CLI, MCP or another window does, here
     /// straight on the connection) shows without a reload: the daemon's `session.events` stash
     /// change makes the model list again.
     @Test func theModelFollowsTheDaemonsStashChanges() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             let model = services.historyPage.stash.model
             try await PinnedPageTests.until({ services.daemon.store.session.stashChanges > 0 })
             let url = "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/"
@@ -34,7 +35,7 @@ struct StashTests {
     }
 
     @Test func thePageRestoresAndDeletesTabsAndGroups() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await AppHarnessWindows.withApp { services, _ in
             let model = services.historyPage.stash.model
             let store = services.daemon.store
             let urls = (0..<3).map { "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/\($0)" }
@@ -73,7 +74,7 @@ struct StashTests {
     }
 
     @Test func pastedOneTabTextImportsOneGroupPerBlankLineSeparatedBlock() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await AppHarnessWindows.withApp { services, _ in
             let model = services.historyPage.stash.model
             let draft = StashImportDraft()
             draft.open()
@@ -111,7 +112,7 @@ struct StashTests {
     /// Save and Close Tab on a browser tab: the page goes into a stash and leaves its pane, as the
     /// tab menu, the palette and `cmux tab stash` run it.
     @Test func saveAndCloseTabStashesTheBrowserPage() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             let model = services.historyPage.stash.model
             let store = services.daemon.store
             let pane = try #require(store.workspaces.first?.screens.first?.panes.first?.handle)
@@ -132,7 +133,7 @@ struct StashTests {
 
     /// A terminal tab is no web page: its menu shows Save and Close Tab disabled with the reason.
     @Test func saveAndCloseTabRefusesATerminal() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             let store = services.daemon.store
             let created = try await connection.state.createWorkspace(name: "stash-pty", ephemeral: false, terminal: true, focus: false)
             @MainActor func terminal() -> TabModel? {
@@ -148,7 +149,7 @@ struct StashTests {
     /// Save and Close Other Tabs on one of several selected tabs keeps every selected tab, as Close
     /// Other Tabs does (`closedByCloseOthers(keepingAll:)`): only the pages outside the selection go.
     @Test func saveAndCloseOtherTabsKeepsTheWholeSelection() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             let store = services.daemon.store
             let pane = try #require(services.windows.active?.workspaceContent?.panes.values.first)
             let tag = UUID().uuidString.prefix(6).lowercased()
@@ -187,7 +188,7 @@ struct StashTests {
     /// Save and Close Workspace: the workspace closes whole, its terminal too, into one stash of
     /// one workspace member, and Restore All brings the workspace back.
     @Test func saveAndCloseWorkspaceStashesItWhole() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             try #require(services.daemon.supports(DaemonCapability.stashWorkspaces.rawValue), "the same-tree daemon stashes whole workspaces")
             let model = services.historyPage.stash.model
             let store = services.daemon.store
@@ -216,7 +217,7 @@ struct StashTests {
     /// tab (its placeholder, live surface and title follow go, as a close lets them go), and
     /// Restore All brings the tab back on the same terminal, which the stash kept.
     @Test func saveAndCloseWorkspaceLetsGoOfItsRemoteTerminalTabs() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             try #require(services.daemon.supports(DaemonCapability.stashWorkspaces.rawValue), "the same-tree daemon stashes whole workspaces")
             let model = services.historyPage.stash.model
             let store = services.daemon.store
@@ -281,7 +282,7 @@ struct StashTests {
     /// Undo of a Save and Close lists the stashes again on every path: the restored stash leaves
     /// the page even when the host that shows restored pages is gone by the time the daemon answers.
     @Test func restoreAllReloadsThePageWhenNothingShowsTheRestoredPages() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             let url = "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/undo"
             _ = try await connection.state.importOneTab([.init(name: nil, pages: [.init(url: url, title: "Undo")])], engine: "webkit")
             let service = StashService(host: VanishingStashHost(services))
@@ -298,7 +299,7 @@ struct StashTests {
 
     /// Show Stashed Tabs from automation opens the page as a tab without moving the window's view.
     @Test func showStashedTabsOpensThePage() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await AppHarnessWindows.withApp { services, _ in
             try #require(services.pages.keys(of: .stashed).isEmpty, "a Stashed Tabs page was open before the action")
             let failures = try await Self.perform("stash.show", ActionInvocation(origin: .cli), services)
             #expect(failures.isEmpty, "\(failures)")
@@ -312,7 +313,7 @@ struct StashTests {
     /// `<scheme>://stashed` opened from another app (ExternalOpenRouter's deep link) or Open Link…
     /// goes through `link.open`, which shows the Stashed Tabs page instead of refusing the link.
     @Test func theStashedLinkOpensThePage() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await AppHarnessWindows.withApp { services, _ in
             try #require(services.pages.keys(of: .stashed).isEmpty, "a Stashed Tabs page was open before the link")
             let link = "\(services.linkScheme)://stashed"
             let failures = try await Self.perform("link.open", ActionInvocation(arguments: ["url": .string(link)], origin: .cli), services)
@@ -323,7 +324,7 @@ struct StashTests {
 
     /// Search keeps a group whose name matches whole, else only the members that match.
     @Test func searchFiltersGroupsAndMembers() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await AppHarnessWindows.withApp { services, _ in
             let model = services.historyPage.stash.model
             let tag = UUID().uuidString.prefix(6).lowercased()
             let draft = StashImportDraft()

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type FileMemoryStore, toLines, wake } from "../../packages/brain/src/index.ts";
 import { EVENT_PREFIX } from "./supervisor.ts";
@@ -40,11 +40,75 @@ const stamp = (now = new Date()) => now.toISOString().slice(0, 16);
 function seen(ctx: HookContext, sessionID: string): number {
   const file = join(ctx.sessionsDir, `${sessionID}.json`);
   if (!existsSync(file)) return 0;
-  return (JSON.parse(readFileSync(file, "utf8")) as { seen: number }).seen;
+  try {
+    const value: unknown = JSON.parse(readFileSync(file, "utf8"));
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value) ||
+      typeof (value as { seen?: unknown }).seen !== "number" ||
+      !Number.isSafeInteger((value as { seen: number }).seen) ||
+      (value as { seen: number }).seen < 0
+    ) return 0;
+    return (value as { seen: number }).seen;
+  } catch {
+    // A hook must keep working when a prior process was interrupted while writing.
+    return 0;
+  }
+}
+
+/** A temporary cursor this old was left by a hook killed between its write and its rename. */
+const STALE_TEMP_MS = 60_000;
+
+/** The suffix setSeen gives a temporary cursor after `<session>.json`: `.<pid>.<ms>.<hex>.tmp`. */
+const TEMP_SUFFIX = /^\.(\d+)\.\d+\.[0-9a-f]*\.tmp$/;
+
+/** Whether a process with this PID is running; one owned by another user counts. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** Remove this session's temporary cursors that a killed hook left behind. */
+function sweepStaleTemps(ctx: HookContext, sessionID: string, now: number): void {
+  const prefix = `${sessionID}.json`;
+  let names: string[];
+  try {
+    names = readdirSync(ctx.sessionsDir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    // The whole suffix must match, so session "a" never takes session "a.json"'s files.
+    const match = name.startsWith(prefix) ? TEMP_SUFFIX.exec(name.slice(prefix.length)) : null;
+    // A hook that is still running, paused or not, renames or removes its own temporary.
+    if (!match || alive(Number(match[1]))) continue;
+    const path = join(ctx.sessionsDir, name);
+    try {
+      if (now - statSync(path).mtimeMs > STALE_TEMP_MS) rmSync(path, { force: true });
+    } catch {
+      // Another hook removed or renamed it first.
+    }
+  }
 }
 
 function setSeen(ctx: HookContext, sessionID: string, value: number): void {
-  writeFileSync(join(ctx.sessionsDir, `${sessionID}.json`), JSON.stringify({ seen: value }));
+  const file = join(ctx.sessionsDir, `${sessionID}.json`);
+  sweepStaleTemps(ctx, sessionID, Date.now());
+  // Rename is atomic within the session directory, so a concurrent hook sees either
+  // the old cursor or the complete new one, never a truncated JSON document.
+  const temp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+  try {
+    writeFileSync(temp, `${JSON.stringify({ seen: value })}\n`);
+    renameSync(temp, file);
+  } catch (error) {
+    rmSync(temp, { force: true });
+    throw error;
+  }
 }
 
 function context(event: string, text: string): HookOutput {

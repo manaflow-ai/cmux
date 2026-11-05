@@ -29,6 +29,9 @@ extension SessionSettings {
     /// `phone.cloudReplica`: On: the daemon publishes a narrow copy of this Mac's workspace list to the Cloud service (cloud-host-replica-v1, plans/cmux-next/object-sync/DESIGN.md phase 3), so a phone reads it while the Mac is offline and renames through it while the Mac is online. Off: the copy is deleted (replica.purge) and nothing is published. Opt-in until the default is decided (#13742).
     public nonisolated static let cloudReplicaPath = ["phone", "cloudReplica"]
     public nonisolated static let cloudReplicaDefault = false
+    /// `phone.cloudDesktop`: On: a paired phone's Chief info page shows the screen of this account's own running Cloud machine, view only (cloud-desktop-v1, cmux-next-ios/PROTOCOL.md `surface`): this Mac reads the machine's desktop over its Cloud tunnel and streams it to the phone. Off: the Mac lists no Cloud desktop to phones and hostd refuses one. Opt-in until the default is decided (#13742).
+    public nonisolated static let cloudDesktopPath = ["phone", "cloudDesktop"]
+    public nonisolated static let cloudDesktopDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -131,6 +134,16 @@ nonisolated enum SessionSettingsSchema {
                 kind: .toggle,
                 default: .bool(SessionSettings.cloudReplicaDefault),
                 keywords: ["iphone", "mobile", "phone", "cloud", "offline", "workspaces", "sync", "privacy"]
+            ),
+            SettingDescriptor(
+                SessionSettings.cloudDesktopPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.phone.cloudDesktop", "Show Your Cloud Machine's Screen on Your Phone"),
+                help: SettingsText.keyed("settings.phone.cloudDesktop.help", "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open."),
+                kind: .toggle,
+                default: .bool(SessionSettings.cloudDesktopDefault),
+                keywords: ["iphone", "mobile", "phone", "cloud", "screen", "desktop", "computer", "chief"]
             ),
         ]
     }

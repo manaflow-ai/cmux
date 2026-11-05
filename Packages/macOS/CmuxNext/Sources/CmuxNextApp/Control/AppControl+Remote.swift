@@ -10,7 +10,7 @@ extension AppControl {
     func registerRemoteMethods(_ services: AppServices) {
         service?.router.register([
             .mainActor("remote.machines") { _ in
-                if let refusal = Self.policyRefusal("remote.machines", disabled: services.registry.disabledFeatures) { throw refusal }
+                if let refusal = ControlError.policyRefusal("remote.machines", disabled: services.registry.disabledFeatures) { throw refusal }
                 let rows: [JSONValue] = services.machines.ssh.map { session in
                     let store = session.daemon.store
                     let compat = services.machines.compatibility(of: session.daemon)

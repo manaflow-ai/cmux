@@ -16,13 +16,15 @@
 //! when the effective settings changed).
 //!
 //! Linux uses inotify directly with masks that leave out opens and reads
-//! (`inotify.rs`), so the kernel queues nothing for unrelated opens. Other
-//! platforms use notify's recommended watcher (FSEvents, Windows directory
-//! changes), which reports no opens; its callback drops every event that is
+//! (`inotify.rs`), so the kernel queues nothing for unrelated opens. macOS
+//! uses kqueue vnode watches directly (`kqueue.rs`): a watch of each
+//! directory's entries and of each watched regular file. FSEvents is not
+//! used there: it reports no Unix socket being bound (the daemon watches
+//! acpmux's socket with this), runs late under load, and reports every
+//! change below a directory. Other platforms use notify's recommended
+//! watcher, which reports no opens; its callback drops every event that is
 //! not about a watched name before it reaches the watch thread
-//! (`portable.rs`). FSEvents reports everything below a watched directory, so
-//! on macOS a missing directory's nearest ancestor gets a kqueue vnode watch
-//! that fires only for its own entries (`ancestors.rs`).
+//! (`portable.rs`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
@@ -38,10 +40,12 @@ mod inotify;
 #[cfg(target_os = "linux")]
 use inotify as backend;
 #[cfg(target_os = "macos")]
-mod ancestors;
-#[cfg(not(target_os = "linux"))]
+mod kqueue;
+#[cfg(target_os = "macos")]
+use kqueue as backend;
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 mod portable;
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use portable as backend;
 
 /// A burst ends after this long without another event.
@@ -129,7 +133,7 @@ impl Plan {
 
     /// `path` is a watched name in a watched directory, or a watched
     /// directory itself (it was removed or renamed).
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     fn matches(&self, path: &Path) -> bool {
         if self.0.contains_key(path) {
             return true;

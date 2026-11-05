@@ -26,6 +26,9 @@ public final class FeedHostView: NSView {
 
     /// Where this host is shown (``Surface``).
     let surface: Surface
+    #if DEBUG
+    private var bench: FeedBench?
+    #endif
 
     /// - Parameters:
     ///   - model: The feed.
@@ -56,6 +59,12 @@ public final class FeedHostView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         resolveColors()
+        #if DEBUG
+        if window != nil, bench == nil, let settings = FeedBench.Settings(environment: ProcessInfo.processInfo.environment) {
+            bench = FeedBench(settings: settings, model: model, host: self)
+            bench?.start()
+        }
+        #endif
     }
 
     public override func viewDidChangeEffectiveAppearance() {

@@ -234,12 +234,33 @@ extension PageWebView {
     /// CSS pixels are view points divided by it.
     public var debugPageZoom: Double { pageZoom }
 
-    /// A left click at `x`,`y` (CSS pixels, as `getBoundingClientRect` gives them) on a Chromium
-    /// page: a trusted DevTools press and release, as a person's click, also in a window that never
-    /// activates (a capture slot), where no AppKit click reaches the page. False on a WebKit page,
-    /// which the caller clicks with AppKit events, or when DevTools refuses either half.
-    public func debugPress(x: Double, y: Double) async -> Bool {
-        guard let page = chromiumSession?.page else { return false }
+    /// A left click at `x`,`y` in CSS pixels. Chromium receives trusted DevTools
+    /// input; WebKit receives native AppKit mouse events in its own view, including
+    /// in a non-key capture window. No router gesture is granted directly.
+    public func debugPress(x: Double, y: Double, native: Bool = false) async -> Bool {
+        if native, let page = chromiumSession?.page {
+            guard x.isFinite, y.isFinite else { return false }
+            let zoom = max(pageZoom, 0.01)
+            return page.debugPress(at: NSPoint(x: x * zoom, y: y * zoom))
+        }
+        guard x.isFinite, y.isFinite else { return false }
+        guard let page = chromiumSession?.page else {
+            guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
+            let zoom = max(pageZoom, 0.01)
+            let viewPoint = NSPoint(x: x * zoom, y: webView.isFlipped ? y * zoom : webView.bounds.height - y * zoom)
+            guard webView.bounds.contains(viewPoint) else { return false }
+            let point = webView.convert(viewPoint, to: nil)
+            let now = ProcessInfo.processInfo.systemUptime
+            guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: now,
+                                                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
+                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: now + 0.001,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0) else { return false }
+            // The view's ordinary overrides record input before WebKit handles it.
+            // Direct native delivery is needed when a capture window never becomes key.
+            webView.mouseDown(with: down)
+            webView.mouseUp(with: up)
+            return true
+        }
         for type in ["mousePressed", "mouseReleased"] {
             guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
                 "type": type, "x": x, "y": y, "button": "left", "buttons": type == "mousePressed" ? 1 : 0,
@@ -247,6 +268,103 @@ extension PageWebView {
             ])) != nil else { return false }
         }
         return true
+    }
+
+    /// Waits for one rendered DOM state, with no polling timer. Every observer and
+    /// deadline is released on match, timeout, document exit or call cancellation.
+    public func debugWait(selector: String, timeoutMilliseconds: Int) async -> JSONValue {
+        let id = UUID().uuidString
+        let timeout = min(max(timeoutMilliseconds, 1), 90_000)
+        let script = """
+        const waits = window.__cmuxDebugDOMWaits ??= new Map();
+        return await new Promise((resolve) => {
+          let observer, timer, finished = false;
+          const finish = (value) => {
+            if (finished) return;
+            finished = true;
+            observer?.disconnect(); clearTimeout(timer);
+            window.removeEventListener('pagehide', leave);
+            waits.delete(id);
+            resolve(JSON.stringify(value));
+          };
+          const leave = () => finish({matched:false, error:'page left'});
+          const check = () => {
+            try {
+              const element = [...document.querySelectorAll(selector)].find(element => {
+                if (!element.getClientRects().length) return false;
+                for (let parent = element; parent; parent = parent.parentElement) {
+                  const style = getComputedStyle(parent);
+                  if (style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+                }
+                return true;
+              });
+              if (element) finish({matched:true, text:(element.innerText || '').slice(0,400)});
+            } catch (error) { finish({matched:false, error:String(error)}); }
+          };
+          waits.set(id, () => finish({matched:false, error:'cancelled'}));
+          window.addEventListener('pagehide', leave, {once:true});
+          observer = new MutationObserver(check);
+          observer.observe(document.documentElement, {subtree:true, childList:true, attributes:true, characterData:true});
+          timer = setTimeout(() => finish({matched:false, error:'timeout'}), timeout);
+          check();
+        });
+        """
+        return await withTaskCancellationHandler {
+            guard !Task.isCancelled,
+                  let text = await callPageFunction(script, arguments: ["id": id, "selector": selector, "timeout": timeout],
+                                                    timeout: .milliseconds(timeout + 1_000)) as? String,
+                  let result = try? JSONValue.parse(Data(text.utf8)) else {
+                return ["matched": false, "error": "page wait cancelled or unavailable"]
+            }
+            return result
+        } onCancel: { [weak self] in
+            // task-owner: one cancellation cleanup message; no repeated work
+            Task { @MainActor [weak self] in
+                _ = await self?.callPageFunction("window.__cmuxDebugDOMWaits?.get(id)?.();", arguments: ["id": id])
+            }
+        }
+    }
+
+    /// The next file input this page opens in WebKit takes `files` instead of showing the panel.
+    public func debugQueueFiles(_ files: [URL]) { fileChooser?.debugAnswer = files }
+
+    /// Gives the file input `selector` matches on a Chromium page the files at `paths`, as a person's pick in
+    /// Chromium's own open panel does (DevTools `DOM.setFileInputFiles`: the page gets `input` and `change`).
+    /// Nil when it took them, else why not; a WebKit page answers its file input with ``PageOpenPanel``.
+    public func debugSetFiles(selector: String, paths: [String]) async -> String? {
+        guard let page = chromiumSession?.page else { return "the page does not show in Chromium" }
+        guard let selectorJSON = String(data: (try? JSONSerialization.data(withJSONObject: selector, options: [.fragmentsAllowed])) ?? Data(), encoding: .utf8),
+              let json = try? await page.devTools("Runtime.evaluate", params: ["expression": "document.querySelector(\(selectorJSON))"]),
+              let object = ChromiumPageHostWire.object(json), let id = (object["result"] as? [String: Any])?["objectId"] as? String else {
+            return "no element matches \(selector)"
+        }
+        return (try? await page.devTools("DOM.setFileInputFiles", params: ["files": paths, "objectId": id])) == nil ? "DevTools refused the files" : nil
+    }
+
+    /// A trusted DevTools left-button drag on a Chromium page, in CSS pixels: press at `from`,
+    /// `steps` moves to `to`, release, each sent once Chromium answered the one before. The
+    /// page's pointer handlers (capture, a reorder's drop) see a person's drag, and the release
+    /// counts as the person's input as a real one does; a capture slot's window never activates,
+    /// so no AppKit event reaches it. False on a WebKit page or when DevTools refuses an event.
+    public func debugDrag(from: CGPoint, to: CGPoint, steps: Int = 16) async -> Bool {
+        guard let page = chromiumSession?.page else { return false }
+        func send(_ type: String, _ point: CGPoint, buttons: Int) async -> Bool {
+            (try? await page.devTools("Input.dispatchMouseEvent", params: [
+                "type": type, "x": point.x, "y": point.y, "button": "left", "buttons": buttons, "clickCount": 1, "modifiers": 0,
+            ])) != nil
+        }
+        guard await send("mousePressed", from, buttons: 1) else { return false }
+        let count = max(1, steps)
+        for step in 1...count {
+            let t = Double(step) / Double(count)
+            let point = CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t)
+            guard await send("mouseMoved", point, buttons: 1) else { return false }
+        }
+        // The host counts a real release on a Chromium page as the person's input
+        // (`CEFLinkClickTracker`); DevTools input never passes AppKit, so the release is noted here,
+        // and only the release: a drag's save then rests on the release alone.
+        chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
+        return await send("mouseReleased", to, buttons: 0)
     }
 
     /// Every element matching `selector` in document order: its `data-*` attributes, classes and

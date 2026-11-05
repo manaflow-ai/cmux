@@ -174,6 +174,15 @@ impl Sampler {
     }
 }
 
+/// Name, CPU time and memory of one process, reading only that process. A
+/// periodic self-sample (the owner's memory guard) must not scan every
+/// process: on Linux [`Sampler::new`] reads `/proc/<pid>/stat` of every
+/// process on the machine (34,000 syscalls at one daemon start on a busy
+/// builder).
+pub fn sample_process(pid: u32) -> Option<ProcessSample> {
+    imp::sample_process(pid)
+}
+
 impl Default for Sampler {
     fn default() -> Self {
         Self::new()
@@ -199,6 +208,16 @@ mod imp {
         secs.saturating_mul(1_000_000_000).saturating_add(nanos)
     }
 
+    pub(super) fn sample_process(pid: u32) -> Option<ProcessSample> {
+        let stat = read_stat(pid)?;
+        Sampler { stats: HashMap::from([(pid, stat)]), ..Sampler::empty() }.sample(pid)
+    }
+
+    /// One process's parsed `/proc/<pid>/stat`, or None when it is gone.
+    fn read_stat(pid: u32) -> Option<ProcStat> {
+        parse_proc_stat(&std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?)
+    }
+
     pub(super) struct Sampler {
         stats: HashMap<u32, ProcStat>,
         children: ChildIndex,
@@ -207,6 +226,19 @@ mod imp {
     }
 
     impl Sampler {
+        fn empty() -> Self {
+            // SAFETY: sysconf has no preconditions.
+            let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+            // SAFETY: sysconf has no preconditions.
+            let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+            Self {
+                stats: HashMap::new(),
+                children: ChildIndex::from_ppid_map(&HashMap::new()),
+                ticks_per_second: u64::try_from(ticks).ok().filter(|t| *t > 0).unwrap_or(100),
+                page_size: u64::try_from(page).ok().filter(|p| *p > 0).unwrap_or(4096),
+            }
+        }
+
         pub(super) fn new() -> Self {
             let mut stats = HashMap::new();
             for entry in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
@@ -215,10 +247,7 @@ mod imp {
                     continue;
                 };
                 // A process that exits during the scan has no stat file left.
-                let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-                    continue;
-                };
-                if let Some(stat) = parse_proc_stat(&stat) {
+                if let Some(stat) = read_stat(pid) {
                     stats.insert(pid, stat);
                 }
             }
@@ -278,6 +307,11 @@ mod imp {
 
 #[cfg(target_os = "macos")]
 mod imp {
+    /// Reads only `pid` already (no process scan here).
+    pub(super) fn sample_process(pid: u32) -> Option<ProcessSample> {
+        Sampler::new().sample(pid)
+    }
+
     use std::os::raw::{c_int, c_void};
 
     use super::{ProcessSample, executable_basename};
@@ -456,6 +490,11 @@ mod imp {
 /// started (`windows_processes`: in a terminal job, our user, our session).
 #[cfg(windows)]
 mod imp {
+    /// The full snapshot `Sampler::new` takes (no per-pid read here yet).
+    pub(super) fn sample_process(pid: u32) -> Option<ProcessSample> {
+        Sampler::new().sample(pid)
+    }
+
     use std::collections::HashMap;
     use std::sync::OnceLock;
     use std::time::Instant;
@@ -510,6 +549,11 @@ mod imp {
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 mod imp {
+    /// Reads only `pid` already (no process scan here).
+    pub(super) fn sample_process(pid: u32) -> Option<ProcessSample> {
+        Sampler::new().sample(pid)
+    }
+
     use std::sync::OnceLock;
     use std::time::Instant;
 

@@ -4,10 +4,11 @@
 // metrics (12px on 20px lines), so its height is final as it grows; when it closes, Pierre renders
 // it once underneath, and the highlighted card fades in over the plain one only after Pierre has
 // painted its lines. Same metrics, so nothing moves; only the colors arrive.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { CodeBlock, languageLabel } from "./CodeBlock";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { CodeBlock } from "./CodeBlock";
+import { CodeHeader, codeHeaderClass, useCodeHeaderLook } from "./CodeHeader";
+import { isDiagram } from "./codeShape";
 import { CopyButton } from "./CopyButton";
-import { CodeBrackets } from "./icons";
 import { useT } from "../i18n";
 import { menuPartRef } from "./menuParts";
 import { OpenPreview } from "./OpenPreview";
@@ -17,32 +18,68 @@ import { entranceAllowed } from "../../shared/pageReveal";
 /// The card's chrome over plain lines: an open fence, or a closed one drawn plain (the highlighted
 /// card's chunk still loading, a fence over the highlight limits, a highlight past its budget). A
 /// closed fence keeps the highlighted card's Open preview, so the panel opens from either card.
-export function PlainCode({ code, lang, open = false }: { code: string; lang: string; open?: boolean }) {
+export function PlainCode({
+  code,
+  lang,
+  label,
+  open = false,
+  actions,
+  artifactIdentity,
+  artifactRevision,
+}: {
+  code: string;
+  lang: string;
+  label?: string;
+  open?: boolean;
+  actions?: ReactNode;
+  artifactIdentity?: string;
+  artifactRevision?: number;
+}) {
   const t = useT();
-  const lines = code.split("\n");
-  // An open fence's trailing empty line is the newline before a line still arriving; drawing it
-  // would make the card a line taller than the closed card it becomes.
-  if (open && lines.length > 1 && lines.at(-1) === "") lines.pop();
+  const look = useCodeHeaderLook(lang, label);
+  // A tree drawn in box-drawing characters (├─ │) draws on lines that touch (conversation.css
+  // `.cv-codeblock--diagram`); read once per code, not per render.
+  const diagram = useMemo(() => isDiagram(code, lang), [code, lang]);
   return (
-    <div className="cv-codeblock cv-codeblock--plain" ref={menuPartRef({ code })}>
-      <div className="cv-codeblock__header">
-        <CodeBrackets size={17} strokeWidth={1.2} />
-        <span>{languageLabel(lang, t)}</span>
-        <span className="cv-codeblock__actions">
-          {!open && <OpenPreview code={code} lang={lang} />}
-          <CopyButton text={code} label={t("code.copy")} />
-        </span>
-      </div>
+    <div
+      className={`cv-codeblock cv-codeblock--plain${codeHeaderClass(look)}${diagram ? " cv-codeblock--diagram" : ""}`}
+      ref={menuPartRef({ code })}
+    >
+      <CodeHeader look={look} lang={lang} label={label}>
+        <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
+        <CopyButton text={code} label={t("code.copy")} />
+        {actions}
+      </CodeHeader>
       <div className="cv-codeblock__body">
-        <pre className="cv-code-plain selectable">
-          {lines.map((line, index) => (
-            <div key={index} className="cv-code-plain__line">
-              {line || "​"}
-            </div>
-          ))}
-        </pre>
+        <PlainCodeLines code={code} trimTrailingLine={open || !diagram} />
       </div>
     </div>
+  );
+}
+
+/// The same visible lines serve the lazy chunk and the worker wait. Pierre treats a final newline
+/// as the end of the last line, not an extra empty row.
+export function PlainCodeLines({
+  code,
+  trimTrailingLine = true,
+  wrap = false,
+}: {
+  code: string;
+  trimTrailingLine?: boolean;
+  wrap?: boolean;
+}) {
+  const lines = (trimTrailingLine ? code.replace(/\n$/, "") : code).split("\n");
+  return (
+    <pre
+      className="cv-code-plain selectable"
+      style={wrap ? { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } : undefined}
+    >
+      {lines.map((line, index) => (
+        <div key={index} className="cv-code-plain__line">
+          {line || "​"}
+        </div>
+      ))}
+    </pre>
   );
 }
 
@@ -50,7 +87,22 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
 const HANDOFF_LIMIT_MS = 1_000;
 
 /// A fence that closed while the reply streamed: highlighted once, then faded in over the plain card.
-export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
+type CodeHandoffProps = {
+  code: string;
+  lang: string;
+  actions?: ReactNode;
+  artifactIdentity?: string;
+  artifactRevision?: number;
+};
+
+export function CodeHandoff(props: CodeHandoffProps) {
+  // A diagram stays the plain card (CodeBlock.tsx): nothing to hand over.
+  const diagram = useMemo(() => isDiagram(props.code, props.lang), [props.code, props.lang]);
+  if (diagram) return <PlainCode {...props} />;
+  return <CodeHandoffFade {...props} />;
+}
+
+function CodeHandoffFade({ code, lang, actions, artifactIdentity, artifactRevision }: CodeHandoffProps) {
   const [stage, setStage] = useState<"plain" | "fading" | "done">("plain");
   const ref = useRef<HTMLDivElement>(null);
   // A fence that closed while the chat was hidden (or as it shows again) hands over without the
@@ -95,9 +147,30 @@ export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
   }, [stage]);
   return (
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>
-      {stage !== "done" && <PlainCode code={code} lang={lang} />}
-      <div className="cv-code-handoff__real" onAnimationEnd={() => setStage("done")}>
-        <CodeBlock code={code} lang={lang} />
+      {stage !== "done" && (
+        <PlainCode
+          code={code}
+          lang={lang}
+          actions={actions}
+          artifactIdentity={artifactIdentity}
+          artifactRevision={artifactRevision}
+        />
+      )}
+      <div
+        className="cv-code-handoff__real"
+        // Keep duplicate highlighted controls out of keyboard and assistive technology traversal
+        // while the plain card is visible underneath.
+        aria-hidden={stage !== "done" || undefined}
+        inert={stage !== "done" || undefined}
+        onAnimationEnd={() => setStage("done")}
+      >
+        <CodeBlock
+          code={code}
+          lang={lang}
+          actions={stage === "done" ? actions : undefined}
+          artifactIdentity={artifactIdentity}
+          artifactRevision={artifactRevision}
+        />
       </div>
     </div>
   );

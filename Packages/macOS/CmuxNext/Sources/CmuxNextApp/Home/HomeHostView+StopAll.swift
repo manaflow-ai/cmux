@@ -14,7 +14,10 @@ extension HomeHostView {
     /// Option-click stops all agents of this Home's own Chief (never another
     /// Home's in the same window).
     func wireStopButton(_ registry: ActionRegistry) {
-        transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
+        transcript.onStop = { [weak self] in
+            guard let self else { return }
+            _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user))
+        }
         transcript.onStopAll = { [weak self] in self?.stopAllAgents() }
         transcript.stopToolTip = HomeStopAllStrings.stopToolTip
     }
@@ -27,7 +30,7 @@ extension HomeHostView {
         guard showsChiefOnScreen, !control.isHosted, let window else { return NSSound.beep() }
         // task-owner: one chief.stop {all}, then the toast; ends with the answer
         Task { @MainActor [weak window] in
-            switch await control.stopAll() {
+            switch await turnActions.stopAll() {
             case .failure:
                 NSSound.beep()
             case .success(let answer):

@@ -50,7 +50,8 @@ import Testing
             redraw()
         }
 
-        /// The list top to bottom: a header's spoken label, or a workspace's id.
+        /// The list top to bottom: a header's spoken label, or a workspace's id (the sidebar has no tab rows
+        /// since 8a3af6be8e5 deleted their layout and keys).
         var drawn: [String] {
             view.list.displayed.rows.compactMap { row in
                 if case let .workspace(id) = row.key { return id.rawValue }
@@ -193,18 +194,29 @@ import Testing
     }
 
     /// The sections are the Priority classifier's (`AgentPriorityRanking.state` through `SidebarLaneStatus`), not one
-    /// of the sidebar's own: acpmux lanes in, the rows the row feed maps, laid out under their states.
+    /// of the sidebar's own: acpmux lanes in, the rows the row feed maps, laid out under their states. The row feed
+    /// reads lanes only with `sidebar.rowStatus` (the chip) and `sidebar.laneStatus` (the working mark) on, both off by
+    /// default (Lawrence 2026-10-21, 8f4e8f04d45). A finished chat's row carries no Done chip (#23767: "a row never
+    /// says Done"), so it sits under Idle with its unread dot.
     @Test func theSectionsComeFromThePriorityClassifier() throws {
-        defer { Self.toggle(nil) }
+        let laneKeys = [SidebarTunables.rowStatus.key, SidebarTunables.laneStatus.key]
+        defer {
+            Self.toggle(nil)
+            for key in laneKeys { TunableStore.shared.set(key, nil) }
+        }
         let fixture = try SidebarRowStatusTests.Fixture()
         Self.toggle(true)
-        let sidebar = Sidebar(fixture.rows())
-        #expect(sidebar.drawn == [
+        for key in laneKeys { TunableStore.shared.set(key, .bool(true)) }
+        let rows = fixture.rows()
+        let sidebar = Sidebar(rows)
+        // The fixture's workspaces have no durable key, so their ids are "handle:<n>": read each row by its title.
+        let titles = Dictionary(uniqueKeysWithValues: rows.map { ($0.id.rawValue, $0.title) })
+        let drawn = sidebar.drawn.map { titles[$0] ?? $0 }
+        #expect(drawn == [
             "Needs you, 1 workspaces", "waiting",
-            "Done, 1 workspaces", "finished",
             "Failed, 1 workspaces", "failed",
             "Working, 1 workspaces", "working",
-            "Idle, 1 workspaces", "idle",
-        ], "\(sidebar.drawn)")
+            "Idle, 2 workspaces", "idle", "finished",
+        ], "\(drawn)")
     }
 }

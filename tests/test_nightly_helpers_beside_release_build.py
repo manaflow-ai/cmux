@@ -33,6 +33,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import nightly_text  # noqa: E402  (moved step scripts put back inline)
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
 BACKGROUND = ROOT / "scripts/ci/background_build.py"
@@ -62,7 +65,7 @@ INPUTS_JOB = "build-nightly-inputs"
 class WorkflowStructureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        cls.jobs = yaml.safe_load(nightly_text())["jobs"]
         cls.app = cls.jobs["build-nightly-app"]
         cls.names = [step.get("name", "") for step in cls.app["steps"]]
 
@@ -79,8 +82,10 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertEqual(job["steps"][0]["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
         self.assertNotIn("environment", job)
         self.assertEqual(job["permissions"], {"contents": "read"})
-        self.assertIn("blacksmith-32vcpu-ubuntu-2404", job["runs-on"])
-        self.assertNotIn("macos", job["runs-on"])
+        # Our nightly-only Macs, never Blacksmith (nightlies run only on our runners).
+        self.assertIn("'glaeda-nightly-only-m4pro'", job["runs-on"])
+        self.assertNotIn("RUNNER_POOLS", job["runs-on"])
+        self.assertNotIn("macos-", job["runs-on"])
         self.assertNotIn("secrets.", yaml.safe_dump(job))
         uploads = [step["with"]["name"] for step in job["steps"] if "upload-artifact" in step.get("uses", "")]
         self.assertEqual(uploads, ["cmux-nightly-web-bundles", "cmux-nightly-notices"])

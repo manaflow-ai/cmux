@@ -19,16 +19,24 @@ public final class AccountsModel {
     /// Why the last team switch failed, until the next switch or refresh.
     public private(set) var teamError: String?
     @ObservationIgnored public let services: any AccountsServices
+    /// Roles, team details and the create, rename and delete forms.
+    public let teamsModel: AccountsTeamsModel
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     /// Providers whose login was started here; re-detected on activation.
     @ObservationIgnored private var pendingReauth: Set<AIProvider> = []
+    @ObservationIgnored private var openingReauth: Set<AIProvider> = []
+    /// The latest refresh generation that could have observed the provider
+    /// before its login tab opened. A refresh newer than this boundary may
+    /// reconcile the completed login; older results are stale.
+    @ObservationIgnored private var reauthCompletionGeneration: [AIProvider: Int] = [:]
     /// A detection has finished. Until then every row reads Checking… and
     /// refuses work, which the palette and CLI meet before the screen opens.
     @ObservationIgnored private var hasDetected = false
 
     public init(services: any AccountsServices) {
         self.services = services
+        teamsModel = AccountsTeamsModel(services: services)
         rows = AIProvider.allCases.map(AccountRowState.init(provider:))
     }
 
@@ -63,9 +71,14 @@ public final class AccountsModel {
             let loading = Task { await Self.loadLinked(services) }
             // Membership re-reads on its own; the team list updates when it lands.
             if let active = services.activeTeam { Task { await active.refresh() } }
+            // Roles (and the open team's details) re-read on their own too.
+            if let teamsModel = self?.teamsModel { Task { await teamsModel.reload() } }
             let found = await detecting.value, accounts = await loading.value
             guard let self, current == self.generation, !Task.isCancelled else { return }
-            for detection in found { self.apply(.detected(detection), to: detection.provider) }
+            for detection in found where !self.openingReauth.contains(detection.provider)
+                && (self.reauthCompletionGeneration[detection.provider].map({ current > $0 }) ?? true) {
+                self.apply(.detected(detection), to: detection.provider)
+            }
             self.hasDetected = true
             switch accounts {
             case .success(let list): self.apply(.linkedLoaded(list))
@@ -106,9 +119,10 @@ public final class AccountsModel {
     /// in a cmux terminal tab never makes the app inactive): re-detect if a
     /// login or logout ran in a tab meanwhile.
     public func appDidBecomeActive() {
-        guard !pendingReauth.isEmpty else { return }
-        for provider in pendingReauth { apply(.reauthEnded, to: provider) }
-        pendingReauth.removeAll()
+        let ended = pendingReauth.subtracting(openingReauth)
+        guard !ended.isEmpty else { return }
+        for provider in ended { apply(.reauthEnded, to: provider) }
+        pendingReauth.subtract(ended)
         refresh()
     }
 
@@ -117,32 +131,40 @@ public final class AccountsModel {
     /// use ``performReauthenticate(_:)``. A row already Re-authenticating
     /// opens the login again (its tab may be gone).
     @discardableResult
-    public func reauthenticate(_ provider: AIProvider) -> String? {
+    public func reauthenticate(_ provider: AIProvider) async -> String? {
+        guard !openingReauth.contains(provider) else { return AccountsStrings.errorBusy }
         let state = row(provider)
         guard state.canReauthenticate else { return nil }
         guard state.phase == .idle || state.phase == .reauthenticating else { return AccountsStrings.errorBusy }
         if state.phase == .idle { apply(.reauthStarted, to: provider) }
-        pendingReauth.insert(provider)
-        guard services.reauthenticate(provider, plan: provider.reauthPlan) else { return nothingOpened(provider) }
-        return nil
+        return await openProviderPlan(provider, plan: provider.reauthPlan)
     }
 
     /// ``reauthenticate(_:)`` after detection settled, in the caller's task,
     /// so a busy row's refusal reaches the page, palette or CLI.
     public func performReauthenticate(_ provider: AIProvider) async -> String? {
         await settle()
-        return reauthenticate(provider)
+        return await reauthenticate(provider)
     }
 
     /// Runs the provider's own logout in a terminal tab; re-detects when the
     /// app becomes active again, like a re-authentication. Returns why
     /// nothing ran when no local pane could take the tab, or nil.
     @discardableResult
-    public func signOut(_ provider: AIProvider) -> String? {
+    public func signOut(_ provider: AIProvider) async -> String? {
+        guard !openingReauth.contains(provider) else { return AccountsStrings.errorBusy }
         guard row(provider).canSignOut, !row(provider).isBusy else { return nil }
         apply(.reauthStarted, to: provider)
+        return await openProviderPlan(provider, plan: provider.signOutPlan)
+    }
+
+    private func openProviderPlan(_ provider: AIProvider, plan: ReauthPlan) async -> String? {
+        openingReauth.insert(provider)
+        defer { openingReauth.remove(provider) }
+        guard await services.reauthenticate(provider, plan: plan) else { return nothingOpened(provider) }
+        apply(.reauthStarted, to: provider)
         pendingReauth.insert(provider)
-        guard services.reauthenticate(provider, plan: provider.signOutPlan) else { return nothingOpened(provider) }
+        reauthCompletionGeneration[provider] = generation
         return nil
     }
 
@@ -247,6 +269,9 @@ public final class AccountsModel {
     public func saveKey(_ key: String, for provider: AIProvider) -> String? {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return AccountsStrings.errorNeedsPaste }
+        // Detection trusts a saved key by its presence (it never reads the secret), so a key
+        // Connect would refuse is never saved: it would read signed in and fail on Connect.
+        guard CredentialResolver.isWellFormedKey(trimmed, for: provider) else { return AccountsStrings.errorInvalidFormat }
         do {
             try services.saveKey(trimmed, for: provider)
         } catch {

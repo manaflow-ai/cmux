@@ -53,7 +53,8 @@ struct ContextUsageRing: View {
         }
     }
 
-    private var tint: Color { usage.isNearlyFull ? .cmuxMobileWarning : .blue }
+    /// The user's accent (Settings > Appearance > Accent color), never a fixed hue.
+    private var tint: Color { usage.isNearlyFull ? .cmuxMobileWarning : .cmuxMobileAccent }
 }
 
 /// A filled pie on a track ring: the used share is a wedge from 12 o'clock.

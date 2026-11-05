@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// Crash D (#24998, fuzz seed 21 on macOS 26.6.2, ⌥⌘= `canvasZoomIn`): the canvas camera sets a bounds
@@ -7,7 +8,7 @@ import Testing
 /// `ScreenContentView` reconciled for every backing change; reconcile sets the camera's bounds again, so
 /// the main thread recursed until the stack overflowed. A screen lays out again only for a real backing
 /// scale change, and never from inside its own camera change.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct ScreenBackingChangeTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }

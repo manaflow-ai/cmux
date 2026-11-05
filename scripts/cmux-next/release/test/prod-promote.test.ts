@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { candidateRuns, holdPinned, holdReleases, main, pickCandidate, rollbackPlan, serving, SOAK_MINUTES } from "../prod-promote.ts"
+import { candidateRuns, gh, guardedVarGate, holdPinned, holdReleases, isPromotableLineage, main, missingSecrets, pickCandidate, rollbackPlan, serving, stagingRuns, SOAK_MINUTES, type Approvals, type GitRunner } from "../prod-promote.ts"
 
 const SHA = "0123456789abcdef0123456789abcdef01234567"
 const OTHER = "89abcdef0123456789abcdef0123456789abcdef"
@@ -306,5 +306,172 @@ describe("rollback (dry run) and Durable Object migrations", () => {
     const r = await dryRun()
     expect(r.code).toBe(3)
     expect(r.out).toContain("roll back by hand: wrangler rollback v1 --name cmux-api")
+  })
+})
+
+describe("paid Cloud entitlements (CLOUD_PLAN_ENTITLEMENTS) in production", () => {
+  const approvals = (guarded: Record<string, string> = {}): Approvals => ({ required_secrets: ["JWT_PRIVATE_JWK"], do_tags: {}, guarded_vars: guarded })
+  const env = (vars: Record<string, string>) => ({ vars: { ENVIRONMENT: "production", ...vars }, migrations: [] })
+
+  it("G7: turning it on needs an approved value; leaving it unchanged does not", () => {
+    const off = env({})
+    const on = env({ CLOUD_PLAN_ENTITLEMENTS: "on" })
+    expect(guardedVarGate(off, on, approvals())).toEqual(["CLOUD_PLAN_ENTITLEMENTS=on: not in scripts/cmux-next/release/production-approvals.json guarded_vars"])
+    expect(guardedVarGate(off, on, approvals({ "CLOUD_PLAN_ENTITLEMENTS=on": "reviewed" }))).toEqual([])
+    expect(guardedVarGate(on, on, approvals())).toEqual([])
+    expect(guardedVarGate(on, off, approvals())).toEqual(["CLOUD_PLAN_ENTITLEMENTS=<unset>: not in scripts/cmux-next/release/production-approvals.json guarded_vars"])
+  })
+
+  it("G5: on needs the provider key of its transport; off needs none", () => {
+    const have = new Set(["JWT_PRIVATE_JWK"])
+    expect(missingSecrets(env({}), approvals(), have)).toEqual([])
+    expect(missingSecrets(env({ CLOUD_PLAN_ENTITLEMENTS: "on" }), approvals(), have)).toEqual(["CLOUD_FREESTYLE_API_KEY"])
+    expect(missingSecrets(env({ CLOUD_PLAN_ENTITLEMENTS: "on", CLOUD_VM_TRANSPORT: "vm-api" }), approvals(), have)).toEqual(["CLOUD_VM_API_SERVICE_KEY"])
+    expect(missingSecrets(env({ CLOUD_PLAN_ENTITLEMENTS: "on" }), approvals(), new Set([...have, "CLOUD_FREESTYLE_API_KEY"]))).toEqual([])
+    expect(missingSecrets(env({ CLOUD_PLAN_ENTITLEMENTS: "on", CLOUD_VM_TRANSPORT: "direct" }), approvals(), have)).toEqual(["CLOUD_FREESTYLE_API_KEY"])
+    // cloudConfig gives any other transport no provider, so no secret satisfies it.
+    expect(missingSecrets(env({ CLOUD_PLAN_ENTITLEMENTS: "on", CLOUD_VM_TRANSPORT: "vmapi" }), approvals(), new Set([...have, "CLOUD_FREESTYLE_API_KEY", "CLOUD_VM_API_SERVICE_KEY"]))).toEqual(["CLOUD_VM_TRANSPORT=vmapi (no Cloud provider)"])
+  })
+})
+
+describe("the platform cutover (PLATFORM_SURFACES) in production", () => {
+  const approvals = (guarded: Record<string, string> = {}): Approvals => ({ required_secrets: [], do_tags: {}, guarded_vars: guarded })
+  const env = (vars: Record<string, string>) => ({ vars: { ENVIRONMENT: "production", ...vars }, migrations: [] })
+
+  it("G7: forwarding a surface to cmux-platform needs an approved value; leaving it unchanged does not", () => {
+    const off = env({})
+    const on = env({ PLATFORM_SURFACES: "cloud" })
+    expect(guardedVarGate(off, on, approvals())).toEqual(["PLATFORM_SURFACES=cloud: not in scripts/cmux-next/release/production-approvals.json guarded_vars"])
+    expect(guardedVarGate(off, on, approvals({ "PLATFORM_SURFACES=cloud": "reviewed" }))).toEqual([])
+    expect(guardedVarGate(on, on, approvals())).toEqual([])
+    expect(guardedVarGate(on, env({ PLATFORM_SURFACES: "cloud,chat" }), approvals({ "PLATFORM_SURFACES=cloud": "reviewed" }))).toEqual([
+      "PLATFORM_SURFACES=cloud,chat: not in scripts/cmux-next/release/production-approvals.json guarded_vars",
+    ])
+  })
+})
+
+const lineageRepo = () => {
+  const root = mkdtempSync(join(tmpdir(), "prod-promote-lineage-"))
+  const run: GitRunner = (args, input) => execFileSync("git", ["-C", root, ...args], { encoding: "utf8", ...(input === undefined ? {} : { input }) }).trim()
+  run(["init", "--quiet"])
+  run(["config", "user.email", "test@example.com"])
+  run(["config", "user.name", "Release test"])
+  mkdirSync(join(root, "backend"), { recursive: true })
+  const commit = (contents: string, message: string) => {
+    writeFileSync(join(root, "backend", "runtime.ts"), contents)
+    run(["add", "backend/runtime.ts"])
+    run(["commit", "--quiet", "-m", message])
+    return run(["rev-parse", "HEAD"])
+  }
+  return { root, run, commit }
+}
+
+describe("production promotion lineage", () => {
+  it("accepts a staging history that contains a cherry-pick-equivalent production change", () => {
+    const t = lineageRepo()
+    const base = t.commit("export const value = 1\n", "base")
+    t.run(["checkout", "--quiet", "-b", "candidate", base])
+    t.commit("export const value = 2\n", "candidate implementation")
+    const candidate = t.commit("export const value = 3\n", "candidate follow-up")
+    t.run(["checkout", "--quiet", "-b", "production", base])
+    const production = t.commit("export const value = 2\n", "production cherry-pick")
+
+    expect(isPromotableLineage(production, candidate, t.run)).toBe(true)
+    expect(isPromotableLineage(base, candidate, t.run)).toBe(true)
+  })
+
+  it("rejects a production history with an unmatched backend change", () => {
+    const t = lineageRepo()
+    const base = t.commit("export const value = 1\n", "base")
+    t.run(["checkout", "--quiet", "-b", "candidate", base])
+    const candidate = t.commit("export const value = 2\n", "candidate implementation")
+    t.run(["checkout", "--quiet", "-b", "production", base])
+    t.commit("export const value = 2\n", "production cherry-pick")
+    const production = t.commit("export const value = 99\n", "unmatched production change")
+
+    expect(isPromotableLineage(production, candidate, t.run)).toBe(false)
+  })
+})
+
+describe("gh() retries GitHub 5xx", () => {
+  // Captured in beforeAll (after the file-level fake fetch is installed), so afterEach puts that fake back.
+  const saved: { fetch: typeof fetch; token: string | undefined } = { fetch: globalThis.fetch, token: undefined }
+  const stub = (statuses: Array<number | "throw">) => {
+    const calls: Array<string> = []
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push(`${init?.method ?? "GET"} ${String(input)}`)
+      const s = statuses.shift()
+      if (s === undefined || s === "throw") throw new Error("test: network down")
+      return new Response(s === 204 ? null : JSON.stringify(s < 400 ? { ok: true } : { message: "Server Error" }), { status: s })
+    }) as typeof fetch
+    return calls
+  }
+  beforeAll(() => {
+    saved.fetch = globalThis.fetch
+    saved.token = process.env.GITHUB_TOKEN
+    process.env.GITHUB_TOKEN = "test-token"
+  })
+  afterEach(() => { globalThis.fetch = saved.fetch })
+  afterAll(() => { if (saved.token === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = saved.token })
+
+  it("a 502 then a 200 returns the 200", async () => {
+    const calls = stub([502, 200])
+    expect(await gh("/actions/runs/1/jobs", {}, [0, 0, 0])).toEqual({ ok: true })
+    expect(calls.length).toBe(2)
+  })
+  it("a network error then a 200 returns the 200", async () => {
+    const calls = stub(["throw", 200])
+    expect(await gh("/actions/runs/1/jobs", {}, [0, 0, 0])).toEqual({ ok: true })
+    expect(calls.length).toBe(2)
+  })
+  it("5xx on every try throws the original error text after the last retry", async () => {
+    const calls = stub([502, 503, 500, 502])
+    await expect(gh("/actions/runs/1/jobs", {}, [0, 0, 0])).rejects.toThrow("GitHub /actions/runs/1/jobs: HTTP 502")
+    expect(calls.length).toBe(4)
+  })
+  it("a 404 throws at once", async () => {
+    const calls = stub([404, 200])
+    await expect(gh("/issues/9", {}, [0, 0, 0])).rejects.toThrow("HTTP 404")
+    expect(calls.length).toBe(1)
+  })
+  it("a POST is never retried (a 5xx may already have created it)", async () => {
+    const calls = stub([502, 200])
+    await expect(gh("/issues", { method: "POST", body: "{}" }, [0, 0, 0])).rejects.toThrow("HTTP 502")
+    expect(calls.length).toBe(1)
+  })
+})
+
+
+describe("G1 excludes a source-fenced staging skip", () => {
+  it("a superseded push neither proves green nor poisons another commit's soak; real smoke failures still count", async () => {
+    const savedFetch = globalThis.fetch
+    const savedToken = process.env.GITHUB_TOKEN
+    process.env.GITHUB_TOKEN = "test-token"
+    const jobs = (kind: "green" | "red" | "superseded") => [
+      { name: "test", conclusion: "success" },
+      { name: "migrations-push-guard", conclusion: "success" },
+      { name: "deploy-staging", conclusion: kind === "red" ? "failure" : "success", completed_at: "2026-11-03T10:00:00Z", steps: [
+        { name: "Newer deployment inputs already queued; skip", conclusion: kind === "superseded" ? "success" : "skipped" },
+        { name: "Smoke the API Worker; roll back on red", conclusion: kind === "green" ? "success" : kind === "red" ? "failure" : "skipped" },
+      ] },
+    ]
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = new URL(String(input))
+      if (url.host !== "api.github.com") throw new Error(`unexpected host ${url.host}`)
+      if (url.pathname.endsWith("/backend.yml/runs")) return Response.json({ workflow_runs: [{ id: 3, head_sha: "stale" }, { id: 2, head_sha: "red" }, { id: 1, head_sha: "green" }] })
+      const id = /\/runs\/(\d+)\/jobs$/.exec(url.pathname)?.[1]
+      if (!id) throw new Error(`unexpected GitHub path ${url.pathname}`)
+      return Response.json({ jobs: jobs(id === "3" ? "superseded" : id === "2" ? "red" : "green") })
+    }) as typeof fetch
+    try {
+      expect(await stagingRuns()).toEqual([
+        { sha: "red", at: Date.parse("2026-11-03T10:00:00Z"), green: false },
+        { sha: "green", at: Date.parse("2026-11-03T10:00:00Z"), green: true },
+      ])
+    } finally {
+      globalThis.fetch = savedFetch
+      if (savedToken === undefined) delete process.env.GITHUB_TOKEN
+      else process.env.GITHUB_TOKEN = savedToken
+    }
   })
 })

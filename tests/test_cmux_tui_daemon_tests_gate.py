@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""The cmux_next_ daemon tests that gate nightly-next run on Blacksmith 32 vCPU.
+"""The cmux_next_ daemon tests run on Blacksmith Linux, at the size .github/runners.json linux_sizes measured.
 
 Leo, 2026-10-26: "I THOUGHT THESE COULD JUST GO ON LINUX".
 
-cmux-tui-artifacts.yml's cmux-next-daemon-tests job is the nightly-next
-promotion gate: its pass writes tree/<key>/daemon-tests.json
-(publish-tree-tested), which request-nightly-next.sh requires. It ran on the
+cmux-tui-artifacts.yml's cmux-next-daemon-tests job gates the feat-cmux-next
+channel: its pass writes tree/<key>/daemon-tests.json (publish-tree-tested),
+which point-feat-channel requires. Until 2026-10-28 nightly-next promotion
+required it too; now the tree-commit marker follows the publish (Leo,
+2026-10-23: "we want no smoke tests"). It ran on the
 owned Macs (the promote pool the Release compile also needs, then the side
 lane) and queued there for 20+ minutes while nightly-next waited. None of
 the cmux_next_ tests is gated to macOS, and cmux-tui.yml's Linux job runs the
-whole workspace, so the gate takes Blacksmith at 32 vCPU on every event and
+whole workspace, so the gate takes Blacksmith (8 vCPU since 2026-11-01: 5.5 min mean on 32) on every event and
 attempt, and its pass writes the marker.
 
 Leo, 2026-10-27: "ok do NOT label stuff as os=linux...". The job name, its
 steps and the marker name no runner OS. Markers written before that carry an
-"os" field; the promote reader checks only that a marker exists, so both
-kinds promote (scripts/cmux-next/tests/request-nightly-next.test.sh).
+"os" field; its readers (cmux-tui-point-channel.sh, tree-commit-marker.sh
+daemon-tested) check only that a marker exists, so both kinds count.
 
 The tests that genuinely need macOS (acpmux's Keychain and Seatbelt tests,
 the idle wakeup counter) run in their own workflow,
@@ -36,6 +38,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+from blacksmith_linux_sizes import size_label  # noqa: E402
 
 from test_ci_tui_routes_avoid_nightly_label import (  # noqa: E402
     DAEMON_LABEL,
@@ -49,7 +52,7 @@ from test_ci_tui_routes_avoid_nightly_label import (  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 SHADOW_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-daemon-macos-shadow.yml"
-GATE_LABEL = "blacksmith-32vcpu-ubuntu-2404"
+GATE_LABEL = size_label("cmux-tui-artifacts.yml", "cmux-next-daemon-tests")
 JOB_NAME = "cmux_next_ daemon tests"
 SHADOW = "cmux-next-daemon-macos-shadow"
 MAC_ONLY_TESTS = ("no_keychain", "router_no_keychain", "remote_sandbox", "remote_sandbox_canary", "idle_wakeups")
@@ -72,7 +75,7 @@ def flat(text: str) -> str:
 
 
 class DaemonTestsGateTests(unittest.TestCase):
-    def test_the_gate_runs_on_blacksmith_32_vcpu_whatever_the_pool_variables_say(self) -> None:
+    def test_the_gate_runs_on_its_blacksmith_size_whatever_the_pool_variables_say(self) -> None:
         runs_on = jobs()["cmux-next-daemon-tests"]["runs-on"]
         for overrides in ({}, {"CI_NEXT_DAEMON_POOL": DAEMON_LABEL}, {"CI_PIN_DAEMON_POOL": PIN_LABEL},
                           {"CI_PR_POOL_OWNED": ""}, {"CI_NEXT_PROMOTE_POOL": ""}):
@@ -133,7 +136,8 @@ class DaemonTestsGateTests(unittest.TestCase):
 
     def test_the_shadow_never_takes_an_owned_pool(self) -> None:
         runs_on = shadow_workflow()["jobs"][SHADOW]["runs-on"]
-        self.assertNotIn("vars.", runs_on)
+        self.assertNotIn("vars.MACOS_RUNNER", runs_on)
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_15", runs_on)
         self.assertNotIn("inputs.", runs_on)
         for daemon in ("", DAEMON_LABEL, PROMOTE_LABEL, LIGHT_LABEL, SIDE_LABEL):
             for context in contexts(CI_NEXT_DAEMON_POOL=daemon):

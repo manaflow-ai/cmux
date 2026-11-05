@@ -1,0 +1,100 @@
+name: classic API guard
+
+# Classic cmux.com and its API deploy on their own (Vercel) when a commit lands on main. A pull request into main that changes one of the guarded paths in
+# scripts/ci/classic-auto-deploy.json fails until its description has a line
+# `Classic API change: <reason>`; into feat-cmux-next it is a warning only, since that branch
+# deploys nothing classic. scripts/ci/classic_api_guard.py decides, run from the base commit,
+# never the pull request's code; the head is read only as a list of changed paths. Editing the
+# description re-runs it. New NEXT Cloud backend code goes to manaflow-ai/cmux-platform.
+# Leo, 2026-11-04: "apparently the api if we change it it'll auto deploy so we wanna make extra
+# sure we dont change it for clasisc".
+on:
+  pull_request:
+    branches: [main, feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: classic-api-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  classic-api:
+    name: classic-api-guard
+    # Every edit re-runs it (a skipped run would read as a pass and replace a failing one).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out the guard from the base commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/classic_api_guard.py
+            scripts/ci/classic-auto-deploy.json
+          sparse-checkout-cone-mode: false
+
+      - name: Check the changed paths against classic's auto-deploys
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          BODY: ${{ github.event.pull_request.body }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/classic_api_guard.py ]; then
+            # The pull request that adds the guard: its base has no guard to run yet.
+            echo "::notice::The base has no scripts/ci/classic_api_guard.py yet; nothing to check."
+            exit 0
+          fi
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
+          # One record per changed file; a rename's old path also counts as changed, but not as a record.
+          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | [.filename, (.previous_filename // "")] | @tsv' > "$RUNNER_TEMP/files.tsv"; then
+            # The REST listing shares the installation's rate limit (spent on 2026-11-04, which
+            # failed this check on every PR). Read the same paths from the PR's merge commit: its
+            # first parent is the base, so the diff is what the PR changes. --no-renames lists a
+            # rename as its old and new path, each its own record (never fewer records than files).
+            # Trees only, no blobs.
+            echo "::warning::The REST file listing failed; reading the changed paths from refs/pull/$PR/merge."
+            # The token goes through the environment, not git's argv.
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+            export GIT_CONFIG_VALUE_0
+            # The merge ref can lag a push or a base move: use it only when its parents are this
+            # event's base and head.
+            if git fetch --no-tags --filter=blob:none --depth=2 \
+                 origin "+refs/pull/$PR/merge:refs/guard/merge" \
+               && [ "$(git rev-parse refs/guard/merge^1)" = "$BASE_SHA" ] \
+               && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \
+               && git diff --name-only --no-renames refs/guard/merge^1 refs/guard/merge > "$RUNNER_TEMP/files.tsv"; then
+              :
+            elif [ "$BASE" != "main" ]; then
+              # Into feat-cmux-next the guard only warns, so a missing listing warns too.
+              echo "::warning::Could not list the changed paths (no current merge ref either); this check only warns into $BASE."
+              exit 0
+            else
+              echo "::error::Could not list the changed paths; re-run this check."
+              exit 1
+            fi
+          fi
+          records=$(wc -l < "$RUNNER_TEMP/files.tsv" | tr -d ' ')
+          tr '\t' '\n' < "$RUNNER_TEMP/files.tsv" | sed '/^$/d' > "$RUNNER_TEMP/paths.txt"
+          # The guard comes from the base: a base older than --listed-records gets the old count.
+          listed=()
+          if grep -q -- '--listed-records' scripts/ci/classic_api_guard.py; then
+            listed=(--listed-records "$records")
+          fi
+          python3 scripts/ci/classic_api_guard.py --base "$BASE" \
+            --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt" \
+            --expected-files "$CHANGED_FILES" "${listed[@]}"

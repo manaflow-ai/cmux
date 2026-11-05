@@ -74,7 +74,8 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
     /// Adds the overlay over `host`, with the field where the bubble is
     /// (`sourceFrame`, in host coordinates) and never under the keyboard or
     /// above `topInset`.
-    func install(in host: UIView, sourceFrame: CGRect, topInset: CGFloat) {
+    /// `keyboard`: a guide in `host` whose top is the docked keyboard's top.
+    func install(in host: UIView, keyboard: UILayoutGuide, sourceFrame: CGRect, topInset: CGFloat) {
         translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(self)
         let gap: CGFloat = 8
@@ -109,7 +110,7 @@ final class MessageEditOverlay: UIView, UITextViewDelegate {
             textView.bottomAnchor.constraint(equalTo: field.bottomAnchor),
             height,
             atBubble,
-            field.bottomAnchor.constraint(lessThanOrEqualTo: host.keyboardLayoutGuide.topAnchor, constant: -12),
+            field.bottomAnchor.constraint(lessThanOrEqualTo: keyboard.topAnchor, constant: -12),
             field.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: topInset + 8),
         ])
         host.layoutIfNeeded()

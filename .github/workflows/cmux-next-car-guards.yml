@@ -84,10 +84,14 @@ concurrency:
   group: cmux-next-car-guards-${{ inputs.car && format('{0}-{1}', inputs.car, github.run_id) || github.ref }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   plan:
     name: car guards plan
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }}
     timeout-minutes: 5
     outputs:
       base: ${{ steps.range.outputs.base }}
@@ -104,6 +108,10 @@ jobs:
           ref: ${{ inputs.head || github.event.pull_request.head.sha }}
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       # The guards come from this workflow's commit: a car's tree may predate them (run
       # 39528757300 on f3ecea5 had no scripts/ci/car_guards.py). The car's own guards
@@ -171,7 +179,7 @@ jobs:
       status: ${{ steps.guards.outputs.status }}
     # 32 vCPU: the guards and focused python tests run side by side (car_guards.py CHEAP)
     # and cargo test compiles the crates the car touches.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 45
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
@@ -284,7 +292,7 @@ jobs:
       status: ${{ steps.guards.outputs.status }}
     # Blacksmith 6 vCPU: the fast-tier seed's pool (cmux-next-fast-tier-seed.yml), so a car's
     # Swift build restores a warm seed and rebuilds only what the car changed.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 45
     steps:
       # This job's tests can start acpmux daemons: they get a home of the job's
@@ -304,6 +312,10 @@ jobs:
           ref: ${{ needs.plan.outputs.head }}
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       # The guards come from this workflow's commit: a car's tree may predate them (run
       # 39528757300 on f3ecea5 had no scripts/ci/car_guards.py). The car's own guards

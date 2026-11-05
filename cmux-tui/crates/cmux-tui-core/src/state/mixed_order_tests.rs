@@ -215,7 +215,16 @@ fn a_new_workspace_follows_the_after_current_and_bottom_settings() {
         .to_string();
     let a = empty_workspace(&mux, "a");
     let b = empty_workspace(&mux, "b");
-    let work = group(&mux, "Work");
+    // An explicit index: a group made with none forms below Home under top.
+    let work = mutate(
+        &mux,
+        "workspace_group.create",
+        json!({"name": "Work", "index": 0}),
+        "group-Work",
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
     mutate(&mux, "workspace.place", json!({"workspace": a, "group": work}), "a-in-work");
     // Personal order now: home, b, then Work [a] after every loose row.
     let after = NewWorkspacePlacement::AfterCurrent.set_for_test();

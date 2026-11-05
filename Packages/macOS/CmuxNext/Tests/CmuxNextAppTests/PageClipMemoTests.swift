@@ -36,6 +36,40 @@ import Testing
         #expect(CEFHostView.trackerStats.clipBuilds - builds == 1, "one shape for four reads")
     }
 
+    @Test func repeatedOcclusionReadsReuseNormalizedRectsAndBridge() {
+        let column = Column()
+        let beforeBuilds = CEFHostView.trackerStats.occlusionBuilds
+        let beforeHits = CEFHostView.trackerStats.occlusionHits
+        let first = column.page.cmuxOcclusionRects()
+        for _ in 0..<20 { _ = column.page.cmuxOcclusionRects() }
+        #expect(first === column.page.cmuxOcclusionRects(), "the bridge is stable while geometry holds")
+        #expect(CEFHostView.trackerStats.occlusionBuilds - beforeBuilds == 1)
+        #expect(CEFHostView.trackerStats.occlusionHits - beforeHits >= 20)
+    }
+
+    @Test func occlusionChangeInvalidatesNormalizedRects() {
+        let column = Column()
+        _ = column.page.cmuxOcclusionRects()
+        let before = CEFHostView.trackerStats.occlusionBuilds
+        column.page.occlusionRects = [CGRect(x: 20, y: 20, width: 30, height: 30)]
+        let holes = (column.page.cmuxOcclusionRects() as? [NSValue])?.map(\.rectValue) ?? []
+        #expect(holes == [CGRect(x: 20, y: 20, width: 30, height: 30)])
+        #expect(CEFHostView.trackerStats.occlusionBuilds - before == 1)
+    }
+
+    /// A resize the fork learns of from AppKit, with no `postGeometryChange`, still rebuilds the
+    /// holes on the next read: the memo is keyed on the geometry, not on posts.
+    @Test func aResizeWithoutAPostRebuildsTheHoles() {
+        let column = Column()
+        _ = column.page.cmuxOcclusionRects()
+        let before = CEFHostView.trackerStats.occlusionBuilds
+        column.host.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+        column.host.layoutSubtreeIfNeeded()
+        // No holes either way, and an empty NSArray bridges to one shared object: count builds.
+        _ = column.page.cmuxOcclusionRects()
+        #expect(CEFHostView.trackerStats.occlusionBuilds - before == 1)
+    }
+
     @Test func aStripClipWithoutAFrameChangeGivesTheNewShape() throws {
         let column = Column()
         let whole = try #require(column.page.cmuxClipPath()?.bounds)

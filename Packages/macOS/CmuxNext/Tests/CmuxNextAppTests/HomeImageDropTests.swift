@@ -5,6 +5,7 @@ import CmuxHomeCore
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
+import CmuxNextTestSupport
 
 /// Lawrence 2026-10-20: "I want people to drag images into Chief properly."
 ///
@@ -15,7 +16,7 @@ import UniformTypeIdentifiers
 /// `draggingEntered`, a few `draggingUpdated`, `performDragOperation` and `draggingEnded`. What the
 /// drag carries is a value the intake reads (`drop.contents`): the CI Macs' pasteboard server answers
 /// reads inconsistently (`HomePasteAnywhereTests`), and the user's drag and clipboard are never touched.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3))) struct HomeImageDropTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(3))) struct HomeImageDropTests {
     /// One drag session: a private pasteboard, its sequence number and the pointer in window coordinates.
     @MainActor final class Drag: NSObject, NSDraggingInfo {
         let draggingPasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.home-drop-test.\(UUID().uuidString)"))
@@ -185,7 +186,7 @@ import UniformTypeIdentifiers
             return out
         }
 
-        func close() { window.orderOut(nil) }
+        func close() { window.closeWithHomePopovers() }
     }
 
     private static func wait(_ limit: Duration = .seconds(10), until done: () -> Bool) async {

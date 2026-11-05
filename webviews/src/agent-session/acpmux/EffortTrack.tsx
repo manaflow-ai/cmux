@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useLayoutEffect, useRef } from "react";
 import type { Choice } from "./ComposerPickers";
 import type { ReasoningSliderStyle } from "./composerSettings";
 import { useT } from "./i18n";
@@ -47,10 +47,8 @@ export function EffortTrack({
 }) {
   const t = useT();
   const range = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (!focusOnMount) return;
-    const frame = requestAnimationFrame(() => range.current?.focus({ preventScroll: true }));
-    return () => cancelAnimationFrame(frame);
+  useLayoutEffect(() => {
+    if (focusOnMount) range.current?.focus({ preventScroll: true });
   }, [focusOnMount]);
   const at = (id: string | undefined) => efforts.findIndex((choice) => choice.id === id);
   const level = Math.max(0, at(current) >= 0 ? at(current) : at(fallback));

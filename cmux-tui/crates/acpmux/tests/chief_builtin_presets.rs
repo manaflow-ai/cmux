@@ -405,14 +405,14 @@ async fn a_built_in_preset_of_an_unknown_chief_is_refused() {
     }
 }
 
-/// A Chief turn gets only the cmux MCP server of the agent tools (cx-4a5w2):
+/// A Chief turn gets cmux with its folded acpmux coordinator tools:
 /// the computer use, secret and session offer servers stay out of its
 /// session. In the app (whose bundle has `cmux-cua`) their tool names and
 /// instructions came after the turn's cache mark, 2,905 uncached tokens per
 /// turn and about 70% read from the cache; a turn reaches that work through
 /// subagents, which keep every server.
 #[tokio::test]
-async fn a_chief_turn_gets_only_the_cmux_mcp_server() {
+async fn a_chief_turn_gets_cmux_and_folded_acpmux_tools() {
     let d = Daemon::start_env(
         "tools",
         &[("CMUX_AGENT_TOOLS_BIN_DIR", "tools")],
@@ -449,8 +449,8 @@ async fn a_chief_turn_gets_only_the_cmux_mcp_server() {
         names
     };
     for (preset, want) in [
-        (Some(format!("optchat-chief-{id}")), vec!["cmux"]),
-        (Some(format!("optchat-chief-codex-{id}")), vec!["cmux"]),
+        (Some(format!("optchat-chief-{id}")), vec!["cmux", "+acpmux"]),
+        (Some(format!("optchat-chief-codex-{id}")), vec!["cmux", "+acpmux"]),
         (
             Some(format!("optchat-sub-{id}")),
             vec![
@@ -498,5 +498,19 @@ async fn a_chief_turn_gets_only_the_cmux_mcp_server() {
         let scoped = cmux["env"].to_string().contains("agents_wait,render");
         let turn = preset.as_deref().is_some_and(|name| name.starts_with("optchat-chief-"));
         assert_eq!(scoped, turn, "{preset:?}: {cmux}");
+        if turn {
+            let allowed = cmux["env"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["name"] == "CMUX_MCP_TOOLS")
+                .unwrap();
+            let names: Vec<_> = allowed["value"].as_str().unwrap().split(',').collect();
+            assert_eq!(names, acpmux::agent_tools::CHIEF_TURN_TOOLS.split(',').collect::<Vec<_>>());
+            for tool in ["send", "ls", "last", "info", "inbox_read", "inbox_reply"] {
+                assert!(names.contains(&format!("acpmux_{tool}").as_str()), "{names:?}");
+            }
+            assert!(!names.iter().any(|name| name.starts_with("acpmux_bg_")));
+        }
     }
 }

@@ -19,12 +19,22 @@ extension SidebarContainerView {
                 model.presentation = .hidden
             } else {
                 model.width = proposed
-                panelWidth.constant = model.width
+                panelWidth.constant = model.width + paneReach
                 targetWidth = model.width
                 widthConstraint.constant = model.width
+                setClipReach(paneReach, collapsed: false, animated: false)
             }
         case .ended:
             break
         }
+    }
+
+    /// A shown scroller of the sidebar (the list's, a band's, the Priority view's) takes a press at
+    /// `point` (the handle's superview's coordinates). The band's inner points lie over the list's
+    /// scroller, and a press on its knob scrolls (Lawrence msg 18056). Only reachable while the
+    /// handle is mounted beside this view, where that space is also this view's superview's.
+    func scrollerTakesPress(at point: CGPoint) -> Bool {
+        guard let superview, handle.superview === superview else { return false }
+        return hitTest(point) is NSScroller
     }
 }

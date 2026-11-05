@@ -6,11 +6,13 @@ import http.server
 import json
 import os
 from pathlib import Path
+import socket
 import ssl
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 
@@ -126,6 +128,315 @@ class R2UploadRequestsTests(unittest.TestCase):
         self.addCleanup(stop)
         scheme = "https" if tls else "http"
         return f"{scheme}://127.0.0.1:{server.server_port}", requests
+
+    def start_flaky_endpoint(self, failures):
+        """A bucket whose first PUTs fail: "503", "drop" (the connection closes
+        with no answer, as a stalled write that timed out), or "lost" (the
+        object is stored, then the connection closes before the answer)."""
+        requests, stored, pending = [], {}, list(failures)
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def record(self):
+                body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                requests.append((self.command, self.path))
+                if self.command == "PUT" and pending:
+                    failure = pending.pop(0)
+                    if failure == "lost":
+                        stored[self.path] = body
+                    if failure == "other":
+                        # Another publisher's bytes land, and this PUT's answer is lost.
+                        stored[self.path] = b"other publisher\n"
+                    if failure in ("drop", "lost", "other"):
+                        self.close_connection = True
+                        self.connection.close()
+                        return
+                    status, response = int(failure), b""
+                elif self.command == "PUT":
+                    if self.headers.get("If-None-Match") == "*" and self.path in stored:
+                        status, response = 412, b""
+                    else:
+                        stored[self.path] = body
+                        status, response = 200, b""
+                elif self.path in stored:
+                    status, response = 200, stored[self.path] if self.command == "GET" else b""
+                else:
+                    status, response = 404, b""
+                self.send_response(status)
+                self.send_header("ETag", '"etag-1"')
+                self.send_header("Content-Length", str(len(response)))
+                self.end_headers()
+                self.wfile.write(response)
+
+            do_PUT = do_GET = do_HEAD = record
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+
+        def stop():
+            server.shutdown()
+            thread.join()
+            server.server_close()
+
+        self.addCleanup(stop)
+        return f"https://127.0.0.1:{server.server_port}", requests, stored
+
+    def test_transient_failures_are_retried(self):
+        # Run 40629788539: one PUT's "write operation timed out" failed the
+        # whole cmux-tui tree publication.
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        for failures in (["503"], ["drop"], ["drop", "503", "429"]):
+            for flags in ((), ("--write-once",)):
+                with self.subTest(failures=failures, flags=flags):
+                    endpoint, requests, stored = self.start_flaky_endpoint(failures)
+                    result = self.upload("appcast.xml", *flags, endpoint=endpoint)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("Uploaded", result.stdout)
+                    self.assertEqual(stored, {"/cmux-binaries/nightly/appcast.xml": BODY})
+                    self.assertEqual([r[0] for r in requests].count("PUT"), len(failures) + 1)
+                    self.assertIn(f"attempt 1 of 4 failed", result.stderr)
+
+    def test_a_slow_large_put_is_bounded_by_idle_gaps_not_total_time(self):
+        # Run 41814490749: the nightly DMG's PUT failed four times with "The
+        # write operation timed out" because one sendall() of the whole body
+        # had 30 s in all. A transfer that keeps moving must finish however
+        # long it takes; here it takes several idle timeouts in all.
+        # The server reads slowly only for PACED seconds, then drains the rest
+        # at once. The client must still be sending when the pacing ends, or
+        # its wait for the response holds what the kernel buffered and outlasts
+        # the idle timeout (cmuxterm-hq#7079: the client handed off 12 MiB in
+        # 1.0 s; the server read it for 4.8 s). Autotuned loopback buffers
+        # reach tens of MiB on some hosts (a CI runner took the whole 32 MiB in
+        # 0.6 s), so the server fixes its receive buffer before listen(): that
+        # turns receive autotuning off and keeps the window, and with it the
+        # client's send buffer, to a few MiB whatever the host's sysctls say.
+        self.env["CMUX_R2_UPLOAD_IDLE_SECONDS"] = "2"
+        self.env["CMUX_R2_UPLOAD_ATTEMPTS"] = "1"
+        paced = 5.0  # 2.5 idle timeouts
+        received = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_PUT(self):
+                remaining = int(self.headers["Content-Length"])
+                received.append(self.headers.get("Transfer-Encoding"))
+                body = bytearray()
+                until = time.monotonic() + paced
+                while remaining:
+                    piece = self.rfile.read(min(remaining, 256 << 10))
+                    if not piece:
+                        break  # the client gave up mid-body; reading on would spin and hang the cleanup
+                    body += piece
+                    remaining -= len(piece)
+                    if time.monotonic() < until:
+                        time.sleep(0.1)
+                received.append(bytes(body))
+                self.send_response(200)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler, bind_and_activate=False)
+        server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 64 << 10)
+        server.server_bind()
+        server.server_activate()
+        server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
+
+        # 2.5 MiB/s for 5 s is 12.5 MiB; 32 MiB keeps the client sending past
+        # the paced reads with the bounded buffers, so no gap is waiting on
+        # them, and the whole upload takes more than two idle timeouts.
+        body = os.urandom(32 << 20)
+        started = time.monotonic()
+        result = self.upload("cmux.dmg", endpoint=f"https://127.0.0.1:{server.server_port}", body=body)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertGreater(time.monotonic() - started, 2 * 2)
+        self.assertEqual(received, [None, body])
+
+    def test_a_write_once_put_that_landed_unanswered_reads_as_present(self):
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        endpoint, requests, stored = self.start_flaky_endpoint(["lost"])
+        result = self.upload("appcast.xml", "--write-once", endpoint=endpoint)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Already present with matching digest", result.stdout)
+        self.assertEqual([r[0] for r in requests], ["HEAD", "PUT", "HEAD", "GET"])
+
+    def test_a_write_once_retry_never_accepts_another_publishers_bytes(self):
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        for flags, code in (((), 1), (("--conflict-exit-code", "75"), 75)):
+            with self.subTest(flags=flags):
+                endpoint, requests, stored = self.start_flaky_endpoint(["other"])
+                result = self.upload("appcast.xml", "--write-once", *flags, endpoint=endpoint)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertEqual(stored, {"/cmux-binaries/nightly/appcast.xml": b"other publisher\n"})
+                self.assertEqual([r[0] for r in requests].count("PUT"), 1)
+                if not flags:
+                    self.assertIn("immutable-r2-conflict", result.stdout)
+
+    def test_a_download_that_trickles_is_cut_at_its_deadline(self):
+        # Never idle long enough for the socket timeout, never done.
+        self.env.update(CMUX_R2_UPLOAD_RETRY_DELAY="0", CMUX_R2_UPLOAD_ATTEMPTS="2",
+                        CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS="1")
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", str(1 << 30))
+                self.end_headers()
+                try:
+                    # Under one 64 KiB chunk in all, a byte at a time.
+                    for _ in range(100):
+                        self.wfile.write(b"x")
+                        self.wfile.flush()
+                        time.sleep(0.05)
+                except OSError:
+                    pass
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
+        started = time.monotonic()
+        result, target = self.download(f"https://127.0.0.1:{server.server_port}")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertLess(time.monotonic() - started, 8)
+        self.assertIn("too slow", result.stderr)
+        self.assertFalse(target.exists())
+        self.assertFalse(target.with_name("downloaded.partial").exists())
+
+    def test_a_download_whose_answer_never_starts_is_cut_at_its_deadline(self):
+        # The deadline covers the request too, not only the body.
+        self.env.update(CMUX_R2_UPLOAD_RETRY_DELAY="0", CMUX_R2_UPLOAD_ATTEMPTS="2",
+                        CMUX_R2_DOWNLOAD_ATTEMPT_SECONDS="1")
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                time.sleep(5)
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.daemon_threads = True
+        server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
+        started = time.monotonic()
+        result, target = self.download(f"https://127.0.0.1:{server.server_port}")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertIn("too slow", result.stderr)
+
+    def test_the_deadline_is_not_swallowed_by_a_connect_over_several_addresses(self):
+        # socket.create_connection tries each resolved address and catches
+        # OSError between them: a deadline raised as one would be lost there.
+        import importlib.util
+        import socket
+        import unittest.mock
+
+        spec = importlib.util.spec_from_file_location("upload_r2_object", UPLOADER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertFalse(issubclass(module.DownloadDeadline, OSError))
+        addresses = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 1))] * 2
+        tried = []
+
+        def connect(_self, _address):
+            tried.append(_address)
+            raise module.DownloadDeadline("deadline")
+
+        with unittest.mock.patch("socket.getaddrinfo", return_value=addresses), \
+                unittest.mock.patch("socket.socket.connect", connect):
+            with self.assertRaises(module.DownloadDeadline):
+                socket.create_connection(("r2.invalid", 443), timeout=1)
+        self.assertEqual(len(tried), 1, "the deadline stops the connect at the first address")
+
+    def test_a_failed_download_keeps_the_destination(self):
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        endpoint, requests, stored = self.start_flaky_endpoint([])
+        target = self.root / "downloaded"
+        target.write_bytes(b"earlier\n")
+        result, _ = self.download(endpoint, key="nightly/missing.xml")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(target.read_bytes(), b"earlier\n")
+
+    def test_retries_are_bounded_and_permanent_errors_are_not_retried(self):
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        endpoint, requests, stored = self.start_flaky_endpoint(["503"] * 6)
+        result = self.upload("appcast.xml", endpoint=endpoint)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual([r[0] for r in requests].count("PUT"), 4)
+        self.assertIn("R2 upload failed: HTTP 503", result.stderr)
+        endpoint, requests, stored = self.start_flaky_endpoint(["403"])
+        result = self.upload("appcast.xml", endpoint=endpoint)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual([r[0] for r in requests].count("PUT"), 1)
+        self.assertIn("R2 upload failed: HTTP 403", result.stderr)
+
+    def download(self, endpoint, key="nightly/appcast.xml"):
+        target = self.root / "downloaded"
+        result = subprocess.run(
+            [sys.executable, str(UPLOADER), "--endpoint-url", endpoint, "--bucket", "cmux-binaries",
+             "--key", key, "--download-to", str(target)],
+            env=self.env, capture_output=True, text=True, timeout=10,
+        )
+        return result, target
+
+    def test_download_reads_the_object_from_r2_whole_or_not_at_all(self):
+        # Run 40637082673: files.cmux.com served a kept publication's 31 MB
+        # binary at 4-35 KB/s and the publish job failed after 20 minutes.
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        endpoint, requests, stored = self.start_flaky_endpoint([])
+        stored["/cmux-binaries/nightly/appcast.xml"] = BODY
+        result, target = self.download(endpoint)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(target.read_bytes(), BODY)
+        self.assertEqual([r[0] for r in requests], ["GET"])
+        result, target = self.download(endpoint, key="nightly/missing.xml")
+        self.assertEqual(result.returncode, 22, "a missing object exits like curl --fail")
+        self.assertFalse(target.with_name("downloaded.partial").exists())
+        self.assertEqual([r[0] for r in requests], ["GET", "GET"], "a 404 is not retried")
+
+    def test_download_retries_a_dropped_read(self):
+        self.env["CMUX_R2_UPLOAD_RETRY_DELAY"] = "0"
+        drops = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                drops.append(self.path)
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(BODY)))
+                self.end_headers()
+                # The first answer stops halfway, as a stalled transfer does.
+                self.wfile.write(BODY if len(drops) > 1 else BODY[: len(BODY) // 2])
+                if len(drops) == 1:
+                    self.close_connection = True
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
+        result, target = self.download(f"https://127.0.0.1:{server.server_port}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(target.read_bytes(), BODY)
+        self.assertEqual(len(drops), 2)
+        self.assertIn("attempt 1 of 4 failed", result.stderr)
 
     def test_plaintext_endpoints_are_rejected_before_sending_credentials(self):
         endpoint, requests = self.start_endpoint(tls=False)

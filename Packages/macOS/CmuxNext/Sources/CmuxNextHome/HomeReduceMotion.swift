@@ -1,18 +1,18 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextWakeups
 import MessagesLabHome
 import MessagesLabSidebar
 
 /// The vendored Home transcript and conversation list cannot see `Motion` (they are
 /// MessagesLab's code), so their Reduce Motion reads their own pin and else the system
 /// setting. This keeps their pins equal to `Motion.reduceMotionOverride` (cx-sya4n), so a
-/// Reduce Motion pin stills them as it stills every cmux loop. Installed by the views that
-/// host them, before their first frame.
+/// Reduce Motion pin stills them as it stills every cmux loop, and pins them on while calm
+/// mode (`ui.calm`) is on, which `Motion.reduceMotion` counts and the system setting does not.
+/// Installed by the views that host them, before their first frame.
 @MainActor
 final class HomeReduceMotion {
     private static let shared = HomeReduceMotion()
-    private var observers: [any NSObjectProtocol] = []
+    private var motion: MotionSubscription?
 
     private init() {
         Self.mirror()
@@ -20,14 +20,15 @@ final class HomeReduceMotion {
         CmuxSidebarView.movementGate = { Motion.sidebar.animatesMovement }
         // The message box's dictation waveform follows the input level only while Home's loops run.
         MessagesLabHomeView.voiceMotionGate = { Motion.home.animatesLoops }
-        observers = [Motion.reduceMotionDidChange, Motion.speedDidChange].map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { _ in
-                MainDelivery().run {
-                    HomeReduceMotion.mirror()
-                    if name == Motion.speedDidChange {
-                        NotificationCenter.default.post(name: MessagesLabHomeView.reduceMotionDidChange, object: nil)
-                    }
-                }
+        motion = Motion.changes.subscribe { change in
+            switch change {
+            case .reduceMotion: HomeReduceMotion.mirror()
+            case .speed:
+                HomeReduceMotion.mirror()
+                NotificationCenter.default.post(name: MessagesLabHomeView.reduceMotionDidChange, object: nil)
+                NotificationCenter.default.post(name: CmuxSidebarView.reduceMotionDidChange, object: nil)
+            // The vendored views read the system setting themselves.
+            case .systemReduceMotion: break
             }
         }
     }
@@ -35,8 +36,11 @@ final class HomeReduceMotion {
     /// Starts mirroring (once per process).
     static func install() { _ = shared }
 
+    /// A test's pin wins; calm mode pins Reduce Motion on; else nil, and the vendored views
+    /// read the system setting themselves. Calm mode posts `reduceMotionDidChange` when it changes.
     private static func mirror() {
-        MessagesLabHomeView.reduceMotionOverride = Motion.reduceMotionOverride
-        CmuxSidebarView.reduceMotionOverride = Motion.reduceMotionOverride
+        let pin = Motion.reduceMotionOverride ?? (DesignSettings.shared.calmMode.reducesMotion ? true : nil)
+        MessagesLabHomeView.reduceMotionOverride = pin
+        CmuxSidebarView.reduceMotionOverride = pin
     }
 }

@@ -13,9 +13,8 @@ import CmuxNextHostPressure
 /// closed in that window until the next critical spell. The banner has no timer of its
 /// own: it follows the same level observation, and ends with it.
 ///
-/// Off by default (cmux#22662): it subscribes to the app's `HostPressureService`
-/// only while `HostPressureSampling.samples` holds (the Debug Settings toggle
-/// `hostPressure.enabled` is on and its window can be seen). Stop condition: the
+/// Off by default (`HostPressureTunables.enabled`): it subscribes to the app's `HostPressureService` only
+/// while `HostPressureSampling.samples` holds (the toggle is on and its window can be seen). Stop condition: the
 /// toggle going off, or the window (or the whole app) hiding, minimizing, being fully occluded or
 /// closing, unsubscribes it, and the service stops the monitor and its one 15 s
 /// timer when no window is subscribed. Cleanup: leaving the window, and deinit,
@@ -44,6 +43,7 @@ final class HostPressureIndicatorView: NSView {
     private let watching = HostPressureTasks()
     private let levels = HostPressureTasks()
     private lazy var popover: HostPressurePopover = makePopover()
+    private var madePopover = false
     private(set) var level = HostPressureLevel.normal
     /// Whether it is subscribed to the service now (tests read it).
     var isSampling: Bool { service != nil }
@@ -89,12 +89,16 @@ final class HostPressureIndicatorView: NSView {
         let side = TitlebarBandButton.side
         button.frame = CGRect(x: 0, y: 0, width: side, height: bounds.height)
         let label = loadLabel.intrinsicContentSize
-        loadLabel.frame = CGRect(x: side + Metrics.space1, y: ((bounds.height - label.height) / 2).rounded(),
-                                 width: ceil(label.width), height: label.height)
+        // The text starts `space1` after the glyph; the frame adds the label's padding around it
+        // (a frame the size of the text alone clipped the last digit).
+        loadLabel.frame = loadLabel.frame(forAlignmentRect: CGRect(x: side + Metrics.space1, y: ((bounds.height - label.height) / 2).rounded(),
+                                                                   width: ceil(label.width), height: label.height))
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Out of its window, its popover's panel closes for good (it opens again on the next show).
+        if window == nil, madePopover { popover.closePanel() }
         observeWindow()
         reconcile()
     }
@@ -270,6 +274,7 @@ final class HostPressureIndicatorView: NSView {
 
     private func makePopover() -> HostPressurePopover {
         let popover = HostPressurePopover()
+        madePopover = true
         popover.content.onOpenActivity = { [weak self, weak popover] in
             popover?.close()
             _ = self?.services.registry.perform("agentActivity.open")

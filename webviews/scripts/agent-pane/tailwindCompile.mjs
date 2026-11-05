@@ -6,8 +6,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { compile } from "@tailwindcss/node";
 import { Scanner } from "@tailwindcss/oxide";
+import { writeDesignScale } from "../pages/gen-design-scale.mjs";
 
 export async function compileTailwind(entry) {
+  // Every entry imports ui/theme.generated.css, build output of gen-design-scale.mjs: make it here too,
+  // so a bundle build outside gen-strings.mjs never reads a missing or stale theme.
+  writeDesignScale({ log: () => {} });
   const base = path.dirname(entry);
   const compiler = await compile(readFileSync(entry, "utf8"), { base, onDependency: () => {} });
   const declared = Array.isArray(compiler.sources) ? compiler.sources : [];

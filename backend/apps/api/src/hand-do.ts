@@ -1,6 +1,8 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "./env.ts"
+import { authorizeDefaultMachine, defaultHandId, defaultHandScope, type DefaultHandScope } from "./chief-default-hand.ts"
 import { PROVIDERS } from "./hand-providers.ts"
+import { LEGACY_HAND_PROVIDER } from "./providers/index.ts"
 import { revokeAgentSession } from "./model-gateway/run-token.ts"
 import { classify, requestSummary, type Classified } from "./hand-classify.ts"
 import { createVerdictTable, listVerdicts, recordVerdict } from "./hand-verdicts.ts"
@@ -75,6 +77,7 @@ export class HandDO extends DurableObject<Env> {
     const sql = ctx.storage.sql
     sql.exec(`CREATE TABLE IF NOT EXISTS hand (id INTEGER PRIMARY KEY CHECK (id = 1), hand TEXT NOT NULL, owner TEXT NOT NULL, name TEXT NOT NULL, minted_by TEXT NOT NULL, created_at INTEGER NOT NULL, code_sha TEXT, key_sha TEXT, paired_at INTEGER, revoked_at INTEGER, profile TEXT, hello TEXT, last_seen INTEGER)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_grant (agent TEXT PRIMARY KEY)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS hand_default (id INTEGER PRIMARY KEY CHECK (id = 1), scope TEXT NOT NULL, chief TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_audit (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, req TEXT NOT NULL, action TEXT NOT NULL, who TEXT NOT NULL, outcome TEXT NOT NULL, ms INTEGER)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS hand_approval (id TEXT PRIMARY KEY, req TEXT NOT NULL, summary TEXT NOT NULL, at INTEGER NOT NULL, answered_at INTEGER, allow INTEGER, who TEXT)`)
     createVerdictTable(sql)
@@ -136,7 +139,7 @@ export class HandDO extends DurableObject<Env> {
     const sql = this.ctx.storage.sql
     indexSetGrant(sql, agent, on, Date.now())
     const grants = indexGrants(sql)
-    await Promise.all(indexList(sql).map((h) => this.env.HAND_DO.get(this.env.HAND_DO.idFromName(handName(h.hand))).setGrants(grants)))
+    await Promise.all(indexList(sql).map((h) => this.env.HAND_DO.get(this.env.HAND_DO.idFromName(handName(h.hand))).setGrants(grants, { agent, on })))
     return grants
   }
 
@@ -154,6 +157,61 @@ export class HandDO extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(now + PAIR_TTL_MS)
     await this.publish(this.row()!)
     return { expires_at: now + PAIR_TTL_MS }
+  }
+
+  /**
+   * Registers the hand carried by a server-provisioned default machine.  This is deliberately
+   * separate from `mint`/`redeem`: the machine gets its config through the creator-only CloudDO
+   * exec path, so there is no pairing code to leak or replay.  The operation is idempotent only
+   * for the exact default identity and key hash; a changed key, owner or chief is a hard conflict.
+   * It is an internal RPC (there is no HTTP route) and grants only this Chief on this hand.
+   */
+  async ensureDefault(
+    scope: DefaultHandScope,
+    keySha: string,
+  ): Promise<{ ok: true; hand: string } | { ok: false; code: string; message: string }> {
+    const { owner, chief } = scope
+    const hand = defaultHandId(scope)
+    if (!/^[0-9a-f]{64}$/.test(keySha) || !owner || !chief || !this.ctx.id.equals(this.env.HAND_DO.idFromName(handName(hand)))) {
+      return { ok: false, code: "validation.invalid", message: "invalid default hand identity" }
+    }
+    await authorizeDefaultMachine(this.env, scope)
+    const level = (await this.index(owner).ownerDefaultLevel("sandbox")) ?? defaultLevel("sandbox")
+    const expectedMintedBy = `system:chief:${chief}`
+    const now = Date.now()
+    const existing = this.row()
+    const sql = this.ctx.storage.sql
+    if (existing) {
+      const recorded = sql.exec<{ scope: string }>(`SELECT scope FROM hand_default WHERE id = 1`).toArray()[0]
+      if (existing.hand !== hand || existing.owner !== owner || existing.minted_by !== expectedMintedBy || recorded?.scope !== defaultHandScope(scope)) {
+        return { ok: false, code: "hand.default_conflict", message: "the default hand identity is already used" }
+      }
+      if (existing.revoked_at !== null) return { ok: false, code: "hand.revoked", message: "the default hand is revoked" }
+      if (existing.key_sha !== keySha) return { ok: false, code: "hand.default_conflict", message: "the default hand key does not match" }
+      if (existing.paired_at === null) return { ok: false, code: "hand.default_conflict", message: "the default hand is not paired" }
+      // An owner removed this Chief's grant. Provision retries never turn it back on.
+      if (!sql.exec(`SELECT 1 FROM hand_grant WHERE agent = ?`, chief).toArray().length) return { ok: false, code: "hand.no_grant", message: "the default Chief's hand grant was removed" }
+      await this.publish(existing)
+      return { ok: true, hand }
+    }
+    // There is no await between the final existence check and the identity/grant writes.
+    sql.exec(
+      `INSERT INTO hand (id, hand, owner, name, minted_by, created_at, code_sha, key_sha, paired_at, profile, level) VALUES (1, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+      hand,
+      owner,
+      "Chief machine",
+      expectedMintedBy,
+      now,
+      keySha,
+      now,
+      "sandbox",
+      level,
+    )
+    // The default Chief may use only this hand. Do not modify the owner's other hand grants.
+    sql.exec(`INSERT INTO hand_default (id, scope, chief) VALUES (1, ?, ?)`, defaultHandScope(scope), chief)
+    sql.exec(`INSERT INTO hand_grant (agent) VALUES (?)`, chief)
+    await this.publish(this.row()!)
+    return { ok: true, hand }
   }
 
   /** Single use: the first valid redeem sets the key hash and clears the code. */
@@ -188,7 +246,7 @@ export class HandDO extends DurableObject<Env> {
   private async dropSandbox(): Promise<boolean> {
     const row = this.ctx.storage.sql.exec<{ vm: string; provider: string | null }>(`SELECT vm, provider FROM hand_sandbox WHERE id = 1`).toArray()[0]
     if (!row) return true
-    const provider = PROVIDERS[row.provider ?? "freestyle"]
+    const provider = PROVIDERS[row.provider ?? LEGACY_HAND_PROVIDER]
     if (!provider) {
       // A provider this deployment no longer knows: nothing can delete it from here; say so once.
       console.error(JSON.stringify({ msg: "hand.sandbox_provider_unknown", provider: row.provider, vm: row.vm }))
@@ -226,8 +284,8 @@ export class HandDO extends DurableObject<Env> {
     if (r?.revoked_at != null || !r) await this.dropSandbox()
   }
 
-  /** The Freestyle VM this hand runs in (hand-sandbox.ts); deleted with the hand. A hand that is gone takes its VM with it now. */
-  async setSandbox(vm: string, provider = "freestyle"): Promise<void> {
+  /** The sandbox VM this hand runs in (hand-sandbox.ts); deleted with the hand. A hand that is gone takes its VM with it now. */
+  async setSandbox(vm: string, provider = LEGACY_HAND_PROVIDER): Promise<void> {
     this.ctx.storage.sql.exec(`INSERT INTO hand_sandbox (id, vm, provider) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET vm = excluded.vm, provider = excluded.provider`, vm, provider)
     const r = this.row()
     if (!r || r.revoked_at !== null) await this.dropSandbox()
@@ -259,8 +317,13 @@ export class HandDO extends DurableObject<Env> {
     return online()
   }
 
-  async setGrants(agents: ReadonlyArray<string>): Promise<void> {
-    this.setGrantsLocal(agents)
+  async setGrants(agents: ReadonlyArray<string>, change?: { agent: string; on: boolean }): Promise<void> {
+    const sql = this.ctx.storage.sql
+    const own = sql.exec<{ chief: string }>(`SELECT chief FROM hand_default WHERE id = 1`).toArray()[0]?.chief
+    // The signup grant is local to this hand. Toggling another Chief's account-wide access must
+    // not erase it; an explicit off for this Chief still removes it and provisioning never restores it.
+    const preserve = own && change && change.agent !== own && sql.exec(`SELECT 1 FROM hand_grant WHERE agent = ?`, own).toArray().length > 0
+    this.setGrantsLocal(preserve ? [...new Set([...agents, own])] : agents)
   }
 
   private setGrantsLocal(agents: ReadonlyArray<string>) {
@@ -432,10 +495,10 @@ export class HandDO extends DurableObject<Env> {
   }
 
   /** The sweep (hand-sweep.ts): "live" (keep) or "gone" (no live hand holds it: delete); the sweep keeps it when this call fails. */
-  async ownsVm(vm: string, provider = "freestyle"): Promise<"live" | "gone" | "unknown"> {
+  async ownsVm(vm: string, provider = LEGACY_HAND_PROVIDER): Promise<"live" | "gone" | "unknown"> {
     const r = this.row()
     const held = this.ctx.storage.sql.exec<{ provider: string | null }>(`SELECT provider FROM hand_sandbox WHERE id = 1`).toArray()[0]
-    if (held && (held.provider ?? "freestyle") !== provider) return "gone"
+    if (held && (held.provider ?? LEGACY_HAND_PROVIDER) !== provider) return "gone"
     // No row: the hand's code expired or its install failed (the VM carries this deployment's tag).
     if (!r) return "gone"
     return r.revoked_at === null && this.sandboxVm() === vm ? "live" : "gone"

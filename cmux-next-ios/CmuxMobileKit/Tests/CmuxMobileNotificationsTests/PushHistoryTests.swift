@@ -89,7 +89,8 @@ import UserNotifications
 
     @Test func theReplyFieldReplacesTheReplyButton() throws {
         let payload = chief(body: reply, tail: [reply])
-        #expect(PushActions().extensionActions(for: payload, replyField: true) == [])
+        // Chief keeps Reply even beside the field: without it the user read the alert as unrepliable (2026-10-30).
+        #expect(PushActions().extensionActions(for: payload, replyField: true)?.map(\.identifier) == [PushAction.reply.identifier])
         let withoutComposer = try #require(PushActions().extensionActions(for: payload, replyField: false))
         #expect(withoutComposer.map(\.identifier) == [PushAction.reply.identifier])
         #expect(withoutComposer.first?.title == "Reply to Chief")

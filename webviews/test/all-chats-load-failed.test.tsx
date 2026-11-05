@@ -13,6 +13,8 @@ let host: HTMLElement;
 
 beforeAll(() => {
   const { window } = new JSDOM("<!doctype html><div id=root></div>");
+  Object.defineProperty(window.HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 800 });
+  Object.defineProperty(window.HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 600 });
   Object.assign(window, {
     ResizeObserver: class {
       observe() {}
@@ -90,4 +92,94 @@ test("a search that fails says so instead of leaving the unfiltered list under t
   await act(async () => {});
   expect(host.textContent).toContain("Couldn't load your chats.");
   expect(host.textContent).not.toContain("Fix the build");
+});
+
+test("a pending first page keeps the loaded row layout visible", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  let resolvePage:
+    | ((page: { chats: { key: string; harness: string; title: string; updatedAt: number }[]; ready: boolean }) => void)
+    | undefined;
+  const load = () =>
+    new Promise<{ chats: { key: string; harness: string; title: string; updatedAt: number }[]; ready: boolean }>(
+      (resolve) => {
+        resolvePage = resolve;
+      },
+    );
+
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () => root!.render(<AllChatsList load={load} onOpen={() => {}} />));
+  await act(async () => {});
+  expect(host.querySelectorAll(".nt-all-skeleton-row").length).toBeGreaterThan(0);
+  expect(host.querySelector(".nt-chats-empty")).toBeNull();
+
+  await act(async () =>
+    resolvePage!({ chats: [{ key: "a", harness: "claude", title: "Fix the build", updatedAt: 1 }], ready: true }),
+  );
+  expect(host.querySelectorAll(".nt-all-skeleton-row")).toHaveLength(0);
+  expect(host.textContent).toContain("Fix the build");
+});
+
+test("a first page that is still indexing keeps skeleton rows until the index is ready", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  let resolvePage: ((page: { chats: never[]; ready: boolean }) => void) | undefined;
+  const load = () =>
+    new Promise<{ chats: never[]; ready: boolean }>((resolve) => {
+      resolvePage = resolve;
+    });
+
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () => root!.render(<AllChatsList load={load} onOpen={() => {}} />));
+  await act(async () => resolvePage!({ chats: [], ready: false }));
+  expect(host.querySelectorAll(".nt-all-skeleton-row").length).toBeGreaterThan(0);
+  expect(host.querySelector(".nt-chats-empty")).toBeNull();
+});
+
+test("the index scan completes to an empty state after a host push", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { AllChatsList } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  const { setDeviceChats } = await import("../src/agent-session/acpmux/newtab/deviceChats");
+  let ready = false;
+  const load = async () => ({ chats: [], ready });
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () => root!.render(<AllChatsList load={load} onOpen={() => {}} />));
+  expect(host.querySelector(".nt-all-skeleton-row")).not.toBeNull();
+  ready = true;
+  await act(async () => setDeviceChats([]));
+  expect(host.querySelector(".nt-all-skeleton-row")).toBeNull();
+  expect(host.querySelector(".nt-chats-empty")).not.toBeNull();
+});
+
+test("a first page that never answers says it couldn't load past the ceiling, and Try again reads again", async () => {
+  const { jest } = await import("bun:test");
+  const { createRoot } = await import("react-dom/client");
+  const { AllChatsList, CHATS_READ_CEILING_MS } = await import("../src/agent-session/acpmux/newtab/AllChatsList");
+  let calls = 0;
+  const load = () => {
+    calls += 1;
+    return new Promise<undefined>(() => undefined);
+  };
+  jest.useFakeTimers();
+  try {
+    act(() => root?.unmount());
+    root = createRoot(host);
+    await act(async () => root!.render(<AllChatsList load={load} onOpen={() => {}} />));
+    await act(async () => jest.advanceTimersByTime(CHATS_READ_CEILING_MS - 1_000));
+    expect(host.querySelector(".nt-all-skeleton-row")).not.toBeNull();
+    expect(host.textContent).not.toContain("Couldn't load your chats.");
+    await act(async () => jest.advanceTimersByTime(2_000));
+    expect(host.querySelector(".nt-all-skeleton-row")).toBeNull();
+    expect(host.textContent).toContain("Couldn't load your chats.");
+    const retry = [...host.querySelectorAll("button")].find((button) => button.textContent === "Try again");
+    expect(retry?.disabled).toBe(false);
+    const before = calls;
+    await act(async () => retry!.click());
+    expect(calls).toBe(before + 1);
+  } finally {
+    jest.useRealTimers();
+  }
 });

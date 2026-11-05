@@ -94,6 +94,18 @@ import Testing
         #expect(UpdateFeedPosting.step(nil, posted: nil, at: at) == .wait)
     }
 
+    /// Dogfood 2026-10-26 ("remove what's new?"): Show What's New After Updates off still posted
+    /// the update notice to the Feed. Off, the version is skipped and never posted.
+    @Test func whatsNewOffPostsNoFeedCard() {
+        let notes = ReleaseNotes.debugFake(version: "1.0.0-nightly.200", changes: 3)
+        let updated = UpdateHighlights(version: "1.0.0-nightly.200", build: "200", fromVersion: "1.0.0-nightly.100", fromBuild: "100",
+                                       notes: notes, appcast: nil)
+        #expect(UpdateFeedPosting.step(updated, posted: "1.0.0-nightly.100", enabled: false, at: at) == .skip(version: "1.0.0-nightly.200"))
+        #expect(UpdateFeedPosting.step(updated, posted: "1.0.0-nightly.200", enabled: false, at: at) == .done)
+        // Review of #25950: before the settings load, the default (on) must not post the card.
+        #expect(UpdateFeedPosting.step(updated, posted: "1.0.0-nightly.100", enabled: nil, at: at) == .wait)
+    }
+
     /// Review of #22701: one change left over read "1 more changes".
     @Test func theRestCountsInItsPlural() {
         let one = UpdateFeedCard(subject: .app, from: nil, to: "2.0.0", changes: (1...6).map { "Change \($0)" }, at: at)

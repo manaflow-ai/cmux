@@ -2,18 +2,15 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextTerminal
 
-/// `tab.restart` (plans/cmux-next/ownership.md 3.2, cx-7e7b): a terminal
-/// tab whose shell ended gets a new shell under the same terminal id
-/// (`restart-tab`). The dead-tab overlay's button, the tab's right-click
-/// item, the palette and `cmux tab <id> restart` all run this one action
-/// (the CLI sends the same daemon command). The store shows the result from
-/// the daemon's tree push: the tab turns live and its view re-attaches.
+/// `tab.restart` (ownership.md 3.2, cx-7e7b): an ended shell restarts under its terminal id (`restart-tab`);
+/// a failed host link is Recover (the daemon rehosts the same running shell). The overlay button, tab menu,
+/// palette and `cmux tab <id> restart` run this one action; the tree push shows the tab live again.
 enum TabRestart {
     static let action: ActionID = "tab.restart"
 
-    /// A daemon terminal tab whose shell ended.
+    /// A daemon terminal tab whose shell ended, or whose host link failed.
     static func isRestartable(_ tab: TabModel) -> Bool {
-        tab.kind == .pty && tab.dead
+        tab.kind == .pty && (tab.dead || tab.terminalState == .failed)
     }
 
     /// The tab menu's rows to hide: Restart unless the tab can restart.
@@ -37,7 +34,7 @@ enum TabRestart {
         registry.bind(action, unavailable: ctx.needs(DaemonCapability.tabRestart.rawValue), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
-            guard tab.dead else { return ctx.refuse(RefusalStrings.tabNotDead) }
+            guard isRestartable(tab) else { return ctx.refuse(RefusalStrings.tabNotDead) }
             let surface = tab.surface
             ctx.send("restart-tab") { _ = try await $0.request(RestartTabRequest(surface: surface)) }
         })
@@ -48,8 +45,11 @@ enum TabRestart {
 /// over the pane's daemon), its theme, and the dead-tab overlay's Restart.
 @MainActor
 enum TerminalTabContent {
-    static func make(_ tab: TabModel, in pane: PaneController) -> TabContent {
+    static func make(_ tab: TabModel, in pane: PaneController) -> TabContent? { // nil: a stand-in's surface waits for its key's frame
         let services = pane.services, daemon = pane.daemon
+        // A stand-in's surface follows its key's frame, then this pane shows it again while it still shows it (one surface per frame).
+        guard !ProvisionalTab.isProvisional(surface: tab.surface) || !services.cache.standInTerminals.waits(tab.id, standIn: true, exists: services.cache.existingTerminal(tab.id) != nil,
+                                                                                                            showAgain: { [weak pane] in pane?.showsAgain(tab.id) ?? false }) else { return nil }
         let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
         services.themes.catchUp(entry, fresh: true)
         TabRestart.offer(on: entry, tab: tab, daemon: daemon, registry: services.registry)

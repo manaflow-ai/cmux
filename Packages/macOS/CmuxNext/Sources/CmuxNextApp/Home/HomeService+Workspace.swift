@@ -46,6 +46,9 @@ extension HomeService {
                 homeWorkspaceStep = await (HomeDock.classic ? "ensured \(home)" : dock.ensure(connection, store: services.machines.local.store, home: home) {
                     TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services,
                                              completion: $4) })
+                // Each window's own Home is docked on every connect too (cmux#27880); before the
+                // Chief's tab, which can wait long for the Chief's owner.
+                if !HomeDock.classic { await services.windowHomes.ensureDocks(connection) }
                 try await ensureChiefTab(connection, home: home)
             } catch is CancellationError {
             } catch {
@@ -156,8 +159,11 @@ extension HomeService {
         // The local Chief is looked up (never created) while a cloud Chief has the tab.
         let localChief = if shown == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
         let localHasHistory = shown == nil || (listed?.lastSeq ?? 0) > 0
-        guard let chief = cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,
-                                         prefersLocal: prefersLocalChief), HomeDock.classic else { return }
+        // A teleported Chief's tab is the conversation where it answers now (HomeService+ChiefRoster).
+        let followed = chiefFollow.conversation
+        if let followed { followedChiefConversations.insert(followed) }
+        guard let chief = followed ?? cloud.chiefTab(local: localChief, localHasHistory: localHasHistory, choice: hostedChief.choice,
+                                                     prefersLocal: prefersLocalChief), HomeDock.classic else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
@@ -184,6 +190,7 @@ extension HomeService {
         // The Chief moved to a server: one Chief tab, where the local one was.
         // After closing a dangling tab its pane may be gone: name the workspace.
         let others = [cloudChiefs.hosted?.mainConversation, cloudChiefs.placed?.mainConversation].compactMap { $0 }
+            + followedChiefConversations.sorted()
         let move = HomeCloudChiefs.move(from: [localChief].compactMap { $0 } + others, chief: chief, in: local.store.workspaces)
         let pane = move.pane ?? (dangling.isEmpty ? workspace.screens.first?.panes.first?.handle : nil)
         guard open || pane != nil || workspace.kind != nil else {

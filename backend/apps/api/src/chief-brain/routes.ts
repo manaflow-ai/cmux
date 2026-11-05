@@ -6,13 +6,15 @@ import { childObject } from "./brain-spawn.ts"
 import { githubOf } from "../chief-brain-cc/github.ts"
 import { chiefMainConversation } from "../domains/user-chief.ts"
 import { PEER_NAME, PEER_TEXT_MAX } from "./brain-turn.ts"
+import type { MemoryExport } from "../chief-durable/durable-do.ts"
 import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, type ImportStatus, MAX_IMPORT_BODY, type UndoBody, type UndoResult, parseAppendBody, parseImportBody } from "./memory-import.ts"
 
 /**
  * HTTP routes of the Chief brain (outside the op catalog, like the keyed acpmux start):
  *
  *   GET  /v1/chiefs/<agent>/brain           the owner: settings and state
- *   PUT  /v1/chiefs/<agent>/brain           the owner: {enabled?, model?, effort?, compactor_model?, role?, personality?, instructions?, chiefs?}
+ *   PUT  /v1/chiefs/<agent>/brain           the owner: {enabled?, model?, effort?, compactor_model?, role?, personality?, instructions?, chiefs?, teleport?}
+ *        teleport: {to, id, at} | null, a move request the person's Mac acts on (brain-teleport.ts); GET returns it as config.teleport
  *        model: fake | claude-opus-5-5 | claude-sonnet-5-5 | claude-haiku-5-5 | openrouter:<vendor>/<model> | @cf/<vendor>/<model>
  *        effort: off | minimal | low | medium | high | xhigh | max (default low); model-gateway/routes.ts says who may use which
  *   POST /v1/chiefs/<agent>/peer            the owner: {from, text, key}: a message from one of the owner's Chiefs on
@@ -20,10 +22,14 @@ import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, t
  *   GET  /v1/chiefs/<agent>/github          the owner: the Chief's GitHub login (who, kind, scopes, expiry; never the token)
  *   POST /v1/chiefs/<agent>/github          the owner: {action: login | pat | mac | app | logout | status, ...} (chief-brain-cc/github.ts)
  *   GET  /v1/chiefs/<agent>/memory?conversation=<id>   the owner: the memory copy's state {count, nodes, state}
+ *   GET  /v1/chiefs/<agent>/memory?conversation=<id>&export=1&after=<i>&limit=<n>   the owner: one page of the memory's
+ *        messages after index `after` (-1: the first page, which also carries the summary nodes), for a move out of the cloud
  *   PUT  /v1/chiefs/<agent>/memory?conversation=<id>   the owner: one batch of a Mac Chief's memory copy (memory-import.ts)
  *   GET  /v1/chiefs/<agent>/runs?conversation=<id>&before=<ms>&limit=<n>   a member: the chief's runs there, newest first
  *   GET  /v1/chiefs/<agent>/runs/<run>?conversation=<id>&after_seq=<n>   a member: {run, steps, has_more}
  *        (a subagent's run `sub_<n>` is read from its own object, brain-spawn.ts)
+ *   GET  /v1/chiefs/<agent>/machine-login/<run>?conversation=<id>   the owner's human session: pending provider sign-in status
+ *   POST /v1/chiefs/<agent>/machine-login/<run>?conversation=<id>   the owner's human session: {action: start | finish | cancel, loginId?, code?}
  *
  * Run and Step are the trajectory wire's JSON (brain-runs.ts); members also get each change live as
  * a `conversation-run-changed` frame on the conversation socket.
@@ -31,14 +37,16 @@ import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, t
  * "The owner" is the chief's owner_user (MuxDO head) with a session, or an install whose grant
  * covers mutate-own; a chief's own token never changes its brain.
  */
-export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|github|memory|peer|runs(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
+export const CHIEF_BRAIN_PATH = /^\/v1\/chiefs\/(agent_[0-9A-HJKMNP-TV-Z]{26})\/(brain|github|memory|peer|(?:runs|machine-login)(?:\/((?:run|sub)_[0-9]{1,15}))?)$/
 
 const NO_STORE = { "cache-control": "no-store" }
 const fail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, message: f.message, ...f.extra } }, { status: f.status, headers: NO_STORE })
 const ok = (value: unknown) => Response.json({ ok: true, value }, { headers: NO_STORE })
-const PATCH_KEYS = new Set(["enabled", "model", "effort", "compactor_model", "role", "personality", "instructions", "chiefs"])
+const PATCH_KEYS = new Set(["enabled", "model", "effort", "compactor_model", "role", "personality", "instructions", "chiefs", "teleport"])
 
 export const handleChiefBrain = async (request: Request, env: Env, agent: string, path: string, run: string | undefined): Promise<Response> => {
+  // Provider login never resolves a brain object before checking the human owner and membership.
+  if (path === "machine-login") return handleMachineLogin(request, env, agent, run)
   if (env.CHIEF_BRAIN_ENABLED !== "1") return fail({ status: 404, code: "not_found", message: "Chief brains are off on this deployment" })
   const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent))
   if (path === "memory") return handleMemoryImport(request, env, agent, brain)
@@ -90,9 +98,67 @@ export const handleChiefBrain = async (request: Request, env: Env, agent: string
   return found && found.run.conversation === conversation ? ok(found) : fail(hidden)
 }
 
+const LOGIN_HEADERS = { ...NO_STORE, "referrer-policy": "no-referrer" }
+const loginFail = (f: Fail) => Response.json({ ok: false, error: { code: f.code, message: f.message, ...f.extra } }, { status: f.status, headers: LOGIN_HEADERS })
+const LOGIN_HIDDEN: Fail = { status: 404, code: "not_found", message: "no such run" }
+type MachineLoginBody = { action: "start" | "finish" | "cancel"; loginId?: string; code?: string }
+
+const machineLoginBody = (raw: unknown): MachineLoginBody | null => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+  const body = raw as Record<string, unknown>
+  if (body.action === "start") return Object.keys(body).length === 1 ? { action: "start" } : null
+  if (body.action !== "finish" && body.action !== "cancel") return null
+  if (typeof body.loginId !== "string" || !body.loginId.trim() || /[\r\n\0]/.test(body.loginId)) return null
+  const keys = body.action === "finish" ? ["action", "loginId", "code"] : ["action", "loginId"]
+  if (Object.keys(body).some((key) => !keys.includes(key))) return null
+  if (body.code !== undefined && (typeof body.code !== "string" || /[\r\n\0]/.test(body.code))) return null
+  return { action: body.action, loginId: body.loginId, ...(typeof body.code === "string" ? { code: body.code } : {}) }
+}
+
+/** Provider/guest errors never cross the HTTP boundary (they can contain login credentials). */
+const machineLoginFailure = (error: unknown): Fail => {
+  const code = error instanceof Error ? error.message : ""
+  if (code === "chief.machine.login_not_pending") return LOGIN_HIDDEN
+  if (code === "chief.machine.login_changed") return { status: 409, code, message: "provider sign-in changed; read its status again" }
+  if (code === "chief.machine.login_busy") return { status: 409, code, message: "provider sign-in is starting; read its status again" }
+  if (code === "chief.machine.login_expired") return { status: 410, code, message: "provider sign-in expired; start again" }
+  if (code === "chief.machine.invalid_login_code") return { status: 400, code: "validation.invalid", message: "provider sign-in code is invalid" }
+  if (code === "hand.revoked" || code === "chief.machine.login_refused" || code === "chief.machine.binding_changed" || code === "chief.machine.permission_required") {
+    return { status: 403, code: "auth.forbidden", message: "machine access is no longer allowed" }
+  }
+  return { status: 503, code: "chief.machine.login_unavailable", message: "provider sign-in is unavailable; try again", extra: { retryable: true } }
+}
+
+/** The owner's main conversation only; GET observes and POST alone may start/finish/cancel OAuth. */
+const handleMachineLogin = async (request: Request, env: Env, agent: string, run: string | undefined): Promise<Response> => {
+  if (env.CHIEF_BRAIN_ENABLED !== "1") return loginFail(LOGIN_HIDDEN)
+  if (request.method !== "GET" && request.method !== "POST") return loginFail({ status: 405, code: "method_not_allowed", message: "GET or POST" })
+  try {
+    const caller = await callerOf(request, env, "read")
+    if ("status" in caller) return loginFail(caller)
+    const p = caller.principal
+    if (p.kind !== "session" || p.agent !== undefined) return loginFail({ status: 403, code: "auth.forbidden", message: "provider sign-in requires the owner's human session" })
+    if (!/^agent_[0-9A-HJKMNP-TV-Z]{26}$/.test(agent) || !run || !/^run_[0-9]{1,15}$/.test(run)) return loginFail(LOGIN_HIDDEN)
+    const owned = await chiefOwnedBy(env, agent, p)
+    if (!owned) return loginFail(LOGIN_HIDDEN)
+    const conversation = new URL(request.url).searchParams.get("conversation") ?? ""
+    if (conversation !== chiefMainConversation(agent)) return loginFail(LOGIN_HIDDEN)
+    const conv = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: unknown, op: string, params: unknown): Promise<{ ok: boolean }> }
+    if (!(await conv.readOp(conversation, p, "conversation.history", { limit: 1 })).ok) return loginFail(LOGIN_HIDDEN)
+    const body = request.method === "POST" ? machineLoginBody(await request.json().catch(() => null)) : null
+    if (request.method === "POST" && !body) return loginFail({ status: 400, code: "validation.invalid", message: "body is {action: start}, {action: finish, loginId, code?}, or {action: cancel, loginId}" })
+    const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation)))
+    const value = await brain.machineLogin(owned.owner, run, body?.action ?? "status", body ? { ...(body.loginId !== undefined ? { loginId: body.loginId } : {}), ...(body.code !== undefined ? { code: body.code } : {}) } : undefined)
+    return Response.json({ ok: true, value }, { headers: LOGIN_HEADERS })
+  } catch (error) {
+    return loginFail(machineLoginFailure(error))
+  }
+}
+
 type MemoryBrain = {
   status(): Promise<{ config: { enabled: boolean; brain_impl?: string } }>
   memoryImportStatus(): Promise<ImportStatus>
+  memoryExport(after: number, limit: number): Promise<MemoryExport>
   memoryImport(body: ImportBody | AppendBody | UndoBody, brainOn: boolean): Promise<ImportStatus | ImportFail | (AppendResult & { ok: true }) | (UndoResult & { ok: true })>
 }
 
@@ -114,7 +180,15 @@ const handleMemoryImport = async (request: Request, env: Env, agent: string, set
   const conv = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as { readOp(e: string, p: unknown, op: string, params: unknown): Promise<{ ok: boolean }> }
   if (!(await conv.readOp(conversation, p, "conversation.history", { limit: 1 })).ok) return fail({ status: 404, code: "not_found", message: "no such conversation" })
   const brain = env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(agent, conversation))) as unknown as MemoryBrain
-  if (request.method === "GET") return ok(await brain.memoryImportStatus())
+  if (request.method === "GET") {
+    const params = new URL(request.url).searchParams
+    if (params.get("export") !== "1") return ok(await brain.memoryImportStatus())
+    // A move out of the cloud (chief-migration-DESIGN.md 4b): the owner reads its own memory back, page by page.
+    const after = Number(params.get("after") ?? "-1")
+    const limit = Number(params.get("limit") ?? "500")
+    if (!Number.isInteger(after) || after < -1 || !Number.isInteger(limit) || limit < 1) return fail({ status: 400, code: "validation.invalid", message: "after is -1 or a message index, limit a positive integer" })
+    return ok(await brain.memoryExport(after, Math.min(limit, 1000)))
+  }
   const text = await capped(request, MAX_IMPORT_BODY)
   if (text === null) return fail({ status: 413, code: "validation.too_large", message: `one batch is at most ${MAX_IMPORT_BODY} bytes` })
   let raw: unknown = null

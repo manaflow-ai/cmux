@@ -1,5 +1,6 @@
 public import CmuxNextMobile
 public import CmuxNextSettings
+import CmuxNextDesign
 import Foundation
 
 /// The Mobile page's iPhone card (`iphone` in `cmux.settings.host.lists`), every text localized
@@ -12,6 +13,8 @@ extension IPhoneHostService {
             "allowed": .bool(allowed),
             "status_title": .string(IPhoneHostStrings.statusTitle),
             "status": .string(statusText),
+            // Msg 3790: where the status says to sign in, the card shows the Sign In button.
+            "sign_in": statusText == IPhoneHostStrings.signedOut ? .string(SignInButton.defaultTitle) : .null,
             "phase": .string(phaseName),
             "account_title": .string(IPhoneHostStrings.accountTitle),
             "account": account.map { .string(IPhoneHostStrings.registered(as: $0.email ?? $0.userID)) } ?? .null,
@@ -73,6 +76,17 @@ extension IPhoneHostService {
     }
 
     private var phoneRows: [JSONValue] {
+        let local = (pairedStore.current?.devices ?? []).filter { $0.transport == .iroh }.map { phone -> JSONValue in
+            ["id": .string("iroh:" + phone.id), "title": .string(IPhoneHostStrings.phoneAccessPhone(phone.name)),
+             "subtitle": .string(IPhoneHostStrings.pairKey(phone.identityKey)), "paired": .bool(true),
+             "fingerprint": .string(phone.identityKey), "connected": .bool(false), "removable": .bool(true),
+             "transport": .string("iroh"), "path": .null]
+        }
+        // The iPhone-host toggle does not hide the separately served Phone Access list.
+        return hostdPhoneRows + local
+    }
+
+    private var hostdPhoneRows: [JSONValue] {
         guard allowed else { return [] }
         let links = state.phones
         var rows: [JSONValue] = knownPhones.map { phone in
@@ -80,7 +94,7 @@ extension IPhoneHostService {
             // Paired here (cmux-next-ios verify/phone-approvals.md): its links and Face ID approvals
             // count; Remove also forgets the pairing.
             let pairing = paired?.pairing(of: phone)
-            return ["id": .string(phone.id), "title": .string(phone.name),
+            return ["id": .string(phone.id), "title": .string(IPhoneHostStrings.legacyPhone(phone.name)),
                     "subtitle": .string(link.map(Self.subtitle) ?? IPhoneHostStrings.notConnected),
                     "connected": .bool(link != nil), "removable": .bool(true),
                     "paired": .bool(pairing != nil), "fingerprint": pairing.map { .string($0.fingerprint) } ?? .null,

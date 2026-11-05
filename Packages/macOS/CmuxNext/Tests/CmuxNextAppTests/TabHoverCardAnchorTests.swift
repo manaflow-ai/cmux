@@ -1,12 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// A tab's hover card lines up with the tab the user sees: its anchor is the tab's pill, not its
 /// layout slot, whose trailing part is the gap to the next tab (Lawrence 2026-10-20: "Tab cards
 /// are still disjoint from the tab itself").
 @MainActor
+@Suite(.closesItsWindows)
 struct TabHoverCardAnchorTests {
     @Test func aTabsCardAnchorIsItsDrawnPill() throws {
         let tabs = [TabItem(id: TabID("a"), title: "GitHub"), TabItem(id: TabID("b"), title: "cmux")]

@@ -35,10 +35,13 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     public struct SummaryLine: Codable, Equatable, Sendable {
         public var group: String
         public var title: String
+        /// One plain-language sentence extracted from the PR body at release time.
+        public var description: String?
 
-        public init(group: String, title: String) {
+        public init(group: String, title: String, description: String? = nil) {
             self.group = group
             self.title = title
+            self.description = description
         }
     }
 

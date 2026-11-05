@@ -31,6 +31,8 @@
 //! The prompt is never logged; the daemon logs the harness, the model and
 //! how long it took.
 
+use cmux_json::JsonSet as _;
+
 pub mod codex_config;
 pub mod model_pick;
 pub mod places;
@@ -38,6 +40,7 @@ pub mod recipes;
 pub mod run;
 
 use crate::rpc::RpcError;
+use crate::stderr::clean_stderr_lines;
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -233,22 +236,26 @@ impl From<CompleteError> for RpcError {
     fn from(e: CompleteError) -> Self {
         let mut data = json!({"reason": e.reason()});
         match &e {
-            CompleteError::UnknownHarness(h) => data["harness"] = json!(h),
+            CompleteError::UnknownHarness(h) => {
+                data.set("harness", json!(h));
+            }
             CompleteError::Unsupported { harness, .. }
             | CompleteError::NotInstalled { harness, .. }
             | CompleteError::SignedOut { harness }
             | CompleteError::EmptyOutput { harness }
-            | CompleteError::Failed { harness, .. } => data["harness"] = json!(harness),
+            | CompleteError::Failed { harness, .. } => {
+                data.set("harness", json!(harness));
+            }
             CompleteError::Timeout { harness, ms } => {
-                data["harness"] = json!(harness);
-                data["timeoutMs"] = json!(ms);
+                data.set("harness", json!(harness));
+                data.set("timeoutMs", json!(ms));
             }
             CompleteError::InvalidParams(_)
             | CompleteError::PromptTooLarge { .. }
             | CompleteError::LocalOnly => {}
         }
         if let CompleteError::PromptTooLarge { .. } = &e {
-            data["maxBytes"] = json!(MAX_PROMPT_BYTES);
+            data.set("maxBytes", json!(MAX_PROMPT_BYTES));
         }
         RpcError::new(e.code(), e.message()).with_data(data)
     }
@@ -270,12 +277,17 @@ pub fn finish(
             return Err(CompleteError::SignedOut { harness: harness.to_owned() });
         }
         let stderr = String::from_utf8_lossy(&out.stderr);
-        let last = stderr.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+        let last = clean_stderr_lines(&stderr)
+            .into_iter()
+            .rev()
+            .find(|line| !line.is_empty())
+            .unwrap_or_default();
         let detail = match out.code {
             Some(code) => format!("exit status {code}"),
             None => "killed by a signal".to_owned(),
         };
-        let detail = if last.is_empty() { detail } else { format!("{detail}: {}", cut(last, 300)) };
+        let detail =
+            if last.is_empty() { detail } else { format!("{detail}: {}", cut(&last, 300)) };
         return Err(CompleteError::Failed { harness: harness.to_owned(), detail });
     }
     let text = String::from_utf8_lossy(answer);

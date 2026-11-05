@@ -16,10 +16,11 @@ import Testing
     }
 
     @Test func randomOperationsKeepTheEngineConsistent() {
-        var rng = Rng(state: 0x51_2E)
+        let fuzz = FuzzSeed(default: 0x51_2E)
+        var rng = Rng(state: fuzz.seed)
         let ids = ["a", "b", "c", "d"]
         let kinds: [TerminalDeviceKind] = [.mac, .iphone]
-        for _ in 0..<300 {
+        for _ in 0..<fuzz.iterations(300) {
             var engine = TerminalSizingEngine(initialSize: TerminalGridSize(cols: 80, rows: 24))
             for _ in 0..<40 {
                 let id = ids[rng.below(ids.count)]
@@ -39,8 +40,8 @@ import Testing
             let active = engine.noteActivity("unknown")
             let overridden = engine.setCountsOverride("unknown", true)
             let cleared = engine.clearViewport("unknown")
-            #expect(!reported && !active && !overridden && !cleared)
-            #expect(engine.state == before)
+            #expect(!reported && !active && !overridden && !cleared, "\(fuzz)")
+            #expect(engine.state == before, "\(fuzz)")
         }
     }
 }

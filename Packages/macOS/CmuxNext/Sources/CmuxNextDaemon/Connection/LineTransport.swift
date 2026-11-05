@@ -18,7 +18,9 @@ public enum TransportCloseReason: Sendable, Equatable {
 /// A dedicated reader thread splits lines and routes them without touching
 /// any actor: responses resume their waiter by `id` (FIFO fallback for the
 /// id-less `bad request` envelope, which is safe because commands start
-/// serially per connection), and events go to `onEvent` on the reader thread.
+/// serially per connection; a plain `identify` and `ping` are answered before
+/// the queue, #32724, but always carry an id), and events go to `onEvent` on
+/// the reader thread.
 /// The server drops slow readers (4,096-event mailbox, 2 s write deadline),
 /// so the reader never blocks on the main actor.
 final class LineTransport: Sendable {
@@ -53,10 +55,49 @@ final class LineTransport: Sendable {
         var order: [UInt64] = []
         var closed: TransportCloseReason?
         var sawShutdown = false
+        /// The daemon refused this connection at its connection limit (`server.busy`).
+        var sawBusyRefusal = false
+        /// The machine's link refused this stream (`link.refused`): its stated reason.
+        var linkRefusal: String?
         /// Events routed so far; responses capture it as their barrier.
         var eventCount: UInt64 = 0
+        /// Lines read so far, every kind, in socket order: the daemon counts the lines it writes the same way.
+        var lineCount: UInt64 = 0
+        /// The line numbers of the latest events (at most ``LineTransport/eventLineHistory``), oldest first.
+        var eventLines: [UInt64] = []
+        /// ``eventLines`` dropped its oldest lines: it no longer holds every event.
+        var eventLinesTrimmed = false
+        /// ``eventCount`` when each pending request was written: a lower bound of its barrier.
+        var eventCountAtSend: [UInt64: UInt64] = [:]
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
+
+        /// Records an event on line `line` and returns its index.
+        mutating func noteEvent(line: UInt64) -> UInt64 {
+            eventCount += 1
+            eventLines.append(line)
+            if eventLines.count > 2 * LineTransport.eventLineHistory {
+                eventLines.removeFirst(eventLines.count - LineTransport.eventLineHistory)
+                eventLinesTrimmed = true
+            }
+            return eventCount
+        }
+
+        /// The events a reply's state holds. A reply that names the lines written before its read
+        /// (`linesWrittenBeforeRead`) holds only the events on those lines: the daemon writes events
+        /// on another thread than replies, so one emitted after the read can come before the reply
+        /// (#32408). Else every event read before the reply. Never more than ``eventCount``; when the
+        /// history no longer reaches that line, the count at the request's send (every event before
+        /// it was written before the daemon read the request).
+        func barrier(linesWrittenBeforeRead lines: UInt64?, sentAt: UInt64?) -> UInt64 {
+            guard let lines else { return eventCount }
+            var later: UInt64 = 0
+            for line in eventLines.reversed() {
+                guard line > lines else { return eventCount - later }
+                later += 1
+            }
+            return eventLinesTrimmed ? min(eventCount - later, sentAt ?? 0) : eventCount - later
+        }
 
         /// Marks a pending reply expired; its command and slot, or nil when
         /// `id` is not waiting for a reply.
@@ -72,9 +113,9 @@ final class LineTransport: Sendable {
         }
     }
 
-    /// An `ok:true` response line plus the number of events routed before it
-    /// on this transport. Every event with index <= `eventBarrier` was
-    /// emitted before the command's result, so a snapshot supersedes it.
+    /// An `ok:true` response line plus its event barrier: every event with index <= `eventBarrier` was
+    /// emitted before the command read its state, so a snapshot supersedes it. The daemon's own count
+    /// when the reply names it (`lines_written_before_read`), else the events routed before the reply.
     struct Response: Sendable {
         var line: Data
         var eventBarrier: UInt64
@@ -91,12 +132,17 @@ final class LineTransport: Sendable {
     /// Nonblocking, ordered writes (never parks the calling actor's thread).
     private let writer: SocketWriter
     let path: String
+    /// The daemon-request probe this transport records into; nil: none.
+    private let latency: DaemonRequestLatency?
 
     /// The bridge child of this connection (``DaemonBridge``), killed and
     /// reaped when the connection closes.
     private let child: BridgeChild?
 
-    init(path: String, bridge: DaemonBridge? = nil) throws(DaemonError) {
+    /// - Parameter writerLimit: The most bytes the writer queues before it refuses a write (``SocketWriter``).
+    init(path: String, bridge: DaemonBridge? = nil, latency: DaemonRequestLatency? = nil,
+         writerLimit: Int = 64 << 20) throws(DaemonError) {
+        self.latency = latency
         self.path = path
         let fd: Int32
         if let bridge {
@@ -108,7 +154,7 @@ final class LineTransport: Sendable {
             child = nil
         }
         socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write")
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", limit: writerLimit)
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
@@ -168,6 +214,23 @@ final class LineTransport: Sendable {
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+
+    /// Whether the process at the other end of the socket still exists: the kernel's peer pid
+    /// (`LOCAL_PEERPID`, fixed at connect) answers `kill(pid, 0)`. False for a bridged connection, whose
+    /// peer is the bridge child, not the daemon, and once the transport closed (``isClosed``: a close, a failed
+    /// write, the reader's end), even while its descriptor is still open. A stopped (SIGSTOP) or
+    /// busy daemon is alive: only its exit, or EOF on the socket, says it is gone.
+    var peerProcessIsAlive: Bool {
+        guard child == nil, !isClosed else { return false }
+        let pid = socket.withLock { socket -> pid_t? in
+            guard socket.fd >= 0 else { return nil }
+            var pid: pid_t = 0
+            var size = socklen_t(MemoryLayout<pid_t>.size)
+            return getsockopt(socket.fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &size) == 0 && pid > 0 ? pid : nil
+        }
+        guard let pid else { return false }
+        return kill(pid, 0) == 0 || errno == EPERM
+    }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Sends one command and returns the raw `ok:true` response line.
@@ -176,6 +239,23 @@ final class LineTransport: Sendable {
     /// arrived in time fails the request with `DaemonError.timedOut`; the
     /// late reply is dropped when it comes (architecture.md 5a).
     func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
+        // The daemon-request probe (`debug.daemon_requests`): send to reply, or to the failure.
+        guard let latency else { return try await exchange(cmd: cmd, timeout: timeout, body) }
+        let sent = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+        do {
+            let response = try await exchange(cmd: cmd, timeout: timeout, body)
+            latency.record(nanoseconds: clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- sent, outcome: .reply)
+            return response
+        } catch {
+            let outcome: DaemonRequestLatency.Outcome
+            if case DaemonError.timedOut = error { outcome = .timedOut } else { outcome = .error }
+            latency.record(nanoseconds: clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- sent, outcome: outcome)
+            throw error
+        }
+    }
+
+    /// ``request(cmd:timeout:_:)`` without the probe.
+    private func exchange(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
         let slot = ReplySlot()
         #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal: the request naming its id, and that request's reply.
@@ -256,11 +336,19 @@ final class LineTransport: Sendable {
             state.withLock { state in
                 state.pending.updateValue(waiter, forKey: id)
                 state.order.append(id)
+                state.eventCountAtSend[id] = state.eventCount
             }
             submittedID = id
             var line = payload
             line.append(0x0A)
-            writeFailure = socket.fd >= 0 ? writer.write(line)?.description : "socket closed"
+            if socket.fd < 0 {
+                writeFailure = "socket closed"
+            } else if let failure = writer.write(line) {
+                // A refused connection is closed right after its one line: a write can fail
+                // (broken pipe) before the reader routes that line. Keep it a busy refusal.
+                let refused = state.withLock { $0.sawBusyRefusal } || Self.hasPendingBusyRefusal(fd: socket.fd)
+                writeFailure = refused ? Self.busyRefusal : failure.description
+            }
             return nil
         }
         if let early {
@@ -268,7 +356,10 @@ final class LineTransport: Sendable {
             return .failure(early)
         }
         if let writeFailure {
-            failAll(.lost(writeFailure))
+            // The socket shuts down too, so the reader reads EOF, the connection ends and its owner reconnects. Failing
+            // only the pending requests left the reader in `read` on an open socket: no `onClose`, a dead transport kept
+            // as ready, and a live peer the heartbeat never closes (follow-up of #28654).
+            end(.lost(writeFailure))
             return .failure(DaemonError.connectionClosed(reason: writeFailure))
         }
         return .success(submittedID)
@@ -276,12 +367,41 @@ final class LineTransport: Sendable {
 
     /// Closes the socket; pending requests fail with `.connectionClosed`.
     func close() {
-        failAll(.closedByClient)
+        end(.closedByClient)
+    }
+
+    /// Ends the connection for `reason`: pending requests fail, and the socket shuts down, so the reader reads EOF
+    /// and posts `onClose` (the owner reconnects unless it closed the connection itself).
+    private func end(_ reason: TransportCloseReason) {
+        failAll(reason)
         socket.withLock { socket in
             if socket.fd >= 0 { Darwin.shutdown(socket.fd, SHUT_RDWR) }
         }
         child?.terminate()
     }
+
+    /// The close detail of a connection the daemon refused at its connection limit
+    /// (`{"type":"refused","code":"server.busy"}`, then EOF): the daemon is alive and busy.
+    static let busyRefusal = "refused: the session is at its connection limit (server.busy)"
+
+    /// The `code` of a `cmux.protocol/2` refusal line (`type: "refused"`); a machine's link
+    /// refusal (`link.refused`) adds its reason, failed check and detail.
+    private struct Refusal: Decodable { var code: String?; var reason: String?; var check: String?; var detail: String? }
+
+    /// The daemon's busy refusal line is waiting unread at the front of `fd`'s receive buffer
+    /// (`MSG_PEEK`, never blocks): the connection was refused, not broken.
+    static func hasPendingBusyRefusal(fd: Int32) -> Bool {
+        var buffer = [UInt8](repeating: 0, count: 512)
+        let count = buffer.withUnsafeMutableBytes { recv(fd, $0.baseAddress, $0.count, MSG_PEEK | MSG_DONTWAIT) }
+        guard count > 0 else { return false }
+        let head = buffer.prefix(count)
+        guard let line = head.split(separator: 0x0A, maxSplits: 1, omittingEmptySubsequences: false).first,
+              (try? JSONDecoder().decode(RefusalLine.self, from: Data(line))) == RefusalLine(type: "refused", code: "server.busy")
+        else { return false }
+        return true
+    }
+
+    private struct RefusalLine: Decodable, Equatable { var type: String?; var code: String? }
 
     // MARK: - Private
 
@@ -299,6 +419,7 @@ final class LineTransport: Sendable {
             let waiters = state.waitersInSendOrder()
             state.pending.removeAll()
             state.order.removeAll()
+            state.eventCountAtSend.removeAll()
             return waiters
         }
         let error = Self.closedError(reason)
@@ -332,7 +453,9 @@ final class LineTransport: Sendable {
         }
         let reason: TransportCloseReason = state.withLock { state in
             if let closed = state.closed { return closed }
-            return state.sawShutdown ? .daemonShutdown : .lost(closeDetail)
+            if state.sawShutdown { return .daemonShutdown }
+            if state.sawBusyRefusal { return .lost(Self.busyRefusal) }
+            return .lost(state.linkRefusal.map { "refused by the machine's link: \($0)" } ?? closeDetail)
         }
         failAll(reason)
         writer.close()
@@ -345,11 +468,19 @@ final class LineTransport: Sendable {
         onClose(reason)
     }
 
+    /// Event line numbers kept for reply barriers: more events than this between a command's read and its
+    /// reply fall back to the count at its send.
+    static let eventLineHistory = 4096
+
     /// Events routed so far. Read after a command's reply, it bounds every
     /// event the daemon emitted before that reply (a write barrier).
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
 
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
+        let lineNumber = state.withLock { state -> UInt64 in
+            state.lineCount += 1
+            return state.lineCount
+        }
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }
         // A v2 stream line goes to the stream handler of a dedicated
         // connection (`SessionJournalRead`); on the control connection it
@@ -361,10 +492,20 @@ final class LineTransport: Sendable {
         if let name = streamed ? Self.streamEvent : envelope.event {
             let index = state.withLock { state -> UInt64 in
                 if name == "daemon-shutdown" { state.sawShutdown = true }
-                state.eventCount += 1
-                return state.eventCount
+                return state.noteEvent(line: lineNumber)
             }
             onEvent(name, line, index)
+            return
+        }
+        if envelope.type == "refused" {
+            // The one line of a connection refused at the limit, then EOF: no request ran.
+            let refusal = try? decoder.decode(Refusal.self, from: line)
+            if refusal?.code == "server.busy" { state.withLock { $0.sawBusyRefusal = true } }
+            if let refusal, refusal.code == "link.refused" {
+                // The machine refused the stream before any daemon byte; the close names why, not a bare EOF.
+                let stated = [refusal.reason, refusal.check, refusal.detail].compactMap(\.self).joined(separator: ": ")
+                state.withLock { $0.linkRefusal = stated.isEmpty ? "link.refused" : stated }
+            }
             return
         }
         guard envelope.ok != nil || envelope.id != nil else { return }
@@ -372,7 +513,8 @@ final class LineTransport: Sendable {
             let id = envelope.id ?? state.order.first
             guard let id, let waiter = state.pending.removeValue(forKey: id) else { return nil }
             state.order.removeAll { $0 == id }
-            return (state.eventCount, waiter)
+            let sentAt = state.eventCountAtSend.removeValue(forKey: id)
+            return (state.barrier(linesWrittenBeforeRead: envelope.linesWrittenBeforeRead, sentAt: sentAt), waiter)
         }
         guard let (barrier, waiter) = waiter else { return }
         if envelope.ok == true {

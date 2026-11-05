@@ -41,6 +41,14 @@ impl Peers {
         Ok(Self { path, changes, open: Arc::default(), updates: tokio::sync::Mutex::new(()) })
     }
 
+    /// A Native Cloud link has no paired installs or local peers. Keep the
+    /// same revocation/event machinery while starting from an empty view;
+    /// its inherited broker is the only authority for Cloud hosts.
+    pub(super) fn isolated(path: PathBuf) -> Self {
+        let (changes, _) = tokio::sync::watch::channel(Arc::new(Pairings { peers: vec![] }));
+        Self { path, changes, open: Arc::default(), updates: tokio::sync::Mutex::new(()) }
+    }
+
     /// What every incoming or outgoing paired stream watches for revocation.
     pub(super) fn revocations(&self) -> Revocations {
         Revocations { view: self.changes.subscribe(), open: self.open.clone() }

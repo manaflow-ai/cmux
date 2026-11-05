@@ -14,9 +14,17 @@ public nonisolated struct ThemeEdits: Hashable, Sendable {
     /// Theme name to token to `#rrggbb`.
     public private(set) var colors: [String: [String: String]]
 
+    /// `appearance.highlightColor` (`#rrggbb`): the app's one highlight color, over every theme's
+    /// selection, loaded after the theme and its edits (`GhosttyRuntime.highlightLines`). Nil keeps
+    /// each theme's own.
+    public var highlight: String? {
+        didSet { if let highlight, !Self.isColor(highlight) { self.highlight = nil } }
+    }
+
     public static let none = ThemeEdits()
 
-    public init(_ colors: [String: [String: String]] = [:]) {
+    public init(_ colors: [String: [String: String]] = [:], highlight: String? = nil) {
+        self.highlight = highlight.flatMap { Self.isColor($0) ? $0.lowercased() : nil }
         self.colors = colors.compactMapValues { tokens in
             let kept = tokens.filter { Self.tokens.contains($0.key) && Self.isColor($0.value) }.mapValues { $0.lowercased() }
             return kept.isEmpty ? nil : kept

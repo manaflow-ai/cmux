@@ -33,6 +33,8 @@ struct ConversationSummary: Codable, Hashable {
     var lastReaction: ReactionSummary?
     /// Bumped by the owner on every change (the views key their bitmaps on id and version).
     var version: Int = 0
+    /// cmux: how the conversation's own avatar moves (a Chief's: idle, or working); nil stands still.
+    var avatarMotion: SidebarAvatarMotion.Mode? = nil
     /// v1.2: my unsent text in this conversation's compose field (nil or empty: none). The row's
     /// preview shows "Draft: …" instead of the newest message while nobody types (to verify).
     var draft: String? = nil

@@ -14,8 +14,9 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     public static let followedMarkdownPaths: [[String]] = [
         ["markdown", "font", "preset"], ["markdown", "code", "family"], ["markdown", "code", "scale"],
     ]
-    /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``).
-    public static let followedAppPaths: [[String]] = [SidebarSectionsSetting.minimalPath]
+    /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``) and
+    /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx).
+    public static let followedAppPaths: [[String]] = [SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath]
 
     /// The accepted values by dotted key.
     public var values: [String: JSONValue]
@@ -34,7 +35,7 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     /// each value its row accepts and dropping the rest.
     ///
     /// - Parameter fileRoot: The settings file's root object.
-    public init(fileRoot: JSONValue) {
+    public init(fileRoot: JSONValue, managedHarnessPlacement: JSONValue? = nil) {
         var values: [String: JSONValue] = [:]
         let followed = Set(Self.followedMarkdownPaths.map { $0.joined(separator: ".") })
         let rows = AgentPaneDisplaySettingsSchema.descriptors
@@ -42,11 +43,14 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
             + Self.followedAppPaths.compactMap { SettingsSchema.descriptor(for: $0) }
         for descriptor in rows {
             // A value an earlier form of the row wrote reads as what it meant (the Chat Minimap toggle).
-            guard let stored = fileRoot.value(at: descriptor.path), stored != .null,
+            // A renamed row's old key applies while the new one is absent (``RenamedSettingKeys``).
+            guard let stored = fileRoot.value(at: descriptor.path) ?? RenamedSettingKeys.legacyValue(for: descriptor.path, in: fileRoot),
+                  stored != .null,
                   let value = AgentPaneDisplaySettingsSchema.pageValue(descriptor.id, stored), descriptor.accepts(value)
             else { continue }
             values[descriptor.id] = value
         }
+        values["agentPane.display.harnessPlacement.managed"] = managedHarnessPlacement
         self.init(values: values)
     }
 

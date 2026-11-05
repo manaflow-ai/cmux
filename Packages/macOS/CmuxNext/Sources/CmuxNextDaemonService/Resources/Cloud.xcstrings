@@ -1,6 +1,534 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.link.unsupported": {
+      "comment": "A Cloud machine connect needs a connection path this cmux build does not have yet.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This version of cmux can't connect to the Cloud machine this way. Update cmux, then click Connect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع هذا الإصدار من cmux الاتصال بجهاز Cloud بهذه الطريقة. حدّث cmux، ثم انقر على اتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova verzija cmuxa se ne može ovako povezati s Cloud mašinom. Ažurirajte cmux, pa kliknite Poveži."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne version af cmux kan ikke oprette forbindelse til Cloud-maskinen på denne måde. Opdater cmux, og klik derefter på Forbind."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese cmux-Version kann sich so nicht mit der Cloud-Maschine verbinden. Aktualisiere cmux und klicke dann auf Verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versión de cmux no puede conectarse así a la máquina de Cloud. Actualiza cmux y haz clic en Conectar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette version de cmux ne peut pas se connecter ainsi à la machine Cloud. Mettez cmux à jour, puis cliquez sur Se connecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa versione di cmux non può connettersi così alla macchina Cloud. Aggiorna cmux, poi fai clic su Connetti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンの cmux はこの方法で Cloud マシンに接続できません。cmux をアップデートしてから［接続］をクリックしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណែ cmux នេះមិនអាចភ្ជាប់ទៅម៉ាស៊ីន Cloud តាមវិធីនេះបានទេ។ ធ្វើបច្ចុប្បន្នភាព cmux រួចចុច ភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 버전의 cmux는 이 방식으로 Cloud 머신에 연결할 수 없습니다. cmux를 업데이트한 뒤 연결을 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne versjonen av cmux kan ikke koble til Cloud-maskinen på denne måten. Oppdater cmux, og klikk deretter Koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta wersja cmux nie może połączyć się w ten sposób z maszyną Cloud. Zaktualizuj cmux, a potem kliknij Połącz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta versão do cmux não consegue se conectar assim à máquina do Cloud. Atualize o cmux e clique em Conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта версия cmux не может так подключиться к машине Cloud. Обновите cmux и нажмите «Подключить»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux เวอร์ชันนี้เชื่อมต่อกับเครื่อง Cloud ด้วยวิธีนี้ไม่ได้ อัปเดต cmux แล้วคลิกเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'ın bu sürümü Cloud makinesine bu şekilde bağlanamıyor. cmux'ı güncelleyin, sonra Bağlan'a tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця версія cmux не може так підключитися до машини Cloud. Оновіть cmux і натисніть «Підключити»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phiên bản cmux này không thể kết nối với máy Cloud theo cách này. Hãy cập nhật cmux rồi bấm Kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本的 cmux 无法以这种方式连接 Cloud 机器。请更新 cmux，然后点按“连接”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本的 cmux 無法以這種方式連線至 Cloud 機器。請更新 cmux，然後按一下「連線」。"
+          }
+        }
+      }
+    },
+    "cloud.link.openDirectory": {
+      "comment": "A Cloud machine connect stopped because other users can open the folder of its connection socket. %1$@ is the folder path; %2$@ is the chmod command that fixes it (kept as is).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux didn't connect because other users can open %1$@. Run `%2$@` in Terminal, then click Connect."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتصل cmux لأن مستخدمين آخرين يمكنهم فتح %1$@. شغّل `%2$@` في Terminal، ثم انقر على اتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se nije povezao jer drugi korisnici mogu otvoriti %1$@. Pokrenite `%2$@` u Terminalu, pa kliknite Poveži."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux oprettede ikke forbindelse, fordi andre brugere kan åbne %1$@. Kør `%2$@` i Terminal, og klik derefter på Forbind."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat sich nicht verbunden, weil andere Benutzer %1$@ öffnen können. Führe `%2$@` im Terminal aus und klicke dann auf Verbinden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no se conectó porque otros usuarios pueden abrir %1$@. Ejecuta `%2$@` en Terminal y haz clic en Conectar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne s’est pas connecté, car d’autres utilisateurs peuvent ouvrir %1$@. Exécutez `%2$@` dans Terminal, puis cliquez sur Se connecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non si è connesso perché altri utenti possono aprire %1$@. Esegui `%2$@` nel Terminale, poi fai clic su Connetti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほかのユーザーが %1$@ を開けるため、cmux は接続しませんでした。ターミナルで `%2$@` を実行してから［接続］をクリックしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនបានភ្ជាប់ទេ ព្រោះអ្នកប្រើផ្សេងទៀតអាចបើក %1$@ បាន។ ដំណើរការ `%2$@` ក្នុង Terminal រួចចុច ភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 사용자가 %1$@을(를) 열 수 있어 cmux가 연결하지 않았습니다. 터미널에서 `%2$@`을(를) 실행한 뒤 연결을 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux koblet ikke til fordi andre brukere kan åpne %1$@. Kjør `%2$@` i Terminal, og klikk deretter Koble til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie połączył się, bo inni użytkownicy mogą otworzyć %1$@. Uruchom `%2$@` w Terminalu, a potem kliknij Połącz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não se conectou porque outros usuários podem abrir %1$@. Execute `%2$@` no Terminal e clique em Conectar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не подключился, потому что другие пользователи могут открыть %1$@. Выполните `%2$@` в Терминале и нажмите «Подключить»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่ได้เชื่อมต่อเพราะผู้ใช้อื่นเปิด %1$@ ได้ เรียกใช้ `%2$@` ใน Terminal แล้วคลิกเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başka kullanıcılar %1$@ konumunu açabildiği için cmux bağlanmadı. Terminal'de `%2$@` komutunu çalıştırın, sonra Bağlan'a tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не підключився, бо інші користувачі можуть відкрити %1$@. Виконайте `%2$@` у Терміналі й натисніть «Підключити»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux không kết nối vì người dùng khác có thể mở %1$@. Hãy chạy `%2$@` trong Terminal rồi bấm Kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他用户可以打开 %1$@，因此 cmux 没有连接。请在终端中运行 `%2$@`，然后点按“连接”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他使用者可以打開 %1$@，因此 cmux 沒有連線。請在終端機中執行 `%2$@`，然後按一下「連線」。"
+          }
+        }
+      }
+    },
+    "cloud.link.checkFailed": {
+      "comment": "A Cloud machine connect stopped because the Cloud app's answer (its connection socket) failed one of this Mac's safety checks. `cmux cloud diagnostics` is a command; keep it as is.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux didn't connect: the Cloud app's answer for this machine failed a safety check. Click Connect to try again; if it keeps happening, run `cmux cloud diagnostics`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتصل cmux: فشل ردّ تطبيق Cloud لهذا الجهاز في فحص أمان. انقر على اتصال للمحاولة مرة أخرى؛ وإذا تكرر ذلك، فشغّل `cmux cloud diagnostics`."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se nije povezao: odgovor Cloud aplikacije za ovu mašinu nije prošao sigurnosnu provjeru. Kliknite Poveži da pokušate ponovo; ako se ponavlja, pokrenite `cmux cloud diagnostics`."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux oprettede ikke forbindelse: Cloud-appens svar for denne maskine bestod ikke et sikkerhedstjek. Klik på Forbind for at prøve igen. Hvis det bliver ved, så kør `cmux cloud diagnostics`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat sich nicht verbunden: Die Antwort der Cloud-App für diese Maschine hat eine Sicherheitsprüfung nicht bestanden. Klicke auf Verbinden, um es erneut zu versuchen. Passiert es wieder, führe `cmux cloud diagnostics` aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no se conectó: la respuesta de la app de Cloud para esta máquina no superó una comprobación de seguridad. Haz clic en Conectar para intentarlo de nuevo; si sigue pasando, ejecuta `cmux cloud diagnostics`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne s’est pas connecté : la réponse de l’app Cloud pour cette machine a échoué à une vérification de sécurité. Cliquez sur Se connecter pour réessayer ; si cela se reproduit, exécutez `cmux cloud diagnostics`."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non si è connesso: la risposta dell’app Cloud per questa macchina non ha superato un controllo di sicurezza. Fai clic su Connetti per riprovare; se succede ancora, esegui `cmux cloud diagnostics`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は接続しませんでした。このマシンに対する Cloud アプリの応答が安全性チェックに通りませんでした。［接続］をクリックしてもう一度試してください。繰り返す場合は `cmux cloud diagnostics` を実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនបានភ្ជាប់ទេ៖ ចម្លើយរបស់កម្មវិធី Cloud សម្រាប់ម៉ាស៊ីននេះមិនបានឆ្លងការពិនិត្យសុវត្ថិភាព។ ចុច ភ្ជាប់ ដើម្បីសាកម្តងទៀត។ ប្រសិនបើវានៅតែកើតឡើង សូមដំណើរការ `cmux cloud diagnostics`។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 연결하지 않았습니다. 이 머신에 대한 Cloud 앱의 응답이 보안 검사를 통과하지 못했습니다. 연결을 클릭해 다시 시도하세요. 계속되면 `cmux cloud diagnostics`를 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux koblet ikke til: Cloud-appens svar for denne maskinen besto ikke en sikkerhetskontroll. Klikk Koble til for å prøve igjen. Hvis det fortsetter, kjør `cmux cloud diagnostics`."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie połączył się: odpowiedź aplikacji Cloud dla tej maszyny nie przeszła kontroli bezpieczeństwa. Kliknij Połącz, aby spróbować ponownie; jeśli to się powtarza, uruchom `cmux cloud diagnostics`."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não se conectou: a resposta do app do Cloud para esta máquina não passou em uma verificação de segurança. Clique em Conectar para tentar de novo; se continuar, execute `cmux cloud diagnostics`."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не подключился: ответ приложения Cloud для этой машины не прошел проверку безопасности. Нажмите «Подключить», чтобы повторить; если это повторяется, выполните `cmux cloud diagnostics`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่ได้เชื่อมต่อ เพราะคำตอบของแอป Cloud สำหรับเครื่องนี้ไม่ผ่านการตรวจสอบความปลอดภัย คลิกเชื่อมต่อเพื่อลองอีกครั้ง หากยังเกิดขึ้นอีก ให้เรียกใช้ `cmux cloud diagnostics`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bağlanmadı: Cloud uygulamasının bu makine için verdiği yanıt bir güvenlik denetiminden geçemedi. Yeniden denemek için Bağlan'a tıklayın; tekrarlanırsa `cmux cloud diagnostics` komutunu çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не підключився: відповідь застосунку Cloud для цієї машини не пройшла перевірку безпеки. Натисніть «Підключити», щоб спробувати ще раз; якщо це повторюється, виконайте `cmux cloud diagnostics`."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux không kết nối: phản hồi của ứng dụng Cloud cho máy này không vượt qua một bước kiểm tra an toàn. Bấm Kết nối để thử lại; nếu vẫn xảy ra, hãy chạy `cmux cloud diagnostics`."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 没有连接：Cloud 应用为此机器给出的应答未通过安全检查。点按“连接”重试；如果反复出现，请运行 `cmux cloud diagnostics`。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 沒有連線：Cloud App 為此機器給出的回應未通過安全檢查。按一下「連線」再試一次；如果一再發生，請執行 `cmux cloud diagnostics`。"
+          }
+        }
+      }
+    },
+    "cloud.link.notReady": {
+      "comment": "The Cloud app says the machine's connection is not up yet; %@ is its state as the server names it (for example “starting”).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine's connection isn't ready yet (%@). Click Connect to try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اتصال الجهاز غير جاهز بعد (%@). انقر على اتصال للمحاولة مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veza s mašinom još nije spremna (%@). Kliknite Poveži da pokušate ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinens forbindelse er ikke klar endnu (%@). Klik på Forbind for at prøve igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung der Maschine ist noch nicht bereit (%@). Klicke auf Verbinden, um es erneut zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión de la máquina aún no está lista (%@). Haz clic en Conectar para intentarlo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion de la machine n’est pas encore prête (%@). Cliquez sur Se connecter pour réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connessione della macchina non è ancora pronta (%@). Fai clic su Connetti per riprovare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの接続の準備がまだできていません（%@）。［接続］をクリックしてもう一度試してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការភ្ជាប់របស់ម៉ាស៊ីនមិនទាន់រួចរាល់នៅឡើយទេ (%@)។ ចុច ភ្ជាប់ ដើម្បីសាកម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신 연결이 아직 준비되지 않았습니다(%@). 연결을 클릭해 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskinens tilkobling er ikke klar ennå (%@). Klikk Koble til for å prøve igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenie maszyny nie jest jeszcze gotowe (%@). Kliknij Połącz, aby spróbować ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conexão da máquina ainda não está pronta (%@). Clique em Conectar para tentar de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подключение машины еще не готово (%@). Нажмите «Подключить», чтобы повторить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเชื่อมต่อของเครื่องยังไม่พร้อม (%@) คลิกเชื่อมต่อเพื่อลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Makinenin bağlantısı henüz hazır değil (%@). Yeniden denemek için Bağlan'a tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підключення машини ще не готове (%@). Натисніть «Підключити», щоб спробувати ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối của máy chưa sẵn sàng (%@). Bấm Kết nối để thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器的连接尚未就绪（%@）。点按“连接”重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器的連線尚未就緒（%@）。按一下「連線」再試一次。"
+          }
+        }
+      }
+    },
     "cloud.failed.noSuchTeam": {
       "extractionState": "manual",
       "localizations": {
@@ -783,6 +1311,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "選取"
+          }
+        }
+      }
+    },
+    "cloud.failed.createRetryOtherTeam": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine was requested in another team. Switch back to that team to retry it, or dismiss it and create a new one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンは別のチームでリクエストされました。再試行するにはそのチームに戻るか、閉じて新しく作成してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طُلبت هذه الآلة في فريق آخر. ارجع إلى ذلك الفريق لإعادة المحاولة، أو تجاهلها وأنشئ آلة جديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova mašina je zatražena u drugom timu. Vratite se na taj tim da pokušate ponovo ili je odbacite i kreirajte novu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne maskine blev bestilt i et andet team. Skift tilbage til det team for at prøve igen, eller afvis den og opret en ny."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Maschine wurde in einem anderen Team angefordert. Wechsle zurück zu diesem Team, um es erneut zu versuchen, oder verwirf sie und erstelle eine neue."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta máquina se solicitó en otro equipo. Vuelve a ese equipo para reintentarlo, o descártala y crea una nueva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette machine a été demandée dans une autre équipe. Revenez à cette équipe pour réessayer, ou ignorez-la et créez-en une nouvelle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa macchina è stata richiesta in un altro team. Torna a quel team per riprovare, oppure ignorala e creane una nuova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីននេះត្រូវបានស្នើសុំនៅក្នុងក្រុមផ្សេង។ ប្ដូរទៅក្រុមនោះវិញដើម្បីព្យាយាមម្ដងទៀត ឬបោះបង់វា ហើយបង្កើតថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 머신은 다른 팀에서 요청되었습니다. 다시 시도하려면 그 팀으로 돌아가거나, 닫고 새로 만드세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne maskinen ble bestilt i et annet team. Bytt tilbake til det teamet for å prøve igjen, eller avvis den og opprett en ny."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta maszyna została zamówiona w innym zespole. Wróć do tego zespołu, aby spróbować ponownie, albo odrzuć ją i utwórz nową."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta máquina foi solicitada em outra equipe. Volte para essa equipe para tentar novamente, ou dispense-a e crie uma nova."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта машина была запрошена в другой команде. Вернитесь в эту команду, чтобы повторить попытку, или закройте её и создайте новую."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องนี้ถูกขอในทีมอื่น สลับกลับไปที่ทีมนั้นเพื่อลองอีกครั้ง หรือปิดแล้วสร้างเครื่องใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu makine başka bir ekipte istendi. Yeniden denemek için o ekibe geri dönün veya kapatıp yeni bir tane oluşturun."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цю машину було запитано в іншій команді. Поверніться до цієї команди, щоб повторити спробу, або закрийте її та створіть нову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy này được yêu cầu trong một nhóm khác. Chuyển lại nhóm đó để thử lại, hoặc bỏ qua và tạo máy mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这台机器是在另一个团队中请求的。切换回该团队以重试，或关闭它并新建一台。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這台機器是在另一個團隊中請求的。切換回該團隊以重試，或關閉它並新建一台。"
           }
         }
       }
@@ -1836,6 +2495,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "登入以使用 Cloud 機器：請在命令面板中執行「登入」，或執行 `cmux cloud sign-in`。"
+          }
+        }
+      }
+    },
+    "cloud.signIn.toContinue": {
+      "comment": "Under a signed-out Cloud action in the command palette: choosing the row signs in to cmux Cloud, then runs that action.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to use Cloud machines: choose it to sign in, then it runs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud マシンを使うにはサインインが必要です。選ぶとサインインし、そのあと実行します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل الدخول لاستخدام أجهزة Cloud: اختره لتسجيل الدخول، ثم يعمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijavite se za korištenje Cloud mašina: odaberite ga da se prijavite, a zatim se pokreće."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log ind for at bruge Cloud-maskiner: vælg den for at logge ind, så kører den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melde dich an, um Cloud-Maschinen zu nutzen: Wähle es aus, um dich anzumelden, danach wird es ausgeführt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicia sesión para usar máquinas de Cloud: elígelo para iniciar sesión y después se ejecuta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connectez-vous pour utiliser les machines Cloud : choisissez-la pour vous connecter, puis elle s’exécute."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accedi per usare le macchine Cloud: sceglila per accedere, poi viene eseguita."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលគណនីដើម្បីប្រើម៉ាស៊ីន Cloud៖ ជ្រើសវាដើម្បីចូលគណនី បន្ទាប់មកវាដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud 머신을 사용하려면 로그인하세요. 선택하면 로그인한 뒤 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg på for å bruke Cloud-maskiner: velg den for å logge på, så kjører den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaloguj się, aby używać maszyn Cloud: wybierz to, aby się zalogować, a potem zostanie uruchomione."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entre para usar máquinas do Cloud: escolha para entrar e depois a ação é executada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Войдите, чтобы пользоваться машинами Cloud: выберите это, чтобы войти, после чего оно выполнится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้เพื่อใช้เครื่อง Cloud: เลือกเพื่อลงชื่อเข้าใช้ แล้วคำสั่งจะทำงานต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud makinelerini kullanmak için oturum açın: oturum açmak için seçin, ardından çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увійдіть, щоб користуватися машинами Cloud: виберіть це, щоб увійти, після чого воно виконається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng nhập để dùng máy Cloud: chọn mục này để đăng nhập, sau đó nó sẽ chạy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录后才能使用 Cloud 机器：选择它即可登录，随后自动执行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入後才能使用 Cloud 機器：選擇它即可登入，隨後自動執行。"
           }
         }
       }
@@ -6698,127 +7489,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This machine runs cmux-tui %@. Update it to turn on every feature of this app."
+            "value": "This machine runs an older cmux (%@). Update it to turn on every feature of this app."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يشغّل هذا الجهاز cmux-tui %@. حدّثه لتفعيل كل ميزات هذا التطبيق."
+            "value": "يعمل على هذا الجهاز إصدار أقدم من cmux (%@). حدّثه لتشغيل كل ميزات هذا التطبيق."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ova mašina koristi cmux-tui %@. Ažurirajte je da uključite sve funkcije ove aplikacije."
+            "value": "Na ovom računaru radi stariji cmux (%@). Ažurirajte ga da uključite sve funkcije ove aplikacije."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne maskine kører cmux-tui %@. Opdater den for at slå alle funktioner i denne app til."
+            "value": "Denne maskine kører en ældre cmux (%@). Opdater den for at slå alle appens funktioner til."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Diese Maschine nutzt cmux-tui %@. Aktualisiere sie, um alle Funktionen dieser App einzuschalten."
+            "value": "Auf diesem Rechner läuft ein älteres cmux (%@). Aktualisiere es, um alle Funktionen dieser App einzuschalten."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta máquina ejecuta cmux-tui %@. Actualízala para activar todas las funciones de esta app."
+            "value": "Esta máquina ejecuta un cmux anterior (%@). Actualízala para activar todas las funciones de esta app."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette machine exécute cmux-tui %@. Mettez-la à jour pour activer toutes les fonctions de cette app."
+            "value": "Cette machine exécute une version plus ancienne de cmux (%@). Mettez-la à jour pour activer toutes les fonctions de cette app."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa macchina esegue cmux-tui %@. Aggiornala per attivare tutte le funzioni di questa app."
+            "value": "Questa macchina esegue un cmux meno recente (%@). Aggiornala per attivare tutte le funzioni di questa app."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンは cmux-tui %@ を実行しています。このアプリのすべての機能を有効にするにはアップデートしてください。"
+            "value": "このマシンでは古い cmux（%@）が動いています。アップデートすると、このアプリのすべての機能が使えます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីននេះដំណើរការ cmux-tui %@។ ធ្វើបច្ចុប្បន្នភាពវា ដើម្បីបើកមុខងារទាំងអស់របស់កម្មវិធីនេះ។"
+            "value": "ម៉ាស៊ីននេះដំណើរការ cmux ចាស់ជាង (%@)។ អាប់ដេតវាដើម្បីបើកមុខងារទាំងអស់របស់កម្មវិធីនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 머신은 cmux-tui %@을(를) 실행합니다. 이 앱의 모든 기능을 켜려면 업데이트하세요."
+            "value": "이 머신은 이전 cmux(%@)를 실행 중입니다. 업데이트하면 이 앱의 모든 기능을 켤 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne maskinen kjører cmux-tui %@. Oppdater den for å slå på alle funksjonene i denne appen."
+            "value": "Denne maskinen kjører en eldre cmux (%@). Oppdater den for å slå på alle funksjonene i appen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ta maszyna działa na cmux-tui %@. Zaktualizuj ją, aby włączyć wszystkie funkcje tej aplikacji."
+            "value": "Na tej maszynie działa starszy cmux (%@). Zaktualizuj go, aby włączyć wszystkie funkcje tej aplikacji."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta máquina executa o cmux-tui %@. Atualize-a para ativar todos os recursos deste app."
+            "value": "Esta máquina roda um cmux mais antigo (%@). Atualize-a para ativar todos os recursos deste app."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "На этой машине работает cmux-tui %@. Обновите её, чтобы включить все функции этого приложения."
+            "value": "На этой машине работает более старый cmux (%@). Обновите его, чтобы включить все функции приложения."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เครื่องนี้ใช้ cmux-tui %@ อัปเดตเครื่องเพื่อเปิดทุกฟีเจอร์ของแอปนี้"
+            "value": "เครื่องนี้ใช้ cmux รุ่นเก่ากว่า (%@) อัปเดตเพื่อเปิดใช้ทุกฟีเจอร์ของแอปนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu makine cmux-tui %@ çalıştırıyor. Bu uygulamanın tüm özelliklerini açmak için güncelleyin."
+            "value": "Bu makinede daha eski bir cmux (%@) çalışıyor. Bu uygulamanın tüm özelliklerini açmak için güncelleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "На цій машині працює cmux-tui %@. Оновіть її, щоб увімкнути всі функції цього застосунку."
+            "value": "На цій машині працює старіший cmux (%@). Оновіть його, щоб увімкнути всі функції застосунку."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy này chạy cmux-tui %@. Hãy cập nhật để bật mọi tính năng của ứng dụng này."
+            "value": "Máy này chạy cmux cũ hơn (%@). Hãy cập nhật để bật mọi tính năng của ứng dụng này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此机器运行 cmux-tui %@。更新后可开启此应用的全部功能。"
+            "value": "此机器运行的是较旧的 cmux（%@）。更新后即可启用此应用的全部功能。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此機器執行 cmux-tui %@。更新後可開啟此 App 的全部功能。"
+            "value": "此機器執行的是較舊的 cmux（%@）。更新後即可啟用此 App 的全部功能。"
           }
         }
       }
@@ -6829,127 +7620,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This machine runs a cmux-tui this app cannot use. Update the machine to connect."
+            "value": "This machine runs a version of cmux this app can't use. Update the machine to connect."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يشغّل هذا الجهاز إصدارًا من cmux-tui لا يمكن لهذا التطبيق استخدامه. حدّث الجهاز للاتصال."
+            "value": "يعمل على هذا الجهاز إصدار من cmux لا يستطيع هذا التطبيق استخدامه. حدّث الجهاز للاتصال."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ova mašina koristi cmux-tui koji ova aplikacija ne može koristiti. Ažurirajte mašinu da se povežete."
+            "value": "Na ovom računaru radi verzija cmuxa koju ova aplikacija ne može koristiti. Ažurirajte računar da se povežete."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne maskine kører en cmux-tui, som denne app ikke kan bruge. Opdater maskinen for at oprette forbindelse."
+            "value": "Denne maskine kører en version af cmux, som appen ikke kan bruge. Opdater maskinen for at forbinde."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Diese Maschine nutzt ein cmux-tui, das diese App nicht verwenden kann. Aktualisiere die Maschine, um dich zu verbinden."
+            "value": "Auf diesem Rechner läuft eine cmux-Version, die diese App nicht nutzen kann. Aktualisiere den Rechner, um dich zu verbinden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta máquina ejecuta un cmux-tui que esta app no puede usar. Actualiza la máquina para conectarte."
+            "value": "Esta máquina ejecuta una versión de cmux que esta app no puede usar. Actualiza la máquina para conectarte."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette machine exécute un cmux-tui que cette app ne peut pas utiliser. Mettez la machine à jour pour vous connecter."
+            "value": "Cette machine exécute une version de cmux que cette app ne peut pas utiliser. Mettez la machine à jour pour vous connecter."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa macchina esegue un cmux-tui che questa app non può usare. Aggiorna la macchina per connetterti."
+            "value": "Questa macchina esegue una versione di cmux che questa app non può usare. Aggiorna la macchina per connetterti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンはこのアプリで使用できない cmux-tui を実行しています。接続するにはマシンをアップデートしてください。"
+            "value": "このマシンでは、このアプリが使えないバージョンの cmux が動いています。接続するにはマシンをアップデートしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីននេះដំណើរការ cmux-tui ដែលកម្មវិធីនេះមិនអាចប្រើបាន។ ធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីន ដើម្បីភ្ជាប់។"
+            "value": "ម៉ាស៊ីននេះដំណើរការកំណែ cmux ដែលកម្មវិធីនេះមិនអាចប្រើបាន។ អាប់ដេតម៉ាស៊ីនដើម្បីភ្ជាប់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 머신은 이 앱에서 사용할 수 없는 cmux-tui를 실행합니다. 연결하려면 머신을 업데이트하세요."
+            "value": "이 머신은 이 앱이 사용할 수 없는 cmux 버전을 실행 중입니다. 연결하려면 머신을 업데이트하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne maskinen kjører en cmux-tui denne appen ikke kan bruke. Oppdater maskinen for å koble til."
+            "value": "Denne maskinen kjører en versjon av cmux som appen ikke kan bruke. Oppdater maskinen for å koble til."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ta maszyna działa na cmux-tui, którego ta aplikacja nie może używać. Zaktualizuj maszynę, aby się połączyć."
+            "value": "Na tej maszynie działa wersja cmux, której ta aplikacja nie może użyć. Zaktualizuj maszynę, aby się połączyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta máquina executa um cmux-tui que este app não pode usar. Atualize a máquina para conectar."
+            "value": "Esta máquina roda uma versão do cmux que este app não consegue usar. Atualize a máquina para conectar."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "На этой машине работает cmux-tui, который это приложение не может использовать. Обновите машину, чтобы подключиться."
+            "value": "На этой машине работает версия cmux, которую это приложение не может использовать. Обновите машину, чтобы подключиться."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เครื่องนี้ใช้ cmux-tui ที่แอปนี้ใช้ไม่ได้ อัปเดตเครื่องเพื่อเชื่อมต่อ"
+            "value": "เครื่องนี้ใช้ cmux เวอร์ชันที่แอปนี้ใช้ไม่ได้ อัปเดตเครื่องเพื่อเชื่อมต่อ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu makine bu uygulamanın kullanamadığı bir cmux-tui çalıştırıyor. Bağlanmak için makineyi güncelleyin."
+            "value": "Bu makinede bu uygulamanın kullanamayacağı bir cmux sürümü çalışıyor. Bağlanmak için makineyi güncelleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "На цій машині працює cmux-tui, який цей застосунок не може використовувати. Оновіть машину, щоб підключитися."
+            "value": "На цій машині працює версія cmux, яку цей застосунок не може використати. Оновіть машину, щоб підключитися."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy này chạy một bản cmux-tui mà ứng dụng này không dùng được. Hãy cập nhật máy để kết nối."
+            "value": "Máy này chạy phiên bản cmux mà ứng dụng này không dùng được. Hãy cập nhật máy để kết nối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此机器运行的 cmux-tui 无法被此应用使用。请更新机器以连接。"
+            "value": "此机器运行的 cmux 版本此应用无法使用。请更新该机器以连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此機器執行的 cmux-tui 無法被此 App 使用。請更新機器以連線。"
+            "value": "此機器執行的 cmux 版本此 App 無法使用。請更新該機器以連線。"
           }
         }
       }
@@ -7343,6 +8134,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "建立"
+          }
+        }
+      }
+    },
+    "cloud.create.request.stopAsking": {
+      "comment": "The switch on the sidebar card of an agent's or a script's Cloud machine create (\"Create a Cloud machine?\"): flipping it creates the machine and lets agents create Cloud machines without asking from then on (Settings > Machines).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Don't Ask Again"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تسأل مجددًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ne pitaj ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spørg ikke igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht mehr fragen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No volver a preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ne plus demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non chiedere più"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "今後確認しない"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កុំសួរម្ដងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다시 묻지 않기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke spør igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie pytaj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não perguntar novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Больше не спрашивать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ต้องถามอีก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir daha sorma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Більше не питати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không hỏi lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不再询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不再詢問"
           }
         }
       }
@@ -8925,7 +9848,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your plan has no Cloud machines. Go is $10 a month and includes machines; Pro is $50 a month."
+            "value": "Your plan has no Cloud machines. The Go is $10 a month and includes machines; Pro is $50 a month."
           }
         },
         "ja": {
@@ -9570,6 +10493,2117 @@
           "stringUnit": {
             "state": "translated",
             "value": "មិនបានបង្កើតម៉ាស៊ីន Cloud ទេ៖ គម្រោងរបស់អ្នកត្រូវដំឡើងកំរិត។ មើល cmux.com/pricing។"
+          }
+        }
+      }
+    },
+    "cloud.newWorkspace.openedHere": {
+      "comment": "A toast after New Workspace when “Run New Workspaces in Cloud” is on but the workspace opened on this Mac. %@ is the reason, a full sentence.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace opened on this Mac, not in Cloud. %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースは Cloud ではなくこの Mac で開きました。%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فُتحت مساحة العمل هذه على جهاز Mac هذا، وليس في Cloud. %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj radni prostor otvoren je na ovom Macu, a ne u Cloudu. %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette arbejdsområde blev åbnet på denne Mac, ikke i Cloud. %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Arbeitsbereich wurde auf diesem Mac geöffnet, nicht in Cloud. %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este espacio de trabajo se abrió en este Mac, no en Cloud. %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet espace de travail s’est ouvert sur ce Mac, pas dans Cloud. %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo spazio di lavoro si è aperto su questo Mac, non in Cloud. %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការនេះបានបើកនៅលើ Mac នេះ មិនមែននៅក្នុង Cloud ទេ។ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 작업 공간은 Cloud가 아닌 이 Mac에서 열렸습니다. %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette arbeidsområdet ble åpnet på denne Macen, ikke i Cloud. %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten obszar roboczy otworzył się na tym Macu, a nie w Cloud. %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este espaço de trabalho foi aberto neste Mac, não no Cloud. %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это рабочее пространство открылось на этом Mac, а не в Cloud. %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานนี้เปิดบน Mac เครื่องนี้ ไม่ใช่ใน Cloud %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu çalışma alanı Cloud'da değil, bu Mac'te açıldı. %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей робочий простір відкрився на цьому Mac, а не в Cloud. %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc này đã mở trên máy Mac này, không phải trong Cloud. %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作区已在这台 Mac 上打开，而不是在 Cloud 中。%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作區已在這台 Mac 上開啟，而非在 Cloud 中。%@"
+          }
+        }
+      }
+    },
+    "cloud.newWorkspace.noWindow": {
+      "comment": "Why a New Workspace opened on this Mac although “Run New Workspaces in Cloud” is on: no window was open to show the new Cloud machine's progress.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspaces start in Cloud from an open window, where the new machine's progress shows."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースは、新しいマシンの進行状況が表示される開いたウインドウから Cloud で開始されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبدأ مساحات العمل الجديدة في Cloud من نافذة مفتوحة، حيث يظهر تقدّم الجهاز الجديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi radni prostori pokreću se u Cloudu iz otvorenog prozora, gdje se prikazuje napredak nove mašine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nye arbejdsområder starter i Cloud fra et åbent vindue, hvor den nye maskines fremskridt vises."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Arbeitsbereiche starten in Cloud aus einem geöffneten Fenster, in dem der Fortschritt der neuen Maschine angezeigt wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los nuevos espacios de trabajo se inician en Cloud desde una ventana abierta, donde se muestra el progreso de la nueva máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les nouveaux espaces de travail démarrent dans Cloud depuis une fenêtre ouverte, où s’affiche la progression de la nouvelle machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I nuovi spazi di lavoro partono in Cloud da una finestra aperta, dove si vede l’avanzamento della nuova macchina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការថ្មីចាប់ផ្តើមក្នុង Cloud ពីបង្អួចដែលបើក ដែលបង្ហាញវឌ្ឍនភាពរបស់ម៉ាស៊ីនថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 작업 공간은 새 기기의 진행 상황이 표시되는 열린 창에서 Cloud로 시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nye arbeidsområder starter i Cloud fra et åpent vindu, der fremdriften til den nye maskinen vises."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowe obszary robocze uruchamiają się w Cloud z otwartego okna, w którym widać postęp nowej maszyny."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novos espaços de trabalho começam no Cloud a partir de uma janela aberta, onde o progresso da nova máquina aparece."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новые рабочие пространства запускаются в Cloud из открытого окна, где виден ход создания новой машины."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานใหม่จะเริ่มใน Cloud จากหน้าต่างที่เปิดอยู่ ซึ่งแสดงความคืบหน้าของเครื่องใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni çalışma alanları, yeni makinenin ilerlemesinin gösterildiği açık bir pencereden Cloud'da başlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нові робочі простори запускаються в Cloud з відкритого вікна, де видно поступ нової машини."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc mới bắt đầu trong Cloud từ một cửa sổ đang mở, nơi hiển thị tiến trình của máy mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作区会从打开的窗口在 Cloud 中启动，并在该窗口显示新机器的进度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作區會從開啟的視窗在 Cloud 中啟動，並在該視窗顯示新機器的進度。"
+          }
+        }
+      }
+    },
+    "cloud.machine.defaultName": {
+      "comment": "The name a new Cloud machine gets when the person typed none (sidebar, menus, Cloud page).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جهاز سحابي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašina u oblaku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloudmaskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina en la nube"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchina cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនពពក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클라우드 머신"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skymaskin"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszyna w chmurze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina na nuvem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Облачная машина"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องบนคลาวด์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bulut makinesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хмарна машина"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy đám mây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "云端机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "雲端機器"
+          }
+        }
+      }
+    },
+    "cloud.machine.defaultNameNumbered": {
+      "comment": "The default Cloud machine name when the plain one is taken; %lld is 2, 3, …",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machine %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン %lld"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جهاز سحابي %lld"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mašina u oblaku %lld"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloudmaskine %lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud-Maschine %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina en la nube %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machine cloud %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macchina cloud %lld"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនពពក %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "클라우드 머신 %lld"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skymaskin %lld"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maszyna w chmurze %lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máquina na nuvem %lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Облачная машина %lld"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องบนคลาวด์ %lld"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bulut makinesi %lld"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Хмарна машина %lld"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy đám mây %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "云端机器 %lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "雲端機器 %lld"
+          }
+        }
+      }
+    },
+    "cloud.api.keyRequired": {
+      "comment": "Revoke Cloud API Key ran without a key id. --key <key-id>, --path <publication> and `cmux cloud api-key-list` are CLI text; keep them as they are.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass the API key id with --key <key-id>; `cmux cloud api-key-list --path <publication>` lists ids."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر معرّف مفتاح API باستخدام --key <key-id>؛ يعرض `cmux cloud api-key-list --path <publication>` المعرّفات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite id API ključa pomoću --key <key-id>; `cmux cloud api-key-list --path <publication>` prikazuje id-ove."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv API-nøglens id med --key <key-id>; `cmux cloud api-key-list --path <publication>` viser id'erne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib die ID des API-Schlüssels mit --key <key-id> an; `cmux cloud api-key-list --path <publication>` listet die IDs auf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasa el id de la clave de API con --key <key-id>; `cmux cloud api-key-list --path <publication>` muestra los ids."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l'identifiant de la clé API avec --key <key-id> ; `cmux cloud api-key-list --path <publication>` affiche les identifiants."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa l'id della chiave API con --key <key-id>; `cmux cloud api-key-list --path <publication>` elenca gli id."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API キーの ID を --key <key-id> で指定してください。`cmux cloud api-key-list --path <publication>` で ID を確認できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូន id សោ API ជាមួយ --key <key-id>; `cmux cloud api-key-list --path <publication>` បង្ហាញ id។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--key <key-id>로 API 키 ID를 전달하세요. `cmux cloud api-key-list --path <publication>`에서 ID 목록을 볼 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angi API-nøkkelens id med --key <key-id>; `cmux cloud api-key-list --path <publication>` viser id-ene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj id klucza API za pomocą --key <key-id>; `cmux cloud api-key-list --path <publication>` wyświetla id."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe o id da chave de API com --key <key-id>; `cmux cloud api-key-list --path <publication>` lista os ids."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите id ключа API через --key <key-id>; `cmux cloud api-key-list --path <publication>` выводит id."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุ id ของคีย์ API ด้วย --key <key-id>; `cmux cloud api-key-list --path <publication>` จะแสดง id"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API anahtarı kimliğini --key <key-id> ile verin; `cmux cloud api-key-list --path <publication>` kimlikleri listeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажіть id ключа API через --key <key-id>; `cmux cloud api-key-list --path <publication>` показує id."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truyền id khóa API bằng --key <key-id>; `cmux cloud api-key-list --path <publication>` liệt kê các id."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请用 --key <key-id> 传入 API 密钥 id；`cmux cloud api-key-list --path <publication>` 会列出 id。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請用 --key <key-id> 傳入 API 金鑰 id；`cmux cloud api-key-list --path <publication>` 會列出 id。"
+          }
+        }
+      }
+    },
+    "cloud.api.keyRevoked": {
+      "comment": "Revoke Cloud API Key's answer; %@ is the key id.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoked API key %@. Requests with it are refused from now on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إلغاء مفتاح API %@. تُرفض الطلبات التي تستخدمه من الآن فصاعدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API ključ %@ je opozvan. Zahtjevi s njim se od sada odbijaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-nøglen %@ er tilbagekaldt. Anmodninger med den afvises fra nu af."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel %@ wurde widerrufen. Anfragen damit werden ab jetzt abgelehnt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se revocó la clave de API %@. A partir de ahora se rechazan las solicitudes que la usen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clé API %@ révoquée. Les requêtes qui l'utilisent sont désormais refusées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiave API %@ revocata. Da ora le richieste che la usano vengono rifiutate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API キー %@ を取り消しました。今後このキーを使うリクエストは拒否されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានដកហូតសោ API %@។ សំណើដែលប្រើវានឹងត្រូវបដិសេធចាប់ពីពេលនេះតទៅ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 키 %@을(를) 취소했습니다. 이제부터 이 키를 사용한 요청은 거부됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-nøkkelen %@ er tilbakekalt. Forespørsler med den avvises fra nå av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unieważniono klucz API %@. Żądania z nim są od teraz odrzucane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A chave de API %@ foi revogada. A partir de agora, as solicitações com ela são recusadas."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ API %@ отозван. Запросы с ним теперь отклоняются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิกถอนคีย์ API %@ แล้ว คำขอที่ใช้คีย์นี้จะถูกปฏิเสธนับจากนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ API anahtarı iptal edildi. Bundan sonra bu anahtarla gelen istekler reddedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключ API %@ відкликано. Відтепер запити з ним відхиляються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã thu hồi khóa API %@. Từ giờ các yêu cầu dùng khóa này sẽ bị từ chối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已撤销 API 密钥 %@。从现在起使用它的请求都会被拒绝。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已撤銷 API 金鑰 %@。從現在起使用它的請求都會被拒絕。"
+          }
+        }
+      }
+    },
+    "cloud.api.provisioned": {
+      "comment": "Provision API's answer. %1$@ is the https URL, %2$@ the API key, %3$@ the cookie (__Host-cmux-api-key=<key>). Keep the curl command, 'Cookie:' and the placeholders as they are.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nAPI key (shown once, keep it secret): %2$@\nClients send the key as a cookie, for example: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العنوان: %1$@\nمفتاح API (يظهر مرة واحدة، احتفظ به سرًا): %2$@\nترسل العملاء المفتاح كملف تعريف ارتباط، مثلًا: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nAPI ključ (prikazuje se jednom, čuvajte ga u tajnosti): %2$@\nKlijenti šalju ključ kao kolačić, na primjer: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nAPI-nøgle (vises én gang, hold den hemmelig): %2$@\nKlienter sender nøglen som en cookie, for eksempel: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nAPI-Schlüssel (wird nur einmal angezeigt, geheim halten): %2$@\nClients senden den Schlüssel als Cookie, zum Beispiel: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nClave de API (se muestra una vez, mantenla en secreto): %2$@\nLos clientes envían la clave como cookie, por ejemplo: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL : %1$@\nClé API (affichée une seule fois, gardez-la secrète) : %2$@\nLes clients envoient la clé dans un cookie, par exemple : curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nChiave API (mostrata una sola volta, tienila segreta): %2$@\nI client inviano la chiave come cookie, ad esempio: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nAPI キー（一度だけ表示されます。秘密にしてください）: %2$@\nクライアントはキーを Cookie として送信します。例: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL៖ %1$@\nសោ API (បង្ហាញតែម្ដង សូមរក្សាជាការសម្ងាត់)៖ %2$@\nកម្មវិធីភ្ញៀវផ្ញើសោជា cookie ឧទាហរណ៍៖ curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nAPI 키(한 번만 표시되니 비밀로 유지하세요): %2$@\n클라이언트는 키를 쿠키로 보냅니다. 예: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nAPI-nøkkel (vises én gang, hold den hemmelig): %2$@\nKlienter sender nøkkelen som en informasjonskapsel, for eksempel: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nKlucz API (wyświetlany raz, zachowaj go w tajemnicy): %2$@\nKlienci wysyłają klucz jako plik cookie, na przykład: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nChave de API (exibida uma vez, mantenha em segredo): %2$@\nOs clientes enviam a chave como cookie, por exemplo: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nКлюч API (показывается один раз, храните его в секрете): %2$@\nКлиенты передают ключ в cookie, например: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nคีย์ API (แสดงเพียงครั้งเดียว โปรดเก็บเป็นความลับ): %2$@\nไคลเอนต์ส่งคีย์เป็นคุกกี้ เช่น: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nAPI anahtarı (yalnızca bir kez gösterilir, gizli tutun): %2$@\nİstemciler anahtarı çerez olarak gönderir, örneğin: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nКлюч API (показується один раз, тримайте його в таємниці): %2$@\nКлієнти передають ключ у cookie, наприклад: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL: %1$@\nKhóa API (chỉ hiển thị một lần, hãy giữ bí mật): %2$@\nỨng dụng khách gửi khóa dưới dạng cookie, ví dụ: curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL：%1$@\nAPI 密钥（仅显示一次，请妥善保密）：%2$@\n客户端以 Cookie 发送密钥，例如：curl -H 'Cookie: %3$@' %1$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL：%1$@\nAPI 金鑰（只顯示一次，請妥善保密）：%2$@\n用戶端以 Cookie 傳送金鑰，例如：curl -H 'Cookie: %3$@' %1$@"
+          }
+        }
+      }
+    },
+    "cloud.api.publicationRequired": {
+      "comment": "An API key action ran without a publication. --path <publication> is the CLI flag and `cmux cloud publication-list` a command; keep both as they are.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass the publication id or hostname with --path <publication>; `cmux cloud publication-list` lists them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر معرّف النشر أو اسم المضيف باستخدام --path <publication>؛ يعرضها `cmux cloud publication-list`."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite id objave ili ime hosta pomoću --path <publication>; `cmux cloud publication-list` ih prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv publiceringens id eller værtsnavn med --path <publication>; `cmux cloud publication-list` viser dem."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib die ID oder den Hostnamen der Veröffentlichung mit --path <publication> an; `cmux cloud publication-list` listet sie auf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasa el id o el nombre de host de la publicación con --path <publication>; `cmux cloud publication-list` los muestra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l'identifiant ou le nom d'hôte de la publication avec --path <publication> ; `cmux cloud publication-list` les affiche."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa l'id o il nome host della pubblicazione con --path <publication>; `cmux cloud publication-list` li elenca."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "公開の ID またはホスト名を --path <publication> で指定してください。`cmux cloud publication-list` で一覧を確認できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូន id ឬឈ្មោះម៉ាស៊ីនរបស់ការបោះពុម្ពផ្សាយ ជាមួយ --path <publication>; `cmux cloud publication-list` បង្ហាញពួកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--path <publication>으로 게시 ID나 호스트 이름을 전달하세요. `cmux cloud publication-list`에서 목록을 볼 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angi publiseringens id eller vertsnavn med --path <publication>; `cmux cloud publication-list` viser dem."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj id lub nazwę hosta publikacji za pomocą --path <publication>; `cmux cloud publication-list` je wyświetla."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe o id ou o nome do host da publicação com --path <publication>; `cmux cloud publication-list` lista esses valores."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите id или имя хоста публикации через --path <publication>; `cmux cloud publication-list` выводит их список."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุ id หรือชื่อโฮสต์ของการเผยแพร่ด้วย --path <publication>; `cmux cloud publication-list` จะแสดงรายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yayın kimliğini veya ana bilgisayar adını --path <publication> ile verin; `cmux cloud publication-list` bunları listeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажіть id або ім'я хоста публікації через --path <publication>; `cmux cloud publication-list` показує їх список."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truyền id hoặc tên máy chủ của bản xuất bản bằng --path <publication>; `cmux cloud publication-list` liệt kê chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请用 --path <publication> 传入发布的 id 或主机名；`cmux cloud publication-list` 会列出它们。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請用 --path <publication> 傳入發布的 id 或主機名稱；`cmux cloud publication-list` 會列出它們。"
+          }
+        }
+      }
+    },
+    "cloud.network.networkIDRequired": {
+      "comment": "A tunnel network action ran without a network id. --path <network-id> is the CLI flag and `cmux cloud network-list` a command; keep both as they are.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass the network id with --path <network-id>; `cmux cloud network-list` lists ids."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر معرّف الشبكة باستخدام --path <network-id>؛ يعرض `cmux cloud network-list` المعرّفات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite id mreže pomoću --path <network-id>; `cmux cloud network-list` prikazuje id-ove."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv netværks-id'et med --path <network-id>; `cmux cloud network-list` viser id'erne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib die Netzwerk-ID mit --path <network-id> an; `cmux cloud network-list` listet die IDs auf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasa el id de la red con --path <network-id>; `cmux cloud network-list` muestra los ids."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l'identifiant du réseau avec --path <network-id> ; `cmux cloud network-list` affiche les identifiants."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa l'id della rete con --path <network-id>; `cmux cloud network-list` elenca gli id."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク ID を --path <network-id> で指定してください。`cmux cloud network-list` で ID の一覧を表示できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូនលេខសម្គាល់បណ្ដាញដោយប្រើ --path <network-id>; `cmux cloud network-list` បង្ហាញលេខសម្គាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--path <network-id>로 네트워크 ID를 전달하세요. `cmux cloud network-list`로 ID 목록을 볼 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi nettverks-ID-en med --path <network-id>; `cmux cloud network-list` viser ID-ene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj identyfikator sieci w --path <network-id>; `cmux cloud network-list` wyświetla identyfikatory."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passe o id da rede com --path <network-id>; `cmux cloud network-list` lista os ids."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте идентификатор сети через --path <network-id>; `cmux cloud network-list` показывает идентификаторы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งรหัสเครือข่ายด้วย --path <network-id> `cmux cloud network-list` แสดงรายการรหัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ağ kimliğini --path <network-id> ile verin; `cmux cloud network-list` kimlikleri listeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте ідентифікатор мережі через --path <network-id>; `cmux cloud network-list` показує ідентифікатори."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truyền id mạng bằng --path <network-id>; `cmux cloud network-list` liệt kê các id."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 --path <network-id> 传入网络 id；`cmux cloud network-list` 会列出 id。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 --path <network-id> 傳入網路 id；`cmux cloud network-list` 會列出 id。"
+          }
+        }
+      }
+    },
+    "cloud.network.ruleIDRequired": {
+      "comment": "A firewall rule action ran without a rule id. --path <rule-id> is the CLI flag and `cmux cloud firewall-list` a command; keep both as they are.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass the firewall rule id with --path <rule-id>; `cmux cloud firewall-list` lists ids."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر معرّف قاعدة جدار الحماية باستخدام --path <rule-id>؛ يعرض `cmux cloud firewall-list` المعرّفات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite id pravila zaštitnog zida pomoću --path <rule-id>; `cmux cloud firewall-list` prikazuje id-ove."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv firewallreglens id med --path <rule-id>; `cmux cloud firewall-list` viser id'erne."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib die ID der Firewall-Regel mit --path <rule-id> an; `cmux cloud firewall-list` listet die IDs auf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasa el id de la regla del firewall con --path <rule-id>; `cmux cloud firewall-list` muestra los ids."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l'identifiant de la règle de pare-feu avec --path <rule-id> ; `cmux cloud firewall-list` affiche les identifiants."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa l'id della regola del firewall con --path <rule-id>; `cmux cloud firewall-list` elenca gli id."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイアウォールルールの ID を --path <rule-id> で指定してください。`cmux cloud firewall-list` で ID の一覧を表示できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូនលេខសម្គាល់ច្បាប់ជញ្ជាំងភ្លើងដោយប្រើ --path <rule-id>; `cmux cloud firewall-list` បង្ហាញលេខសម្គាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--path <rule-id>로 방화벽 규칙 ID를 전달하세요. `cmux cloud firewall-list`로 ID 목록을 볼 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi ID-en til brannmurregelen med --path <rule-id>; `cmux cloud firewall-list` viser ID-ene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj identyfikator reguły zapory w --path <rule-id>; `cmux cloud firewall-list` wyświetla identyfikatory."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passe o id da regra de firewall com --path <rule-id>; `cmux cloud firewall-list` lista os ids."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте идентификатор правила брандмауэра через --path <rule-id>; `cmux cloud firewall-list` показывает идентификаторы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งรหัสกฎไฟร์วอลล์ด้วย --path <rule-id> `cmux cloud firewall-list` แสดงรายการรหัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güvenlik duvarı kuralının kimliğini --path <rule-id> ile verin; `cmux cloud firewall-list` kimlikleri listeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте ідентифікатор правила брандмауера через --path <rule-id>; `cmux cloud firewall-list` показує ідентифікатори."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truyền id quy tắc tường lửa bằng --path <rule-id>; `cmux cloud firewall-list` liệt kê các id."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 --path <rule-id> 传入防火墙规则 id；`cmux cloud firewall-list` 会列出 id。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 --path <rule-id> 傳入防火牆規則 id；`cmux cloud firewall-list` 會列出 id。"
+          }
+        }
+      }
+    },
+    "cloud.network.ruleJSONRequired": {
+      "comment": "cloud firewall-create got no valid rule. The --path '{…}' example is literal JSON the CLI takes; keep it exactly as it is, including the quotes.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass the rule as JSON with a source and a destination, for example --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر القاعدة بصيغة JSON مع مصدر ووجهة، مثلًا --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite pravilo kao JSON s izvorom i odredištem, na primjer --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv reglen som JSON med en kilde og en destination, for eksempel --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib die Regel als JSON mit Quelle und Ziel an, zum Beispiel --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasa la regla como JSON con un origen y un destino, por ejemplo --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez la règle en JSON avec une source et une destination, par exemple --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa la regola come JSON con un'origine e una destinazione, per esempio --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ルールは送信元と宛先を含む JSON で指定してください。例: --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូនច្បាប់ជា JSON ដែលមានប្រភព និងគោលដៅ ឧទាហរណ៍ --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출발지와 목적지가 있는 JSON으로 규칙을 전달하세요. 예: --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi regelen som JSON med en kilde og et mål, for eksempel --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj regułę jako JSON ze źródłem i celem, na przykład --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passe a regra como JSON com uma origem e um destino, por exemplo --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте правило в формате JSON с источником и назначением, например --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งกฎเป็น JSON ที่มีต้นทางและปลายทาง เช่น --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kuralı bir kaynak ve bir hedefle JSON olarak verin, örneğin --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте правило у форматі JSON із джерелом і призначенням, наприклад --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truyền quy tắc dưới dạng JSON có nguồn và đích, ví dụ --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以包含来源和目标的 JSON 传入规则，例如 --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以包含來源和目的地的 JSON 傳入規則，例如 --path '{\"source\":{\"vmId\":\"<machine-id>\"},\"destination\":{\"cidr\":\"10.0.0.0/24\",\"port\":443,\"protocol\":\"tcp\"}}'。"
+          }
+        }
+      }
+    },
+    "cloud.result.apiKeysTitle": {
+      "comment": "Sheet title for the API key list and revoke answers.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API Keys"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفاتيح API في Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API ključevi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-API-nøgler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-API-Schlüssel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claves de API de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clés API Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiavi API Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API キー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សោ API របស់ Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API 키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-API-nøkler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klucze API Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaves de API do Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключи API Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คีย์ API ของ Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API anahtarları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ключі API Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khóa API Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API 密钥"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API 金鑰"
+          }
+        }
+      }
+    },
+    "cloud.result.apiTitle": {
+      "comment": "Sheet title for Provision API's answer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API Ready"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واجهة API في Cloud جاهزة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API je spreman"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-API er klar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-API bereit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API de Cloud lista"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API Cloud prête"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API Cloud pronta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API の準備完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API របស់ Cloud រួចរាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API 준비 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-API er klar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API Cloud gotowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API do Cloud pronta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API Cloud готов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API ของ Cloud พร้อมแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API hazır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API Cloud готовий"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API Cloud đã sẵn sàng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API 已就绪"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud API 已就緒"
+          }
+        }
+      }
+    },
+    "cloud.result.domainsTitle": {
+      "comment": "Title of the sheet that lists the team's custom Cloud domains.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Domains"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نطاقات Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud domene"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-domæner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Domains"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dominios de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domaines Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domini Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ドメイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដែន Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 도메인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-domener"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domeny Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domínios do Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Домены Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โดเมน Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud alan adları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Домени Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tên miền Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 域名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 網域"
+          }
+        }
+      }
+    },
+    "cloud.result.publicationsTitle": {
+      "comment": "Title of the sheet that lists the team's published Cloud hostnames (a machine port served on a domain).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Publications"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منشورات Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud objave"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-publiceringer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Veröffentlichungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publicaciones de Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publications Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pubblicazioni Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 公開"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបោះពុម្ពផ្សាយ Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 게시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-publiseringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publikacje Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Publicações do Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публикации Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเผยแพร่ Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud yayınları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Публікації Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản xuất bản Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 发布"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 發布"
+          }
+        }
+      }
+    },
+    "cloud.failed.resizeNeedsSizeOrDisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass --size (%@), --disk with a whole number of GiB (4 GiB steps, up to 256, grow-only), or both."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--size (%@)、--disk (GiB 単位の整数。4 GiB 刻み、最大 256、拡張のみ)、またはその両方を指定してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر ‎--size‎ ‏(%@)‏ أو ‎--disk‎ بعدد صحيح من GiB (بخطوات 4 GiB، حتى 256، للزيادة فقط)، أو كليهما."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite --size (%@), --disk s cijelim brojem GiB (koraci od 4 GiB, do 256, samo povećanje) ili oboje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv --size (%@), --disk med et helt antal GiB (trin på 4 GiB, op til 256, kun forøgelse) eller begge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib --size (%@), --disk mit einer ganzen Zahl GiB (in 4-GiB-Schritten, bis 256, nur vergrößern) oder beides an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica --size (%@), --disk con un número entero de GiB (pasos de 4 GiB, hasta 256, solo para aumentar) o ambos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez --size (%@), --disk avec un nombre entier de Gio (par pas de 4 Gio, jusqu’à 256, agrandissement uniquement), ou les deux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Specifica --size (%@), --disk con un numero intero di GiB (passi di 4 GiB, fino a 256, solo in aumento) o entrambi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូន --size (%@), --disk ជាចំនួនគត់នៃ GiB (ជំហាន 4 GiB រហូតដល់ 256 បង្កើនតែប៉ុណ្ណោះ) ឬទាំងពីរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--size (%@), --disk(GiB 단위 정수, 4 GiB 단위, 최대 256, 늘리기만 가능) 또는 둘 다 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi --size (%@), --disk med et helt antall GiB (trinn på 4 GiB, opptil 256, kun økning) eller begge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj --size (%@), --disk z całkowitą liczbą GiB (co 4 GiB, do 256, tylko zwiększanie) lub oba."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informe --size (%@), --disk com um número inteiro de GiB (passos de 4 GiB, até 256, só aumenta) ou ambos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите --size (%@), --disk с целым числом ГиБ (шаг 4 ГиБ, до 256, только увеличение) или оба."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุ --size (%@), --disk เป็นจำนวนเต็มของ GiB (ทีละ 4 GiB สูงสุด 256 ขยายได้อย่างเดียว) หรือทั้งสองอย่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--size (%@), tam sayı GiB değeriyle --disk (4 GiB adımlarla, en fazla 256, yalnızca büyütme) ya da ikisini birden verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкажіть --size (%@), --disk із цілим числом ГіБ (крок 4 ГіБ, до 256, лише збільшення) або обидва."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truyền --size (%@), --disk với số GiB nguyên (bước 4 GiB, tối đa 256, chỉ tăng), hoặc cả hai."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请传入 --size（%@）、--disk（GiB 整数，以 4 GiB 为步长，最大 256，只能增大），或两者都传。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請傳入 --size（%@）、--disk（GiB 整數，以 4 GiB 為級距，最大 256，只能增加），或兩者都傳。"
           }
         }
       }

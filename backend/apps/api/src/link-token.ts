@@ -1,10 +1,13 @@
+import type { CloudVmKind } from "@cmux/protocol"
 import { decodeProtectedHeader, importJWK, jwtVerify, SignJWT, type JWK } from "jose"
 
 /**
  * Link tokens (state-placement.md 5.8 item 6, decision LINK-TOKEN-FORMAT): compact JWS, EdDSA
  * (Ed25519) through the `jose` library on Workers WebCrypto, never hand-written crypto or string
  * building. Header {alg: "EdDSA", kid, typ: "cmux-link+jwt"}; claims iss, aud (host id), sub
- * (install id), svc, epoch, iat, exp (at most 300 s after iat), jti (128 random bits), team.
+ * (install id), svc, epoch, iat, exp (at most 300 s after iat), jti (128 random bits), team, and
+ * vmk (the caller's vm_kind on the machine, cloud-connect.ts callerVmKind; absent on tokens minted
+ * before it, which grant no owner answer).
  *
  * The private keys come only from the per-environment Worker secret CLOUD_LINK_SIGNING_KEYS
  * ({active, keys: {kid: private JWK}, published_at?: {kid: ms}}, at most 2 kids; a kid signs only 24 h after publication). They are imported per call, never logged,
@@ -44,6 +47,8 @@ export interface LinkClaims {
   readonly exp: number
   readonly jti: string
   readonly team: string
+  /** The caller's vm_kind for this one dial; only the exact value `owner` grants owner privileges. */
+  readonly vmk?: CloudVmKind
 }
 
 const KID = /^[A-Za-z0-9._-]{1,64}$/
@@ -106,7 +111,7 @@ export const publicKeyset = async (k: SigningKeys): Promise<PublicKeyset> => {
 export const signLinkToken = async (claims: LinkClaims, kid: string, privateJwk: JWK): Promise<string> => {
   if (claims.exp - claims.iat > LINK_TOKEN_MAX_TTL_S || claims.exp <= claims.iat) throw new Error("link token lifetime out of range")
   const key = await importJWK({ ...privateJwk, alg: "EdDSA" }, "EdDSA")
-  return new SignJWT({ svc: [...claims.svc], epoch: claims.epoch, team: claims.team })
+  return new SignJWT({ svc: [...claims.svc], epoch: claims.epoch, team: claims.team, ...(claims.vmk === undefined ? {} : { vmk: claims.vmk }) })
     .setProtectedHeader({ alg: "EdDSA", kid, typ: LINK_TOKEN_TYP })
     .setIssuer(claims.iss)
     .setAudience(claims.aud)
@@ -126,7 +131,9 @@ export type VerifyResult = { readonly ok: true; readonly claims: LinkClaims } | 
 /**
  * The reference verifier the VM daemon must match (and the shared vectors encode): signature by a
  * kid in the keyset, typ, exp at `now` (seconds), aud = this host, epoch = this epoch, lifetime at
- * most 300 s, and a jti not seen before within its exp (`seen` is the daemon's replay set).
+ * most 300 s, a vmk that is absent, `owner` or `team`, and a jti not seen before within its exp
+ * (`seen` is the daemon's replay set). An expired or replayed token answers no claims, so no owner
+ * answer outlives its token.
  */
 export const verifyLinkToken = async (token: string, v: { aud: string; epoch: number; now: number; keyset: Readonly<Record<string, JWK>>; seen?: Set<string> }): Promise<VerifyResult> => {
   let kid: string | undefined
@@ -152,6 +159,7 @@ export const verifyLinkToken = async (token: string, v: { aud: string; epoch: nu
   if (c.aud !== v.aud) return { ok: false, error: "aud" }
   if (c.epoch !== v.epoch) return { ok: false, error: "epoch" }
   if (typeof c.iat !== "number" || typeof c.exp !== "number" || c.exp - c.iat > LINK_TOKEN_MAX_TTL_S) return { ok: false, error: "lifetime" }
+  if (c.vmk !== undefined && c.vmk !== "owner" && c.vmk !== "team") return { ok: false, error: "malformed" }
   if (v.seen) {
     if (v.seen.has(c.jti)) return { ok: false, error: "replay" }
     v.seen.add(c.jti)

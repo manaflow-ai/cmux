@@ -145,8 +145,10 @@ public final class ChiefComposer {
         guard let presenter = Self.topController() else { return false }
         let directory = ChiefDirectory(recipients: ChiefDirectory.recipients(store: store, identity: session.identity, place: place))
         let compose = ConversationComposeViewController(directory: directory)
-        compose.onOpenConversation = { [weak self, weak compose] creation, message in
-            guard let self else { return }
+        // The sheet holds this composer for as long as it is up: Home makes a
+        // new composer on each redraw, so a weak one was often gone by Send,
+        // which then closed the sheet and sent nothing.
+        compose.onOpenConversation = { [weak compose] creation, message in
             compose?.presentingViewController?.dismiss(animated: true)
             self.route(creation, message: message, directory: directory)
         }
@@ -175,7 +177,9 @@ public final class ChiefComposer {
             let mac = store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
             let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
             open(.agent(destination))
-            if !message.text.isEmpty { chat.send(prompt: message.text) }
+            // The whole message is the prompt: its text and every image, in order
+            // (`send` drops a message with neither).
+            chat.send(prompt: message.text, attachments: Self.attachments(message.images))
             return
         }
         var routed = message
@@ -183,8 +187,35 @@ public final class ChiefComposer {
         if !others.isEmpty, !message.text.isEmpty {
             routed.text = "To \(others.map(\.name).joined(separator: ", ")): \(message.text)"
         }
-        open(.chief(place))
+        // Forwarded from inside this Chief's own conversation: send there,
+        // instead of pushing a second copy of the same screen over it.
+        if session.conversationID == nil || ChiefSession.conversationOnScreen != session.conversationID {
+            open(.chief(place))
+        }
         session.send(routed)
+    }
+
+    /// New Message's images as agent prompt attachments, normalized to formats agents accept.
+    static func attachments(_ images: [ConversationComposeImage]) -> [AgentAttachment] {
+        images.enumerated().map { index, image in
+            let source = AgentAttachment(kind: .image, name: "Image \(index + 1)", data: image.data)
+            let data: Data
+            let kind: AgentAttachment.Kind
+            let ext: String
+            switch source.imageMIMEType {
+            case "image/png": data = image.data; kind = .image; ext = "png"
+            case "image/jpeg": data = image.data; kind = .image; ext = "jpg"
+            case "image/gif": data = image.data; kind = .image; ext = "gif"
+            case "image/webp": data = image.data; kind = .image; ext = "webp"
+            default:
+                if let jpeg = UIImage(data: image.data)?.jpegData(compressionQuality: 0.85) {
+                    data = jpeg; kind = .image; ext = "jpg"
+                } else {
+                    data = image.data; kind = .file; ext = "bin"
+                }
+            }
+            return AgentAttachment(kind: kind, name: "Image \(index + 1).\(ext)", data: data)
+        }
     }
 
     /// The controller to present the sheet from: the frontmost one.

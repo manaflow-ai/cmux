@@ -50,6 +50,12 @@ export class FilesStore {
   private folders = new Map<string, FolderState>();
   private expanded = new Set<string>();
   private selected?: string;
+  /** Changes whenever navigation changes the context for an in-flight open. */
+  private selectionEpoch = 0;
+  /** Every open gets a unique token, including retries of the same path. */
+  private openAttempt = 0;
+  /** The latest copy: an older one's late failure is not the notice for what is on screen now. */
+  private copyAttempt = 0;
   private snapshot: FilesSnapshot = { rows: [], folders: this.folders, expanded: new Set() };
   private listeners = new Set<() => void>();
 
@@ -89,8 +95,7 @@ export class FilesStore {
 
   select(path: string | undefined): void {
     if (this.selected === path) return;
-    this.selected = path;
-    this.notice = undefined;
+    this.setSelection(path);
     this.emit();
   }
 
@@ -109,25 +114,42 @@ export class FilesStore {
   collapse(path: string): void {
     if (!this.expanded.delete(path)) return;
     // The selection never hides inside a collapsed folder.
-    if (this.selected?.startsWith(`${path}/`)) this.selected = path;
+    if (this.selected?.startsWith(`${path}/`)) this.setSelection(path);
     this.emit();
   }
 
   async open(path: string): Promise<void> {
+    const epoch = this.selectionEpoch;
+    const attempt = ++this.openAttempt;
+    this.notice = undefined;
+    this.emit();
     try {
       await this.client?.call(FilesOps.open, { path });
     } catch (error) {
+      if (this.selectionEpoch !== epoch || this.openAttempt !== attempt) return;
       this.notice = isPageError(error) ? error.message : String(error);
       this.emit();
     }
   }
 
   async copy(text: string): Promise<void> {
+    const attempt = ++this.copyAttempt;
+    const epoch = this.selectionEpoch;
+    const opened = this.openAttempt;
     try {
       if (!this.writeClipboard) throw new Error("no page clipboard");
       await this.writeClipboard(text);
     } catch {
-      await this.client?.call(CLIPBOARD_WRITE, { text }).catch(() => {});
+      // The page's clipboard refused (or is not there): the host writes it. When it cannot either,
+      // the person is told, not left to paste what was never copied.
+      try {
+        await this.client?.call(CLIPBOARD_WRITE, { text });
+      } catch (error) {
+        // A newer copy, another selection or an open began meanwhile: this failure is stale.
+        if (attempt !== this.copyAttempt || epoch !== this.selectionEpoch || opened !== this.openAttempt) return;
+        this.notice = isPageError(error) ? error.message : String(error);
+        this.emit();
+      }
     }
   }
 
@@ -143,7 +165,8 @@ export class FilesStore {
     try {
       const listing = await this.client.call<Listing>(FilesOps.list, { path });
       if (this.requests.get(path) !== request) return;
-      this.forgetGone(path, listing.entries);
+      // A truncated listing is only a partial view; entries omitted from it may still exist.
+      if (!listing.truncated) this.forgetGone(path, listing.entries);
       this.setFolder(path, { entries: listing.entries, truncated: listing.truncated, loading: false });
     } catch (error) {
       if (this.requests.get(path) !== request) return;
@@ -154,12 +177,16 @@ export class FilesStore {
 
   /** Drops what `folder` no longer holds as a folder: its expansion, listing and anything under it. */
   private forgetGone(folder: string, entries: FileEntry[]): void {
+    const present = new Set(entries.map((entry) => joinPath(folder, entry.name)));
     const kept = new Set(
       entries.filter((entry) => entry.kind === "directory").map((entry) => joinPath(folder, entry.name)),
     );
     const known = new Set([...this.expanded, ...this.folders.keys()]);
     const gone = [...known].filter((path) => path !== folder && parentPath(path) === folder && !kept.has(path));
-    if (gone.length === 0) return;
+    // A selected file has no folder state, so a deleted one is reconciled here as well.
+    const selectedGone =
+      this.selected !== undefined && parentPath(this.selected) === folder && !present.has(this.selected);
+    if (gone.length === 0 && !selectedGone) return;
     const inside = (path: string) => gone.some((top) => path === top || path.startsWith(`${top}/`));
     this.folders = new Map(this.folders);
     for (const path of [...known].filter(inside)) {
@@ -167,8 +194,15 @@ export class FilesStore {
       this.folders.delete(path);
       this.requests.delete(path);
     }
-    if (this.selected !== undefined && gone.some((top) => this.selected!.startsWith(`${top}/`)))
-      this.selected = folder || undefined;
+    if (this.selected !== undefined && (selectedGone || gone.some((top) => this.selected!.startsWith(`${top}/`))))
+      this.setSelection(folder || undefined);
+  }
+
+  private setSelection(path: string | undefined): void {
+    if (this.selected === path) return;
+    this.selected = path;
+    this.selectionEpoch++;
+    this.notice = undefined;
   }
 
   private setFolder(path: string, patch: Partial<FolderState>): void {

@@ -12,6 +12,9 @@ import CmuxNextSettings
 import CmuxNextTabs
 import Observation
 
+/// Makes an agent chat tab in a pane of a daemon, in a new split on that side of it when given (``AgentTabStore/open(in:of:session:seed:newTab:spare:linked:adopt:host:idempotencyKey:split:)``).
+typealias AgentTabOpen = (PaneID, DaemonService, SplitDirection?) throws -> AgentTabPending
+
 /// The pane views of agent chat tabs (the React acpmux pane, CmuxNextAgentPane).
 ///
 /// An agent chat tab is a workspace store tab: a `conversation` tab whose source is an acpmux
@@ -22,8 +25,9 @@ import Observation
 /// One acpmux host is shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
     let host: any AgentPaneHostProviding
-    /// The app's made-ahead open panel for every agent pane's file pickers; nil (tests) shows none.
-    private let openPanel: MadeAheadOpenPanel?
+    /// The app-wide objects every agent pane view shares (``AgentPaneShared``: the made-ahead open panel, the posting-process table).
+    private let paneShared: AgentPaneShared
+    private let attentionTabs: AgentPaneAttentionTabs?
     /// The page every agent tab loads: the bundled file, or in Debug builds
     /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
     /// bundled page is missing).
@@ -39,12 +43,26 @@ final class AgentTabStore {
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
     /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
     var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
+    /// The right column beside the pane holding chat tab `key`, as ``RightColumnPlacement`` reads it (``LinkOpener/rightColumn(beside:)``).
+    var rightColumn: @MainActor (String) -> RightColumnPlacement.Column = { _ in RightColumnPlacement.Column() }
+    /// Runs an open on the right of chat tab `chat` in its turn (``RightColumnTurns``); unwired: at once.
+    var serially: @MainActor (_ chat: String, _ turn: @escaping RightColumnTurns.Turn) -> Bool = { _, turn in turn({}); return true }
+    /// A right-column pane by its ``RightColumnPlacement/Column`` key (a layout pane id) and its daemon, looked
+    /// up only in the workspace that holds chat tab `chat`, where ``rightColumn`` measured it: a layout pane id
+    /// (`pane:<handle>` without a resource id) is not unique across daemons or workspaces.
+    var locatePane: @MainActor (_ chat: String, _ key: String) -> (pane: PaneID, daemon: DaemonService)? = { _, _ in nil }
+    /// Moves fork tab `key`, opened in chat tab `chat`'s pane, to a new strip column (`left`: before the chat's) or, nil, a new row.
+    var placeFork: @MainActor (_ key: String, _ chat: String, _ left: Bool?) -> Void = { _, _, _ in }
+    /// Selects tab `key` in its pane without moving keyboard focus (an unfocused subagent tab).
+    var selectInPane: @MainActor (String) -> Void = { _ in }
     /// Main pane layout (``MainPaneLayout``): opens what chat tab `chat` opens beside it (through
     /// `open`, focused with `focus`) in the column on the chat's right, then `created` and
     /// `finished` as ``openBeside`` calls them. Nil when the chat is not its screen's main pane:
     /// the caller places the tab itself.
     var openInMainPane: @MainActor (_ chat: String, _ focus: Bool, _ open: (PaneID, DaemonService) throws -> AgentTabPending,
                                     _ created: (@MainActor (String) -> Void)?, _ finished: (@MainActor (Bool) -> Void)?) -> Bool? = { _, _, _, _, _ in nil }
+    /// Lays out now the split beside chat `chat` holding new tab `key` (focus expected on it when `focus`); the result takes the store's tab.
+    var showSplit: @MainActor (_ chat: String, _ key: String, _ focus: Bool) -> @MainActor (SurfaceID) -> Void = { _, _, _ in { _ in } }
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
@@ -76,6 +94,11 @@ final class AgentTabStore {
     /// Tab `key`'s daemon: where its workspace's agent folder is saved and where the store answers
     /// where its new chats start (cx-9aps). Nil while the tab is not found.
     var daemonForTab: @MainActor (_ key: String) -> DaemonService? = { _ in nil }
+    /// Reads the Mac-local repository catalog through the local cmux daemon frame protocol.
+    var cloudRepositoryLocal: @MainActor () async throws -> Data = {
+        throw DaemonError.notConnected
+    }
+    var imessage: (@MainActor (AgentPaneIMessageAction, AgentPaneView) async -> [String: Any])?
     /// The daemon whose tree lists `tab`, by the record's identity (MachineRegistry.daemon(forTab:)):
     /// it reads no tab list, so a pane snapshot that asks hears no other pane's tabs. Nil in tests.
     var daemonListing: @MainActor (TabModel) -> DaemonService? = { _ in nil }
@@ -96,12 +119,14 @@ final class AgentTabStore {
         set { resolvedLocalHost = newValue }
     }
     var views: [String: AgentPaneView] = [:]
+    /// The machine link each pane's composer strip shows, and the reconnect a chat's use of a down machine runs.
+    let machineLink = AgentPaneMachineLink()
     /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
     var launchDeferred: Set<String> = []
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
     var launchImages = AgentPaneLaunchImages(directory: nil)
     /// New chats' typed text from before they have a session, kept across a relaunch (cx-z5vd).
-    var unsentDrafts = AgentUnsentDrafts(file: nil)
+    var unsentDrafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles())
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
     var notices: [String: AgentTabElsewhereView] = [:]
     /// A provisional tab's id -> the store's id once the creation answered (``AgentTabStore/rekey(_:to:)``): one page.
@@ -120,11 +145,27 @@ final class AgentTabStore {
     var recycle: ((AgentPaneView) -> Bool)?
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
     var takeSpare: (() -> AgentPaneView?)?
+    /// The prewarmed page once it is connected and drawn, for a tab opening an existing chat of
+    /// this Mac (``AgentPaneSpareAdoption``); nil leaves the spare in the pool.
+    var takeConnectedSpare: (() -> AgentPaneView?)?
+    /// Whether this Mac's Chief home keeps session `session` (an older subagent tab recorded with
+    /// this Mac's host attaches there, ``AcpmuxChiefSessionRouter``): the spare is connected to
+    /// this Mac's acpmux, so such a chat gets its own page.
+    var chiefKeepsSession: @MainActor (String) -> Bool = { _ in false }
+    /// Tab `key` got a page (built or adopted from the spare), drawn or not: a page built while its
+    /// tab does not draw starts its hidden clock (`AgentPageHibernation.pageBuilt`).
+    var onPageBuilt: ((String) -> Void)?
+    /// Every page is asked what it holds now (true), or that ended (false) (`AgentPageHibernation.holdAwake`).
+    var onCollectingPages: ((Bool) -> Void)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
     let retirer = AgentPageRetirer()
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
+    /// A tab's page now shows another acpmux session (its first, or a `chat.select` switch).
+    var onTabSession: @MainActor () -> Void = {}
+    /// The daemon created a remote chat, including its effective seed folder and harness.
+    var onRemoteChatStarted: (@MainActor (String, String, String?, String?) -> Void)?
     /// A new chat's seed on another machine (its folder and harness start it there, its draft and
     /// prompt reach the page), by tab (``startRemoteChat(_:machine:endpoint:)``).
     var remoteSeeds: [String: AgentPaneSeedSource] = [:]
@@ -140,12 +181,20 @@ final class AgentTabStore {
     /// The folders of every workspace on the machine of tab `key` (its terminals' folders there),
     /// for the project list of a chat on that machine.
     var remoteFolders: (@MainActor (String) -> [String])?
+    /// The folders the machine of tab `key` lists itself (`agent-session-folders`: its work folder,
+    /// then the folders under it), for the same project list; none from an older daemon.
+    var remoteMachineFolders: (@MainActor (String) async -> [String])?
+    /// Share with Me on the refused start of tab `key`'s chat: grants the signed-in person chats on
+    /// its Cloud machine (``CloudMachineShare/shareWithMe(_:cloud:)``).
+    var shareMachineWithMe: (@MainActor (String) async -> AgentPaneMachineShare)?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
     /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
     var agentAvatars: AgentAvatars?
+    /// A Chief's name and avatar as the sidebar shows them, by participant id (`chief.face`).
+    var chiefFace: (@MainActor (String) async -> [String: String])?
     /// Opens a redeemed Run attempt's terminal, owned by an enrolled worker daemon, in the tab's pane.
     var runAttach: (@MainActor (_ key: String, _ request: AgentPaneRunAttach) async throws -> Void)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
@@ -187,6 +236,13 @@ final class AgentTabStore {
     private var shortcutObservation: Task<Void, Never>?
     /// `labs.previewFeatures` and `agentPane.editedFiles.*`, pushed to every page like the shortcuts.
     private let pageSettings = AgentPanePageSettings()
+    /// The one Read aloud voice every chat page speaks through, and Stop Reading Aloud stops.
+    let readAloud = AgentPaneReadAloud()
+    /// The Cloud machines each page's environment picker lists (`cloudMachine.*`); the app's peer approver for every host and page.
+    let cloudMachines = AgentPaneCloudMachines()
+    /// The iPhone host's Remote Control switch, which every page's Session Info shows (set by the wiring).
+    var remoteControl: AgentPaneRemoteControl?
+    let peerApprover: AgentPanePeerApprover?
     /// The device chats every page's New Tab cards show (``AgentPageChats``).
     let pageChats = AgentPageChats()
     weak var actionRegistry: ActionRegistry?
@@ -203,8 +259,13 @@ final class AgentTabStore {
     var wakeStates: [String: AgentPaneWakeState] = [:]
     /// What the chat pages held at the last quit, for each tab's first page at launch (``AgentPaneRelaunchWake``).
     var relaunchWake = AgentPaneRelaunchWake(file: nil)
-    /// What every chat holds for the next launch (the quit's window step).
-    func relaunchWakeStates() async -> [String: AgentPaneWakeState] { await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab) }
+    /// What every chat holds for the next launch (the quit's window step). Pages that froze while
+    /// hidden thaw first and stay awake until it is collected: a frozen page answers nothing.
+    func relaunchWakeStates() async -> [String: AgentPaneWakeState] {
+        onCollectingPages?(true)
+        defer { onCollectingPages?(false) }
+        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab)
+    }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
@@ -216,33 +277,43 @@ final class AgentTabStore {
     /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
     var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
     var cloudCredentialTransfer: (@MainActor (_ chat: String, _ request: AgentPaneCloudCredentialTransferRequest) async -> Bool)?
-    /// Session `session` on chat tab `chat`'s right as a link opens (``LinkOpener``, `layout.linkPlacement`):
-    /// a tab in the pane there, else a new split, focused; false when nothing opened.
-    var openRight: (@MainActor (_ chat: String, _ session: String) -> Bool)?
+    /// Session `session` (of acpmux `host`, nil: this Mac's) on tab `chat`'s right as a link opens (``LinkOpener``,
+    /// `layout.linkPlacement`): a tab in the pane there, else a new split, focused; false when nothing opened.
+    var openRight: (@MainActor (_ chat: String, _ session: String, _ host: String?) -> Bool)?
+    /// The header's Terminal or Browser on chat tab `chat`'s right (``AgentChatTabActions/openTool``).
+    var openTool: (@MainActor (_ chat: String, _ kind: RightColumnPlacement.Kind, _ cwd: String?) -> Bool)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
+    /// Cloud destinations exposed to a started chat's title menu. The page receives only the
+    /// current live list; it never invents or persists machine ids.
+    var machineTargets: @MainActor () -> [AgentPaneMoveTarget] = { [] }
+    /// Runs the existing CloudMove action for a validated target machine.
+    var moveAgentToMachine: @MainActor (_ tab: String, _ machine: String) -> Bool = { _, _ in false }
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
+    /// `daemons` and `updates` are the app's (`AppServices`); a test's store has its own and updates no other machine.
     init(build: BuildIdentity?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment,
-         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
-         openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+         showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil, paneShared: AgentPaneShared = AgentPaneShared(),
+         attentionTabs: AgentPaneAttentionTabs? = nil, defaults: UserDefaults = .standard,
+         daemons: AcpmuxLocalDaemons = AcpmuxLocalDaemons(), updates: DaemonUpdates? = nil, peerApprover: AgentPanePeerApprover? = nil) {
+        (self.defaults, self.peerApprover) = (defaults, peerApprover)
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
            let saved = try? JSONDecoder().decode([String: String].self, from: data) {
             adoptions = saved
         }
-        self.openPanel = openPanel
+        self.paneShared = paneShared
+        self.attentionTabs = attentionTabs
         actionRegistry = registry
         self.linkScheme = linkScheme
-        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase)
+        let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase, daemons: daemons, peerApprover: peerApprover)
         host = resolvedHost
         // Start acpmux while the first pane is loading. The page still owns
         // the authenticated WebSocket handshake and session selection. Then
-        // other machines' daemons get this build, in the background (DaemonUpdatePolicy).
+        // other machines' daemons get this build, in the background (DaemonUpdates).
         Task {
             try? await resolvedHost.prewarm()
-            guard resolvedHost is AcpmuxHost else { return }
+            guard resolvedHost is AcpmuxHost, let updates else { return }
             let installer = RemoteInstaller(paths: .standard(bundleID: Bundle.main.bundleIdentifier))
-            DaemonUpdatePolicy.startOnce(build: build, environment: environment) { try await installer.download(artifact: $0, nextTo: $1) }
+            updates.startOnce(build: build, environment: environment) { try await installer.download(artifact: $0, nextTo: $1) }
         }
         #if DEBUG
         switch environment["CMUX_NEXT_AGENT_PANE_FULL_RATE"] {
@@ -291,10 +362,10 @@ final class AgentTabStore {
     /// Mac has an install id, and the daemon holds agent session tabs.
     func canHost(on daemon: DaemonService) -> Bool { canHostChat && localHost != nil && holdsTabs(daemon) }
 
-    /// The tab showing acpmux session `session` of `host` (default this Mac), if any.
-    func tab(showing session: String, host: String? = nil) -> String? {
+    /// The tab showing acpmux session `session` of `host` (default this Mac), if any; with `keep`, the first such tab it keeps.
+    func tab(showing session: String, host: String? = nil, where keep: (String) -> Bool = { _ in true }) -> String? {
         let host = host ?? localHost
-        return listTabs().first { $0.record.host == host && (sessions[$0.key] ?? $0.record.session) == session }?.key
+        return listTabs().first { $0.record.host == host && (sessions[$0.key] ?? $0.record.session) == session && keep($0.key) }?.key
     }
 
     /// The acpmux session agent tab `key` shows; nil for a new chat.
@@ -339,7 +410,7 @@ final class AgentTabStore {
         if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
             let machine = daemonForTab(key).flatMap { remoteMachineName($0) } ?? ""
             let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: machine))
-            let model = AgentPaneModel(host: refused, allowsTabConversion: false)
+            let model = AgentPaneModel(host: refused, attentionTabs: attentionTabs, allowsTabConversion: false)
             // Its folder tools never act on this Mac either (cx-k21v).
             (model.remoteChat, model.neverPooled) = (true, true)
             guard let view = makeView(model) else { return nil }
@@ -372,10 +443,23 @@ final class AgentTabStore {
            seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?() {
             adoptSpare(spare, key: key, page: newTab.page)
             track(key, in: store)
+            onPageBuilt?(key)
+            return spare
+        }
+        // An existing chat of this Mac (a sidebar click, Open in Tab, a subagent's pane) adopts the
+        // spare too: it is loaded and connected, and switches to the chat in place.
+        if let session = AgentPaneSpareAdoption(thisMac: kind == .local, session: sessions[key] ?? record.session,
+                                                newTabPage: newTabPages[key] != nil, seeded: seed != nil,
+                                                wake: wakeStates[key] != nil || relaunchWake.mayHold(key))
+            .adopted(chiefKeeps: chiefKeepsSession),
+           let spare = takeConnectedSpare?(), adoptSpare(spare, key: key, session: session, revealTurn: pendingTurns.removeValue(forKey: key)) {
+            track(key, in: store)
+            onPageBuilt?(key)
             return spare
         }
         let model = AgentPaneModel(
             host: paneHost,
+            attentionTabs: attentionTabs,
             sessionId: sessions[key] ?? record.session,
             seed: seed,
             // A new chat this app opened on another machine shows the same New Tab page (cx-k21v).
@@ -385,6 +469,7 @@ final class AgentTabStore {
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
         relaunchWake.hand(key, to: model)
+        model.onCloudRepositoryLocal = cloudRepositoryLocal
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {
@@ -392,9 +477,15 @@ final class AgentTabStore {
             model.remoteChat = true
             model.onListRemoteProjects = { [weak self] query in
                 guard let self else { return [] }
-                let folders = remoteFolders?(resolveRemote(key)) ?? []
+                let listed = remoteFolders?(resolveRemote(key)) ?? []
+                let machine = await remoteMachineFolders?(resolveRemote(key)) ?? []
+                let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
+            }
+            model.onShareMachineWithMe = { [weak self] in
+                guard let self, let shareMachineWithMe else { return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine) }
+                return await shareMachineWithMe(resolveRemote(key))
             }
         }
         guard let view = makeView(model) else {
@@ -404,13 +495,14 @@ final class AgentTabStore {
         }
         views[key] = view
         track(key, in: store)
+        onPageBuilt?(key)
         return view
     }
 
     /// A prewarmed new tab page (NewTabSparePool): loaded, rendered and
     /// connected before any tab exists; ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` adopts it.
     func makeSpare(_ page: AgentPaneNewTab) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, newTab: page)) else { return nil }
+        guard let view = makeView(AgentPaneModel(host: host, attentionTabs: attentionTabs, newTab: page)) else { return nil }
         standaloneViews.add(view)
         return view
     }
@@ -426,7 +518,9 @@ final class AgentTabStore {
             // The first session is the outside chat's resume; a later switch shows another chat,
             // so the tab no longer answers for the outside chat it adopted (cmux://agent links).
             if let shown = sessions[key], shown != session { adoptions = adoptions.filter { $0.value != key } }
+            let switched = sessions[key] != session
             sessions[key] = session
+            if switched { onTabSession() }
             // Another machine's store keeps its own record of the session: its daemon bound it at
             // the start, so no bind goes from here (cx-k21v). Its git reads go there (``gitLink``).
             if bindsHere(key) { sendSession(session, for: key) }
@@ -456,10 +550,18 @@ final class AgentTabStore {
         model.onEditNewTab = { [weak self] edit in self?.pageHandler(provisional)?.edit(edit) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
+        model.machineLink = machineLink
         model.onRunAction = { [weak self] id, arguments in
             guard let self else { return false }
-            // On this tab's pane: the New Tab page opens beside the tab that asked.
-            let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
+            // On this tab's pane: the New Tab page opens beside the tab that asked. Reconnect runs
+            // on the machine this tab's chat runs on, resolved here: the page never names a machine.
+            let target: ActionTargetRef
+            if id == "machine.reconnect" {
+                guard let machine = remoteMachineID(of: provisional) else { return false }
+                target = ActionTargetRef(kind: .machine, id: machine)
+            } else {
+                target = ActionTargetRef(kind: .tab, id: resolve(provisional))
+            }
             return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
         }
         wireHeader(model, key: provisional)
@@ -519,9 +621,14 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, openPanel: openPanel) else { return nil }
+        (model.readAloud, model.cloudMachines, model.remoteControl, model.transport.peerApprover) = (readAloud, cloudMachines, remoteControl, peerApprover)
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, shared: paneShared) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
+        model.onIMessage = { [weak self, weak view] action in
+            guard let view, let handler = self?.imessage else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }
+            return await handler(action, view)
+        }
         view.shortcuts = shortcuts
         pageSettings.apply(to: view)
         // A New Tab page draws its own first frame: no native loading mark (Lawrence 2026-10-10,
@@ -547,7 +654,7 @@ final class AgentTabStore {
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.
     func standaloneView(seed: AgentPaneSeed, session: String? = nil) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, sessionId: session, seed: AgentPaneSeedSource(seed))) else { return nil }
+        guard let view = makeView(AgentPaneModel(host: host, attentionTabs: attentionTabs, sessionId: session, seed: AgentPaneSeedSource(seed))) else { return nil }
         standaloneViews.add(view)
         return view
     }

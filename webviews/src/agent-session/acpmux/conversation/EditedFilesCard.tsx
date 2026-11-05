@@ -25,10 +25,12 @@ import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
 import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
 import { FindReveal, isRevealRow } from "./chatFind";
+import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { EditDiff } from "./EditDiff";
 import { Undo } from "./icons";
 import { ToolRows } from "./TurnRows";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 /// Find in Chat's reveal for `row` only: the card draws outside ToolRows (which passes the reveal to
@@ -144,28 +146,41 @@ function Card({
   const shown = single || !open ? [] : showAll ? entries : entries.slice(0, limit);
   const more = single ? 0 : total - shown.length;
   const reviewable = onOpenDiff && files.length > 0;
-  const undoable = row.ended === true && changes.files.some((file) => file.undo.kind !== "cannot");
+  // Read only, Undo would write the owner's files.
+  const readOnly = useTranscriptReadOnly();
+  const undoable = !readOnly && row.ended === true && changes.files.some((file) => file.undo.kind !== "cannot");
   const title = single
     ? t("tools.edited.file", { file: single.path.split("/").pop() ?? single.path })
     : total === 1
       ? t("edited.one")
       : t("tools.edited.files", { n: total });
+  // What a click anywhere on the header does: a one-file card opens its diff, a folded card its rows.
+  const headToggle = single
+    ? toggleDiff
+    : total > 0 && settings.show === "collapsed"
+      ? () => setOpen(!open)
+      : undefined;
   // The host answers for the path Undo sent (turnChanges/model.ts `undoPath`), which may be another
   // spelling of the row's.
   const status = (file: TurnFile) =>
     fileStatus(undoState, changes.files.find((edited) => edited.key === pathKey(file))?.path ?? file.path);
   return (
     <div className="acpmux-edited">
-      <div className="acpmux-edited-head">
+      {/* The whole header is a wider mouse target for the chevron's toggle, edge to edge
+          (headerToggle.ts); the chevron is the keyboard and screen reader control. */}
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+      <div
+        className="acpmux-edited-head"
+        ref={single ? diff.headerRef : undefined}
+        {...(headToggle ? { [HEADER_TOGGLE_ATTRIBUTE]: "" } : {})}
+        // A control of its own for the transcript's gap selection (#26704), as the title was.
+        data-interactive={headToggle ? "" : undefined}
+        onClick={headToggle ? headerToggleClick(headToggle) : undefined}
+      >
         <span className="acpmux-edited-icon">
           <PlusMinus />
         </span>
-        {/* The title is a wider mouse target for the chevron's toggle; the chevron is the keyboard and screen reader control. */}
-        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-        <div
-          className={single ? "acpmux-edited-title acpmux-edited-title--toggle" : "acpmux-edited-title"}
-          onClick={single ? toggleDiff : undefined}
-        >
+        <div className="acpmux-edited-title">
           <div>{title}</div>
           <div className="acpmux-edited-sub">
             {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
@@ -185,7 +200,6 @@ function Card({
         {single && (
           <button
             type="button"
-            ref={diff.headerRef}
             className="acpmux-edited-toggle"
             aria-expanded={diffOpen}
             aria-label={diffOpen ? t("changes.collapseFile") : t("changes.expandFile")}

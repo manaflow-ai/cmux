@@ -7,8 +7,10 @@ public struct MemorySource: Decodable, Equatable, Sendable {
         case claudeCode = "claude-code"
         case claudeMemory = "claude-memory"
         case codex
+        case codexSessions = "codex-sessions"
         case chatgptExport = "chatgpt-export"
         case claudeAIExport = "claude-ai-export"
+        case dotsExport = "dots-export"
         case export
     }
 
@@ -42,9 +44,10 @@ public struct MemorySource: Decodable, Equatable, Sendable {
     public var product: String {
         switch kind {
         case .claudeCode, .claudeMemory: ChiefMemoryImportStrings.productClaudeCode
-        case .codex: ChiefMemoryImportStrings.productCodex
+        case .codex, .codexSessions: ChiefMemoryImportStrings.productCodex
         case .chatgptExport: ChiefMemoryImportStrings.productChatGPT
         case .claudeAIExport: ChiefMemoryImportStrings.productClaudeAI
+        case .dotsExport: "Dot"
         case .export: ChiefMemoryImportStrings.productExport
         }
     }
@@ -54,9 +57,10 @@ public struct MemorySource: Decodable, Equatable, Sendable {
         switch kind {
         case .claudeCode: ChiefMemoryImportStrings.claudeCode(count)
         case .claudeMemory: ChiefMemoryImportStrings.claudeMemory(count)
-        case .codex: ChiefMemoryImportStrings.codex(count)
+        case .codex, .codexSessions: ChiefMemoryImportStrings.codex(count)
         case .chatgptExport: ChiefMemoryImportStrings.chatgptExport(fileName)
         case .claudeAIExport: ChiefMemoryImportStrings.claudeAIExport(fileName)
+        case .dotsExport: ChiefMemoryImportStrings.exportZip(fileName)
         case .export: ChiefMemoryImportStrings.exportZip(fileName)
         }
     }
@@ -118,7 +122,13 @@ public struct MemoryImportCommand: Equatable, Sendable {
 
     public init(target: Target) { self.target = target }
 
-    public func detect() -> [String] { base(["detect", "--json"]) }
+    /// The arguments that list the memory sources on this Mac.
+    ///
+    /// - Parameter exports: also list claude.ai and ChatGPT export zips in `~/Downloads` and `~/Desktop`.
+    ///   macOS guards those folders and asks the person for access the first time cmux reads them, so pass
+    ///   `true` only for the person's own request (the Import Memories dialog), never for a launch-time
+    ///   offer (LAUNCH-NO-TCC-PROMPTS).
+    public func detect(exports: Bool = false) -> [String] { base(["detect", "--json"] + (exports ? ["--exports"] : [])) }
 
     public func dryRun(_ source: String) -> [String] { base([source, "dry-run", "--json"] + targetArguments) }
 

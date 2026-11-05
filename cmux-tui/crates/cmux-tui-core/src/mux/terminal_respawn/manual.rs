@@ -13,6 +13,11 @@
 //! The tab id, placement, name, pin and group stay. A restarted keep-layout
 //! tab starts in its recorded directory and stops being kept
 //! (`tab-restart-kept-layout-v1`).
+//!
+//! A tab whose host link failed (`terminal_state` `failed`) is not dead:
+//! its shell may still run. Restarting it is the user's Recover: the
+//! unreachable host is ended and the same shell is rehosted in place
+//! (`recover_failed_link_tab`), so an ssh session survives.
 
 use super::*;
 
@@ -72,20 +77,45 @@ impl Mux {
         self: &Arc<Self>,
         surface: SurfaceId,
     ) -> anyhow::Result<TabRestart> {
+        if let Some(recovered) = self.recover_failed_link_tab(surface) {
+            return Ok(recovered);
+        }
         let plan = self.plan_user_restart(surface)?;
         let accepted = TabRestart {
             terminal: plan.public_id.as_str().to_string(),
             previous_incarnation: plan.old_incarnation.clone(),
         };
-        let mux = Arc::clone(self);
-        let name = format!("terminal-restart-{}", plan.terminal_id);
+        Self::spawn_user_restart(Arc::clone(self), plan);
+        Ok(accepted)
+    }
+
+    /// Run a restart planned under the locks (the exit commit of an
+    /// `on_exit` shell terminal), with no lock held. With no owner left to
+    /// run it (the daemon is going away), the plan's respawning mark is taken
+    /// back and the tab shows its end.
+    #[cfg(unix)]
+    pub(in crate::mux) fn start_user_restart(&self, plan: RespawnPlan) {
+        match self.exit_settles.owner() {
+            Some(mux) => Self::spawn_user_restart(mux, plan),
+            None => self.abandon_terminal_respawn(&plan.terminal_id),
+        }
+    }
+
+    /// The restart worker of an accepted plan.
+    #[cfg(unix)]
+    fn spawn_user_restart(mux: Arc<Self>, plan: RespawnPlan) {
+        let terminal_id = plan.terminal_id.clone();
+        let name = format!("terminal-restart-{terminal_id}");
+        let worker = Arc::clone(&mux);
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
-            mux.run_terminal_respawn(plan);
+            worker.run_terminal_respawn(plan);
         });
         if let Err(error) = spawned {
-            eprintln!("cmux-tui: no thread to restart terminal {}: {error}", accepted.terminal);
+            eprintln!("cmux-tui: no thread to restart terminal {terminal_id}: {error}");
+            // The plan marked it respawning: take the mark back, so the tab
+            // shows its end and nothing waits on a restart that never runs.
+            mux.abandon_terminal_respawn(&terminal_id);
         }
-        Ok(accepted)
     }
 
     #[cfg(not(unix))]
@@ -96,29 +126,69 @@ impl Mux {
         Err(TabRestartError::Unavailable.into())
     }
 
+    /// Recover in place the tab at `surface` whose terminal still runs
+    /// behind a failed host link (`terminal_state` `failed`): its
+    /// unreachable host is ended and the reconnect loop rehosts the same
+    /// shell on its PTY custody copy, under the same terminal id and
+    /// incarnation (`surface/link_recover.rs`). None for any other tab.
+    #[cfg(unix)]
+    fn recover_failed_link_tab(&self, surface: SurfaceId) -> Option<TabRestart> {
+        let (public_id, runtime) = self.with_state(|state| {
+            let ContentPublicId::Terminal(public_id) =
+                state.resource_indexes.content_ids.get(&surface)?
+            else {
+                return None;
+            };
+            let runtime = state.terminal_catalog.get(public_id)?.clone();
+            Some((public_id.clone(), runtime))
+        })?;
+        let identity = runtime.terminal_host_identity()?;
+        runtime.recover_failed_host_link().then(|| TabRestart {
+            terminal: public_id.as_str().to_string(),
+            previous_incarnation: identity.incarnation,
+        })
+    }
+
     /// Check the tab, mark its terminal respawning and take the dead runtime
     /// out of its tabs, as the automatic plan does.
     #[cfg(unix)]
     fn plan_user_restart(&self, surface: SurfaceId) -> anyhow::Result<RespawnPlan> {
-        if self.shutting_down.load(Ordering::Acquire)
-            || self.session_shutdown.began()
-            || self.terminal_host_root().is_none()
-        {
+        if self.terminal_host_root().is_none() {
             return Err(TabRestartError::Unavailable.into());
         }
-        let (content, tab_id) = self.with_state(|state| {
-            let indexes = &state.resource_indexes;
-            (indexes.content_ids.get(&surface).cloned(), indexes.tab_ids.get(&surface).cloned())
-        });
+        // The automatic plan's lock order: registry, pinned state, then the
+        // pending leaf lock.
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
+        self.plan_user_restart_locked(&registry, &mut state, surface)
+    }
+
+    /// [`Self::plan_user_restart`] under the registry and pinned state locks
+    /// the caller holds: the exit commit of an `on_exit` shell terminal plans
+    /// its restart in the commit's own critical section, so no read between
+    /// the commit and the restart sees the terminal neither live nor
+    /// respawning (a dead tab in the tree; an owner with nothing to keep it,
+    /// server/owner_keepers.rs). The caller checked that this owner has a
+    /// host root.
+    #[cfg(unix)]
+    pub(in crate::mux) fn plan_user_restart_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        state: &mut State,
+        surface: SurfaceId,
+    ) -> anyhow::Result<RespawnPlan> {
+        if self.shutting_down.load(Ordering::Acquire) || self.session_shutdown.began() {
+            return Err(TabRestartError::Unavailable.into());
+        }
+        let indexes = &state.resource_indexes;
+        let (content, tab_id) =
+            (indexes.content_ids.get(&surface).cloned(), indexes.tab_ids.get(&surface).cloned());
         let (Some(content), Some(tab_id)) = (content, tab_id) else {
             anyhow::bail!("unknown surface {surface}");
         };
         let ContentPublicId::Terminal(public_id) = content.clone() else {
             return Err(TabRestartError::NotTerminal.into());
         };
-        // The automatic plan's lock order: registry, pinned state, then the
-        // pending leaf lock.
-        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let terminal_id =
             registry.live_terminal_host_id(&public_id)?.ok_or(TabRestartError::NotTerminal)?;
         let record = registry.terminal_record(&terminal_id)?.ok_or(TabRestartError::NotTerminal)?;
@@ -127,7 +197,6 @@ impl Mux {
         }
         let recorded = TerminalEnd::from_receipt(record.exit.as_ref()).exit().clone();
         let old_incarnation = record.incarnation.ok_or(TabRestartError::Unavailable)?;
-        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         let placements = state.placements_of_content(&content).to_vec();
         // Keep-layout tabs (`kept_tabs`, `tab-restart-kept-layout-v1`): the
         // shell starts in the restarted tab's kept directory, and the worker
@@ -169,8 +238,6 @@ impl Mux {
         for placement in &placements {
             state.surfaces.remove(placement);
         }
-        drop(state);
-        drop(registry);
         Ok(RespawnPlan {
             terminal_id,
             public_id,

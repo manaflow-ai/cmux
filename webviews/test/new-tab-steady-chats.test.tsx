@@ -91,6 +91,7 @@ async function mount(id: "a" | "b", sessions: AcpmuxSessionEntry[]) {
   await act(async () =>
     root.render(
       <NewTabScreen
+        template="default"
         snapshot={noChat(sessions)}
         lastAgent="claude"
         loadChatsPage={async () => ({ ready: true, chats: [] })}
@@ -261,8 +262,8 @@ test("the age is a fixed, right-aligned column after the harness icon, and rows 
     align: "right",
     grow: "0 0 auto",
     figures: "tabular-nums",
-    edge: "-10px",
-    rowPadding: "0px 10px",
+    edge: "calc(-1 * var(--ds-space-2))",
+    rowPadding: "0 var(--ds-space-2)",
   });
 });
 

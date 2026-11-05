@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022";
+    public static final String IR_SHA256 = "4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -78,6 +78,7 @@ public final class Protocol {
             case "screen-closed" -> ScreenClosedEvent.fromWire(value);
             case "screen-renamed" -> ScreenRenamedEvent.fromWire(value);
             case "scroll-changed" -> ScrollChangedEvent.fromWire(value);
+            case "selection-changed" -> SelectionChangedEvent.fromWire(value);
             case "settings-changed" -> SettingsChangedEvent.fromWire(value);
             case "size-state" -> SizeStateEvent.fromWire(value);
             case "status" -> StatusEvent.fromWire(value);
@@ -103,6 +104,7 @@ public final class Protocol {
             case "workspace-changed" -> WorkspaceChangedEvent.fromWire(value);
             case "workspace-closed" -> WorkspaceClosedEvent.fromWire(value);
             case "workspace-moved" -> WorkspaceMovedEvent.fromWire(value);
+            case "workspace-presentation-changed" -> WorkspacePresentationChangedEvent.fromWire(value);
             case "workspace-renamed" -> WorkspaceRenamedEvent.fromWire(value);
             default -> UnknownEvent.fromWire(value);
         };

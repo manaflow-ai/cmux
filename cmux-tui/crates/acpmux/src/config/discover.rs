@@ -37,6 +37,7 @@ pub fn discover_harnesses(route: Option<&str>) -> BTreeMap<String, HarnessProfil
     add_coderouter_route(&mut found, route, &which);
     add_cmux_router(&mut found, &which);
     add_uniichat(&mut found, self_argv());
+    add_chief(&mut found, self_exe(), &|path| path.is_file());
     found
 }
 
@@ -87,26 +88,94 @@ pub fn add_uniichat(found: &mut BTreeMap<String, HarnessProfile>, self_argv: Opt
     );
 }
 
+/// The profile name of the built-in Chief harness.
+pub const CHIEF_PROFILE: &str = "chief";
+
+/// The Chief harness's family: the Chief's own brains refuse it (optchat-chief
+/// `harness_gate`), since a Chief turn on it would message that Chief as the person.
+pub const CHIEF_FAMILY: &str = "chief";
+
+/// This process's executable, and whether it runs acpmux as `cmux-tui acp …`
+/// (a prefix before acpmux's words).
+fn self_exe() -> Option<(std::path::PathBuf, bool)> {
+    let this = crate::self_command::SelfCommand::current().ok()?;
+    Some((this.exe, !this.prefix.is_empty()))
+}
+
+/// Adds `chief`: the person's Chief as an agent chat, through `cmux-tui chief acp`
+/// (the ACP adapter over the Chief conversation Home shows). The CLI is the
+/// multicall binary acpmux is part of: this binary itself when it runs as
+/// `cmux-tui acp …`, else the `cmux-tui` beside it (the app bundle links both
+/// names to one binary). Never a `cmux` found on PATH, which can be another
+/// app's CLI; a standalone acpmux with no `cmux-tui` beside it offers no Chief.
+/// A profile file named `chief` wins.
+pub fn add_chief(
+    found: &mut BTreeMap<String, HarnessProfile>,
+    exe: Option<(std::path::PathBuf, bool)>,
+    is_file: &dyn Fn(&std::path::Path) -> bool,
+) {
+    if found.contains_key(CHIEF_PROFILE) {
+        return;
+    }
+    let Some((exe, in_cmux_tui)) = exe else { return };
+    let cli = if in_cmux_tui {
+        exe
+    } else {
+        let Some(beside) = exe.parent().map(|dir| dir.join("cmux-tui")) else { return };
+        if !is_file(&beside) {
+            return;
+        }
+        beside
+    };
+    found.insert(
+        CHIEF_PROFILE.to_owned(),
+        HarnessProfile {
+            kind: HarnessKind::Acp,
+            argv: vec![cli.to_string_lossy().into_owned(), "chief".into(), "acp".into()],
+            env: BTreeMap::new(),
+            description: Some("Your Chief: the same chat as Home".into()),
+            fallback: None,
+            family: Some(CHIEF_FAMILY.into()),
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        },
+    );
+}
+
 /// The profile name of the cmux model router harness.
 pub const CMUX_ROUTER_PROFILE: &str = "cmux";
 
 /// The models the hosted cmux model router serves (backend
-/// apps/api/src/inference/catalog.ts): `(id, name)`. The first is the profile
-/// default and the Claude fallback model: DeepSeek V4 Flash is the free tier's
-/// public fallback (user, 2026-10-27). The live list is GET /v1/models through the relay.
+/// apps/api/src/inference/catalog.ts and its deployments' `INFERENCE_MODEL_ALLOWLIST`):
+/// `(id, name)`, the DeepSeek models only (user, 2026-10-28). The first is the profile
+/// default and the Claude fallback model: DeepSeek V4.1 Flash 1017, which takes images.
+/// The cmux setting `agents.modelRouter.model` picks another start model from this list
+/// (the app's Settings, palette, `cmux settings set` and MCP `settings.set` write it).
+/// The live list is GET /v1/models through the relay.
 pub const CMUX_ROUTER_MODELS: &[(&str, &str)] = &[
-    ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"),
-    ("qwen/qwen3.7-flash", "Qwen3.7 Flash"),
-    ("z-ai/glm-5.3", "GLM-5.3"),
-    ("moonshotai/kimi-k3", "Kimi K3"),
-    ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
+    ("deepseek/deepseek-v4.1-flash-1017", "DeepSeek V4.1 Flash 1017"),
     ("deepseek/deepseek-v4.1-flash", "DeepSeek V4.1 Flash"),
-    ("moonshotai/kimi-k2.7-code", "Kimi K2.7 Code"),
-    ("minimax/minimax-m3", "MiniMax M3"),
-    ("z-ai/glm-5.3-flash", "GLM-5.3 Flash"),
-    ("openai/gpt-oss-120b", "gpt-oss-120b"),
-    ("meta/llama-4-scout", "Llama 4 Scout"),
+    ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"),
+    ("deepseek/deepseek-v4-pro", "DeepSeek V4 Pro"),
 ];
+
+/// The cmux setting that picks the cmux router profile's start model.
+pub const CMUX_ROUTER_MODEL_SETTING: &str = "agents.modelRouter.model";
+
+/// The model `agents.modelRouter.model` names in a settings document, if any.
+pub fn cmux_router_model_in(doc: &serde_json::Value) -> Option<String> {
+    crate::user_settings::value(doc, CMUX_ROUTER_MODEL_SETTING)?.as_str().map(str::to_owned)
+}
+
+/// The model `agents.modelRouter.model` names in the settings file now (blocking file IO).
+pub fn cmux_router_model_setting() -> Option<String> {
+    match crate::user_settings::read() {
+        crate::user_settings::Settings::Parsed(doc) => cmux_router_model_in(&doc),
+        _ => None,
+    }
+}
 
 /// Adds `cmux`: Claude Code (acpmux's own adapter) on the built-in `cmux`
 /// route, so it runs the cmux model router's open-source models through the
@@ -115,11 +184,27 @@ pub fn add_cmux_router(
     found: &mut BTreeMap<String, HarnessProfile>,
     which: &dyn Fn(&str) -> Option<String>,
 ) {
+    let setting = cmux_router_model_setting();
+    add_cmux_router_with(found, which, setting.as_deref());
+}
+
+/// `add_cmux_router` with the setting's value passed in. A model the router does not
+/// serve keeps the default.
+pub fn add_cmux_router_with(
+    found: &mut BTreeMap<String, HarnessProfile>,
+    which: &dyn Fn(&str) -> Option<String>,
+    setting: Option<&str>,
+) {
     if found.contains_key(CMUX_ROUTER_PROFILE) {
         return;
     }
     let Some(claude) = which("claude") else { return };
-    let default = CMUX_ROUTER_MODELS[0].0;
+    let Some(&(default, _)) = setting
+        .and_then(|m| CMUX_ROUTER_MODELS.iter().find(|(id, _)| *id == m))
+        .or_else(|| CMUX_ROUTER_MODELS.first())
+    else {
+        return;
+    };
     let env = BTreeMap::from([
         (crate::routes::PROFILE_ROUTE_KEY.to_owned(), crate::routes::CMUX_ROUTE_ID.to_owned()),
         // Claude Code's background calls name Haiku/Sonnet aliases; the
@@ -245,6 +330,10 @@ pub fn discover_harnesses_from(
         // Cursor's CLI speaks ACP itself: `cursor-agent acp` (newer installs
         // name the launcher `agent`; see cursor_agent_launcher below).
         ("cursor", "cursor-agent"),
+        // Hermes Agent (NousResearch/hermes-agent) speaks ACP itself:
+        // `hermes acp`. Its provider and model come from ~/.hermes
+        // (`hermes model`).
+        ("hermes", "hermes"),
     ] {
         // An ~/.acpx entry keeps its name, except the reserved Claude names:
         // `claude` and `claude-sr` are acpmux's own Claude Code adapter
@@ -267,7 +356,7 @@ pub fn discover_harnesses_from(
                 "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
                 "grok" => (HarnessKind::Acp, vec![path, "agent".into(), "stdio".into()]),
-                "cursor-agent" => (HarnessKind::Acp, vec![path, "acp".into()]),
+                "cursor-agent" | "hermes" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
                 "opencode" | "opencode2" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "dsh" => (HarnessKind::Acp, vec![path, "--profile".into(), "acp".into()]),
@@ -371,7 +460,11 @@ pub fn discover_harnesses_from(
     // PATH no npx adapter package is offered: it reads the account through
     // codex's `account/read`, which a ChatGPT login behind a routing proxy
     // (subrouter) fails, so its chats never started; the bridge does not.
-    if !codex_imported && let Some(codex) = which("codex") {
+    if !codex_imported
+        && let Some(codex) = which("codex").or_else(|| {
+            crate::managed_codex::configured_path().map(|p| p.to_string_lossy().into_owned())
+        })
+    {
         if let Some(adapter) = agents.remove("codex") {
             agents.entry(CODEX_ACP.to_owned()).or_insert(adapter);
         }
@@ -435,6 +528,93 @@ mod uniichat_tests {
         let mut found = BTreeMap::from([(UNIICHAT_PROFILE.to_owned(), mine.clone())]);
         add_uniichat(&mut found, Some(vec!["/a/acpmux".into()]));
         assert_eq!(found[UNIICHAT_PROFILE], mine);
+    }
+}
+
+#[cfg(test)]
+mod chief_tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+
+    fn bundle(path: &Path) -> bool {
+        path == Path::new("/App/bin/cmux-tui")
+    }
+
+    #[test]
+    fn chief_is_built_in_through_the_cmux_cli_beside_the_bundled_acpmux() {
+        // The app bundle: `acpmux` and `cmux-tui` are links to one multicall binary.
+        let mut found = BTreeMap::new();
+        add_chief(&mut found, Some((PathBuf::from("/App/bin/acpmux"), false)), &bundle);
+        let chief = &found[CHIEF_PROFILE];
+        assert_eq!(chief.argv, vec!["/App/bin/cmux-tui", "chief", "acp"]);
+        assert_eq!(chief.kind, HarnessKind::Acp);
+        assert_eq!(chief.family.as_deref(), Some(CHIEF_FAMILY));
+        // `cmux-tui acp …`: the binary itself runs `chief acp`.
+        let mut found = BTreeMap::new();
+        add_chief(&mut found, Some((PathBuf::from("/opt/cmux-tui"), true)), &|_| false);
+        assert_eq!(found[CHIEF_PROFILE].argv, vec!["/opt/cmux-tui", "chief", "acp"]);
+    }
+
+    #[test]
+    fn a_standalone_acpmux_without_the_cmux_cli_offers_no_chief_and_a_profile_file_wins() {
+        let mut found = BTreeMap::new();
+        add_chief(&mut found, Some((PathBuf::from("/usr/local/bin/acpmux"), false)), &|_| false);
+        assert!(!found.contains_key(CHIEF_PROFILE), "never a `cmux` from PATH: {found:?}");
+        let mine = HarnessProfile {
+            argv: vec!["/mine".into()],
+            kind: HarnessKind::Acp,
+            env: BTreeMap::new(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        let mut found = BTreeMap::from([(CHIEF_PROFILE.to_owned(), mine.clone())]);
+        add_chief(&mut found, Some((PathBuf::from("/App/bin/acpmux"), false)), &bundle);
+        assert_eq!(found[CHIEF_PROFILE], mine);
+    }
+
+    #[test]
+    fn the_chief_is_never_the_automatic_default_harness() {
+        // `chief` sorts before `claude`: with no configured default, every new chat on a Mac
+        // would start on the person's Chief (seen in the fleet capture, 2026-10-30).
+        let mut found = BTreeMap::new();
+        add_chief(&mut found, Some((PathBuf::from("/App/bin/acpmux"), false)), &bundle);
+        let mut claude = found[CHIEF_PROFILE].clone();
+        claude.argv = vec!["claude".into()];
+        claude.family = Some("claude".into());
+        found.insert("claude".into(), claude);
+        let mut cfg = crate::config::Config::default();
+        cfg.join_discovered(found.clone());
+        cfg.pick_auto_default_for_tests();
+        assert_eq!(cfg.default_harness.as_deref(), Some("claude"));
+        // With the Chief alone there is no automatic default at all.
+        let mut alone = crate::config::Config::default();
+        found.remove("claude");
+        alone.join_discovered(found);
+        alone.pick_auto_default_for_tests();
+        assert_eq!(alone.default_harness, None);
+    }
+
+    #[test]
+    fn the_chief_harness_draws_the_ch_monogram_not_a_picture() {
+        let mut found = BTreeMap::new();
+        add_chief(&mut found, Some((PathBuf::from("/App/bin/acpmux"), false)), &bundle);
+        let profile = &found[CHIEF_PROFILE];
+        let spec = crate::config::harness_icon::resolve(
+            CHIEF_PROFILE,
+            Some("Chief"),
+            profile,
+            CHIEF_FAMILY,
+            None,
+        );
+        let crate::config::harness_icon::IconSpec::Monogram { text, .. } = spec else {
+            panic!("{spec:?}")
+        };
+        assert_eq!(text, "CH");
     }
 }
 
@@ -514,5 +694,34 @@ mod muse_tests {
         let acpx = r#"{"agents": {"muse": {"argv": ["/Users/me/bin/my-muse"]}}}"#;
         let found = discover_harnesses_from(Some(acpx), &on_path(&["muse", "muse-acp"]));
         assert_eq!(found["muse"].argv, ["/Users/me/bin/my-muse"]);
+    }
+}
+
+#[cfg(test)]
+mod hermes_tests {
+    use super::*;
+
+    fn on_path(names: &'static [&'static str]) -> impl Fn(&str) -> Option<String> {
+        move |name| names.contains(&name).then(|| format!("/opt/bin/{name}"))
+    }
+
+    /// Hermes Agent (NousResearch/hermes-agent) speaks ACP itself: `hermes
+    /// acp`. On PATH it is an ACP harness of its own family, so the Chief's
+    /// engine picker, `chief engine set --harness hermes` and chats can run it.
+    #[test]
+    fn hermes_on_path_runs_hermes_acp() {
+        let found = discover_harnesses_from(None, &on_path(&["hermes"]));
+        let hermes = found.get("hermes").expect("hermes on PATH is a harness");
+        assert_eq!(hermes.kind, HarnessKind::Acp);
+        assert_eq!(hermes.argv, ["/opt/bin/hermes", "acp"]);
+        assert_eq!(crate::config::derive_family("hermes", hermes), "hermes");
+    }
+
+    /// A `hermes` the person imported from ~/.acpx stays theirs.
+    #[test]
+    fn hermes_imported_from_acpx_stays_theirs() {
+        let acpx = r#"{"agents": {"hermes": {"argv": ["/Users/me/bin/my-hermes", "acp"]}}}"#;
+        let found = discover_harnesses_from(Some(acpx), &on_path(&["hermes"]));
+        assert_eq!(found["hermes"].argv, ["/Users/me/bin/my-hermes", "acp"]);
     }
 }

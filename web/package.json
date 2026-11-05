@@ -94,7 +94,7 @@
     "browser-image-compression": "2.0.2",
     "drizzle-orm": "1.0.0-beta.22",
     "effect": "^3.21.2",
-    "freestyle": "0.2.10",
+    "freestyle": "0.2.21",
     "fzstd": "^0.1.1",
     "jose": "^6.2.3",
     "next": "16.4.2",

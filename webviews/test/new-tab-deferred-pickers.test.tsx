@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useSyncExternalStore } from "react";
 import type { Root } from "react-dom/client";
+import { effortLevel } from "./support/effortDropdown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -104,12 +105,18 @@ async function mountNewTab({
   model = "claude-sonnet-5-5",
   tiers,
   live,
+  rail = false,
+  remembered = false,
+  startedChat = false,
 }: {
   opened: Option[];
   harness?: string;
   model?: string;
   tiers?: string[];
   live?: boolean;
+  rail?: boolean;
+  remembered?: boolean;
+  startedChat?: boolean;
 }) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -128,8 +135,9 @@ async function mountNewTab({
       ...(tiers && entry.id === harness ? { serviceTiers: tiers } : {}),
     })),
   })) as Snapshot["catalog"];
-  // No session of this harness ran here before: the page knows none of its options.
+  // A fresh page knows no options; a remembered profile uses the previous session's names.
   const profiles = new HarnessProfiles(() => undefined);
+  if (remembered) profiles.observe({ sessionId: "previous", harness, model, turnCount: 1, configOptions: opened });
   const wire: string[] = [];
   let open = live !== undefined;
   let started = harness;
@@ -201,7 +209,7 @@ async function mountNewTab({
             sessionId: "s-1",
             harness: started,
             model: running,
-            turnCount: 0,
+            turnCount: startedChat ? 1 : 0,
             configOptions: options.map((o) => ({ ...o })),
           }
         : { sessionId: "", harness, model, turnCount: 0 },
@@ -228,6 +236,7 @@ async function mountNewTab({
         snapshot={snapshot}
         pickerCatalog={picker.catalog}
         holdsModePick
+        {...(rail ? { fork: { to: () => undefined, ready: true } } : {})}
         onModel={(modelId) => {
           start();
           void store.pickModel(modelId, shownSession());
@@ -260,23 +269,40 @@ async function mountNewTab({
       </QueryClientProvider>,
     );
   });
+  const doc = dom.window.document;
+  const columns = () => doc.querySelector<HTMLElement>(".acpmux-cols");
+  // A click on the chip toggles the menu (usePopoverTrigger's keyboard click).
+  const clickChip = async () => act(async () => host.querySelector<HTMLElement>("[data-menu=Model]")!.click());
+  // A pick leaves the columns menu open; the chip closes it, as a person's second press does.
+  const closeMenu = async () => {
+    if (columns()) await clickChip();
+    expect(columns()).toBeNull();
+  };
   const pickCombo = async (query: string, label: string) => {
-    // Cmd-Ctrl-M opens the full picker; typing a query chooses the model, effort and speed together.
+    // Cmd-Ctrl-M opens the same compact picker as the model button; typing filters its rows.
     await act(async () => {
       dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true }));
     });
-    const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]');
+    if (!columns()) {
+      const trigger = host.querySelector<HTMLElement>("[data-menu=Model]");
+      expect(trigger).not.toBeNull();
+      await clickChip();
+    }
+    const openMenu = columns();
+    expect(openMenu).not.toBeNull();
+    const search = openMenu!.querySelector<HTMLInputElement>(".acpmux-cols-search input[type=search]");
     expect(search).not.toBeNull();
     const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
     await act(async () => {
       setter.call(search, query);
       search!.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     });
-    const row = [...host.querySelectorAll<HTMLElement>('.acpmux-mp [role="option"][data-key^="model:"]')].find(
-      (candidate) => candidate.textContent?.includes(label),
+    const row = [...openMenu!.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find((candidate) =>
+      candidate.querySelector(".acpmux-cols-name")?.textContent?.includes(label),
     );
     expect(row).not.toBeUndefined();
     await act(async () => row!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+    await closeMenu();
   };
   const settle = async () => {
     for (let turn = 0; turn < 5; turn++) await new Promise((done) => setTimeout(done, 0));
@@ -298,7 +324,75 @@ async function mountNewTab({
       for (const request of landing) request.land();
       await settle();
     });
-  return { wire, pickCombo, send, answer };
+  // The model's level in the menu. The columns menu, by keys: the model's row and then its level are
+  // highlighted, and Return lands both as one pick, as the list menu's "Model · Level" item did. By
+  // clicks: the row lands the model at once, the level then lands its effort. A menu with no rail (a
+  // started chat's) is the list menu, whose effort is a dropdown beside the row.
+  const pickLevel = async (model: string, level: string, via: "keys" | "clicks" = "keys") => {
+    if (!columns()) {
+      const high = await effortLevel(doc, `${model} · ${level}`);
+      expect(high).not.toBeNull();
+      await act(async () => high!.click());
+      return;
+    }
+    if (via === "clicks") {
+      const row = [...columns()!.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')].find(
+        (candidate) => candidate.querySelector(".acpmux-cols-name")?.textContent === model,
+      );
+      expect(row).not.toBeUndefined();
+      await act(async () => row!.click());
+      const radio = [...columns()!.querySelectorAll<HTMLElement>('.acpmux-cols-tune [role="radio"]')].find(
+        (candidate) => candidate.querySelector(".acpmux-cols-name")?.textContent === level,
+      );
+      expect(radio).not.toBeUndefined();
+      await act(async () => radio!.click());
+      await closeMenu();
+      return;
+    }
+    // The search field keeps the keyboard. Up and Down only move the highlight, Right goes to the
+    // settings column, Return lands the highlighted level with its model and closes the menu.
+    const field = columns()!.querySelector<HTMLInputElement>(".acpmux-cols-search input[type=search]")!;
+    const press = async (key: string) =>
+      act(async () => {
+        field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+      });
+    const names = (selector: string) =>
+      [...columns()!.querySelectorAll<HTMLElement>(selector)].map((row) => ({
+        name: row.querySelector(".acpmux-cols-name")?.textContent,
+        hl: row.hasAttribute("data-hl"),
+      }));
+    const walk = async (selector: string, name: string) => {
+      const rows = names(selector);
+      const to = rows.findIndex((row) => row.name === name);
+      expect(to).toBeGreaterThanOrEqual(0);
+      const from = Math.max(
+        0,
+        rows.findIndex((row) => row.hl),
+      );
+      for (let step = from; step !== to; step += to > from ? 1 : -1) await press(to > from ? "ArrowDown" : "ArrowUp");
+      expect(names(selector)[to]?.hl).toBe(true);
+    };
+    await walk('[role="listbox"] [role="option"]', model);
+    await press("ArrowRight");
+    await walk('.acpmux-cols-tune [role="radio"]', level);
+    await press("Enter");
+    expect(columns()).toBeNull();
+  };
+  const pickInline = async () => {
+    await clickChip();
+    expect(Boolean(doc.querySelector(".acpmux-cols-rail"))).toBe(!startedChat || rail);
+    await pickLevel("Sonnet 5.5", "High");
+  };
+  return {
+    wire,
+    pickCombo,
+    pickInline,
+    pickLevel,
+    clickChip,
+    send,
+    answer,
+    held: () => store.view().intent?.config,
+  };
 }
 
 test("a New Tab combo's effort and Fast reach the chat before the prompt sent right after it", async () => {
@@ -433,4 +527,103 @@ test("a combo back to the chat on screen sends its effort and Fast once, with ac
   const sent = wire.filter((line) => !line.startsWith("new "));
   expect(sent[0]).toBe("model claude-opus-5-5");
   expect([...sent].sort()).toEqual(["effort=high", "fast-mode=on", "model claude-opus-5-5", "prompt hello"]);
+});
+
+for (const rail of [false, true]) {
+  test(`a live compact row switches Fable Medium to Sonnet High after model confirmation (rail=${rail})`, async () => {
+    const { wire, pickInline, answer } = await mountNewTab({
+      model: "claude-fable-5-1",
+      opened: [effortOption("reasoning_effort")],
+      live: true,
+      startedChat: true,
+      rail,
+    });
+    await pickInline();
+    expect(wire).toEqual(["model claude-sonnet-5-5"]);
+    await answer("model");
+    expect(wire).toEqual(["model claude-sonnet-5-5", "reasoning_effort=high"]);
+    await answer("config");
+    expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("High");
+  });
+}
+
+for (const remembered of [false, true]) {
+  test(`a New Tab compact row holds Sonnet High on the chip and starts its first turn with it (remembered=${remembered})`, async () => {
+    const { wire, pickInline, send, held } = await mountNewTab({
+      model: "claude-fable-5-1",
+      opened: [effortOption("reasoning_effort")],
+      remembered,
+    });
+    await pickInline();
+    expect(held()).toEqual({ model: "claude-sonnet-5-5", options: { effort: "high" } });
+    const detail = host.querySelector(".acpmux-model-detail")?.textContent;
+    await send("hello");
+    expect(wire).toEqual(["new claude", "model claude-sonnet-5-5", "reasoning_effort=high", "prompt hello"]);
+    expect(detail).toBe("High");
+  });
+}
+
+test("a New Tab replaces held Sonnet High with Medium after switching to Codex and back", async () => {
+  const { wire, pickInline, pickCombo, pickLevel, clickChip, send, held } = await mountNewTab({
+    model: "claude-fable-5-1",
+    opened: [effortOption("reasoning_effort")],
+  });
+  await pickInline();
+  expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Sonnet 5.5");
+  expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("High");
+
+  await pickCombo("astra", "Astra");
+  expect(held()?.model).toBe("gpt-6-astra");
+  await clickChip();
+  const claude = dom.window.document.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label^="Claude"]');
+  expect(claude).not.toBeNull();
+  await act(async () => claude!.click());
+  await pickLevel("Sonnet 5.5", "Medium");
+
+  expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Sonnet 5.5");
+  expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("Medium");
+  expect(held()).toEqual({ model: "claude-sonnet-5-5", options: { effort: "medium" } });
+  expect(wire).toEqual(["new claude", "new codex", "new claude"]);
+  await send("hello");
+  expect(wire).toEqual([
+    "new claude",
+    "new codex",
+    "new claude",
+    "model claude-sonnet-5-5",
+    "reasoning_effort=medium",
+    "prompt hello",
+  ]);
+});
+
+// The columns menu's mouse path: a click on the row lands the model at once and the menu stays
+// open, so a click on its level then lands the effort. On a New Tab both are held for the first turn.
+test("a New Tab click on Sonnet's row, then on its High level, starts the first turn with both", async () => {
+  const { wire, pickLevel, clickChip, send } = await mountNewTab({
+    model: "claude-fable-5-1",
+    opened: [effortOption("reasoning_effort")],
+  });
+  await clickChip();
+  await pickLevel("Sonnet 5.5", "High", "clicks");
+  expect(host.querySelector(".acpmux-model-name")?.textContent).toBe("Sonnet 5.5");
+  expect(host.querySelector(".acpmux-model-detail")?.textContent).toBe("High");
+  await send("hello");
+  expect(wire).toEqual(["new claude", "model claude-sonnet-5-5", "reasoning_effort=high", "prompt hello"]);
+});
+
+// In a live chat the same two clicks send the level before acpmux confirms the model: the row's
+// click shows Sonnet as running at once, so the level goes to the session (QuickModelColumns
+// pickLevel, `focusRuns`) and not with the model as one pick, as Return on the level does above.
+test.todo("a live click on Sonnet's row, then on its High level, sends the level after model confirmation", async () => {
+  const { wire, pickLevel, clickChip, answer } = await mountNewTab({
+    model: "claude-fable-5-1",
+    opened: [effortOption("reasoning_effort")],
+    live: true,
+    startedChat: true,
+    rail: true,
+  });
+  await clickChip();
+  await pickLevel("Sonnet 5.5", "High", "clicks");
+  expect(wire).toEqual(["model claude-sonnet-5-5"]);
+  await answer("model");
+  expect(wire).toEqual(["model claude-sonnet-5-5", "reasoning_effort=high"]);
 });

@@ -80,7 +80,7 @@ await requireBrowserLane("popup-surface.test.ts", async () => {
     ),
     body: `<div class="ui-positioner"><div class="ui-popup ui-glass" id="menu">Menu</div></div>
 ${tooltips}
-<div class="page-menu" id="page-menu">Sort</div>
+<div class="ui-positioner"><div class="page-menu ui-popup ui-glass" id="page-menu">Sort</div></div>
 <div class="ui-glass icon-bar-pill" id="icon-bar-pill">Icons</div>
 <div class="md-link-bubble" id="md-link-bubble">https://example.com</div>
 <div class="ui-popup ui-glass ui-popover md-link-popover" id="md-link-popover">Edit link</div>
@@ -89,8 +89,10 @@ ${tooltips}
 <div class="lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     // Tooltips are frosted glass (tooltip-surface.test.ts).
-    // The markdown link editor is a ui/Popover: glass, like the menus.
-    glass: ["menu", "icon-bar-pill", "md-link-popover"],
+    // The markdown link editor is a ui/Popover: glass, like the menus. The History page menu
+    // (pages/shared/PageMenu.tsx) is the menu glass too (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE
+    // GLASS, SO JUST USE GLASS.").
+    glass: ["menu", "page-menu", "icon-bar-pill", "md-link-popover"],
     surfaces: [
       "menu",
       "page-menu",
@@ -135,7 +137,7 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup ui-glass acpmux-access-menu" id="access">Full access</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass acpmux-chat-menu-popover" id="chat-menu">Rename</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-pr-status" id="pr-status">Checks</div></div>
-<div class="acpmux-shell"><div class="acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
+<div class="acpmux-shell"><div class="ui-glass ui-glass-floats acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-needs-you" id="needs-you">Needs you</div></div>
 <div class="acpmux-shell"><dialog open class="ui-popup ui-glass acpmux-agents-list" id="agents-list">Agents</dialog></div>
@@ -157,6 +159,9 @@ ${tooltips}`,
       "new-tab-suggestions",
       "needs-you",
       "agents-list",
+      // The Summary popover (Outputs, Subagents, Sources, Background tasks) floats over the chat
+      // (Leo 2026-10-30: "I don't like the non-glassness").
+      "summary",
       // A dialog, not a popup (no popup elevation), but glass all the same.
       "add-project",
     ],

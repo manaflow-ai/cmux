@@ -48,8 +48,20 @@ the head: a comment or review whose first line is
 `Review (<reviewer>): SHIP at <full head sha>` from a member (OWNER, MEMBER or
 COLLABORATOR, a user, not a bot), not a self-review, the grammar
 scripts/ci/risk_tier.py reads. The newest verdict naming the head decides, so
-a later BLOCK beats an earlier SHIP, and a push needs a new receipt. An
-approving review of the head from a call owner in
+a later BLOCK beats an earlier SHIP, and a push needs a new receipt, except a
+merge of the base: a SHIP at an earlier head is carried when only merges came
+after it and they leave the pull request's default changes as reviewed
+(carried_ship). The
+workflow's token cannot see a private org membership (GitHub reports such a
+member as CONTRIBUTOR to it), so a receipt's author who reads as untrusted is
+looked up once: write, maintain or admin access to the repository trusts them
+too. A call owner in .github/defaults-call-owners.json (read from the base) is
+trusted without that lookup: the lookup spends the workflow token's REST quota,
+which other jobs share, and a spent quota trusted nobody (#32983 stayed red on
+a call owner's SHIP, "API rate limit exceeded for installation"). A lookup that
+fails for any other reason than 404 is named in the error, at the head or at an
+earlier head a SHIP is carried from; that author's SHIP does not count and their
+BLOCK does, so an unchecked receipt can only keep the guard red. An approving review of the head from a call owner in
 .github/defaults-call-owners.json other than the author still passes too. The
 `needs a call` label alone never passes. The workflow (pull_request_target
 only) runs this script and reads the owners file from the base branch, so a
@@ -65,6 +77,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -93,8 +106,6 @@ REGENERATE = "python3 scripts/ci/defaults_guard.py snapshot"
 GUARD_FILES = (
     "scripts/ci/defaults_guard.py",
     OWNERS,
-    ".github/workflows/cmux-next-defaults-guard.yml",
-    ".github/workflows/cmux-next-defaults-guard-review.yml",
 )
 
 # AppKit's function-key characters, as the catalog export writes them.
@@ -118,6 +129,14 @@ TUNABLE_RE = re.compile(r'\bTunable<[\w.?]+>\s*\.(choice|toggle|number|color|spr
 RECEIPT = re.compile(r"^\W*(?:independent\s+)?review\s*\(([^)\n]*)\)\s*:\W*(ship|block|fix|not ship|hold)(?![\w-])",
                      re.I)
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+# Repository roles that trust a receipt's author whose association reads as untrusted: a member who
+# keeps the org membership private is CONTRIBUTOR to the workflow's token (#26153).
+WRITER_ROLES = ("admin", "maintain", "write")
+# GitHub returns the App slug as `cmux-bot` in some GraphQL connections and the
+# REST-normalized `cmux-bot[bot]` form in others. Both are the same actor only
+# when paired with this immutable node id; a name alone is never sufficient.
+CMUX_BOT_LOGINS = frozenset(("cmux-bot", "cmux-bot[bot]"))
+CMUX_BOT_NODE_ID = "BOT_kgDOFMYsLQ"
 # Default values that read as "off": a new setting with one of them changes nothing for anyone.
 OFF_WORDS = ("off", "never", "none", "disabled", "")
 
@@ -443,6 +462,35 @@ def static_declarations(text: str) -> list[tuple[str, str, list[str]]]:
     return found
 
 
+TUNABLE_TYPE = re.compile(r"(?:Derived)?Tunable|\w+Tunable")
+TYPEALIAS = re.compile(r"\btypealias\s+(\w+)(?:<[^=\n]*>)?\s*=\s*([^\n;]+)")
+# `struct S: P, Q {`, `final class Sub: Base {`, `extension T: P where ... {`: the names after the colon.
+TYPE_INHERITANCE = re.compile(r"\b(?:enum|struct|class|extension|protocol)\s+[\w.]+(?:<[^>{]*>)?\s*:\s*([^{]+)\{")
+
+
+def calls_helper(path: str, tokens: list[str], helper_files: Mapping[str, set[str]],
+                 types: Mapping[str, set[str]], file_types: Mapping[str, set[str]],
+                 inherits: Mapping[str, set[str]]) -> bool:
+    """Whether a declaration's tokens (after its kind and name) call a Tunable helper it can reach: the caller's
+    types (those its file declares, plus the superclasses and protocols they name) meet a type the helper's file
+    declares. Only the caller's side takes inheritance: a subclass reaches its base's helper and a conforming type
+    a protocol extension's, but a helper file conforming to Sendable reaches no other Sendable type."""
+    for i in range(2, len(tokens)):
+        files = helper_files.get(tokens[i])
+        if not files:
+            continue
+        reach = file_types.get(path, set()) | inherits.get(path, set())  # bare `helper` or `Self.helper`
+        if tokens[i - 1] == ".":
+            owner = tokens[i - 2] if i >= 3 else ""
+            if owner != "Self":
+                if owner not in types:
+                    continue  # x.helper or .helper: some other member that shares the name
+                reach = {owner}.union(*(inherits.get(file, set()) for file in types[owner]))  # Type.helper
+        if any(reach & file_types.get(file, set()) for file in files):
+            return True
+    return False
+
+
 def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
     """Fingerprint tunable initializers, their helpers and symbolic source dependencies.
 
@@ -450,24 +498,58 @@ def tunable_source_defaults(sources: Mapping[str, str]) -> dict[str, object]:
     help text or implementation also needs review. Unrelated declarations in its file do not.
     Same-file names and qualified Type.member references resolve to all possible source declarations
     (including extensions); ambiguity adds evidence rather than silently choosing one definition.
+    A typealias of a Tunable counts as a Tunable token; a Tunable helper is matched by the call that can
+    reach it (calls_helper), never by a token that only shares its name.
     """
     nodes, by_file_name, types = {}, {}, {}
+    aliases: dict[str, list[str]] = {}  # typealias name -> the names on its right-hand side
+    inherits: dict[str, set[str]] = {}  # file -> the superclasses and protocols its types name
     for path, text in sources.items():
-        for type_name in re.findall(r"\b(?:enum|struct|class|extension)\s+(\w+)", strip_swift_comments(text)):
+        code = strip_swift_comments(text)
+        for type_name in re.findall(r"\b(?:enum|struct|class|extension|protocol)\s+(?!(?:func|var|let|subscript|init)\b)(\w+)", code):
             types.setdefault(type_name, set()).add(path)
+        for clause in TYPE_INHERITANCE.findall(code):
+            inherits.setdefault(path, set()).update(re.findall(r"\w+", clause.split(" where ")[0]))
+        for alias, target in TYPEALIAS.findall(code):
+            aliases.setdefault(alias, []).extend(re.findall(r"\w+", target))
         for kind, name, tokens in static_declarations(text):
             key = f"tunable-source.{path.removeprefix(SWIFT_SOURCES + '/')}:{name}"
             while key in nodes:
                 key += "#"
             nodes[key] = (path, kind, name, tokens)
             by_file_name.setdefault((path, name), set()).add(key)
+    # A typealias of a Tunable (`typealias TD = Tunable<Double>`, or an alias of such an alias) is a Tunable token.
+    tunable_names = {name for name, target in aliases.items() if any(TUNABLE_TYPE.fullmatch(t) for t in target)}
+    while grown := {name for name, target in aliases.items() if name not in tunable_names and set(target) & tunable_names}:
+        tunable_names |= grown
     selected = {key for key, (_, _, _, tokens) in nodes.items()
-                if any(re.fullmatch(r"(?:Derived)?Tunable|\w+Tunable", token) for token in tokens)}
-    # A helper returning Tunable (e.g. points) has callers whose initializer has no Tunable token.
-    helper_names = {name for key, (_, kind, name, _) in nodes.items()
-                    if key in selected and kind == "func"}
-    for key, (_, _, _, tokens) in nodes.items():
-        if any(token in helper_names for token in tokens):
+                if any(TUNABLE_TYPE.fullmatch(token) or token in tunable_names for token in tokens)}
+    # A helper returning Tunable (e.g. points) has callers whose initializer has no Tunable token. A call is
+    # matched to the helper it can reach: a bare `helper` or `Self.helper` in a file whose types share one with
+    # the helper's file, or `Type.helper` where Type's files do. A file's types are the types and extensions it
+    # declares plus the superclasses and protocols they name, so a subclass reaches its base's helper and a
+    # conforming type a protocol extension's. A token that only shares the name (`model.toggle()`, a closure
+    # named `make`, `JSONValue.number`) is not a call of it: that matched every `static func bind` in the app
+    # (#32983, #32979). Not resolved (the guard before #33161 caught them by name; no Tunable helper in the tree
+    # is called this way, 2026-11-03; a Tunable that uses one changes its default with no review):
+    # - a conformance or superclass declared in another file than the caller (`extension C: HasPoints {}`
+    #   elsewhere, or `extension Sub` in another file than `class Sub: Base`): inheritance is read per file
+    # - inheritance more than one level deep (`Leaf: Mid`, `Mid: Base`; `protocol Q: HasPoints`)
+    # - a nested generic clause before the colon (`struct G<T: Collection<Int>>: HasPoints`)
+    # - a typealias of the helper's type (`typealias CT = ChromeTunables`, then `CT.points`), or a local
+    #   `let T = ChromeTunables.self`
+    # - a helper reached through a generic parameter (`T.points`)
+    # A `class func` helper is no node at all (static_declarations reads `static` only).
+    helper_files: dict[str, set[str]] = {}
+    for key, (path, kind, name, _) in nodes.items():
+        if key in selected and kind == "func":
+            helper_files.setdefault(name, set()).add(path)
+    file_types: dict[str, set[str]] = {}
+    for type_name, paths in types.items():
+        for path in paths:
+            file_types.setdefault(path, set()).add(type_name)
+    for key, (path, _, _, tokens) in nodes.items():
+        if key not in selected and calls_helper(path, tokens, helper_files, types, file_types, inherits):
             selected.add(key)
     pending = list(selected)
     while pending:
@@ -627,20 +709,48 @@ class Approval:
         return bool(self.approvers) or self.shipped is not None
 
 
-def receipt_verdict(pull: Mapping[str, object], head: str) -> tuple[str, str] | None:
-    """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
-    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie."""
-    found = []
+def receipt_items(pull: Mapping[str, object]) -> list[tuple[Mapping[str, object], object]]:
     items = [(c, c.get("createdAt")) for c in (pull.get("comments") or {}).get("nodes") or []]
-    items += [(r, r.get("submittedAt")) for r in (pull.get("reviews") or {}).get("nodes") or []]
-    for item, at in items:
+    return items + [(r, r.get("submittedAt")) for r in (pull.get("reviews") or {}).get("nodes") or []]
+
+
+def receipt_line(item: Mapping[str, object], head: str) -> re.Match[str] | None:
+    """The receipt on the item's first line when it names the full head and is not a self-review."""
+    first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
+    line = RECEIPT.match(first)
+    return line if head and line and "self" not in line.group(1).lower() and head in first else None
+
+
+def receipt_verdict(pull: Mapping[str, object], head: str,
+                    writers: Iterable[str] = (), unchecked: Iterable[str] = ()) -> tuple[str, str] | None:
+    """("ship" or "block", reviewer) of the newest receipt naming the full head sha on the first line
+    of a trusted comment or review body; a self-review never counts and a BLOCK wins a tie. The
+    cmux-bot App is trusted only when GitHub reports its exact Bot login and immutable node id.
+    A user whose association reads as untrusted is trusted when listed in `writers` (repository
+    write access, looked up by `repo_writers`). A user in `unchecked` (their lookup failed, so nobody
+    knows) counts for a BLOCK only: an unverified receipt can make the guard red, never green."""
+    writers = {w.lower() for w in writers}
+    unchecked = {u.lower() for u in unchecked}
+    found = []
+    for item, at in receipt_items(pull):
         author = item.get("author") or {}
-        if author.get("__typename") != "User" or item.get("authorAssociation") not in TRUSTED:
+        blocks_only = False
+        if author.get("__typename") == "Bot":
+            trusted = (str(author.get("login") or "") in CMUX_BOT_LOGINS
+                       and str(author.get("id") or "") == CMUX_BOT_NODE_ID)
+        elif author.get("__typename") == "User":
+            trusted = (item.get("authorAssociation") in TRUSTED
+                       or str(author.get("login") or "").lower() in writers)
+            blocks_only = not trusted and str(author.get("login") or "").lower() in unchecked
+        else:
+            trusted = blocks_only = False
+        if not trusted and not blocks_only:
             continue
-        first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
-        line = RECEIPT.match(first)
-        if head and line and "self" not in line.group(1).lower() and head in first:
+        line = receipt_line(item, head)
+        if line:
             verdict = "ship" if line.group(2).lower() == "ship" else "block"
+            if blocks_only and verdict == "ship":
+                continue
             found.append((str(at or ""), verdict == "block", verdict, f"review ({line.group(1).strip()})"))
     if not found:
         return None
@@ -654,7 +764,38 @@ def owners_for(text: str | None) -> list[str]:
     return [str(o) for o in json.loads(text).get(APP, [])]
 
 
-def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
+def repo_writers(repo: str, pull: Mapping[str, object], head: str, known: Iterable[str] = (),
+                 failed: dict[str, str] | None = None) -> list[str]:
+    """The authors of receipts on the head whose association reads as untrusted but who have write,
+    maintain or admin access to the repository. GitHub hides a private org membership from the
+    workflow's token, so such a member reads as CONTRIBUTOR here (#26153). One lookup per author;
+    an author in `known` (already trusted: the call owners) is not looked up. A lookup that fails
+    (404: not a collaborator) trusts nobody; any other failure (a spent rate limit) is also recorded
+    in `failed`, login to error, so the verdict can say the receipt was not checked."""
+    known = {k.lower() for k in known}
+    logins: dict[str, str] = {}
+    for item, _ in receipt_items(pull):
+        author = item.get("author") or {}
+        login = str(author.get("login") or "")
+        if (login and login.lower() not in known and author.get("__typename") == "User"
+                and item.get("authorAssociation") not in TRUSTED and receipt_line(item, head)):
+            logins.setdefault(login.lower(), login)
+    writers = []
+    for login in logins.values():
+        result = subprocess.run(["gh", "api", f"repos/{repo}/collaborators/{login}/permission", "--jq", ".role_name"],
+                                capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip() in WRITER_ROLES:
+            writers.append(login)
+        elif result.returncode != 0 and "404" not in result.stderr:
+            print(f"::warning title=Defaults reviewer lookup failed::{command_text(login)}: "
+                  f"{command_text(result.stderr.strip()[:200])}")
+            if failed is not None:
+                failed[login] = result.stderr.strip()[:200]
+    return writers
+
+
+def approval(owners: list[str], pull: Mapping[str, object], writers: Iterable[str] = (),
+             unchecked: Iterable[str] = ()) -> Approval:
     """Who approved the head: each reviewer's latest decisive review counts."""
     author = str((pull.get("author") or {}).get("login") or "")
     head = str(pull.get("headRefOid") or "")
@@ -672,7 +813,7 @@ def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
             result.approvers.append(owner)
         else:
             result.stale.append(owner)
-    receipt = receipt_verdict(pull, head)
+    receipt = receipt_verdict(pull, head, writers, unchecked)
     if receipt:
         if receipt[0] == "ship":
             result.shipped = receipt[1]
@@ -681,13 +822,112 @@ def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
     return result
 
 
+SHIP_AT = re.compile(r"\bSHIP at ([0-9a-f]{40})\b", re.I)
+CARRY_MAX = 5  # earlier SHIP heads looked at, newest first (ancestry and merges only: cheap git reads)
+CARRY_PATHS = (ACTION_SURFACES, SETTINGS_SCHEMA, SWIFT_SOURCES, *GUARD_FILES)
+
+
+def git(root: Path, *args: str) -> str:
+    result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args[:2])}: {result.stderr.strip()[-200:]}")
+    return result.stdout.strip()
+
+
+def has_commits(root: Path, shas: Iterable[str]) -> bool:
+    """`shas` and their history are in `root` (a full clone: the tests' repository, a local run)."""
+    if git(root, "rev-parse", "--is-shallow-repository") == "true":
+        return False
+    return all(subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+                              capture_output=True).returncode == 0 for sha in shas)
+
+
+def sparse_tree(repo: str, sha: str, into: Path) -> Tree:
+    """A checkout of only the defaults' inputs at `sha` (what the workflow's own checkouts hold), as a Tree."""
+    into.mkdir(parents=True)
+    git(into, "init", "-q")
+    git(into, "fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", f"https://github.com/{repo}", sha)
+    git(into, "sparse-checkout", "set", "--no-cone", *CARRY_PATHS)
+    git(into, "checkout", "-q", "FETCH_HEAD")
+    return Tree(None, into.resolve())
+
+
+def carried_ship(pull: Mapping[str, object], head: str, writers: Iterable[str], found: list[Change],
+                 repo: str | None, scratch: Path | None = None,
+                 failed: dict[str, str] | None = None) -> tuple[str, str] | None:
+    """(reviewer, earlier head) of a SHIP receipt that still covers `head`'s default changes, or None.
+
+    Autoland, update-branch and lanes merge feat-cmux-next into a reviewed pull request; each merge is a new head,
+    and an exact-head SHIP then no longer names it (2026-11-02: #30961, #31798, #27745 and others red on
+    "N default(s) changed; needs ... SHIP at <head>" with a SHIP one base merge back). A SHIP at an earlier head H
+    is carried when every commit after H is a merge (two parents) and the default changes H made against its
+    merge base with the base are exactly the ones `head` makes now: the merges brought nothing to the pull
+    request's own defaults. A BLOCK at H, or anything unreadable, carries nothing. The trusted checkout this runs
+    from is the base tip; its history is read with git, fetched treeless when it is shallow (as the workflow's
+    merge-base step does), and H's inputs are sparse checkouts."""
+    wanted = [(c.id, c.old, c.new) for c in found]
+    seen: list[str] = []
+    for item, at in sorted(receipt_items(pull), key=lambda pair: str(pair[1] or ""), reverse=True):
+        first = next((line for line in str(item.get("body") or "").splitlines() if line.strip()), "")
+        match = SHIP_AT.search(first)
+        if match and match.group(1) != head and match.group(1) not in seen:
+            seen.append(match.group(1))
+    tip = git(ROOT, "rev-parse", "HEAD")
+    history = ROOT
+    for earlier in seen[:CARRY_MAX]:
+        try:
+            if history == ROOT and not has_commits(ROOT, (earlier, head)):
+                if not repo or scratch is None:
+                    continue
+                history = scratch / "history.git"
+                if not history.exists():
+                    git(scratch, "init", "-q", "--bare", str(history))
+                    git(history, "fetch", "-q", "--filter=tree:0", "--no-tags", f"https://github.com/{repo}",
+                        tip, head)
+            if subprocess.run(["git", "-C", str(history), "merge-base", "--is-ancestor", earlier, head],
+                              capture_output=True).returncode != 0:
+                continue  # not an ancestor of the head: a force-push replaced it
+            after = [line.split()
+                     for line in git(history, "rev-list", "--first-parent", "--parents", f"{earlier}..{head}").splitlines()]
+            if not after or any(len(line) != 3 for line in after):
+                continue  # not only merges after it: a commit of the pull request's own came after the review
+            # A private org member reads as untrusted; their receipts at this earlier head are looked up like the
+            # head's, so their SHIP counts and their BLOCK still wins (#32027). A failed lookup is reported like the
+            # head's, and that author's BLOCK still wins.
+            missed: dict[str, str] = {}
+            earlier_writers = repo_writers(repo, pull, earlier, writers, missed) if repo else []
+            if failed is not None:
+                failed.update(missed)
+            verdict = receipt_verdict(pull, earlier, [*writers, *earlier_writers], missed)
+            if not verdict or verdict[0] != "ship":
+                continue
+            base = git(history, "merge-base", tip, earlier)
+            if history == ROOT:
+                before_tree, head_tree = Tree(base), Tree(earlier)
+            else:
+                before_tree = sparse_tree(repo, base, scratch / f"base-{earlier[:12]}")
+                head_tree = sparse_tree(repo, earlier, scratch / f"head-{earlier[:12]}")
+            old, new = defaults(before_tree), defaults(head_tree)
+            then = changes(old, new) + guard_changes(before_tree, head_tree)
+        except (RuntimeError, SystemExit, OSError, ValueError, KeyError) as error:
+            print(f"::warning title=Defaults SHIP not carried::{earlier[:12]}: {str(error)[-200:]}")
+            continue
+        if [(c.id, c.old, c.new) for c in then] == wanted:
+            return verdict[1], earlier
+        print(f"SHIP at {earlier[:12]} not carried: its default changes differ from the head's")
+        # One defaults comparison a run: it doubles the judging time (about 40 s in CI), and the job has 5 minutes.
+        # The newest SHIP on the head's merge-only chain is the one that can cover it; an older one reviewed less.
+        return None
+    return None
+
+
 PULL_QUERY = """
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       author { login } headRefOid merged mergeCommit { oid }
-      reviews(last: 100) { nodes { author { login __typename } authorAssociation state body submittedAt commit { oid } } }
-      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename } } }
+      reviews(last: 100) { nodes { author { login __typename ... on Bot { id } } authorAssociation state body submittedAt commit { oid } } }
+      comments(last: 100) { nodes { databaseId body createdAt authorAssociation author { login __typename ... on Bot { id } } } }
     }
   }
 }
@@ -767,16 +1007,18 @@ def summary(text: str) -> None:
 
 
 def post_comment(repo: str, number: int, pull: Mapping[str, object], body: str, found: list[Change]) -> None:
-    existing = None
-    for comment in (pull.get("comments") or {}).get("nodes") or []:
-        if MARKER in str(comment.get("body") or "") and str((comment.get("author") or {}).get("login") or "") == "github-actions":
-            existing = comment.get("databaseId")
-    if existing is None and not found:
-        return  # nothing changed and nothing said before: no comment
-    if existing is None:
-        gh(["api", f"repos/{repo}/issues/{number}/comments", "-f", f"body={body}"])
-    else:
-        gh(["api", "-X", "PATCH", f"repos/{repo}/issues/comments/{existing}", "-f", f"body={body}"])
+    # Snapshot/check-fresh also run from small fixture checkouts without the writer.
+    import pr_status
+
+    if not found:
+        # Do not create a clean-defaults section unless this PR previously had one.
+        # Read the full comment list, not fetch_pull's last-100 receipt window.
+        comments = pr_status.list_comments(pr_status.http_api, repo, number)
+        previous = pr_status.bot_comments(comments, MARKER)
+        status = pr_status.bot_comments(comments, pr_status.MARKER)
+        if not previous and not any("defaults" in pr_status.parse(c["body"]) for c in status):
+            return
+    pr_status.upsert(repo, number, "defaults", body.removeprefix(MARKER).strip(), legacy=MARKER)
 
 
 # MARK: Commands
@@ -853,7 +1095,17 @@ def command_check(args: argparse.Namespace) -> int:
                 break
             time.sleep(5)
             pull = fetch_pull(args.repo, args.pr)
-    verdict = approval(owners, pull) if pull is not None else None
+    # The call owners come from the trusted base, so a receipt of theirs needs no REST lookup (#32983).
+    lookup_failed: dict[str, str] = {}
+    writers = [*owners, *(repo_writers(args.repo, pull, head_sha, owners, lookup_failed)
+                          if pull is not None and args.repo else [])]
+    verdict = approval(owners, pull, writers, lookup_failed) if pull is not None else None
+    needed = [c for c in found if c not in free]
+    if pull is not None and verdict is not None and needed and not verdict.approved and not verdict.blocked:
+        with tempfile.TemporaryDirectory(prefix="defaults-carry-") as scratch:
+            carried = carried_ship(pull, head_sha, writers, found, args.repo, Path(scratch), lookup_failed)
+        if carried:
+            verdict.shipped = f"{carried[0]}, carried from {carried[1][:12]} across base merges"
     if pull is not None and verdict is not None and verdict.head != head_sha:
         problems.append(f"DEFAULTS head: the pull request's head is {verdict.head[:12]}, not {head_sha[:12]}; re-run on the new head")
     merged = str((pull.get("mergeCommit") or {}).get("oid") or "") if pull and pull.get("merged") else None
@@ -867,16 +1119,21 @@ def command_check(args: argparse.Namespace) -> int:
     if args.comment and pull is not None:
         try:
             post_comment(args.repo, args.pr, pull, body, found)
-        except SystemExit as error:  # a fork's review event has a read-only token: the verdict stands
+        # comment failures never change the verdict; a checkout without the writer (main's
+        # pull_request_target sparse list may lag the guard) is one of them
+        except (SystemExit, RuntimeError, OSError, ImportError) as error:
             print(f"::warning title=Defaults comment not posted::{error}")
     if problems:
         return 1
-    needed = [c for c in found if c not in free]
     if needed and not (verdict and verdict.approved):
         who = " or ".join(verdict.eligible) if verdict else "a call owner"
         print(f"::error title=Default changes need a review::{len(needed)} default(s) changed; needs a comment or review "
               f"whose first line is `Review (<reviewer>): SHIP at {head_sha}` from a member (not a self-review), "
               f"or an approving review on {head_sha[:12]} from {who}")
+        for login, error in lookup_failed.items():
+            print(f"::error title=Defaults reviewer not checked::the receipt by {command_text(login)} was not checked: "
+                  f"GitHub did not say whether they have write access ({command_text(error)}), so their SHIP does "
+                  "not count and their BLOCK does; re-run this check when the API quota resets")
         return 1
     return 0
 

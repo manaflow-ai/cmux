@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # nightly.yml publish-nightly-next-github-names: "Record the published build in the release body". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the step's env: still sets every input.
+#
+# The step's notes, moved from nightly.yml:
+# The release body with the cmux-published-sha marker decide reads, as publish-nightly's
+# Record step writes it on the other channels.
 set -euo pipefail
 {
   printf '<!-- cmux-published-sha: %s -->\n' "$BUILD_SHA"

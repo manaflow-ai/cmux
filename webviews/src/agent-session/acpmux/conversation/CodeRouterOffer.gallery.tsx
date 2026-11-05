@@ -93,7 +93,7 @@ export default componentEntry<Props>({
       props: { harness: claude, error: "Invalid API key · Please run /login", routes: "coderouter" },
     },
     "rate-limited": {
-      note: "Capacity: Switch model stays the filled way out, Retry and CodeRouter after it.",
+      note: "Capacity: Retry is the filled way out, Switch model and CodeRouter after it.",
       props: { harness: claude, error: "API Error: 529 overloaded_error", routes: "coderouter" },
     },
     "on-coderouter": {

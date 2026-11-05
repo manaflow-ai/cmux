@@ -2,8 +2,9 @@ import Foundation
 
 /// Client-only presentation of the owner's feed. Filtering never marks an
 /// item read or changes the owner-confirmed selection.
-struct FeedInboxFilter: Equatable {
-    enum Connection: String, CaseIterable { case feed, github }
+nonisolated struct FeedInboxFilter: Equatable, Sendable {
+    /// `reports` shows the reports basket in place of the item list, so it filters no items.
+    enum Connection: String, CaseIterable { case feed, github, reports }
     enum Category: String, CaseIterable { case all, unread, needsYou, notices }
 
     var connection: Connection = .feed
@@ -13,6 +14,7 @@ struct FeedInboxFilter: Equatable {
     func items(from items: [FeedItem]) -> [FeedItem] {
         let terms = query.split(whereSeparator: \.isWhitespace).map(String.init)
         return items.filter { item in
+            if connection == .reports { return false }
             if connection == .github && !Self.isGitHub(item) { return false }
             switch category {
             case .all: break

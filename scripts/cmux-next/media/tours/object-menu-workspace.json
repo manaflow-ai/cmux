@@ -1,0 +1,68 @@
+{
+  "title": "The workspace right-click menu with Copy open (debug.object_menu); needs --whole-host for the menu shot",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Menus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Menus workspace",
+      "cmux": [
+        "workspace",
+        "name:Menus",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The workspace menu",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "menu": "workspace"
+        }
+      },
+      "wait": 1.5,
+      "shot": false,
+      "optional": "debug.object_menu is DEBUG only"
+    },
+    {
+      "title": "Its Copy",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "folders": [
+            "Copy"
+          ]
+        }
+      },
+      "wait": 2,
+      "display": true,
+      "optional": "the menu shot needs --whole-host"
+    },
+    {
+      "title": "Close the menus",
+      "rpc": {
+        "method": "debug.object_menu",
+        "params": {
+          "dismiss": true
+        }
+      },
+      "wait": 1.5,
+      "shot": false,
+      "optional": "debug.object_menu is DEBUG only"
+    }
+  ]
+}

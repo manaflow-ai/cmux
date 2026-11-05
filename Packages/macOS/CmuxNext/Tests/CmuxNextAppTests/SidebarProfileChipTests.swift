@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// The sidebar's bottom-left profile control (Leo and Lawrence 2026-10-20): the
 /// avatar alone at any width, with no name and no chevron; the name shows on
 /// hover and the full identity in its menu. Search and the spaces dots follow it.
-@MainActor @Suite(.serialized) struct SidebarProfileChipTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarProfileChipTests {
     struct Harness {
         let sidebar: SidebarView
         let window: NSWindow

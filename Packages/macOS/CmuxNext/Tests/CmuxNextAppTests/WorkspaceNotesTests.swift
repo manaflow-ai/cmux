@@ -69,10 +69,12 @@ struct WorkspaceNotesTests {
         #expect(cases.map(\.value) == ["auto", "todo", "working", "needs-attention", "review", "done"])
     }
 
-    @Test func theRowShowsTheDescriptionWithoutALeadStatusGlyph() throws {
+    /// A compact row has no second line of its own (Leo 2026-10-30: "remove the second line"): the
+    /// description shows in the row's hover card (and an expanded row's line), not under its name.
+    @Test func theDescriptionIsInTheHoverCardNotASecondLine() throws {
         let row = try Self.row(extra: #"{"description":"Ship the release\n- changelog","task_status":"done"}"#)
         let content = WorkspaceRowContent(row, preferences: .defaults)
-        #expect(content.detail == "Ship the release", "the description's first line leads the second line")
+        #expect(content.detail == nil, "the description drew a second line under the row's name")
         #expect(content.icon == nil, "task status is already represented by the trailing status dots")
 
         let card = WorkspaceHoverCardContent.make(row, machine: nil, now: Date())

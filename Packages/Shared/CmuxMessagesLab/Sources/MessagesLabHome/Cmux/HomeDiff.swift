@@ -45,11 +45,18 @@ struct HomeDiff: Equatable {
     static func plan(old: [TranscriptItem], new: [TranscriptItem], oldSummary: ConversationSummary?,
                      newSummary: ConversationSummary?, aliases: [IdempotencyKey: ID], me: ParticipantID,
                      media: @escaping HomeMapping.Media = { _ in nil }, links: @escaping HomeMapping.Links = { _ in nil },
-                     handOff: Set<IdempotencyKey> = []) -> HomeDiff {
+                     handOff: Set<IdempotencyKey> = [], opening: Bool = false) -> HomeDiff {
         var d = HomeDiff()
         let oldIndex = Dictionary(old.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { a, _ in a })
         let newKeys = Set(new.map(\.key))
         if old.contains(where: { !newKeys.contains($0.key) }) { d.rebuild = true; return d }
+        // The first page of a chat whose view opened before it came (a chat picked in the list) shows at
+        // once at its newest message, as Messages does: as receives its rows slid up into place, which
+        // reads as the chat scrolling to the bottom (the user, 2026-11-03). That holds for messages that
+        // arrive while the page is read too (`opening`). My own sends still fly in.
+        if old.isEmpty || opening, new.contains(where: { oldIndex[$0.key] == nil && aliases[$0.key] == nil }) {
+            d.rebuild = true; return d
+        }
         func id(_ i: TranscriptItem) -> ID { HomeMapping.id(i, aliases: aliases) }
         let roots = HomeMapping.roots(in: new, aliases: aliases, summary: newSummary, media: media, links: links)
         let oldRoots = HomeMapping.roots(in: old, aliases: aliases, summary: oldSummary, media: media, links: links)
@@ -62,18 +69,30 @@ struct HomeDiff: Equatable {
         if !page.isEmpty { d.actions.append(.prependPage(page.map(msg))) }
 
         let added = new.dropFirst(head).filter { oldIndex[$0.key] == nil && aliases[$0.key] == nil }
-        if added.count > bulk { d.rebuild = true; return d }
+        if added.count > bulk || added.contains(where: \.isReadOnly) { d.rebuild = true; return d }
         // The order the projection will have after these actions: the page, the rows it shows, my
         // sends flying in it (appended at the press), then each `.receive` appended in turn, with the
         // posted replies of running streams all where the first of them is (`handOffAt`). Any other
         // order than the store's is a rebuild.
         if !orderHolds(old: old, new: new, head: head, aliases: aliases, handOff: handOff) { d.rebuild = true; return d }
 
+        // A reply's thread place is a function of the reply, the messages it names and their authors'
+        // kinds: when none of those changed it is the same, and its root needs no mapping.
+        let samePeople = oldSummary?.participants == newSummary?.participants
+        let oldByMessage = byMessage(old), newByMessage = byMessage(new)
+        func samePlace(_ was: TranscriptItem, _ item: TranscriptItem) -> Bool {
+            guard samePeople, was == item else { return false }
+            return [item.threadRoot, item.replyTo?.message].allSatisfy { named in
+                named.map { oldByMessage.value(for: $0) == newByMessage.value(for: $0) } ?? true
+            }
+        }
+
         for item in new.dropFirst(head) { // // crash program: no range subscripts
             if let oi = oldIndex[item.key], let was = old[checked: oi] {
                 // A shown reply whose thread or parent changed (its root or parent paged in or out, or was retracted): MessagesLab has no action for it.
-                guard HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots),
-                      HomeMapping.parent(was, roots: oldRoots) == HomeMapping.parent(item, roots: roots) else { d.rebuild = true; return d }
+                guard samePlace(was, item)
+                    || (HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots)
+                        && HomeMapping.parent(was, roots: oldRoots) == HomeMapping.parent(item, roots: roots)) else { d.rebuild = true; return d }
                 guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), into: &d) else {
                     d.rebuild = true; return d
                 }
@@ -94,6 +113,13 @@ struct HomeDiff: Equatable {
         }
         d.keepNewestStatus()
         return d
+    }
+
+    /// The items by their owner message id (the last one wins, as `HomeMapping.roots(in:)` indexes them).
+    private static func byMessage(_ items: [TranscriptItem]) -> [MessageID: TranscriptItem] {
+        var out: [MessageID: TranscriptItem] = [:]
+        for item in items { if let mid = item.messageID { out.updateValue(item, forKey: mid) } }
+        return out
     }
 
     /// True when appending the new rows (`.receive`, the streams' hand-offs) leaves the projection in `new`'s order.
@@ -136,8 +162,10 @@ struct HomeDiff: Equatable {
         if !o.isRetracted, n.isRetracted { d.actions.append(.unsend(id)); return true }
         // MessagesLab's `.edit` replaces one text bubble: a text that shows as
         // several (Messages' link rule) before or after the edit is a rebuild.
-        let split = owners(o, oldSummary).count != o.parts.count || owners(n, newSummary).count != n.parts.count
-        if o.editedAt != n.editedAt, !n.isRetracted, !split, let text = n.parts.compactMap({ if case .text(let t, _) = $0 { t } else { nil } }).first {
+        // Mapped only for an edit: mapping both sides of every shown row on each store change
+        // stalled NIGHTLY's main thread for up to 418 ms (HomeDiffCostTests).
+        func split() -> Bool { owners(o, oldSummary).count != o.parts.count || owners(n, newSummary).count != n.parts.count }
+        if o.editedAt != n.editedAt, !n.isRetracted, !split(), let text = n.parts.compactMap({ if case .text(let t, _) = $0 { t } else { nil } }).first {
             d.actions.append(.edit(id, text))
         } else if o.parts != n.parts {
             return false

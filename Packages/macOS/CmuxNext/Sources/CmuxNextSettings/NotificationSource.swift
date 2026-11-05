@@ -17,6 +17,19 @@ public nonisolated enum NotificationSource: String, Hashable, Sendable, CaseIter
     }
 }
 
+public nonisolated extension NotificationSource {
+    /// What Settings calls this source (`notifications.sources.<source>`), for
+    /// any UI that names a notification's producer. One name and one catalog
+    /// key, so a row reads the way the setting that governs it does.
+    var settingsTitle: SettingText {
+        switch self {
+        case .cli: SettingsText.keyed("settings.notifications.source.cli", "cmux notify")
+        case .terminal: SettingsText.keyed("settings.notifications.source.terminal", "Terminal Programs")
+        case .agent: SettingsText.keyed("settings.notifications.source.agent", "Agents")
+        }
+    }
+}
+
 /// Per-source overrides (`notifications.sources.<source>`); nil keeps the global value.
 public nonisolated struct NotificationSourceOverrides: Hashable, Sendable {
     public var dismissal: NotificationDismissal?

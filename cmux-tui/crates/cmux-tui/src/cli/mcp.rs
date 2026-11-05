@@ -14,28 +14,40 @@
 //! comma-separated allowlist, the Chief's turns) lists exactly those tools
 //! and refuses every other call, from a script too.
 
+use cmux_json::JsonSet as _;
+
 mod action_tools;
 mod agent_dispatch_tools;
 mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
+mod automation_tools;
 mod browser_tools;
 mod caller_scope;
+mod chat_tools;
+mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod open_tool;
 mod placement;
+mod remote_tools;
 mod render_tool;
 mod schema;
+mod settings_tools;
 mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
 mod transport;
 mod upstream;
+mod upstream_listing;
 mod v2_tools;
+mod video_tools;
 mod watch;
+mod workflow;
+mod workflow_tools;
 
 use std::collections::BTreeSet;
 use std::io::{self, BufRead, Read, Write};
@@ -44,6 +56,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
+use super::cloud_workspaces;
 use super::command::RequestPlan;
 use super::{GlobalArgs, OutputMode};
 use action_tools::ActionTool;
@@ -77,6 +90,32 @@ pub(super) fn cli_backend(global: GlobalArgs) -> impl Backend {
     LiveBackend { global }
 }
 
+pub(super) fn workflow_run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
+    workflow::run(global, run_id, generation)
+}
+
+pub(super) fn workflow_command(global: GlobalArgs, arguments: Value) -> i32 {
+    let output = global.output;
+    let mut server = Server::new(LiveBackend { global }, None);
+    server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
+    match server.call(&json!({"name":workflow_tools::NAME,"arguments":arguments})) {
+        Ok(result) if result.get("isError").and_then(Value::as_bool) == Some(true) => {
+            super::wire::print_local_error(
+                result.pointer("/structuredContent/error").unwrap_or(&Value::Null),
+                output,
+                1,
+            )
+        }
+        Ok(result) => super::wire::print_local_success(
+            result.get("structuredContent").unwrap_or(&Value::Null),
+            output,
+        ),
+        Err((code, message)) => {
+            super::wire::print_local_error(&json!({"code":code,"message":message}), output, 2)
+        }
+    }
+}
+
 /// A failed owner call as the CLI prints it: the owner's error with its
 /// `state` and idempotency key in `details`.
 #[cfg(unix)]
@@ -94,25 +133,12 @@ pub(super) fn agent_failure_value(failure: CallFailure) -> Value {
     error
 }
 
-/// MCP revisions this server speaks, newest first.
-const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 /// The largest JSON-RPC line read from the client.
 const MAX_MESSAGE_BYTES: usize = 8 << 20;
 /// The largest tool result; a larger page is cut and says where to go on.
 pub(super) const MAX_RESULT_BYTES: usize = 256 << 10;
 
-const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its session daemon. \
-    Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, win_…) that the \
-    *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
-    `current` is this chat's own workspace or pane; `focused` is the one the person looks at. \
-    A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
-    key from the error so it cannot apply twice. Tools never move the user's focus unless the \
-    call passes focus: true or the tool's purpose is focus. \
-    Name workspaces and tabs to the person by their titles, never by an id they cannot see. \
-    When the person must act in a tab (log in, confirm, approve, pick), mark it: tab_update \
-    {tab, attention: \"reason\"}; when they ask to go there, tab_focus it. \
-    In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
-    path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
+const INSTRUCTIONS: &str = acpmux::agent_tools::prompt_sources::BASE_INSTRUCTIONS;
 
 /// A catalog entry that is not a tool, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -152,6 +178,14 @@ pub(super) trait Backend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
+    /// One legacy daemon command (cmux Remote's `remote-host-*`).
+    fn daemon(&self, _request: Value) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "daemon.unavailable",
+            "this server cannot reach the daemon",
+        ))
+    }
     /// One harness-agnostic agent dispatch request. The acpmux daemon owns
     /// target selection, brief persistence and sender attribution; this
     /// surface deliberately carries no shell command or remote path.
@@ -169,6 +203,29 @@ pub(super) trait Backend {
             "this server cannot reach acpmux agent dispatch",
         ))
     }
+    /// One `cmux automation WORDS…` verb, run by the CLI's own code
+    /// (`automation_tools`); `idempotency_key` keys a Cloud mutation.
+    fn automation(
+        &self,
+        _words: &[String],
+        _idempotency_key: Option<&str>,
+    ) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "automation.unavailable",
+            "this server cannot reach the automation store",
+        ))
+    }
+
+    /// Cloud chat repo actions run on the selected machine daemon.
+    fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "repo.unavailable",
+            "Connect to the Cloud machine and retry.",
+        ))
+    }
+
     /// App calls that may run on another thread: a computer use call's
     /// setup card waits with the call, not on this server's thread
     /// (`computer_use_gate`). `None`: the call runs without the card.
@@ -182,6 +239,11 @@ pub(super) trait Backend {
     /// The app's focus from `snapshot.get` (placement.rs).
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
         Ok(None)
+    }
+    /// The terminal this server's client runs in (`CMUX_TUI_TERMINAL_ID`),
+    /// for placing it without an app (placement.rs `daemon_caller`).
+    fn caller_terminal(&self) -> Option<String> {
+        std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())
     }
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
@@ -197,6 +259,13 @@ pub(super) trait Backend {
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
     ) -> Result<(), CallFailure>;
 
+    /// Whether this server's default route is the session the cmux app owns
+    /// (no `--session`, `--socket` or `--machine`), so `workspace_list` adds
+    /// the app's Cloud workspaces.
+    fn app_session(&self) -> bool {
+        true
+    }
+
     /// A `cmux agents chat` verb: the daemon (agent messages, workspaces)
     /// and acpmux (chats) together. A backend without both runs none.
     fn chat(
@@ -211,6 +280,25 @@ pub(super) trait Backend {
                           "details": {}, "retryable": false}),
             idempotency_key: None,
         })
+    }
+
+    /// A scoped chat read for agent waits. The session is routed by the same
+    /// owner policy as a daemon read; the default does not guess another session.
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        if session.is_some() {
+            return Err(CallFailure::local(
+                FailureKind::NotRun,
+                "chat.unavailable",
+                "this backend cannot route chats to another cmux session",
+            ));
+        }
+        self.chat(command, idempotency_key, origin)
     }
 }
 
@@ -240,6 +328,40 @@ impl LiveBackend {
 }
 
 impl Backend for LiveBackend {
+    fn app_session(&self) -> bool {
+        self.global.session.is_none()
+            && self.global.socket.is_none()
+            && self.global.machine.is_none()
+    }
+
+    fn cloud_repo(&self, action: &str, args: Value) -> Result<Value, CallFailure> {
+        super::cloud_repo::call(&self.global, action, args)
+    }
+
+    fn automation(
+        &self,
+        words: &[String],
+        idempotency_key: Option<&str>,
+    ) -> Result<Value, CallFailure> {
+        let mut global = self.global.clone();
+        global.output = OutputMode::Json;
+        global.idempotency_key = idempotency_key.map(str::to_owned);
+        super::automation::run_json(&global, words).map_err(|(error, unknown)| CallFailure {
+            kind: if unknown { FailureKind::InProgress } else { FailureKind::Rejected },
+            error,
+            idempotency_key: idempotency_key.map(str::to_owned),
+        })
+    }
+
+    #[cfg(unix)]
+    fn daemon(&self, mut request: Value) -> Result<Value, CallFailure> {
+        if let Some(fields) = request.as_object_mut() {
+            fields.insert("id".into(), json!(1));
+        }
+        super::remote_host::daemon_value(&self.global, &request)
+            .map_err(remote_tools::daemon_failure)
+    }
+
     fn resource(
         &self,
         session: Option<&str>,
@@ -312,6 +434,16 @@ impl Backend for LiveBackend {
         origin: &str,
     ) -> Result<Value, CallFailure> {
         super::agents::chat::run(&self.global, command, idempotency_key, origin)
+    }
+
+    fn chat_in_session(
+        &self,
+        session: Option<&str>,
+        command: &super::agents::chat::ChatCommand,
+        idempotency_key: Option<&str>,
+        origin: &str,
+    ) -> Result<Value, CallFailure> {
+        super::agents::chat::run(&self.routed(session)?, command, idempotency_key, origin)
     }
 }
 
@@ -465,6 +597,36 @@ fn list_tools(global: GlobalArgs) -> i32 {
     i32::from(written.is_err()) * 3
 }
 
+/// The session and terminal a planned terminal call names: where
+/// [`Server::wait_past_typed`] remembers what was typed.
+fn typed_key(call: &v2_tools::CallPlan) -> Option<(Option<String>, String)> {
+    let terminal = call.plan.params.get("terminal")?.as_str()?;
+    Some((call.session.clone(), terminal.to_owned()))
+}
+
+/// A history answer's rows as one `text` of lines (`{start, next, text}`): each unstyled
+/// row is one run, so the row's text is its runs joined.
+fn history_text(mut value: Value) -> Value {
+    let Some(rows) = value.get("rows").and_then(Value::as_array) else { return value };
+    let text = rows
+        .iter()
+        .map(|row| {
+            row.get("runs")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|run| run.get("text").and_then(Value::as_str))
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if let Some(object) = value.as_object_mut() {
+        object.remove("rows");
+        object.insert("text".into(), json!(text));
+    }
+    value
+}
+
 /// The stdio JSON-RPC server: one request per line, answered in order.
 pub(super) struct Server<B> {
     backend: B,
@@ -484,6 +646,9 @@ pub(super) struct Server<B> {
     /// `CMUX_MCP_TOOLS`: the only tools listed and callable. It turns code
     /// mode off (the few tools are listed directly).
     allowed: Option<BTreeSet<String>>,
+    /// Only the workflow host adapter can install this one-use operation.
+    /// Script arguments never create an authenticated daemon activity.
+    workflow_activity: Option<workflow::Internal>,
     /// The agent chat's other MCP servers (`upstream`), behind this one.
     upstreams: Vec<upstream::Proxied>,
     /// While a `cmux_exec` script runs: its time limit, which also bounds a
@@ -495,6 +660,9 @@ pub(super) struct Server<B> {
     notes: Option<watch::Output>,
     /// The ids `render` returned in this process: a render may update only one of these.
     renders: std::collections::HashSet<String>,
+    /// The last text `terminal_input_write` typed into each terminal (by the session and
+    /// terminal the call named), for [`Self::wait_past_typed`].
+    typed: std::cell::RefCell<std::collections::HashMap<(Option<String>, String), String>>,
 }
 
 impl<B: Backend> Server<B> {
@@ -510,9 +678,11 @@ impl<B: Backend> Server<B> {
             code_mode: false,
             script_limits: code_mode::Limits::default(),
             allowed: None,
+            workflow_activity: None,
             upstreams: Vec::new(),
             call_cap: None,
             call_deadline: None,
+            typed: std::cell::RefCell::default(),
             notes: None,
             renders: std::collections::HashSet::new(),
         }
@@ -576,12 +746,22 @@ impl<B: Backend> Server<B> {
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
             "initialize" => {
-                Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
+                chat_tools::remember_client(&params);
+                let code_mode = self.code_mode && self.allowed.is_none();
+                let wrap_up = code_mode
+                    && self.upstreams.iter().any(|up| up.name == code_mode::WRAP_UP_SERVER);
+                Ok(initialize(&params, self.list_changed, code_mode, wrap_up))
             }
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
                 let tools = self.list();
-                Ok(json!({ "tools": code_mode::descriptors(&tools) }))
+                let mut exposed = code_mode::descriptors(&tools);
+                if let Some(workflow) =
+                    tools.iter().find(|tool| tool["name"] == workflow_tools::NAME)
+                {
+                    exposed.push(workflow.clone());
+                }
+                Ok(json!({ "tools": exposed }))
             }
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => {
@@ -611,6 +791,15 @@ impl<B: Backend> Server<B> {
     /// when the app answers.
     pub(super) fn list(&mut self) -> Vec<Value> {
         self.refresh_actions();
+        for proxied in &mut self.upstreams {
+            proxied.refresh();
+        }
+        self.listed()
+    }
+
+    /// [`Self::list`] from the actions and proxied tools as last read,
+    /// asking nothing again.
+    fn listed(&self) -> Vec<Value> {
         let mut tools =
             v2_tools::tools().iter().map(v2_tools::V2Tool::descriptor_json).collect::<Vec<_>>();
         tools
@@ -619,17 +808,25 @@ impl<B: Backend> Server<B> {
         tools.push(super::agents::snapshot_tool());
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
         tools.extend(agent_dispatch_tools::descriptors());
+        tools.push(workflow_tools::descriptor());
+        tools.extend(cloud_repo_tools::descriptors());
+        tools.extend(chat_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
         tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
+        tools.push(open_tool::descriptor());
+        tools.extend(video_tools::descriptors());
+        tools.extend(remote_tools::TOOLS.iter().map(remote_tools::RemoteTool::descriptor_json));
+        tools
+            .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
+        tools.extend(automation_tools::descriptors());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
         tools.extend(self.actions.iter().map(ActionTool::descriptor_json));
-        for proxied in &mut self.upstreams {
-            proxied.refresh();
+        for proxied in &self.upstreams {
             let taken = tools
                 .iter()
                 .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
@@ -661,15 +858,7 @@ impl<B: Backend> Server<B> {
         }
     }
 
-    fn call(&mut self, params: &Value) -> Result<Value, (i64, String)> {
-        let name = params["name"]
-            .as_str()
-            .ok_or_else(|| (-32602, "tools/call needs a tool name".to_string()))?;
-        let arguments = match params.get("arguments") {
-            None | Some(Value::Null) => Map::new(),
-            Some(Value::Object(arguments)) => arguments.clone(),
-            Some(_) => return Err((-32602, "tools/call arguments must be an object".into())),
-        };
+    fn tool_refusal(&self, name: &str) -> Option<Value> {
         if let Some(path) = &self.config
             && let Some(message) = refusal(path)
         {
@@ -679,7 +868,7 @@ impl<B: Backend> Server<B> {
                 "details": {},
                 "retryable": false,
             });
-            return Ok(tool_error(envelope(error, "not_run", None)));
+            return Some(tool_error(envelope(error, "not_run", None)));
         }
         if let Some(allowed) = &self.allowed
             && !allowed.contains(name)
@@ -690,7 +879,30 @@ impl<B: Backend> Server<B> {
                 "details": {},
                 "retryable": false,
             });
-            return Ok(tool_error(envelope(error, "not_run", None)));
+            return Some(tool_error(envelope(error, "not_run", None)));
+        }
+        None
+    }
+
+    fn call(&mut self, params: &Value) -> Result<Value, (i64, String)> {
+        let name = params["name"]
+            .as_str()
+            .ok_or_else(|| (-32602, "tools/call needs a tool name".to_string()))?;
+        let arguments = match params.get("arguments") {
+            None | Some(Value::Null) => Map::new(),
+            Some(Value::Object(arguments)) => arguments.clone(),
+            Some(_) => return Err((-32602, "tools/call arguments must be an object".into())),
+        };
+        if let Some(refusal) = self.tool_refusal(name) {
+            return Ok(refusal);
+        }
+        if name == "cmux_workflow"
+            && let Some(operation) = self.workflow_activity.take()
+        {
+            return Ok(workflow::internal_call(&self.backend, operation));
+        }
+        if name == workflow_tools::NAME {
+            return Ok(workflow_tools::call(&self.backend, &arguments));
         }
         if name == code_mode::DOCS {
             let tools = self.list();
@@ -723,6 +935,12 @@ impl<B: Backend> Server<B> {
         }
         if let Some(job) = self.proxied_tool(name, &arguments) {
             return Ok(job.run(self.call_cap));
+        }
+        if let Some(result) = chat_tools::call(name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = cloud_repo_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
         }
         if let Some(tool) = v2_tools::find(name) {
             return Ok(self.call_v2(tool, &arguments));
@@ -833,11 +1051,29 @@ impl<B: Backend> Server<B> {
             let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
             return Ok(terminal_talk_tools::call_send(&self.backend, &arguments, progress));
         }
+        if let Some(result) = self.call_video(name, &arguments) {
+            return Ok(result);
+        }
+        if name == open_tool::NAME {
+            if !self.actions_loaded {
+                self.refresh_actions();
+            }
+            return Ok(self.call_open(&arguments));
+        }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
                 Ok(receipt) => success(receipt, false),
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });
+        }
+        if let Some(tool) = settings_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
+        }
+        if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(tool) = remote_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {
@@ -860,9 +1096,156 @@ impl<B: Backend> Server<B> {
             self.refresh_actions();
         }
         let Some(tool) = self.actions.iter().find(|tool| tool.name == name) else {
-            return Err((-32602, format!("unknown tool: {name}")));
+            return Err((-32602, self.unknown_tool(name)));
         };
         Ok(self.call_action(tool, &arguments))
+    }
+
+    /// `unknown tool: NAME`, naming the nearest tool `tools/list` offers when
+    /// one is close (`acpmux::mcp_hint`): in code mode only `cmux_exec`.
+    fn unknown_tool(&self, name: &str) -> String {
+        if self.code_mode && self.allowed.is_none() {
+            return acpmux::mcp_hint::unknown_tool(name, [code_mode::EXEC]);
+        }
+        let listed = self.listed();
+        acpmux::mcp_hint::unknown_tool(name, listed.iter().filter_map(|tool| tool["name"].as_str()))
+    }
+
+    /// A terminal tool called with a `tab` and no `terminal`, or a tab or pane given as
+    /// `terminal`: the terminal that tab (or the pane's shown tab) shows, its `content_id`. Models name a terminal by the tab id they listed
+    /// (tests/tool-evals: 39 "needs terminal" errors in one 9-model panel). Other calls
+    /// pass unchanged.
+    fn terminal_of_tab<'a>(
+        &self,
+        tool: &v2_tools::V2Tool,
+        arguments: &'a Map<String, Value>,
+    ) -> Result<std::borrow::Cow<'a, Map<String, Value>>, Value> {
+        // Only a tool that needs a terminal: `terminal_list` takes `tab` as a filter.
+        if !tool.needs_terminal() {
+            return Ok(std::borrow::Cow::Borrowed(arguments));
+        }
+        // The tab that names the terminal: `tab`, or a `terminal` that is really a tab, by
+        // its id (`tab_…`) or by a name with no scope above it (`terminal: "eval"` for the
+        // tab named eval, which the daemon's terminal name selector cannot find without a
+        // tab). tests/tool-evals m1: three models named a terminal by its tab.
+        let terminal_arg = arguments.get("terminal").and_then(Value::as_str);
+        let scoped =
+            ["workspace", "screen", "pane", "tab"].iter().any(|key| arguments.contains_key(*key));
+        let tab_like = terminal_arg.filter(|value| {
+            let bare = value.rsplit_once(':').map_or(*value, |(_, id)| id);
+            bare.starts_with("tab_")
+                || bare.starts_with("pane_")
+                || (!scoped
+                    && !bare.starts_with("term_")
+                    && !matches!(bare, "current" | "focused" | "caller"))
+        });
+        let tab = match (arguments.get("tab").and_then(Value::as_str), terminal_arg) {
+            (Some(tab), None) => tab,
+            (None, Some(_)) if tab_like.is_some() => tab_like.unwrap_or_default(),
+            _ => return Ok(std::borrow::Cow::Borrowed(arguments)),
+        };
+        // A `<session>:tab_…` names another session: the terminal gets the same prefix.
+        let session = tab.rsplit_once(':').map(|(session, _)| session.to_owned());
+        let mut lookup = Map::new();
+        for key in ["session", "workspace", "screen", "pane"] {
+            if let Some(value) = arguments.get(key) {
+                lookup.insert(key.into(), value.clone());
+            }
+        }
+        lookup.insert("tab".into(), Value::String(tab.to_owned()));
+        let Some(tab_get) = v2_tools::find("tab_get") else {
+            return Ok(std::borrow::Cow::Borrowed(arguments));
+        };
+        // A `tab_…` id, or a name under a named workspace, screen or pane, resolves with
+        // tab_get. A name with no scope does not: the daemon finds a tab name only under
+        // its pane, so the session's tabs are listed and the name is used only when
+        // exactly one tab has it.
+        let bare = tab.rsplit_once(':').map_or(tab, |(_, id)| id);
+        let under_scope =
+            ["workspace", "screen", "pane"].iter().any(|key| arguments.contains_key(*key));
+        let record = if bare.starts_with("pane_") {
+            // A pane named where a terminal goes (`terminal: n.pane.id` after
+            // pane_neighbor_get, tests/tool-evals m1): the terminal of the tab it shows.
+            let Some(tab_list) = v2_tools::find("tab_list") else {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            };
+            let mut list = Map::new();
+            if let Some(session) = arguments.get("session") {
+                list.insert("session".into(), session.clone());
+            }
+            list.insert("pane".into(), Value::String(tab.to_owned()));
+            let answer = self.call_v2(tab_list, &list);
+            if answer.get("isError").and_then(Value::as_bool) == Some(true) {
+                return Err(answer);
+            }
+            let items = answer
+                .pointer("/structuredContent/items")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let shown = match items.as_slice() {
+                [only] => Some(only),
+                items => items.iter().find(|item| item["focused"] == true),
+            };
+            let Some(shown) = shown else {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            };
+            shown.clone()
+        } else if bare.starts_with("tab_") || under_scope {
+            let answer = self.call_v2(tab_get, &lookup);
+            if answer.get("isError").and_then(Value::as_bool) == Some(true) {
+                return Err(answer);
+            }
+            let record = answer.get("structuredContent").unwrap_or(&Value::Null);
+            record.get("value").unwrap_or(record).clone()
+        } else {
+            let Some(tab_list) = v2_tools::find("tab_list") else {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            };
+            let mut list = Map::new();
+            // The call's session, else the `<session>:` the name carried.
+            if let Some(session) =
+                arguments.get("session").cloned().or_else(|| session.clone().map(Value::String))
+            {
+                list.insert("session".into(), session);
+            }
+            list.insert("limit".into(), json!(500));
+            let answer = self.call_v2(tab_list, &list);
+            let items = answer
+                .pointer("/structuredContent/items")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let named: Vec<Value> =
+                items.into_iter().filter(|item| item["name"].as_str() == Some(bare)).collect();
+            // No tab, or several, by that name: the daemon judges it as a terminal name.
+            let [only] = named.as_slice() else {
+                return Ok(std::borrow::Cow::Borrowed(arguments));
+            };
+            only.clone()
+        };
+        let record = &record;
+        let Some(terminal) = record["content_id"].as_str().filter(|id| id.starts_with("term_"))
+        else {
+            return Err(tool_error(envelope(
+                v2_tools::invalid(format!(
+                    "{} needs terminal: that tab shows no terminal",
+                    tool.name
+                )),
+                "not_run",
+                None,
+            )));
+        };
+        let terminal = match session {
+            Some(session) => format!("{session}:{terminal}"),
+            None => terminal.to_owned(),
+        };
+        let mut with_terminal = arguments.clone();
+        for key in ["tab", "pane", "screen", "workspace"] {
+            with_terminal.remove(key);
+        }
+        with_terminal.insert("terminal".into(), Value::String(terminal));
+        Ok(std::borrow::Cow::Owned(with_terminal))
     }
 
     /// One request from a running `cmux_exec` script: a tool call through
@@ -874,6 +1257,9 @@ impl<B: Backend> Server<B> {
         images: &mut Vec<Value>,
     ) -> Value {
         match request {
+            code_mode::Request::ActivityStart { .. } | code_mode::Request::ActivityWait { .. } => {
+                json!({"ok": false, "message": "workflow activities require a daemon-owned run"})
+            }
             code_mode::Request::Call { name, .. } if name == code_mode::EXEC => {
                 code_mode::script_answer(
                     Err((-32602, "a script cannot start another script".into())),
@@ -881,7 +1267,20 @@ impl<B: Backend> Server<B> {
                 )
             }
             code_mode::Request::Call { name, arguments } => {
-                let result = self.call(&json!({"name": name, "arguments": arguments}));
+                let mut result = self.call(&json!({"name": name, "arguments": arguments}));
+                // A guessed name (`context`, `terminal_send`) gets the tools
+                // a docs search for it finds, so the next call can be right
+                // (tests/tool-evals, 2026-10-27).
+                if let Err((_, message)) = &mut result
+                    && message.starts_with("unknown tool")
+                    && !message.contains("; did you mean")
+                {
+                    let tools = tools.get_or_insert_with(|| self.list());
+                    let near = code_mode::nearest_names(tools, &name);
+                    if !near.is_empty() {
+                        message.push_str(&format!("; did you mean {}?", near.join(", ")));
+                    }
+                }
                 code_mode::script_answer(result, images)
             }
             code_mode::Request::Docs { query } => {
@@ -900,7 +1299,32 @@ impl<B: Backend> Server<B> {
     }
 
     fn call_v2(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Value {
+        // `workspace_list {machine}`: one Cloud machine's workspaces, from the app.
+        let mut arguments = std::borrow::Cow::Borrowed(arguments);
+        let mut cloud = tool.wire == "workspace.list";
+        if cloud && let Some(machine) = arguments.to_mut().remove("machine") {
+            match machine.as_str().filter(|machine| !machine.is_empty()) {
+                Some("current" | "local") => cloud = false,
+                Some(machine) => return self.cloud_workspaces(machine, &arguments),
+                None => {
+                    return tool_error(envelope(
+                        v2_tools::invalid("machine must be a non-empty string"),
+                        "not_run",
+                        None,
+                    ));
+                }
+            }
+        }
+        let arguments = &*arguments;
         let arguments = match self.place_beside(tool, arguments) {
+            Ok(arguments) => arguments,
+            Err(answer) => return answer,
+        };
+        let arguments = match self.terminal_of_tab(tool, &arguments) {
+            Ok(arguments) => arguments,
+            Err(answer) => return answer,
+        };
+        let arguments = match self.tab_move_destination(tool, &arguments) {
             Ok(arguments) => arguments,
             Err(answer) => return answer,
         };
@@ -912,7 +1336,53 @@ impl<B: Backend> Server<B> {
             return tool_error(envelope(error, "not_run", None));
         }
         let page = call.page;
+        // History an agent reads is plain lines: `styled` (colors and attributes per run)
+        // defaults to true in the daemon, and a 300-line read was 88k characters
+        // (tests/tool-evals r13a). Asked for `styled`, the rows come as the daemon sends them.
+        let plain_history =
+            tool.wire == "terminal.history.read" && !arguments.contains_key("styled");
+        if plain_history && let Some(params) = call.plan.params.as_object_mut() {
+            params.insert("styled".into(), json!(false));
+        }
+        let typed = self.wait_past_typed(tool, &mut call);
+        let wrote = (tool.wire == "terminal.input.write")
+            .then(|| {
+                typed_key(&call)
+                    .zip(call.plan.params.get("text").and_then(Value::as_str).map(str::to_owned))
+            })
+            .flatten();
+        let call_session = call.session.clone();
         match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
+            Ok(value) if typed.is_some() => success(
+                {
+                    let mut value = value;
+                    if let (Some(note), Some(object)) = (typed, value.as_object_mut()) {
+                        object.insert("note".into(), json!(note));
+                    }
+                    value
+                },
+                tool.mutation,
+            ),
+            Ok(value) if wrote.is_some() => {
+                if let Some((key, text)) = wrote {
+                    self.typed.borrow_mut().insert(key, text);
+                }
+                success(value, tool.mutation)
+            }
+            Ok(value) if plain_history => success(history_text(value), tool.mutation),
+            // The session the app owns lists the app's Cloud workspaces too.
+            Ok(value) if cloud && call_session.is_none() && self.backend.app_session() => success(
+                {
+                    let rows =
+                        self.cloud_machines().map(|machines| cloud_workspaces::rows(&machines));
+                    let value = cloud_workspaces::append(value, rows.unwrap_or_default());
+                    match page {
+                        Some(page) => v2_tools::paginate(value, page),
+                        None => value,
+                    }
+                },
+                tool.mutation,
+            ),
             Ok(value) => success(
                 match page {
                     Some(page) => v2_tools::paginate(value, page),
@@ -922,6 +1392,79 @@ impl<B: Backend> Server<B> {
             ),
             Err(failure) => failure_result(failure),
         }
+    }
+
+    /// The app's Cloud machines (`cloud.machines`), or `None` when the app has
+    /// none to give (no app, Cloud off, an older app): the list stands alone.
+    fn cloud_machines(&self) -> Option<Vec<Value>> {
+        let reply = self
+            .backend
+            .app("cloud.machines", json!({}), CLOUD_MACHINES_TIMEOUT, None, false)
+            .ok()?;
+        cloud_workspaces::machines_of(&reply)
+    }
+
+    /// `workspace_list {machine}` for a Cloud machine: its workspaces as the
+    /// app's store has them, one page as the daemon's list pages.
+    fn cloud_workspaces(&self, selector: &str, arguments: &Map<String, Value>) -> Value {
+        let page = match cloud_page(arguments) {
+            Ok(page) => page,
+            Err(error) => return tool_error(envelope(error, "not_run", None)),
+        };
+        let machines = self.cloud_machines().unwrap_or_default();
+        match cloud_workspaces::find(&machines, selector) {
+            Ok(Some(machine)) => success(
+                v2_tools::paginate(Value::Array(cloud_workspaces::machine_rows(machine)), page),
+                false,
+            ),
+            Ok(None) => tool_error(envelope(
+                json!({
+                    "code": "selector.not_found",
+                    "message": format!(
+                        "no Cloud machine matches {selector:?}; `app_cloud_list_machines` (cmux cloud \
+                         list-machines) lists their ids, and workspace_list without machine lists \
+                         every machine's workspaces"
+                    ),
+                    "details": {"scope": "machine", "selector": selector},
+                    "retryable": false,
+                }),
+                "rejected",
+                None,
+            )),
+            Err(ambiguous) => tool_error(envelope(ambiguous, "rejected", None)),
+        }
+    }
+
+    /// A `terminal_wait` whose pattern the command this server just typed there also
+    /// matches waits for it at the start of a line: the typed command line stays on the
+    /// screen after the prompt, so `pattern: "DONE"` after `cmd; echo DONE` matched at
+    /// once, before the command ran (tests/tool-evals r3j: GLM models said "done" four
+    /// seconds early). Answers the note the result then carries.
+    fn wait_past_typed(
+        &self,
+        tool: &v2_tools::V2Tool,
+        call: &mut v2_tools::CallPlan,
+    ) -> Option<String> {
+        if tool.wire != "terminal.wait" {
+            return None;
+        }
+        let key = typed_key(call)?;
+        let typed = self.typed.borrow().get(&key).cloned()?;
+        let pattern = call.plan.params.get("pattern")?.as_str()?.to_owned();
+        if pattern.starts_with('^') || pattern.starts_with("(?m)") {
+            return None;
+        }
+        // On screen the typed line follows the prompt, so an output line is the one
+        // that starts with the match.
+        if !regex::Regex::new(&pattern).ok()?.is_match(&typed) {
+            return None;
+        }
+        let anchored = format!("(?m)^\\s*(?:{pattern})");
+        call.plan.params.set("pattern", json!(anchored));
+        Some(format!(
+            "pattern {pattern:?} is also in the command typed here, so this waited for it at \
+             the start of an output line: {anchored:?}"
+        ))
     }
 
     fn call_window_list(&self, arguments: &Map<String, Value>) -> Value {
@@ -951,20 +1494,18 @@ impl<B: Backend> Server<B> {
     }
 }
 
-fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
-    let requested = params["protocolVersion"].as_str();
-    let version = PROTOCOL_VERSIONS
-        .iter()
-        .find(|version| Some(**version) == requested)
-        .unwrap_or(&PROTOCOL_VERSIONS[0]);
+/// `wrap_up`: the chat's acpmux server is folded in, so its next-step box is steered to here too
+/// (code_mode.rs [`code_mode::WRAP_UP_INSTRUCTION`]).
+fn initialize(params: &Value, list_changed: bool, code_mode: bool, wrap_up: bool) -> Value {
     json!({
-        "protocolVersion": version,
+        "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": format!(
-            "{} {}",
+            "{} {}{}",
             if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
-            acpmux::agent_tools::ASKING_RULE
+            acpmux::agent_tools::ASKING_RULE,
+            if wrap_up { code_mode::WRAP_UP_INSTRUCTION } else { "" }
         ),
     })
 }
@@ -1025,10 +1566,10 @@ fn fit(mut value: Value) -> Result<Value, Value> {
     {
         let keep = items.len() / 2;
         items.truncate(keep);
-        value["truncated"] = json!(true);
-        value["returned"] = json!(keep);
+        value.set("truncated", json!(true));
+        value.set("returned", json!(keep));
         if let Some(offset) = value.get("offset").and_then(Value::as_u64) {
-            value["next_offset"] = json!(offset + keep as u64);
+            value.set("next_offset", json!(offset + keep as u64));
         }
         if size(&value) <= MAX_RESULT_BYTES {
             return Ok(value);
@@ -1052,7 +1593,7 @@ fn fit(mut value: Value) -> Result<Value, Value> {
 fn envelope(error: Value, state: &str, idempotency_key: Option<&str>) -> Value {
     let mut envelope = json!({ "error": error, "state": state });
     if let Some(key) = idempotency_key {
-        envelope["idempotency_key"] = json!(key);
+        envelope.set("idempotency_key", json!(key));
     }
     envelope
 }
@@ -1077,6 +1618,34 @@ pub(super) fn failure_result(failure: CallFailure) -> Value {
         .unwrap_or(failure.kind.state())
         .to_owned();
     tool_error(envelope(failure.error, &state, failure.idempotency_key.as_deref()))
+}
+
+/// How long `workspace_list` waits for the app's `cloud.machines`, a short
+/// main-actor read (the CLI's `machine list` bound).
+const CLOUD_MACHINES_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// The page `workspace_list {machine, offset, limit}` answers.
+fn cloud_page(arguments: &Map<String, Value>) -> Result<v2_tools::Page, Value> {
+    let count = |name: &str, maximum: usize| match arguments.get(name) {
+        None => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .and_then(|value| usize::try_from(value).ok())
+            .filter(|value| *value <= maximum)
+            .map(Some)
+            .ok_or_else(|| {
+                v2_tools::invalid(format!("{name} must be an integer from 0 to {maximum}"))
+            }),
+    };
+    if let Some(name) = arguments.keys().find(|name| !matches!(name.as_str(), "offset" | "limit")) {
+        return Err(v2_tools::invalid(format!(
+            "workspace_list with a Cloud machine has no argument {name:?}"
+        )));
+    }
+    Ok(v2_tools::Page {
+        offset: count("offset", usize::MAX)?.unwrap_or(0),
+        limit: count("limit", v2_tools::MAX_PAGE)?.unwrap_or(v2_tools::DEFAULT_PAGE).max(1),
+    })
 }
 
 fn tool_error(envelope: Value) -> Value {

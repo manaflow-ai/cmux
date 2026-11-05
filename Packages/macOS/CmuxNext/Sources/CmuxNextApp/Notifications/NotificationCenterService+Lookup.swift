@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextBridge
@@ -39,7 +40,7 @@ extension NotificationCenterService {
 
     /// The tab is the focused content of the key window while cmux is active.
     func isViewed(_ tabID: String) -> Bool {
-        guard let services, NSApp.isActive else { return false }
+        guard let services, services.appActiveSource() else { return false }
         return services.windows.controllers.contains { $0.focus.state.windowKey && Self.shownFocus($0).flatMap(Self.contentTab) == tabID }
     }
 
@@ -72,14 +73,11 @@ extension NotificationCenterService {
         return Self.unreadCount(services?.daemon.store, homeUnread: home.map(\.rawValue))
     }
 
-    /// Sets the Dock tile's unread count. Compares with the label it set
-    /// last: reading `dockTile.badgeLabel` asks the Dock and can block.
+    /// Sets the Dock tile's unread count (``DockBadge``: written only when it changes, and again
+    /// when the Dock icon comes back).
     func updateDockBadge(_ count: Int) {
         dockAttention.unreadChanged(count)
-        let label = preferences.dockBadge && count > 0 ? String(count) : nil
-        guard label != dockBadgeLabel else { return }
-        dockBadgeLabel = label
-        NSApp.dockTile.badgeLabel = label
+        dockBadge.show(preferences.dockBadge && count > 0 ? String(count) : nil)
     }
 
     /// The handoff driver over the local daemon and this Mac's install
@@ -98,7 +96,8 @@ extension NotificationCenterService {
                     try await connection().request(FeedLocalListRequest(state: state, unread: unread ? true : nil)).items
                 },
                 begin: { try await connection().request(FeedLocalHandoffBeginRequest(item: $0)).item },
-                done: { try await connection().request(FeedLocalHandoffDoneRequest(item: $0, home: $1)).item }),
+                done: { try await connection().request(FeedLocalHandoffDoneRequest(item: $0, home: $1)).item },
+                abort: { try await connection().request(FeedLocalHandoffAbortRequest(item: $0)).item }),
             owner: { path, body in try await principal.call(path, body) },
             isSignedIn: { [weak feed] in feed?.isSignedIn ?? false },
             installID: { principal.installID },
@@ -119,22 +118,49 @@ extension NotificationCenterService {
 
     /// The handoff rules under the current settings. Muted workspaces are
     /// matched by durable key and by public id (`ws_…`, an item's context).
+    /// Only the workspaces in normal windows now (not `WindowManager.isIncognito`)
+    /// hand off, matched by key, public id or terminal (#31210).
     func feedHandoffPolicy() -> FeedHandoffPolicy {
-        var muted = preferences.mutedWorkspaces
-        for workspace in services?.daemon.store.workspaces ?? [] where muted.contains(workspace.id) {
-            if let resource = workspace.resourceID { muted.insert(resource.rawValue) }
+        var muted = preferences.mutedWorkspaces, normal = Set<String>()
+        for workspace in services?.daemon.store.workspaces ?? [] {
+            if muted.contains(workspace.id), let resource = workspace.resourceID { muted.insert(resource.rawValue) }
+            guard services?.windows.isIncognito(workspace: workspace.id) == false else { continue }
+            let terminals = workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { $0.terminalResourceID?.rawValue }
+            normal.formUnion([workspace.id] + [workspace.resourceID?.rawValue].compactMap { $0 } + terminals)
         }
-        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted)
+        // Classified once the windows restored (crash leftovers discarded, ephemeral flags awaited) and the flags are known.
+        let classified = services.map { services in
+            (services.windows.restored || services.windows.restoreGaveUp)
+                && (services.daemon.connection?.mirrorsSessionState != true || services.daemon.store.session.known)
+        } ?? true
+        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted, normalWindows: services == nil ? nil : normal,
+                                 classified: classified)
     }
 
     static func seconds(_ duration: Duration) -> Double {
         Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
     }
 
+    /// Whether `workspace` is muted, and the key its sound rule is read under, on the machine that
+    /// holds it (`machine`, else found by identity): a remote workspace's keys are qualified by
+    /// machine, and a bare id an earlier build saved still counts (NotificationWorkspaceKey).
+    func notificationKeys(of workspace: WorkspaceModel, machine: String? = nil) -> (muted: Bool, soundRule: String) {
+        guard let services, let machine = machine
+                ?? services.machines.daemons.first(where: { $0.store.workspace(id: workspace.id) === workspace })?.machineID else {
+            return (preferences.mutedWorkspaces.contains(workspace.id), workspace.id)
+        }
+        let local = services.machines.local
+        let localHolds = { (id: String) in local.store.workspace(id: id) != nil }
+        let rules = preferences.sounds.workspaces
+        return (preferences.workspaceMuted(machine: machine, workspace: workspace.id, localMachine: local.machineID, localHolds: localHolds),
+                NotificationWorkspaceKey.ruleKey(machine: machine, workspace: workspace.id, localMachine: local.machineID,
+                                                 hasRule: { rules[$0] != nil }, localHolds: localHolds))
+    }
+
     /// Attention marks for `workspace`'s panes: every pane whose shown tab
     /// reads unread (``TabModel/showsUnread``: an unread notification or Mark
     /// as Unread, the value every unread dot reads; ``unreadRing(of:dismissed:)``),
-    /// unless the workspace is muted or the style is `none`. As
+    /// agent chats included, unless the workspace is muted or the style is `none`. As
     /// classic's ring lived on the notifying terminal, a pane showing a read
     /// tab (a Markdown file) draws none; the unread tab's dot marks it. The
     /// mark changes with the newest notification, so its animation restarts;
@@ -144,27 +170,31 @@ extension NotificationCenterService {
     func attentionMarks(for workspace: WorkspaceModel,
                         shownTab: @MainActor (PaneModel) -> String? = { _ in nil }) -> [LayoutPaneID: AttentionMark] {
         let attention = DesignSettings.shared.attention
-        guard attention.style != .none, !preferences.mutedWorkspaces.contains(workspace.id) else { return [:] }
-        let sameSession = dismissedHighlightSession == services?.daemon.identity?.session
-        let dismissed = sameSession ? dismissedHighlights[workspace.id] ?? 0 : 0
+        let muted = notificationKeys(of: workspace).muted
+        guard attention.style != .none, !muted else { return [:] }
+        let key = highlightKey(for: workspace)
+        let dismissed = dismissedHighlights[key] ?? 0
         var marks: [LayoutPaneID: AttentionMark] = [:]
         for screen in workspace.screens {
             for pane in screen.panes {
                 guard let id = shownTab(pane) ?? self.shownTab(of: pane), let shown = pane.tabs.first(where: { $0.id == id }) else { continue }
-                // Each kind of pane rings only when its setting is on: terminals by default,
-                // agent chats opt-in (`notifications.attention.agentChats`).
+                // An agent chat whose turn ended rings until the person goes into it, only with
+                // the opt-in agent chat ring (`notifications.attention.agentChats`).
                 let agentChat = shown.agentSession != nil
-                guard attention.rings(agentChat: agentChat) else { continue }
-                // An agent chat whose turn ended rings until the person goes into it.
-                if let finished = agentFinished[shown.id] {
+                let agentChatLook = agentChat && attention.rings(agentChat: true)
+                if agentChatLook, key.machine == MachineRegistry.localID, let finished = agentFinished[shown.id] {
                     marks[LayoutPaneID(pane.id)] = AttentionMark(color: preferences.sources[.agent]?.color, generation: finished,
-                                                                 agentChat: agentChat, quiet: quietAgentFinishes.contains(shown.id))
+                                                                 agentChat: true, quiet: quietAgentFinishes.contains(shown.id))
                     continue
                 }
-                guard let generation = unreadRing(of: shown, dismissed: dismissed) else { continue }
+                // An unread tab rings whatever kind it is, as its dot shows (cmux#34447): the
+                // agent chat setting covers the turn-end ring above, never an owner-held unread
+                // mark. A chat draws its own look when that is on, else the terminal look.
+                guard attention.rings(agentChat: agentChatLook),
+                      let generation = unreadRing(of: shown, dismissed: dismissed) else { continue }
                 // A marked tab with no notification has no source: the ring's own color.
                 let color = shown.hasUnread ? preferences.sources[source(of: shown)]?.color : nil
-                marks[LayoutPaneID(pane.id)] = AttentionMark(color: color, generation: generation, agentChat: agentChat)
+                marks[LayoutPaneID(pane.id)] = AttentionMark(color: color, generation: generation, agentChat: agentChatLook)
             }
         }
         return marks
@@ -181,12 +211,20 @@ extension NotificationCenterService {
             let generation = tab.notification?.notification.rawValue ?? 1
             if generation > dismissed { return generation }
         }
-        guard tab.markedUnread, tab.markedUnreadGeneration > (dismissedMarks[tab.id] ?? 0) else { return nil }
-        return Self.markRingBase | tab.markedUnreadGeneration
+        if tab.markedUnread, tab.markedUnreadGeneration > (dismissedMarks[highlightKey(for: tab)] ?? 0) {
+            return Self.markRingBase | tab.markedUnreadGeneration
+        }
+        // An agent's "needs you here" mark (tab-attention-v1) rings until Dismiss Highlight hides
+        // that request; a different owner-issued request rings again.
+        guard tab.attention != nil,
+              tab.attentionRingHiddenThrough.map({ $0 != tab.attentionGeneration }) ?? true else { return nil }
+        return Self.markRingBase | Self.attentionRingBase | (tab.attentionGeneration & ~(Self.markRingBase | Self.attentionRingBase))
     }
 
     /// The bit a marked tab's ring generation carries, apart from notification ids.
     static let markRingBase: UInt64 = 1 << 63
+    /// The bit an agent's attention ring carries, apart from manual marks.
+    static let attentionRingBase: UInt64 = 1 << 62
 
     /// Of the panes in `removed` (their mark just went away), those read because
     /// the person went into them: their ring blinks out. Forgets the entry
@@ -214,6 +252,18 @@ extension NotificationCenterService {
         !attentionMarks(for: workspace).isEmpty
     }
 
+    private func highlightKey(for workspace: WorkspaceModel) -> HighlightKey {
+        let daemon = services?.machines.daemons.first { $0.store.workspace(id: workspace.id) === workspace }
+        return HighlightKey(machine: daemon?.machineID ?? MachineRegistry.localID,
+                            session: daemon?.identity?.session, id: workspace.id)
+    }
+
+    private func highlightKey(for tab: TabModel) -> HighlightKey {
+        let daemon = services?.machines.daemon(forTab: tab)
+        return HighlightKey(machine: daemon?.machineID ?? MachineRegistry.localID,
+                            session: daemon?.identity?.session, id: tab.id)
+    }
+
     /// Dismiss Highlight (cx-epgo): hides `workspace`'s attention rings
     /// until a newer notification arrives or a tab is marked unread again.
     /// The tabs stay unread (the tab dot, the row badge and the Dock badge
@@ -221,17 +271,19 @@ extension NotificationCenterService {
     func dismissHighlight(_ workspace: WorkspaceModel) {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let newest = tabs.filter(\.hasUnread).map { $0.notification?.notification.rawValue ?? 1 }.max() ?? 0
-        let session = services?.daemon.identity?.session
-        if session != dismissedHighlightSession {
-            dismissedHighlights = [:]
-            dismissedHighlightSession = session
+        let key = highlightKey(for: workspace)
+        // A restarted daemon has new notification IDs; discard only that machine's old session.
+        dismissedHighlights = dismissedHighlights.filter { $0.key.machine != key.machine || $0.key.session == key.session }
+        dismissedMarks = dismissedMarks.filter { $0.key.machine != key.machine || $0.key.session == key.session }
+        if key.machine == MachineRegistry.localID {
+            for tab in tabs where agentFinished[tab.id] != nil { agentFinished[tab.id] = nil; quietAgentFinishes.remove(tab.id) }
         }
-        for tab in tabs where agentFinished[tab.id] != nil { agentFinished[tab.id] = nil; quietAgentFinishes.remove(tab.id) }
-        for tab in tabs where tab.markedUnread && dismissedMarks[tab.id] != tab.markedUnreadGeneration {
-            dismissedMarks[tab.id] = tab.markedUnreadGeneration
+        for tab in tabs where tab.markedUnread {
+            dismissedMarks[highlightKey(for: tab)] = tab.markedUnreadGeneration
         }
-        guard newest > (dismissedHighlights[workspace.id] ?? 0) else { return }
-        dismissedHighlights[workspace.id] = newest
+        for tab in tabs where tab.attention != nil { tab.attentionRingHiddenThrough = tab.attentionGeneration }
+        guard newest > (dismissedHighlights[key] ?? 0) else { return }
+        dismissedHighlights[key] = newest
         note("highlight dismissed workspace=\(workspace.id) through=\(newest)")
     }
 }

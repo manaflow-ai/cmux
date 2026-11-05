@@ -6,7 +6,7 @@ import "./multiplayer.css";
 import { useT } from "../i18n";
 import { machineColor } from "../machineColor";
 import { useAvatarPicture } from "../../../pages/home-channels/avatars";
-import { initials, type Participant } from "./participants";
+import { initials, isGuest, type Participant } from "./participants";
 
 /// Faces the header shows before "+N".
 export const PRESENCE_STACK = 3;
@@ -32,7 +32,9 @@ export function Face({ person, size = 16 }: { person: Participant; size?: number
 export type AuthorLook = "face-name" | "name" | "face";
 
 /// Who sent a prompt, over its bubble: their face and name (the pick), the name alone, or the
-/// face alone with the name for screen readers.
+/// face alone with the name for screen readers. A link guest's name reads "<name> (guest)", as
+/// their held card does (IncomingMessageCard.tsx `PersonName`), so the owner still sees who wrote it
+/// once it is approved.
 /// `inline` draws it in a line of text (a queued prompt's row), ahead of the words.
 export function AuthorChip({
   author,
@@ -43,12 +45,13 @@ export function AuthorChip({
   look?: AuthorLook;
   inline?: boolean;
 }) {
+  const t = useT();
   const Root = inline ? "span" : "div";
   return (
     <Root className={inline ? "cv-author cv-author--inline" : "cv-author"} data-look={look}>
       {look !== "name" && <Face person={author} />}
       <span className={look === "face" ? "cv-author__name cv-author__name--hidden" : "cv-author__name"}>
-        {author.name}
+        {isGuest(author) ? t("multiplayer.guestName", { name: author.name }) : author.name}
       </span>
     </Root>
   );
@@ -67,7 +70,7 @@ export function PresenceStack({ viewing, look = "stack" }: { viewing: Participan
     <div className="cv-presence" data-look={look}>
       <span className="cv-presence__label">{t("multiplayer.viewing", { names })}</span>
       {shown.map((person) => (
-        <span key={person.id} className="cv-presence__person" aria-hidden="true">
+        <span key={person.id} className="cv-presence__person" aria-hidden="true" title={person.name}>
           <Face person={person} size={20} />
           {look === "names" && <span className="cv-presence__name">{person.name.split(/\s+/)[0]}</span>}
         </span>

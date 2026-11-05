@@ -87,14 +87,62 @@ public struct WindowTitlebar {
         return frames.dropFirst().reduce(first) { $0.union($1) }
     }
 
+    /// Aligns both edges of a titlebar control to the display's device-pixel grid.
+    ///
+    /// - Parameters:
+    ///   - frame: The control's proposed frame.
+    ///   - scale: The window's current backing scale factor.
+    /// - Returns: A pixel-aligned frame whose center moves by at most half a device pixel.
+    public static func alignedFrame(_ frame: CGRect, scale: CGFloat) -> CGRect {
+        let pixelScale = max(1, scale)
+        let minX = (frame.minX * pixelScale).rounded() / pixelScale
+        let minY = (frame.minY * pixelScale).rounded() / pixelScale
+        let maxX = (frame.maxX * pixelScale).rounded() / pixelScale
+        let maxY = (frame.maxY * pixelScale).rounded() / pixelScale
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    /// Places titlebar accessories after the toolbar band on the traffic lights' center line.
+    ///
+    /// - Parameters:
+    ///   - band: The toolbar band's frame in the accessories' parent coordinates.
+    ///   - badge: The badge whose width is reserved, including while temporarily hidden.
+    ///   - indicator: The pressure indicator, laid out only while visible.
+    ///   - indicatorWidth: The indicator's width supplied by its owner.
+    ///   - midY: The traffic lights' center in the accessories' parent coordinates.
+    ///   - scale: The window's current backing scale factor.
+    public static func layoutAccessories(after band: CGRect, badge: NSView?, indicator: NSView?,
+                                         indicatorWidth: CGFloat, centeredOn midY: CGFloat, scale: CGFloat) {
+        var x = band.maxX + Metrics.space2
+        if let badge {
+            let size = badge.fittingSize
+            badge.frame = alignedFrame(CGRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height), scale: scale)
+            x = badge.frame.maxX + Metrics.space2
+        }
+        guard let indicator, !indicator.isHidden else { return }
+        let side = TitlebarBandButton.side
+        indicator.frame = alignedFrame(CGRect(x: x, y: midY - side / 2, width: indicatorWidth, height: side), scale: scale)
+    }
+
     /// The main pane card's top inset in `root` (the window's root view):
     /// `gutter`, except under a minimal titlebar, where the top row's tab
     /// pills center on the traffic lights' line (never more than `gutter`;
     /// `PaneChromeMetrics.cardTop`).
-    public static func cardTopInset(of root: NSView, minimal: Bool, gutter: CGFloat) -> CGFloat {
+    ///
+    /// - Parameter clearsTrafficLights: The lights sit over the card and no
+    ///   top-row strip makes room for them (tab bars at the bottom, no
+    ///   sidebar under the lights): the card starts `gutter` below their row
+    ///   (the lights and the toolbar band's buttons on their line).
+    public static func cardTopInset(of root: NSView, minimal: Bool, gutter: CGFloat, clearsTrafficLights: Bool = false) -> CGFloat {
+        guard minimal, let window = root.window, let lights = trafficLightsFrame(in: window) else { return gutter }
+        let local = root.convert(lights, from: nil)
+        if clearsTrafficLights {
+            let row = max(local.height, TitlebarBandButton.side)
+            return max(gutter, root.bounds.maxY - local.midY + row / 2 + gutter).rounded(.up)
+        }
         // Floating panes keep the one even gap at the top too.
-        guard minimal, !Metrics.floatingPanes, let window = root.window, let lights = trafficLightsFrame(in: window) else { return gutter }
-        let centerFromTop = root.bounds.maxY - root.convert(lights, from: nil).midY
+        guard !Metrics.floatingPanes else { return gutter }
+        let centerFromTop = root.bounds.maxY - local.midY
         return min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor))
     }
 

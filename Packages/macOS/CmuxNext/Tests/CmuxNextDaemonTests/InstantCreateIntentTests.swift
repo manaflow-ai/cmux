@@ -71,6 +71,48 @@ struct InstantCreateIntentTests {
         #expect(shown.screens.flatMap(\.panes).flatMap(\.tabs).map(\.surface) == [SurfaceID(rawValue: 12)])
     }
 
+    /// A chat opened in a new workspace (agent.openSessionWorkspace, Open Chat) shows its workspace and chat tab as
+    /// stand-ins. The daemon sends its first tab twice: a raw `tab-added` with no transaction as it makes the tab, then
+    /// the copy carrying the create's transaction. The raw one named no create, so the stand-in's screen gave way to the
+    /// daemon's tab under the daemon's id before the echo moved the chat's page to it: the window built a second page for
+    /// that id and dropped the stand-in's (a chat-open bench open on cmux21 had no first content, job 65f51c2d). As for a
+    /// created tab (tab-spam-race), the raw tab is the oldest waiting create's guess: hidden, the stand-in showing, until
+    /// the echo or the reply names it.
+    @Test func aNewWorkspacesRawFirstTabKeepsTheStandInUntilItsCreateIsNamed() throws {
+        let store = Self.store()
+        let key = WorkspaceKey.generate()
+        let record = AgentSessionRef(host: "install:test", hostName: nil, session: "s-chat")
+        let tab = ProvisionalTab().conversation(ConversationTabRef(agentSession: record))
+        let transaction = ClientTransactionID.generate()
+        store.intend(.createWorkspace(provisional: ProvisionalWorkspace(key: key, name: "chat", tab: tab), index: nil),
+                     transaction: transaction)
+        let shown = try #require(store.workspace(id: key.rawValue))
+
+        // create-workspace answered: the daemon's workspace, with its screen and an empty pane.
+        let pane = PaneID(rawValue: 10), screen = ScreenID(rawValue: 11), workspace = WorkspaceHandle(rawValue: 9)
+        let created = WorkspaceSnapshot(id: workspace, key: key, name: "chat",
+                                        screens: [ScreenSnapshot(id: screen, active: true, activePane: pane, layout: .leaf(pane),
+                                                                 panes: [PaneSnapshot(id: pane, tabs: [])])])
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [Self.base, created]))
+        func surfaces() -> [SurfaceID] { shown.screens.flatMap(\.panes).flatMap(\.tabs).map(\.surface) }
+        #expect(surfaces() == [tab.surface], "the stand-in shows until the daemon's tab")
+
+        // The daemon's raw tab-added (no transaction): nothing names its create yet.
+        let daemonSurface = SurfaceID(rawValue: 12)
+        var entity = TabSnapshot(surface: daemonSurface, kind: .conversation)
+        entity.conversation = ConversationTabRef(agentSession: record)
+        func added(_ transaction: ClientTransactionID?, sequence: UInt64) -> DaemonEventEnvelope {
+            DaemonEventEnvelope(sequence: sequence, event: .tabAdded(TabDelta(workspace: workspace, screen: screen, pane: pane, surface: daemonSurface,
+                                                                              index: 0, entity: entity, clientTransactionID: transaction)))
+        }
+        _ = store.apply(batch: [added(nil, sequence: 1)])
+        #expect(surfaces() == [tab.surface], "the raw tab took the stand-in's place before its create was named: \(surfaces())")
+
+        // The copy with the create's transaction: the daemon's tab takes the stand-in over, alone.
+        _ = store.apply(batch: [added(transaction, sequence: 2)])
+        #expect(surfaces() == [daemonSurface])
+    }
+
     @Test func refusedNewWorkspaceLeavesNothing() {
         let store = Self.store()
         let key = WorkspaceKey.generate()
@@ -167,16 +209,17 @@ struct InstantCreateIntentTests {
 
     /// New Column (`new-pane-right` with client-minted ids): in the intent's turn the screen shows
     /// a new scrolling column after the pane's, holding the provisional pane, at the requested
-    /// width, and the split-tree screen's lone column takes the width the new column leaves.
+    /// width, and the split-tree screen's lone column stays full width (R3b: a new column never
+    /// resizes the columns there).
     @Test func newColumnShowsItsColumnInTheIntentsTurn() throws {
         let store = Self.store()
-        let provisional = ProvisionalPane(columnWidth: 0.5, treeWidth: 0.5)
+        let provisional = ProvisionalPane(columnWidth: 0.5)
         store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: provisional), transaction: .generate())
         let screen = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
         #expect(screen.panes.map(\.handle) == [Self.pane, provisional.handle])
         #expect(screen.layout.paneIDs.contains(provisional.handle))
         #expect(screen.columns.map(\.layout.paneIDs) == [[Self.pane], [provisional.handle]], "New Column split the pane instead")
-        #expect(screen.columns.map(\.width) == [0.5, 0.5])
+        #expect(screen.columns.map(\.width) == [1, 0.5])
         #expect(store.mirrorViolations.isEmpty)
     }
 
@@ -255,7 +298,7 @@ struct InstantCreateIntentTests {
     /// the stand-in's handle, which the daemon does not know.
     @Test func newColumnOnAPendingColumnFollowsItsDaemonPane() throws {
         let store = Self.store()
-        let first = ProvisionalPane(columnWidth: 0.5, treeWidth: 0.5)
+        let first = ProvisionalPane(columnWidth: 0.5)
         store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: first), transaction: .generate())
         let second = ProvisionalPane(columnWidth: 0.5)
         store.intend(.splitPane(pane: first.handle, direction: .right, ratio: 0.5, provisional: second), transaction: .generate())

@@ -7,7 +7,10 @@
 // `agents.add` (Add ACP Agent…, the model picker's +) or `agents.registry`.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Tabs } from "@base-ui/react/tabs";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../../ui/Tabs";
+import { StableLabel } from "../../../ui/StableLabel";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../../../agent-session/shared/harnessIcons";
 import { useStore } from "../context";
@@ -21,8 +24,7 @@ type Panel = "registry" | "custom" | null;
 const panelFor = (focus: string | null): Panel =>
   focus === "agents.registry" ? "registry" : focus === "agents.add" ? "custom" : null;
 
-const field =
-  "box-border h-7 w-full rounded-md border border-solid border-edge bg-transparent px-2 font-[inherit] text-[13px] text-fg outline-none placeholder:text-soft focus:border-accent-soft";
+const field = "field w-full";
 
 export function AgentHarnesses({ focus }: { focus: string | null }) {
   const store = useStore();
@@ -73,13 +75,13 @@ export function AgentHarnesses({ focus }: { focus: string | null }) {
       <div className="flex items-center gap-2">
         <h3 className="group-title m-0 flex-1">{t("settingsPage.agents.title")}</h3>
         {state?.manages !== false && (
-          <button type="button" className="button" onClick={() => setPanel(panel ? null : "registry")}>
+          <Button type="button" className="button" onClick={() => setPanel(panel ? null : "registry")}>
             {t("settingsPage.agents.add")}
-          </button>
+          </Button>
         )}
-        <button type="button" className="button" onClick={() => void run({ action: "refresh" })}>
+        <Button type="button" className="button" onClick={() => void run({ action: "refresh" })}>
           {t("settingsPage.agents.refresh")}
-        </button>
+        </Button>
       </div>
       <p className="mt-1 mb-3 text-[12px] leading-[17px] text-muted" data-intro="">
         {t("settingsPage.agents.intro")}
@@ -125,13 +127,13 @@ function AgentsBody({
       {state.removed && (
         <output className="mb-2 flex items-center gap-2 rounded-md bg-input px-3 py-1.5 text-[13px]">
           <span className="flex-1">{t("settingsPage.agents.removed", state.removed.id)}</span>
-          <button
+          <Button
             type="button"
             className="button"
             onClick={() => void run({ action: "restore", backup: state.removed!.backup })}
           >
             {t("settingsPage.agents.undo")}
-          </button>
+          </Button>
         </output>
       )}
       {panel && state.manages && <AddPanel state={state} panel={panel} setPanel={setPanel} run={run} />}
@@ -199,17 +201,20 @@ function HarnessRow({
           {problem && <div className="text-[12px] text-warning">{problem}</div>}
         </div>
         {manages && row.kind !== "terminal" && (
-          <button
+          <Button
             type="button"
             className="button"
             disabled={doctor?.running}
             onClick={() => void run({ action: "doctor", id: row.id })}
           >
-            {doctor?.running ? t("settingsPage.agents.checking") : t("settingsPage.agents.check")}
-          </button>
+            <StableLabel
+              label={doctor?.running ? t("settingsPage.agents.checking") : t("settingsPage.agents.check")}
+              alternatives={[t("settingsPage.agents.check"), t("settingsPage.agents.checking")]}
+            />
+          </Button>
         )}
         {manages && row.removable && (
-          <button
+          <Button
             type="button"
             className="button"
             aria-expanded={editing}
@@ -217,12 +222,12 @@ function HarnessRow({
             onClick={() => setEditing(!editing)}
           >
             {t("settingsPage.agents.icon")}
-          </button>
+          </Button>
         )}
         {manages && row.removable && (
-          <button type="button" className="button" onClick={() => void run({ action: "remove", id: row.id })}>
+          <Button type="button" className="button" onClick={() => void run({ action: "remove", id: row.id })}>
             {t("settingsPage.agents.remove")}
-          </button>
+          </Button>
         )}
       </div>
       {editing && <IconEditor row={row} run={run} done={() => setEditing(false)} />}
@@ -291,7 +296,8 @@ function IconEditor({
           if (value.trim()) void apply({ action: "icon", id: row.id, icon: value.trim() });
         }}
       >
-        <input
+        <Input
+          variant="outline"
           className={`${field} flex-1`}
           value={value}
           placeholder={t("settingsPage.agents.icon.placeholder")}
@@ -300,19 +306,19 @@ function IconEditor({
           // oxlint-disable-next-line jsx-a11y/no-autofocus -- the editor opens on the person's click.
           autoFocus
         />
-        <button type="submit" className="button" disabled={!value.trim()}>
+        <Button type="submit" className="button" disabled={!value.trim()}>
           {t("settingsPage.agents.icon.set")}
-        </button>
-        <button type="button" className="button" onClick={() => file.current?.click()}>
+        </Button>
+        <Button type="button" className="button" onClick={() => file.current?.click()}>
           {t("settingsPage.agents.icon.choose")}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="button"
           onClick={() => void apply({ action: "icon", id: row.id, clear: true })}
         >
           {t("settingsPage.agents.icon.auto")}
-        </button>
+        </Button>
         <input
           ref={file}
           type="file"
@@ -376,37 +382,27 @@ function AddPanel({
   run: (gesture: AgentsRun) => Promise<boolean>;
 }) {
   return (
-    <Tabs.Root
+    <Tabs
       className="mb-3 rounded-lg border border-solid border-edge p-3"
       value={panel}
       onValueChange={(value) => setPanel(value as Exclude<Panel, null>)}
       data-agents-add={panel}
     >
-      <Tabs.List className="mb-2 flex items-center gap-1">
-        <Tabs.Tab
-          value="registry"
-          className="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-1 font-[inherit] text-control text-muted hover:text-fg data-[active]:bg-accent-soft data-[active]:text-fg"
-        >
-          {t("settingsPage.agents.tabRegistry")}
-        </Tabs.Tab>
-        <Tabs.Tab
-          value="custom"
-          className="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-1 font-[inherit] text-control text-muted hover:text-fg data-[active]:bg-accent-soft data-[active]:text-fg"
-        >
-          {t("settingsPage.agents.tabCustom")}
-        </Tabs.Tab>
+      <TabsList className="mb-2">
+        <TabsTrigger value="registry">{t("settingsPage.agents.tabRegistry")}</TabsTrigger>
+        <TabsTrigger value="custom">{t("settingsPage.agents.tabCustom")}</TabsTrigger>
         <span className="flex-1" />
-        <button type="button" className="button" onClick={() => setPanel(null)}>
+        <Button type="button" className="button" onClick={() => setPanel(null)}>
           {t("settingsPage.agents.cancel")}
-        </button>
-      </Tabs.List>
-      <Tabs.Panel value="registry">
+        </Button>
+      </TabsList>
+      <TabsContent value="registry">
         <RegistryList state={state} run={run} />
-      </Tabs.Panel>
-      <Tabs.Panel value="custom">
+      </TabsContent>
+      <TabsContent value="custom">
         <CustomForm run={run} done={() => setPanel(null)} />
-      </Tabs.Panel>
-    </Tabs.Root>
+      </TabsContent>
+    </Tabs>
   );
 }
 
@@ -437,9 +433,9 @@ function RegistryList({ state, run }: { state: AgentsState; run: (gesture: Agent
         <span className="flex-1 text-[12px] text-muted">
           {loading && !state.registry ? t("settingsPage.agents.registryLoading") : ""}
         </span>
-        <button type="button" className="button" disabled={loading} onClick={() => void load(true)}>
+        <Button type="button" className="button" disabled={loading} onClick={() => void load(true)}>
           {t("settingsPage.agents.registryRefresh")}
-        </button>
+        </Button>
       </div>
       {state.registry && agents.length === 0 && (
         <p className="my-1 text-[13px] text-muted">{t("settingsPage.agents.registryEmpty")}</p>
@@ -475,7 +471,7 @@ function RegistryRow({ agent, run }: { agent: AgentRegistryAgent; run: (gesture:
           {[agent.description, t(LAUNCH_KEYS[agent.launch] ?? LAUNCH_KEYS.none!)].filter(Boolean).join(" · ")}
         </div>
       </div>
-      <button
+      <Button
         type="button"
         className="button"
         disabled={added || busy || agent.launch === "none"}
@@ -485,8 +481,11 @@ function RegistryRow({ agent, run }: { agent: AgentRegistryAgent; run: (gesture:
           setBusy(false);
         }}
       >
-        {added ? t("settingsPage.agents.added") : t("settingsPage.agents.addButton")}
-      </button>
+        <StableLabel
+          label={added ? t("settingsPage.agents.added") : t("settingsPage.agents.addButton")}
+          alternatives={[t("settingsPage.agents.addButton"), t("settingsPage.agents.added")]}
+        />
+      </Button>
     </div>
   );
 }
@@ -547,7 +546,8 @@ function CustomForm({ run, done }: { run: (gesture: AgentsRun) => Promise<boolea
     >
       <label className="col-span-1">
         <span className={label}>{t("settingsPage.agents.name")}</span>
-        <input
+        <Input
+          variant="outline"
           aria-label={t("settingsPage.agents.name")}
           className={field}
           value={name}
@@ -558,7 +558,7 @@ function CustomForm({ run, done }: { run: (gesture: AgentsRun) => Promise<boolea
         <span className={label}>{t("settingsPage.agents.protocol")}</span>
         <select
           aria-label={t("settingsPage.agents.protocol")}
-          className={field}
+          className="box-border h-7 w-full rounded-md border border-solid border-edge bg-transparent px-2 font-[inherit] text-control text-fg outline-none focus:border-accent-soft"
           value={protocol}
           onChange={(event) => setProtocol(event.target.value as "acp" | "terminal")}
         >
@@ -568,7 +568,8 @@ function CustomForm({ run, done }: { run: (gesture: AgentsRun) => Promise<boolea
       </label>
       <label className="col-span-1">
         <span className={label}>{t("settingsPage.agents.command")}</span>
-        <input
+        <Input
+          variant="outline"
           aria-label={t("settingsPage.agents.command")}
           className={`${field} font-mono`}
           value={command}
@@ -579,7 +580,8 @@ function CustomForm({ run, done }: { run: (gesture: AgentsRun) => Promise<boolea
       </label>
       <label className="col-span-1">
         <span className={label}>{t("settingsPage.agents.args")}</span>
-        <input
+        <Input
+          variant="outline"
           aria-label={t("settingsPage.agents.args")}
           className={`${field} font-mono`}
           value={args}
@@ -589,7 +591,8 @@ function CustomForm({ run, done }: { run: (gesture: AgentsRun) => Promise<boolea
       </label>
       <label className="col-span-2">
         <span className={label}>{t("settingsPage.agents.secrets")}</span>
-        <input
+        <Input
+          variant="outline"
           aria-label={t("settingsPage.agents.secrets")}
           className={`${field} font-mono`}
           value={secrets}
@@ -599,9 +602,9 @@ function CustomForm({ run, done }: { run: (gesture: AgentsRun) => Promise<boolea
         <span className="mt-0.5 block text-[11px] text-soft">{t("settingsPage.agents.secretsHelp")}</span>
       </label>
       <div className="col-span-2 flex justify-end">
-        <button type="submit" className="button" disabled={busy || !command.trim()}>
+        <Button type="submit" className="button" disabled={busy || !command.trim()}>
           {t("settingsPage.agents.addButton")}
-        </button>
+        </Button>
       </div>
     </form>
   );

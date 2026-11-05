@@ -77,7 +77,8 @@ printf '%s\n' "\${CMUX_SOCKET_PATH:-}" > "$TMP_DIR/open-socket"
 STUB
 chmod +x "$STUBS/xcodebuild" "$STUBS/open"
 
-(cd "$TMP_DIR/cwd" && HOME="$TMP_DIR/home" PATH="$STUBS:$PATH" \
+# CMUX_NEXT_TUI_BIN: reloads.sh fetches no same-tree cmux-tui (xcodebuild is a stub).
+(cd "$TMP_DIR/cwd" && HOME="$TMP_DIR/home" PATH="$STUBS:$PATH" CMUX_NEXT_TUI_BIN="$TMP_DIR/cmux-tui" \
   bash "$ROOT_DIR/scripts/reloads.sh" --tag "$TAG" --derived-data "$DERIVED" >"$TMP_DIR/out" 2>&1) \
   || fail "reloads.sh failed: $(tail -20 "$TMP_DIR/out")"
 

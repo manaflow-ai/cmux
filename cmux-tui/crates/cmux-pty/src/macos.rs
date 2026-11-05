@@ -265,7 +265,24 @@ pub(crate) fn spawn(
         process.env_clear();
     }
     process.envs(&command.environment);
+    // `PWD` names the directory as the caller spelled it. A shell keeps an
+    // inherited `PWD` only when it names its working directory; otherwise
+    // it shows getcwd(3), the real path, so a terminal started in /tmp read
+    // /private/tmp on macOS (REOPEN-F3). A caller's own `PWD` (set or
+    // removed) wins.
+    if command.cwd_descriptor.is_none()
+        && let Some(cwd) = command.cwd.as_deref().filter(|cwd| cwd.is_absolute())
+        && !command.environment.contains_key("PWD")
+        && !command.removed_environment.contains("PWD")
+    {
+        process.env("PWD", cwd);
+    }
+    // `SHELL` first, so a removal still wins over this backend's own override
+    // (`PtyCommand::env_remove` promises the child never sees the key).
     process.env("SHELL", shell);
+    for key in &command.removed_environment {
+        process.env_remove(key);
+    }
     let cwd_descriptor = command.cwd_descriptor;
 
     process
@@ -620,6 +637,12 @@ impl Drop for MacOsMasterWriter {
 }
 
 fn resolved_shell(command: &PtyCommand) -> OsString {
+    // A removed `SHELL` is not recovered from this process's environment: the
+    // caller asked for the key gone, so the account shell is used instead.
+    if command.removed_environment.contains("SHELL") {
+        return account_shell(unsafe { libc::getuid() })
+            .unwrap_or_else(|| OsString::from("/bin/sh"));
+    }
     let configured = command
         .environment
         .get("SHELL")

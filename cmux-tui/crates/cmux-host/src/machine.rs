@@ -604,7 +604,7 @@ impl Machine {
     /// no identity change in flight: a bind stops the roles first and a
     /// failed bind leaves them stopped, so running roles mean the id they
     /// started with is the current one.
-    fn identity_settled(&self) -> bool {
+    pub(crate) fn identity_settled(&self) -> bool {
         // A clone signal whose metadata read has not confirmed the id yet
         // may be a fork: do not announce the source machine's identity.
         !self.parked && self.roles_running && self.current_id.is_some() && !self.verify_pending

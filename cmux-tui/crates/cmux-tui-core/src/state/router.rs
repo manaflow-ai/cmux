@@ -347,6 +347,16 @@ pub(crate) fn dispatch(
                 marked_unread: optional_bool(fields, "marked_unread")?,
                 attention: nullable_reason(fields, "attention")?,
                 attention_page: None,
+                attention_request_id: match fields.get("attention_request_id") {
+                    None => None,
+                    Some(Value::String(id)) => Some(id.clone()),
+                    Some(_) => {
+                        return Err(validation_error(
+                            "attention_request_id must be a string",
+                            json!({"field": "attention_request_id"}),
+                        ));
+                    }
+                },
             };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)
@@ -663,6 +673,7 @@ pub(crate) fn dispatch(
                         .collect()
                 }),
                 tab: string(fields, "tab"),
+                workspace: string(fields, "workspace"),
                 fallback_pane: string(fields, "fallback_pane"),
             };
             let commit = mux
@@ -978,6 +989,7 @@ fn personal_change(
             collapsed: fields.get("collapsed").and_then(Value::as_bool).unwrap_or(false),
             room: string(fields, "room"),
             index: index(fields, "index"),
+            reuse: fields.get("reuse").and_then(Value::as_bool).unwrap_or(false),
         },
         Op::WorkspaceGroupUpdate => {
             require_any(
@@ -1069,7 +1081,8 @@ fn screen_change(
         Op::ScreenGroupCreate => ScreenChange::GroupCreate {
             screens: strings(fields, "screens"),
             name: string(fields, "name").unwrap_or_default(),
-            color: string(fields, "color").unwrap_or_else(|| "grey".into()),
+            color: string(fields, "color")
+                .unwrap_or_else(|| crate::workspace_registry::TAB_GROUP_NO_COLOR.into()),
         },
         Op::ScreenGroupAddScreens => ScreenChange::GroupAdd {
             group: string(fields, "screen_group").unwrap_or_default(),

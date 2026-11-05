@@ -23,6 +23,15 @@ nonisolated public struct Tip: Equatable, Sendable, Identifiable {
 nonisolated public struct TipCatalog {
     public init() {}
 
+    /// The catalog's action ids, unlocalized: what every user action run checks
+    /// (``UpdaterService/markTipActionUsed(_:)``, "Try It"). ``all`` localizes every
+    /// title and benefit, so reading it on that path cost about 51 allocations per
+    /// shortcut. TipActionRunAllocationTests keeps this set equal to ``all``'s actions.
+    public static let actions: Set<String> = [
+        "commandPalette", "splitRight", "toggleSplitZoom", "globalSearch", "workspace.selectLastUsed", "newWorkspaceGroup",
+        "saveLayoutTemplate", "renameWorkspace",
+    ]
+
     public static var all: [Tip] {
         [
             Tip(id: "commandPalette", action: "commandPalette",

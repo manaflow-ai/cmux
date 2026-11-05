@@ -7,6 +7,7 @@
 
 use super::*;
 use crate::byo_endpoint::{self, Kind};
+use crate::stderr::clean_stderr_lines;
 
 /// The least time the turn gets: a first request through a slow endpoint.
 const TURN_LIMIT: Duration = Duration::from_secs(60);
@@ -95,7 +96,8 @@ pub(super) async fn run(
     } else {
         text.trim().to_owned()
     };
-    let tail: Vec<&str> = outcome.stderr.lines().filter(|l| !l.trim().is_empty()).collect();
+    let tail: Vec<String> =
+        clean_stderr_lines(&outcome.stderr).into_iter().filter(|line| !line.is_empty()).collect();
     let tail = tail[tail.len().saturating_sub(8)..].join("\n");
     if !tail.is_empty() {
         detail.push_str(&format!("\nstderr:\n{tail}"));

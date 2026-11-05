@@ -78,7 +78,9 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     }
 
     /// Its checks summed: `failing` when any failed, else `pending` when any has not finished, else
-    /// `passing`, or `none` without checks. A skipped or neutral check counts as passed.
+    /// `passing`, or `none` without checks. A neutral check counts as passed. Counted over
+    /// ``counted(_:)``: a skipped check and a run a newer run of the same check replaced are not
+    /// counted at all; a cancelled run nothing replaced counts as failed.
     public struct Checks: Equatable, Sendable {
         public var state: String
         public var passed: Int
@@ -129,7 +131,7 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// Its author's GitHub login; empty when gh does not say.
     public var author: String
     /// Its comments, review comments included (GraphQL `totalCommentsCount`); nil when the read
-    /// did not say, as a `gh pr view` does not (the Inspector's Changes shows it beside a bubble).
+    /// did not say, as a `gh pr view` does not (Session Info's Changes shows it beside a bubble).
     public var comments: Int?
 
     public init(url: String, number: Int, title: String = "", state: String, review: String = "", mergeable: String = "",
@@ -165,7 +167,9 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
               let url = object["url"] as? String, url.hasPrefix("https://"), !url.contains(where: \.isWhitespace),
               let number = object["number"] as? Int else { return nil }
         let state = (object["state"] as? String)?.lowercased() ?? "open"
-        let rollup = object["statusCheckRollup"] as? [[String: Any]] ?? []
+        // Every surface that shows this pull request's checks (Session Info's Changes, the card, the
+        // sidebar's marks) reads them from here, so this is the one place they are made countable.
+        let rollup = Self.counted(object["statusCheckRollup"] as? [[String: Any]] ?? [])
         // The base branch's tip as the batched read answers it (`baseStatusCheckRollup`); a
         // `gh pr view` cannot read it, so there it is absent and no check is marked.
         let onBase = Self.failing(object["baseStatusCheckRollup"] as? [[String: Any]] ?? [])
@@ -251,7 +255,8 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// `pull_request` trigger whose concurrency groups differ runs twice and both runs stand, and
     /// a dispatched or rescued re-run outranks the run it stands beside without cancelling it.
     /// Dropping the older of those on a base tip can only fail to excuse a red, which is the safe
-    /// direction; doing it to a pull request's own rollup would drop a red it does cause.
+    /// direction. A pull request's own rollup goes through ``counted(_:)`` instead, which drops a
+    /// run only when a newer run of the same workflow, event and check name exists.
     static func latestRuns(_ rollup: [[String: Any]]) -> [[String: Any]] {
         var newest: [String: Int] = [:]
         for check in rollup {
@@ -279,10 +284,52 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
             .map(identity))
     }
 
+    /// A pull request's own rollup as its counts read it: skipped contexts left out, and of the
+    /// rest, every run that a newer run of the very same check proves superseded left out too.
+    ///
+    /// A head's rollup lists every run of every workflow a pull request event started, and label or
+    /// edit events start the same workflows again, whose concurrency groups then cancel the older
+    /// runs. Counted whole, a pull request with two real reds read "19 failing" (17 of them
+    /// cancelled duplicates). Only a supersession that is proven is undone here: two contexts are
+    /// runs of one check when they share the workflow, the event that started the run and the
+    /// name (``supersessionKey(_:)``), and of those only the one in the highest run id counts. So
+    /// - a cancelled run a newer run of its check replaced is not counted;
+    /// - a cancelled run with no newer run of its check is counted, and as failed
+    ///   (``outcome(_:)`` has no CANCELLED case): a cancellation a person asked for is a red;
+    /// - runs of one workflow and name that other events started (a `push` run beside a
+    ///   `pull_request` one, say) are separate checks and each counts, so neither hides the
+    ///   other's red;
+    /// - a context whose run, workflow or event was not read (a commit status, another app's
+    ///   check run, a `gh pr view` answer) cannot be proven superseded and is counted as it is.
+    /// A skipped context never ran and is not counted at all.
+    static func counted(_ rollup: [[String: Any]]) -> [[String: Any]] {
+        let ran = rollup.filter { conclusionOf($0) != "SKIPPED" }
+        var newest: [String: Int] = [:]
+        for check in ran {
+            guard let key = supersessionKey(check), let run = runOf(check)?.run else { continue }
+            newest[key] = max(newest[key] ?? run, run)
+        }
+        return ran.filter { check in
+            guard let key = supersessionKey(check), let run = runOf(check)?.run else { return true }
+            return run >= (newest[key] ?? run)
+        }
+    }
+
+    /// The check a context is a run of, for ``counted(_:)``: its workflow, the event that started
+    /// its run, and its name; nil unless all three were read, since only then can a newer run
+    /// prove it superseded.
+    private static func supersessionKey(_ check: [String: Any]) -> String? {
+        guard let run = runOf(check), !run.workflow.isEmpty,
+              let event = ((check["checkSuite"] as? [String: Any])?["workflowRun"] as? [String: Any])?["event"] as? String,
+              !event.isEmpty,
+              check["name"] is String else { return nil }
+        return "\(run.workflow)\u{0}\(event)\u{0}\(name(check))"
+    }
+
     /// Each check run or commit status with its outcome, failed first; links only when https. A
     /// failing check whose ``identity(_:)`` is in `failingOnBase` is marked as the base branch's
-    /// red, not this pull request's. Every context of `rollup` is counted: a pull request's own
-    /// rollup is read exactly as GitHub reports it (see ``latestRuns(_:)``).
+    /// red, not this pull request's. Every context of `rollup` is listed; a pull request's own
+    /// rollup comes here through ``counted(_:)``.
     static func checkList(_ rollup: [[String: Any]], failingOnBase: Set<String> = []) -> [Check] {
         let order = ["failed": 0, "pending": 1, "passed": 2]
         let list = rollup.map { check in

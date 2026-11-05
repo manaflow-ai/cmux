@@ -70,13 +70,19 @@ extension HostView {
         }
     }
 
-    /// The bands' colours from the theme (`Fixture.background`, `Fixture.lightAppearance`).
+    /// The bands' colours from this pane's own theme (`Fixture.background`, `Fixture.lightAppearance`
+    /// read inside the transcript's palette scope). Outside it they are the process palette's (the first
+    /// chat's, or another window's), so a dark chat's background band painted white after a light to
+    /// dark switch (Lawrence 2026-10-30, Chief header capture).
     func applyTopFadeColors() {
-        topFadeView?.applyColors(background: Fixture.background, light: Fixture.lightAppearance)
-        if topFadeStyle == .messagesBar {
-            headerBackdrop.setTint(Fixture.background)
-            headerBackdrop.setLight(Fixture.lightAppearance)
+        let apply = {
+            self.topFadeView?.applyColors(background: Fixture.background, light: Fixture.lightAppearance)
+            if self.topFadeStyle == .messagesBar {
+                self.headerBackdrop.setTint(Fixture.background)
+                self.headerBackdrop.setLight(Fixture.lightAppearance)
+            }
         }
+        if let demo { demo.scope(apply) } else { apply() }
     }
 
     /// Follows the pane's width (called from `placeNativeViews`).
@@ -91,7 +97,15 @@ extension HostView {
     }
 
     /// The edge shadow shows only while rows sit above the cut (scrolled up from the oldest row).
+    /// The glass band likewise shows only while a row is under it: at rest the avatar and the name
+    /// pill sit on the chat's own colour, so the header is the same veil as the rest of Home (the
+    /// user, 2026-10-31: "chief header bg needs to be same as rest of the bgs"; the band was a
+    /// lighter strip even with nothing under it), and the glass comes in as a row scrolls up.
     func updateTopFadeScrollEdge() {
+        if let headerGlass {
+            let under = demo.map { $0.windowY(contentY: $0.layout.rowsTop) < HeaderGlassView.height } ?? false
+            if headerGlass.isHidden == under { headerGlass.isHidden = !under }
+        }
         guard let topFadeView, topFadeView.style == .edgeShadow, let demo else { return }
         let oldestRowY = demo.windowY(contentY: demo.layout.rowsTop)
         topFadeView.setScrolledUnder(oldestRowY < HomeTopFadeView.pillBottom - 0.5)

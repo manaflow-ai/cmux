@@ -4,6 +4,7 @@ import AppKit
 import CmuxHomeCore
 @testable import MessagesLabSidebar
 import Testing
+import CmuxNextTestSupport
 
 /// Lawrence 2026-10-19: "If I type randomly, or if I focus using Command + Up/Down Arrow key to
 /// focus the pane and start typing, it doesn't actually work. I have to click outside, not in the
@@ -19,7 +20,7 @@ import Testing
 /// `focusTarget` when the keyboard is outside the pane, then the key dispatcher hands a printable
 /// key to the content's primary input when it is ready (`KeyRouter.typesIntoPrimaryInput`), else
 /// the window delivers it to its first responder.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HomeTypeToFocusTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct HomeTypeToFocusTests {
     /// A view that takes the keyboard the way a terminal surface does.
     final class OtherPane: NSView {
         var typed = ""
@@ -61,7 +62,7 @@ import Testing
             }
         }
 
-        func close() { window.orderOut(nil) }
+        func close() { window.closeWithHomePopovers() }
     }
 
     enum Container: String, CaseIterable { case dock, homeTab, conversationTab }

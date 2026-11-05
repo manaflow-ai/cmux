@@ -64,12 +64,21 @@ name = "cmux-tui-host"
 path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
+tempfile = "3"
+cmux-json.workspace = true
+cmux-cloud-environment.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
 # Only for `hotpatch` (see the feature).
 cmux-terminal-client = { path = "../cmux-terminal-client", optional = true }
-# `cmux vm`: the cmux-vm child starts through the daemon-safe spawn.
+cmux-git.workspace = true
+cmux-conversation.workspace = true
 cmux-process.workspace = true
+# `cmux vm`: the cmux VM API CLI (workers/cmux-vm/cli), linked in process so the
+# bundle needs no cmux-vm binary. Its TLS rides this crate's rustls (ring).
+cmux-vm = { path = "../../../workers/cmux-vm/cli/crates/cmux-vm", default-features = false }
+# `cmux vm token create`'s mint rules, shared with the app (cli/vm.rs `mint_exit`).
+cmux-cloud-config.workspace = true
 cmux-api-compat.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
@@ -82,14 +91,17 @@ cmux-tui-machine-protocol.workspace = true
 cmux-server.workspace = true
 cmux-server-core.workspace = true
 ratatui.workspace = true
-crossterm.workspace = true
+crossterm = { workspace = true, features = ["serde"] }
 crossbeam-channel.workspace = true
 anyhow.workspace = true
 bytes.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
+unicode-normalization.workspace = true
 serde.workspace = true
-serde_json.workspace = true
+# raw_value: `cmux mcp serve` indexes the embedded v2 catalog without parsing it into one
+# tree that each agent's server would hold for its whole life (cli/mcp/v2_tools.rs).
+serde_json = { workspace = true, features = ["raw_value"] }
 cmux-panic-log.workspace = true
 # `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
 regex.workspace = true
@@ -100,12 +112,15 @@ base64.workspace = true
 getrandom.workspace = true
 glob.workspace = true
 libc.workspace = true
+fs4.workspace = true
 smallvec.workspace = true
 zeroize.workspace = true
 terminput.workspace = true
 terminput-crossterm.workspace = true
 parking_lot.workspace = true
 sha2.workspace = true
+# `cmux link sync pull` merges a text file both sides changed by line.
+diffy.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
 # Verifies the signed invite-wave flags (feature_flags.rs); tests sign with it.
@@ -113,10 +128,19 @@ ring.workspace = true
 # `cmux acp` and the `acpmux` multicall name (plans/cmux-next/cli.md), unix
 # only; on every platform, the tailnet CLI wrapper `remote_host` shares
 # (acpmux::tailnet). `-p acpmux` checks on Windows in the same CI job.
-acpmux = { path = "../acpmux" }
+# Without its `build-id` feature: this crate installs acpmux's build id at
+# start (acpmux-build-id docs), so a new stamp does not recompile acpmux.
+acpmux = { path = "../acpmux", default-features = false }
+acpmux-build-id = { path = "../acpmux-build-id" }
 
 [target.'cfg(unix)'.dependencies]
+# `cmux automation` (cli/automation.rs, unix only): the store and the launchd runner use
+# unix files and processes, so the crate does not build for Windows.
+cmux-automations.workspace = true
 cmux-holder.workspace = true
+# `cmux vnc`: the RFB client and the zlib compression of its Kitty graphics frames.
+cmux-vnc.workspace = true
+flate2.workspace = true
 # `cmux host …`, the machine supervisor and process roles (server.md 5.1).
 cmux-host.workspace = true
 # Reads the enclosing app bundle's Info.plist (app_identity.rs).
@@ -134,7 +158,9 @@ x25519-dalek.workspace = true
 tokio.workspace = true
 # Machine spend readout: one small JSON GET every few minutes from inside a
 # Cloud VM. chatmux-relay already uses reqwest for pairing bootstrap.
-reqwest.workspace = true
+# `stream`: attachment files upload from disk, never read whole.
+reqwest = { workspace = true, features = ["stream"] }
+tempfile = "3"
 rustls.workspace = true
 url.workspace = true
 async-trait.workspace = true
@@ -145,6 +171,8 @@ futures-util.workspace = true
 # cmux NEXT's Chief home adoption copies live SQLite databases with
 # `VACUUM INTO` (build_adopt/copy.rs); already in the graph via cmux-tui-core.
 rusqlite.workspace = true
+# `cmux machine add|list`: the platform's RFC 3339 times; already in the graph via acpmux.
+cmux-chat-index.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true
@@ -157,5 +185,8 @@ serde_json.workspace = true
 [dev-dependencies]
 cmux-pty.workspace = true
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
-tempfile = "3"
 rusqlite.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Mac Screen on cmux.rd/1 (`cmux rd serve|connect`): capture, encode, input and the secure link.
+cmux-rd-host = { path = "../cmux-rd-host", default-features = false, features = ["link"] }

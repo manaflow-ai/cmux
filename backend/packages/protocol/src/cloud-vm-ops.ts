@@ -1,6 +1,8 @@
 import { Schema } from "effect"
 import { CloudMachine, MachineId } from "./cloud-machine-ops.ts"
 import { def, mutationErrors } from "./op-def.ts"
+import { CloudVmNetworkPolicyView } from "./cloud-vm-network-policy.ts"
+import { CloudVmReceiverLifecycle } from "./cloud-vm-receiver-ops.ts"
 
 /**
  * The VM daemon's own-machine ops (VM install at bind; coordinator and a9, 2026-10-05). Only a kind
@@ -12,7 +14,15 @@ import { def, mutationErrors } from "./op-def.ts"
 const Millis = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 const Short = (max: number) => Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(max))
 const VM_ERRORS = [...mutationErrors.filter((c) => c !== "revision.conflict" && c !== "idempotency.conflict"), "cloud.machine.not_found", "cloud.rate_limited"]
-const vmDef = <P extends Schema.Top, R extends Schema.Top>(name: string, cls: "read" | "mutation", params: P, result: R, docs: string) =>
+const vmDef = <P extends Schema.Top, R extends Schema.Top>(
+  name: string,
+  cls: "read" | "mutation",
+  params: P,
+  result: R,
+  docs: string,
+  errors: ReadonlyArray<string> = VM_ERRORS,
+  appendNoKeyDocs = true
+) =>
   def({
     name,
     owner: "cloud:CloudDO",
@@ -24,13 +34,15 @@ const vmDef = <P extends Schema.Top, R extends Schema.Top>(name: string, cls: "r
     principals: ["install"],
     params,
     result,
-    errors: VM_ERRORS,
-    docs: docs + (cls === "mutation" ? " No idempotency key: a report or event is a fresh fact and nothing replays." : "") + " VM installs only (kind vm, grant vm-self, its own bound machine).",
+    errors,
+    docs: docs + (cls === "mutation" && appendNoKeyDocs ? " No idempotency key: a report or event is a fresh fact and nothing replays." : "") + (appendNoKeyDocs ? " VM installs only (kind vm, grant vm-self, its own bound machine)." : ""),
     cli: { path: "", visible: false },
     mcp: { expose: "never", group: "cloud" }
   })
 
 export const CloudVmSelfGet = vmDef("cloud.vm.self.get", "read", Schema.Struct({ machine: MachineId }), Schema.Struct({ machine: CloudMachine }), "The VM's own machine record (the public machine view).")
+export const CloudVmNetworkPolicy = vmDef("cloud.vm.network_policy", "read", Schema.Struct({ machine: MachineId }), CloudVmNetworkPolicyView,
+  "Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential.")
 
 /** At most one report is applied per 10 s per machine; a newer one in that window replaces the pending one (latest wins). */
 export const VM_STATUS_MIN_INTERVAL_MS = 10_000
@@ -82,4 +94,32 @@ export const CloudVmEventEmit = vmDef(
   "Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install."
 )
 
-export const cloudVmOps = [CloudVmSelfGet, CloudVmStatusReport, CloudVmEventEmit] as const
+/**
+ * A VM principal's durable attention transition. CloudDO uses the event id as
+ * the idempotency key while delivering to the owner's APNs devices. This is
+ * intentionally separate from the ephemeral VM event stream: a phone that was
+ * offline must still receive question, permission, and done notifications.
+ */
+export const CloudVmAttentionEmit = vmDef(
+  "cloud.vm.attention.emit",
+  "mutation",
+  Schema.Struct({
+    machine: MachineId,
+    event_id: Short(128),
+    kind: Schema.Literals(["question", "permission", "done"]),
+    session: Short(128),
+    title: Title,
+    body: Schema.optionalKey(Short(1000)),
+    occurred_at: Millis
+  }),
+  Schema.Struct({
+    delivered: Schema.Boolean,
+    replayed: Schema.Boolean,
+    correlation_id: Schema.optionalKey(Short(128))
+  }),
+  "Send a durable APNs attention notification for a Cloud chat question, permission request, or completed turn. The HTTP request has no idempotency key; event_id is the stable replay key: a duplicate event_id and payload replays the original result, while reusing event_id with a different payload is an idempotency conflict. VM installs only (kind vm, grant vm-self, its own bound machine).",
+  [...VM_ERRORS, "idempotency.conflict", "owner.unreachable"],
+  false
+)
+
+export const cloudVmOps = [CloudVmSelfGet, CloudVmNetworkPolicy, CloudVmReceiverLifecycle, CloudVmStatusReport, CloudVmEventEmit, CloudVmAttentionEmit] as const

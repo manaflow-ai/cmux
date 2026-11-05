@@ -61,6 +61,7 @@ struct ClassicUpgradeHugeSimulationTests {
             }
             let outcome = try #require(run.outcome, "the migration of 512 workspaces did not finish in 15 minutes (\(run.sim.made().count) made)")
             print("CLASSIC-SIM huge opened=\(outcome.opened.count) failed=\(outcome.failures.count) first=\(outcome.failures.values.first ?? "-")")
+            print("CLASSIC-SIM huge \(run.sim.perWorkspaceReport())")
             // macOS hands out at most kern.tty.ptmx_max (511) PTYs, shared with every process:
             // background workspaces come over parked, so none runs out.
             let ptys = outcome.failures.values.filter { $0.contains("PTY capacity exhausted") }

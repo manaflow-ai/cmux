@@ -55,7 +55,7 @@ enum AgentTeamsLaunch: CaseIterable {
             Task {
                 do {
                     let surface = try await WorkspaceCreation.create(key, name: nil, on: connection, repair: repair) { created in
-                        try await connection.createTerminal(in: created, cwd: nil).surface
+                        try await WorkspaceCreation.firstTerminal(in: created, cwd: nil, on: connection).surface
                     }
                     if let surface { try await connection.send(surface, text: line) }
                     if reveal { context.window(showing: key.rawValue) }

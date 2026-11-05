@@ -61,11 +61,38 @@ pub(crate) fn key(fd: RawFd) -> Option<String> {
 /// as the residual risk.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub(crate) fn executable(key: &str) -> Option<std::path::PathBuf> {
+    let (pid, version) = parse_key(key)?;
+    let path = std::fs::read_link(executable_link(pid)).ok()?;
+    (start_time_of(pid)? == version).then_some(path)
+}
+
+/// Linux: the executable of the peer a key names, opened, with its path as
+/// the kernel reads it (with ` (deleted)` once no path names the file). The
+/// open file still reads a binary whose path is gone. It is the peer's only
+/// if its pid has the key's start time after the open, so a later process
+/// that reused the pid never answers for the peer. One pid, read for one
+/// connected socket's peer; nothing is enumerated.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub(crate) fn executable_file(key: &str) -> Option<(std::path::PathBuf, std::fs::File)> {
+    let (pid, version) = parse_key(key)?;
+    let link = executable_link(pid);
+    let path = std::fs::read_link(&link).ok()?;
+    let file = std::fs::File::open(&link).ok()?;
+    (start_time_of(pid)? == version).then_some((path, file))
+}
+
+/// The pid and start time a `token:<pid>.<start time>` key names.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn parse_key(key: &str) -> Option<(libc::pid_t, u64)> {
     let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
     let pid: libc::pid_t = pid.parse().ok().filter(|pid| *pid > 0)?;
-    let version: u64 = version.parse().ok()?;
-    let path = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
-    (start_time_of(pid)? == version).then_some(path)
+    Some((pid, version.parse().ok()?))
+}
+
+/// `/proc/<pid>/exe` of a key's peer: the one place this module names it.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn executable_link(pid: libc::pid_t) -> String {
+    format!("/proc/{pid}/exe")
 }
 
 /// The start time of `pid` in clock ticks, its version in a peer key.
@@ -115,6 +142,24 @@ mod tests {
             ["", "token:", "pid:1.2", "token:x.1", "token:../self.1", "token:0.1", "token:-1.1"]
         {
             assert_eq!(super::executable(bad), None, "{bad}");
+            assert!(super::executable_file(bad).is_none(), "{bad}");
         }
+        assert!(super::executable_file(&stale).is_none());
+    }
+
+    #[test]
+    fn executable_file_is_the_peers_binary_open() {
+        use std::os::unix::fs::MetadataExt as _;
+        let (ours, _theirs) = UnixStream::pair().expect("socketpair");
+        let key = super::key(ours.as_raw_fd()).expect("peer key");
+        let own = std::env::current_exe().expect("current exe");
+        let (path, file) = super::executable_file(&key).expect("peer executable");
+        assert_eq!(
+            std::fs::canonicalize(path).expect("canonical"),
+            std::fs::canonicalize(&own).expect("canonical")
+        );
+        let (opened, expected) =
+            (file.metadata().expect("opened"), std::fs::metadata(&own).expect("own"));
+        assert_eq!((opened.dev(), opened.ino()), (expected.dev(), expected.ino()));
     }
 }

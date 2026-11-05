@@ -90,7 +90,7 @@ async fn a_workflow_runs_as_a_background_subagent_with_its_progress() {
     assert_eq!(
         *progress[0],
         json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "acp-1/toolu_w",
-            "tokens": 19738, "toolUses": 4, "elapsedMs": 3212, "action": "Count: n2",
+            "effort": "default", "tokens": 19738, "toolUses": 4, "elapsedMs": 3212, "action": "Count: n2",
             "agents": {"done": 1, "started": 3}})
     );
 
@@ -127,7 +127,7 @@ async fn a_workflow_sends_its_phases_and_agents_then_only_what_changed() {
     t.inbound(&launched("toolu_w", dir.to_str().unwrap())).await;
     let running = json!({"type": "workflow_agent", "index": 1, "label": "review:#1", "state": "progress",
         "phaseIndex": 1, "phaseTitle": "Review", "agentId": "a01", "agentType": "workflow-subagent",
-        "model": "claude-opus-5-5", "tokens": 1200, "toolCalls": 2, "durationMs": 4000.4,
+        "model": "claude-opus-5-5", "effort": "high", "lastMessage": "Reviewing the PR", "tokens": 1200, "toolCalls": 2, "durationMs": 4000.4,
         "queuedAt": 1000, "startedAt": 1100, "lastProgressAt": 5000, "attempt": 1,
         "lastToolName": "Bash", "lastToolSummary": "gh pr view 1",
         "promptPreview": "You are an independent   reviewer\nfor PR #1"});
@@ -147,7 +147,7 @@ async fn a_workflow_sends_its_phases_and_agents_then_only_what_changed() {
         first[0]["workflowAgents"],
         json!([
             {"index": 1, "label": "review:#1", "state": "running", "phase": "Review", "phaseIndex": 1,
-             "agentId": "a01", "kind": "workflow-subagent", "model": "claude-opus-5-5", "tokens": 1200,
+             "agentId": "a01", "kind": "workflow-subagent", "model": "claude-opus-5-5", "effort": "high", "lastMessage": "Reviewing the PR", "tokens": 1200,
              "toolUses": 2, "elapsedMs": 4000, "queuedAt": 1000, "startedAt": 1100, "lastProgressAt": 5000,
              "attempt": 1, "action": "gh pr view 1", "prompt": "You are an independent reviewer for PR #1"},
             {"index": 2, "label": "review:#2", "state": "queued", "phase": "Review", "phaseIndex": 1,
@@ -172,7 +172,7 @@ async fn a_workflow_sends_its_phases_and_agents_then_only_what_changed() {
     assert_eq!(
         second[0]["workflowAgents"],
         json!([
-            {"index": 1, "state": "completed", "tokens": 1500, "result": "Verdict: SHIP"},
+            {"index": 1, "state": "completed", "tokens": 1500, "result": "Verdict: SHIP", "effort": null, "lastMessage": null},
             {"index": 2, "state": "running", "startedAt": 5100},
         ])
     );
@@ -260,7 +260,7 @@ async fn a_workflow_ends_with_its_final_usage_and_every_agent() {
     t.inbound(&workflow_call("toolu_w")).await;
     t.inbound(&launched("toolu_w", "/nonexistent")).await;
     let agent = json!({"type": "workflow_agent", "index": 1, "label": "review:#1", "state": "done",
-        "phaseTitle": "Review", "startedAt": 10, "resultPreview": "SHIP"});
+        "phaseTitle": "Review", "startedAt": 10, "effort": "high", "resultPreview": "SHIP"});
     t.inbound(&snapshot(json!([phase(1, "Review"), agent]))).await;
     let done = json!({"type": "system", "subtype": "task_notification", "task_id": "wx2", "tool_use_id": "toolu_w",
         "status": "completed", "usage": {"total_tokens": 52000, "tool_uses": 9, "duration_ms": 61000}});
@@ -282,7 +282,7 @@ async fn a_workflow_ends_with_its_final_usage_and_every_agent() {
     assert_eq!(
         last["workflowAgents"],
         json!([{"index": 1, "label": "review:#1", "state": "completed", "phase": "Review",
-            "startedAt": 10, "result": "SHIP"}])
+            "startedAt": 10, "effort": "high", "result": "SHIP"}])
     );
 }
 
@@ -343,6 +343,24 @@ async fn a_plain_background_agent_ends_only_with_its_notification() {
     let done = json!({"type": "system", "subtype": "task_notification", "task_id": "a1", "status": "completed"});
     let out = updates(&t.inbound(&done).await);
     assert_eq!(of_kind(&out, "subagent_state_update")[0]["state"], "completed", "{out:?}");
+}
+
+/// A plain background agent's progress says its agent id (its task id), the id a SendMessage to
+/// it names: a "Sent to" row whose Agent call is on an older page still names it (Leo,
+/// 2026-11-03: "Sent to a6ab68f9"). A completed end still names no agent to resume.
+#[tokio::test]
+async fn a_background_agents_progress_carries_its_agent_id() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let call = json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_a", "name": "Agent",
+        "input": {"description": "Watch the build", "prompt": "Watch it", "run_in_background": true}}]}});
+    t.inbound(&call).await;
+    t.inbound(&json!({"type": "system", "subtype": "task_started", "task_id": "a6ab68f9e2c41d07b", "tool_use_id": "toolu_a",
+        "is_backgrounded": true}))
+        .await;
+    let progress = json!({"type": "system", "subtype": "task_progress", "task_id": "a6ab68f9e2c41d07b",
+        "tool_use_id": "toolu_a", "summary": "Reading the log", "usage": {"total_tokens": 10}});
+    let out = updates(&t.inbound(&progress).await);
+    assert_eq!(of_kind(&out, "subagent_progress")[0]["agentId"], "a6ab68f9e2c41d07b", "{out:?}");
 }
 
 /// A secret behind a long blank run is masked whole: the preview folds the blanks before it cuts
@@ -433,7 +451,7 @@ fn workflow_agents_reach_clients_in_the_subagent_model() {
     tree.annotate(&mut progress);
     assert_eq!(
         progress["_meta"]["acpmux"]["subagents"],
-        json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "runId": "wf_4fe",
+        json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "name": "Workflow", "task": "Workflow", "runId": "wf_4fe",
             "phases": [{"index": 1, "title": "Review"}],
             "workflowAgents": [{"index": 1, "state": "running", "label": "review:#1"}]}])
     );
@@ -499,7 +517,7 @@ async fn a_background_agent_reports_its_progress() {
     assert_eq!(
         progress.first().map(|v| (*v).clone()),
         Some(json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "acp-1/toolu_a",
-            "tokens": 5100, "toolUses": 2, "elapsedMs": 61000, "action": "Bash"})),
+            "tokens": 5100, "toolUses": 2, "elapsedMs": 61000, "action": "Bash", "agentId": "a1"})),
         "{out:?}"
     );
     // A progress summary (agentProgressSummaries) is the better action.
@@ -523,7 +541,7 @@ fn progress_reaches_clients_in_the_subagent_model() {
     tree.annotate(&mut progress);
     assert_eq!(
         progress["_meta"]["acpmux"]["subagents"],
-        json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "name": "probe", "tokens": 19738,
+        json!([{"id": "acp-1/toolu_w", "parent": null, "state": "running", "name": "probe", "task": "Workflow", "tokens": 19738,
             "toolUses": 4, "elapsedMs": 3212, "action": "Count: n2", "agents": {"done": 1, "started": 3}}])
     );
 }
@@ -606,4 +624,16 @@ async fn stopping_a_background_subagent_stops_its_claude_task() {
     else {
         panic!("stopping an unknown subagent did not fail")
     };
+}
+
+#[tokio::test]
+async fn workflow_effort_stays_at_launch_when_parent_changes() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "low");
+    let mut call = workflow_call("toolu_w");
+    call["message"]["content"][0]["input"]["effort"] = json!("high");
+    let out = updates(&t.inbound(&call).await);
+    assert_eq!(of_kind(&out, "subagent_spawned")[0]["effort"], "high");
+    *t.effort.lock().await = "medium".into();
+    let out = updates(&t.inbound(&snapshot(json!([]))).await);
+    assert_eq!(of_kind(&out, "subagent_progress")[0]["effort"], "high");
 }

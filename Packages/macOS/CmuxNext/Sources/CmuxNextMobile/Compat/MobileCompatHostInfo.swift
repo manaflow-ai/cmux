@@ -10,6 +10,8 @@ public import CmuxNextDaemon
 public struct MobileCompatHostInfo: Sendable {
     /// Capability that tells a new phone it may open an irx `daemon` lane.
     public static let daemonLaneCapability = "daemon_lane.v1"
+    /// Capability that tells a phone this Mac can relay Cloud chat sessions.
+    public static let cloudChatRelayCapability = "cloud_chat_relay.v1"
 
     public var macDeviceID: String
     public var instanceTag: String
@@ -44,6 +46,7 @@ public struct MobileCompatHostInfo: Sendable {
             "workspace.close.v1",
             "workspace.groups.v1",
             "workspace.mutations.account_auth.v1",
+            Self.cloudChatRelayCapability,
         ]
         if daemonLaneAvailable { list.append(Self.daemonLaneCapability) }
         return list

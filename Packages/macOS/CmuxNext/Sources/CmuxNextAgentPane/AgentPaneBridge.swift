@@ -14,6 +14,7 @@ import WebKit
 final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.bridge")
     weak var view: AgentPaneView?
+    private let tailGeneration = AgentPaneTailCache.shared.generation
 
     init(view: AgentPaneView) {
         self.view = view
@@ -34,10 +35,17 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
            let view {
             return replyHandler(view.popup(method, params: body["params"] as? [String: Any] ?? [:]), nil)
         }
+        // The page's flicker detector (``AgentPageFlickerLog``): short words and numbers for the
+        // ring file, answered at once and not logged here.
+        if let body = message.body as? [String: Any], body["method"] as? String == AgentPageFlickerLog.method, let view {
+            AgentPageFlickerLog.shared?.recordPage(body["params"] as? [String: Any], page: AgentPageFlickerLog.pageName(view),
+                                                   pid: view.knownWebContentPid)
+            return replyHandler(AgentPaneReply.success(), nil)
+        }
         // Where a chat rests belongs to the chat, so it is answered here from the one store both
         // hosts share and never reaches the model (AgentPaneScrollAnchors+Bridge). Not logged: it
         // names a row of the person's transcript.
-        if let reply = Self.chatPlaceReply(for: message.body) {
+        if let reply = Self.chatPlaceReply(for: message.body, tab: view?.model.tabKey()) {
             return replyHandler(reply, nil)
         }
         // What a page last read of a chat, for the next tab that opens it (``AgentPaneTailCache``):
@@ -45,7 +53,12 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // chat's text).
         if let body = message.body as? [String: Any], let method = body["method"] as? String,
            AgentPaneTailCache.handles(method: method) {
-            return replyHandler(AgentPaneTailCache.reply(to: method, params: body["params"] as? [String: Any]), nil)
+            let params = body["params"] as? [String: Any]
+            let host = view?.model.host
+            let generation = tailGeneration
+            // task-owner: one trusted page request, completed by its reply handler
+            Task { replyHandler(await AgentPaneTailCache.reply(to: method, params: params, host: host, pageGeneration: generation), nil) }
+            return
         }
         let request = AgentPaneRequest(body: message.body)
         if case .uiPointerReport(let text) = request, let value = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
@@ -94,6 +107,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // and closed items are set when the view is made, before the page loads (cx-uw104).
         if request == .ready {
             logger.info("agent pane ready accepted")
+            view.refreshQuestionKeyBinding()
             view.applyTheme(force: true)
             // This document has no composer state, even when the native value has not changed.
             view.deliver([.composer(view.model.composer)], scripts: [view.model.composer.pageScript])
@@ -101,13 +115,19 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.applyPreviewFeatures()
             AgentPaneSessionStatus.push(to: view)
             AgentPaneSuggestedTasks.shared.push(to: view)
+            view.model.remoteControl?.push(to: view)
             view.applyEditedFiles()
             if view.pageEvents == nil { view.model.sidebarPreviewVariant.replay(to: view) }
             view.replayCustomization()
             AgentPaneToolCard.replay(to: view)
+            AgentPaneComputerUsePreview.replay(to: view)
             AgentPaneDeviceChat.push(view.deviceChats, to: view)
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)
+            view.model.attentionTabs?.push(to: view)
+            view.announceSessionInfo()
+            view.model.readAloud?.push(to: view)
+            view.pushPaneNotices()
         }
         return view.model
     }

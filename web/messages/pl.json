@@ -131,13 +131,13 @@
       "action": "cmux cloud new-machine"
     },
     "goLimit": {
-      "savedMessage": "Go obejmuje dwie zapisane maszyny VM, w tym uruchomioną.",
+      "savedMessage": "Plus: Łącznie 1 zapisana maszyna wirtualna, także wstrzymana",
       "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
-      "activeMessage": "Go umożliwia uruchomienie jednej maszyny VM naraz.",
+      "activeMessage": "Plus: 1 maszyna wirtualna Cloud",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
-      "hoursMessage": "Wykorzystano 40 godzin VM w Go na ten miesiąc. Zapisane VM będą dostępne w następnym okresie rozliczeniowym.",
+      "hoursMessage": "Plus: Bez miesięcznego limitu godzin",
       "hoursAction": "https://cmux.com/pricing",
-      "shapeMessage": "Go obsługuje 2 vCPU, 4 GiB RAM i 16 GiB dysku.",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
       "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
@@ -158,7 +158,7 @@
       "action": "Wstrzymaj lub usuń maszynę VM."
     },
     "activeLimit": {
-      "counted": "Obecnie liczone: {machines}. Wstrzymane maszyny nie są liczone.",
+      "counted": "Obecnie liczone: {machines}. Wstrzymane maszyny wliczają się do limitu.",
       "provisioning": "{name} (w trakcie przygotowania)",
       "separator": ", "
     }
@@ -423,13 +423,13 @@
     "faqCustomizeQ": "Czy mogę dostosować cmux?",
     "faqCustomizeA": "Tak. Renderowanie terminala korzysta z Twojej konfiguracji Ghostty, więc motywy, czcionki, kolory i kursor przenoszą się bezpośrednio. Własne ustawienia cmux w <path>~/.config/cmux/cmux.json</path> sterują paskiem bocznym, paskiem kart, dzielonymi panelami i zachowaniem, a każdy <shortcutsLink>skrót klawiszowy</shortcutsLink> jest edytowalny. Zobacz <link>konfigurację</link>.",
     "faqIosQ": "Czy jest aplikacja na iOS?",
-    "faqIosA": "Tak, w wersji beta. Sparuj iPhone'a z Makiem w oknie Mobile Connect i podłączaj się do terminali z telefonu, z opcjonalnym przekazywaniem powiadomień terminala. Dostępna na TestFlight jako cmux BETA. Wczesny dostęp jest wliczony w <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqIosA": "Tak, w wersji beta. Sparuj iPhone'a z Makiem w oknie Mobile Connect i podłączaj się do terminali z telefonu, z opcjonalnym przekazywaniem powiadomień terminala. Dostępna na TestFlight jako cmux BETA.",
     "faqSkillsQ": "Czy cmux ma skille?",
     "faqSkillsA": "Tak. Skille to wielokrotnego użytku przepływy pracy, które możesz dać dowolnemu agentowi działającemu w cmux, do takich rzeczy jak sterowanie CLI, automatyzacja workspace'ów, ustawienia i powierzchnie przeglądarki. Przeglądaj otwartą kolekcję na <skillsLink>cmux-skills</skillsLink> lub przeczytaj <link>dokumentację skilli</link>.",
     "faqBrowserQ": "Co potrafi wbudowana przeglądarka?",
     "faqBrowserA": "cmux może podzielić panel z prawdziwą przeglądarką obok terminala i jest w pełni programowalny: nawiguj, rób snapshoty DOM, klikaj, pisz, wykonuj JavaScript oraz czytaj aktywność konsoli i sieci przez to samo socket API. Agenci używają go do weryfikowania własnych zmian w sieci bez opuszczania cmux. Zobacz <link>automatyzację przeglądarki</link>.",
     "faqSupportQ": "Jak mogę wesprzeć cmux?",
-    "faqSupportA": "cmux jest darmowy i otwartoźródłowy, i zawsze taki będzie. Jeśli chcesz wspomóc rozwój i uzyskać wczesny dostęp do tego, co dalej, w tym cmux AI, aplikacji na iOS i Cloud VMs, sprawdź <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqSupportA": "cmux jest darmowy i otwartoźródłowy, i zawsze taki będzie.",
     "faqFeatureQ": "Mam prośbę o funkcję lub znalazłem błąd",
     "faqFeatureA": "Chcemy to usłyszeć. Otwórz <issuesLink>zgłoszenie</issuesLink> lub <prLink>pull request</prLink> na GitHub albo <mailLink>napisz do nas</mailLink>."
   },
@@ -552,12 +552,12 @@
           "granted": "Przyznany przez cmux. Nie ma czego zmieniać.",
           "grantedNoCancel": "Przyznany przez cmux, więc nie ma czego anulować.",
           "paymentFailed": "Zaktualizuj metodę płatności przed zmianą planu.",
-          "foundersLifetime": "Founder's Edition obejmuje Pro dożywotnio.",
+          "foundersLifetime": "Twój dożywotni zakup obejmuje Pro.",
           "adminOnly": "Tylko administratorzy zespołu mogą zmienić plan."
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -569,9 +569,10 @@
             "Lokalna historia sesji"
           ],
           "go": [
-            "1 aktywna Cloud VM",
-            "40 godzin VM miesięcznie",
-            "2 zapisane VM"
+            "Łącznie 1 zapisana maszyna wirtualna, także wstrzymana",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB dysk",
+            "Wsparcie społeczności",
+            "Bez miesięcznego limitu godzin"
           ],
           "pro": [
             "Agenci w chmurze na Cloud VMs",
@@ -608,8 +609,8 @@
         "title": "Anulować {plan}?",
         "body": "Zachowujesz {plan} do {date}. Potem tracisz:",
         "bodyNoDate": "Zachowujesz {plan} do końca tego okresu rozliczeniowego. Potem tracisz:",
-        "foundersBody": "Twoja subskrypcja {plan} kończy się {date}. Potem masz Pro, które Founder's Edition obejmuje dożywotnio.",
-        "foundersBodyNoDate": "Twoja subskrypcja {plan} kończy się z końcem tego okresu rozliczeniowego. Potem masz Pro, które Founder's Edition obejmuje dożywotnio.",
+        "foundersBody": "Twoja subskrypcja {plan} kończy się {date}. Potem zachowujesz Pro dzięki dożywotniemu zakupowi.",
+        "foundersBodyNoDate": "Twoja subskrypcja {plan} kończy się z końcem tego okresu rozliczeniowego. Potem zachowujesz Pro dzięki dożywotniemu zakupowi.",
         "reasonLabel": "Dlaczego anulujesz? (opcjonalnie)",
         "otherPlaceholder": "Powiedz nam więcej (opcjonalnie)",
         "confirm": "Anuluj plan",
@@ -636,6 +637,12 @@
         "title": "Rozliczane przez App Store",
         "body": "Twój plan został kupiony w aplikacji cmux na iPhone’a i jest rozliczany przez Apple. Zmień go lub anuluj w subskrypcjach App Store.",
         "manage": "Zarządzaj w App Store"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Twój plan Plus odnawia się {date}.",
+        "pendingBody": "Twój plan Plus kończy się {date}.",
+        "monthlyPrice": "${amount}/mies."
       }
     },
     "mobileDevices": {
@@ -970,7 +977,7 @@
       },
       "plan": {
         "free": "Darmowy",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2877,7 +2884,7 @@
       "intro": "Aplikacja cmux na iOS jest towarzyszem twojego Maca. Sparuj iPhone'a lub iPada z Makiem, na którym działa cmux, i podłącz się do swoich terminali z telefonu, z opcjonalnym przekazywaniem powiadomień terminala.",
       "betaNote": "Aplikacja iOS jest w wersji beta. Jest dystrybuowana przez TestFlight jako cmux BETA.",
       "accessTitle": "Uzyskiwanie dostępu",
-      "accessDesc": "Aplikacja jest dystrybuowana przez TestFlight. Wczesny dostęp jest wliczony w <foundersLink>cmux Founders Edition</foundersLink>, obok innych wczesnych funkcji.",
+      "accessDesc": "Aplikacja jest dystrybuowana przez TestFlight. Dostęp do bety jest wliczony w cmux Pro; dołącz ze strony TestFlight w swoim panelu.",
       "prereqTitle": "Wymagania wstępne",
       "prereqIntro": "Zanim zaczniesz, potrzebujesz:",
       "prereq1": "Maca z działającym cmux i zalogowanym kontem.",
@@ -2965,9 +2972,9 @@
       "limitsTitle": "Limity planu",
       "limitsDesc": "Twoje aktywne maszyny korzystają z jednej wspólnej puli vCPU i pamięci. Uruchom jedną dużą maszynę albo kilka małych. Wstrzymane maszyny nie zużywają puli. Dysk jest ustalany dla każdej maszyny osobno i nie należy do puli.",
       "limitsFree": "Konta darmowe nie mogą tworzyć maszyn.",
-      "limitsPaid": "Konta Pro i Founder's Edition mogą mieć do 5 aktywnych maszyn współdzielących 20 vCPU i 40 GB pamięci. Maszyna jest aktywna, gdy działa lub się uruchamia.",
-      "limitsTeam": "Konta zespołowe mogą mieć do 5 aktywnych maszyn na każde płatne stanowisko. Każde płatne stanowisko dodaje 20 vCPU i 40 GB pamięci do puli zespołu.",
-      "limitsMax": "Konta Max mogą mieć do 5 aktywnych maszyn współdzielących 80 vCPU i 160 GB pamięci. Jedna maszyna Max może używać do 64 GB i 32 vCPU, w tym rozmiarów 24 GB / 12 vCPU i 32 GB / 16 vCPU; Pro i Team kończą się na 16 GB i 8 vCPU.",
+      "limitsPaid": "Konta Pro mogą mieć do 5 maszyn, w tym wstrzymanych współdzielących 20 vCPU i 40 GB pamięci.",
+      "limitsTeam": "Konta zespołowe mogą mieć do 5 maszyn, w tym wstrzymanych na każde płatne stanowisko. Każde płatne stanowisko dodaje 20 vCPU i 40 GB pamięci do puli zespołu.",
+      "limitsMax": "Konta Max mogą mieć do 5 maszyn, w tym wstrzymanych współdzielących 80 vCPU i 160 GB pamięci. Jedna maszyna Max może używać do 64 GB i 32 vCPU, w tym rozmiarów 24 GB / 12 vCPU i 32 GB / 16 vCPU; Pro i Team kończą się na 16 GB i 8 vCPU.",
       "limitsPoolFull": "Jeśli nowa, wznowiona, powiększona lub rozwidlona maszyna przekroczyłaby pulę, cmux odrzuca żądanie i pokazuje, ile puli jest w użyciu. Wstrzymaj lub usuń maszynę, aby zwolnić zasoby, albo przejdź na Max.",
       "limitsPricing": "Aktualne ceny znajdziesz na stronie z cennikiem. Nie ma pomiaru zużycia ani opłat za przekroczenia.",
       "agentUpdatesTitle": "Aktualizuj agentów kodujących",
@@ -2977,7 +2984,7 @@
       "agentUpdatesToggle": "Arkusz New Machine domyślnie włącza to ustawienie. Aby zmienić je dla istniejącej maszyny, kliknij maszynę prawym przyciskiem i wybierz Keep Agents Up to Date albo uruchom cmux vm agent-updates. cmux vm new zachowuje wersje z obrazu, chyba że podasz --agent-updates latest. Wyłączenie aktualizacji zachowuje już zainstalowane wersje.",
       "agentUpdatesNetwork": "Aktualizacje używają tylko github.com, api.github.com, objects.githubusercontent.com i release-assets.githubusercontent.com. cmux zezwala na te hosty w każdym trybie sieci, także Allowlist i No internet, więc polityka sieci nigdy nie blokuje aktualizacji.",
       "resizeTitle": "Zmiana rozmiaru",
-      "resizeDesc": "Możesz powiększyć maszynę bez utraty danych. Kliknij maszynę prawym przyciskiem i wybierz Resize machine lub użyj cmux vm resize. Zmiana rozmiaru może tylko powiększyć maszynę. Dysk rośnie w krokach po 4 GB do 128 GB w planach Pro i Team albo do 256 GB w planie Max (Go jest ograniczony do 16 GB). Pamięć rośnie do 16 GB, a CPU do 8 vCPU w planach Pro i Team albo do 64 GB i 32 vCPU w planie Max. Większa maszyna zużywa więcej Twojej puli. Rzeczywiste maksimum wyznacza Twój plan.",
+      "resizeDesc": "Możesz powiększyć maszynę bez utraty danych. Kliknij maszynę prawym przyciskiem i wybierz Resize machine lub użyj cmux vm resize. Zmiana rozmiaru może tylko powiększyć maszynę. Dysk rośnie w krokach po 4 GB do 128 GB w planach Pro i Team albo do 256 GB w planie Max (Plus jest ograniczony do 128 GB). Pamięć rośnie do 16 GB, a CPU do 8 vCPU w planach Pro i Team albo do 64 GB i 32 vCPU w planie Max. Większa maszyna zużywa więcej Twojej puli. Rzeczywiste maksimum wyznacza Twój plan.",
       "pauseTitle": "Wstrzymywanie i wznawianie",
       "pauseDesc": "cmux vm pause zatrzymuje moc obliczeniową maszyny. Dysk, obszary robocze i historia terminali zostają zachowane. Działające procesy zostają zatrzymane. cmux vm resume ponownie uruchamia maszynę. Otwarcie wstrzymanej maszyny lub uruchomienie na niej polecenia również ją uruchamia.",
       "pauseIdle": "Maszyny nie wstrzymują się same, gdy są bezczynne. Maszyna działa, dopóki jej nie wstrzymasz lub nie usuniesz.",
@@ -5257,7 +5264,18 @@
     "billingUnavailable": "Płatności są teraz niedostępne. Spróbuj ponownie później.",
     "signedOutNotice": "Nie jesteś zalogowany. Zaloguj się, aby zobaczyć bieżący plan lub przywrócić istniejący zakup.",
     "signedOutSignIn": "Zaloguj się",
-    "manageInAppStore": "Zarządzaj w App Store"
+    "manageInAppStore": "Zarządzaj w App Store",
+    "go": {
+      "name": "Plus",
+      "cta": "Wybierz Plus",
+      "featuresLead": "Obejmuje:",
+      "features": [
+        "Łącznie 1 zapisana maszyna wirtualna, także wstrzymana",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "Wsparcie społeczności",
+        "Bez miesięcznego limitu godzin"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

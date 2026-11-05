@@ -243,7 +243,8 @@ public final class ThemeScope {
     // action runs; a main-actor deinit's hop traps there (cx-t7hu).
     nonisolated deinit {}
 
-    private init(root store: ThemeStore) {
+    /// A root scope on `store` (``app`` for the app's store; tests root a tree on their own store).
+    init(root store: ThemeStore) {
         level = .config
         self.store = store
         input = store.input
@@ -261,8 +262,9 @@ public final class ThemeScope {
         ownTokens = parent.ownTokens
         displayed = ownTokens
         parent.children.add(self)
-        // Art Color: the parent's input carries its own art's hue, not this scope's.
-        if store.accentFollowsArt { update(animated: false, repaint: false) }
+        // Art Color: the parent's input carries its own art's hue, not this scope's. A terminal
+        // under an App Theme keeps the terminal theme, not the chrome colors its parent has.
+        if store.accentFollowsArt || self.level == .terminal { update(animated: false, repaint: false) }
     }
 
     /// The spec in effect here: this scope's, else the nearest ancestor's.
@@ -404,8 +406,29 @@ public final class ThemeScope {
         }
     }
 
+    /// The Ghostty config's colors changed while an App Theme holds the chrome still: the terminals
+    /// that draw the terminal theme (no theme of their own or an ancestor's) re-derive.
+    func configDidChange() {
+        ThemeRepaint.batch { updateTerminals() }
+    }
+
+    private func updateTerminals() {
+        if level == .terminal { update(animated: true, repaint: true) }
+        for child in children.allObjects { child.updateTerminals() }
+    }
+
+    /// The colors this scope derives from: its own theme's, else a terminal's terminal theme (the
+    /// Ghostty config's, which an App Theme does not change; the surface draws it too), else its
+    /// parent's.
+    private var inheritedInput: ThemeInput {
+        if level == .config { return store.input }
+        if let overrideInput { return overrideInput }
+        if level == .terminal, effectiveSpec == nil { return store.configInput }
+        return parent?.input ?? store.input
+    }
+
     private func update(animated: Bool, repaint: Bool) {
-        var next = level == .config ? store.input : overrideInput ?? parent?.input ?? store.input
+        var next = inheritedInput
         next.accent = store.accent
         // Art Color: the hue of the art this scope shows, else the theme's own accent.
         if store.accentFollowsArt, level != .config {

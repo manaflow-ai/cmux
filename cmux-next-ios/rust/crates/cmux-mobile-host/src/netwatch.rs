@@ -5,9 +5,37 @@
 //!
 //! macOS reports address and interface changes on a routing socket
 //! (`PF_ROUTE`): no polling. A burst of messages is coalesced over
-//! [`SETTLE`], then the primary address is compared with the last one.
+//! [`SETTLE`], then signaling and the live endpoints are refreshed, even if the local
+//! address is unchanged (the NAT or interface may have changed).
 
+use std::sync::OnceLock;
 use std::time::Duration;
+use tokio::sync::watch;
+
+static CHANGES: OnceLock<watch::Sender<u64>> = OnceLock::new();
+
+/// Coalesced wake/network events. Retaining a generation also interrupts a retry delay.
+pub fn changes() -> watch::Receiver<u64> {
+    CHANGES.get_or_init(|| watch::channel(0).0).subscribe()
+}
+
+/// Called by the app on wake and the routing socket after network changes.
+pub fn changed() {
+    CHANGES
+        .get_or_init(|| watch::channel(0).0)
+        .send_modify(|generation| *generation = generation.wrapping_add(1));
+}
+
+/// One refresh at a time; events during a refresh coalesce into the next turn.
+/// The host loop owns and aborts this task on removal/shutdown. It does not wait
+/// for signaling, so a backend outage cannot prevent live tunnels from roaming.
+pub async fn refresh_endpoints(mut events: watch::Receiver<u64>) {
+    while events.changed().await.is_ok() {
+        for (session, timeline) in cmux_mobile_link::dial::wireguard::network_changed().await {
+            tracing::info!(session, timings = %timeline.summary(), "roamed");
+        }
+    }
+}
 
 /// How long a burst of routing messages may last before the change is
 /// judged (an interface coming up adds and removes several addresses).
@@ -42,7 +70,6 @@ async fn watch() -> std::io::Result<()> {
         libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK);
     }
     let socket = AsyncFd::with_interest(fd, Interest::READABLE)?;
-    let mut last = cmux_mobile_link::dial::wireguard::primary_local_ip();
     let mut buffer = vec![0u8; 2048];
     loop {
         // Wait for a message about addresses or interfaces.
@@ -61,18 +88,8 @@ async fn watch() -> std::io::Result<()> {
                 read = read(&socket, &mut buffer) => { read?; }
             }
         }
-        let now = cmux_mobile_link::dial::wireguard::primary_local_ip();
-        if now == last {
-            continue;
-        }
-        tracing::info!(from = ?last, to = ?now, "the Mac's network changed");
-        last = now;
-        if now.is_some() {
-            let roamed = cmux_mobile_link::dial::wireguard::network_changed().await;
-            for (session, timeline) in roamed {
-                tracing::info!(session, timings = %timeline.summary(), "roamed");
-            }
-        }
+        tracing::info!("the Mac's network changed; refreshing signaling and endpoints");
+        changed();
     }
 }
 

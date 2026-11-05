@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextTestSupport
 import ObjectiveC
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 /// with `.invisible`. Every native field edits through an `NSTextView` (a field's field editor, or the
 /// text view itself), which now answers `.invisible` for cmux's own text. Asked through the
 /// Objective-C runtime, as AppKit asks.
-@MainActor @Suite struct NativeCaretAccessoryTests {
+@MainActor @Suite(.closesItsWindows) struct NativeCaretAccessoryTests {
     private typealias Getter = @convention(c) (AnyObject, Selector) -> Int
 
     init() { NativeCaretAccessory.install() }
@@ -36,15 +37,20 @@ import Testing
     /// The rename field of a sidebar row's context menu (workspace, tab, pane, screen, group).
     @Test func theRenameFieldShowsNoCaretAccessory() throws {
         let field = MenuNameField(name: "gh-broker", placeholder: "Name") { _ in }
+        defer { field.window?.closeAfterTest() }
         #expect(try Self.placement(of: Self.editor(of: field)) == .invisible)
     }
 
     @Test func aSearchFieldShowsNoCaretAccessory() throws {
-        #expect(try Self.placement(of: Self.editor(of: NSSearchField(frame: .zero))) == .invisible)
+        let field = NSSearchField(frame: .zero)
+        defer { field.window?.closeAfterTest() }
+        #expect(try Self.placement(of: Self.editor(of: field)) == .invisible)
     }
 
     @Test func aThemedFieldShowsNoCaretAccessory() throws {
-        #expect(try Self.placement(of: Self.editor(of: ThemedTextField(frame: .zero))) == .invisible)
+        let field = ThemedTextField(frame: .zero)
+        defer { field.window?.closeAfterTest() }
+        #expect(try Self.placement(of: Self.editor(of: field)) == .invisible)
     }
 
     @Test func aTextViewShowsNoCaretAccessory() throws {
@@ -57,6 +63,7 @@ import Testing
         let view = NSTextView(frame: .zero)
         #expect(NativeCaretAccessory.placement(for: view) { _ in true } == nil)
         let field = NSTextField(frame: .zero)
+        defer { field.window?.closeAfterTest() }
         let editor = try Self.editor(of: field)
         #expect(NativeCaretAccessory.placement(for: editor) { ObjectIdentifier($0) == ObjectIdentifier(NSTextField.self) } == nil)
         #expect(NativeCaretAccessory.placement(for: editor) { ObjectIdentifier($0) == ObjectIdentifier(NSTextView.self) } == .invisible)

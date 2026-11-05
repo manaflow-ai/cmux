@@ -8,6 +8,18 @@ extension CmuxConfigSnapshot {
     /// `labs.classicHome`: Home as the classic top page (the Chief conversation full window) instead of the home workspace with the Chief's page in a left dock (hq-6d cx-ebm.59.5). Off by default; kept for one release. HomeDock.classic reads it through DesignSettings.classicHome.
     public nonisolated static let classicHomePath = ["labs", "classicHome"]
     public nonisolated static let classicHomeDefault = false
+    /// `labs.voiceRoom`: Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
+    public nonisolated static let voiceRoomPath = ["labs", "voiceRoom"]
+    public nonisolated static let voiceRoomDefault = false
+    /// `labs.voiceRoomURL`: The Voice Room server (experiments/voice-room). Empty is the local server, http://127.0.0.1:4788/. A tailnet room is the https://<host>.ts.net:4789/ address its `--share` prints.
+    public nonisolated static let voiceRoomURLPath = ["labs", "voiceRoomURL"]
+    public nonisolated static let voiceRoomURLDefault = ""
+    /// `labs.machineJoin`: Any machine joins with one pasted line (contract: cmux machine join, J6-J8): Add Device's "Any machine: one line" way, joined rows in the Machines sidebar with Check, Rotate and Revoke, and This Mac's Screen sharing and Control consent switches in Settings > Devices. Off by default while the join routes answer only on the development platform. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).
+    public nonisolated static let machineJoinPath = ["labs", "machineJoin"]
+    public nonisolated static let machineJoinDefault = false
+    /// `labs.liveCode`: Live code (docs/cmux-next/live-code.md): an opt-in, temporary switch. On, a live code build (CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh: CmuxNextApp at -Onone, linked -interposable) watches ~/Library/Caches/cmux-next/live-code and applies Swift patches compiled from the person's checkout (scripts/live-code/patch.py) with no new build. Off, nothing is watched or loaded; Debug and bench builds only until a patch's signer is checked (cmux#13742). Read at launch. The person turns it on: agents may not (it loads code into the app).
+    public nonisolated static let liveCodePath = ["labs", "liveCode"]
+    public nonisolated static let liveCodeDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -35,6 +47,46 @@ nonisolated enum LabsSettingsSchema {
                 kind: .toggle,
                 default: .bool(CmuxConfigSnapshot.classicHomeDefault),
                 keywords: ["home", "chief", "classic", "dock", "page"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.voiceRoomPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.voiceRoom", "Voice Room"),
+                help: SettingsText.keyed("settings.labs.voiceRoom.help", "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.voiceRoomDefault),
+                keywords: ["labs", "voice", "room", "call", "meeting", "transcribe", "screen", "record", "chief"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.voiceRoomURLPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.voiceRoomURL", "Voice Room Address"),
+                help: SettingsText.keyed("settings.labs.voiceRoomURL.help", "The room's web address. Empty uses the room server on this Mac."),
+                kind: .text,
+                default: .string(CmuxConfigSnapshot.voiceRoomURLDefault),
+                keywords: ["labs", "voice", "room", "address", "url", "server", "tailnet"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.machineJoinPath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.machineJoin", "Join Any Machine with One Line"),
+                help: SettingsText.keyed("settings.labs.machineJoin.help", "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.machineJoinDefault),
+                keywords: ["labs", "machine", "join", "add", "device", "line", "curl", "remote", "mesh"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.liveCodePath,
+                section: .advanced,
+                group: group,
+                title: SettingsText.keyed("settings.labs.liveCode", "Live Code"),
+                help: SettingsText.keyed("settings.labs.liveCode.help", "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.liveCodeDefault),
+                keywords: ["labs", "live", "code", "hot", "reload", "patch", "inject", "swift", "develop"]
             ),
         ]
     }

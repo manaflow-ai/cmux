@@ -16,11 +16,21 @@ from xml.dom import minidom
 MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.I)
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 REPAIR = "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
-# Pages of 25 merged PRs read before giving up (newest update first).
-MERGED_PR_PAGES = 80
+# Pages of merged PRs read before giving up (newest update first). The pages
+# carry only what picks the range's PRs; the details (labels, files) are read
+# afterwards for those PRs alone. Heavy 25-PR pages back to a day before the
+# baseline took 60-90 s of publish-nightly, right before the feed upload.
+MERGED_PR_PAGE_SIZE = 100
+MERGED_PR_PAGES = 20
+# A PR merged into the range was updated at or after its merge, which is after
+# the base commit landed; an hour covers clock skew between the two.
+UPDATED_SLACK = timedelta(hours=1)
+PR_PICK_FIELDS = "number mergedAt baseRefName mergeCommit { oid } updatedAt"
 PR_FIELDS = """number title url mergedAt baseRefName mergeCommit { oid }
                 labels(first: 100) { nodes { name } }
                 files(first: 100) { totalCount nodes { path } }"""
+# PRs whose details one query reads.
+PR_DETAIL_BATCH = 50
 
 
 class TransientGitHubError(RuntimeError):
@@ -98,17 +108,15 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
     base_date = ((comparison.get("base_commit") or {}).get("commit") or {}).get("committer", {}).get("date")
     if not base_date:
         raise RuntimeError("GitHub compare returned no base commit date; retry metadata generation")
-    # A PR merged into the range was updated at or after its merge, which is
-    # after the base commit; a day of slack covers clock skew between the two.
-    cutoff = datetime.fromisoformat(base_date.replace("Z", "+00:00")) - timedelta(days=1)
+    cutoff = datetime.fromisoformat(base_date.replace("Z", "+00:00")) - UPDATED_SLACK
     prs = {}
     cursor = None
     for _ in range(MERGED_PR_PAGES):
         after = f", after: {json.dumps(cursor)}" if cursor else ""
         result = github.graphql(
             "query { " + repository + f" {{ pullRequests(baseRefName: {json.dumps(branch)}, states: MERGED, "
-            f"first: 25, orderBy: {{field: UPDATED_AT, direction: DESC}}{after}) {{ "
-            f"pageInfo {{ hasNextPage endCursor }} nodes {{ updatedAt {PR_FIELDS} }} }} }} }}")
+            f"first: {MERGED_PR_PAGE_SIZE}, orderBy: {{field: UPDATED_AT, direction: DESC}}{after}) {{ "
+            f"pageInfo {{ hasNextPage endCursor }} nodes {{ {PR_PICK_FIELDS} }} }} }} }}")
         page = result["pullRequests"]
         for pr in page["nodes"]:
             merged = pr.get("mergeCommit") or {}
@@ -125,8 +133,23 @@ def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]
         if not cursor:
             raise RuntimeError("GitHub merged PRs pagination returned no cursor; retry metadata generation")
     else:
-        raise RuntimeError(f"More than {MERGED_PR_PAGES * 25} merged PRs since the published build; inspect the channel marker")
-    return list(prs.values())
+        raise RuntimeError(f"More than {MERGED_PR_PAGES * MERGED_PR_PAGE_SIZE} merged PRs since the published build; inspect the channel marker")
+    return pr_details(github, repository, sorted(prs))
+
+
+def pr_details(github: GitHub, repository: str, numbers: list[int]) -> list[dict]:
+    """Read the summary fields of the picked PRs, PR_DETAIL_BATCH per query."""
+    details = []
+    for start in range(0, len(numbers), PR_DETAIL_BATCH):
+        batch = numbers[start:start + PR_DETAIL_BATCH]
+        fields = " ".join(f"pr{number}: pullRequest(number: {number}) {{ {PR_FIELDS} }}" for number in batch)
+        result = github.graphql("query { " + repository + " { " + fields + " } }")
+        for number in batch:
+            pr = result.get(f"pr{number}")
+            if not pr:
+                raise RuntimeError(f"GitHub returned no details for merged PR #{number}; retry metadata generation")
+            details.append(pr)
+    return details
 
 
 def infrastructure(pr: dict) -> bool:

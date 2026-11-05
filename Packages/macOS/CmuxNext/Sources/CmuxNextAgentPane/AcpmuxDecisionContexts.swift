@@ -14,6 +14,8 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         /// The options the prompt offers once each as a one-time allow (`allow_once`): the only
         /// ones an enrolled Mac may sign (acpmux `mac_approvers::may_allow`).
         public var allowOnce: Set<String> = []
+        /// The daemon normalized this request as a question, never a tool permission.
+        public var isQuestion = false
     }
 
     /// How the daemon answered one of the pane's permission answers (one prompt's or a group's).
@@ -23,6 +25,15 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         /// A peer refused it for want of the person's proof (acpmux `permission.person_required`
         /// with `data.peer`, this Mac's daemon's name for that peer).
         case refused(peer: String)
+        /// A peer refused an answer that went without this Mac's signed allow because this Mac
+        /// had no record of the prompt (acpmux `permission.person_required` with `data.peer`).
+        case unproved(peer: String)
+        /// A peer refused this Mac's signed allow because it has not enrolled this Mac, for an
+        /// answer the person's click made that may go again once (``sent(pageID:proved:single:retry:)``):
+        /// the page has not seen the refusal (``observe(_:replyTo:)`` held it), and `frame` is
+        /// the answer as it went, signed, for the transport to send again after it enrolled
+        /// this Mac there (Leo, 2026-11-04: "it doesnt let me trust on click").
+        case enrollThenRetry(peer: String, pageID: String, frame: String)
     }
 
     /// A permission group the page read (`_acpmux/permission_groups`): its revision and its pending
@@ -35,19 +46,40 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
 
     static let limit = 256
 
+    /// A permission answer in flight: whether it carried this Mac's signed allow, and whether it
+    /// answers one prompt (`_acpmux/permission_respond`) rather than a group.
+    struct Sent: Equatable {
+        let proved: Bool
+        let single: Bool
+        /// The signed answer as it went (no relay id), when a refusal for want of enrollment
+        /// enrolls this Mac and sends it again; nil: such a refusal reaches the page.
+        var retry: String?
+    }
+
     private struct State {
         var order: [String] = []
         var byKey: [String: Context] = [:]
         /// The log seq each context came from: an older page replayed later never wins.
         var seqByKey: [String: UInt64] = [:]
+        /// A live pending notification can omit its log seq (notably a peer relay). It wins over
+        /// older replay until the same context is anchored by a seq, but is not an infinite seq:
+        /// a later explicit decision must still remove it.
+        var unsequencedPending: Set<String> = []
+        var decisionSeqByKey: [String: UInt64] = [:]
+        var decisionSeqBySession: [String: UInt64] = [:]
+        var decisionSessionOrder: [String] = []
+        var questionVersion: UInt64 = 0
+        /// Bumps on any change to the pending prompts or a group's pending members, questions and
+        /// tool permissions alike (``hasPending(session:)``).
+        var pendingVersion: UInt64 = 0
         var localInstance: String?
         /// How the daemon answered the pane's permission answers since the pane last looked, in
         /// order (at most ``limit``).
         var answers: [Answer] = []
         /// The page's permission answers in flight to a peer, by page request id: whether each
-        /// went out with this Mac's signed allow (``sent(pageID:proved:)``). Oldest first, at most
+        /// went out with this Mac's signed allow (``sent(pageID:proved:single:)``). Oldest first, at most
         /// ``limit``.
-        var proved: [String: Bool] = [:]
+        var proved: [String: Sent] = [:]
         var provedOrder: [String] = []
         var groups: [String: Group] = [:]
         var groupOrder: [String] = []
@@ -57,48 +89,77 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
 
     public init() {}
 
-    /// Reads one inbound frame, as the page gets it.
-    func observe(_ object: [String: Any], replyTo method: String?) {
+    func pendingQuestionVersion() -> UInt64 { state.withLock { $0.questionVersion } }
+
+    /// Changes whenever any pending prompt or group member changes, a question or not.
+    func pendingVersion() -> UInt64 { state.withLock { $0.pendingVersion } }
+
+    /// Whether `session` has any request waiting for an answer: a question, a tool permission or a
+    /// pending member of a permission group. Read from daemon frames only.
+    func hasPending(session: String) -> Bool {
+        let prefix = session + "\u{0}"
+        return state.withLock { state in
+            state.byKey.keys.contains { $0.hasPrefix(prefix) }
+                || state.groups.contains { $0.key.hasPrefix(prefix) && !$0.value.pending.isEmpty }
+        }
+    }
+
+    /// Reads one inbound frame, as the page gets it. The page id of a reply the page must not get
+    /// yet (an ``Answer/enrollThenRetry(peer:pageID:frame:)``), else nil.
+    @discardableResult
+    func observe(_ object: [String: Any], replyTo method: String?) -> String? {
         if method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond" {
             // This reply's own request: whether it carried this Mac's signed allow. Any reply
             // ends it, an error of any kind too. A reply to no answer this connection sent (a
             // late one of the connection before a reconnect, which `reset` forgot) says nothing.
             let pageID = object["id"].flatMap(AcpmuxPaneMethods.rawID)
-            state.withLock { state in
-                guard let proved = pageID.flatMap({ state.proved.removeValue(forKey: $0) }) else { return }
+            return state.withLock { state -> String? in
+                guard let pageID, let sent = state.proved.removeValue(forKey: pageID) else { return nil }
                 var answer: Answer?
                 if let error = object["error"] as? [String: Any] {
                     let data = error["data"] as? [String: Any]
-                    // Only a signed allow's refusal says the peer has not enrolled this Mac; an
-                    // unsigned one's (no key, a prompt that changed) says nothing of the kind.
-                    if proved, data?["reason"] as? String == "permission.person_required",
+                    // Only a signed allow's refusal says the peer has not enrolled this Mac. An
+                    // unsigned one went only because this Mac had no record of the prompt to sign
+                    // (every other unsigned allow for a peer's prompt never goes, `signPeerAllow`).
+                    if data?["reason"] as? String == "permission.person_required",
                        let peer = data?["peer"] as? String, !peer.isEmpty {
-                        answer = .refused(peer: peer)
+                        // Only a single prompt's unsigned answer went for want of a record; a
+                        // group's unsigned answer (Allow for this chat) was already said.
+                        if sent.proved, let frame = sent.retry {
+                            answer = .enrollThenRetry(peer: peer, pageID: pageID, frame: frame)
+                        } else if sent.proved {
+                            answer = .refused(peer: peer)
+                        } else if sent.single {
+                            answer = .unproved(peer: peer)
+                        }
                     }
                 } else if object["result"] != nil {
                     answer = .counted
                 }
-                guard let answer else { return }
+                guard let answer else { return nil }
                 state.answers.append(answer)
                 if state.answers.count > Self.limit { state.answers.removeFirst() }
+                if case .enrollThenRetry = answer { return pageID }
+                return nil
             }
-            return
         }
         if method == "_acpmux/permission_groups" {
             let groups = (object["result"] as? [String: Any])?["groups"] as? [[String: Any]] ?? []
-            return groups.forEach(noteGroup)
+            groups.forEach(noteGroup)
+            return nil
         }
         if method == AcpmuxPaneMethods.initialize {
             let meta = ((object["result"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             let instance = meta?["personInstance"] as? String
             state.withLock { $0.localInstance = instance }
-            return
+            return nil
         }
         // A prompt the page learns from the event log (a live `_acpmux/event`, or the records of an
         // attach or events page: a chat on another machine whose prompt came before the page
         // attached, cx-oa6ah) carries the same nonce and run in its `permission_request` record.
         if object["method"] as? String == "_acpmux/event", let record = object["params"] as? [String: Any] {
-            return observeRecord(record)
+            observeRecord(record)
+            return nil
         }
         // Only the daemon's own replies are read (an agent's forwarded result could carry a
         // `session` or `events` member of its own).
@@ -117,18 +178,54 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
                 for prompt in pending { note(session: session, prompt, seq: seq) }
             }
             if let events = result["events"] as? [[String: Any]] {
-                return events.forEach(observeRecord)
+                events.forEach(observeRecord)
+                return nil
             }
         }
         guard object["method"] as? String == "_acpmux/permission_pending",
               let params = object["params"] as? [String: Any],
               let session = params["sessionId"] as? String
-        else { return }
+        else { return nil }
         note(session: session, params, seq: (params["seq"] as? NSNumber)?.uint64Value)
+        return nil
     }
 
     /// One event record: a `permission_request` or `permission_reissued` names its prompt's nonce and run.
     private func observeRecord(_ record: [String: Any]) {
+        // A decided prompt cannot keep backing a question key, including when a history page
+        // containing its older request arrives after the decision.
+        if record["dir"] as? String == "mux", record["kind"] as? String == "permission_decision",
+           let session = record["sessionId"] as? String, let message = record["msg"] as? [String: Any] {
+            let prefix = session + "\u{0}"
+            let permission = message["permissionId"] as? String
+            state.withLock { state in
+                let seq = (record["seq"] as? NSNumber)?.uint64Value ?? .max
+                let keys = state.byKey.keys.filter { $0.hasPrefix(prefix) && (permission == nil || $0 == prefix + (permission ?? "")) }
+                var changed = false
+                for key in keys {
+                    guard seq >= (state.seqByKey[key] ?? 0) else { continue }
+                    changed = changed || state.byKey[key]?.isQuestion == true
+                    if state.byKey.removeValue(forKey: key) != nil { state.pendingVersion &+= 1 }
+                    state.unsequencedPending.remove(key)
+                    state.seqByKey[key] = seq
+                }
+                if let permission {
+                    let key = prefix + permission
+                    state.decisionSeqByKey[key] = max(state.decisionSeqByKey[key] ?? 0, seq)
+                    if !state.order.contains(key) { state.order.append(key) }
+                }
+                else {
+                    if state.decisionSeqBySession[session] == nil { state.decisionSessionOrder.append(session) }
+                    state.decisionSeqBySession[session] = max(state.decisionSeqBySession[session] ?? 0, seq)
+                    if state.decisionSessionOrder.count > Self.limit {
+                        state.decisionSeqBySession.removeValue(forKey: state.decisionSessionOrder.removeFirst())
+                    }
+                }
+                Self.trim(&state)
+                if changed { state.questionVersion &+= 1 }
+            }
+            return
+        }
         // Only the daemon's own (`mux`) records name a prompt's nonce and run.
         guard record["dir"] as? String == "mux",
               let kind = record["kind"] as? String, kind == "permission_request" || kind == "permission_reissued",
@@ -146,6 +243,9 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         let key = session + "\u{0}" + permission
         var context = Context(nonce: nonce, instance: instance)
         let request = params["request"] as? [String: Any]
+        // Keep this predicate in lockstep with the card model: Claude's AskUserQuestion uses
+        // `_meta.claude.tool` and has no normalized `_meta.acpmux.question` envelope.
+        context.isQuestion = request.map(AcpmuxPermissionPrompt.isQuestion) ?? false
         context.toolCall = (request?["toolCall"] as? [String: Any])?["toolCallId"] as? String ?? ""
         let options = request?["options"] as? [[String: Any]] ?? []
         let ids = options.compactMap { $0["optionId"] as? String }
@@ -156,15 +256,39 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         })
         state.withLock { state in
             if let seq, let known = state.seqByKey[key], seq < known { return }
-            // An update without a seq is the newest the pane knows: no replayed record replaces it.
-            state.seqByKey[key] = seq ?? .max
-            guard state.byKey.updateValue(context, forKey: key) == nil else { return }
-            state.order.append(key)
-            if state.order.count > Self.limit {
-                let oldest = state.order.removeFirst()
-                state.byKey.removeValue(forKey: oldest)
-                state.seqByKey.removeValue(forKey: oldest)
+            if let seq, seq <= (state.decisionSeqByKey[key] ?? 0) || seq <= (state.decisionSeqBySession[session] ?? 0) { return }
+            let previous = state.byKey[key]
+            if let seq {
+                // An unsequenced notification is current, but an old history page can arrive
+                // afterwards. Only an exact echo can anchor that context's position in the log.
+                if state.unsequencedPending.contains(key), previous != context { return }
+                state.seqByKey[key] = seq
+                state.unsequencedPending.remove(key)
+            } else {
+                // Keep the last known seq as a lower bound, so an older decision cannot erase a
+                // reissue already observed. Missing seq itself is not a value in that ordering.
+                state.unsequencedPending.insert(key)
             }
+            let changed = previous != context
+            state.byKey[key] = context
+            if changed {
+                state.order.removeAll { $0 == key }
+                state.order.append(key)
+            }
+            Self.trim(&state)
+            if changed { state.pendingVersion &+= 1 }
+            if changed, context.isQuestion || previous?.isQuestion == true { state.questionVersion &+= 1 }
+        }
+    }
+
+    private static func trim(_ state: inout State) {
+        while state.order.count > limit {
+            let oldest = state.order.removeFirst()
+            if state.byKey[oldest]?.isQuestion == true { state.questionVersion &+= 1 }
+            if state.byKey.removeValue(forKey: oldest) != nil { state.pendingVersion &+= 1 }
+            state.seqByKey.removeValue(forKey: oldest)
+            state.unsequencedPending.remove(oldest)
+            state.decisionSeqByKey.removeValue(forKey: oldest)
         }
     }
 
@@ -182,9 +306,9 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         let key = session + "\u{0}" + id
         state.withLock { state in
             if let known = state.groups[key], known.revision > revision { return }
-            if state.groups.updateValue(Group(revision: revision, pending: pending), forKey: key) == nil {
-                state.groupOrder.append(key)
-            }
+            let previous = state.groups.updateValue(Group(revision: revision, pending: pending), forKey: key)
+            if previous == nil { state.groupOrder.append(key) }
+            if (previous?.pending ?? [:]) != pending { state.pendingVersion &+= 1 }
             if state.groupOrder.count > Self.limit {
                 state.groups.removeValue(forKey: state.groupOrder.removeFirst())
             }
@@ -215,6 +339,17 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         state.withLock { $0.byKey[session + "\u{0}" + permission] }
     }
 
+    /// Pending questions for the selected native session. Read from daemon frames only.
+    func questions(session: String) -> [String: Context] {
+        let prefix = session + "\u{0}"
+        return state.withLock { state in
+            Dictionary(uniqueKeysWithValues: state.byKey.compactMap { key, value in
+                guard key.hasPrefix(prefix), value.isQuestion else { return nil }
+                return (String(key.dropFirst(prefix.count)), value)
+            })
+        }
+    }
+
     /// The daemon run this connection talks to directly (its own prompts need no relayed proof);
     /// nil for a chat on another machine (the wire's `initialize` names none).
     public var localInstance: String? { state.withLock { $0.localInstance } }
@@ -222,18 +357,23 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
     /// How the daemon answered the pane's permission answers since the last call, in order.
     /// The page's permission answer `pageID` goes out to the daemon, with this Mac's signed allow
     /// (`proved`) or without: only a signed one's refusal is read as "not enrolled there".
-    func sent(pageID: String, proved: Bool) {
+    /// `retry`: the signed answer as it went, when such a refusal enrolls this Mac and sends it
+    /// once more instead of reaching the page (``Answer/enrollThenRetry(peer:pageID:frame:)``).
+    func sent(pageID: String, proved: Bool, single: Bool, retry: String? = nil) {
         state.withLock { state in
             // Answered ones leave the order here, so it stays as long as what is in flight.
             state.provedOrder.removeAll { state.proved[$0] == nil }
-            if state.proved.updateValue(proved, forKey: pageID) == nil { state.provedOrder.append(pageID) }
+            let sent = Sent(proved: proved, single: single, retry: proved && single ? retry : nil)
+            if state.proved.updateValue(sent, forKey: pageID) == nil {
+                state.provedOrder.append(pageID)
+            }
             while state.provedOrder.count > Self.limit {
                 state.proved[state.provedOrder.removeFirst()] = nil
             }
         }
     }
 
-    /// The answer ``sent(pageID:proved:)`` named did not go out after all.
+    /// The answer ``sent(pageID:proved:single:retry:)`` named did not go out after all.
     func notSent(pageID: String) {
         state.withLock { state in
             state.proved[pageID] = nil

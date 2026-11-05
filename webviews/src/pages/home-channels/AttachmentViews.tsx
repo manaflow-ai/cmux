@@ -11,6 +11,7 @@ import type { Strings } from "../shared/i18n";
 import { AttachmentService, attachmentClass, formatBytes, type UploadProgress } from "./attachmentService";
 import { HomeIcon } from "./icons";
 import type { HomeAttachment } from "./types";
+import "../../ui/motion/motion.css";
 
 /** The page's attachment service (absent: attachments show as named rows only). */
 export const AttachmentContext = createContext<AttachmentService | undefined>(undefined);
@@ -181,7 +182,7 @@ function VideoPlayer({
     service.url(conversation, part.hash, "original", part.name, true).then(setSrc, () => undefined);
   };
   return (
-    <figure className="hc-att-video" style={{ width: size.width }}>
+    <figure className="hc-att-video ui-reveal-host" style={{ width: size.width }}>
       {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- a user's attached file; it has no caption track. */}
       <video
         src={src}
@@ -207,7 +208,7 @@ function VideoPlayer({
         </span>
         {src && (
           <a
-            className="hc-att-download"
+            className="hc-att-download ui-reveal"
             href={src}
             download={part.name}
             aria-label={strings.format("attachment.download", part.name)}
@@ -241,10 +242,19 @@ function usePoster(conversation: string, part: HomeAttachment): string | undefin
 function FileRow({ conversation, part, strings }: { conversation: string; part: HomeAttachment; strings: Strings }) {
   const service = useContext(AttachmentContext);
   const extension = part.name.includes(".") ? part.name.slice(part.name.lastIndexOf(".") + 1).toUpperCase() : "";
+  // The link could not be had (the daemon does not answer, the record is gone): the row says so,
+  // and the button asks again, instead of a click that does nothing.
+  const [failed, setFailed] = useState(false);
   const download = async () => {
     if (!service) return;
-    const url = await service.url(conversation, part.hash, "original", part.name).catch(() => undefined);
-    if (!url) return;
+    setFailed(false);
+    let url: string;
+    try {
+      url = await service.url(conversation, part.hash, "original", part.name);
+    } catch {
+      setFailed(true);
+      return;
+    }
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = part.name;
@@ -252,18 +262,24 @@ function FileRow({ conversation, part, strings }: { conversation: string; part: 
     anchor.click();
   };
   return (
-    <div className="hc-att-file">
+    <div className="hc-att-file ui-reveal-host">
       <span className="hc-att-file-mark" aria-hidden>
         {extension.slice(0, 4) || <HomeIcon name="attach" />}
       </span>
       <span className="hc-att-file-text">
         <span className="hc-att-name">{part.name}</span>
-        <span className="hc-att-meta">{formatBytes(part.byteCount)}</span>
+        {failed ? (
+          <span className="hc-att-meta is-failed" role="alert">
+            {strings.t("attachment.downloadFailed")}
+          </span>
+        ) : (
+          <span className="hc-att-meta">{formatBytes(part.byteCount)}</span>
+        )}
       </span>
       {service && (
         <button
           type="button"
-          className="hc-att-download"
+          className="hc-att-download ui-reveal"
           aria-label={strings.format("attachment.download", part.name)}
           onClick={() => void download()}
         >

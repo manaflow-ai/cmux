@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
@@ -23,7 +24,7 @@ struct AgentPaneTabRowHolesTests {
     private func chromiumChat() async throws -> (AgentPaneView, FakeChromiumPage) {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true,
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true, testRoot: true,
                                               chromium: hosting))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         view.layoutSubtreeIfNeeded()
@@ -55,11 +56,80 @@ struct AgentPaneTabRowHolesTests {
 
         AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
 
-        // The tabs (left of the chat's tools) and the pane's toolbar (right of them) show through.
+        // The tabs (left of the chat's tools), the window's top rim over the tools, and the pane's
+        // toolbar (right of them) show through.
         #expect(holes(page, in: view) == [
             CGRect(x: 0, y: 0, width: room - span, height: 36),
+            CGRect(x: room - span, y: 0, width: span, height: 1),
             CGRect(x: 740, y: 0, width: 60, height: 36),
         ])
+    }
+
+    /// Leo (2026-11-03), on a chat alone in its pane: "isn't it kinda arbitrary anyway if you literally
+    /// only have one tab there?" The pane hides that tab, so the page shows through the row's leading
+    /// end too: only the pane's toolbar stays uncovered.
+    @Test func aLoneTabLeavesOnlyTheToolbarUncovered() async throws {
+        let (view, page) = try await chromiumChat()
+        view.model.tabRow.report(width: 120)
+        view.model.tabRow.tabsShown = false // PaneTabRowSharing.setTabRowTabs, as the pane calls it before the offer
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        #expect(holes(page, in: view) == [
+            CGRect(x: 0, y: 0, width: 740, height: 1),
+            CGRect(x: 740, y: 0, width: 60, height: 36),
+        ])
+
+        // A second tab brings the strip back, and its hole with it.
+        view.model.tabRow.tabsShown = true
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        #expect(holes(page, in: view).count == 3)
+    }
+
+    /// Leo (2026-11-03, the nightly): "latest nightly still not fixed yet?" / "i mean the rectangle near the
+    /// buttons". Alone in its pane a Chromium chat paints its own surface (`appearance.surfaces.agentPane`)
+    /// across the whole row, but its page window leaves the pane's toolbar a hole, where the pane's own shade
+    /// showed: a block of another color beside the tools (#33261). The toolbar hole paints the page's surface,
+    /// so nothing in the row differs from the surface around it; a row the page leaves clear paints nothing.
+    @Test func aLoneChromiumChatsToolbarHolePaintsThePagesSurface() {
+        let chat = ThemeRGB(hex: 0x282938)
+        #expect(AgentPaneTabRow.holeFill(chromium: true, shares: true, tabsShown: false, page: chat) == chat.cgColor)
+        // Tabs shown: the page leaves the row clear, so the hole shows the same pane the page does.
+        #expect(AgentPaneTabRow.holeFill(chromium: true, shares: true, tabsShown: true, page: chat) == nil)
+        // WebKit: the page is under the toolbar and already paints there.
+        #expect(AgentPaneTabRow.holeFill(chromium: false, shares: true, tabsShown: false, page: chat) == nil)
+        // Out of the row, or a clear page (glass): nothing.
+        #expect(AgentPaneTabRow.holeFill(chromium: true, shares: false, tabsShown: false, page: chat) == nil)
+        #expect(AgentPaneTabRow.holeFill(chromium: true, shares: true, tabsShown: false, page: chat.withAlpha(0)) == nil)
+    }
+
+    /// The chat hands its pane the fill with each offer, in its own theme scope, and drops it with the row.
+    @Test func aLoneChromiumChatHandsThePaneItsSurfaceForTheToolbar() async throws {
+        let (view, _) = try await chromiumChat()
+        view.model.tabRow.report(width: 120)
+        view.model.tabRow.tabsShown = false
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        let surface = view.performWithTheme { AgentPaneTheme.pageBackground(view.themeTokens, surface: .agentPane) }
+        #expect(view.model.tabRow.holeFill == (surface.alpha > 0 ? surface.cgColor : nil))
+
+        view.model.tabRow.tabsShown = true
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        #expect(view.model.tabRow.holeFill == nil)
+        view.model.tabRow.tabsShown = false
+        AgentPaneTabRow.offer(points: 0, trailingInset: 0, to: view)
+        #expect(view.model.tabRow.holeFill == nil)
+    }
+
+    /// A shared page host on WebKit: the page is under the toolbar and already paints there, so a translucent
+    /// surface would darken twice under a fill (review of #33407).
+    @Test func aLoneWebKitChatPaintsNoToolbarHole() throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true, testRoot: true, chromium: nil))
+        view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        view.layoutSubtreeIfNeeded()
+        #expect(view.chromiumPage == nil)
+        view.model.tabRow.report(width: 120)
+        view.model.tabRow.tabsShown = false
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        #expect(view.model.tabRow.holeFill == nil)
     }
 
     @Test func aChatOutOfTheRowCoversNothing() async throws {
@@ -83,10 +153,38 @@ struct AgentPaneTabRowHolesTests {
         AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
         let tools = try #require(view.model.tabRow.sharedWidth(zoom: view.webView.pageZoom))
         let room: CGFloat = 1000 - 60
+        let span = min(tools, room / 2)
         #expect(holes(page, in: view) == [
-            CGRect(x: 0, y: 0, width: room - min(tools, room / 2), height: 36),
+            CGRect(x: 0, y: 0, width: room - span, height: 36),
+            CGRect(x: room - span, y: 0, width: span, height: 1),
             CGRect(x: 940, y: 0, width: 60, height: 36),
         ])
+    }
+
+    /// Leo (2026-11-03): "there is clearly a rectangle that is just covering up the glass at the rim of
+    /// the top of the app". Where the row meets the window's top edge, the page window over the
+    /// chat's tools drew a flat gray 1 pt line (rgb 69,71,70 in every theme) in place of the window's
+    /// lit rim, which the tabs' hole beside it showed: the rim stopped where the tools began. The page
+    /// leaves the row's top point uncovered across the tools too, so the rim runs the whole width, and
+    /// the holes never overlap (the fork masks with them even-odd: an overlap would cover it again).
+    @Test func theWindowsTopRimStaysUncoveredAcrossTheTools() async throws {
+        let (view, page) = try await chromiumChat()
+        view.model.tabRow.report(width: 120)
+        for (tabs, inset) in [(true, CGFloat(60)), (false, 60), (true, 0), (false, 0)] {
+            view.model.tabRow.tabsShown = tabs
+            AgentPaneTabRow.offer(points: 36, trailingInset: inset, to: view)
+            let rects = holes(page, in: view)
+            // Every point of the row's top edge is in exactly one hole.
+            for x in stride(from: CGFloat(0.5), to: 800, by: 1) {
+                let hits = rects.filter { $0.contains(CGPoint(x: x, y: 0.5)) }.count
+                #expect(hits == 1, "x \(x), tabs \(tabs), inset \(inset): \(rects)")
+            }
+            // Below the rim the chat's tools stay the page's, so they still take clicks.
+            let tools = try #require(view.model.tabRow.sharedWidth(zoom: view.webView.pageZoom))
+            let room = 800 - inset
+            let toolsMid = CGPoint(x: room - min(tools, room / 2) / 2, y: 18)
+            #expect(!rects.contains { $0.contains(toolsMid) })
+        }
     }
 }
 #endif

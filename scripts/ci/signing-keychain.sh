@@ -76,6 +76,53 @@ password_file() {
   printf '%s/%s.password\n' "$state_dir" "$1"
 }
 
+# The user keychain search list from before the first create in this job. An
+# owned Mac outlives the job, so delete puts the list back: the login keychain
+# must stay in it for the jobs that run there next.
+search_list_file() {
+  printf '%s/search-list\n' "$state_dir"
+}
+
+save_search_list() {
+  # The user search list before create replaces it: written whole (a temporary file moved into place) and only
+  # after list-keychains succeeded. When the capture fails, a marker says so and delete falls back to the login
+  # keychain, so an owned Mac never keeps a deleted signing keychain as its only search-list entry.
+  local file
+  file="$(search_list_file)"
+  [ -e "$file" ] && return 0
+  if "$SECURITY_TOOL" list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//' > "$file.tmp" \
+      && [ -s "$file.tmp" ]; then
+    mv -f "$file.tmp" "$file"
+  else
+    rm -f "$file.tmp"
+    : > "$file.failed"
+  fi
+}
+
+restore_search_list() {
+  local file entry list=()
+  file="$(search_list_file)"
+  [ -n "$state_dir" ] || return 0
+  if [ -s "$file" ]; then
+    while IFS= read -r entry; do
+      [ -n "$entry" ] && [ -e "$entry" ] && list+=("$entry")
+    done < "$file"
+  fi
+  if [ "${#list[@]}" -eq 0 ] && { [ -e "$file" ] || [ -e "$file.failed" ]; }; then
+    # create ran but nothing it saw is left (or it could not read the list): the login keychain, if there is one
+    for entry in "$KEYCHAIN_DIR/login.keychain-db" "$KEYCHAIN_DIR/login.keychain"; do
+      if [ -e "$entry" ]; then
+        list=("$entry")
+        break
+      fi
+    done
+  fi
+  if [ "${#list[@]}" -gt 0 ]; then
+    "$SECURITY_TOOL" list-keychains -d user -s "${list[@]}" || true
+  fi
+  rm -f "$file" "$file.tmp" "$file.failed"
+}
+
 create_keychain() {
   local name="${keychain:-build.keychain}" password
   if [ -z "$state_dir" ]; then
@@ -101,6 +148,7 @@ create_keychain() {
   certificate="$certificate_dir/certificate.p12"
   trap 'rm -rf "${certificate_dir:-}"' EXIT
   password="$(uuidgen)"
+  save_search_list
 
   printf '%s\n' "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$certificate"
   "$SECURITY_TOOL" delete-keychain "$name" >/dev/null 2>&1 || true
@@ -114,7 +162,42 @@ create_keychain() {
   "$ROOT_DIR/scripts/import-apple-developer-id-intermediates.sh" "$name"
   "$SECURITY_TOOL" set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$name" >/dev/null
   "$SECURITY_TOOL" list-keychains -d user -s "$name"
+  refresh_trust_agent
   echo "Signing keychain $name is ready; it locks after ${TIMEOUT_SECONDS}s idle."
+}
+
+# codesign asks the user's trustd agent for the signer's chain, and that agent
+# finds the Developer ID intermediate only in the keychains it reads. A trustd
+# agent that has run since the Mac booted never sees a keychain added to the
+# search list after its start: codesign then warns "unable to build chain to
+# self-signed root" and fails with errSecInternalComponent (the unified log
+# says "Trust evaluate failure: [leaf MissingIntermediate]"). Two owned minis
+# failed every sign-nightly-identity-legacy job that way on 2026-10-31 while
+# minis whose agent had restarted since boot (a trust store update restarts
+# it) signed; a private three-level chain reproduced it on the same two minis
+# and not on the others. So once the keychain is in the search
+# list the agent restarts (launchd starts it again on the next request) and
+# reads it. The signing job holds the whole Mac, so nothing else is
+# mid-evaluation. Best effort: a refusal is reported and signing goes on.
+refresh_trust_agent() {
+  local launchctl="${CMUX_LAUNCHCTL_TOOL:-}" service pid
+  if [ -z "$launchctl" ]; then
+    [ "$(uname -s)" = Darwin ] || return 0
+    launchctl=/bin/launchctl
+  fi
+  service="user/$(id -u)/com.apple.trustd.agent"
+  if "$launchctl" kickstart -k "$service" >/dev/null 2>&1; then
+    echo "Restarted the trustd agent ($service) so it reads the signing keychain."
+    return 0
+  fi
+  # launchd's own record of the agent's pid, never a match by process name
+  pid="$("$launchctl" print "$service" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)" || pid=""
+  if [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null; then
+    echo "Stopped the trustd agent ($service, pid $pid); launchd starts it again reading the signing keychain."
+    return 0
+  fi
+  echo "warning: could not restart the trustd agent ($service); a stale one fails codesign with errSecInternalComponent" >&2
+  return 0
 }
 
 unlock_keychains() {
@@ -155,6 +238,7 @@ delete_keychains() {
   done
   if [ -n "$state_dir" ]; then
     rm -rf "$state_dir"/certificate.* 2>/dev/null || true
+    restore_search_list
   fi
   if [ "${#names[@]}" -gt 0 ]; then
     echo "Deleted signing keychain(s): ${names[*]}"

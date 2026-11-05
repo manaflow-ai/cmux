@@ -116,7 +116,8 @@ final class SidebarChatHistoryView: NSView {
         let now = Date()
         for (row, chat) in zip(rows, chats) {
             let key = chat.id
-            row.configure(title: chat.title, meta: SidebarChatsDesign.age(from: chat.updatedAt, to: now), quiet: part == .earlier)
+            row.configure(title: chat.title, meta: SidebarChatsDesign.age(from: chat.updatedAt, to: now),
+                          harness: chat.harness, quiet: part == .earlier)
             row.onClick = { [weak self] in self?.history.open(key) }
             row.makeMenu = { [weak self] in
                 guard let self, let menu = self.history.makeMenu?(key) else { return nil }
@@ -126,7 +127,7 @@ final class SidebarChatHistoryView: NSView {
                 return menu
             }
         }
-        more.configure(title: Strings.chatHistoryShowMore, meta: nil, quiet: true)
+        more.configure(title: Strings.chatHistoryShowMore, meta: nil, harness: nil, quiet: true)
         more.isHidden = !showsMore
         needsLayout = true
     }

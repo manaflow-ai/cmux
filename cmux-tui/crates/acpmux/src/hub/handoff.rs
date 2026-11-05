@@ -9,6 +9,7 @@
 //! get, draft and a start retry work across a restart.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
 
 mod capsule;
@@ -148,6 +149,9 @@ struct Record {
     /// target is a Web turn, held to the remote floor.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     web: bool,
+    /// A Cloud mobile start keeps the target under the strict phone floor.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    cloud_mobile: bool,
 }
 
 /// Draft writes remembered per handoff for `draftKey` replays.
@@ -333,7 +337,7 @@ fn refuse(
 ) -> RpcError {
     let mut data = json!({"reason": reason});
     if let Some(h) = handoff {
-        data["handoff"] = h;
+        data.set("handoff", h);
     }
     RpcError::new(code, format!("{reason}: {message}")).with_data(data)
 }
@@ -364,7 +368,7 @@ impl Hub {
             json!({"sessionId": s.session_id, "harness": s.harness, "cwd": s.cwd, "coverage": coverage, "enforcement": enforcement})
         };
         let mut source = side(&r.source);
-        source["seq"] = json!(r.source_seq);
+        source.set("seq", json!(r.source_seq));
         json!({
             "handoffId": r.handoff_id,
             "handoffKey": r.handoff_key,

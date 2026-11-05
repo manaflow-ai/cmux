@@ -1,3 +1,4 @@
+import { Button } from "../../../ui/Button";
 import { useStore } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -26,8 +27,11 @@ export function ResetButton({
   const store = useStore();
   return (
     <span className="reset-slot" data-shown={shown ? "" : undefined}>
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="sm"
+        icon
         className="icon-button reset-button"
         data-reset={shown ? "" : undefined}
         aria-label={label}
@@ -38,7 +42,7 @@ export function ResetButton({
         onClick={() => void store.reset(settingKey)}
       >
         <Icon name="reset" />
-      </button>
+      </Button>
     </span>
   );
 }

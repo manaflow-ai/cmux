@@ -8,7 +8,7 @@ Bound facts (DESIGN.md 1.4): no tunnel-to-tunnel forwarding; 200 rules per resou
 
 ## Flag
 
-`CMUX_VM_MESH_EXPERIMENT` (Worker var, `"1"` enables) and `CMUX_VM_MESH_TENANT_IDS` (comma or space separated Stack team ids). A request to any mesh route answers 404 `{"_tag":"NotFound","message":"Not found"}` unless both hold for the caller's tenant, checked after authentication and before any store or upstream call. Default off in every `wrangler.jsonc` environment.
+`CMUX_VM_MESH_EXPERIMENT` (Worker var, `"1"` enables) and `CMUX_VM_MESH_TENANT_IDS` (comma or space separated Stack team ids). A request to any mesh route answers 404 `{"_tag":"NotFound","message":"Not found"}` unless both hold for the caller's tenant, checked after authentication and before any store or upstream call. Default off in every `wrangler.jsonc` environment. `CMUX_VM_MESH_SERVICE_IDS` (service key ids) also lets a listed service's own requests through for any team it acts for, so cmux Cloud reaches the personal tenants it provisions; the tenant's other callers still get 404.
 
 ## M1a: Worker (TypeScript, `workers/cmux-vm`)
 

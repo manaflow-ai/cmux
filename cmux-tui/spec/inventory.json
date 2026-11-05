@@ -34,6 +34,7 @@
     "browser.tab.set_profile",
     "browser.viewer.release",
     "browser.viewer.resize",
+    "chief.continue",
     "chief.engine.get",
     "chief.engine.set",
     "chief.profile.adopt",
@@ -46,6 +47,7 @@
     "chief.profile.list",
     "chief.profile.undo",
     "chief.profile.update",
+    "chief.retry",
     "chief.stop",
     "client.cell_pixels.set",
     "client.detach",
@@ -461,6 +463,7 @@
       "set-default-colors",
       "set-frontend-browser-history",
       "set-host-size-policy",
+      "set-layout-sizes",
       "set-personal-terminal",
       "set-personal-workspace",
       "set-profile-follows",
@@ -534,7 +537,9 @@
       "url-open-result",
       "terminal-clipboard-subscribe",
       "terminal-clipboard-reply",
-      "snapshot-request"
+      "snapshot-request",
+      "set-attach-visibility",
+      "chief-work"
     ],
     "local-admin": [
       "server-stats",
@@ -577,6 +582,7 @@
       "cloud-inbox-list",
       "cloud-requests-list",
       "cloud-selfhost-info",
+      "cloud-environment",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",
@@ -608,7 +614,11 @@
       "conversation-live",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
-      "feed-local-handoff-done"
+      "feed-local-handoff-done",
+      "remote-host-status",
+      "remote-host-call",
+      "remote-host-config",
+      "remote-host-app"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -915,6 +925,18 @@
     },
     {
       "name": "screen-changed",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "selection-changed",
+      "streams": [
+        "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "workspace-presentation-changed",
       "streams": [
         "subscribe-deltas"
       ]
@@ -1475,6 +1497,72 @@
       "key": "detach",
       "classification": "presentation-only",
       "route": "close frontend transport"
+    },
+    {
+      "variant": "DockWorkspaceLeft",
+      "key": "dock-workspace-left",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "DockWorkspaceRight",
+      "key": "dock-workspace-right",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "DockWorkspaceTop",
+      "key": "dock-workspace-top",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "DockWorkspaceBottom",
+      "key": "dock-workspace-bottom",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "UndockWorkspace",
+      "key": "undock-workspace",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockLeft",
+      "key": "toggle-dock-left",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockRight",
+      "key": "toggle-dock-right",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockTop",
+      "key": "toggle-dock-top",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockBottom",
+      "key": "toggle-dock-bottom",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockFloating",
+      "key": "toggle-dock-floating",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
+    },
+    {
+      "variant": "ToggleDockOrientation",
+      "key": "toggle-dock-orientation",
+      "classification": "presentation-only",
+      "route": "frontend dock frame + put-frontend-projection"
     },
     {
       "variant": "UserCommand",

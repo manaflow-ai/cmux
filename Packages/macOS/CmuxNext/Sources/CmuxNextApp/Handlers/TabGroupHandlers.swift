@@ -19,7 +19,7 @@ enum TabGroupHandlers {
             registry.bind(id, unavailable: gate, invoke: invoke)
         }
         bindMembership(bind, ctx)
-        ActionTargetVisibility.hide("tabGroup.removeTab", in: registry) { $0.target.flatMap { $0.kind == .tab ? ctx.services.locateTab($0.id) : nil }.map { $0.0.tabGroup == nil } ?? false }
+        ActionTargetVisibility.hide("tabGroup.removeTab", in: registry) { run in run.target.flatMap { $0.kind == .tab ? ctx.targetTab($0.id, run) : nil }.map { $0.0.tabGroup == nil } ?? false }
         bindAppearance(bind, ctx)
         bindLifecycle(bind, ctx)
         TabGroupHandlers.bindMoves(bind, ctx)
@@ -76,9 +76,8 @@ enum TabGroupHandlers {
             let tabs = selected.filter { !$0.pinned }
             guard !tabs.isEmpty else { return ctx.refuse(RefusalStrings.pinnedCannotGroup) }
             let name = invocation["name"]?.stringValue
-            // The same color rule as screen groups (`TabGroupOrdering.nextColor`).
-            let color = invocation["color"]?.stringValue
-                ?? TabGroupOrdering.nextColor(used: pane.tabGroups.compactMap { $0.color.flatMap(GroupColor.init(rawValue:)) }).rawValue
+            // No color unless one is asked for (Leo 2026-10-31: "WHY DOES THIS HAVE A LINE AND COLOR").
+            let color = invocation["color"]?.stringValue ?? GroupTint.noneWire
             let writes = TabGroupWrites(pane: pane, daemon: ctx.services.daemon(for: pane))
             run("create-tab-group", pane: pane, ctx, writes.create(tabs, name: name, color: color))
             ctx.services.paneController(for: pane)?.stripModel.clearMultiSelection()

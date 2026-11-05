@@ -1288,7 +1288,7 @@ describe("Cloud VM publication workflows", () => {
     }
   });
 
-  test("commits public and revokes sessions before detaching auth", async () => {
+  test("commits public and revokes sessions and API keys before detaching auth", async () => {
     const calls: string[] = [];
     const current = publication("personal", {
       state: "active",
@@ -1321,6 +1321,10 @@ describe("Cloud VM publication workflows", () => {
         calls.push("sessions.revoke");
         return Effect.succeed(1);
       },
+      revokePublicationApiKeys: () => {
+        calls.push("api-keys.revoke");
+        return Effect.succeed(2);
+      },
       recordAppliedForwardAuth: () => {
         calls.push("provider-state.persist");
         return Effect.succeed(detached);
@@ -1344,6 +1348,70 @@ describe("Cloud VM publication workflows", () => {
       "operation.claim",
       "policy.commit",
       "sessions.revoke",
+      "api-keys.revoke",
+      "rule.detach",
+      "provider-state.persist",
+      "operation.release",
+    ]);
+  });
+
+  test("a retry after an interrupted switch to public revokes API keys before detaching auth", async () => {
+    const calls: string[] = [];
+    // The first attempt committed public, then failed before revoking keys.
+    const interrupted = publication("public", {
+      state: "active",
+      providerTlsRuleId: "tls-rule-1",
+      providerForwardAuthId: "forward-auth-shared",
+      routingRevision: 2,
+    });
+    const detached = { ...interrupted, providerForwardAuthId: null };
+    const repository = fakeRepository({
+      findOwnedPublication: () => Effect.succeed(target(interrupted)),
+      claimVmPublicationOperation: () => {
+        calls.push("operation.claim");
+        return Effect.succeed({ kind: "claimed", vmId: "db-vm-1" });
+      },
+      releaseVmPublicationOperation: () => {
+        return Effect.sync(() => {
+          calls.push("operation.release");
+          return true;
+        });
+      },
+      commitAccessPolicy: () => {
+        calls.push("policy.commit");
+        return Effect.succeed(interrupted);
+      },
+      revokePublicationSessions: () => {
+        calls.push("sessions.revoke");
+        return Effect.succeed(0);
+      },
+      revokePublicationApiKeys: () => {
+        calls.push("api-keys.revoke");
+        return Effect.succeed(2);
+      },
+      recordAppliedForwardAuth: () => {
+        calls.push("provider-state.persist");
+        return Effect.succeed(detached);
+      },
+    });
+    const provider = fakeProvider({
+      updateTlsRule: () => {
+        calls.push("rule.detach");
+        return Effect.succeed({} as never);
+      },
+    });
+
+    await run(updatePublicationAccess({
+      principal: { userId: "owner-1", teamIds: [] },
+      publicationId: interrupted.id,
+      accessMode: "public",
+      now: NOW,
+    }), repository, provider);
+
+    expect(calls).toEqual([
+      "operation.claim",
+      "sessions.revoke",
+      "api-keys.revoke",
       "rule.detach",
       "provider-state.persist",
       "operation.release",

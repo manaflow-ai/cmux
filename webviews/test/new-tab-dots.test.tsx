@@ -81,11 +81,11 @@ test("the dot shown comes from the look and the actions widget", () => {
   for (const dot of NEW_TAB_DOTS) expect(shownDot(DOT_STATES[dot].look, DOT_STATES[dot].actions)).toBe(dot);
 });
 
-test("the dots' names: Claude Minimal, Claude + Quick Actions, Codex Minimal", () => {
+test("the dots' names: Claude Minimal, Claude Minimal + Quick Actions, Codex Minimal", () => {
   const nt = (key: Parameters<typeof translateNewTab>[0]) => translateNewTab(key, {}, "en");
   expect(NEW_TAB_DOTS.map((dot) => dotName(dot, nt))).toEqual([
     "Claude Minimal",
-    "Claude + Quick Actions",
+    "Claude Minimal + Quick Actions",
     "Codex Minimal",
   ]);
 });
@@ -161,7 +161,7 @@ test("the page draws three dots, the derived one checked, and a click on each pi
   try {
     expect(radios().map((radio) => [radio.value, radio.getAttribute("aria-label"), radio.checked])).toEqual([
       ["claude", "Claude Minimal", true],
-      ["claudeActions", "Claude + Quick Actions", false],
+      ["claudeActions", "Claude Minimal + Quick Actions", false],
       ["codex", "Codex Minimal", false],
     ]);
     await act(async () => radios()[1]!.click());

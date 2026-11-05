@@ -3,6 +3,8 @@
 // a card with the answer one click away. No harness says that a turn asked; the card reads the
 // turn's final answer, so it works for Claude, Codex and any ACP agent alike.
 import type { AcpmuxRow } from "./model";
+import { nextStepAsk } from "./conversation/nextStepAsk";
+import { execWrapUp, isWrapUp } from "./conversation/wrapUp";
 
 /** A finished turn that ends on a question. */
 export type Recap = {
@@ -98,9 +100,17 @@ export function recapFrom(rows: readonly AcpmuxRow[], state: RecapState = {}): R
   for (let index = end - 1; index >= 0 && rows[index].kind !== "user"; index -= 1) {
     const row = rows[index];
     if (row.kind === "permission" && row.permission?.pending) return null;
+    // The agent's own wrap-up (conversation/wrapUp.ts) is this turn's recap already.
+    if (
+      row.kind === "nextStep" ||
+      (row.kind === "activity" && row.items?.some((item) => isWrapUp(item.tool) || execWrapUp(item.tool)))
+    )
+      return null;
     if (!answer && row.kind === "assistant") answer = row;
   }
   if (!answer || answer.streaming || !answer.text) return null;
+  // A tagged ask draws as its own card in the transcript, its answers as buttons (NextStepCard.tsx).
+  if (nextStepAsk(answer.text)) return null;
   const text = plainText(answer.text);
   if (!/[?？]$/.test(text)) return null;
   const paragraphs = text.split(/\n\s*\n/);

@@ -6,6 +6,7 @@
 #   scripts/gallery-compare.sh fix/my-branch   # any pushed branch of manaflow-ai/cmux
 #   scripts/gallery-compare.sh --open          # also open the page in a cmux browser tab
 #   scripts/gallery-compare.sh --entry agent-pane.composer   # the page filtered to one entry (a substring)
+#   scripts/gallery-compare.sh --background busy   # states over a picture: none|light|dark|busy (env.ts BACKGROUNDS)
 #
 # It asks the gallery host (cmux-lawrence, manaflow-ai/cmux-gallery `gallery compare`) to build the branch
 # and its merge-base and prints https://cmux-lawrences-mac-mini.tail137216.ts.net:18796/compare/<name>/
@@ -15,12 +16,15 @@
 set -euo pipefail
 
 host="${CMUX_GALLERY_HOST:-cmux-lawrence}"
-branch="" open=0 entry=""
+branch="" open=0 entry="" background=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --open) open=1; shift ;;
     --entry) entry="${2:?--entry needs an entry id}"; shift 2 ;;
-    -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --background)
+      background="${2:?--background needs none, light, dark or busy}"; shift 2
+      case "$background" in none|light|dark|busy) ;; *) echo "gallery-compare: no background $background (none, light, dark, busy)" >&2; exit 2 ;; esac ;;
+    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "gallery-compare: unknown option $1" >&2; exit 2 ;;
     *) branch="$1"; shift ;;
   esac
@@ -52,6 +56,10 @@ fi
 url="$(printf '%s\n' "$out" | grep -E '^https://' | tail -1)"
 [ -n "$url" ] || { echo "gallery-compare: the host printed no URL" >&2; printf '%s\n' "$out" >&2; exit 1; }
 if [ -n "$entry" ]; then url="$url?entry=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$entry")"; fi
+# The gallery's own query key (webviews/src/gallery/env.ts): each state's frame over that picture.
+if [ -n "$background" ] && [ "$background" != none ]; then
+  case "$url" in *\?*) url="$url&background=$background" ;; *) url="$url?background=$background" ;; esac
+fi
 echo "$url"
 if [ "$open" = 1 ]; then
   if command -v cmux >/dev/null 2>&1; then

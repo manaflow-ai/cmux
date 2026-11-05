@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { COMPACT_MODEL_MENU, MODEL_ROW_NAME } from "./support/compactModelMenu";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -227,12 +228,26 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     for (let frame = 0; frame < 2; frame++) await page.evaluate(() => window.cmuxPaintFrame());
     return (await page.locator(CHIP).first().textContent()) ?? null;
   }
-  /// A pick in the full picker, which Cmd-Ctrl-M opens over the model button (its click opens the
-  /// compact menu, whose More models leads to the full picker: Leo 2026-10-20).
+  /// Cmd-Ctrl-M and the model button open the same compact picker. Search there for the model,
+  /// then choose its row; this covers both New Tab and a started chat.
   async function pickModel(page: Page, id: string) {
-    await page.locator('[data-menu="Model"]').first().waitFor();
+    await page.locator(".acpmux-model .acpmux-picker-button").first().waitFor();
     await page.keyboard.press("Meta+Control+m");
-    await page.locator(`.acpmux-mp-models [role="option"][data-key="model:${id}"]`).click();
+    const menu = page.locator(COMPACT_MODEL_MENU).first();
+    await menu.waitFor();
+    const name = claudeModels.find((model) => model.id === id)?.shortName;
+    if (!name) throw new Error(`unknown test model ${id}`);
+    await menu.getByRole("searchbox").fill(name);
+    // Click the row's name, as a person does: in the list menu a short searched row's middle can
+    // fall on its effort item, which sits over the row and opens the levels instead. The columns
+    // land the pick at once.
+    await menu
+      .locator("[role=option], [role=menuitemradio]")
+      .filter({ hasText: name })
+      .first()
+      .locator(MODEL_ROW_NAME)
+      .first()
+      .click();
   }
   /// Checks run once the daemon has taken each message.
   const checks = new Set<() => void>();

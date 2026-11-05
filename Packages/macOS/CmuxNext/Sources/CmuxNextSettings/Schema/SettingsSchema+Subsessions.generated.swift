@@ -8,13 +8,13 @@ extension SubsessionSettings {
     /// `agents.subsessions.answerQuestions`: On: a session answers the questions (Claude Code AskUserQuestion, Grok and Cursor asks) of the sub-sessions under it (_acpmux/subsession/answer), never their permission prompts or plans. Off (the default, since it loosens the person-only answer rule): only the person answers them (subsessions.answers_off).
     public nonisolated static let subsessionsAnswerQuestionsPath = ["agents", "subsessions", "answerQuestions"]
     public nonisolated static let subsessionsAnswerQuestionsDefault = false
-    /// `agents.subsessions.maxChildren`: Open (not closed) sub-sessions one session may have at a time. A session or an ancestor can set a lower value for a subtree.
+    /// `agents.subsessions.maxChildren`: Live sub-sessions (running, waiting for input, or with a harness process alive) one session may have at a time. Finished, dead and closed sub-sessions do not use a slot. A session or an ancestor can set a lower value for a subtree.
     public nonisolated static let subsessionsMaxChildrenPath = ["agents", "subsessions", "maxChildren"]
-    public nonisolated static let subsessionsMaxChildrenDefault: Double = 50
+    public nonisolated static let subsessionsMaxChildrenDefault: Double = 1000
     public nonisolated static let subsessionsMaxChildrenRange: ClosedRange<Double> = 1...1000
     /// `agents.subsessions.maxRunning`: Sub-sessions of one session that run a turn at the same time. More wait queued and start as running ones finish; lowering it stops none. A chat's own value (_acpmux/subsession/limits {sessionId}) and its workspace's ({workspaceId}) come before this one.
     public nonisolated static let subsessionsMaxRunningPath = ["agents", "subsessions", "maxRunning"]
-    public nonisolated static let subsessionsMaxRunningDefault: Double = 16
+    public nonisolated static let subsessionsMaxRunningDefault: Double = 1000
     public nonisolated static let subsessionsMaxRunningRange: ClosedRange<Double> = 1...1000
     /// `agents.subsessions.maxDepth`: The deepest level of nesting: a top-level session is 0, its sub-sessions 1.
     public nonisolated static let subsessionsMaxDepthPath = ["agents", "subsessions", "maxDepth"]
@@ -53,7 +53,7 @@ nonisolated enum SubsessionSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.agents.subsessions.maxChildren", "Open Sub-sessions per Session"),
-                help: SettingsText.keyed("settings.agents.subsessions.maxChildren.help", "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place."),
+                help: SettingsText.keyed("settings.agents.subsessions.maxChildren.help", "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot."),
                 kind: .number(SettingNumber(SubsessionSettings.subsessionsMaxChildrenRange, step: 1, unit: .count)),
                 default: .number(SubsessionSettings.subsessionsMaxChildrenDefault),
                 keywords: ["subagent", "sub-session", "limit", "width", "children", "parallel"]

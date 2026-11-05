@@ -67,13 +67,32 @@ cmux attention clear --tab tab_…
 
 When the person must do something in a specific tab (confirm, log in, approve, pick), mark that tab with `cmux attention request` (MCP `tab_update {tab, attention: "reason"}`). The tab and its workspace row show as needing them, without moving their focus. The mark clears when you clear it, when a browser tab goes to another page, or when the tab closes. In what you tell the person, name the workspace and the tab by their titles ("the GitHub tab in the coord-deputy workspace"), never by a `ws_…`, `tab_…` or `pane_…` id: they cannot see or search ids. When they ask to go there, `cmux tab tab_… focus` (MCP `tab_focus`) takes them to it.
 
+To run a prompt on a Cloud machine and read the reply, use one command, `cmux cloud start-chat --prompt TEXT --wait --json` (the [cmux-cloud-vm](../cmux-cloud-vm/SKILL.md) skill): it starts the chat on a new small machine (or `--name NAME`, `--target machine:vm-…`), opens it as a tab in the app and answers the reply with its `machine_id`, `session_id` and `tab_id`.
+
 To start another agent on a task and show it, use one command, `acpmux new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
 
 To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `cmux browser profile open URL --profile default --background true` (MCP `browser_profile_open` with `activate: false`) adds a tab and keeps the pane's selected tab. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).
 
+## Messaging a Chief or a person
+
+Any coding agent (Claude Code, Codex, OpenCode, pi, an acpmux session) can message the person's Chief, another Chief, or a person or group chat in Home. Use `cmux chat`, or the MCP tools `chat_send`, `chat_read` and `chat_list` (same arguments):
+
+```bash
+cmux chat list                                              # the Chief chats: Chief, Codex Chief, Muse Chief…
+cmux chat send --to chief --text "a12 is blocked on CI" --class blocker
+cmux chat send --to codex --text "Is PR 33023 safe to land?" --wait --timeout 600 --json   # waits for that Chief's reply
+cmux chat send --to "Leo" --text "The build is green"       # a person or a group chat, by its Home name
+cmux chat read --to chief --last 10 --json
+cmux chat wait --to chief --from chief --timeout 300        # the Chief's next message
+```
+
+`--to chief` is the person's own Chief; a Chief's name (`codex` is "Codex Chief") or id is that Chief; any other name is a person or a group chat. Your message is always yours, never the person's: the chat shows `[from NAME]`, where NAME is your acpmux session, else `HARNESS-SESSION@HOST` (for example `claude-3fa9c1d2@mini-7`), or `--as NAME`. A Chief reads it as an agent's words, so it will not run local actions on it the way it would for the person. `--wait` prints a Chief's reply when its turn ends; a person's reply arrives in Home, and an acpmux session also gets a Chief's reply back as an acpmux message. `--class` says what you ask (`question`, `block`, `blocker`, `action`, `result`, `fyi`).
+
+From another machine (a fleet Mac, a cloud VM), the Chief is the acpmux session `chief` on the person's Mac: `acpmux send HOST/chief "…" --class question --wait` (or the `acpmux` MCP `send` tool) reaches it over the peer link, as your session, and its reply comes back to your session.
+
 ## Asking the person
 
-The person allows tools through the chat's mode and the harness's own permission prompts, never through your questions. A chat in Full access (Claude Code `bypassPermissions`, Codex full access) has already allowed every tool call its harness would ask about. Never ask them to allow, confirm or approve a step, with AskUserQuestion or in text ("allow this?", "should I go ahead?"): decide, say why in one line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's own request (computer use, importing a browser's cookies, deleting their data) waits for that request, and a cmux consent panel is theirs to answer; leave such a step out and say so. Ask only about product taste you cannot settle from the request or the code (how something should look, read or behave), and ask it as that choice, never as a permission. The cmux MCP server's instructions say the same (`acpmux::agent_tools::ASKING_RULE`).
+The person allows tools through the chat's mode and the harness's own permission prompts, never through your questions. A chat in Full access (Claude Code `bypassPermissions`, Codex full access) has already allowed every tool call its harness would ask about. Never ask them to allow, confirm or approve a step, with AskUserQuestion or in text ("allow this?", "should I go ahead?"): decide, say why in one line, and go on. Deciding never widens the task: a step a cmux skill keeps for the person's own request (importing a browser's cookies, deleting their data) waits for that request, and a cmux consent card (computer use setup) is theirs to answer; leave such a step out and say so. Ask only about product taste you cannot settle from the request or the code (how something should look, read or behave), and ask it as that choice, never as a permission. The cmux MCP server's instructions say the same (`acpmux::agent_tools::ASKING_RULE`).
 
 ## Screenshots of the app
 
@@ -86,7 +105,9 @@ cmux pane screenshot --target pane_… --out pane.png
 cmux tab screenshot --target tab_… --out tab.png
 ```
 
-The reply's `result` holds `path` (or `png_base64` for `--out -`; a PNG over 4 MiB still goes to a file), `width` and `height` in pixels, `scale` (pixels per point) and `method` (`window`). Without `--out` the PNG goes to the temporary directory. A pane or terminal tab that no window shows, or a minimized window, fails with `screenshot.unavailable` and the reason; read a terminal's text with `cmux terminal <id> screen read` instead. Your image has every web page cmux does not own painted black (browser tabs, sidebar apps, link previews) and leaves out menus and floating panels, because only the browser REPL can hide the secrets a page shows; a browser tab, or a pane showing one, fails with the reason. Screenshot a page with `browser_repl_eval` and `page.screenshot()` ([cmux-browser](../cmux-browser/SKILL.md)). A person's palette or menu run captures everything and also copies the image.
+The reply's `result` holds `path` (or `png_base64` for `--out -`; a PNG over 4 MiB still goes to a file), `width` and `height` in pixels, `scale` (pixels per point), `method` (`window`) and `masked`, how many areas the image covers. Without `--out` the PNG goes to the temporary directory. A pane or terminal tab that no window shows, or a minimized window, fails with `screenshot.unavailable` and the reason; read a terminal's text with `cmux terminal <id> screen read` instead.
+
+Your image comes back masked: every area that can show a browser page, a chat or an unchecked app page is filled opaque mid gray, and menus and floating panels are left out. That is every browser pane whole, its toolbar and tab strip included, every web view cmux does not own (a sidebar app, a link preview), every agent chat and Home conversation, and every app page except Keybindings, Changelog, Apps, Diff, Markdown, Editor, Files, the icon picker and Debug Settings. Only the browser REPL can hide the secrets a page shows, and only `cmux agents chat read` can hide them in a chat. A pane or tab showing a browser is captured with its page masked, not refused; a browser tab that no window shows is refused, because off screen it is all page. A window that keeps animating or resizing, or a mask that cannot be painted, fails with the reason rather than returning unmasked pixels. Screenshot a page with `browser_repl_eval` and `page.screenshot()` ([cmux-browser](../cmux-browser/SKILL.md)). A person's palette or menu run captures everything and also copies the image.
 
 ## Settings
 

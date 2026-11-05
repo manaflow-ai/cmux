@@ -14,9 +14,22 @@ nonisolated extension CatalogArgument {
                        kind: .target(.machine), isRequired: false)
     }
 
+
+    /// A connected peer or Cloud machine where a new agent chat starts.
+    static var agentHostMachine: ActionArgument {
+        ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
+                       kind: .target(.machine))
+    }
+
     /// The workspace another one merges into.
     static var intoWorkspace: ActionArgument {
         ActionArgument(name: "into", title: String(localized: "argument.into", defaultValue: "Into Workspace", table: "WorkspaceActions", bundle: .module),
+                       kind: .target(.workspace))
+    }
+
+    /// The workspace another one moves right before or after (Move Workspace Above or Below).
+    static var anchorWorkspace: ActionArgument {
+        ActionArgument(name: "anchor", title: String(localized: "argument.anchor", defaultValue: "Next to Workspace", table: "WorkspaceActions", bundle: .module),
                        kind: .target(.workspace))
     }
 }

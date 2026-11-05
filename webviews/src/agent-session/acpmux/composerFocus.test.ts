@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import React from "react";
-import { shouldBlurComposerOnPress, useComposerKeyboard } from "./composerFocus";
+import { ACTIVATION_SETTLE_MS, shouldBlurComposerOnPress, useComposerKeyboard } from "./composerFocus";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -96,6 +96,34 @@ describe("composer click-away focus", () => {
     expect(shouldBlurComposerOnPress(editor.firstChild, editor)).toBe(false);
   });
 
+  test("a chip in the composer's strip or quiet row keeps its editor focus", () => {
+    const { editor } = fixture();
+    const document = editor.ownerDocument;
+    for (const row of ["acpmux-composer-strip", "acpmux-composer-foot", "acpmux-composer-under"]) {
+      const chip = document.createElement("button");
+      const host = document.createElement("div");
+      host.className = row;
+      host.append(chip);
+      document.querySelector("main")!.append(host);
+      expect({ row, blurs: shouldBlurComposerOnPress(chip, editor) }).toEqual({ row, blurs: false });
+    }
+  });
+
+  test("a row of a composer menu drawn out of the box (the + menu) keeps its editor focus", () => {
+    const { editor } = fixture();
+    const document = editor.ownerDocument;
+    const layer = document.createElement("div");
+    layer.className = "ui-positioner";
+    const popup = document.createElement("div");
+    popup.className = "ui-popup acpmux-menu acpmux-composer-plus";
+    const row = document.createElement("div");
+    row.className = "ui-menu-item";
+    popup.append(row);
+    layer.append(popup);
+    document.body.append(layer);
+    expect(shouldBlurComposerOnPress(row, editor)).toBe(false);
+  });
+
   test("a control outside the composer also releases focus", () => {
     const { button, editor } = fixture();
     expect(shouldBlurComposerOnPress(button, editor)).toBe(true);
@@ -134,5 +162,105 @@ describe("composer click-away focus", () => {
       dom!.window.dispatchEvent(new dom!.window.Event("blur"));
     });
     expect(dom!.window.document.activeElement).not.toBe(editor);
+  });
+
+  // Two chats side by side (agent-pane.subagent-split-pair): each pane's activation claim fired
+  // after the other pane had taken the keyboard, took it back, and the other's did the same, every
+  // 120 ms for as long as both were open.
+  test("an activation claim is dropped when the pane loses the keyboard before it settles", async () => {
+    const container = installDom();
+    let claims = 0;
+    function Counting() {
+      useComposerKeyboard(() => {
+        claims += 1;
+        return true;
+      });
+      return React.createElement("div", { className: "acpmux-composer-box" });
+    }
+    await act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(Counting));
+    });
+    // fixed-wait: proving a dropped claim never fires means outwaiting its settle (120 ms); no event marks its absence.
+    const settle = () => new Promise((resolve) => setTimeout(resolve, ACTIVATION_SETTLE_MS + 30));
+    // Past the first-paint claim, so only the activations below count.
+    // fixed-wait: the first-paint claim has no event of its own to wait for.
+    await act(settle);
+    claims = 0;
+    await act(async () => {
+      dom!.window.dispatchEvent(new dom!.window.Event("focus"));
+      dom!.window.dispatchEvent(new dom!.window.Event("blur"));
+      // fixed-wait: a dropped claim never fires; only outwaiting its settle shows that.
+      await settle();
+    });
+    expect(claims).toBe(0);
+    // Activation that holds still claims an idle keyboard.
+    await act(async () => {
+      dom!.window.dispatchEvent(new dom!.window.Event("focus"));
+      // fixed-wait: the claim fires after its settle (120 ms), the behavior under test.
+      await settle();
+    });
+    expect(claims).toBe(1);
+  });
+});
+
+function LocationStripHarness() {
+  useComposerKeyboard(() => {
+    document.querySelector<HTMLElement>(".acpmux-composer-box [contenteditable]")?.focus();
+    return true;
+  });
+  return React.createElement(
+    "main",
+    null,
+    React.createElement(
+      "div",
+      { className: "acpmux-composer-strip" },
+      React.createElement("button", { className: "folder" }, "folder"),
+      React.createElement("button", { className: "machine" }, "machine"),
+    ),
+    React.createElement(
+      "div",
+      { className: "acpmux-composer-box" },
+      React.createElement("div", { contentEditable: true, tabIndex: 0 }),
+    ),
+  );
+}
+
+// Leo 2026-10-20: "clicking tab, it first goes through the two machines or like the folders and then
+// the machines, and then it somehow lands into focus into the composer".
+describe("Tab with nothing focused", () => {
+  const press = (init: KeyboardEventInit) => {
+    const event = new dom!.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+    dom!.window.document.body.dispatchEvent(event);
+    return event;
+  };
+
+  test("Tab goes to the prompt, not the location strip's chips above it", async () => {
+    const container = installDom();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(LocationStripHarness));
+    });
+    (dom!.window.document.activeElement as HTMLElement | null)?.blur();
+    expect(dom!.window.document.activeElement).toBe(dom!.window.document.body);
+    const event = press({ key: "Tab" });
+    expect(event.defaultPrevented).toBe(true);
+    expect(dom!.window.document.activeElement).toBe(container.querySelector("[contenteditable]"));
+  });
+
+  test("Shift-Tab and Tab from a focused chip keep the browser's order", async () => {
+    const container = installDom();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(LocationStripHarness));
+    });
+    (dom!.window.document.activeElement as HTMLElement | null)?.blur();
+    expect(press({ key: "Tab", shiftKey: true }).defaultPrevented).toBe(false);
+    const chip = container.querySelector<HTMLElement>(".folder")!;
+    chip.focus();
+    const event = new dom!.window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    chip.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(dom!.window.document.activeElement).toBe(chip);
   });
 });

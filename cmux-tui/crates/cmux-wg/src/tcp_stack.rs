@@ -135,6 +135,8 @@ pub(crate) struct TcpStack {
     next_port: u16,
     /// Tagged mode: the key of the session that delivered each SYN, by flow.
     pub(crate) syn_origins: Option<HashMap<FlowKey, PeerKey>>,
+    /// [`TcpStack::close_all`] ran: each connection closes after what its owner had queued.
+    pub(crate) closing: bool,
 }
 
 impl TcpStack {
@@ -179,6 +181,7 @@ impl TcpStack {
             epoch: Instant::now(),
             next_port: random_ephemeral_port(),
             syn_origins: tagged.then(HashMap::new),
+            closing: false,
         })
     }
 

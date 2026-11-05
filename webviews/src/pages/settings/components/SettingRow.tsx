@@ -60,6 +60,7 @@ export const SettingRow = memo(function SettingRow({
   const labelId = useId();
   const { managed, customized } = state;
   const disabled = inactive || !state.connected || !state.readable || managed !== null;
+  const interfaceSize = row.key === "appearance.metrics.chromeFontSize" || row.key === "appearance.interfaceScale";
   const menu = rowMenu(row.key, state, store);
   return (
     <RowFrame
@@ -93,8 +94,8 @@ export const SettingRow = memo(function SettingRow({
             <Editor row={row} value={state.value} disabled={disabled} labelId={labelId} />
             <ResetButton
               settingKey={row.key}
-              shown={customized && !managed}
-              disabled={!state.connected || !state.readable}
+              shown={(customized || interfaceSize) && !managed}
+              disabled={!state.connected || !state.readable || !customized}
               label={row.kind === "color" ? t("settingsPage.useThemeColor") : undefined}
             />
           </div>

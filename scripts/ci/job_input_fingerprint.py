@@ -31,7 +31,8 @@ The key covers:
 - the env flags a Mac job's result depends on (`--extra`, '' is a value):
   the selected Swift targets and filter, whether the label is a mini (the GUI
   requirement, the CEF steps), the configured Xcode app and the web bundles'
-  source key.
+  source key; for swift-test, the base commit when it checks the generated files
+  on its own build (`generated_base`, '' otherwise).
 
 dev-release-product keys the compiled DEV Release app itself (scripts/ci/dev_release_product_reuse.py
 moves the bytes), so its closure is broad: every path in the tree except PRODUCT_EXCLUDES, the paths
@@ -166,9 +167,11 @@ class Job:
 JOBS = {
     "fast-tier": Job(MAC_TOOLCHAIN),
     "fast-tier-cargo": Job(("runner", "rustc", "cargo", "zig", "clang")),
+    # generated_base: the base commit when swift-test checks the generated files on its own build
+    # (cmux-next.yml CMUX_NEXT_FOLD_GENERATED, which compares them with the base), else ''.
     "swift-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("swift_targets", "swift_filter", "mini", "xcode_app",
-                                                         "layout_reducer"),
-                      SWIFT_TEST, web=True, whole_tree=True),
+                                                         "layout_reducer", "generated_base"),
+                      SWIFT_TEST + GENERATED, web=True, whole_tree=True),
     "generated-files": Job(MAC_TOOLCHAIN + ("web_bundles",), ("mini", "xcode_app"), GENERATED, web=True,
                            base_inputs=SETTINGS_BASE, whole_tree=True),
     "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), (
@@ -366,6 +369,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base-rev", help="the base commit (HEAD^1); generated-files keys its settings sources")
     parser.add_argument("--extra", action="append", default=[], help="NAME=VALUE of the toolchain or a flag (repeatable)")
     parser.add_argument("--list-inputs", action="store_true", help="print every keyed path on stderr")
+    parser.add_argument("--mirror-plan", default="", help="write a non-enforcing candidate plan (empty disables)")
     args = parser.parse_args(argv)
     if args.list_inputs and JOBS[args.job].product:
         try:
@@ -403,6 +407,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{name} {text}", file=sys.stderr)
     print(f"key=job-pass-{args.job}-{digest[:40]}")
     print(f"fingerprint={digest}")
+    if args.mirror_plan:
+        try:
+            import rebuild_mirror
+            rebuild_mirror.start(args.root, args.rev, args.job, value, Path(args.mirror_plan))
+        except Exception as why:
+            # The observer cannot change the full-tree key or fail the test job.
+            print(f"::notice title=Rebuild mirror unavailable::{why}", file=sys.stderr)
     return 0
 
 

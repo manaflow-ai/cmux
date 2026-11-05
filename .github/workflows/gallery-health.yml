@@ -2,7 +2,9 @@ name: gallery health
 
 # Every gallery state must render (scripts/gallery-matrix/health.ts): a state that errors, never
 # reports ready, crashes the renderer, or whose play cannot reach it fails this check unless
-# scripts/gallery-matrix/broken-allowlist.json names it with why. A pull request, and each push to
+# scripts/gallery-matrix/broken-allowlist.json names it with why. On a pull request, a red state that is red the
+# same way on the base it merged with is the base's: the check warns on it and passes (base reds
+# are warnings, not failures). A crash, a cut-short render, or no base result still fails. A pull request, and each push to
 # feat-cmux-next, renders the entries it touches (touched.ts; everything for a global stylesheet or
 # a change to the checker). A schedule here would never fire: GitHub runs schedules only from the
 # default branch (main), and this workflow lives on feat-cmux-next.
@@ -32,15 +34,22 @@ concurrency:
   group: gallery-health-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   health:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 45
+    # Eight shards, so a shard's render and its base replay both fit the timeout: with four, a
+    # full render took ~27 minutes and the replay of its red states (every red state is rendered
+    # again up to twice more when it stays red) ~14 more, past 45 minutes.
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       # A pull request renders its merge with base (the event's merge ref), as the other PR gates do:
       # a branch cut before a base fix must not keep failing on what base already fixed. A push
@@ -50,6 +59,10 @@ jobs:
         with:
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
 
       - name: Resolve the head and the merge
@@ -120,8 +133,21 @@ jobs:
             echo 'ids=' >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Render the gallery and judge it
+      # GITHUB_ENV takes effect in the next step: resolve the browser before either head or base
+      # renders, so both use the same executable instead of comparing Chrome with headless-shell.
+      - name: Setup gallery browser
         if: ${{ steps.entries.outputs.all == 'true' || steps.entries.outputs.ids != '' }}
+        working-directory: scripts/gallery-matrix
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+
+      # A red here is judged state by state against the base in the next step, so the step goes on.
+      - name: Render the gallery and judge it
+        id: render
+        if: ${{ steps.entries.outputs.all == 'true' || steps.entries.outputs.ids != '' }}
+        continue-on-error: true
         env:
           ALL: ${{ steps.entries.outputs.all }}
           IDS: ${{ steps.entries.outputs.ids }}
@@ -137,10 +163,80 @@ jobs:
           fi
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
-          bun install --frozen-lockfile
-          ./node_modules/.bin/playwright install --with-deps --only-shell chromium
           bun health.ts --manifest "$RUNNER_TEMP/manifest.json" --gallery-dir "$RUNNER_TEMP/gallery" \
-            --output-dir "$RUNNER_TEMP/health" --shard-count 4 --shard-index "$SHARD"
+            --output-dir "$RUNNER_TEMP/health" --shard-count 8 --shard-index "$SHARD"
+
+      # The rulebook's base reds are warnings: each red state of a pull request is rendered again on
+      # the base it merged with (the merge's first parent), by the same checker, budgets and
+      # allowlist, and scripts/ci/test_reds.py (the one per-test classifier) compares them state by
+      # state. A state red the same way on the base is a warning; any other red state, a crashed
+      # render, a health.json that is missing or cut short, a base render that gives no whole
+      # result, and any red on a push (it has no base to compare with) fail the check.
+      # It replays only the red states, never their whole entries: replaying entries re-rendered
+      # 1,308 cases for one shard's ~40 red states (manifest --entries also matches by prefix, so
+      # agent-pane.composer pulled in every agent-pane.composer-* entry), ran past the job's
+      # timeout and left a cancelled job with no verdict. Its own budget makes a slow replay fail
+      # here, with the upload still to come, instead of cancelling the job.
+      - name: Judge the red states against the base
+        if: ${{ !cancelled() && steps.render.outcome == 'failure' }}
+        timeout-minutes: 15
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ steps.resolve.outputs.base_sha }}
+          # health.ts renders only on CI or a VM; without this it stops before it writes a verdict.
+          CMUX_GALLERY_IN_VM: "1"
+        run: |
+          set -euo pipefail
+          classify="$RUNNER_TEMP/test_reds.py"
+          cp scripts/ci/test_reds.py "$classify"
+          head="$RUNNER_TEMP/health/health.json"
+          if [ "$EVENT" != pull_request ] || [ -z "$BASE_SHA" ]; then
+            echo "::error::gallery health is red on this $EVENT, which has no base to compare with"
+            exit 1
+          fi
+          rc=0
+          entries=$(python3 "$classify" gallery --head "$head" --entries) || rc=$?
+          if [ "$rc" = 2 ]; then
+            echo "::error::the render step failed but health.json names no red state: a setup or tool failure, never a base red"
+            exit 1
+          fi
+          [ "$rc" = 0 ] || exit 1
+          states=$(python3 "$classify" gallery --head "$head" --states)
+          echo "replaying on base $BASE_SHA: $states"
+          # Everything but the checker goes back to the base, so only the webviews tree differs.
+          git restore --source="$BASE_SHA" --staged --worktree -- . ':(exclude)scripts/gallery-matrix'
+          cd webviews
+          bun install --frozen-lockfile
+          bun scripts/gallery/manifest.ts --frame component --entries "$entries" --out "$RUNNER_TEMP/base-entries.json"
+          # Every case (theme, width) of each red state, and nothing else. A state the base does not have
+          # renders nothing there, so the classifier calls it the head's own.
+          jq --arg states "$states" '($states | split(",")) as $red
+            | map(select(((.params.entry // "") + "#" + (.params.variant // "")) as $state | any($red[]; . == $state)))' \
+            "$RUNNER_TEMP/base-entries.json" > "$RUNNER_TEMP/base-manifest.json"
+          echo "base replay: $(jq length "$RUNNER_TEMP/base-manifest.json") of $(jq length "$RUNNER_TEMP/base-entries.json") cases of those entries"
+          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
+          cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
+          # Red on the base is the point here: its exit says so, and its verdict is read from health.json
+          # below. A replay that wrote no health.json gave no verdict, and says so here.
+          # The head keeps a state red only when it is red on every retry; the base renders twice with
+          # no retries and a state red in either render is the base's. Holding the base to every retry
+          # too called states that flake on the base (layout shift) the pull request's own.
+          bases=()
+          for pass in 1 2; do
+            rc=0
+            bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
+              --retries 0 --output-dir "$RUNNER_TEMP/health/base/$pass" || rc=$?
+            if [ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]; then
+              echo "::error::the base replay of $entries wrote no health.json (health.ts exited $rc): no base verdict, so nothing is excused"
+              exit 1
+            fi
+            bases+=(--base "$RUNNER_TEMP/health/base/$pass/health.json")
+          done
+          rc=0
+          python3 "$classify" gallery --head "$head" "${bases[@]}" \
+            --base-name "base ${BASE_SHA:0:12}" --annotate | tee "$RUNNER_TEMP/verdict.txt" || rc=$?
+          grep -v '^::' "$RUNNER_TEMP/verdict.txt" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$rc"
 
       - name: Record what was rendered
         if: ${{ always() && steps.resolve.outcome == 'success' }}

@@ -17,6 +17,8 @@ final class ProfileBarDotDrag {
     var target: Int
     /// The pointer is over the footer band: a release there drops the dot.
     var overBand = true
+    /// The pointer is outside the window: a release there opens the space in a new window.
+    var outsideWindow = false
     /// Released: the dots are landing; the drag takes no more pointer moves.
     var landing = false
 

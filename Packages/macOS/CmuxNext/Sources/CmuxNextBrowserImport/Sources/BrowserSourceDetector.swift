@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Finds installed browsers and their profiles, and what each profile can
 /// import. Reads only folder listings, `Local State` and `profiles.ini`; no
@@ -10,20 +11,37 @@ public struct BrowserSourceDetector: Sendable {
         self.environment = environment
     }
 
+    /// Every browser detection probes: the registry's, then the ones
+    /// ``BrowserSourceDiscovery`` finds from their folders.
+    public func candidates() -> [ImportBrowser] {
+        let registry = ImportBrowser.allCases
+        return registry + BrowserSourceDiscovery(environment: environment).browsers(known: registry)
+    }
+
     /// Each found browser once; a profile folder that two rows share
     /// (ungoogled-chromium and Chromium, Zen and Zen Twilight) is listed
     /// only under the first row.
-    public func detect(_ browsers: [ImportBrowser] = ImportBrowser.allCases) -> [BrowserSource] {
+    ///
+    /// - Parameter browsers: the browsers to probe; nil probes ``candidates()``.
+    public func detect(_ browsers: [ImportBrowser]? = nil) -> [BrowserSource] {
         var seen = Set<String>()
-        return browsers.compactMap { browser in
-            guard var source = detect(browser) else { return nil }
+        let keychain = KeychainNames(environment.safeStorageNames)
+        return (browsers ?? candidates()).compactMap { browser in
+            // A cancelled scan (the import window closed) stops probing at the next browser.
+            guard !Task.isCancelled, var source = detect(browser, keychain: keychain) else { return nil }
             source.profiles = source.profiles.filter { seen.insert($0.path.standardizedFileURL.path).inserted }
+            // A folder found by discovery that holds nothing cmux imports is not offered.
+            if source.browser.isFoundOnDisk, !source.profiles.contains(where: { !$0.importableKinds.isEmpty }) { return nil }
             return source.profiles.isEmpty ? nil : source
         }
     }
 
     public func detect(_ browser: ImportBrowser) -> BrowserSource? {
-        guard var source = detectFiles(browser) else { return nil }
+        detect(browser, keychain: KeychainNames(environment.safeStorageNames))
+    }
+
+    private func detect(_ browser: ImportBrowser, keychain: KeychainNames) -> BrowserSource? {
+        guard var source = detectFiles(keychain.completing(browser, home: environment.homeDirectory)) else { return nil }
         // Kinds the registry marks unreadable for this browser.
         let unsupported = Set((browser.row?.unsupportedKinds ?? []).compactMap(ImportDataKind.init(rawValue:)))
         guard !unsupported.isEmpty else { return source }
@@ -40,7 +58,8 @@ public struct BrowserSourceDetector: Sendable {
         let directory = environment.dataDirectory(browser)
         let appURL = browser.bundleIDs.lazy.compactMap(environment.locateApp).first
             ?? browser.appNames.lazy.compactMap(environment.locateAppNamed).first
-        guard FileManager.default.fileExists(atPath: directory.path) else { return nil }
+        let webKitCookies = browser.family.isPrivateStore ? webKitCookieFile(browser) : nil
+        guard FileManager.default.fileExists(atPath: directory.path) || webKitCookies != nil else { return nil }
         switch browser.family {
         case .chromium:
             let entries = browser.profileIsDataDirectory ? Self.rootProfileEntries(directory, browser: browser) : ChromiumProfileList().entries(in: directory)
@@ -84,12 +103,34 @@ public struct BrowserSourceDetector: Sendable {
             return BrowserSource(browser: browser, appURL: appURL, profiles: [profile], needsFullDiskAccess: blocked)
         case .webkit, .other:
             // Listed so the user sees why nothing moves; their own HTML export is the path.
+            // Cookies are WebKit's own store for the app (Orion, ChatGPT Classic), when it has one.
             let reason: UnsupportedReason = browser.bookmarksFormat == .htmlExport ? .exportFromSource : .unknownFormat
+            let bookmarks: DataAvailability = browser.bookmarksFormat == .noStore ? .absent : .unsupported(reason)
+            let cookies: DataAvailability = webKitCookies.map { file in
+                switch FileAccess.probe(file) {
+                case .readable: browser.refusesSessionData ? .unsupported(.refusedForPrivacy) : .available
+                case .denied: .needsFullDiskAccess
+                case .missing: .absent
+                }
+            } ?? .unsupported(.unknownFormat)
             let profile = BrowserSourceProfile(browser: browser, directoryName: "Default", displayName: browser.displayName, path: directory,
-                                               availability: [.bookmarks: .unsupported(reason), .history: .unsupported(.unknownFormat),
-                                                              .cookies: .unsupported(.unknownFormat), .passwords: .unsupported(.exportFromSource)])
+                                               availability: [.bookmarks: bookmarks, .history: .unsupported(.unknownFormat),
+                                                              .cookies: cookies, .passwords: .unsupported(.exportFromSource)],
+                                               cookiesFile: cookies == .available ? webKitCookies : nil)
             return BrowserSource(browser: browser, appURL: appURL, profiles: [profile])
         }
+    }
+
+    /// A WebKit app's cookie store: the registry's file, else the one
+    /// URLSession and WKWebView keep for its bundle id in `Library/HTTPStorages`.
+    func webKitCookieFile(_ browser: ImportBrowser) -> URL? {
+        #if CMUX_NO_BROWSER_DATA_IMPORT || CMUX_NO_COOKIE_IMPORT
+        return nil
+        #else
+        let files = (browser.safariCookieFile.map { [$0] } ?? [])
+            + browser.bundleIDs.map { "Library/HTTPStorages/\($0).binarycookies" }
+        return files.map(environment.file).first { FileManager.checked.fileExists(atPath: $0.path) }
+        #endif
     }
 
     /// Opera's layout: the data folder itself is the profile; newer builds

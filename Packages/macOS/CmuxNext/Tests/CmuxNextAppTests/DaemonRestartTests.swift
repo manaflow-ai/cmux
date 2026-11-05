@@ -170,17 +170,21 @@ struct DaemonRestartTests {
         let standIn = launched.standIn
         let view = try await Self.unavailableView(launched)
 
-        // A start failure that is not a stuck owner: Retry Now only.
+        // A start failure that is not a stuck owner (a spawn that failed, as on a full disk) offers
+        // Restart too: no daemon runs, so the person needs a way out (restore fuzz h2). Until then
+        // this asserted Restart hidden here, which left a full disk with nothing to press.
+        await Self.wait { Self.shown("daemon.restart", in: view) != nil }
         let retry = Self.shown("daemon.retryNow", in: view)
         #expect(retry != nil)
-        #expect(Self.shown("daemon.restart", in: view) == nil)
+        #expect(Self.shown("daemon.restart", in: view) != nil)
         #expect(standIn.ensures().allSatisfy { !$0.contains("--replace-unresponsive") })
 
-        // The owner is stuck now: Retry Now asks again, and the failure offers Restart.
+        // The owner is stuck now: Retry Now asks again, and the failure still offers Restart.
         standIn.mark(standIn.stuck)
         let before = standIn.ensures().count
         try Self.press(try #require(retry))
-        await Self.wait { Self.shown("daemon.restart", in: view) != nil }
+        // Restart already shows, so wait for Retry Now's own ensure.
+        await Self.wait { standIn.ensures().count > before }
         #expect(standIn.ensures().count > before)
         #expect(Self.shown("daemon.restart", in: view) != nil)
 

@@ -1,6 +1,8 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 @testable import MessagesLabHome
 
 /// Tables in the Chief's replies (Leo 2026-10-20, "isn't this kind of ugly?"): a pipe table breaks
@@ -154,6 +156,60 @@ import Testing
     @Test func peoplesTablesStayText() {
         let parts = HomeMapping.parts(.text("| a | b |\n|---|---|\n| 1 | 2 |"), markdown: false)
         #expect(!parts.contains { if case .custom = $0 { return true } else { return false } })
+    }
+
+    /// A gray PNG of `width` × `height` pixels in Home's media folder (where attachment pictures are written).
+    static func picture(_ name: String, width: Int, height: Int) throws -> String {
+        let folder = HomeMedia.directory
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appendingPathComponent(name)
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let ctx = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.setFillColor(CGColor(gray: 0.4, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let image = try #require(ctx.makeImage())
+        let out = try #require(CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(out, image, nil)
+        #expect(CGImageDestinationFinalize(out))
+        return url.path
+    }
+
+    /// Before and after shots in a table (the user, 2026-11-03, msg 19904: "i want to see the images, like how one
+    /// might see in a github PR"): a cell's `![alt](cmux-attachment:<hash>)` draws that attachment's picture as a
+    /// thumbnail in the cell, the row as tall as the thumbnail, and the attachment does not draw again below.
+    @Test func aPictureInATableCellDrawsAsAThumbnailInTheCell() throws {
+        let before = try Self.picture("table-before-\(UUID().uuidString).png", width: 800, height: 500)
+        let after = try Self.picture("table-after-\(UUID().uuidString).png", width: 800, height: 500)
+        let text = """
+        The fix:
+
+        | | Before | After |
+        |---|---|---|
+        | Light | ![before, light](cmux-attachment:h1) | ![after, light](cmux-attachment:h2) |
+        | Dark | ![before, dark](cmux-attachment:h3) | done |
+        """
+        #expect(HomeMapping.tableAttachmentHashes(text) == ["h1", "h2", "h3"])
+        let files = ["h1": before, "h2": after]
+        let parts = HomeMapping.parts(.text(text), media: { files[$0] }, markdown: true)
+        let card = try #require(parts.compactMap { part -> CustomPart? in if case .custom(let c) = part { return c } else { return nil } }.first)
+        let payload = try #require(HomeTableRowProvider.payload(card))
+        #expect(payload.table.pictures == ["cmux-attachment:h1": before, "cmux-attachment:h2": after])
+        let grid = HomeTableGrid(payload.table, available: 700)
+        #expect(grid.pictures[1][1].count == 1 && grid.pictures[1][2].count == 1)
+        // h3 has no file yet: its alt text shows in its cell, no picture.
+        #expect(grid.pictures[2][1].isEmpty)
+        #expect(grid.cells[2][1].string == "[before, dark]")
+        #expect(grid.cells[1][1].string.isEmpty)
+        // The picture row is as tall as its thumbnail (400 × 250 points, fitted to its column, at most 180 tall).
+        let thumbnail = HomeTableGrid.pictureSize(try #require(grid.pictures[1][1].first), width: grid.widths[1] - 2 * HomeTableGrid.cellPadX)
+        #expect(thumbnail.height > 60 && thumbnail.height <= HomeTableGrid.pictureMaxHeight)
+        #expect(grid.heights[1] >= thumbnail.height + 2 * HomeTableGrid.cellPadY)
+        #expect(grid.heights[1] > grid.heights[2])
+        // Its file arriving later is a new version of the card (it redraws with the thumbnail).
+        let early = HomeMapping.parts(.text(text), media: { _ in nil }, markdown: true)
+            .compactMap { part -> CustomPart? in if case .custom(let c) = part { return c } else { return nil } }.first
+        #expect(early?.version != card.version)
     }
 
     @Test func columnsKeepTheirNaturalWidthsWhenTheyFit() {

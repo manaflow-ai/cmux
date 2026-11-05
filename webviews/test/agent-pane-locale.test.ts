@@ -120,8 +120,11 @@ await requireBrowserLane("agent-pane-locale.test.ts", async () => {
         test(`${name}: under ${policy}, a German app paints German from the first frame, script files only`, async () => {
           csp = header;
           const { first, locales, violations, injectedRan } = await germanFirstPaint(engine);
-          expect(first).toContain("Ordner auswählen");
-          expect(first).not.toContain("Choose folder");
+          // The composer's placeholder: every first frame paints it. The new chat's folder strip is
+          // not a probe, since a pane that has not yet heard which chat it shows draws no strip
+          // (#29017: an existing chat being opened never shows the new chat's Choose project).
+          expect(first).toContain("/ für Befehle eingeben");
+          expect(first).not.toContain("Type / for commands");
           // English and German only, not all 21 locales, plus the loader that picks German.
           expect(locales).toEqual(["locales/de.js", "locales/en.js", "locales/loader.js"]);
           expect(violations).toEqual([]);
@@ -131,7 +134,7 @@ await requireBrowserLane("agent-pane-locale.test.ts", async () => {
       test(`${name}: a policy without 'self' blocks the pane's scripts, so the checks above can fail`, async () => {
         csp = NO_SELF_CSP;
         const { first } = await germanFirstPaint(engine);
-        expect(first).not.toContain("Ordner auswählen");
+        expect(first).not.toContain("/ für Befehle eingeben");
       });
     }
   });

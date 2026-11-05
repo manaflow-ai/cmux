@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022";
+pub const ir_sha256 = "4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -330,6 +330,77 @@ pub const CellPixelSurface = struct {
     width_px: u16,
 };
 
+pub const ChiefWorkAgentState = enum {
+    working,
+    waiting,
+    idle,
+    failed,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "working")) return .working;
+        if (std.mem.eql(u8, value, "waiting")) return .waiting;
+        if (std.mem.eql(u8, value, "idle")) return .idle;
+        if (std.mem.eql(u8, value, "failed")) return .failed;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .working => "working",
+            .waiting => "waiting",
+            .idle => "idle",
+            .failed => "failed",
+        };
+    }
+};
+
+pub const ChiefWorkAgent = struct {
+    id: []const u8,
+    name: []const u8,
+    started_at: wire.Nullable(u64),
+    state: ChiefWorkAgentState,
+    task: wire.Nullable([]const u8),
+    updated_at: wire.Nullable(u64),
+};
+
+pub const ChiefWorkTaskStatus = enum {
+    running,
+    done,
+    failed,
+    cancelled,
+    unknown,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "running")) return .running;
+        if (std.mem.eql(u8, value, "done")) return .done;
+        if (std.mem.eql(u8, value, "failed")) return .failed;
+        if (std.mem.eql(u8, value, "cancelled")) return .cancelled;
+        if (std.mem.eql(u8, value, "unknown")) return .unknown;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .running => "running",
+            .done => "done",
+            .failed => "failed",
+            .cancelled => "cancelled",
+            .unknown => "unknown",
+        };
+    }
+};
+
+pub const ChiefWorkTask = struct {
+    command: []const u8,
+    detail: wire.Nullable([]const u8),
+    ended_at: wire.Nullable(u64),
+    id: []const u8,
+    session_id: []const u8,
+    started_at: wire.Nullable(u64),
+    status: ChiefWorkTaskStatus,
+    title: []const u8,
+};
+
 pub const ClientInfo = struct {
     attached: []const Id,
     client: u64,
@@ -424,6 +495,24 @@ pub const ColumnPin = struct {
     edge: []const u8,
     mode: []const u8,
     role: wire.Field([]const u8) = .absent,
+};
+
+pub const ColumnSide = enum {
+    left,
+    right,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "left")) return .left;
+        if (std.mem.eql(u8, value, "right")) return .right;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .left => "left",
+            .right => "right",
+        };
+    }
 };
 
 pub const ConversationChange = struct {
@@ -1227,6 +1316,36 @@ pub const Layout = union(enum) {
     }
 };
 
+pub const LayoutSizePaneWidth = struct {
+    pane: Id,
+    width: f32,
+};
+
+pub const LayoutSizeSplitRatio = struct {
+    ratio: f32,
+    split: Id,
+};
+
+pub const LayoutSizeValue = union(enum) {
+    layout_size_split_ratio: LayoutSizeSplitRatio,
+    layout_size_pane_width: LayoutSizePaneWidth,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .layout_size_split_ratio => |payload| try wire.encodeValue(allocator, payload),
+            .layout_size_pane_width => |payload| try wire.encodeValue(allocator, payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        _ = allocator;
+        _ = value;
+        return error.AmbiguousUnion;
+    }
+};
+
 pub const LayoutUndoConfirmationRequired = struct {
     closes_panes: []const Id,
     confirmation_required: bool,
@@ -1585,6 +1704,12 @@ pub const ReattachViewResult = struct {
     state: SizeState,
 };
 
+pub const RemoteHostAppResult = struct {
+    host_pid: u32,
+    secret: []const u8,
+    socket: []const u8,
+};
+
 pub const RenderCursor = struct {
     blink: bool,
     color: wire.Nullable(ColorHex),
@@ -1834,6 +1959,19 @@ pub const Screen = struct {
     };
 };
 
+pub const SelectionPane = struct {
+    active_tab: u64,
+    focused_at: u64,
+    id: Id,
+};
+
+pub const SelectionScreen = struct {
+    active: bool,
+    active_pane: Id,
+    id: Id,
+    panes: []const SelectionPane,
+};
+
 pub const SendExpectAgent = struct {
     session: wire.Field([]const u8) = .absent,
 };
@@ -1855,6 +1993,12 @@ pub const ServerStatsHistogram = struct {
     p99: u64,
 };
 
+pub const ServerStatsHookQueue = struct {
+    queued_events: u64,
+    reset_dropped_events: u64,
+    undeliverable_events: u64,
+};
+
 pub const ServerStatsJournalWriter = struct {
     batch_size: ServerStatsHistogram,
     batches: u64,
@@ -1871,6 +2015,18 @@ pub const ServerStatsJournalWriter = struct {
     terminal_queued: u64,
 };
 
+pub const ServerStatsLockDetail = struct {
+    by_hold_p99: []const ServerStatsLockSiteDetail,
+    by_hold_total: []const ServerStatsLockSiteDetail,
+    contended_acquisitions: u64,
+    hold_us: ServerStatsHistogram,
+    holder: wire.Nullable(ServerStatsLockHolder),
+    last_stall: wire.Nullable(ServerStatsLockStall),
+    sites: u64,
+    stalls: u64,
+    wait_us: ServerStatsHistogram,
+};
+
 pub const ServerStatsLockHolder = struct {
     held_for_us: u64,
     site: []const u8,
@@ -1883,10 +2039,26 @@ pub const ServerStatsLockSite = struct {
     site: []const u8,
 };
 
+pub const ServerStatsLockSiteDetail = struct {
+    acquisitions: u64,
+    hold_max_us: u64,
+    hold_p99_us: u64,
+    hold_total_us: u64,
+    site: []const u8,
+    wait_max_us: u64,
+    wait_p99_us: u64,
+    wait_total_us: u64,
+};
+
 pub const ServerStatsLockStall = struct {
     blocker: wire.Nullable([]const u8),
     waited_us: u64,
     waiter: []const u8,
+};
+
+pub const ServerStatsLocks = struct {
+    registry: ServerStatsLockDetail,
+    state: ServerStatsLockDetail,
 };
 
 pub const ServerStatsRegistryLock = struct {
@@ -1921,7 +2093,9 @@ pub const ServerStatsResourceProjection = struct {
 
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
+    hook_queue: ?ServerStatsHookQueue = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
+    locks: ?ServerStatsLocks = null,
     registry_lock: ServerStatsRegistryLock,
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
@@ -1929,6 +2103,8 @@ pub const ServerStatsResult = struct {
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "hook_queue",
+        "locks",
         "resource_projection",
         "write_path",
     };
@@ -1938,8 +2114,17 @@ pub const ServerStatsWritePath = struct {
     effect_intent_batches: u64,
     effect_intent_failures: u64,
     effect_intents: u64,
+    registry_wal_frame_bytes: ?u64 = null,
     request_effect_commits: u64,
+    wal_commits: ?u64 = null,
+    wal_synced_commits: ?u64 = null,
     writer_registry_locks: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "registry_wal_frame_bytes",
+        "wal_commits",
+        "wal_synced_commits",
+    };
 };
 
 pub const ServerStatsWriterPhase = enum {
@@ -3738,6 +3923,30 @@ pub fn chiefInspect(client: anytype, request: ChiefInspectRequest) !wire.Decoded
     );
 }
 
+pub const ChiefWorkRequest = struct {
+    chief: []const u8,
+};
+
+pub const ChiefWorkResult = struct {
+    agents: []const ChiefWorkAgent,
+    task_sources: []const []const u8,
+    tasks: []const ChiefWorkTask,
+    truncated: bool,
+};
+
+pub fn chiefWork(client: anytype, request: ChiefWorkRequest) !wire.Decoded(ChiefWorkResult) {
+    return client.callTyped(
+        ChiefWorkResult,
+        .{
+            .name = "chief-work",
+            .authority = "frontend",
+            .since = 12,
+            .capability = "chief-work-v1",
+        },
+        request,
+    );
+}
+
 pub const ClearHistoryRequest = struct {
     fallback_key: wire.Field(TerminalKeyInput) = .absent,
     surface: Id,
@@ -4376,6 +4585,28 @@ pub fn cloudConversationUnsubscribe(client: anytype, request: CloudConversationU
     );
 }
 
+pub const CloudEnvironmentRequest = struct {
+    access_token: []const u8,
+    action: []const u8,
+    params: wire.Nullable(JsonValue),
+    platform_origin: []const u8,
+};
+
+pub const CloudEnvironmentResult = JsonValue;
+
+pub fn cloudEnvironment(client: anytype, request: CloudEnvironmentRequest) !wire.Decoded(CloudEnvironmentResult) {
+    return client.callTyped(
+        CloudEnvironmentResult,
+        .{
+            .name = "cloud-environment",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cloud-environments-v1",
+        },
+        request,
+    );
+}
+
 pub const CloudHostReplicaClearRequest = struct {
     purge: ?bool = null,
 
@@ -4440,6 +4671,7 @@ pub fn cloudHostReplicaStatus(client: anytype, request: CloudHostReplicaStatusRe
 }
 
 pub const CloudInboxListRequest = struct {
+    cursor: wire.Field([]const u8) = .absent,
     include_archived: ?bool = null,
     limit: wire.Field(u32) = .absent,
 
@@ -5149,6 +5381,7 @@ pub fn conversationRunAppend(client: anytype, request: ConversationRunAppendRequ
 }
 
 pub const ConversationRunsRequest = struct {
+    answers: wire.Field([]const []const u8) = .absent,
     before_started_at: wire.Field(u64) = .absent,
     conversation: []const u8,
     limit: wire.Field(u32) = .absent,
@@ -5168,6 +5401,9 @@ pub fn conversationRuns(client: anytype, request: ConversationRunsRequest) !wire
             .authority = "local-admin",
             .since = 12,
             .capability = "conversation-runs-v1",
+            .fields = &.{
+                .{ .name = "answers", .since = null, .capability = "conversation-run-answers-v1" },
+            },
         },
         request,
     );
@@ -6918,6 +7154,7 @@ pub const MoveTabToColumnRequest = struct {
     dock: wire.Field(ColumnPin) = .absent,
     keep_focus: ?bool = null,
     pane: wire.Field(Id) = .absent,
+    pane_id: wire.Field([]const u8) = .absent,
     respawn: wire.Field(SplitRespawn) = .absent,
     screen: wire.Field(Id) = .absent,
     surface: Id,
@@ -6942,6 +7179,7 @@ pub fn moveTabToColumn(client: anytype, request: MoveTabToColumnRequest) !wire.D
             .fields = &.{
                 .{ .name = "dock", .since = 12, .capability = "dock-columns-v1" },
                 .{ .name = "keep_focus", .since = 12, .capability = "tab-split-keep-focus-v1" },
+                .{ .name = "pane_id", .since = 12, .capability = "tab-column-client-pane-v1" },
                 .{ .name = "respawn", .since = 12, .capability = "tab-column-respawn-v1" },
             },
         },
@@ -7218,6 +7456,8 @@ pub const NewFrontendBrowserTabRequest = struct {
     pane: wire.Field(Id) = .absent,
     profile_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
+    /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after.
+    split: wire.Field(ConversationTabSplit) = .absent,
     title: wire.Field([]const u8) = .absent,
     url: []const u8,
 
@@ -7236,6 +7476,9 @@ pub fn newFrontendBrowserTab(client: anytype, request: NewFrontendBrowserTabRequ
             .authority = "control",
             .since = 12,
             .capability = "frontend-browser-tabs-v1",
+            .fields = &.{
+                .{ .name = "split", .since = null, .capability = "frontend-browser-tab-split-v1" },
+            },
         },
         request,
     );
@@ -7292,6 +7535,7 @@ pub const NewPaneRightRequest = struct {
     pane_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
+    side: wire.Field(ColumnSide) = .absent,
     tab_id: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
@@ -7319,6 +7563,7 @@ pub fn newPaneRight(client: anytype, request: NewPaneRightRequest) !wire.Decoded
                 .{ .name = "kind", .since = 12, .capability = "pane-browser-kind-v1" },
                 .{ .name = "pane_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
+                .{ .name = "side", .since = 12, .capability = "column-left-v1" },
                 .{ .name = "tab_id", .since = 12, .capability = "split-client-keys-v1" },
                 .{ .name = "terminal_id", .since = 12, .capability = "terminal-placement-env-v1" },
                 .{ .name = "url", .since = 12, .capability = "pane-browser-kind-v1" },
@@ -7895,6 +8140,79 @@ pub fn reloadConfig(client: anytype, request: ReloadConfigRequest) !wire.Decoded
             .authority = "control",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const RemoteHostAppRequest = struct {};
+
+pub fn remoteHostApp(client: anytype, request: RemoteHostAppRequest) !wire.Decoded(RemoteHostAppResult) {
+    return client.callTyped(
+        RemoteHostAppResult,
+        .{
+            .name = "remote-host-app",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "remote-host-v1",
+        },
+        request,
+    );
+}
+
+pub const RemoteHostCallRequest = struct {
+    method: []const u8,
+    params: wire.Field(JsonValue) = .absent,
+};
+
+pub const RemoteHostCallResult = JsonValue;
+
+pub fn remoteHostCall(client: anytype, request: RemoteHostCallRequest) !wire.Decoded(RemoteHostCallResult) {
+    return client.callTyped(
+        RemoteHostCallResult,
+        .{
+            .name = "remote-host-call",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "remote-host-v1",
+        },
+        request,
+    );
+}
+
+pub const RemoteHostConfigRequest = struct {
+    computer_use: wire.Field(bool) = .absent,
+    headless: wire.Field(bool) = .absent,
+    screen_sharing: wire.Field(bool) = .absent,
+};
+
+pub const RemoteHostConfigResult = JsonValue;
+
+pub fn remoteHostConfig(client: anytype, request: RemoteHostConfigRequest) !wire.Decoded(RemoteHostConfigResult) {
+    return client.callTyped(
+        RemoteHostConfigResult,
+        .{
+            .name = "remote-host-config",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "remote-host-v1",
+        },
+        request,
+    );
+}
+
+pub const RemoteHostStatusRequest = struct {};
+
+pub const RemoteHostStatusResult = JsonValue;
+
+pub fn remoteHostStatus(client: anytype, request: RemoteHostStatusRequest) !wire.Decoded(RemoteHostStatusResult) {
+    return client.callTyped(
+        RemoteHostStatusResult,
+        .{
+            .name = "remote-host-status",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "remote-host-v1",
         },
         request,
     );
@@ -8490,6 +8808,28 @@ pub fn serverStats(client: anytype, request: ServerStatsRequest) !wire.Decoded(S
     );
 }
 
+pub const SetAttachVisibilityRequest = struct {
+    surface: Id,
+    visible: bool,
+};
+
+pub const SetAttachVisibilityResult = struct {
+    viewers: u32,
+};
+
+pub fn setAttachVisibility(client: anytype, request: SetAttachVisibilityRequest) !wire.Decoded(SetAttachVisibilityResult) {
+    return client.callTyped(
+        SetAttachVisibilityResult,
+        .{
+            .name = "set-attach-visibility",
+            .authority = "frontend",
+            .since = 12,
+            .capability = "attach-visibility-v1",
+        },
+        request,
+    );
+}
+
 pub const SetCellPixelsRequest = struct {
     height_px: u16,
     width_px: u16,
@@ -8677,6 +9017,26 @@ pub fn setHostSizePolicy(client: anytype, request: SetHostSizePolicyRequest) !wi
             .authority = "control",
             .since = 12,
             .capability = "host-size-policy-v1",
+        },
+        request,
+    );
+}
+
+pub const SetLayoutSizesRequest = struct {
+    transaction: u64,
+    values: []const LayoutSizeValue,
+};
+
+pub const SetLayoutSizesResult = EmptyResult;
+
+pub fn setLayoutSizes(client: anytype, request: SetLayoutSizesRequest) !wire.Decoded(SetLayoutSizesResult) {
+    return client.callTyped(
+        SetLayoutSizesResult,
+        .{
+            .name = "set-layout-sizes",
+            .authority = "control",
+            .since = 12,
+            .capability = "layout-sizes-batch-v1",
         },
         request,
     );
@@ -10706,6 +11066,14 @@ pub const ScrollChangedEvent = struct {
     surface: Id,
 };
 
+pub const SelectionChangedEvent = struct {
+    active: bool,
+    active_workspace: wire.Nullable(Id),
+    event: []const u8,
+    screens: []const SelectionScreen,
+    workspace: Id,
+};
+
 pub const SettingsChangedEventOrigin = enum {
     user,
     cli,
@@ -10976,6 +11344,12 @@ pub const WorkspaceMovedEvent = struct {
     };
 };
 
+pub const WorkspacePresentationChangedEvent = struct {
+    entity: Workspace,
+    event: []const u8,
+    workspace: Id,
+};
+
 pub const WorkspaceRenamedEvent = struct {
     entity: Workspace,
     event: []const u8,
@@ -11060,6 +11434,7 @@ pub const Event = union(enum) {
     screen_closed: ScreenClosedEvent,
     screen_renamed: ScreenRenamedEvent,
     scroll_changed: ScrollChangedEvent,
+    selection_changed: SelectionChangedEvent,
     settings_changed: SettingsChangedEvent,
     size_state: SizeStateEvent,
     status: StatusEvent,
@@ -11085,6 +11460,7 @@ pub const Event = union(enum) {
     workspace_changed: WorkspaceChangedEvent,
     workspace_closed: WorkspaceClosedEvent,
     workspace_moved: WorkspaceMovedEvent,
+    workspace_presentation_changed: WorkspacePresentationChangedEvent,
     workspace_renamed: WorkspaceRenamedEvent,
     unknown: UnknownEvent,
 };
@@ -11153,6 +11529,7 @@ pub fn eventWireName(event: Event) []const u8 {
         .screen_closed => "screen-closed",
         .screen_renamed => "screen-renamed",
         .scroll_changed => "scroll-changed",
+        .selection_changed => "selection-changed",
         .settings_changed => "settings-changed",
         .size_state => "size-state",
         .status => "status",
@@ -11178,6 +11555,7 @@ pub fn eventWireName(event: Event) []const u8 {
         .workspace_changed => "workspace-changed",
         .workspace_closed => "workspace-closed",
         .workspace_moved => "workspace-moved",
+        .workspace_presentation_changed => "workspace-presentation-changed",
         .workspace_renamed => "workspace-renamed",
         .unknown => |unknown| unknown.name,
     };
@@ -11445,6 +11823,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(ScrollChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .scroll_changed = decoded } };
     }
+    if (std.mem.eql(u8, name, "selection-changed")) {
+        const decoded = try wire.decodeLeaky(SelectionChangedEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .selection_changed = decoded } };
+    }
     if (std.mem.eql(u8, name, "settings-changed")) {
         const decoded = try wire.decodeLeaky(SettingsChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .settings_changed = decoded } };
@@ -11545,6 +11927,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(WorkspaceMovedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .workspace_moved = decoded } };
     }
+    if (std.mem.eql(u8, name, "workspace-presentation-changed")) {
+        const decoded = try wire.decodeLeaky(WorkspacePresentationChangedEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .workspace_presentation_changed = decoded } };
+    }
     if (std.mem.eql(u8, name, "workspace-renamed")) {
         const decoded = try wire.decodeLeaky(WorkspaceRenamedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .workspace_renamed = decoded } };
@@ -11574,7 +11960,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 286;
+pub const command_count: usize = 294;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11597,6 +11983,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-wheel", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
     .{ .name = "chief-inspect", .authority = "local-admin", .since = 12, .capability = "chief-inspect-v1", .stream = null },
+    .{ .name = "chief-work", .authority = "frontend", .since = 12, .capability = "chief-work-v1", .stream = null },
     .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },
     .{ .name = "clear-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "client-focus", .authority = "control", .since = 12, .capability = "client-focus-v1", .stream = null },
@@ -11623,6 +12010,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-conversation-thread", .authority = "local-admin", .since = 12, .capability = "conversation-thread-v1", .stream = null },
     .{ .name = "cloud-conversation-typing", .authority = "local-admin", .since = 12, .capability = "cloud-conversation-typing-v1", .stream = null },
     .{ .name = "cloud-conversation-unsubscribe", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
+    .{ .name = "cloud-environment", .authority = "local-admin", .since = 12, .capability = "cloud-environments-v1", .stream = null },
     .{ .name = "cloud-host-replica-clear", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
     .{ .name = "cloud-host-replica-set", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
     .{ .name = "cloud-host-replica-status", .authority = "local-admin", .since = 12, .capability = "cloud-host-replica-v1", .stream = null },
@@ -11772,6 +12160,10 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "remote-host-app", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
+    .{ .name = "remote-host-call", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
+    .{ .name = "remote-host-config", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
+    .{ .name = "remote-host-status", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
     .{ .name = "remote-terminal-snapshot", .authority = "control", .since = 12, .capability = "remote-terminal-tabs-v1", .stream = null },
     .{ .name = "remove-screens-from-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "remove-tabs-from-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
@@ -11798,6 +12190,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "send", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "send-key", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "server-stats", .authority = "local-admin", .since = 12, .capability = "server-stats-v1", .stream = null },
+    .{ .name = "set-attach-visibility", .authority = "frontend", .since = 12, .capability = "attach-visibility-v1", .stream = null },
     .{ .name = "set-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },
@@ -11805,6 +12198,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "set-host-size-policy", .authority = "control", .since = 12, .capability = "host-size-policy-v1", .stream = null },
+    .{ .name = "set-layout-sizes", .authority = "control", .since = 12, .capability = "layout-sizes-batch-v1", .stream = null },
     .{ .name = "set-personal-terminal", .authority = "control", .since = 12, .capability = "personal-terminals-v1", .stream = null },
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
@@ -11933,34 +12327,36 @@ const event_streams_58 = [_][]const u8{"subscribe-deltas"};
 const event_streams_59 = [_][]const u8{"subscribe-deltas"};
 const event_streams_60 = [_][]const u8{"subscribe-deltas"};
 const event_streams_61 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
-const event_streams_62 = [_][]const u8{"subscribe"};
-const event_streams_63 = [_][]const u8{ "subscribe", "attach-byte", "attach-render" };
-const event_streams_64 = [_][]const u8{"subscribe"};
+const event_streams_62 = [_][]const u8{"subscribe-deltas"};
+const event_streams_63 = [_][]const u8{"subscribe"};
+const event_streams_64 = [_][]const u8{ "subscribe", "attach-byte", "attach-render" };
 const event_streams_65 = [_][]const u8{"subscribe"};
 const event_streams_66 = [_][]const u8{"subscribe"};
 const event_streams_67 = [_][]const u8{"subscribe"};
 const event_streams_68 = [_][]const u8{"subscribe"};
-const event_streams_69 = [_][]const u8{"subscribe-deltas"};
+const event_streams_69 = [_][]const u8{"subscribe"};
 const event_streams_70 = [_][]const u8{"subscribe-deltas"};
 const event_streams_71 = [_][]const u8{"subscribe-deltas"};
 const event_streams_72 = [_][]const u8{"subscribe-deltas"};
-const event_streams_73 = [_][]const u8{"control"};
+const event_streams_73 = [_][]const u8{"subscribe-deltas"};
 const event_streams_74 = [_][]const u8{"control"};
 const event_streams_75 = [_][]const u8{"control"};
-const event_streams_76 = [_][]const u8{"subscribe"};
+const event_streams_76 = [_][]const u8{"control"};
 const event_streams_77 = [_][]const u8{"subscribe"};
 const event_streams_78 = [_][]const u8{"subscribe"};
 const event_streams_79 = [_][]const u8{"subscribe"};
-const event_streams_80 = [_][]const u8{"control"};
-const event_streams_81 = [_][]const u8{"attach-byte"};
-const event_streams_82 = [_][]const u8{"subscribe"};
-const event_streams_83 = [_][]const u8{"subscribe-deltas"};
+const event_streams_80 = [_][]const u8{"subscribe"};
+const event_streams_81 = [_][]const u8{"control"};
+const event_streams_82 = [_][]const u8{"attach-byte"};
+const event_streams_83 = [_][]const u8{"subscribe"};
 const event_streams_84 = [_][]const u8{"subscribe-deltas"};
 const event_streams_85 = [_][]const u8{"subscribe-deltas"};
 const event_streams_86 = [_][]const u8{"subscribe-deltas"};
 const event_streams_87 = [_][]const u8{"subscribe-deltas"};
+const event_streams_88 = [_][]const u8{"subscribe-deltas"};
+const event_streams_89 = [_][]const u8{"subscribe-deltas"};
 
-pub const event_count: usize = 88;
+pub const event_count: usize = 90;
 pub const events = [_]EventDescriptor{
     .{ .name = "activity-changed", .since = 12, .capability = "vm-activity-v1", .streams = &event_streams_0 },
     .{ .name = "agent-changed", .since = 11, .capability = null, .streams = &event_streams_1 },
@@ -12024,30 +12420,32 @@ pub const events = [_]EventDescriptor{
     .{ .name = "screen-closed", .since = 7, .capability = null, .streams = &event_streams_59 },
     .{ .name = "screen-renamed", .since = 7, .capability = null, .streams = &event_streams_60 },
     .{ .name = "scroll-changed", .since = 6, .capability = null, .streams = &event_streams_61 },
-    .{ .name = "settings-changed", .since = 12, .capability = "settings-v1", .streams = &event_streams_62 },
-    .{ .name = "size-state", .since = 12, .capability = "shared-sizing-v1", .streams = &event_streams_63 },
-    .{ .name = "status", .since = 5, .capability = null, .streams = &event_streams_64 },
-    .{ .name = "surface-exited", .since = 5, .capability = null, .streams = &event_streams_65 },
-    .{ .name = "surface-output", .since = 5, .capability = null, .streams = &event_streams_66 },
-    .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_67 },
-    .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_68 },
-    .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_69 },
-    .{ .name = "tab-changed", .since = 12, .capability = "tab-metadata-v1", .streams = &event_streams_70 },
-    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_71 },
-    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_72 },
-    .{ .name = "terminal-clipboard-read", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_73 },
-    .{ .name = "terminal-clipboard-read-cancelled", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_74 },
-    .{ .name = "terminal-input-unclaimed", .since = 12, .capability = "terminal-input-while-creating-v1", .streams = &event_streams_75 },
-    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_76 },
-    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_77 },
-    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_78 },
-    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_79 },
-    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_80 },
-    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_81 },
-    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_82 },
-    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_83 },
-    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_84 },
-    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_85 },
-    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_86 },
-    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_87 },
+    .{ .name = "selection-changed", .since = 12, .capability = "tree-selection-deltas-v1", .streams = &event_streams_62 },
+    .{ .name = "settings-changed", .since = 12, .capability = "settings-v1", .streams = &event_streams_63 },
+    .{ .name = "size-state", .since = 12, .capability = "shared-sizing-v1", .streams = &event_streams_64 },
+    .{ .name = "status", .since = 5, .capability = null, .streams = &event_streams_65 },
+    .{ .name = "surface-exited", .since = 5, .capability = null, .streams = &event_streams_66 },
+    .{ .name = "surface-output", .since = 5, .capability = null, .streams = &event_streams_67 },
+    .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_68 },
+    .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_69 },
+    .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_70 },
+    .{ .name = "tab-changed", .since = 12, .capability = "tab-metadata-v1", .streams = &event_streams_71 },
+    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_72 },
+    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_73 },
+    .{ .name = "terminal-clipboard-read", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_74 },
+    .{ .name = "terminal-clipboard-read-cancelled", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_75 },
+    .{ .name = "terminal-input-unclaimed", .since = 12, .capability = "terminal-input-while-creating-v1", .streams = &event_streams_76 },
+    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_77 },
+    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_78 },
+    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_79 },
+    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_80 },
+    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_81 },
+    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_82 },
+    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_83 },
+    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_84 },
+    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_85 },
+    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_86 },
+    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_87 },
+    .{ .name = "workspace-presentation-changed", .since = 12, .capability = "tree-selection-deltas-v1", .streams = &event_streams_88 },
+    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_89 },
 };

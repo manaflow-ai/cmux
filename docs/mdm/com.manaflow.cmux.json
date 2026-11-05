@@ -6,9 +6,20 @@
       "description" : "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.",
       "enum" : [
         "inline",
-        "strip"
+        "strip",
+        "both"
       ],
       "title" : "Attachment View",
+      "type" : "string"
+    },
+    "agentPane.composerRing" : {
+      "default" : "context",
+      "description" : "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.",
+      "enum" : [
+        "context",
+        "planUsage"
+      ],
+      "title" : "Composer Ring",
       "type" : "string"
     },
     "agentPane.display.code.family" : {
@@ -22,6 +33,14 @@
       "minimum" : 0.6,
       "title" : "Chat Code Size",
       "type" : "number"
+    },
+    "agentPane.display.commandLabels" : {
+      "default" : [
+
+      ],
+      "description" : "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label.",
+      "title" : "Command Labels",
+      "type" : "string"
     },
     "agentPane.display.environment.placement" : {
       "default" : "left",
@@ -68,14 +87,16 @@
       "title" : "Chat Full Width",
       "type" : "boolean"
     },
-    "agentPane.display.inspector.placement" : {
-      "default" : "overlay",
-      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+    "agentPane.display.harnessPlacement" : {
+      "default" : "symbols",
+      "description" : "agentPane.display.harnessPlacement",
       "enum" : [
-        "push",
-        "overlay"
+        "symbols",
+        "left",
+        "top",
+        "compact"
       ],
-      "title" : "Session Info",
+      "title" : "Model Picker Harness Placement",
       "type" : "string"
     },
     "agentPane.display.minimap" : {
@@ -88,6 +109,86 @@
       ],
       "title" : "Chat Minimap",
       "type" : "string"
+    },
+    "agentPane.display.pinnedPlan" : {
+      "default" : false,
+      "description" : "While the agent works, its task list stays under the latest message instead of in the bar over the composer.",
+      "title" : "Pin Task List in Chat",
+      "type" : "boolean"
+    },
+    "agentPane.display.presentation" : {
+      "default" : "transcript",
+      "description" : "agentPane.display.presentation",
+      "enum" : [
+        "transcript",
+        "messages"
+      ],
+      "title" : "Chat Presentation",
+      "type" : "string"
+    },
+    "agentPane.display.rail.side" : {
+      "default" : "left",
+      "description" : "The edge of the chat the prompt rail sits on, one tick per prompt. Right-click the rail to move it.",
+      "enum" : [
+        "left",
+        "right"
+      ],
+      "title" : "Prompt Rail Side",
+      "type" : "string"
+    },
+    "agentPane.display.sessionInfo.placement" : {
+      "default" : "overlay",
+      "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+      "enum" : [
+        "push",
+        "overlay"
+      ],
+      "title" : "Session Info",
+      "type" : "string"
+    },
+    "agentPane.display.statusVerbs.custom" : {
+      "description" : "Comma-separated -ing verbs for the live status line.",
+      "title" : "Custom Working Verbs",
+      "type" : "string"
+    },
+    "agentPane.display.statusVerbs.mode" : {
+      "default" : "thinking",
+      "description" : "Choose whether the live status line rotates through verbs or stays on Thinking.",
+      "enum" : [
+        "thinking",
+        "rotate",
+        "custom"
+      ],
+      "title" : "Working Status Verbs",
+      "type" : "string"
+    },
+    "agentPane.display.transcriptView" : {
+      "default" : "normal",
+      "description" : "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
+      "enum" : [
+        "normal",
+        "thinking",
+        "verbose"
+      ],
+      "title" : "Transcript View",
+      "type" : "string"
+    },
+    "agentPane.display.trayHandle" : {
+      "default" : "middle",
+      "description" : "Where the handle that tucks the running tray away and brings it back sits along the top of the composer.",
+      "enum" : [
+        "left",
+        "middle",
+        "right"
+      ],
+      "title" : "Running Tray Handle",
+      "type" : "string"
+    },
+    "agentPane.display.trayTucked" : {
+      "default" : false,
+      "description" : "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back.",
+      "title" : "Tuck Away Running Tray",
+      "type" : "boolean"
     },
     "agentPane.display.vscodeMinimap" : {
       "default" : false,
@@ -160,6 +261,16 @@
       "title" : "Needs You",
       "type" : "boolean"
     },
+    "agentPane.newChatsIn" : {
+      "default" : "local",
+      "description" : "Where a new chat runs. Cloud starts it on your own Cloud machine, with your project copied there. The new chat's composer can change it for that chat.",
+      "enum" : [
+        "local",
+        "cloud"
+      ],
+      "title" : "Start New Chats In",
+      "type" : "string"
+    },
     "agentPane.scrollToBottomOnSend" : {
       "default" : true,
       "description" : "When off, sending while you are reading up keeps your place and shows new messages below.",
@@ -178,6 +289,12 @@
       "title" : "Show Dictation Button",
       "type" : "boolean"
     },
+    "agentPane.showMachineLoadWarnings" : {
+      "default" : true,
+      "description" : "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu.",
+      "title" : "Show Machine Load Warnings",
+      "type" : "boolean"
+    },
     "agentPane.spellChecking" : {
       "default" : false,
       "description" : "Underlines misspellings and offers system suggestions in the composer.",
@@ -190,6 +307,28 @@
       "maximum" : 2,
       "minimum" : 0.5,
       "title" : "Agent Chat Zoom",
+      "type" : "number"
+    },
+    "agents.autoRetry.attempts" : {
+      "default" : 4,
+      "description" : "How many times the chat tries again before it stops and waits for you.",
+      "maximum" : 12,
+      "minimum" : 1,
+      "title" : "Retries per Error",
+      "type" : "number"
+    },
+    "agents.autoRetry.enabled" : {
+      "default" : true,
+      "description" : "When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works.",
+      "title" : "Retry Automatically",
+      "type" : "boolean"
+    },
+    "agents.autoRetry.intervalSeconds" : {
+      "default" : 0,
+      "description" : "How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes.",
+      "maximum" : 3600,
+      "minimum" : 0,
+      "title" : "Seconds Between Retries",
       "type" : "number"
     },
     "agents.chats.discovery" : {
@@ -215,6 +354,12 @@
       "title" : "Chat Folders",
       "type" : "array"
     },
+    "agents.chats.sessionRecap" : {
+      "default" : true,
+      "description" : "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage.",
+      "title" : "Session Recap",
+      "type" : "boolean"
+    },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
       "description" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
@@ -224,6 +369,28 @@
         "ask"
       ],
       "title" : "Permission Mode for New Chats",
+      "type" : "string"
+    },
+    "agents.modelRouter.model" : {
+      "default" : "deepseek/deepseek-v4.1-flash-1017",
+      "description" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.",
+      "enum" : [
+        "deepseek/deepseek-v4.1-flash-1017",
+        "deepseek/deepseek-v4.1-flash",
+        "deepseek/deepseek-v4-flash",
+        "deepseek/deepseek-v4-pro"
+      ],
+      "title" : "cmux Model Router Model",
+      "type" : "string"
+    },
+    "agents.promptCache" : {
+      "default" : "1h",
+      "description" : "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more.",
+      "enum" : [
+        "1h",
+        "5m"
+      ],
+      "title" : "Prompt Cache",
       "type" : "string"
     },
     "agents.subsessions.answerQuestions" : {
@@ -239,8 +406,8 @@
       "type" : "boolean"
     },
     "agents.subsessions.maxChildren" : {
-      "default" : 50,
-      "description" : "The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.",
+      "default" : 1000,
+      "description" : "The most live sub-sessions one session can have at the same time. Running, waiting and harness-alive children count; finished, dead and closed children do not use a slot.",
       "maximum" : 1000,
       "minimum" : 1,
       "title" : "Open Sub-sessions per Session",
@@ -255,7 +422,7 @@
       "type" : "number"
     },
     "agents.subsessions.maxRunning" : {
-      "default" : 16,
+      "default" : 1000,
       "description" : "The most sub-sessions one session runs at the same time. More wait their turn and start as running ones finish. Running ones are never stopped when you lower it.",
       "maximum" : 1000,
       "minimum" : 1,
@@ -390,7 +557,7 @@
     },
     "appearance.appTheme" : {
       "default" : "followTerminal",
-      "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
+      "description" : "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast.",
       "title" : "App Theme",
       "type" : "string"
     },
@@ -884,11 +1051,38 @@
       "title" : "Density",
       "type" : "string"
     },
+    "appearance.displayBackgroundRotations" : {
+      "description" : "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation.",
+      "properties" : {
+
+      },
+      "title" : "Per-display Background Rotation",
+      "type" : "object"
+    },
+    "appearance.displayBackgrounds" : {
+      "description" : "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none.",
+      "properties" : {
+
+      },
+      "title" : "Per-display Backgrounds",
+      "type" : "object"
+    },
     "appearance.experimentalControls" : {
       "default" : false,
       "description" : "Applies Hue and Saturation to the window's tint. Off, they have no effect.",
       "title" : "Experimental Appearance Controls",
       "type" : "boolean"
+    },
+    "appearance.favoriteThemes" : {
+      "default" : [
+
+      ],
+      "description" : "Themes starred in a theme picker. The picker lists them first.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Starred Themes",
+      "type" : "array"
     },
     "appearance.focusIndicator" : {
       "default" : "tabs",
@@ -909,6 +1103,11 @@
       "minimum" : 0,
       "title" : "Glass Transparency",
       "type" : "number"
+    },
+    "appearance.highlightColor" : {
+      "description" : "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color.",
+      "title" : "Highlight Color",
+      "type" : "string"
     },
     "appearance.hue" : {
       "default" : 0.5,
@@ -979,6 +1178,13 @@
       "title" : "Sidebar Width",
       "type" : "number"
     },
+    "appearance.metrics.tabFontSize" : {
+      "description" : "Text size of tab titles. Unset, tabs follow the interface size.",
+      "maximum" : 18,
+      "minimum" : 10,
+      "title" : "Tab Text Size",
+      "type" : "number"
+    },
     "appearance.metrics.tabMaxWidth" : {
       "description" : "Widest a tab gets when the strip has room.",
       "maximum" : 320,
@@ -1007,6 +1213,13 @@
       "title" : "Pinned Tab Width",
       "type" : "number"
     },
+    "appearance.metrics.tabStripHeight" : {
+      "description" : "Height of a pane's tab bar. Its tabs grow and shrink with it.",
+      "maximum" : 44,
+      "minimum" : 22,
+      "title" : "Tab Bar Height",
+      "type" : "number"
+    },
     "appearance.metrics.titlebarHeight" : {
       "description" : "appearance.metrics.titlebarHeight",
       "maximum" : 56,
@@ -1022,6 +1235,17 @@
         "perPane"
       ],
       "title" : "Pane Backgrounds",
+      "type" : "string"
+    },
+    "appearance.rotateFavoriteThemes" : {
+      "default" : "off",
+      "description" : "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on.",
+      "enum" : [
+        "off",
+        "launch",
+        "daily"
+      ],
+      "title" : "Rotate Starred Themes",
       "type" : "string"
     },
     "appearance.saturation" : {
@@ -1273,7 +1497,7 @@
       "type" : "number"
     },
     "appearance.theme" : {
-      "description" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
+      "description" : "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it.",
       "title" : "Theme",
       "type" : "string"
     },
@@ -1287,6 +1511,11 @@
       },
       "title" : "Theme Edits",
       "type" : "object"
+    },
+    "appearance.themeFile" : {
+      "description" : "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
+      "title" : "Theme File",
+      "type" : "string"
     },
     "appearance.wallpaperTint" : {
       "default" : true,
@@ -1392,6 +1621,12 @@
       },
       "title" : "Hosts to Open in Embedded Browser",
       "type" : "array"
+    },
+    "browser.import.cookieBanner" : {
+      "default" : true,
+      "description" : "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+      "title" : "Offer to Import Cookies",
+      "type" : "boolean"
     },
     "browser.import.enabled" : {
       "default" : true,
@@ -1507,6 +1742,15 @@
       "title" : "Address Bar Corners",
       "type" : "string"
     },
+    "browser.omnibar.fontSize" : {
+      "default" : "density",
+      "description" : "The size of the address and the suggestions. Match Density follows the density. Also accepts a number from 10 to 24 in a raw profile.",
+      "enum" : [
+        "density"
+      ],
+      "title" : "Address Bar Text Size",
+      "type" : "string"
+    },
     "browser.omnibar.glass" : {
       "default" : "off",
       "description" : "The material of the address bar. Transparent draws no fill. Clear glass shows more of what is behind it. Off uses the flat theme color.",
@@ -1537,6 +1781,15 @@
       "minimum" : 0,
       "title" : "Tint Strength",
       "type" : "number"
+    },
+    "browser.omnibar.height" : {
+      "default" : "density",
+      "description" : "Match Density follows the density. The bar always grows to fit its text. Also accepts a number from 20 to 56 in a raw profile.",
+      "enum" : [
+        "density"
+      ],
+      "title" : "Address Bar Height",
+      "type" : "string"
     },
     "browser.omnibar.inlineAutocomplete" : {
       "default" : true,
@@ -1574,6 +1827,12 @@
       "default" : true,
       "description" : "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
       "title" : "Open Links in cmux Browser",
+      "type" : "boolean"
+    },
+    "browser.openSignInPagesInCmux" : {
+      "default" : true,
+      "description" : "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win.",
+      "title" : "Open Sign-In Pages in cmux Browser",
       "type" : "boolean"
     },
     "browser.openTerminalLinksInCmuxBrowser" : {
@@ -1701,6 +1960,12 @@
       "title" : "Fill Codes from Verification Emails",
       "type" : "boolean"
     },
+    "chief.autoRouteSubagents" : {
+      "default" : false,
+      "description" : "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
+      "title" : "Route Subagents to the Best Agent",
+      "type" : "boolean"
+    },
     "chief.reactionClassifier.harness" : {
       "default" : "",
       "description" : "The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.",
@@ -1725,6 +1990,40 @@
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
     },
+    "cloud.agentsStartWithoutAsking" : {
+      "default" : true,
+      "description" : "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.",
+      "title" : "Let Agents Use Cloud Without Asking",
+      "type" : "boolean"
+    },
+    "cloud.newWorkspaceFolder" : {
+      "default" : "inherit",
+      "description" : "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
+      "enum" : [
+        "inherit",
+        "empty"
+      ],
+      "title" : "New Cloud Workspaces Start In",
+      "type" : "string"
+    },
+    "cloud.newWorkspacesInCloud" : {
+      "default" : false,
+      "description" : "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+      "title" : "Run New Workspaces in Cloud",
+      "type" : "boolean"
+    },
+    "cloud.useMyClaudeLoginOnMyCloudMachines" : {
+      "default" : false,
+      "description" : "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
+      "title" : "Use My Claude Login on My Own Cloud Machines",
+      "type" : "boolean"
+    },
+    "cloud.useMyCodexLoginOnMyCloudMachines" : {
+      "default" : false,
+      "description" : "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead.",
+      "title" : "Use My Codex Login on My Own Cloud Machines",
+      "type" : "boolean"
+    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -1739,6 +2038,23 @@
       "default" : false,
       "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
       "title" : "Computer Use",
+      "type" : "boolean"
+    },
+    "computerUse.livePreview" : {
+      "default" : true,
+      "description" : "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
+      "title" : "Live Preview in Chat",
+      "type" : "boolean"
+    },
+    "ComputerUseActsAsPerson" : {
+      "description" : "Computer use can act as me: clicks and key presses computer use makes in a chat count as the person's for Send, Retry and Approve, and nothing else. Off by default. Honored only as a forced value from an installed profile; the person can still turn it off until cmux restarts, and every action it lets through is logged.",
+      "title" : "ComputerUseActsAsPerson",
+      "type" : "boolean"
+    },
+    "contextMenus.showCustomizeItem" : {
+      "default" : true,
+      "description" : "Adds Customize Menu… to the end of every right-click menu.",
+      "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
     "deviceHub.url" : {
@@ -2244,8 +2560,8 @@
     },
     "feed.github.enabled" : {
       "default" : false,
-      "description" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.",
-      "title" : "Connect GitHub",
+      "description" : "Inbox shows your GitHub notifications",
+      "title" : "GitHub Inbox",
       "type" : "boolean"
     },
     "feed.github.pollIntervalSeconds" : {
@@ -2272,6 +2588,12 @@
       ],
       "title" : "Copy Terminal Notifications to the Feed",
       "type" : "string"
+    },
+    "feed.needsYouInChief" : {
+      "default" : false,
+      "description" : "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+      "title" : "Pin Needs You in Chief",
+      "type" : "boolean"
     },
     "files.textEditor" : {
       "default" : "",
@@ -2379,6 +2701,26 @@
       "title" : "Keep Location in Photos and Videos",
       "type" : "boolean"
     },
+    "home.bubbleColors.received" : {
+      "description" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+      "title" : "Their Bubble Color",
+      "type" : "string"
+    },
+    "home.bubbleColors.receivedText" : {
+      "description" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+      "title" : "Their Text Color",
+      "type" : "string"
+    },
+    "home.bubbleColors.sent" : {
+      "description" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+      "title" : "My Bubble Color",
+      "type" : "string"
+    },
+    "home.bubbleColors.sentText" : {
+      "description" : "Every chat starts with these colors. Right-click a chat and choose Chat Colors to set its own. Unset text colors are picked to stay readable.",
+      "title" : "My Text Color",
+      "type" : "string"
+    },
     "home.channelsEnabled" : {
       "default" : false,
       "description" : "Show Channels below Home in the sidebar. You can also turn it on or off from the command palette.",
@@ -2416,19 +2758,32 @@
       "default" : "orb",
       "description" : "home.chiefPetMascot",
       "enum" : [
-        "orb",
-        "orb-spark",
-        "orb-hood",
+        "fox",
         "machine",
         "machine-cyan",
         "machine-blue",
         "moon",
         "moon-blue",
-        "fox",
-        "mochi"
+        "mochi",
+        "captain",
+        "sprout",
+        "bolt",
+        "fox-arctic",
+        "machine-violet",
+        "machine-gold",
+        "moon-rose",
+        "orb",
+        "orb-spark",
+        "orb-hood"
       ],
       "title" : "Character",
       "type" : "string"
+    },
+    "home.feedInChief" : {
+      "default" : true,
+      "description" : "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them.",
+      "title" : "Show the Feed in Chief",
+      "type" : "boolean"
     },
     "home.server" : {
       "default" : "hosted",
@@ -2439,10 +2794,34 @@
       "title" : "Server",
       "type" : "string"
     },
+    "imessage.automationSkipped" : {
+      "default" : false,
+      "description" : "Remember skipping the Messages Automation step. This does not grant access or authorize sending.",
+      "title" : "Skip Messages Automation",
+      "type" : "boolean"
+    },
+    "imessage.enabled" : {
+      "default" : false,
+      "description" : "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click.",
+      "title" : "Connect iMessage",
+      "type" : "boolean"
+    },
     "labs.classicHome" : {
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
       "title" : "Classic Home",
+      "type" : "boolean"
+    },
+    "labs.liveCode" : {
+      "default" : false,
+      "description" : "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts.",
+      "title" : "Live Code",
+      "type" : "boolean"
+    },
+    "labs.machineJoin" : {
+      "default" : false,
+      "description" : "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
+      "title" : "Join Any Machine with One Line",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
@@ -2450,6 +2829,18 @@
       "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
       "title" : "Show Preview Features",
       "type" : "boolean"
+    },
+    "labs.voiceRoom" : {
+      "default" : false,
+      "description" : "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room.",
+      "title" : "Voice Room",
+      "type" : "boolean"
+    },
+    "labs.voiceRoomURL" : {
+      "default" : "",
+      "description" : "The room's web address. Empty uses the room server on this Mac.",
+      "title" : "Voice Room Address",
+      "type" : "string"
     },
     "layout.centerFocusedColumn" : {
       "default" : "never",
@@ -2472,8 +2863,15 @@
       "title" : "Focus After Closing a Pane",
       "type" : "string"
     },
+    "layout.cornerPadding" : {
+      "description" : "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this.",
+      "maximum" : 12,
+      "minimum" : 0,
+      "title" : "Corner Padding",
+      "type" : "number"
+    },
     "layout.defaultColumnWidth" : {
-      "default" : 0.5,
+      "default" : 0.6666666666666666,
       "description" : "A share of the window width, for Fixed Width new columns.",
       "maximum" : 1,
       "minimum" : 0.1,
@@ -2557,7 +2955,7 @@
       "type" : "number"
     },
     "layout.newColumnWidth" : {
-      "default" : "matchCurrent",
+      "default" : "fixed",
       "description" : "layout.newColumnWidth",
       "enum" : [
         "matchCurrent",
@@ -2576,6 +2974,12 @@
       ],
       "title" : "New Terminals and Browsers",
       "type" : "string"
+    },
+    "layout.pagesHandleCommandScroll" : {
+      "default" : true,
+      "description" : "A web page that uses Command + Scroll itself, such as Figma or Excalidraw zooming, keeps it. Over any other page, Command + Scroll moves columns. Off, Command + Scroll always moves columns.",
+      "title" : "Web Pages Get Command + Scroll First",
+      "type" : "boolean"
     },
     "layout.paneBorder" : {
       "default" : "subtle",
@@ -2600,7 +3004,7 @@
       "type" : "number"
     },
     "layout.paneCornerRadius" : {
-      "description" : "layout.paneCornerRadius",
+      "description" : "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
       "maximum" : 20,
       "minimum" : 0,
       "title" : "Corner Radius",
@@ -2910,6 +3314,12 @@
       "default" : false,
       "description" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
       "title" : "Move the Workspace to the Top",
+      "type" : "boolean"
+    },
+    "notifications.attention.moveToTopOnAgentFinish" : {
+      "default" : false,
+      "description" : "An agent that finishes its turn moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+      "title" : "Move the Workspace to the Top When Its Agent Finishes",
       "type" : "boolean"
     },
     "notifications.attention.persist" : {
@@ -3350,6 +3760,12 @@
       "title" : "Let Your Phone Use This Mac",
       "type" : "boolean"
     },
+    "phone.cloudDesktop" : {
+      "default" : false,
+      "description" : "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open.",
+      "title" : "Show Your Cloud Machine's Screen on Your Phone",
+      "type" : "boolean"
+    },
     "phone.cloudReplica" : {
       "default" : false,
       "description" : "cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy.",
@@ -3383,6 +3799,18 @@
       },
       "title" : "Pinned Folders",
       "type" : "array"
+    },
+    "remote.enabled" : {
+      "default" : false,
+      "description" : "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
+      "title" : "Use cmux Remote",
+      "type" : "boolean"
+    },
+    "remote.endSharingOnQuit" : {
+      "default" : false,
+      "description" : "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit.",
+      "title" : "End Sharing When cmux Quits",
+      "type" : "boolean"
     },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
@@ -3468,6 +3896,12 @@
       "title" : "Show Tips",
       "type" : "boolean"
     },
+    "sidebar.chromeGroups" : {
+      "default" : false,
+      "description" : "A group's colored name chip joins a thicker rail with a clipped corner, and the rail ends in a rounded cap, like Chrome's tab groups.",
+      "title" : "Chrome-Style Groups",
+      "type" : "boolean"
+    },
     "sidebar.cmd9" : {
       "default" : "last",
       "description" : "Goes to the last item, as in browsers, or to the ninth.",
@@ -3477,6 +3911,12 @@
       ],
       "title" : "Command-9",
       "type" : "string"
+    },
+    "sidebar.controlsOnHover" : {
+      "default" : false,
+      "description" : "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show.",
+      "title" : "Show Sidebar Controls Only on Hover",
+      "type" : "boolean"
     },
     "sidebar.density" : {
       "default" : "compact",
@@ -3524,7 +3964,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.delay" : {
-      "default" : 250,
+      "default" : 400,
       "description" : "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once.",
       "maximum" : 5000,
       "minimum" : 0,
@@ -3538,7 +3978,7 @@
       "type" : "boolean"
     },
     "sidebar.hoverCards.groups.delay" : {
-      "default" : 600,
+      "default" : 1500,
       "description" : "How long the pointer rests on a group before its summary card opens.",
       "maximum" : 5000,
       "minimum" : 0,
@@ -3758,6 +4198,12 @@
       "title" : "Mark This Mac's Workspaces",
       "type" : "boolean"
     },
+    "sidebar.showNewWorkspaceChooser" : {
+      "default" : false,
+      "description" : "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu.",
+      "title" : "Show New Workspace Menu Button",
+      "type" : "boolean"
+    },
     "sidebar.showProfileControl" : {
       "default" : true,
       "description" : "sidebar.showProfileControl",
@@ -3788,12 +4234,6 @@
       "title" : "Show Timestamps",
       "type" : "boolean"
     },
-    "sidebar.showWorkspaceTabs" : {
-      "default" : true,
-      "description" : "Lists tabs beneath each workspace in the sidebar.",
-      "title" : "Show Workspace Tabs",
-      "type" : "boolean"
-    },
     "sidebar.side" : {
       "default" : "left",
       "description" : "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.",
@@ -3803,6 +4243,12 @@
       ],
       "title" : "Sidebar Side",
       "type" : "string"
+    },
+    "sidebar.sideBySide" : {
+      "default" : false,
+      "description" : "A press on a workspace row switches only when you release it, so you can hold and drag the row onto a pane's edge to show that workspace beside the current one. Workspaces on screen are highlighted.",
+      "title" : "Workspaces Side by Side",
+      "type" : "boolean"
     },
     "sidebar.spacesPosition" : {
       "default" : "bottom",
@@ -3816,7 +4262,7 @@
     },
     "sidebar.spacesVisibility" : {
       "default" : "hover",
-      "description" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.",
+      "description" : "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then.",
       "enum" : [
         "hover",
         "always"
@@ -3848,6 +4294,17 @@
         "rail"
       ],
       "title" : "Sidebar Style",
+      "type" : "string"
+    },
+    "sidebar.textSize" : {
+      "default" : "default",
+      "description" : "Makes the sidebar's names, headers, icons and rows larger together. Larger matches the ChatGPT app's sidebar.",
+      "enum" : [
+        "default",
+        "large",
+        "larger"
+      ],
+      "title" : "Sidebar Text Size",
       "type" : "string"
     },
     "sidebar.topBandMaxShare" : {
@@ -4290,6 +4747,12 @@
       "title" : "Agent Working",
       "type" : "boolean"
     },
+    "sidebar.workspacesAsTabs" : {
+      "default" : false,
+      "description" : "Each workspace is one line, like Claude's sidebar, and Command-Shift-[ and ] go to the previous or next workspace instead of the previous or next tab.",
+      "title" : "Workspaces as Tabs",
+      "type" : "boolean"
+    },
     "ssh.linkAllowedHosts" : {
       "default" : [
 
@@ -4341,7 +4804,7 @@
     },
     "tabs.barPosition" : {
       "default" : "top",
-      "description" : "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane.",
+      "description" : "Where each pane's tab bar sits. At the bottom, the panes reach the top of the window; the window buttons never cover a pane.",
       "enum" : [
         "top",
         "bottom"
@@ -4364,6 +4827,18 @@
       ],
       "title" : "Command-1 to 9 Select",
       "type" : "string"
+    },
+    "tabs.hideLoneChatTab" : {
+      "default" : false,
+      "description" : "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back.",
+      "title" : "Hide the Tab of a Chat Alone in Its Pane",
+      "type" : "boolean"
+    },
+    "tabs.nativeNewTabPage" : {
+      "default" : false,
+      "description" : "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.",
+      "title" : "Native New Tab Page",
+      "type" : "boolean"
     },
     "tabs.newTabNowPlaying" : {
       "default" : false,
@@ -4389,7 +4864,6 @@
         "minimal",
         "cards",
         "default",
-        "composer",
         "threads",
         "console",
         "classic",
@@ -4514,12 +4988,6 @@
       "title" : "Swap Cmd-T and Cmd-N",
       "type" : "boolean"
     },
-    "tabs.terminalFirst" : {
-      "default" : false,
-      "description" : "New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.",
-      "title" : "cmux Classic Mode",
-      "type" : "boolean"
-    },
     "tabs.toolbarButtons" : {
       "default" : [
 
@@ -4538,6 +5006,18 @@
       },
       "title" : "Tab Bar Buttons",
       "type" : "array"
+    },
+    "tabs.verticalTabs" : {
+      "default" : false,
+      "description" : "Show every workspace's tabs as a list beside its panes instead of a strip above them. Turn vertical tabs on or off for one workspace from its tab bar's menu.",
+      "title" : "Use Vertical Tabs for All Workspaces",
+      "type" : "boolean"
+    },
+    "tabs.verticalTabsExpandOnHover" : {
+      "default" : true,
+      "description" : "When the vertical tab list is collapsed to icons, show the titles while the pointer is over it.",
+      "title" : "Expand Collapsed Vertical Tabs on Hover",
+      "type" : "boolean"
     },
     "tasks.layout" : {
       "default" : "inbox",
@@ -4793,6 +5273,18 @@
       "title" : "When an Update Is Ready",
       "type" : "string"
     },
+    "updates.oneClickInstall" : {
+      "default" : false,
+      "description" : "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart.",
+      "title" : "Update in One Click",
+      "type" : "boolean"
+    },
+    "updates.showFeatureTips" : {
+      "default" : true,
+      "description" : "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",
+      "title" : "Show Feature Tips",
+      "type" : "boolean"
+    },
     "updates.showWhatsNew" : {
       "default" : true,
       "description" : "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it.",
@@ -4822,12 +5314,23 @@
     },
     "window.titlebarButtons" : {
       "default" : "hover",
-      "description" : "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.",
+      "description" : "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show.",
       "enum" : [
         "hover",
         "always"
       ],
       "title" : "Titlebar Buttons",
+      "type" : "string"
+    },
+    "workspaceColors.indicatorStyle" : {
+      "default" : "dot",
+      "description" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
+      "enum" : [
+        "dot",
+        "leftRail",
+        "fill"
+      ],
+      "title" : "Workspace Color Style",
       "type" : "string"
     },
     "workspaces.autoArchive.idleDays" : {
@@ -4839,7 +5342,7 @@
       "type" : "number"
     },
     "workspaces.autoArchive.style" : {
-      "default" : "suggest",
+      "default" : "manual",
       "description" : "What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.",
       "enum" : [
         "suggest",
@@ -4863,6 +5366,14 @@
       "title" : "Hibernate Idle Workspaces",
       "type" : "boolean"
     },
+    "workspaces.hibernation.hiddenSpaceMinutes" : {
+      "default" : 15,
+      "description" : "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+      "maximum" : 1440,
+      "minimum" : 5,
+      "title" : "Hibernate Hidden Spaces After",
+      "type" : "number"
+    },
     "workspaces.hibernation.idleMinutes" : {
       "default" : 60,
       "description" : "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
@@ -4873,7 +5384,7 @@
     },
     "workspaces.newPlacement" : {
       "default" : "top",
-      "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
+      "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
       "enum" : [
         "top",
         "afterCurrent",

@@ -34,8 +34,12 @@ extension MainPaneGutterSuites {
             let gutter = Metrics.mainPaneGutter
             try #require(Metrics.mainPaneCurved && windowRadius > gutter, "a curved main pane in a window with round corners")
             #expect(gutter > 0, "the default keeps a gutter at the window edges")
-            #expect(root.contentHost.layer?.cornerRadius == windowRadius - gutter,
-                    "the pane's corner is the window's corner less the gutter")
+            // Lawrence 2026-11-04: the one corner radius of panes and tabs (10 pt compact by default:
+            // concentric with the 16 pt window across the 6 pt gutter), never rounder than the window's own.
+            #expect(root.contentHost.layer?.cornerRadius == min(Metrics.densityPaneCornerRadius, windowRadius),
+                    "the pane's corner is the one corner radius")
+            #expect(Metrics.densityPaneCornerRadius == windowRadius - gutter || windowRadius != 16,
+                    "the default main pane is concentric with a 16 pt window")
         }
 
         /// Flush (gutter 0): the pane's corners are the window's own, so the two are one outline.

@@ -14,6 +14,7 @@ const NOW = Date.parse("2026-10-13T12:00:00Z");
 type Props = {
   state?: "empty" | "recents" | "loading" | "error";
   direction?: UiDirection;
+  many?: boolean;
 };
 
 const recents: RecentItem[] = [
@@ -21,11 +22,22 @@ const recents: RecentItem[] = [
   { path: `${PROJECTS}/docs/README.md`, name: "README.md", openedAt: NOW - 2 * 60 * 60_000 },
 ];
 
-function GalleryEmptyState({ state = "recents", direction = "ltr" }: Props) {
+function GalleryEmptyState({ state = "recents", direction = "ltr", many }: Props) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
   const [receipt, setReceipt] = useState("Ready");
   const strings = viewerEmptyStrings([direction === "rtl" ? "ar" : "en"]);
-  const items = state === "empty" || state === "error" ? [] : state === "loading" ? null : recents;
+  const items =
+    state === "empty" || state === "error"
+      ? []
+      : state === "loading"
+        ? null
+        : many
+          ? Array.from({ length: 40 }, (_, index) => ({
+              path: `${PROJECTS}/project-${index}`,
+              name: `project-${index}`,
+              openedAt: NOW - index * 60_000,
+            }))
+          : recents;
   const error = state === "error" ? "Could not open README.md" : undefined;
   const children: ReactNode = (
     <>
@@ -106,6 +118,7 @@ export default componentEntry<Props>({
   load: async () => GalleryEmptyState,
   styles: () => Promise.all([import("./styles.css"), import("./EmptyState.gallery.css")]),
   variants: {
+    "recents-overflow": { note: "Forty recent repositories scroll inside the capped list.", props: { many: true } },
     recents: { props: {}, play: openRecent },
     empty: { props: { state: "empty" } },
     loading: { props: { state: "loading" } },

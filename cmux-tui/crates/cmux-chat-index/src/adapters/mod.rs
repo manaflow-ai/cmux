@@ -4,6 +4,7 @@
 mod amp;
 mod auggie;
 mod claude;
+mod claude_desktop;
 mod codex;
 mod continue_dev;
 mod copilot;
@@ -17,6 +18,7 @@ mod grok_cli;
 mod kimi;
 mod muse;
 mod opencode;
+pub use codex::forget as forget_codex_reads;
 pub use opencode::find_session as find_opencode_session;
 mod openhands;
 mod pi;
@@ -129,13 +131,17 @@ pub(crate) fn read_store(kind: AdapterKind, root: &Path) -> io::Result<Option<Ve
 
 /// Root-level data applied after the file reads: Codex session index
 /// names, Kimi folders from the work-dir index, Claude's pre-JSONL SQLite
-/// store, Gemini chats that only `logs.json` remembers.
+/// store and Claude desktop's session titles, Gemini chats that only
+/// `logs.json` remembers.
 pub(crate) fn finish_scan(kind: AdapterKind, root: &Path, entries: &mut Vec<ChatEntry>) {
     match kind {
         AdapterKind::Codex => codex::apply_session_index(root, entries),
         AdapterKind::KimiCli => kimi::finish_cli(root, entries),
         AdapterKind::KimiCode => kimi::finish_code(root, entries),
-        AdapterKind::ClaudeCode => claude::add_legacy_store(root, entries),
+        AdapterKind::ClaudeCode => {
+            claude::add_legacy_store(root, entries);
+            claude_desktop::apply(root, entries);
+        }
         AdapterKind::Gemini | AdapterKind::QwenCode => {
             gemini::add_logged_sessions(kind, root, entries);
         }
@@ -150,6 +156,7 @@ pub(crate) fn finish_file(kind: AdapterKind, root: &Path, entries: &mut Vec<Chat
         AdapterKind::Codex => codex::apply_session_index(root, entries),
         AdapterKind::KimiCli => kimi::finish_cli(root, entries),
         AdapterKind::KimiCode => kimi::finish_code(root, entries),
+        AdapterKind::ClaudeCode => claude_desktop::apply(root, entries),
         _ => {}
     }
 }

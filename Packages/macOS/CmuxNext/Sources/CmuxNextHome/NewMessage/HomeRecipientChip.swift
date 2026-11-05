@@ -40,7 +40,10 @@ final class HomeRecipientChip: NSView {
     override func layout() {
         super.layout()
         let size = label.intrinsicContentSize
-        label.frame = NSRect(x: 10, y: (bounds.height - size.height) / 2, width: max(0, bounds.width - 20), height: size.height)
+        // The text box sits 10 pt in from each side; the frame adds the label's padding around it
+        // (a frame the size of the text alone truncated every name).
+        label.frame = label.frame(forAlignmentRect: NSRect(x: 10, y: (bounds.height - size.height) / 2,
+                                                           width: max(0, bounds.width - 20), height: size.height))
     }
 
     override func mouseDown(with event: NSEvent) { onSelect() }

@@ -23,7 +23,7 @@ import { formatString, type Strings } from "../../shared/i18n";
 import { useRowState, useStore } from "../context";
 import { rowsByKey } from "../schema";
 import { locale, t } from "../strings";
-import { CHIEF_PET_MASCOT, CHIEF_PET_MASCOTS } from "./ChiefPetCard";
+import { CHIEF_PET_MASCOT, chiefPetMascot } from "./ChiefPetCard";
 import { SettingRow } from "./SettingRow";
 
 export const CHIEF_ENGINE = "home.chiefEngine";
@@ -60,7 +60,7 @@ export function ChiefsCard({ focus = null }: { focus?: string | null }) {
   const host = useMemo(() => new ChiefHost(store.chiefCalls), [store]);
   const strings = useMemo(settingsStrings, []);
   const character = useRowState(CHIEF_PET_MASCOT).value;
-  const mascot = (CHIEF_PET_MASCOTS.find((entry) => entry.id === character) ?? CHIEF_PET_MASCOTS[0]!).art;
+  const mascot = chiefPetMascot(character).art;
   const [chiefs, setChiefs] = useState<HomeChief[] | undefined>();
   const [pictures, setPictures] = useState<ReadonlyMap<string, string>>(new Map());
   const [unavailable, setUnavailable] = useState(false);

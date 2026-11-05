@@ -1,0 +1,46 @@
+{
+  "id": "select-copy",
+  "priority": "P0",
+  "title": "Drag-select and double-click a word, Cmd+C: the clipboard gets exactly that text, and it pastes back",
+  "why": "Copying output is everyday terminal use. The pointer goes through the app's real mouse path (debug.mouse posts the events to the app's queue); the clipboard must get exactly the selected text, no more, no less, with no trailing space or newline.",
+  "source": "everyday terminal use (holistic-quality.md 1)",
+  "budget_seconds": 60,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-select-copy"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "echo copy-me-${nonce}-$((6*7)) tail dbl${nonce}x end", "enter": true, "mark": "out"},
+    {"do": "expect", "title": "the line to copy shows", "since": "out", "timeout": 10,
+     "all": [
+       {"daemon_line": "copy-me-${nonce}-42 tail dbl${nonce}x end"},
+       {"app_text_line": "copy-me-${nonce}-42 tail dbl${nonce}x end"},
+       {"app_prompt": true}
+     ]},
+    {"do": "clipboard_set", "text": "stale-${nonce}"},
+
+    {"do": "select_text", "text": "copy-me-${nonce}-42", "how": "drag"},
+    {"do": "key", "key": "c", "modifiers": ["cmd"], "mark": "copy-drag"},
+    {"do": "expect", "title": "Cmd+C puts exactly the dragged text on the clipboard; the shell gets no key", "since": "copy-drag", "within": 1, "timeout": 5,
+     "all": [
+       {"clipboard": "copy-me-${nonce}-42"},
+       {"daemon_prompt": true},
+       {"app_prompt": true}
+     ]},
+
+    {"do": "select_text", "text": "dbl${nonce}x", "how": "double_click"},
+    {"do": "key", "key": "c", "modifiers": ["cmd"], "mark": "copy-word"},
+    {"do": "expect", "title": "a double-click selects the word; Cmd+C copies exactly it", "since": "copy-word", "within": 1, "timeout": 5,
+     "all": [{"clipboard": "dbl${nonce}x"}]},
+
+    {"do": "type", "text": "echo "},
+    {"do": "key", "key": "v", "modifiers": ["cmd"]},
+    {"do": "type", "text": "-again", "enter": true, "mark": "again"},
+    {"do": "expect", "title": "the copied word pastes back as typed text", "since": "again", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "${prompt}echo dbl${nonce}x-again"},
+       {"daemon_line": "dbl${nonce}x-again"},
+       {"daemon_prompt": true},
+       {"app_text_line": "dbl${nonce}x-again"},
+       {"frame_text": "dbl${nonce}x-again"}
+     ]}
+  ]
+}

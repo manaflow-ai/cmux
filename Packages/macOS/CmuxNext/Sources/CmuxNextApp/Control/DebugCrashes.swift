@@ -15,7 +15,8 @@ enum DebugCrashes {
         let log = services.cache.cef.crashLog
         var launch: [String: JSONValue] = [
             "recovery": .string(recoveryName(crash.recovery)),
-            "skips_browser_pages": .bool(crash.recovery.skipsBrowserPages),
+            "safe_restart": .bool(crash.recovery.isSafeRestart),
+            "held_pages": .number(Double(crash.recovery.crashedPages.count)),
         ]
         if let previous = crash.recovery.previous {
             launch["previous"] = .object([

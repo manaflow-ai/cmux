@@ -30,7 +30,7 @@ enum BrowserDeviceHandlers {
         // The fit bar under a fitted page runs browserFit on its tab's pane (nil fit: the palette asks).
         BrowserFitFrameView.perform = { tab, fit in
             guard let pane = context.services.locateTab(tab)?.1 else { return }
-            _ = registry.perform("browserFit", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id), arguments: fit.map { ["fit": .string($0)] } ?? [:]))
+            _ = registry.perform("browserFit", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id), arguments: fit.map { ["fit": .string($0)] } ?? [:]).onMachine(context.services.daemon(for: pane).machineID))
         }
         registry.bind("browserDevice", run: { invocation in
             let entry = try context.page(invocation)
@@ -40,14 +40,14 @@ enum BrowserDeviceHandlers {
             let choose: @MainActor (String?, String?) -> Void = { device, orientation in daemon.send("browser.tab.emulate") { try await $0.state.setTabEmulation(resource, device: device, orientation: orientation) } }
             let (device, orientation) = (invocation["device"]?.stringValue?.trimmingCharacters(in: .whitespaces), invocation["orientation"]?.stringValue)
             if device != nil || orientation != nil { return choose(device?.lowercased() == "none" ? nil : device ?? "", orientation) }
-            let (chrome, current) = (entry.chrome, tab.emulation.flatMap { try? JSONEncoder().encode($0) })
+            let (state, current) = (entry.state, tab.emulation.flatMap { try? JSONEncoder().encode($0) })
             Task { @MainActor in
                 do {
                     let list = try await daemon.perform("browser.devices.list") { try await $0.state.browserDevices() }
                     let menu = BrowserDeviceMenu(devices: BrowserDeviceMenu.devices(list: (try? JSONEncoder().encode(list)) ?? Data()),
                                                  current: BrowserDeviceMenu.current(record: current), fit: tab.fitValue, fits: ["16:9", "1280"].filter { daemon.supports(Int($0) == nil ? DaemonCapability.browserFit.rawValue : DaemonCapability.browserFitWidth.rawValue) },
                                                  toggleFit: { _ = registry.perform($0 == "1280" ? "browserFitDesktop1280" : "browserFitDesktop", invocation: invocation) }, choose: choose).menu()
-                    presentedMenu = menu; chrome.toolbarButtons.present(menu, from: .overflow, themed: true)
+                    presentedMenu = menu; state.chrome?.toolbarButtons.present(menu, from: .overflow, themed: true)
                 } catch { registry.refuse(RefusalStrings.describe(error)) }
             }
         })

@@ -103,6 +103,12 @@
    "family": "action"
   },
   {
+   "name": "action.quote",
+   "meaning": "Quote selected text",
+   "sf": "questionmark.square.dashed",
+   "family": "action"
+  },
+  {
    "name": "action.reload",
    "meaning": "Reload / refresh / reconnect",
    "sf": "arrow.clockwise",
@@ -133,9 +139,21 @@
    "family": "action"
   },
   {
+   "name": "action.retry",
+   "meaning": "Retry prompt",
+   "sf": "questionmark.square.dashed",
+   "family": "action"
+  },
+  {
    "name": "action.review",
    "meaning": "Review / about this page",
    "sf": "doc.text.magnifyingglass",
+   "family": "action"
+  },
+  {
+   "name": "action.save",
+   "meaning": "Save to file",
+   "sf": "questionmark.square.dashed",
    "family": "action"
   },
   {
@@ -187,6 +205,12 @@
    "family": "agent"
   },
   {
+   "name": "agent.bot",
+   "meaning": "Agent",
+   "sf": "questionmark.square.dashed",
+   "family": "agent"
+  },
+  {
    "name": "agent.chat",
    "meaning": "Agent chat: new agent chat action, agent tab, sidebar row.",
    "sf": "bubble.left.and.text.bubble.right",
@@ -226,6 +250,12 @@
    "name": "agent.handoff",
    "meaning": "Hand the conversation off to another agent or location (Continue in..., Feed handoff).",
    "sf": "arrow.turn.up.right",
+   "family": "agent"
+  },
+  {
+   "name": "agent.paused",
+   "meaning": "Paused agent",
+   "sf": "questionmark.square.dashed",
    "family": "agent"
   },
   {
@@ -991,6 +1021,24 @@
    "family": "git"
   },
   {
+   "name": "git.pullrequest.closed",
+   "meaning": "Closed pull request, or one GitHub can't merge for conflicts (Session Info Changes).",
+   "sf": "questionmark.square.dashed",
+   "family": "git.pullrequest"
+  },
+  {
+   "name": "git.pullrequest.draft",
+   "meaning": "Draft pull request (Session Info Changes).",
+   "sf": "questionmark.square.dashed",
+   "family": "git.pullrequest"
+  },
+  {
+   "name": "git.pullrequest.merged",
+   "meaning": "Merged pull request (Session Info Changes).",
+   "sf": "questionmark.square.dashed",
+   "family": "git.pullrequest"
+  },
+  {
    "name": "git.worktree",
    "meaning": "Session runs in its own git worktree.",
    "sf": "questionmark.square.dashed",
@@ -1184,6 +1232,24 @@
    "family": "media"
   },
   {
+   "name": "media.stop.circle",
+   "meaning": "Stop reading aloud",
+   "sf": "questionmark.square.dashed",
+   "family": "media.stop"
+  },
+  {
+   "name": "message.delivered",
+   "meaning": "Delivered message",
+   "sf": "questionmark.square.dashed",
+   "family": "message"
+  },
+  {
+   "name": "message.send",
+   "meaning": "Send message",
+   "sf": "questionmark.square.dashed",
+   "family": "message"
+  },
+  {
    "name": "mobile.pair",
    "meaning": "Mobile pairing",
    "sf": "iphone",
@@ -1211,6 +1277,12 @@
    "name": "nav.back",
    "meaning": "Back",
    "sf": "arrow.left",
+   "family": "nav"
+  },
+  {
+   "name": "nav.down",
+   "meaning": "Down",
+   "sf": "questionmark.square.dashed",
    "family": "nav"
   },
   {
@@ -1298,16 +1370,51 @@
    "family": "panel"
   },
   {
+   "name": "permission.ask",
+   "meaning": "Ask for approval: the existing raised hand.",
+   "sf": "hand.raised",
+   "family": "permission",
+   "alias": false
+  },
+  {
+   "name": "permission.auto",
+   "meaning": "Approve for me: the existing terminal prompt in a shield.",
+   "sf": "terminal",
+   "family": "permission",
+   "alias": false
+  },
+  {
+   "name": "permission.checked",
+   "meaning": "Permission mode with a checked shield: existing approval mode glyph.",
+   "sf": "checkmark.shield",
+   "family": "permission",
+   "alias": false
+  },
+  {
    "name": "permission.consent",
    "meaning": "Agent consent request / decision (activity rows).",
    "sf": "person.badge.shield.checkmark",
    "family": "permission"
   },
   {
+   "name": "permission.full-access",
+   "meaning": "Full access: the existing alert shield.",
+   "sf": "exclamationmark.shield",
+   "family": "permission",
+   "alias": false
+  },
+  {
    "name": "permission.mode",
    "meaning": "Composer permission-mode picker (ask / auto-accept edits / bypass...).",
    "sf": "questionmark.square.dashed",
    "family": "permission"
+  },
+  {
+   "name": "permission.shield",
+   "meaning": "Permission mode with a plain shield: existing auto/accept mode glyph.",
+   "sf": "shield",
+   "family": "permission",
+   "alias": false
   },
   {
    "name": "placeholder",
@@ -1551,6 +1658,12 @@
    "family": "site.permission"
   },
   {
+   "name": "sources.connected",
+   "meaning": "Connected sources",
+   "sf": "questionmark.square.dashed",
+   "family": "sources"
+  },
+  {
    "name": "space",
    "meaning": "Space (room) / folder of bookmarks",
    "sf": "person.2",
@@ -1630,6 +1743,13 @@
    "name": "status.error",
    "meaning": "Error / failed",
    "sf": "exclamationmark.triangle.fill",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
+   "name": "status.failure",
+   "meaning": "Failed turn",
+   "sf": "questionmark.square.dashed",
    "family": "status",
    "denseStyle": "solid"
   },
@@ -1791,6 +1911,13 @@
    "family": "terminal"
   },
   {
+   "name": "terminal.prompt",
+   "meaning": "Terminal command (the prompt alone, no window box)",
+   "sf": "terminal",
+   "family": "terminal",
+   "alias": false
+  },
+  {
    "name": "text.description",
    "meaning": "Logs / description",
    "sf": "text.alignleft",
@@ -1815,6 +1942,12 @@
    "family": "theme"
   },
   {
+   "name": "time.waiting",
+   "meaning": "Waiting for delivery",
+   "sf": "questionmark.square.dashed",
+   "family": "time"
+  },
+  {
    "name": "tool.edit",
    "meaning": "Transcript tool row: edit a file.",
    "sf": "questionmark.square.dashed",
@@ -1823,6 +1956,12 @@
   {
    "name": "tool.group",
    "meaning": "Transcript row: a run of mixed tool calls folded into one row.",
+   "sf": "questionmark.square.dashed",
+   "family": "tool"
+  },
+  {
+   "name": "tool.multiple",
+   "meaning": "Several kinds of tools",
    "sf": "questionmark.square.dashed",
    "family": "tool"
   },
@@ -1855,6 +1994,12 @@
    "meaning": "Tools (cloud machine tools, Feed tool item).",
    "sf": "wrench.and.screwdriver",
    "family": "tools"
+  },
+  {
+   "name": "transcript.summary",
+   "meaning": "Transcript summary",
+   "sf": "questionmark.square.dashed",
+   "family": "transcript"
   },
   {
    "name": "trust.invalid",
@@ -2002,6 +2147,12 @@
    "denseStyle": "solid"
   },
   {
+   "name": "view.expand",
+   "meaning": "Expand view",
+   "sf": "questionmark.square.dashed",
+   "family": "view"
+  },
+  {
    "name": "view.grid",
    "meaning": "Grid / apps / templates",
    "sf": "square.grid.2x2",
@@ -2012,6 +2163,18 @@
    "meaning": "List / choices / all",
    "sf": "list.bullet",
    "family": "view"
+  },
+  {
+   "name": "view.list.short",
+   "meaning": "Two-row list: the chat header's Session Info panel toggle",
+   "sf": "questionmark.square.dashed",
+   "family": "view.list"
+  },
+  {
+   "name": "view.tab.trailing",
+   "meaning": "Open in trailing tab",
+   "sf": "questionmark.square.dashed",
+   "family": "view.tab"
   },
   {
    "name": "window.new",

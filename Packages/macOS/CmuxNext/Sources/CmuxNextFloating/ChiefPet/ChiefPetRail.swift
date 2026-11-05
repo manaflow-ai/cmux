@@ -85,8 +85,8 @@ final class ChiefPetTool: NSButton {
         recolor()
     }
 
-    /// Keep the source's drawing handler: flattening it to a CGImage here freezes the chevron
-    /// at one backing scale, unlike the other controls when the pet moves to a Retina display.
+    /// Keep the source's representations (its 1x and 2x bitmaps, `NSImage.icon`): flattening it to one CGImage
+    /// here freezes the chevron at one backing scale, unlike the other controls when the pet moves to a Retina display.
     static func turned(_ image: NSImage, by degrees: CGFloat) -> NSImage {
         guard degrees != 0 else { return image }
         let turned = NSImage(size: image.size, flipped: false) { rect in

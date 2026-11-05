@@ -56,6 +56,24 @@ const DISABLE_ENV: &str = "CMUX_TUI_TEST_DISABLE_RESPAWN";
 /// Holds a scheduled respawn this long before it starts (tests of a close
 /// that races the respawn).
 const DELAY_ENV: &str = "CMUX_TUI_TEST_RESPAWN_DELAY_MS";
+/// Test override of the respawn gate's slots (default: available
+/// parallelism).
+const SLOTS_ENV: &str = "CMUX_TUI_TEST_RESPAWN_SLOTS";
+
+/// The respawn gate: first respawn attempts take turns in the order they
+/// were scheduled, at most one per CPU at once. A respawn replays its seed
+/// (the previous screen, up to several MB) in the daemon's mirror and in
+/// its new host; after a kill of everything all of them used to start at
+/// once and the visible terminals waited behind the hidden ones for the
+/// CPU (STATUS 5931).
+pub(in crate::mux) fn respawn_gate() -> startup_adoption_gate::StartupAdoptionGate {
+    let slots = std::env::var(SLOTS_ENV)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or_else(|| std::thread::available_parallelism().map_or(4, usize::from));
+    startup_adoption_gate::StartupAdoptionGate::with_slots(slots)
+}
+
 /// Host-loss reasons (`TerminalEnd::wire_json` `reason`) that respawn.
 const RESPAWN_REASONS: &[&str] = &[
     "dead_before_adoption",
@@ -250,19 +268,64 @@ impl Mux {
             self.abandon_terminal_respawn(terminal_id);
             return;
         };
+        // A first attempt takes its place in line here, on the scheduling
+        // thread, so the order is the order of scheduling (the visible
+        // workspace first at a start). A retry after a backoff takes none:
+        // it must not hold the line for its delay.
+        let ticket = plan.delay.is_zero().then(|| self.respawn_gate.ticket());
+        // A respawn that starts at once is sized into the Kitty budget now:
+        // its reservation then never waits for another respawn's launch.
+        // One after a backoff is not: it would shrink running terminals for
+        // the length of the backoff.
+        let kitty_expectation = plan
+            .delay
+            .is_zero()
+            .then(|| mux.expect_kitty_image_respawn(plan.old_runtime.as_ref(), plan.slot));
+        let gate = self.respawn_gate.clone();
         let name = format!("terminal-respawn-{terminal_id}");
         let spawned = std::thread::Builder::new().name(name).spawn(move || {
+            let _kitty_expectation = kitty_expectation;
+            let stopping =
+                || mux.shutting_down.load(Ordering::Acquire) || mux.session_shutdown.began();
+            // A terminal the person sees (shown when it took its place,
+            // selected while it waits, or lost while hidden respawns still
+            // wait) takes the next free slot before the hidden ones. It still
+            // takes a slot: the cap bounds it too.
+            let shown_now = || mux.respawn_slot_shown(plan.slot);
+            let turn = match ticket {
+                Some(ticket) => match gate.turn_first_if(ticket, stopping, shown_now) {
+                    Some(turn) => Some(turn),
+                    None => {
+                        mux.abandon_terminal_respawn(&plan.terminal_id);
+                        return;
+                    }
+                },
+                None => None,
+            };
             let delay = plan.delay.max(mux.terminal_respawns.delay.unwrap_or_default());
             if mux.wait_respawn_backoff(delay) {
                 mux.run_terminal_respawn(plan);
             } else {
                 mux.abandon_terminal_respawn(&plan.terminal_id);
             }
+            drop(turn);
         });
         if let Err(error) = spawned {
             eprintln!("cmux-tui: no thread to respawn terminal {terminal_id}: {error}");
             self.abandon_terminal_respawn(terminal_id);
         }
+    }
+
+    /// Whether the tab `slot` (a respawn's first placement) is in the
+    /// workspace the person sees. Takes the state lock: never call it under
+    /// the respawn gate's lock.
+    #[cfg(any(unix, windows))]
+    fn respawn_slot_shown(&self, slot: SurfaceId) -> bool {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state
+            .pane_of(slot)
+            .and_then(|pane| state.screen_of(pane))
+            .is_some_and(|(workspace, _)| workspace == state.active_workspace)
     }
 
     #[cfg(any(unix, windows))]
@@ -468,11 +531,13 @@ impl Mux {
             self.unregister_kitty_image_surface(old)?;
         }
         drop(old_runtime);
-        let (record, seed_source) = {
-            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
-            let record = registry.terminal_relaunch_record(&plan.terminal_id)?;
-            (record, self.previous_screen(&registry, &plan))
-        };
+        let record = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_relaunch_record(&plan.terminal_id)?;
+        // Its own short registry holds: the rebuild runs with no lock.
+        let seed_source = self.previous_screen(&plan);
         let launch = self.respawn_launch(&plan, record.as_ref(), seed_source, geometry);
         let workspace_key = {
             let mut registry =
@@ -593,9 +658,33 @@ impl Mux {
         if durable.lifecycle != TerminalLifecycle::Launching {
             return Ok(false);
         }
+        // A tab's name lives on its durable tab row, not on the runtime: the
+        // new runtime starts unnamed, and the dead one is gone (after a
+        // reboot it never existed in this owner).
+        let tab_names = registry
+            .resource_tabs_of_content(plan.public_id.as_str())?
+            .into_iter()
+            .filter_map(|tab| Some((tab.public_id, tab.name?)))
+            .collect::<HashMap<_, _>>();
         let before = state.clone();
         insert_restored_terminal_runtime_checked(&mut state, surface.clone())?;
         let content = ContentPublicId::Terminal(plan.public_id.clone());
+        {
+            let mut restored =
+                self.restored_tab_names.lock().unwrap_or_else(PoisonError::into_inner);
+            for slot in state.placements_of_content(&content) {
+                restored.remove(slot);
+                let name = state
+                    .resource_indexes
+                    .tab_ids
+                    .get(slot)
+                    .and_then(|tab_id| tab_names.get(tab_id))
+                    .cloned();
+                if let Some(placed) = state.surfaces.get(slot) {
+                    placed.set_name(name);
+                }
+            }
+        }
         let tab_ids = state
             .placements_of_content(&content)
             .iter()
@@ -663,6 +752,27 @@ fn wait_for_old_hosts(root: &Path, terminal_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R-LIFECYCLE S1b: an abandoned respawn changes what keeps an app
+    /// session's owner (server/owner_keepers.rs), so it wakes the terminal
+    /// lifecycle watchers, as the other ends of a respawn do.
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn an_abandoned_respawn_wakes_the_terminal_lifecycle_watchers() {
+        let mux = Mux::new_for_test("test", SurfaceOptions::default());
+        let events = mux.subscribe_terminal_lifecycle();
+        while events.try_recv().is_ok() {}
+        mux.pending_terminals
+            .lock()
+            .unwrap()
+            .insert("term_x".to_string(), ("t1".to_string(), PendingTerminal::Respawning));
+        mux.abandon_terminal_respawn("t1");
+        assert!(!mux.terminal_is_respawning("t1"));
+        assert!(
+            events.try_recv().is_ok(),
+            "an abandoned respawn woke no terminal lifecycle watcher"
+        );
+    }
 
     #[test]
     fn a_closed_terminals_argv_is_forgotten_and_the_memory_is_bounded() {

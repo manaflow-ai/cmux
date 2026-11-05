@@ -158,20 +158,16 @@ extension HomeNativeTranscriptView {
         }
     }
 
-    /// The inputs the checks passed that fit the part limit; the first refusal shows as the notice.
+    /// The inputs the checks passed, any number of them (a send past the owner's parts per message
+    /// goes as several messages, `HomeStore.send`); the first refusal shows as the notice.
     private func admit(_ inputs: [HomeDraftInput], _ problems: [(error: HomeAttachmentError, name: String?)?]) -> [HomeDraftInput] {
         var accepted: [HomeDraftInput] = []
         var refusals: [String] = []
-        // Attachments plus the text part fit the owner's part limit.
-        var room = CmuxHomeCore.HomeAttachmentPolicy.maxParts - 1 - transcript.draftAttachments.count
         for (input, problem) in zip(inputs, problems) {
             if let problem {
                 refusals.append(HomeComposerCheck.notice(problem))
-            } else if room <= 0 {
-                refusals.append(HomeStrings.attachmentRefusal(.tooManyParts(limit: CmuxHomeCore.HomeAttachmentPolicy.maxParts)))
             } else {
                 accepted.append(input)
-                room -= 1
             }
         }
         // A clean batch clears an earlier refusal (not "on its way" while a drop's files still come,

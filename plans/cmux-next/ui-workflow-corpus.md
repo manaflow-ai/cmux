@@ -267,6 +267,16 @@ the distinction between a confirmed failure, an unverified state, and a taste-le
 
 ## Initial rollout
 
+The executable adapter layer lives in
+[`scripts/cmux-next/workflows`](../../scripts/cmux-next/workflows/README.md).
+Its versioned synthetic manifests use one state/edge vocabulary for authenticated
+legacy CUA and gallery plays. `run`, `replay`, `compare`, and `list` produce and
+consume private step receipts and an indexed graph. Native receipts reference the
+existing activity store; they do not replace `cua_event` or its retention policy.
+The upstream CUA v2 helper has no activity store and reports unavailable rather
+than fabricating evidence. The broader journey inventory below remains the rollout
+guide; a manifest's `untested` list records what that run did not exercise.
+
 1. Normalize the existing `core`, `new-tab`, and `agent-pane` media tours into manifests and
    receipts without changing their current published artifacts.
 2. Add `launch-restore`, `workspace-layout`, `terminal-input`, and `command-palette` fixtures;

@@ -21,11 +21,11 @@ fn replayed_agent_hook_events_do_not_rewrite_the_record() {
     )
     .unwrap();
     mux.append_journal_ingress(&started, "test", "hook-replay").unwrap();
-    let working_at = mux.list_agents(Some(surface_id), None)[0].updated_at_ms;
+    let working_at = settled(&mux).list_agents(Some(surface_id), None)[0].updated_at_ms;
 
     let replay = mux.append_journal_ingress(&started, "test", "hook-replay").unwrap();
     assert!(replay.replayed);
-    let record = &mux.list_agents(Some(surface_id), None)[0];
+    let record = &settled(&mux).list_agents(Some(surface_id), None)[0];
     assert_eq!(record.state, AgentState::Working);
     assert_eq!(record.updated_at_ms, working_at);
 }
@@ -142,7 +142,7 @@ fn a_plugin_projection_lost_after_journal_commit_is_reconciled_from_the_roster()
         // projection transaction to model a daemon crash in that window.
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
         mux.fold_agent_roster(&ingress, &commit);
-        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+        assert_eq!(settled(&mux).list_agents(Some(surface.id), None).len(), 1);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
 
@@ -177,7 +177,9 @@ fn a_plugin_projection_lost_after_journal_commit_is_reconciled_from_the_roster()
         true,
     )
     .unwrap();
-    let entry = reopened.agent_roster.lock().unwrap().roster.entries[terminal_id.as_str()].clone();
+    let entry = settled(&reopened).agent_roster.lock().unwrap().roster.entries
+        [terminal_id.as_str()]
+    .clone();
     assert_eq!(entry.agent_state(), AgentState::Working);
     assert_eq!(entry.agent_source(), AgentSource::Plugin);
     assert_eq!(entry.agent.as_deref(), Some("codex"));
@@ -226,7 +228,7 @@ fn failed_agent_hook_projection_does_not_consume_sequence() {
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
         2
     );
-    assert!(mux.list_agents(Some(surface.id), None).is_empty());
+    assert!(settled(&mux).list_agents(Some(surface.id), None).is_empty());
     mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
     mux.retry_pending_agent_hooks().unwrap();
     mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
@@ -240,7 +242,7 @@ fn failed_agent_hook_projection_does_not_consume_sequence() {
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+    assert_eq!(settled(&mux).list_agents(Some(surface.id), None)[0].state, AgentState::Working);
 }
 
 #[test]
@@ -278,7 +280,7 @@ fn journal_commit_preseeds_hook_retry_before_projection() {
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+    assert_eq!(settled(&mux).list_agents(Some(surface.id), None)[0].state, AgentState::Working);
 }
 
 #[test]
@@ -315,7 +317,7 @@ fn available_agent_report_wakes_pending_hook_projection_retry() {
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
 }
 
 #[test]
@@ -442,17 +444,17 @@ fn agent_report_retries_only_pending_hooks_for_its_terminal() {
             .len(),
         1
     );
-    assert_eq!(mux.list_agents(Some(first.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(first.id), None)[0].source, AgentSource::Hook);
     // The roster is journal-derived and folds the second hook even while
     // its public resource projection waits in the retry queue. The
     // terminal-scoped retry must still leave that second hook pending.
-    assert_eq!(mux.list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
 
     mux.report_agent(second.id, AgentState::Working, AgentSource::Socket, None).unwrap();
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
 }
 
 #[test]
@@ -484,7 +486,88 @@ fn terminal_report_drains_more_than_one_pending_retry_page() {
     assert!(
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
     );
-    assert_eq!(mux.list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
+    assert_eq!(settled(&mux).list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
+}
+
+#[test]
+fn live_hook_catchup_failure_charges_the_failing_receipt() {
+    assert_live_hook_catchup_retry_budget(false);
+}
+
+#[test]
+fn live_hook_catchup_failure_preserves_replayed_receipt_budget() {
+    assert_live_hook_catchup_retry_budget(true);
+}
+
+fn assert_live_hook_catchup_retry_budget(replay: bool) {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-hook-catchup-budget-{}", WorkspacePublicId::random().unwrap()));
+    let mux = open_persistent_test_mux("hook-catchup-budget", &root);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let ingress = |event: &str| {
+        crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id": "catchup-budget"}),
+        )
+        .unwrap()
+    };
+    let database = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+    let connection = rusqlite::Connection::open(database).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER fail_catchup_notification BEFORE INSERT ON resource_effect_receipts
+             WHEN NEW.operation = 'notification.create'
+             BEGIN SELECT RAISE(ABORT, 'forced catchup notification failure'); END;",
+        )
+        .unwrap();
+    let retry_state = |key: &str| {
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .agent_hook_pending_retry_state_for_test(
+                crate::agent_hooks::AGENT_HOOK_PRODUCER_ID,
+                "test",
+                key,
+            )
+            .unwrap()
+    };
+    mux.append_journal_ingress(&ingress("PermissionRequest"), "test", "bad-permission").unwrap();
+    assert_eq!(retry_state("bad-permission").unwrap().0, 1);
+
+    // Each later live arrival retries the earlier failure. Waiting behind it must
+    // not consume the healthy receipt's own retry budget, even on exact replays.
+    let prompt = ingress("UserPromptSubmit");
+    for attempt in 2..=crate::workspace_registry::AGENT_HOOK_MAX_ATTEMPTS {
+        let key =
+            if replay { "healthy-prompt".into() } else { format!("healthy-prompt-{attempt}") };
+        mux.append_journal_ingress(&prompt, "test", &key).unwrap();
+        assert_eq!(retry_state("bad-permission").unwrap().0, attempt);
+        assert_eq!(retry_state(&key).unwrap().0, 0, "waiting is not a projection failure");
+    }
+    assert_eq!(retry_state("bad-permission").unwrap().1, "agent hook retry limit reached");
+    let key = if replay { "healthy-prompt" } else { "final-healthy-prompt" };
+    let receipt = mux.append_journal_ingress(&prompt, "test", key).unwrap();
+    assert!(retry_state(key).is_none(), "healthy hook projects after the bad hook is quarantined");
+    assert!(
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .pending_agent_hook_projections_for_terminal(&terminal_id)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, receipt.sequence);
+    assert_eq!(mux.agent_records.lock().unwrap()[&terminal_id].state, AgentState::Working);
+    assert!(mux.resource_notifications(16).is_empty(), "quarantined notification stays unposted");
+
+    connection.execute_batch("DROP TRIGGER fail_catchup_notification").unwrap();
+    drop(connection);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -538,6 +621,29 @@ fn permanently_failed_hook_projection_is_quarantined() {
         mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
         1
     );
+
+    // A later live hook catches up on earlier queued hooks, but a quarantined one stays
+    // quarantined: it neither blocks the terminal nor projects again.
+    let later = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        "UserPromptSubmit",
+        Some(&terminal_id.to_string()),
+        serde_json::json!({}),
+    )
+    .unwrap();
+    mux.apply_agent_hook_record(&later, receipt.sequence + 1).unwrap();
+    let after = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .agent_hook_pending_retry_state_for_test(
+            crate::agent_hooks::AGENT_HOOK_PRODUCER_ID,
+            "test",
+            "dead-letter",
+        )
+        .unwrap()
+        .expect("quarantined hook is not replayed by a later live hook");
+    assert_eq!(after.0, crate::workspace_registry::AGENT_HOOK_MAX_ATTEMPTS);
 }
 
 #[test]

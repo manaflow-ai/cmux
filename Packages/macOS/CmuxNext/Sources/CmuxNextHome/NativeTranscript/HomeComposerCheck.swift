@@ -4,8 +4,8 @@ import UniformTypeIdentifiers
 
 /// The composer's check before preparing, with the data side's own rule
 /// (`HomeAttachmentPolicy.accepts`, which knows what it converts) for the
-/// type and the owner's limits for the size, so paste, drop, the drag check
-/// and the picker agree and a refused file is never hashed or copied.
+/// type, so paste, drop, the drag check and the picker agree and a refused
+/// file is never hashed or copied. Original file size is unbounded.
 nonisolated enum HomeComposerCheck {
     /// The types the file picker offers: none named, so every file (any file
     /// attaches; the data side sends unlisted ones as text or a generic file).
@@ -35,9 +35,6 @@ nonisolated enum HomeComposerCheck {
             typeName = identifier
         }
         guard accepted else { return (.typeRefused(mimeType: typeName, name: name ?? ""), name) }
-        if size > HomeAttachmentPolicy.maxBytes {
-            return (.tooLarge(byteCount: size, limit: HomeAttachmentPolicy.maxBytes), name)
-        }
         if size == 0 { return (.empty(name: name ?? ""), name) }
         return nil
     }

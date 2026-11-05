@@ -1,6 +1,8 @@
 /* Dictation while a session runs (DictationListening.tsx, DictationButton.tsx), as Claude's
-   composer draws it (Leo's reference, 2026-10-20): one row of a waveform, a finish key and the lit
-   mic before Send, and the prompt's placeholder reads "Listening…" in italic until words land.
+   composer draws it (Leo's reference, 2026-10-20): one row of a waveform, the composer's one Send and
+   the lit mic, and the prompt's placeholder reads "Listening…" in italic until words land. Codex's
+   look draws ChatGPT's: ✕, the waveform, Stop, Send (Leo 2026-11-05: "The dictate button has its own
+   send button. We don't need that.").
    Colors come from the theme: the accent (neutral in a theme without one, the no-blue rule) and
    the composer's muted ink. The bars move only under the pane's motion gate: Reduce Motion, or
    `ui.animationSpeed: off` (styles.css `data-agent-motion="off"`), sets each level at once. */
@@ -43,8 +45,8 @@
   }
 }
 
-/* The finish key: a quiet icon button like +, with the bar's hover pill. */
-.acpmux-dictation-finish {
+/* Codex's ✕: a quiet icon button like +, with the bar's hover pill. */
+.acpmux-dictation-cancel {
   flex: none;
   display: grid;
   place-items: center;
@@ -56,30 +58,23 @@
   background: transparent;
   color: var(--agent-muted);
 }
-/* The chat bar's mic slot is one inline-flex part (composerLocation.css .acpmux-fit-mic) with no gap
-   of its own: the finish key keeps the cluster's 4px from the mic. New Tab's row has its own gap. */
-.acpmux-fit-mic .acpmux-dictation-finish {
-  margin-inline-end: 4px;
-}
-.nt-pickers .acpmux-dictation-finish {
+/* New Tab's row draws its controls smaller. */
+.nt-pickers .acpmux-dictation-cancel {
   width: 24px;
   height: 24px;
 }
-.acpmux-dictation-finish:disabled {
-  opacity: 0.45;
-}
 @media (hover: hover) and (pointer: fine) {
-  .acpmux-dictation-finish:not(:disabled):hover {
+  .acpmux-dictation-cancel:hover {
     background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
     color: var(--agent-text);
   }
 }
-.acpmux-dictation-finish:focus-visible {
+.acpmux-dictation-cancel:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--agent-text) 72%, transparent);
   outline-offset: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-dictation-finish {
+  .acpmux-dictation-cancel {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
       color var(--agent-motion-hover) var(--agent-ease-out);
@@ -97,6 +92,18 @@
     background: color-mix(in srgb, var(--acpmux-dictation-accent) 28%, transparent);
     color: var(--acpmux-dictation-accent);
   }
+}
+
+/* ContextMenu marks the invoking control until dismissal, including native menus. Keep only
+   that control at its existing hover tone while the pointer moves into Hide Dictation Button. */
+.acpmux-mic[data-popup-open]:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]),
+.acpmux-dictation-cancel[data-popup-open] {
+  background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
+  color: var(--agent-text);
+}
+.acpmux-mic[data-popup-open]:is([data-state="starting"], [data-state="listening"], [data-state="finalizing"]) {
+  background: color-mix(in srgb, var(--acpmux-dictation-accent) 28%, transparent);
+  color: var(--acpmux-dictation-accent);
 }
 
 /* "Listening…": the prompt's placeholder in italic while a session waits for words. */

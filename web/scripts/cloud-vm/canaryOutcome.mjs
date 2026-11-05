@@ -1,11 +1,14 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
 /**
  * Classifies the response captured by the Cloud VM edge canary.
  *
- * The no-account response has existed in two wire shapes: the original flat
- * `error: "no_usable_account"` body and the OpenAI-shaped terminal 403 with
- * `error.code: "no_account_configured"`. Both mean the throwaway canary team
- * reached coderouter and has no upstream account, so either is a passing
- * no-token outcome.
+ * The no-account response has existed in three wire shapes: the original flat
+ * `error: "no_usable_account"` body, the OpenAI-shaped terminal 403 with
+ * `error.code: "no_account_configured"`, and the terminal 429 with
+ * `error.code: "no_usable_account"` (accounts exist, none usable). Each means
+ * the throwaway canary team reached coderouter and has no usable upstream
+ * account, so any of them is a passing no-token outcome.
  */
 export function classifyCodexCanaryOutcome(output, { zeroToken }) {
   if (typeof output !== "string") return "failed";
@@ -21,7 +24,7 @@ export function classifyCodexCanaryOutcome(output, { zeroToken }) {
     try {
       const parsed = JSON.parse(trimmed);
       const error = parsed?.error;
-      if (error === "no_usable_account" || (error && typeof error === "object" && error.code === "no_account_configured")) {
+      if (error === "no_usable_account" || (error && typeof error === "object" && (error.code === "no_account_configured" || error.code === "no_usable_account"))) {
         return "no_account";
       }
     } catch {
@@ -60,4 +63,33 @@ export function edgeCanaryProblems({
     problems.push(`claude turn through the edge did not answer: ${claudeTail ?? ""}`);
   }
   return problems;
+}
+
+/**
+ * Retry an idempotent guest edge probe only when curl could not resolve its
+ * expected alias. Provider/API errors and HTTP refusals remain single attempts.
+ * The attempt cap and the caller's signal bound retries; cancellation also
+ * interrupts the delay and is forwarded to the active guest request.
+ * @param {(signal?: AbortSignal) => Promise<{ stdout?: string, stderr?: string, exitCode?: number }>} run
+ * @param {string} host
+ * @param {{ attempts?: number, delayMs?: number, signal?: AbortSignal }} [options]
+ * @returns {Promise<{ stdout?: string, stderr?: string, exitCode?: number }>}
+ */
+export async function retryGuestEdgeRequest(
+  run,
+  host,
+  { attempts = 4, delayMs = 1_000, signal } = {},
+) {
+  if (!Number.isInteger(attempts) || attempts < 1) {
+    throw new RangeError("guest edge retry attempts must be positive");
+  }
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    signal?.throwIfAborted();
+    const result = await run(signal);
+    const resolverMiss = typeof host === "string" && host !== "" &&
+      [result?.stdout, result?.stderr].some((output) => typeof output === "string" &&
+        output.split(/\r?\n/).some((line) => line.trim() === `curl: (6) Could not resolve host: ${host}`));
+    if (!resolverMiss || attempt + 1 === attempts) return result;
+    if (delayMs > 0) await sleep(delayMs, undefined, { signal });
+  }
 }

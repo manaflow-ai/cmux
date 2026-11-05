@@ -131,13 +131,13 @@
       "action": "cmux cloud new-machine"
     },
     "goLimit": {
-      "savedMessage": "Go omfatter to gemte VM’er, inklusive den kørende VM.",
+      "savedMessage": "Plus: I alt 1 gemt VM, også når den er på pause",
       "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
-      "activeMessage": "Go omfatter én kørende VM ad gangen.",
+      "activeMessage": "Plus: 1 Cloud-VM",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
-      "hoursMessage": "Go har brugt sine 40 VM-timer denne måned. Gemte VM’er kan bruges igen i næste faktureringsperiode.",
+      "hoursMessage": "Plus: Ingen månedlig timegrænse",
       "hoursAction": "https://cmux.com/pricing",
-      "shapeMessage": "Go understøtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
       "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
@@ -158,7 +158,7 @@
       "action": "Sæt en VM på pause, eller slet den."
     },
     "activeLimit": {
-      "counted": "Tælles nu: {machines}. Pausede maskiner tælles ikke med.",
+      "counted": "Medregnet nu: {machines}. Maskiner på pause tæller med i grænsen.",
       "provisioning": "{name} (klargøres)",
       "separator": ", "
     }
@@ -423,13 +423,13 @@
     "faqCustomizeQ": "Kan jeg tilpasse cmux?",
     "faqCustomizeA": "Ja. Terminalgengivelsen bruger din Ghostty-konfiguration, så temaer, skrifttyper, farver og cursor overføres direkte. cmux' egne indstillinger i <path>~/.config/cmux/cmux.json</path> styrer sidebar, fanelinje, delte paneler og adfærd, og hver <shortcutsLink>tastaturgenvej</shortcutsLink> kan redigeres. Se <link>konfiguration</link>.",
     "faqIosQ": "Findes der en iOS-app?",
-    "faqIosA": "Ja, i beta. Par din iPhone med din Mac fra Mobile Connect-vinduet, og tilslut dig dine terminaler fra din telefon, med valgfri videresendelse af terminalnotifikationer. Den udgives på TestFlight som cmux BETA. Tidlig adgang er inkluderet i <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqIosA": "Ja, i beta. Par din iPhone med din Mac fra Mobile Connect-vinduet, og tilslut dig dine terminaler fra din telefon, med valgfri videresendelse af terminalnotifikationer. Den udgives på TestFlight som cmux BETA.",
     "faqSkillsQ": "Har cmux skills?",
     "faqSkillsA": "Ja. Skills er genbrugelige workflows, du kan give enhver agent, der kører i cmux, til ting som CLI-styring, automatisering af arbejdsområdet, indstillinger og browserflader. Gennemse den åbne samling på <skillsLink>cmux-skills</skillsLink>, eller læs <link>skills-dokumentationen</link>.",
     "faqBrowserQ": "Hvad kan den indbyggede browser?",
     "faqBrowserA": "cmux kan opdele et rigtigt browserpanel ved siden af din terminal, og det er fuldt programmerbart: naviger, tag et snapshot af DOM'en, klik, skriv, evaluer JavaScript og læs konsol- og netværksaktivitet over den samme socket API. Agenter bruger det til at verificere deres egne webændringer uden at forlade cmux. Se <link>browserautomatisering</link>.",
     "faqSupportQ": "Hvordan kan jeg støtte cmux?",
-    "faqSupportA": "cmux er gratis og open source, og det vil det altid være. Hvis du vil bakke op om udviklingen og få tidlig adgang til det næste, herunder cmux AI, iOS-appen og Cloud VMs, så tjek <foundersLink>cmux Founders Edition</foundersLink> ud.",
+    "faqSupportA": "cmux er gratis og open source, og det vil det altid være.",
     "faqFeatureQ": "Jeg har et funktionsønske eller har fundet en fejl",
     "faqFeatureA": "Vi vil gerne høre det. Åbn et <issuesLink>issue</issuesLink> eller en <prLink>pull request</prLink> på GitHub, eller <mailLink>skriv til os</mailLink>."
   },
@@ -552,12 +552,12 @@
           "granted": "Tildelt af cmux. Der er intet at ændre.",
           "grantedNoCancel": "Tildelt af cmux, så der er intet at opsige.",
           "paymentFailed": "Opdater din betalingsmetode, før du skifter abonnement.",
-          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
+          "foundersLifetime": "Dit livstidskøb inkluderer Pro.",
           "adminOnly": "Kun teamadministratorer kan ændre planen."
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -569,9 +569,10 @@
             "Lokal sessionshistorik"
           ],
           "go": [
-            "1 aktiv Cloud VM",
-            "40 VM-timer om måneden",
-            "2 gemte VM'er"
+            "I alt 1 gemt VM, også når den er på pause",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+            "Support fra fællesskabet",
+            "Ingen månedlig timegrænse"
           ],
           "pro": [
             "Cloud-agenter på Cloud VMs",
@@ -608,8 +609,8 @@
         "title": "Opsig {plan}?",
         "body": "Du beholder {plan} indtil den {date}. Derefter mister du:",
         "bodyNoDate": "Du beholder {plan} til slutningen af denne faktureringsperiode. Derefter mister du:",
-        "foundersBody": "Dit {plan}-abonnement slutter den {date}. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
-        "foundersBodyNoDate": "Dit {plan}-abonnement slutter ved udgangen af denne faktureringsperiode. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBody": "Dit {plan}-abonnement slutter den {date}. Derefter beholder du Pro fra dit livstidskøb.",
+        "foundersBodyNoDate": "Dit {plan}-abonnement slutter ved udgangen af denne faktureringsperiode. Derefter beholder du Pro fra dit livstidskøb.",
         "reasonLabel": "Hvorfor opsiger du? (valgfrit)",
         "otherPlaceholder": "Fortæl os mere (valgfrit)",
         "confirm": "Opsig plan",
@@ -636,6 +637,12 @@
         "title": "Faktureret via App Store",
         "body": "Din plan blev købt i cmux-appen til iPhone og faktureres af Apple. Skift eller opsig den under dine App Store-abonnementer.",
         "manage": "Administrer i App Store"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Dit Plus-abonnement fornyes den {date}.",
+        "pendingBody": "Dit Plus-abonnement slutter den {date}.",
+        "monthlyPrice": "${amount}/md."
       }
     },
     "mobileDevices": {
@@ -970,7 +977,7 @@
       },
       "plan": {
         "free": "Gratis",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -1725,7 +1732,7 @@
         "p2": "Alle arbejder forskelligt. Nogle projekter er spredt over flere git-repoer. Nogle beholder mange checkouts af det samme repo (min medstifter har kloner med navnene cmux0 til cmux40, af grunde jeg stadig ikke forstår). Nogle bruger SSH og fjernudvikling som standard.",
         "p3": "cmux er bare terminaler og browsere med en CLI til at styre dem. Med nogle få bash-scripts kan du håndtere worktrees, jonglere med flere checkouts eller åbne fjernsessioner og indrette dit arbejdsområde, som det passer dig.",
         "p4": "cmux bør tilpasse sig din arbejdsgang i stedet for at tvinge en ned over dig. Vi vil have, at cmux føles som et hjem.",
-        "p5": "<link>cmux-home</link> er ét eksempel på det. Det er en lille Rust-TUI, der starter Claude- og Codex-arbejdsområder og holder øje med deres status i realtid, bygget helt på cmux-primitiver. Starteren bruger kommandoskabeloner, så du kan indsætte dine egne scripts til at oprette worktrees, vælge et checkout eller logge ind via SSH på en VM. Fork den, og gør den til din."
+        "p5": "<link>cmux-home</link> er ét eksempel på det. Det er en lille Rust-TUI, der starter Claude- og Codex-arbejdsområder og holder øje med deres status i realtid, bygget helt på cmux-primitiver. Plusen bruger kommandoskabeloner, så du kan indsætte dine egne scripts til at oprette worktrees, vælge et checkout eller logge ind via SSH på en VM. Fork den, og gør den til din."
       },
       "claudeCodeBestWorktreeManager": {
         "title": "Claude Code er den bedste worktree-manager",
@@ -1993,7 +2000,7 @@
       "socketParams": "Parametre",
       "socketMeaning": "Hvad den gør",
       "methodSessions": "Returnerer de tmux-sessioner, der findes på værten.",
-      "methodAttach": "Starter en kontrolklient på én session. Med create oprettes en manglende session først.",
+      "methodAttach": "Plus en kontrolklient på én session. Med create oprettes en manglende session først.",
       "methodDetach": "Stopper kontrolklienten og lader fjernsessionen køre videre.",
       "methodState": "Diagnostisk øjebliksbillede af det, kontrolklienten ser lige nu.",
       "socketSafetyDesc": "For at forhindre injektion af SSH-indstillinger afvises en vært eller identitetsfil, der begynder med en bindestreg, så snart anmodningen modtages.",
@@ -2874,7 +2881,7 @@
       "intro": "cmux-appen til iOS er en følgesvend til din Mac. Par din iPhone eller iPad med en Mac, der kører cmux, og tilslut dig dine terminaler fra telefonen, med valgfri videresendelse af terminalnotifikationer.",
       "betaNote": "iOS-appen er i beta. Den udgives på TestFlight som cmux BETA.",
       "accessTitle": "Få adgang",
-      "accessDesc": "Appen distribueres via TestFlight. Tidlig adgang er inkluderet i <foundersLink>cmux Founders Edition</foundersLink> sammen med andre tidlige funktioner.",
+      "accessDesc": "Appen distribueres via TestFlight. Beta-adgang er inkluderet i cmux Pro; tilmeld dig fra TestFlight-siden i dit dashboard.",
       "prereqTitle": "Forudsætninger",
       "prereqIntro": "Før du går i gang, skal du bruge:",
       "prereq1": "En Mac, der kører cmux og er logget ind.",
@@ -2962,9 +2969,9 @@
       "limitsTitle": "Abonnementsgrænser",
       "limitsDesc": "Dine aktive maskiner deler én pulje af vCPU'er og hukommelse. Kør én stor maskine eller flere små. Maskiner på pause bruger ikke af puljen. Disken fastsættes pr. maskine og indgår ikke i puljen.",
       "limitsFree": "Gratis konti kan ikke oprette maskiner.",
-      "limitsPaid": "Pro- og Founder's Edition-konti kan have op til 5 aktive maskiner, der deler 20 vCPU'er og 40 GB hukommelse. En maskine er aktiv, mens den kører eller starter.",
-      "limitsTeam": "Teamkonti kan have op til 5 aktive maskiner pr. betalt plads. Hver betalt plads lægger 20 vCPU'er og 40 GB hukommelse til teamets pulje.",
-      "limitsMax": "Max-konti kan have op til 5 aktive maskiner, der deler 80 vCPU'er og 160 GB hukommelse. Én Max-maskine kan bruge op til 64 GB og 32 vCPU'er, inklusive størrelserne 24 GB / 12 vCPU'er og 32 GB / 16 vCPU'er; Pro og Team stopper ved 16 GB og 8 vCPU'er.",
+      "limitsPaid": "Pro-konti kan have op til 5 maskiner, inklusive maskiner på pause, der deler 20 vCPU'er og 40 GB hukommelse.",
+      "limitsTeam": "Teamkonti kan have op til 5 maskiner, inklusive maskiner på pause pr. betalt plads. Hver betalt plads lægger 20 vCPU'er og 40 GB hukommelse til teamets pulje.",
+      "limitsMax": "Max-konti kan have op til 5 maskiner, inklusive maskiner på pause, der deler 80 vCPU'er og 160 GB hukommelse. Én Max-maskine kan bruge op til 64 GB og 32 vCPU'er, inklusive størrelserne 24 GB / 12 vCPU'er og 32 GB / 16 vCPU'er; Pro og Team stopper ved 16 GB og 8 vCPU'er.",
       "limitsPoolFull": "Hvis en ny, genoptaget, forstørret eller forket maskine ville overskride puljen, afviser cmux anmodningen og viser, hvor meget af puljen der er i brug. Sæt en maskine på pause, eller slet den for at frigøre ressourcer, eller opgrader til Max.",
       "limitsPricing": "Se prissiden for aktuelle priser. Der er ingen forbrugsmåling og ingen fakturering for overforbrug.",
       "agentUpdatesTitle": "Hold kodeagenter opdateret",
@@ -2974,7 +2981,7 @@
       "agentUpdatesToggle": "Arket New Machine slår dette til som standard. For at ændre det på en eksisterende maskine skal du højreklikke på maskinen og vælge Keep Agents Up to Date eller køre cmux vm agent-updates. cmux vm new beholder billedets versioner, medmindre du angiver --agent-updates latest. Når du slår opdateringer fra, beholdes de versioner, der allerede er installeret.",
       "agentUpdatesNetwork": "Opdateringer bruger kun github.com, api.github.com, objects.githubusercontent.com og release-assets.githubusercontent.com. cmux tillader disse værter i alle netværkstilstande, også Allowlist og No internet, så en netværkspolitik blokerer aldrig opdateringer.",
       "resizeTitle": "Ændr størrelse",
-      "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 128 GB på Pro og Team eller 256 GB på Max (Go er begrænset til 16 GB). Hukommelsen vokser op til 16 GB og CPU op til 8 vCPU med Pro og Team, eller op til 64 GB og 32 vCPU med Max. En større maskine bruger mere af din pulje. Dit abonnement fastsætter det reelle maksimum.",
+      "resizeDesc": "Du kan gøre en maskine større uden tab af data. Højreklik på maskinen, og vælg Resize machine, eller brug cmux vm resize. En størrelsesændring kan kun gøre en maskine større. Disken vokser i trin á 4 GB op til 128 GB på Pro og Team eller 256 GB på Max (Plus er begrænset til 128 GB). Hukommelsen vokser op til 16 GB og CPU op til 8 vCPU med Pro og Team, eller op til 64 GB og 32 vCPU med Max. En større maskine bruger mere af din pulje. Dit abonnement fastsætter det reelle maksimum.",
       "pauseTitle": "Pause og genoptagelse",
       "pauseDesc": "cmux vm pause stopper maskinens beregning. Disken, arbejdsområderne og terminalhistorikken bevares. Kørende processer stopper. cmux vm resume starter maskinen igen. Hvis du åbner en maskine på pause eller kører en kommando på den, starter den også.",
       "pauseIdle": "Maskiner sættes ikke på pause af sig selv, når de er inaktive. En maskine kører, indtil du sætter den på pause eller sletter den.",
@@ -5254,7 +5261,18 @@
     "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere.",
     "signedOutNotice": "Du er ikke logget ind. Log ind for at se dit nuværende abonnement eller gendanne et tidligere køb.",
     "signedOutSignIn": "Log ind",
-    "manageInAppStore": "Administrer i App Store"
+    "manageInAppStore": "Administrer i App Store",
+    "go": {
+      "name": "Plus",
+      "cta": "Vælg Plus",
+      "featuresLead": "Indeholder:",
+      "features": [
+        "I alt 1 gemt VM, også når den er på pause",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "Support fra fællesskabet",
+        "Ingen månedlig timegrænse"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

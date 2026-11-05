@@ -41,6 +41,7 @@ async fn an_agent_tool_call_spawns_a_subagent_session() {
             "task": "Branch A",
             "prompt": "Look at the tests",
             "capabilities": {},
+            "model": "haiku", "effort": "default",
             "_meta": {"claude": {"subagentType": "Explore", "toolUseId": "toolu_1"}}
         })
     );
@@ -300,8 +301,29 @@ async fn a_failed_agent_says_why_and_its_resume_runs_it_again() {
     let done = json!({"type": "system", "subtype": "task_notification", "task_id": "a8e1b68b93aac9d16", "tool_use_id": "toolu_send", "status": "completed", "output_file": "", "summary": "done"});
     let out = updates(&t.inbound(&done).await);
     assert_eq!(ended(&out), vec![("acp-1/toolu_1".to_owned(), "completed".to_owned())]);
-    // A completed end names no agent to resume.
-    assert!(out.iter().all(|(_, u)| u.get("agentId").is_none()), "{out:?}");
+    // A completed end says which agent it was (cmux#33292).
+    let end = &out.iter().find(|(_, u)| u["sessionUpdate"] == "subagent_state_update").unwrap().1;
+    assert_eq!(end["agentId"], "a8e1b68b93aac9d16", "{out:?}");
+}
+
+/// A background agent that ends with no progress before it (its spawn on a page not loaded)
+/// still says its agentId on its end, completed or stopped, so the page holding only that end
+/// names the agent (cmux#33292, cmux#33336). A workflow's end names none: it resumes by its run.
+#[tokio::test]
+async fn every_end_of_a_plain_agent_says_its_agent_id() {
+    for (status, state) in [("completed", "completed"), ("stopped", "cancelled")] {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        t.inbound(&background_spawn_line("toolu_1")).await;
+        t.inbound(&tool_result("toolu_1")).await;
+        let started = json!({"type": "system", "subtype": "task_started", "task_id": "a6ab68f9e2c41d07b", "tool_use_id": "toolu_1", "is_backgrounded": true});
+        t.inbound(&started).await;
+        let done = json!({"type": "system", "subtype": "task_notification", "task_id": "a6ab68f9e2c41d07b", "tool_use_id": "toolu_1", "status": status, "output_file": "", "summary": "done"});
+        let out = updates(&t.inbound(&done).await);
+        let end =
+            &out.iter().find(|(_, u)| u["sessionUpdate"] == "subagent_state_update").unwrap().1;
+        assert_eq!(end["state"], state);
+        assert_eq!(end["agentId"], "a6ab68f9e2c41d07b", "{status}: {out:?}");
+    }
 }
 
 /// A foreground agent whose call fails says why too, and names the agent its task named.

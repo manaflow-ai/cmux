@@ -89,6 +89,20 @@ pub enum Action {
     BrowserEditUrl,
     ShowShortcuts,
     Detach,
+    /// Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md): dock
+    /// the active workspace on an edge, undock it, show or hide an edge,
+    /// float a dock, and switch which docks own the corners.
+    DockWorkspaceLeft,
+    DockWorkspaceRight,
+    DockWorkspaceTop,
+    DockWorkspaceBottom,
+    UndockWorkspace,
+    ToggleDockLeft,
+    ToggleDockRight,
+    ToggleDockTop,
+    ToggleDockBottom,
+    ToggleDockFloating,
+    ToggleDockOrientation,
     /// A user-configured command from the top-level `commands` section,
     /// opened as a new PTY tab through the mux `run` command.
     UserCommand(UserCommandIndex),

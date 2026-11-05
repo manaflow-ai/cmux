@@ -82,7 +82,7 @@ body {
   color: var(--g-text);
   font: inherit;
   font-size: var(--text-caption);
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .gallery-focus-toggle:hover {
@@ -242,7 +242,7 @@ body {
   font: inherit;
   font-size: var(--text-detail);
   text-decoration: none;
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .gallery-header-links a:hover,

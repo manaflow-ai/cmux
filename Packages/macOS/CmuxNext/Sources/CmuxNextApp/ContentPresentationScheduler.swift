@@ -5,7 +5,11 @@ import CmuxNextControl
 protocol PresentablePane: AnyObject {
     /// Showing the selection needs no new surface or page.
     var selectedContentIsAlive: Bool { get }
+    /// The pane has its workspace's focus: the person types into it, so its surface comes first.
+    var isFocusedInWorkspace: Bool { get }
     func showSelected()
+    /// It waits for a later frame: it shows what it has with no new surface (a terminal's last frame from the quit).
+    func showWhileWaiting()
 }
 
 /// Shows panes' selected content on display frames instead of inside model
@@ -17,7 +21,10 @@ protocol PresentablePane: AnyObject {
 /// 100-180 ms under load (surface creation compiles Metal pipelines
 /// synchronously). Here only the selection a pane has at frame time is
 /// shown, content already alive is shown at once, and at most one new
-/// surface is created per frame; the rest wait for the next frame.
+/// surface is created per frame; the rest wait for the next frame. A
+/// waiting pane that has its workspace's focus gets the next frame's surface
+/// before the others (REOPEN-F4: the first key typed into a reopened
+/// window's focused terminal came before that terminal's surface).
 @MainActor
 final class ContentPresentationScheduler {
     private let frames: any ControlFrameSource
@@ -35,14 +42,12 @@ final class ContentPresentationScheduler {
     func setNeedsShowSelected(_ pane: any PresentablePane) {
         let key = ObjectIdentifier(pane)
         if pending.updateValue(pane, forKey: key) == nil { order.append(key) }
+        if !pane.selectedContentIsAlive { pane.showWhileWaiting() }
         schedule()
     }
 
-    /// Shows `pane`'s selection now when that fits this frame's budget (its
-    /// content is alive, or no surface was created since the last frame),
-    /// else queues it. Used when a pane comes on screen, so a split's new
-    /// pane draws in the same frame as the layout change instead of one
-    /// blank frame later. Returns true when it was shown now.
+    /// Shows `pane`'s selection now when that fits this frame's budget (its content is alive, or no surface was made since the
+    /// last frame: only a surface really made spends it), else queues it: a split's new pane shows with the layout change.
     @discardableResult
     func showNow(_ pane: any PresentablePane) -> Bool {
         let alive = pane.selectedContentIsAlive
@@ -51,8 +56,8 @@ final class ContentPresentationScheduler {
             return false
         }
         cancel(pane)
-        if !alive { createdThisFrame = true }
         BenchSpans.measure("presentation.showNow") { pane.showSelected() }
+        if !alive, pane.selectedContentIsAlive { createdThisFrame = true }
         schedule()
         return true
     }
@@ -77,12 +82,15 @@ final class ContentPresentationScheduler {
     private func drain() {
         var created = false
         var remaining: [ObjectIdentifier] = []
-        for key in order {
+        // The focused pane first; the others keep their order.
+        let focused = order.filter { pending[$0]?.isFocusedInWorkspace == true }
+        for key in focused + order.filter({ !focused.contains($0) }) {
             guard let pane = pending[key] else { continue }
             if pane.selectedContentIsAlive || !created {
-                if !pane.selectedContentIsAlive { created = true }
+                let alive = pane.selectedContentIsAlive
                 pending[key] = nil
                 BenchSpans.measure("presentation.frame") { pane.showSelected() }
+                if !alive, pane.selectedContentIsAlive { created = true }
             } else {
                 remaining.append(key)
             }

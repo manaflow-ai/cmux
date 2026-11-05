@@ -1,12 +1,15 @@
-import CmuxNextDesign
+import AppKit
+@testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import Foundation
 import Testing
 
 /// Machine identity: while the sidebar lists more than one machine, a workspace row on another
-/// machine marks it (its glyph in its color), so rows on different machines tell apart. This Mac's
-/// rows are marked only with `sidebar.showLocalMachine` (Leo 2026-10-20: another machine is the
-/// news). One machine: no mark.
-@MainActor struct SidebarMachineMarkTests {
+/// machine carries it (`WorkspaceRowContent.machine`), which its accessibility label names; the row
+/// draws no glyph for it (Leo 2026-11-02: "the tiny cloud icon the repeated cloud cloud cloud"). This
+/// Mac's rows carry it only with `sidebar.showLocalMachine` (Leo 2026-10-20: another machine is the
+/// news). One machine: none.
+@MainActor @Suite(.serialized) struct SidebarMachineMarkTests {
     private let mac = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     private let vm = SidebarMachine(id: MachineID("vm"), name: "gpu-box", kind: .ssh, icon: .symbol("server.rack"))
 
@@ -47,8 +50,8 @@ import Testing
         #expect(mark.symbol == nil)
     }
 
-    /// The row's label names the machine once (VoiceOver read "gpu-box" twice after #22763): the
-    /// one-list second line leads with it, so the mark adds nothing; with no such line, the mark names it.
+    /// The row's label names the machine once (VoiceOver read "gpu-box" twice after #22763). A compact
+    /// row has no second line of its own (Leo 2026-10-30: "remove the second line"), so its mark names it.
     @Test func theRowsLabelNamesTheMachineOnce() throws {
         let model = SidebarModel(sections: [mac, vm].map(section))
         let o = model.listOptions()
@@ -59,7 +62,7 @@ import Testing
         func names(_ text: String) -> Int { text.components(separatedBy: "gpu-box").count - 1 }
         let oneList = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: o))
         #expect(oneList.machine != nil)
-        #expect(label(oneList).hasPrefix("w, gpu-box · "))
+        #expect(oneList.detail == nil, "a compact row drew a second line naming its computer")
         #expect(names(label(oneList)) == 1)
         var grouped = o
         grouped.flattensMachines = false
@@ -70,6 +73,59 @@ import Testing
         #expect(names(label(minimal.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: minimal)))) == 1)
     }
 
+    /// Review of #28510 at 5f1d588f (P1): a machine that cannot connect has its status in the one-list label
+    /// (`gpu-box · Failed to start`). With no second line to draw it, the row's accessibility label says it.
+    @Test func aFailedMachinesStatusIsStillSpoken() throws {
+        let model = SidebarModel(sections: [mac, vm].map(section))
+        var o = model.listOptions()
+        o.machineStatusLabels[vm.id] = "Failed to start"
+        let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: vm.id, title: "w", directory: "~/code/app")
+        let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: o))
+        #expect(content.detail == nil, "fixture: no second line draws it")
+        let text = WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
+        #expect(text.contains("gpu-box · Failed to start"), "VoiceOver lost the failed machine's status: \(text)")
+        #expect(text.components(separatedBy: "gpu-box").count - 1 == 1, "the computer was named twice: \(text)")
+    }
+
+    /// Review of #28510 at 58ee6d24 (P1): every row mode says the failed machine's status, and a row that draws no
+    /// mark (only that one machine listed, so no marks) still names the computer.
+    @Test(arguments: ["compact", "minimal", "tabs", "expanded", "unmarked"])
+    func everyRowModeSpeaksAFailedMachinesStatus(_ mode: String) throws {
+        let model = SidebarModel(sections: [mac, vm].map(section))
+        var o = model.listOptions()
+        o.machineStatusLabels[vm.id] = "Failed to start"
+        switch mode {
+        case "minimal": o.minimal = true
+        case "tabs": o.workspacesAsTabs = true
+        case "expanded": o.expanded = true
+        case "unmarked": o.machines = [:]
+        default: break
+        }
+        let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: vm.id, title: "w", directory: "~/code/app")
+        let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(vm), options: o))
+        if mode == "unmarked" { #expect(content.machine == nil, "fixture: no mark drawn") }
+        let text = WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
+        #expect(text.contains("gpu-box · Failed to start"), "\(mode): VoiceOver lost the failed machine's status: \(text)")
+        #expect(text.components(separatedBy: "gpu-box").count - 1 == 1, "\(mode): the computer was named twice: \(text)")
+    }
+
+    /// Review of #28510 at 4acab8c2: the detail holds the facts the person turned on, so it proves nothing about
+    /// the machine. A branch named after the machine, or starting with its name, never hides the machine or its status.
+    @Test(arguments: [("dev", "develop", nil), ("dev", "dev", "Failed to start")] as [(String, String, String?)])
+    func aBranchNamedLikeTheMachineHidesNeitherTheMachineNorItsStatus(_ name: String, _ branch: String, _ status: String?) throws {
+        let dev = SidebarMachine(id: MachineID("dev"), name: name, kind: .ssh)
+        let model = SidebarModel(sections: [mac, dev].map(section))
+        var o = model.listOptions()
+        o.workspaceRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: WorkspaceRowElements.standard.shown.union([.branch])))
+        if let status { o.machineStatusLabels[dev.id] = status }
+        let ws = SidebarWorkspace(id: WorkspaceID("w"), machineID: dev.id, title: "w", branch: branch)
+        let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(dev), options: o))
+        try #require(content.detail == branch, "fixture: the branch is the row's second line")
+        let text = WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
+        let label = status.map { "\(name) · \($0)" } ?? name
+        #expect(text.hasSuffix(", \(label)") || text.contains(", \(label),"), "the machine or its status went unsaid: \(text)")
+    }
+
     /// A machine whose name holds the row's separator (`gpu · box`) is still named once.
     @Test func aNameWithTheSeparatorIsNamedOnce() throws {
         let dotted = SidebarMachine(id: MachineID("dotted"), name: "gpu · box", kind: .ssh)
@@ -78,11 +134,67 @@ import Testing
         let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section(dotted), options: o))
         #expect(content.machine != nil)
         let text = WorkspaceRowView.accessibilityText(ws, content: content, tabCount: nil, presence: [])
-        #expect(text.hasPrefix("w, gpu · box · "))
         #expect(text.components(separatedBy: "gpu · box").count - 1 == 1, "\(text)")
+    }
+
+    @Test func oneListCloudRowsShowPausedConnectingAndReconnecting() {
+        let states: [(SidebarMachine.Status, String)] = [
+            (.paused, Strings.statusPaused),
+            (.connecting, Strings.statusConnecting),
+            (.reconnecting, Strings.statusReconnecting),
+        ]
+        for (status, label) in states {
+            let cloud = SidebarMachine(id: MachineID("cloud-\(label)"), name: "cloud", kind: .cloud, status: status)
+            let cloudSection = SidebarSection(kind: .machine(cloud), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("cloud-ws"), title: "ws"))])
+            let options = SidebarModel(sections: [section(mac), cloudSection]).listOptions()
+            #expect(SidebarLayout.machineLabel(cloudSection, options: options) == "cloud · \(label)")
+        }
     }
 
     @Test func oneMachineDrawsNoMark() {
         #expect(marks(showsLocalMachine: true, [mac]).isEmpty)
+    }
+
+    /// The realized rows of a sidebar listing this Mac and two other machines, each with one workspace.
+    private static func machineRows() throws -> [String: WorkspaceRowView] {
+        let machines = [
+            SidebarMachine(id: .local, name: "This Mac", kind: .local),
+            SidebarMachine(id: MachineID("cloud-a"), name: "cloud-a", kind: .cloud),
+            SidebarMachine(id: MachineID("gpu-box"), name: "gpu-box", kind: .ssh),
+        ]
+        let model = SidebarModel(sections: machines.map { m in
+            SidebarSection(kind: .machine(m), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("ws-\(m.name)"), machineID: m.id,
+                                                                                  title: "a workspace named at length \(m.name)"))])
+        })
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.list.reload(animated: false)
+        var rows: [String: WorkspaceRowView] = [:]
+        for m in machines {
+            let row = try #require(sidebar.list.rowViews[.workspace(WorkspaceID("ws-\(m.name)"))] as? WorkspaceRowView)
+            row.layoutSubtreeIfNeeded()
+            row.updateLayer()
+            rows[m.name] = row
+        }
+        return rows
+    }
+
+    /// Leo 2026-11-02, on a Cloud row and its hover card: "isn't this extremely stupid looking?" / "the tiny cloud
+    /// icon the repeated cloud cloud cloud". The row draws no machine glyph (the hover card names the machine once,
+    /// in its header): a row on another machine draws exactly the views this Mac's row draws, and its label still
+    /// names the machine for VoiceOver.
+    @Test func aRowOnAnotherMachineDrawsNoMachineGlyph() throws {
+        let rows = try Self.machineRows()
+        func shown(_ row: WorkspaceRowView) -> [String] {
+            row.subviews.filter { !$0.isHidden && $0.alphaValue > 0 && !$0.frame.isEmpty }.map { String(describing: type(of: $0)) }.sorted()
+        }
+        let local = try #require(rows["This Mac"])
+        for name in ["cloud-a", "gpu-box"] {
+            let row = try #require(rows[name])
+            #expect(shown(row) == shown(local), "\(name) draws more than this Mac's row: \(shown(row)) vs \(shown(local))")
+            let label = row.accessibilityLabel() ?? ""
+            #expect(label.contains(name), "\(name): the row's label lost its machine: \(label)")
+        }
     }
 }

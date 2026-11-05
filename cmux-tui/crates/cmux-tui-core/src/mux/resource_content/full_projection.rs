@@ -1,6 +1,8 @@
 //! Full projection of the live tree into one durable topology patch: the
-//! reconciliation boundary that every topology commit passes, timed per
-//! part for `server-stats` (`resource_projection`).
+//! reconciliation boundary, timed per part for `server-stats`
+//! (`resource_projection`). Creates and closes inside one workspace take
+//! the scoped projection, and a close of a terminal with no view commits
+//! its tombstone alone; the rest, and every fallback, pass through here.
 
 use std::time::Instant;
 

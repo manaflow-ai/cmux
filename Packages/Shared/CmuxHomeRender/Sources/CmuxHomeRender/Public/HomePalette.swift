@@ -69,6 +69,25 @@ public struct HomeColor: Hashable, Sendable {
         return opaque.mixed(with: target, hi)
     }
 
+    /// `self` (opaque) moved the least toward black or white until it reaches `minimum` contrast on
+    /// every one of `surfaces` (the shades of one bubble); unchanged when it already does. With no
+    /// step that reaches it on all of them, black or white, whichever reads better on the worst.
+    func readable(onEvery surfaces: [HomeColor], minimum: Double = HomePalette.minimumTextContrast) -> HomeColor {
+        let opaque = with(alpha: 1), grounds = surfaces.map { $0.with(alpha: 1) }
+        func worst(_ c: HomeColor) -> Double { grounds.map { c.contrast(with: $0) }.min() ?? .infinity }
+        guard worst(opaque) < minimum else { return opaque }
+        var best: (step: CGFloat, color: HomeColor)?
+        for target in [HomeColor.gray255(0), .gray255(255)] where worst(target) >= minimum {
+            var lo: CGFloat = 0, hi: CGFloat = 1
+            for _ in 0..<20 {
+                let mid = (lo + hi) / 2
+                if worst(opaque.mixed(with: target, mid)) >= minimum { hi = mid } else { lo = mid }
+            }
+            if hi < best?.step ?? .infinity { best = (hi, opaque.mixed(with: target, hi)) }
+        }
+        return best?.color ?? (worst(.gray255(0)) >= worst(.gray255(255)) ? .gray255(0) : .gray255(255))
+    }
+
     /// The faintest step from `surface` toward `self` (opaque) that reaches
     /// `minimum` contrast on `surface`: a boundary ink that keeps the theme's
     /// hue and is as soft as WCAG 1.4.11 (3:1 for a component's edge) allows.
@@ -81,6 +100,13 @@ public struct HomeColor: Hashable, Sendable {
             if base.mixed(with: ink, mid).contrast(with: base) >= minimum { hi = mid } else { lo = mid }
         }
         return base.mixed(with: ink, hi)
+    }
+
+    /// Black or white, whichever has the higher WCAG contrast on this colour: the automatic text of a
+    /// bubble colour a person chose (Chat Colors…), where Messages' white-on-blue rule does not apply.
+    public var strongestText: HomeColor {
+        let white = HomeColor.gray255(255), black = HomeColor.gray255(0)
+        return contrast(with: white) >= contrast(with: black) ? white : black
     }
 
     /// Text on this colour: white while it keeps 3:1 (Messages' white on
@@ -123,6 +149,10 @@ public struct HomePalette: Hashable, Sendable {
     public var morphUnderlay: HomeColor
     public var typingDot: HomeColor
     public var typingDotHighlight: HomeColor
+    /// The composer's own text and symbols: the received text unless a chat
+    /// chose received colours (``applying(_:)``), which keep this the theme's.
+    public var composeText: HomeColor { composeTextOverride ?? incomingText }
+    var composeTextOverride: HomeColor? = nil
 
     public struct GradientStop: Hashable, Sendable {
         public var location: CGFloat
@@ -250,6 +280,50 @@ public struct HomePalette: Hashable, Sendable {
         palette.secondaryText = .gray255(light ? 134 : 154)
         palette.badge = palette.incomingBubble
         return palette.withReadableText()
+    }
+
+    /// This palette with a chat's chosen bubble colours (Chat Colors…, `home.bubbleColors.*`).
+    /// A chosen fill draws flat (no viewport shading); a fill with no chosen
+    /// text gets black or white text, whichever has more contrast on it (``HomeColor/strongestText``); a chosen
+    /// text keeps its hue, raised to ``minimumTextContrast`` on every shade of its bubble. The composer
+    /// keeps the theme's text (``composeText``) whatever the bubbles' text is.
+    /// - Parameter colors: the chosen colours; empty returns this palette unchanged.
+    /// - Returns: the palette the chat draws with.
+    public func applying(_ colors: HomeBubbleColors) -> HomePalette {
+        guard !colors.isEmpty else { return self }
+        var p = self
+        if let fill = colors.sent?.with(alpha: 1) {
+            p.outgoingGradient = [GradientStop(location: 0, color: fill), GradientStop(location: 1, color: fill)]
+            // The caret stays the theme's: it also inks links in the other side's bubbles.
+            p.outgoingText = fill.strongestText
+        }
+        // A chosen text keeps its hue, raised to 4.5:1 on every shade of the bubble it is drawn on.
+        if let ink = colors.sentText { p.outgoingText = ink.readable(onEvery: p.outgoingGradient.map(\.color)) }
+        if colors.received != nil || colors.receivedText != nil {
+            p.composeTextOverride = composeText
+        }
+        if let fill = colors.received?.with(alpha: 1) {
+            p.incomingBubble = fill
+            p.badge = fill
+            p.incomingText = fill.strongestText
+        }
+        if let ink = colors.receivedText { p.incomingText = ink.readable(onEvery: [p.incomingBubble]) }
+        return p
+    }
+
+    /// This palette drawn on the chat's own background: `fill` (the pane's, or `appearance.surfaces.home`,
+    /// maybe translucent) over `window`, the window's colour. The secondary text (names, times, receipts)
+    /// is raised to ``minimumTextContrast`` on what the page really shows, not on the colour the palette
+    /// was built on.
+    /// - Parameters:
+    ///   - fill: the colour the scene paints under the transcript.
+    ///   - window: the opaque colour under `fill`.
+    /// - Returns: the palette with `fill` as its background.
+    public func onBackground(_ fill: HomeColor, over window: HomeColor) -> HomePalette {
+        var p = self
+        p.background = fill
+        p.secondaryText = secondaryText.readable(on: window.with(alpha: 1).mixed(with: fill.with(alpha: 1), fill.alpha))
+        return p
     }
 
     /// The outgoing colour at a fraction of the viewport height.

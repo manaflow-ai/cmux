@@ -39,7 +39,7 @@ public struct WorkspaceTimelineReader {
         case .failed: .failed
         }
         return SidebarTimelineEntry(kind: kind, date: Date(timeIntervalSince1970: TimeInterval(event.atMs) / 1000),
-                                    text: event.text, agent: agent.map(displayName))
+                                    text: event.text, agent: agent.map(displayName), isNotice: event.isNotice)
     }
 
     /// "Claude Code" for "claude"; the id itself for an agent cmux does not list.

@@ -114,15 +114,14 @@ describe("Cloud VM memory allowance", () => {
     expect(maxDiskMbForPlan("pro", { CMUX_VM_PLAN_PRO_MAX_DISK_MB: "262144" })).toBe(128 * GB);
   });
 
-  test("Go is capped at one 2 vCPU, 4 GB, 16 GB VM", () => {
+  test("Plus has Pro's machine sizes and resize ceilings, with one saved machine", () => {
     expect(maxActiveVmsForPlan("go", {})).toBe(1);
-    expect(maxMemoryMbForPlan("go", {})).toBe(4096);
-    expect(maxVcpusForPlan("go", {})).toBe(2);
-    expect(maxDiskMbForPlan("go", {})).toBe(16 * GB);
-    expect(memoryOptionsMbForPlan("go", {})).toEqual([4096]);
+    for (const read of [maxMemoryMbForPlan, maxVcpusForPlan, maxDiskMbForPlan, defaultMemoryMbForPlan]) {
+      expect(read("go", {})).toBe(read("pro", {}));
+    }
+    expect(memoryOptionsMbForPlan("go", {})).toEqual([4096, 8192, 16384]);
     expect(lockedMemoryOptionsMbForPlan("go", {})).toEqual({
-      memoryOptionsMb: [8192, 16384, 24576, 32768, 65536],
-      upgradePlanId: "pro",
+      memoryOptionsMb: [24576, 32768, 65536], upgradePlanId: "max",
     });
   });
 
@@ -182,7 +181,7 @@ describe("Cloud VM memory allowance", () => {
 });
 
 describe("active-limit response as the paywall moment", () => {
-  test("a zero-allowance free plan is told Cloud VMs require a cmux Go plan", async () => {
+  test("a zero-allowance free plan is told Cloud VMs require a cmux Plus plan", async () => {
     const response = await vmActiveLimitExceededResponse({
       limit: 0,
       planId: "free",
@@ -191,8 +190,8 @@ describe("active-limit response as the paywall moment", () => {
     expect(response.status).toBe(402);
     const payload = await body(response);
     expect(payload.error).toBe("vm_active_limit_exceeded");
-    expect(payload.message).toBe("Cloud VMs require a cmux Go plan.");
-    expect(String(payload.action)).toContain("Upgrade to cmux Go");
+    expect(payload.message).toBe("Cloud VMs require a cmux Plus plan.");
+    expect(String(payload.action)).toContain("Upgrade to cmux Plus");
     expect(String(payload.action)).not.toContain("up to");
     expect(String(payload.action)).not.toContain("cmux cloud kill-machine --target machine:");
     expect(payload.upgradeRequired).toBe(true);
@@ -224,7 +223,7 @@ describe("active-limit response as the paywall moment", () => {
     expect(response.status).toBe(402);
     const payload = await body(response);
     expect(payload.error).toBe("vm_active_limit_exceeded");
-    expect(payload.message).toContain("10 active Cloud VMs");
+    expect(payload.message).toContain("10 Cloud VMs in total, including paused machines");
     expect(String(payload.action)).toContain("cmux cloud list-machines");
     expect(payload.upgradeRequired).toBeUndefined();
   });
@@ -251,8 +250,8 @@ describe("active-limit response as the paywall moment", () => {
     });
     const payload = await body(response);
     expect(payload.message).toBe(
-      "This plan allows 2 active Cloud VMs at a time. " +
-        "Counted now: solar-olive-bee, happy-tan-warbler (provisioning). Paused machines do not count.",
+      "This plan allows 2 Cloud VMs in total, including paused machines. " +
+        "Counted now: solar-olive-bee, happy-tan-warbler (provisioning). Paused machines count toward the limit.",
     );
     expect((payload.details as Record<string, unknown>).activeMachines).toEqual([
       { id: "freestyle-a", name: "solar-olive-bee", status: "running" },
@@ -273,7 +272,7 @@ describe("active-limit response as the paywall moment", () => {
     });
     const payload = await body(response);
     expect(String(payload.message)).toEndWith(
-      " 現在カウント中: solar-olive-bee、happy-tan-warbler（プロビジョニング中）。一時停止中のマシンはカウントされません。",
+      " カウント対象: solar-olive-bee、happy-tan-warbler（プロビジョニング中）。一時停止中のマシンも上限に含まれます。",
     );
   });
 });

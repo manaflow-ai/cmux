@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextFeed
 @testable import CmuxNextTasks
+import CmuxNextTestSupport
 import Foundation
 import SwiftUI
 import Testing
@@ -12,7 +13,7 @@ import Testing
 /// macOS's gray, and their text and caret the appearance's, whatever the room's theme: the new-task
 /// field, the app store search, the feed inbox filter, the feed's reply field and an app scene's
 /// text field. Hosted in a purple room, each draws the scope's text and hint inks.
-@MainActor @Suite(.serialized) struct ThemedPlainFieldsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ThemedPlainFieldsTests {
     /// `view` hosted in a window whose content roots the purple room.
     private static func host(_ view: some View, _ scope: ThemeScope, size: NSSize = NSSize(width: 520, height: 320)) -> (NSWindow, NSView) {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
@@ -68,6 +69,18 @@ import Testing
         let (window, root) = Self.host(header, scope)
         defer { window.contentView = nil; window.close() }
         try Self.expectThemedField(in: root, scope, placeholder: FeedStrings.filterInbox, "feed filter")
+    }
+
+    /// The Feed inbox's Reports tab (the reports basket) hides the item search, which belongs to the items.
+    @Test func theFeedReportsTabHidesTheItemSearch() throws {
+        let scope = try ThemedOverlayColorsTests.purpleRoom()
+        for (connection, fields) in [(FeedInboxFilter.Connection.feed, 1), (.reports, 0)] {
+            let header = FeedInboxHeader(filter: .constant(FeedInboxFilter(connection: connection)), hasUnread: true, canRefresh: true,
+                                         canAddConnection: false, markRead: {}, refresh: {}, addConnection: {}, showsReports: true)
+            let (window, root) = Self.host(header, scope)
+            defer { window.contentView = nil; window.close() }
+            #expect(HomeSheetThemeTests.editableFields(in: root).count == fields, "\(connection): \(fields) search field(s)")
+        }
     }
 
     @Test func theFeedReplyFieldDrawsTheTheme() throws {

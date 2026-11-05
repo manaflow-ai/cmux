@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextBrowserHistory
 import CmuxNextDaemon
 import Foundation
@@ -11,7 +12,7 @@ extension BrowserHistoryStarts {
     func page(_ tab: TabModel, url: URL?, cache: TabContentCache) -> BrowserEntry? {
         let service = cache.browserTabs, key = tab.id, daemon = service.daemon(for: tab)
         let skip: String? = if let url, ["http", "https", "file"].contains(url.scheme?.lowercased() ?? ""), MachineBrowserRecord(url: url) == nil {
-            cache.pageRequests.proxiedTabs.isProxied(key) || !tab.isFrontendOwned || service.isIncognitoTab(key) ? "skip-page-kind"
+            cache.pageRequests.staysOffThisMacLocalhost(key) || !tab.isFrontendOwned || service.isIncognitoTab(key) ? "skip-page-kind"
                 : service.writers[key] != nil ? "skip-tracked" : service.wasOpenedHere(tab) ? "skip-opened-here"
                 : !daemon.isLocal ? "skip-remote" : !daemon.supports(DaemonCapability.frontendBrowserHistory.rawValue) ? "skip-no-capability" : nil
         } else { "skip-address" }

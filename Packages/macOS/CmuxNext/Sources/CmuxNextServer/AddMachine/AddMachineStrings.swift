@@ -20,6 +20,15 @@ nonisolated enum AddMachineStrings {
     static func adding(_ name: String) -> String { String(format: s("addMachine.addingTitle", "Adding %@"), name) }
     static func checking(_ name: String) -> String { String(format: s("addMachine.checkingTitle", "Checking %@"), name) }
     static func ready(_ name: String) -> String { String(format: s("addMachine.ready", "%@ is ready"), name) }
+    static var showDetails: String { s("addMachine.showDetails", "Show Details") }
+    static var hideDetails: String { s("addMachine.hideDetails", "Hide Details") }
+    /// The one line of a run going well: the step running now, or that every step is done.
+    static func progress(_ summary: HostChecklist.Summary) -> String {
+        guard let current = summary.current else {
+            return summary.done == summary.total ? s("addMachine.progress.done", "Every step is done.") : ""
+        }
+        return String(format: s("addMachine.progress.step", "Step %1$lld of %2$lld: %3$@"), summary.done + 1, summary.total, step(current))
+    }
     static var readyDetail: String { s("addMachine.readyDetail", "Its agents and workspaces are a click away in the sidebar.") }
     static func addFailed(_ name: String) -> String { String(format: s("addMachine.addFailed", "%@ could not be added"), name) }
     static func checkFailed(_ name: String) -> String { String(format: s("addMachine.checkFailed", "%@ needs attention"), name) }
@@ -33,6 +42,7 @@ nonisolated enum AddMachineStrings {
     static var done: String { s("addMachine.done", "Done") }
     static var openWorkspace: String { s("addMachine.openWorkspace", "Open Workspace") }
     static var tryAgain: String { s("addMachine.tryAgain", "Try Again") }
+    static var changeHost: String { s("addMachine.changeHost", "Change Host") }
     static var copyDetails: String { s("addMachine.copyDetails", "Copy Details") }
     static var fix: String { s("addMachine.fix", "Fix") }
 
@@ -47,7 +57,27 @@ nonisolated enum AddMachineStrings {
         case .peer: s("addMachine.step.peer", "Add it as a peer here")
         case .peerBack: s("addMachine.step.peerBack", "Add this Mac as its peer")
         case .identity: s("addMachine.step.identity", "Name the machine")
-        default: step.rawValue
+        case .approvals: s("addMachine.step.approvals", "Let this Mac allow its prompts")
+        default: joinStep(step) ?? step.rawValue
+        }
+    }
+
+    /// The steps of a one-line join's doctor (`acpmux host doctor --here`, `cmux machine doctor ID`).
+    static func joinStep(_ step: HostStep) -> String? {
+        switch step.rawValue {
+        case "binary": s("addMachine.step.binary", "Install the agent daemon")
+        case "service": s("addMachine.step.service", "Start it with the machine")
+        case "credential": s("addMachine.step.credential", "Keep its machine credential")
+        case "revoked": s("addMachine.step.revoked", "Still allowed in")
+        case "hub": s("addMachine.step.hub", "Reach cmux")
+        case "heartbeat": s("addMachine.step.heartbeat", "Check in with cmux")
+        case "consent": s("addMachine.step.consent", "Screen sharing and control")
+        case "signed-in": s("addMachine.step.signedIn", "Signed in to cmux")
+        case "platform": s("addMachine.step.platform", "Reach the machines service")
+        case "listed": s("addMachine.step.listed", "Listed in your machines")
+        case "mesh": s("addMachine.step.mesh", "Reach it through the mesh")
+        case "check": s("addMachine.step.check", "Check it")
+        default: nil
         }
     }
 
@@ -68,6 +98,7 @@ nonisolated enum AddMachineStrings {
         switch action {
         case .add: phase == .running ? addingButton : add
         case .tryAgain: tryAgain
+        case .changeHost: changeHost
         case .fix: phase == .running ? checkingButton : fix
         case .openWorkspace: openWorkspace
         case .copyDetails: copyDetails
@@ -80,6 +111,22 @@ nonisolated enum AddMachineStrings {
 
     static var connected: String { s("machines.connected", "Connected") }
     static var offline: String { s("machines.offline", "Offline") }
+    static var connecting: String { s("machines.connecting", "Connecting…") }
+    static var paused: String { s("machines.paused", "Paused") }
+    static var resuming: String { s("machines.resuming", "Resuming…") }
+    static var failed: String { s("machines.failed", "Failed") }
+    static var deleted: String { s("machines.deleted", "Deleted") }
+
+    /// A group header of the Machines section; nil for this Mac, whose row has no header.
+    static func group(_ kind: MachineKind) -> String? {
+        switch kind {
+        case .local: nil
+        case .cloud: s("machines.group.cloud", "Cloud")
+        case .ssh: s("machines.group.ssh", "SSH")
+        case .server: s("machines.group.servers", "Servers")
+        case .joined: s("machines.group.joined", "Joined")
+        }
+    }
     static var newWorkspace: String { s("machines.newWorkspace", "New Workspace on This Machine") }
     static var addMachine: String { s("machines.addMachine", "Add Machine…") }
     static var healthOK: String { s("machines.health.ok", "Last check passed") }

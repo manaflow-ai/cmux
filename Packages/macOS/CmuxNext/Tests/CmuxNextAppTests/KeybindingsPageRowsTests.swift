@@ -4,9 +4,8 @@ import CmuxNextSettings
 import Testing
 
 /// The Keyboard Shortcuts page lists each binding once (dogfood run 7). The
-/// catalog's Cmd-1…9 Select Workspace and Ctrl-Cmd-] / [ sidebar keys are
-/// also Chrome tab keys (`KeyBindingDefaults.tabSwitching`), so the table
-/// holds each of them twice. The page listed both: Next Sidebar Item showed
+/// table once held the catalog's Cmd-1…9 Select Workspace and Ctrl-Cmd-] / [
+/// sidebar keys twice. The page listed both: Next Sidebar Item showed
 /// twice, every copy counted the other as a conflict, and the two rows had
 /// one identity, so the page's list piled up stale Select Workspace rows as
 /// the search changed.

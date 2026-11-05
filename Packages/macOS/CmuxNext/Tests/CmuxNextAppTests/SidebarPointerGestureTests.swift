@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo 2026-10-20 (nightly), the cmux NEXT sidebar's pointer bugs, through the list's own mouse events:
@@ -11,7 +12,7 @@ import Testing
 ///   a drop-target row in the selection fill, and the next press dropped it somewhere;
 /// - an external drag's spring-load opened a collapsed group for good.
 /// The list: loose `x`, `y`; group `g1` (`a`, `b`); collapsed group `g2` (`c`, `d`).
-@MainActor @Suite(.serialized) struct SidebarPointerGestureTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarPointerGestureTests {
     static func list() -> (SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)

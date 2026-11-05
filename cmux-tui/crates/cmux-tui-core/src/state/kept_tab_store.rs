@@ -36,8 +36,9 @@ pub struct KeptTabRecord {
     pub name: Option<String>,
     /// The terminal's last title (OSC 0/2) when the record was written.
     pub title: Option<String>,
-    /// Parked (`park-tabs`): a frontend starts it when its workspace is
-    /// first shown, not when it connects (`relaunch.on_show`).
+    /// A frontend starts it when its workspace is first shown, not when it
+    /// connects (`relaunch.on_show`): a parked tab (`park-tabs`), and a kept
+    /// tab of End Sessions, Keep Layout whose terminal ran no agent.
     pub on_show: bool,
 }
 
@@ -47,7 +48,8 @@ pub(crate) struct KeptTab {
     pub tab_id: String,
     pub cwd: Option<String>,
     pub title: Option<String>,
-    /// Parked by `park-tabs` (`tab-park-v1`): started on first show.
+    /// Started on its workspace's first show, not at connect (see
+    /// [`KeptTabRecord::on_show`]).
     pub on_show: bool,
 }
 

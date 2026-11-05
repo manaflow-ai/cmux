@@ -4,8 +4,9 @@
 // measured worse than Codex in a 60-turn chat:
 // - a jump lands the prompt's bubble 35 px below the top, also when the rows it crosses were never
 //   drawn (it landed 262 px above the view, for a prompt 50 turns up);
-// - the hover card opens 250 ms after the pointer reaches the rail, as Codex's does (it took 465 ms),
-//   while the tick magnifies at once;
+// - the hover card opens with the tick's magnification, on the pointer's own commit (Leo,
+//   2026-10-29: "faster scrttoll/hover over"; it waited Codex's 250 ms, and 465 ms before that);
+// - a click lands the prompt in the frame of the click, with no glide;
 // - the band of lit rows follows the scroll on the scroll's own frame (it lagged 1-2 frames and lit
 //   a turn still below the view), with the turns on screen as Codex counts them;
 // - older turns that load above the reader leave the band where it is on screen (it moved 150 px in
@@ -80,11 +81,11 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
     return (fastest * distance * 1000) / 60;
   };
 
-  async function open(rows: unknown[], top: number, count = COUNT, height = 820): Promise<Page> {
+  async function open(rows: unknown[], top: number, count = COUNT, height = 820, query = ""): Promise<Page> {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 1280, height } });
     await installPaintedFrames(page);
-    await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html`);
+    await page.goto(`http://127.0.0.1:${port}/test/browser/thread-minimap.html${query}`);
     await page.waitForFunction(() => "__showRows" in window);
     await page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), rows);
     await page.waitForSelector(".acpmux-minimap__tick");
@@ -177,7 +178,8 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
   describe("thread minimap feel (Chromium)", () => {
     test("a click lands the prompt's bubble 35 px down, near or far, drawn or not", async () => {
       const page = await open(turns(0, COUNT), 9000);
-      // Near: a drawn prompt about 600 px down, on the smooth scroll.
+      // Near: a drawn prompt about 600 px down. It lands with the click itself, before any frame of
+      // motion (no glide: Leo, 2026-10-29, "faster scrttoll").
       const near = await page.evaluate(() => {
         const view = document.querySelector<HTMLElement>(".acpmux-scroll")!.getBoundingClientRect();
         const prompt = [...document.querySelectorAll<HTMLElement>(".acpmux-row.acpmux-user")].find(
@@ -187,10 +189,13 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       });
       let point = await tickPoint(page, near);
       await page.mouse.click(point.x, point.y);
+      expect(Math.abs((await landing(page, near))! - 35)).toBeLessThanOrEqual(1);
       expect(Math.abs((await landed(page, near))! - 35)).toBeLessThanOrEqual(1);
       // Far: a prompt well up the chat, never drawn, whose rows' heights are estimates.
       const far = await firstVisibleTick(page);
-      expect(near - far).toBeGreaterThan(10);
+      // With the doubled pitch fewer rows fit in view, but the far target is still outside the
+      // drawn band.
+      expect(near - far).toBeGreaterThan(5);
       point = await tickPoint(page, far);
       await page.mouse.click(point.x, point.y);
       const farLanding = await landed(page, far);
@@ -203,7 +208,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       await page.close();
     });
 
-    test("hovering magnifies at once and opens the card 250 ms after the pointer reaches the rail", async () => {
+    test("hovering magnifies and opens the card at once", async () => {
       const page = await open(turns(0, COUNT), 9000);
       const point = await tickPoint(page, 30);
       await page.mouse.move(point.x + 400, point.y);
@@ -255,10 +260,9 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       const growsAt = frames.filter((frame) => frame.t >= hovering).indexOf(grows!);
       expect(growsAt).toBeGreaterThanOrEqual(0);
       expect(growsAt).toBeLessThan(4);
-      // The card: Codex's 250 ms (its frames show 267-283 ms with the render), not the app's 450,
-      // painted by the second frame after.
-      expect(carded - over).toBeGreaterThan(230);
-      expect(carded - over).toBeLessThan(400);
+      // The card: no dwell. It commits before the second painted frame after the pointer arrives, as
+      // the hover does, and paints by the second frame after its commit.
+      expect(frames.filter((frame) => frame.t >= over && frame.t < carded).length).toBeLessThanOrEqual(1);
       const opensAt = frames.filter((frame) => frame.t >= carded).indexOf(opens!);
       expect(opensAt).toBeGreaterThanOrEqual(0);
       expect(opensAt).toBeLessThan(2);
@@ -299,22 +303,25 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
       // [turns loaded, turns that arrive above them, the transcript's offset]:
       // - 30, then 30 more: the rail grows from 300 px to its 57-row cap and glides back to center;
       // - 20, then 10 more: a rail that grows and stays under its cap;
-      // - 60, then 30 more: a rail that already scrolls, with the band in its top third: its own
-      //   scroll takes the new rows and the band does not move at all.
+      // - 90, then 30 more: a rail that already scrolls (past the default rail's 92% cap,
+      //   46c2c649311e), with the band in its top third: its own scroll takes the new rows and the
+      //   band does not move at all.
       for (const [loaded, more, offset] of [
         [30, 30, 3000],
         [20, 10, 3000],
-        [60, 30, 300],
+        [90, 30, 300],
       ] as const) {
         const total = loaded + more;
         const page = await open(turns(total - loaded, total), offset, total);
         const before = await page.evaluate(() => {
           const lit = (window as any).__lit() as string;
           const first = Number(lit.split(",")[0]);
+          const list = document.querySelector<HTMLElement>(".acpmux-minimap__list");
           return {
             lit,
             first,
             y: document.querySelector<HTMLElement>(`[data-tick="${first}"]`)!.getBoundingClientRect().top,
+            scrolls: !!list && list.scrollHeight > list.clientHeight + 1,
           };
         });
         // The page's animations run 10 times slower, so the glide spans enough frames to be seen on
@@ -326,7 +333,10 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
           async ({ rows, key, total: count, sampleMs }) => {
             const probe = window as any;
             const seen: { y: number; lit: string; t: number }[] = [];
-            const ticks = () => document.querySelectorAll(".acpmux-minimap__tick").length;
+            // The rail draws only the ticks in its view (tickWindow.ts, 8c3dac1aad59), so a long one
+            // never draws all of them: each entry carries the count of the rail it was drawn for.
+            const ticks = () =>
+              Number(document.querySelector(".acpmux-minimap__entry")?.getAttribute("aria-setsize") ?? 0);
             probe.__showRows(rows);
             // From the first frame that draws the new rows.
             for (let wait = 0; wait < 30 && ticks() !== count; wait += 1) await window.cmuxPaintFrame();
@@ -366,7 +376,7 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
         const steps = frames.map((frame) => Math.abs(yAt(frame.t + 1000 / 60) - frame.y));
         expect(Math.max(...steps)).toBeLessThanOrEqual(glideStep(Math.abs(frames.at(-1)!.y - frames[0]!.y)) + 1);
         // A rail that already scrolled holds the band still.
-        if (loaded * 10 > 574) expect(Math.abs(frames.at(-1)!.y - before.y)).toBeLessThanOrEqual(1);
+        if (before.scrolls) expect(Math.abs(frames.at(-1)!.y - before.y)).toBeLessThanOrEqual(1);
         await page.close();
       }
     });
@@ -401,6 +411,280 @@ await requireBrowserLane("thread-minimap-feel.test.ts", async () => {
         return found;
       });
       expect(clipped).toEqual([]);
+      await page.close();
+    });
+
+    // Leo, 2026-11-03: "i feel like our animation isn't as good as chatgpt's for it, it doesn't feel
+    // as wave-y as chatgpt's. something about easing or whatever idk it doesn't feel smooth when
+    // you're hoving your mouse through it". The fisheye stepped by whole rows: inside a row the ticks
+    // held still, and crossing into the next row moved every tick near it at once (the hovered one
+    // 26 to 20 px). The wave follows the pointer's own y: each tick's length is a smooth function of
+    // its distance from the pointer, so a pixel of pointer travel moves the ticks a little, anywhere.
+    // The cosine arm (wave.experiment.ts), kept for comparison now the zipper ships.
+    test("the cosine wave follows the pointer's y: a 1 px move changes no tick by more than 1.5 px", async () => {
+      const page = await open(turns(0, COUNT), 9000, COUNT, 820, "?wave=cosine-4");
+      const top = await page.evaluate(() => {
+        const box = document.querySelector<HTMLElement>('[data-tick="30"]')!.getBoundingClientRect();
+        const pitch =
+          Number.parseFloat(
+            getComputedStyle(document.querySelector<HTMLElement>(".acpmux-minimap__list")!).getPropertyValue(
+              "--acpmux-minimap-pitch",
+            ),
+          ) || 10;
+        return { x: box.left + 6, y: box.top, pitch };
+      });
+      await page.mouse.move(top.x, top.y + 5);
+      /// Every tick from 24 to 37 once their lengths have held for three painted frames.
+      const settledLengths = () =>
+        page.evaluate(async () => {
+          const probe = window as any;
+          const read = () => Array.from({ length: 14 }, (_, at) => probe.__length(24 + at) as number);
+          let last = read();
+          let held = 0;
+          for (let frame = 0; frame < 120 && held < 3; frame += 1) {
+            await window.cmuxPaintFrame();
+            const now = read();
+            held = now.every((length, at) => Math.abs(length - last[at]!) < 0.01) ? held + 1 : 0;
+            last = now;
+          }
+          return last;
+        });
+      await settledLengths();
+      // From 1 px into row 30 to 1 px before the end of row 31, a pixel at a time.
+      const rows: number[][] = [];
+      for (let y = 1; y <= Math.ceil(top.pitch); y += 1) {
+        await page.mouse.move(top.x, top.y + y);
+        rows.push(await settledLengths());
+      }
+      let largest = 0;
+      for (let at = 1; at < rows.length; at += 1)
+        for (let tick = 0; tick < rows[at]!.length; tick += 1)
+          largest = Math.max(largest, Math.abs(rows[at]![tick]! - rows[at - 1]![tick]!));
+      // The selected arm scales the row pitch with its height; the boundary step scales with it too.
+      expect(largest).toBeLessThanOrEqual(1.5 * (top.pitch / 10));
+      // Inside one row the ticks still move: tick 30 is longest with the pointer on its middle.
+      const tick30 = rows.map((lengths) => lengths[6]!);
+      expect(tick30[4]! - tick30[0]!).toBeGreaterThan(0.2);
+      expect(Math.max(...tick30.slice(0, 9))).toBeCloseTo(26, 0);
+      // The pointer at the boundary between rows 30 and 31 draws them alike.
+      expect(Math.abs(rows[Math.ceil(top.pitch) - 1]![6]! - rows[Math.ceil(top.pitch) - 1]![7]!)).toBeLessThan(1);
+      await page.close();
+    });
+
+    /// Ticks `from` to `from + count - 1`, once their lengths have held for three painted frames.
+    const settled = (page: Page, from: number, count: number) =>
+      page.evaluate(
+        async ({ from, count }) => {
+          const probe = window as any;
+          const read = () => Array.from({ length: count }, (_, at) => probe.__length(from + at) as number);
+          let last = read();
+          let held = 0;
+          for (let frame = 0; frame < 120 && held < 3; frame += 1) {
+            await window.cmuxPaintFrame();
+            const now = read();
+            held = now.every((length, at) => Math.abs(length - last[at]!) < 0.01) ? held + 1 : 0;
+            last = now;
+          }
+          return last;
+        },
+        { from, count },
+      );
+    /// The top left of tick `index`'s row, where the pointer goes.
+    const rowTop = (page: Page, index: number) =>
+      page.evaluate((at) => {
+        const box = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();
+        return { x: box.left + 6, y: box.top };
+      }, index);
+    /// ChatGPT's rail hovered (its 2x capture measures 52, 40, 28, 20 and 12 px): the hovered tick and
+    /// the ticks 1 to 4 rows from it, in CSS px.
+    const REFERENCE = [26, 20, 14, 10, 6];
+
+    // Leo, 2026-11-03: "the in-between feels a bit strange and gooey i'd rather keep it per zipper
+    // rail thing" and "you guys kinda messed up the selected one being the center tallest one". The
+    // wave drew the pointer's exact y, so between two rows both drew alike and the hovered tick was
+    // not clearly the longest. The zipper draws by whole rows: wherever the pointer is inside a row,
+    // that row's tick is the single longest, and the rows either side step down alike.
+    test("zipper: anywhere inside a row, the hovered tick is the longest and its neighbours are symmetric", async () => {
+      const page = await open(turns(0, COUNT), 9000);
+      const found: string[] = [];
+      for (const hovered of [30, 31]) {
+        const top = await rowTop(page, hovered);
+        for (let y = 1; y < 10; y += 1) {
+          await page.mouse.move(top.x, top.y + y);
+          // Ticks hovered - 5 to hovered + 5.
+          const lengths = await settled(page, hovered - 5, 11);
+          const at = (distance: number) => lengths[5 + distance]!;
+          const others = lengths.filter((_, index) => index !== 5);
+          if (at(0) < Math.max(...others) + 2) found.push(`row ${hovered} +${y} px: ${at(0)} not the longest`);
+          for (let distance = 1; distance <= 4; distance += 1) {
+            if (Math.abs(at(-distance) - at(distance)) > 0.3)
+              found.push(`row ${hovered} +${y} px: ${at(-distance)} above, ${at(distance)} below at ${distance}`);
+            if (Math.abs(at(distance) - REFERENCE[distance]!) > 0.5)
+              found.push(`row ${hovered} +${y} px: ${at(distance)} at ${distance}, not ${REFERENCE[distance]}`);
+          }
+          if (Math.abs(at(0) - REFERENCE[0]!) > 0.5) found.push(`row ${hovered} +${y} px: hovered ${at(0)}`);
+        }
+      }
+      expect(found).toEqual([]);
+      await page.close();
+    });
+
+    // The zipper's motion: as the hovered row changes, each tick eases from where it is to its new
+    // length, never past it and never back (a wave following the pointer grew the ticks it passed
+    // over and shrank them again), and the hovered tick is the longest on every frame.
+    test("zipper: between frames each tick moves monotonically toward its target, the hovered one longest", async () => {
+      const page = await open(turns(0, COUNT), 9000);
+      const from = await tickPoint(page, 30);
+      await page.mouse.move(from.x, from.y);
+      const before = await settled(page, 25, 13);
+      const to = await tickPoint(page, 32);
+      await page.evaluate(() => {
+        const probe = window as any;
+        probe.__zip = [];
+        window.cmuxAfterPaint(() => {
+          probe.__zip.push(Array.from({ length: 13 }, (_, at) => probe.__length(25 + at) as number));
+          return probe.__zip.length < 40;
+        });
+      });
+      await page.mouse.move(to.x, to.y);
+      await page.waitForFunction(() => (window as any).__zip.length >= 40);
+      const frames = (await page.evaluate(() => (window as any).__zip)) as number[][];
+      const after = await settled(page, 25, 13);
+      const found: string[] = [];
+      for (let tick = 0; tick < 13; tick += 1) {
+        const path = [before[tick]!, ...frames.map((lengths) => lengths[tick]!), after[tick]!];
+        const rising = after[tick]! >= before[tick]!;
+        for (let at = 1; at < path.length; at += 1) {
+          const step = path[at]! - path[at - 1]!;
+          if (rising ? step < -0.05 : step > 0.05)
+            found.push(`tick ${25 + tick} frame ${at}: ${path[at - 1]} to ${path[at]}, heading ${after[tick]}`);
+        }
+      }
+      // Tick 32 (at 7) is the longest from the first frame that drew the move on.
+      const moved = frames.findIndex((lengths) => lengths.some((length, at) => Math.abs(length - before[at]!) > 0.05));
+      expect(moved).toBeGreaterThanOrEqual(0);
+      for (const [at, lengths] of frames.slice(moved).entries()) {
+        const others = lengths.filter((_, index) => index !== 7);
+        if (lengths[7]! <= Math.max(...others)) found.push(`frame ${moved + at}: tick 32 ${lengths[7]} not longest`);
+      }
+      expect(found).toEqual([]);
+      // It landed on the reference's lengths around row 32.
+      for (let distance = 0; distance <= 4; distance += 1) {
+        expect(after[7 - distance]!).toBeCloseTo(REFERENCE[distance]!, 0);
+        expect(after[7 + distance]!).toBeCloseTo(REFERENCE[distance]!, 0);
+      }
+      await page.close();
+    });
+
+    // Leo, 2026-11-03: "you didnt add the animation that's required for when it gets released we
+    // just have ours go down instantly but chatgpt has an animation for when it shrinks". The ticks
+    // dropped back to rest on the micro step's spring, most of the way in two frames. Leaving the rail
+    // now shrinks them over the scale's ceiling, over many frames, and never grows one on the way.
+    test("zipper: after pointerleave the ticks shrink back over frames, not at once", async () => {
+      const page = await open(turns(0, COUNT), 9000);
+      const point = await tickPoint(page, 30);
+      await page.mouse.move(point.x, point.y);
+      await settled(page, 25, 11);
+      await page.evaluate(() => {
+        const probe = window as any;
+        probe.__release = [];
+        probe.__left = undefined;
+        document.addEventListener("pointerout", () => (probe.__left = performance.now()), {
+          once: true,
+          capture: true,
+        });
+        window.cmuxAfterPaint(() => {
+          probe.__release.push({ t: performance.now(), length: probe.__length(30), near: probe.__length(31) });
+          return probe.__release.length < 60;
+        });
+      });
+      await page.mouse.move(point.x + 400, point.y);
+      await page.waitForFunction(() => (window as any).__release.length >= 60);
+      const { left, frames } = await page.evaluate(() => ({
+        left: (window as any).__left as number,
+        frames: ((window as any).__release as { t: number; length: number; near: number }[]).filter(
+          (frame) => frame.t >= (window as any).__left,
+        ),
+      }));
+      expect(left).toBeGreaterThan(0);
+      // Never back up on the way down.
+      for (let at = 1; at < frames.length; at += 1) {
+        expect(frames[at]!.length).toBeLessThanOrEqual(frames[at - 1]!.length + 0.05);
+        expect(frames[at]!.near).toBeLessThanOrEqual(frames[at - 1]!.near + 0.05);
+      }
+      // Several frames on the way, not a drop in one.
+      const between = frames.filter((frame) => frame.length > 6.5 && frame.length < 25.5);
+      expect(between.length).toBeGreaterThanOrEqual(4);
+      // Still visibly on its way 130 ms after the pointer left (a 120 ms spring was done by then).
+      const lastBetween = Math.max(...between.map((frame) => frame.t));
+      expect(lastBetween - left).toBeGreaterThanOrEqual(130);
+      // And at rest at the end, with the wave handed back to the rail.
+      expect(frames.at(-1)!.length).toBeCloseTo(6, 0);
+      await page.waitForFunction(() => !document.querySelector(".acpmux-minimap__rail")!.hasAttribute("data-wave"));
+      await page.close();
+    });
+
+    // The sweep's cost, printed for the PR's Performance table (RAIL_SWEEP_PERF): a pointer swept
+    // down 30 rows at one pixel per painted frame, with the frames' intervals and Chromium's own
+    // layout, style and script counters over the sweep. The rail stays transform-only: no layout
+    // per pointer move.
+    test("a sweep through the rail costs no layout per pointer move", async () => {
+      const page = await open(turns(0, COUNT), 9000);
+      const start = await page.evaluate(() => {
+        const box = document.querySelector<HTMLElement>('[data-tick="20"]')!.getBoundingClientRect();
+        return { x: box.left + 6, y: box.top + 1 };
+      });
+      await page.mouse.move(start.x, start.y);
+      await page.evaluate(() => (window as any).__still(6));
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Performance.enable");
+      const metrics = async () =>
+        Object.fromEntries(
+          ((await cdp.send("Performance.getMetrics")) as { metrics: { name: string; value: number }[] }).metrics.map(
+            (metric) => [metric.name, metric.value],
+          ),
+        ) as Record<string, number>;
+      await page.evaluate(() => {
+        const probe = window as any;
+        probe.__sweep = [];
+        window.cmuxAfterPaint((frame) => {
+          probe.__sweep.push(frame);
+          return !probe.__sweepDone;
+        });
+      });
+      const before = await metrics();
+      const moves = 300;
+      for (let step = 1; step <= moves; step += 1) {
+        await page.mouse.move(start.x, start.y + step);
+        await page.evaluate(() => window.cmuxPaintFrame());
+      }
+      const after = await metrics();
+      const frames = await page.evaluate(() => {
+        (window as any).__sweepDone = true;
+        return (window as any).__sweep as number[];
+      });
+      const gaps = frames
+        .slice(1)
+        .map((time, at) => time - frames[at]!)
+        .sort((a, b) => a - b);
+      const pick = (share: number) => gaps[Math.min(gaps.length - 1, Math.floor(gaps.length * share))]!;
+      const delta = (name: string) => (after[name] ?? 0) - (before[name] ?? 0);
+      const report = {
+        moves,
+        frames: frames.length,
+        p50: Number(pick(0.5).toFixed(2)),
+        p95: Number(pick(0.95).toFixed(2)),
+        max: Number(gaps.at(-1)!.toFixed(2)),
+        layouts: delta("LayoutCount"),
+        styleRecalcs: delta("RecalcStyleCount"),
+        scriptMs: Number((delta("ScriptDuration") * 1000).toFixed(1)),
+        layoutMs: Number((delta("LayoutDuration") * 1000).toFixed(1)),
+        styleMs: Number((delta("RecalcStyleDuration") * 1000).toFixed(1)),
+      };
+      console.log(`RAIL_SWEEP_PERF ${JSON.stringify(report)}`);
+      expect(report.frames).toBeGreaterThan(moves / 2);
+      // At most one layout per painted frame: nothing in the sweep forces a second one.
+      expect(report.layouts).toBeLessThanOrEqual(report.frames + 10);
       await page.close();
     });
   });

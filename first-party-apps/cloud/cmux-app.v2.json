@@ -55,6 +55,11 @@
   "serves": {
     "ops": [
       "cloud.billing.checkout",
+      "cloud.environment.boot",
+      "cloud.environment.build",
+      "cloud.environment.delete",
+      "cloud.environment.list",
+      "cloud.environment.set",
       "cloud.machine.connect_info",
       "cloud.machine.create",
       "cloud.machine.delete",

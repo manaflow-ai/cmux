@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react";
 import { FindPill, type FindPillIconRole } from "../../../ui/FindPill";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
-import type { FindBarState } from "./chatFind";
+import { FIND_HIDE_EVENT, FIND_OPEN_EVENT, type FindBarState } from "./chatFind";
 
 /** The native pill's icons (FindPillIcons in the browser and terminal). */
 const ICONS: Record<FindPillIconRole, string> = {
@@ -19,6 +19,18 @@ const ICONS: Record<FindPillIconRole, string> = {
 export function ChatFindBar({ find, label }: { find: FindBarState; label?: string }) {
   const t = useT();
   const field = useRef<HTMLInputElement>(null);
+  // Opening, it tells the pane, so a Session Info with no room for the bar beside it steps aside; the
+  // pane closes it when the person opens Session Info over it there.
+  const { hide } = find;
+  useEffect(() => {
+    const shell = field.current?.closest(".acpmux-shell");
+    shell?.dispatchEvent(new (shell.ownerDocument.defaultView?.Event ?? Event)(FIND_OPEN_EVENT));
+  }, []);
+  useEffect(() => {
+    const shell = field.current?.closest(".acpmux-shell");
+    shell?.addEventListener(FIND_HIDE_EVENT, hide);
+    return () => shell?.removeEventListener(FIND_HIDE_EVENT, hide);
+  }, [hide]);
   useEffect(() => {
     field.current?.focus();
     field.current?.select();

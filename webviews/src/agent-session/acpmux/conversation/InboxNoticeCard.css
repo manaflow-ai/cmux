@@ -1,0 +1,47 @@
+/* acpmux's inbox notice (InboxNoticeCard.tsx): each thread a received line (conversation.css
+   `.cv-received`), with the thread's label before the preview and "+N more" after it, muted, never cut; the group's head
+   is a tool row (below). Colours, glass and type are the transcript's. */
+.cv-inbox__label {
+  flex: none;
+  color: var(--cv-text-muted);
+}
+/* "+N more" right after the preview, which gives way to it. */
+.cv-inbox__more {
+  flex: none;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* Several messages in an opened thread: each under its sender's name, a small gap between them. */
+.cv-inbox__message + .cv-inbox__message {
+  margin-top: var(--ds-space-2);
+}
+.cv-inbox__from {
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-inbox__message > .cv-md > :first-child {
+  margin-top: 0;
+}
+.cv-inbox__message > .cv-md > :last-child {
+  margin-bottom: 0;
+}
+/* `card` (a gallery version, inboxNoticeLook.ts): the threads' lines in one quiet bordered card. */
+.cv-inbox--card {
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 2px 0;
+  padding-inline: var(--ds-space-1);
+  border: 1px solid var(--cv-card-ring);
+  border-radius: var(--ds-radius-card, 12px);
+}
+/* Two or more threads, folded (InboxNoticeCard.tsx, the `group` look): a tool-row head
+   (MessageGroupHead.css), and opened, the threads' lines start at the tool rows' words. */
+.cv-inbox--group {
+  margin: 0;
+  container-type: inline-size;
+}
+.cv-inbox__body {
+  margin-inline-start: var(--cv-tool-text-inset);
+}

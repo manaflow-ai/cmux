@@ -9,14 +9,15 @@
 //! stream is one dial and one fresh link token inside `cmux link`
 //! (contract 1.7). A stream refused with `unknown_host`, `not_authorized`
 //! or `host_paused` reports `dial-failed` with the typed code and the
-//! supervisor ends the generation; other refusals end only that stream.
+//! supervisor ends the generation. An `unreachable` dial also ends the
+//! generation, so a listening carrier never stays ready after its path failed.
 //!
 //! Events go to the supervisor only through [`LinkEvents`]: no timer, no
 //! polling. Every child is started by this carrier and only those children
 //! are ended by it (by their own handles, never by name or pattern).
 
 use super::argv::{LinkCommand, dial_failed_line, ready_line};
-use super::dial::{DialCode, DialReply, MAX_REPLY_BYTES, parse_reply};
+use super::dial::{DialCode, DialReply, MAX_REPLY_BYTES, Refusal, parse_reply};
 use super::spawner::{LinkEvents, LinkProcess, LinkProcessEvent, LinkSpawner, LinkTag};
 use crate::app_env::private_dir;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
@@ -62,9 +63,9 @@ pub(crate) fn open_dial(
     args: &[String],
     env: &[(String, String)],
     children: &Children,
-) -> Result<Dialed, DialCode> {
+) -> Result<Dialed, Refusal> {
     if !binary.is_absolute() {
-        return Err(DialCode::Unavailable("the link binary is not an absolute path".into()));
+        return Err(DialCode::Unavailable("the link binary is not an absolute path".into()).into());
     }
     let mut process = Command::new(binary);
     process.args(args).env_clear();
@@ -74,20 +75,22 @@ pub(crate) fn open_dial(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| DialCode::Unavailable(format!("cmux link dial did not start: {e}")))?;
+        .map_err(|e| {
+            Refusal::from(DialCode::Unavailable(format!("cmux link dial did not start: {e}")))
+        })?;
     let pipes = (child.stdin.take(), child.stdout.take(), child.stderr.take());
     let child = Arc::new(Mutex::new(child));
     lock(children).push(Arc::clone(&child));
     let (Some(stdin), Some(stdout), Some(stderr)) = pipes else {
         end_child(&child, children);
-        return Err(DialCode::Unavailable("cmux link dial has no pipes".into()));
+        return Err(DialCode::Unavailable("cmux link dial has no pipes".into()).into());
     };
     let mut stderr = BufReader::new(stderr);
     let mut line = Vec::new();
     let read = (&mut stderr).take(MAX_REPLY_BYTES as u64).read_until(b'\n', &mut line);
     let reply = match read {
         Ok(_) => parse_reply(&String::from_utf8_lossy(&line)),
-        Err(e) => DialReply::Refused(DialCode::Unavailable(format!("cmux link dial: {e}"))),
+        Err(e) => DialReply::Refused(DialCode::Unavailable(format!("cmux link dial: {e}")).into()),
     };
     // Drain the rest of stderr so the child never blocks on a full pipe.
     let _ = std::thread::Builder::new().name("cmux-link-dial-stderr".into()).spawn(move || {
@@ -95,9 +98,9 @@ pub(crate) fn open_dial(
     });
     match reply {
         DialReply::Connected { .. } => Ok(Dialed { child, stdin, stdout }),
-        DialReply::Refused(code) => {
+        DialReply::Refused(refusal) => {
             end_child(&child, children);
-            Err(code)
+            Err(refusal)
         }
     }
 }
@@ -236,10 +239,17 @@ impl Drop for StreamSlot {
 }
 
 /// A refusal that ends the link generation: the machine is gone, access
-/// ended, or it is paused (the next connect starts it). Other refusals
-/// (no path now, the link not running) end only that stream.
+/// ended, it is paused (the next connect starts it), or its path is
+/// unreachable. A retry opens a new generation; transient malformed or
+/// unavailable replies still end only the stream.
 fn ends_generation(code: &DialCode) -> bool {
-    matches!(code, DialCode::UnknownHost | DialCode::NotAuthorized | DialCode::HostPaused)
+    matches!(
+        code,
+        DialCode::UnknownHost
+            | DialCode::NotAuthorized
+            | DialCode::HostPaused
+            | DialCode::Unreachable
+    )
 }
 
 /// The carrier's life: ready as soon as it listens (no dial: a dial mints
@@ -288,17 +298,69 @@ fn run(
                 Ok(dialed) if stop.load(Ordering::SeqCst) => end_child(&dialed.child, &children),
                 Ok(dialed) => splice(connection, dialed, &children),
                 // The client sees end of stream. A refusal that ends access
-                // or finds the machine paused goes to the supervisor, typed.
-                Err(code) if ends_generation(&code) => {
-                    let line = dial_failed_line(&code);
+                // finds the machine paused, or cannot reach it goes to the supervisor, typed.
+                Err(refusal) if ends_generation(&refusal.code) => {
+                    let line = dial_failed_line(&refusal.code, refusal.detail.as_deref());
                     let _ = events.send(LinkProcessEvent::Line { tag, line });
                 }
-                Err(code) => eprintln!(
-                    "cmux-cloud: a stream to {} was refused: {}",
+                Err(refusal) => eprintln!(
+                    "cmux-cloud: a stream to {} was refused: {}{}",
                     tag.machine,
-                    code.as_str()
+                    refusal.code.as_str(),
+                    refusal.detail.map(|d| format!(" ({d})")).unwrap_or_default()
                 ),
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::link::{LinkState, LinkSupervisor};
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+
+    #[test]
+    fn an_unreachable_dial_ends_the_ready_generation_and_can_be_retried() {
+        let root = std::env::temp_dir().join(format!("cc-unreachable-{}", std::process::id()));
+        let command = LinkCommand {
+            binary: PathBuf::from("/bin/sh"),
+            args: vec![
+                "-c".into(),
+                r#"printf '%s\n' '{"ok":false,"error_code":"unreachable","error_detail":"connect_info: cloud.machine.not_bound"}' >&2"#.into(),
+            ],
+            env: vec![],
+            state_dir: root.join("state"),
+            local_socket: root.join("carrier.sock"),
+        };
+        let (wake, woke) = channel();
+        let mut supervisor = LinkSupervisor::new(Box::new(CarrierSpawner));
+        supervisor.set_wake(Arc::new(move || {
+            let _ = wake.send(());
+        }));
+        let carrier = supervisor.spawn_and_wait("vm-test", &command).expect("carrier listens");
+        let connection = UnixStream::connect(&carrier.socket).expect("open a real carrier stream");
+        // The ready wake may still be queued. Every next wake is bounded;
+        // no sleep or poll is needed to observe the refused dial.
+        for _ in 0..3 {
+            woke.recv_timeout(Duration::from_secs(5)).expect("carrier event");
+            supervisor.pump();
+            if supervisor.refusal("vm-test").is_some() {
+                break;
+            }
+        }
+        assert_eq!(supervisor.refusal("vm-test"), Some(&DialCode::Unreachable));
+        assert!(matches!(
+            supervisor.state("vm-test"),
+            Some(LinkState::Down { retryable: true, reason })
+                if reason == "cmux link refused the dial: unreachable (connect_info: cloud.machine.not_bound)"
+        ));
+        assert!(supervisor.carrier("vm-test").is_none(), "a refused dial is not a ready link");
+        drop(connection);
+        let retry = supervisor.spawn_and_wait("vm-test", &command).expect("retry is allowed");
+        assert_ne!(retry.generation, carrier.generation);
+        supervisor.disconnect("vm-test");
+        std::fs::remove_dir_all(root).expect("remove this test's private files");
     }
 }

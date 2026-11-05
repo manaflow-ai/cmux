@@ -9,11 +9,15 @@ extension WorkspaceHibernationSettings {
     public nonisolated static let idleMinutesPath = ["workspaces", "hibernation", "idleMinutes"]
     public nonisolated static let idleMinutesDefault: Double = 60
     public nonisolated static let idleMinutesRange: ClosedRange<Double> = 5...10_080
+    /// `workspaces.hibernation.hiddenSpaceMinutes`: Minutes a workspace of a space no window shows waits instead (leo-workspace design/spaces.md, Hibernation and the perf plan); the shorter of this and idleMinutes applies. 15: picked from bench_workspace_hibernation.py (the PR names the run). Memory pressure shortens it the same way.
+    public nonisolated static let hiddenSpaceMinutesPath = ["workspaces", "hibernation", "hiddenSpaceMinutes"]
+    public nonisolated static let hiddenSpaceMinutesDefault: Double = 15
+    public nonisolated static let hiddenSpaceMinutesRange: ClosedRange<Double> = 5...1440
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum WorkspaceHibernationSettingsSchema {
-    /// Settings > General > Hibernation. WorkspaceHibernation (CmuxNextApp) reads both rows; a workspace's Keep Awake (its row's Options menu) wins.
+    /// Settings > General > Hibernation. WorkspaceHibernation (CmuxNextApp) reads every row; a workspace's Keep Awake (its row's Options menu) wins.
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.workspaceHibernation", "Hibernation")
         return [
@@ -36,6 +40,16 @@ nonisolated enum WorkspaceHibernationSettingsSchema {
                 kind: .number(SettingNumber(WorkspaceHibernationSettings.idleMinutesRange, step: 5, unit: .minutes)),
                 default: .number(WorkspaceHibernationSettings.idleMinutesDefault),
                 keywords: ["hibernate", "idle", "minutes", "timeout", "memory"]
+            ),
+            SettingDescriptor(
+                WorkspaceHibernationSettings.hiddenSpaceMinutesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceHibernation.hiddenSpaceMinutes", "Hibernate Hidden Spaces After"),
+                help: SettingsText.keyed("settings.workspaceHibernation.hiddenSpaceMinutes.help", "When no window shows a space, its workspaces hibernate after this many idle minutes instead. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."),
+                kind: .number(SettingNumber(WorkspaceHibernationSettings.hiddenSpaceMinutesRange, step: 5, unit: .minutes)),
+                default: .number(WorkspaceHibernationSettings.hiddenSpaceMinutesDefault),
+                keywords: ["hibernate", "idle", "minutes", "hidden", "space", "spaces", "window", "memory"]
             ),
         ]
     }

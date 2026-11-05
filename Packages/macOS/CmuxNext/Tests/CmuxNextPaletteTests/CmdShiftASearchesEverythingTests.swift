@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
+import CmuxNextTestSupport
 import Testing
 
 /// Cmd-Shift-A opens Search: open workspaces and tabs plus browser history, agent chats and the
 /// rest of history, in one list. Cmd-P lists only what is open (`CmdPListsOpenItemsTests`).
 /// Search Tabs keeps its palette row (Cmd-Shift-P), without a default key.
 @MainActor
-@Suite(.paletteRanker)
+@Suite(.paletteRanker, .closesItsWindows)
 struct CmdShiftASearchesEverythingTests {
     @MainActor private final class Workspaces: PaletteWorkspaceSource {
         var workspaces: [PaletteWorkspace] = [PaletteWorkspace(id: "w1", title: "Zebra backend")]
@@ -42,7 +43,7 @@ struct CmdShiftASearchesEverythingTests {
     /// Cmd-Shift-A runs `search.chats`; Search Tabs keeps its palette row with no default key.
     @Test func cmdShiftAIsSearch() {
         let (palette, registry) = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         #expect(registry.descriptor(for: "search.chats")?.defaultShortcut == Shortcut("a", modifiers: [.command, .shift]))
         let tabs = registry.descriptor(for: "tab.search")
         #expect(tabs != nil)
@@ -53,7 +54,7 @@ struct CmdShiftASearchesEverythingTests {
     /// It opens Search with no chip: open items, history and agent chats all match.
     @Test func itSearchesEverything() async {
         let (palette, registry) = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: [:], origin: .user))
         await palette.model.settle()
         #expect(palette.isVisible)
@@ -68,7 +69,7 @@ struct CmdShiftASearchesEverythingTests {
     /// A query argument (the CLI's `--arg query=...`) starts Search with that text.
     @Test func itKeepsTheQueryArgument() async {
         let (palette, registry) = Self.palette()
-        defer { palette.hide() }
+        defer { palette.closeForTest() }
         _ = registry.perform("search.chats", invocation: ActionInvocation(arguments: ["query": .string("zebra")], origin: .user))
         await palette.model.settle()
         let ids = Set(palette.model.rows.map(\.item.id))

@@ -1,0 +1,16 @@
+[package]
+name = "cmux-cloud-start-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The NEXT Cloud start's decisions (pure; the macOS app asks them over the app FFI): the harness login a cloud.startChat start passes, its refusal, account and folder checks, the machine's login probe and the vm-kind word"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[lints]
+workspace = true

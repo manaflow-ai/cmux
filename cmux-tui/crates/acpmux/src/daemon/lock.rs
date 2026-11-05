@@ -85,7 +85,9 @@ fn holder_pid(file: &std::fs::File) -> Option<u32> {
     use std::os::unix::fs::FileExt;
     let mut buf = [0u8; 16];
     let n = file.read_at(&mut buf, 0).ok()?;
-    let pid: libc::pid_t = std::str::from_utf8(&buf[..n]).ok()?.trim().parse().ok()?;
+    // The first line; the socket follows it ([`record_pid`]).
+    let text = std::str::from_utf8(buf.get(..n)?).ok()?;
+    let pid: libc::pid_t = text.lines().next()?.trim().parse().ok()?;
     if pid <= 0 {
         return None;
     }
@@ -96,15 +98,100 @@ fn holder_pid(file: &std::fs::File) -> Option<u32> {
     alive.then_some(pid as u32)
 }
 
-/// Write this daemon's pid into the lock it now holds, for the refusal a second daemon prints.
-/// Best effort: the lock itself is the flock, never the file's contents.
+#[cfg(unix)]
+fn lock_is_held(file: &std::fs::File) -> bool {
+    use std::os::unix::io::AsRawFd;
+    // SAFETY: flock only probes this descriptor and the shared lock is released
+    // before returning.
+    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) };
+    if rc == 0 {
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        false
+    } else {
+        std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK)
+    }
+}
+
+/// Whether a live daemon holds the lock at `path`, read from the pid it wrote there, without
+/// taking the lock or creating the file: a listing asks this to tell a daemon in a restart's
+/// handover (wait for it) from none at all (start none, `running.rs`).
+#[cfg(unix)]
+pub(super) fn lock_has_live_holder(path: &Path) -> bool {
+    std::fs::File::open(path).is_ok_and(|file| lock_is_held(&file))
+}
+
+/// The live holder's pid of the lock at `path`, read from the pid it wrote there, without taking
+/// the lock or creating the file.
+#[cfg(unix)]
+pub(super) fn live_holder_pid(path: &Path) -> Option<u32> {
+    let file = std::fs::File::open(path).ok()?;
+    let pid = holder_pid(&file)?;
+    lock_is_held(&file).then_some(pid)
+}
+
+/// The pid of another process that holds a daemon lock serving `socket`: this home's lock, or the
+/// one in the socket's folder (an `ACPMUX_SOCKET` that names another home's socket). Only a lock's
+/// holder may remove the socket it serves (`server::bind_unix`): a daemon of another home, or a
+/// command, that found it slow to answer took it from under a live daemon. The flock itself says
+/// whether the lock is held (a probe never keeps it); the file says by whom and for which socket.
+#[cfg(unix)]
+pub(crate) fn socket_held_by_other(socket: &Path) -> Option<u32> {
+    use std::os::unix::io::AsRawFd;
+    let mut locks = vec![crate::config::home().join("daemon.lock")];
+    if let Some(folder) = socket.parent() {
+        let lock = folder.join("daemon.lock");
+        if !locks.contains(&lock) {
+            locks.push(lock);
+        }
+    }
+    locks.into_iter().find_map(|lock| {
+        let file = std::fs::File::open(&lock).ok()?;
+        let text = std::fs::read_to_string(&lock).ok()?;
+        let mut lines = text.lines();
+        let pid: u32 = lines.next()?.trim().parse().ok()?;
+        let served = Path::new(lines.next()?.trim());
+        if pid == std::process::id() || served != socket {
+            return None;
+        }
+        // SAFETY: flock on a descriptor this function owns, released before it returns.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0 {
+            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+            return None;
+        }
+        Some(pid)
+    })
+}
+
+/// Windows: the lock covers the file, so its holder's pid cannot be read; ask the lock itself. A
+/// shared try fails while a daemon holds it exclusively; when none does, it is taken and dropped
+/// at once. A daemon that tries the lock in that instant reports `lockHeld`, and both starters
+/// try again (`start_and_connect`, `start_keyed`), so the probe can delay a start, never fail it.
+#[cfg(windows)]
+pub(super) fn lock_has_live_holder(path: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(path) else {
+        return false;
+    };
+    matches!(file.try_lock_shared(), Err(std::fs::TryLockError::WouldBlock))
+}
+
+/// Write this daemon's pid and the socket it serves into the lock it now holds: the pid for the
+/// refusal a second daemon prints, the socket for a command whose own socket is another one
+/// ([`holder_socket`]). Best effort: the lock itself is the flock, never the file's contents.
 #[cfg(unix)]
 fn record_pid(file: &std::fs::File) {
     use std::os::unix::fs::FileExt;
-    let pid = format!("{}\n", std::process::id());
+    let pid = format!("{}\n{}\n", std::process::id(), crate::config::socket_path().display());
     if file.set_len(0).is_ok() {
         let _ = file.write_at(pid.as_bytes(), 0);
     }
+}
+
+/// The socket the holder of the lock at `path` recorded ([`record_pid`]); a claim to check
+/// (a stale file still says it), never proof.
+#[cfg(unix)]
+pub(super) fn holder_socket(path: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(path).ok()?;
+    text.lines().nth(1).map(str::trim).filter(|s| !s.is_empty()).map(PathBuf::from)
 }
 
 #[cfg(unix)]
@@ -145,12 +232,23 @@ pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
 /// blocking `flock` on a worker thread would outlive the timeout and hold
 /// up runtime teardown.
 #[cfg(unix)]
-pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
+pub(super) async fn wait_for_lock_release(lock: PathBuf) -> bool {
+    wait_for_lock_release_with_budget(lock, None).await
+}
+
+/// Wait for a lock with an optional cleanup budget. A caller waiting for a live
+/// daemon's handover uses [`wait_for_lock_release`], while shutdown cleanup may
+/// still choose a finite bound.
+#[cfg(unix)]
+pub(super) async fn wait_for_lock_release_with_budget(
+    lock: PathBuf,
+    budget: Option<Duration>,
+) -> bool {
     use std::os::unix::io::AsRawFd;
     let Ok(file) = crate::config::private_state_rw(&lock) else {
         return true;
     };
-    let deadline = tokio::time::Instant::now() + budget;
+    let deadline = budget.map(|budget| tokio::time::Instant::now() + budget);
     loop {
         // SAFETY: flock on a descriptor this function owns.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
@@ -160,7 +258,7 @@ pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bo
         if kind != std::io::ErrorKind::WouldBlock && kind != std::io::ErrorKind::Interrupted {
             return false;
         }
-        if tokio::time::Instant::now() >= deadline {
+        if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
             return false;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -169,18 +267,26 @@ pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bo
 /// Windows: polls a non-blocking `LockFileEx` (std's `File::try_lock`), as
 /// the Unix arm polls `flock`.
 #[cfg(windows)]
-pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
+pub(super) async fn wait_for_lock_release(lock: PathBuf) -> bool {
+    wait_for_lock_release_with_budget(lock, None).await
+}
+
+#[cfg(windows)]
+pub(super) async fn wait_for_lock_release_with_budget(
+    lock: PathBuf,
+    budget: Option<Duration>,
+) -> bool {
     let Ok(file) = crate::config::private_state_rw(&lock) else {
         return true;
     };
-    let deadline = tokio::time::Instant::now() + budget;
+    let deadline = budget.map(|budget| tokio::time::Instant::now() + budget);
     loop {
         match file.try_lock() {
             Ok(()) => return true,
             Err(std::fs::TryLockError::WouldBlock) => {}
             Err(std::fs::TryLockError::Error(_)) => return false,
         }
-        if tokio::time::Instant::now() >= deadline {
+        if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
             return false;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;

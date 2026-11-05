@@ -59,6 +59,8 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     /// A markdown page (with ``markdownFocused``) edits its file: bare keys
     /// are typing there.
     public static let markdownEditorFocused = ActionContext(rawValue: 1 << 22)
+    /// Debug Settings' Side sessions (/btw) is on; Ask a Side Question… is offered only then.
+    public static let sideSessions = ActionContext(rawValue: 1 << 23)
 
     /// Contexts whose page owns bare keys (no Command, Control or Option):
     /// only while one holds, and no text field has the keyboard, may a
@@ -89,4 +91,8 @@ extension ActionContext {
         default: []
         }
     }
+
+    /// The facts a `pane:` or `tab:` target brings itself (`ActionRegistry.targetContext`):
+    /// whether it is an agent chat, and whether it sits on a canvas screen.
+    public nonisolated static let decidedByPaneOrTabTarget: ActionContext = [.agentPaneFocused, .canvasLayout]
 }

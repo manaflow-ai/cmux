@@ -184,6 +184,38 @@ async fn a_peers_missing_folder_inside_a_root_is_made_and_one_outside_is_refused
 }
 
 #[tokio::test]
+async fn a_peers_missing_folder_that_was_removed_with_an_archive_record_is_not_made_again() {
+    // A cleaned-up worktree leaves `~/archive/<time>-<name>/manifest.json` naming its path; a
+    // stale chat's start that still names it brought it back empty, and the cleanup archived
+    // it again on every pass (hygiene audit).
+    let root = scratch("removed");
+    let hub = hub(&root);
+    let mut peer = C::open(&hub, Origin::Peer);
+    let gone = root.join("plan-card");
+    let record = dirs::home_dir().unwrap().join("archive").join("20261102T113857-plan-card");
+    std::fs::create_dir_all(&record).unwrap();
+    std::fs::write(record.join("manifest.json"), json!({"path": gone}).to_string()).unwrap();
+
+    for asked in [gone.clone(), gone.join("sub")] {
+        let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&asked))).await;
+        assert_eq!(reason(&r), "remote.cwd_missing", "{r}");
+        assert_eq!(r["error"]["data"]["cause"], "removed", "{r}");
+        assert_eq!(r["error"]["data"]["cwd"], json!(gone), "{r}");
+        let message = r["error"]["message"].as_str().unwrap();
+        assert!(message.contains("start the chat in an existing folder"), "{message}");
+    }
+    assert!(!gone.exists(), "a removed folder is not made again");
+
+    // An ordinary new folder beside it, and one whose name only starts the same, still are.
+    for want in [root.join("fresh"), root.join("plan-card-2")] {
+        let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&want))).await;
+        assert_eq!(cwd_of(&hub, &r), want, "{r}");
+    }
+    let _ = std::fs::remove_dir_all(&record);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn creation_tags_are_recorded_before_new_returns() {
     let root = scratch("tags");
     let hub = hub(&root);
@@ -335,7 +367,7 @@ async fn a_mode_refused_at_a_remote_start_says_to_start_without_it_and_that_star
     let meta = json!({"peer": "b", "harness": "fake", "name": "lane-2", "mode": "yolo"});
     let r = ca.call(method::SESSION_NEW, new(meta, Some(&root))).await;
     assert_eq!(reason(&r), "remote.mode_refused", "{r}");
-    let want = format!("acpmux new --host b -m fake -n lane-2 --cwd {} -d", root.display());
+    let want = format!("acpmux new --machine b -m fake -n lane-2 --cwd {} -d", root.display());
     assert_eq!(tried(&r), want, "{r}");
 
     let meta = json!({"peer": "b", "harness": "fake", "name": "lane-2"});
@@ -354,7 +386,7 @@ async fn a_mode_and_a_folder_outside_the_roots_are_both_fixed_by_one_suggestion(
     let r = ca.call(method::SESSION_NEW, new(meta, Some(&outside.join("w")))).await;
     assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
     let inside = root.join("w");
-    let want = format!("acpmux new --host b -m fake -n lane-4 --cwd {} -d", inside.display());
+    let want = format!("acpmux new --machine b -m fake -n lane-4 --cwd {} -d", inside.display());
     assert_eq!(tried(&r), want, "{r}");
 
     let meta = json!({"peer": "b", "harness": "fake", "name": "lane-4"});

@@ -16,6 +16,11 @@ extension Strings {
         }
     }
 
+    /// A started session's row title when it would repeat its parent's name.
+    static func subagentOf(_ parent: String) -> String {
+        String(localized: "sidebar.sessionTree.subagentOf", defaultValue: "Subagent of \(parent)", bundle: .module)
+    }
+
     /// A tree parent's chevron and VoiceOver action: fold the sessions it started out of sight.
     static var collapseSessions: String {
         String(localized: "sidebar.sessionTree.collapse", defaultValue: "Hide Started Sessions", bundle: .module)

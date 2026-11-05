@@ -64,6 +64,26 @@ export function EnvironmentCard({
       ) : (
         head && <ProjectRow project={head} where={where} checked onPick={onPick} />
       )}
+      {!current && !noProject && local.length === 0 && onBrowse && (
+        // On a clean install there are no recent folders to show. Put the native folder picker
+        // in the card so choosing the first project is one click instead of a menu hunt.
+        <button type="button" className="nt-stage-row" data-action="browse-project" onClick={onBrowse}>
+          <span className="nt-stage-icon" aria-hidden="true">
+            <Icon name="folder" size={14} />
+          </span>
+          <span className="nt-stage-text">{t("project.browse")}</span>
+        </button>
+      )}
+      {!current && !noProject && local.length === 0 && (
+        // A fresh workspace has no recent project row yet. Keep the no-project path visible in
+        // the card itself so a first chat can start without first discovering the chooser menu.
+        <button type="button" className="nt-stage-row" aria-pressed={false} onClick={onNoProject}>
+          <span className="nt-stage-icon" aria-hidden="true">
+            <Icon name="folder" size={14} />
+          </span>
+          <span className="nt-stage-text">{t("composer.noProject")}</span>
+        </button>
+      )}
       {others.map((project) => (
         <ProjectRow key={project.cwd} project={project} where={where} checked={false} onPick={onPick} />
       ))}

@@ -14,6 +14,13 @@ import { type RefObject, useLayoutEffect } from "react";
 // and, while its controls would not fit, applies the next steps too, writing each unit's form on
 // the row (`data-fit-model="family"`).
 //
+// The quiet row under the box (ComposerFoot, #22285) takes no width step: the steps date from
+// #20802's one row, where +, the prompt, the chips, the mic and Send shared the width, and #22285
+// moved the mode, the model button and the ring into a row of their own. There the forms follow
+// what this hook measures alone: the units' natural widths against the row's room, so a 410 px
+// composer keeps "Opus 5.5  Medium" while it fits (live-qa 2026-10-21 read "Opus Med" with about
+// 250 px of the row free) and shortens only when the row really runs out.
+//
 // A part of a unit carries the unit's name (`data-fit-part="model"`) and the forms it shows in
 // (`data-fit-forms="full family"`). A part of another form is laid out of the row, absolute and
 // invisible, so its width is still known: the decision never toggles to measure. It runs when the
@@ -149,7 +156,13 @@ export function fitStep(
 /** The width the row's steps follow: the composer's content box (the CSS's `composer` container,
  *  #20548), so a split pane, the New Tab card and the quick surface step down alike. */
 function paneWidth(bar: HTMLElement): number {
-  const composer = bar.closest<HTMLElement>(".acpmux-composer, .nt-composer");
+  // The plain quiet row fits on its measured room alone (above): no composer width takes a step
+  // there. ComposerFoot draws the same row in both footer looks and marks only the plain one, so with
+  // the plain footer off the row takes the width steps as the one row always did. New Tab's row takes
+  // them in either look (composerLocation.css keys its own guards on the same element and attribute).
+  if (bar.classList.contains("acpmux-composer-foot") && bar.dataset.footerLook === "plain")
+    return Number.POSITIVE_INFINITY;
+  const composer = bar.closest<HTMLElement>(".acpmux-composer, .nt-composer, .acpmux-newtab");
   if (!composer) return bar.ownerDocument.documentElement.clientWidth;
   const style = getComputedStyle(composer);
   return composer.clientWidth - px(style.paddingLeft) - px(style.paddingRight);
@@ -214,10 +227,31 @@ export function useRowFit(bar: RefObject<HTMLElement | null>, row?: unknown): vo
     const fit = () => show(element, rowStep(element));
     fit();
     // The row's own width (the pane), and a chip's (a new model or mode name, a chip that comes or goes).
+    // The row's own items too, through `display: contents` wrappers (the quiet row's `.acpmux-chips`,
+    // whose box a ResizeObserver never reports): a label that sets wider without the row resizing (a
+    // font that loads late, Linux's wider metrics) runs the fit again, so the row never keeps a form
+    // it no longer has room for (narrow-layouts `new-tab-wide-type`). The fit's own form changes
+    // resize them as well; the next pass computes the same step (fitStep's LABELS_BACK keeps it from
+    // flipping), so it settles. An item that leaves the row stops being observed; `disconnect` below
+    // ends the rest.
     const resize = new ResizeObserver(fit);
     resize.observe(element);
+    const watched = new Set<Element>();
     const watchChips = () => {
-      for (const chip of element.querySelectorAll(".acpmux-chips, .acpmux-composer-actions")) resize.observe(chip);
+      const now = new Set<Element>([
+        ...element.querySelectorAll(".acpmux-chips, .acpmux-composer-actions"),
+        ...items(element),
+      ]);
+      for (const old of watched)
+        if (!now.has(old)) {
+          resize.unobserve(old);
+          watched.delete(old);
+        }
+      for (const item of now)
+        if (!watched.has(item)) {
+          resize.observe(item);
+          watched.add(item);
+        }
     };
     watchChips();
     const mutation = new MutationObserver(() => {

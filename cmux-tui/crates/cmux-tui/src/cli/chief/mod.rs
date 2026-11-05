@@ -9,10 +9,13 @@
 //! reply and exits when the Chief's turn ends. On a terminal it opens the
 //! chat (`tui`).
 
+mod acp;
 mod adapter;
 mod avatar;
 mod backend;
+pub(in crate::cli) mod caller;
 mod chat;
+pub(in crate::cli) mod chat_scope;
 mod control;
 mod editor;
 mod home;
@@ -21,6 +24,7 @@ mod launch;
 mod link;
 mod messages;
 mod pipe;
+mod primary;
 pub(in crate::cli) mod registry;
 mod relocate;
 mod render;
@@ -39,6 +43,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
+use cmux_conversation::agent_sender::AgentSender;
 use link::{Link, LinkError};
 use messages::messages;
 
@@ -77,8 +82,37 @@ pub(super) struct Args {
     /// `--no-wait-agents`: pipe mode ends with the turn that answers the
     /// message, not after the subagents it started (E22).
     pub no_wait_agents: bool,
+    /// `--no-wait`: pipe mode exits once the message is in the Chief's
+    /// conversation, without waiting for the Chief to read or answer it.
+    pub no_wait: bool,
     /// `--chat`, `--cloud` and the cloud lease flags (script.rs).
     pub target: script::TargetArgs,
+    /// `--from NAME`: the acpmux session that sends `-p` (default:
+    /// `ACPMUX_SESSION_NAME`, set in every acpmux agent's environment).
+    pub from: Option<String>,
+    /// `--class C`: what the sender asks (`acpmux send --class`).
+    pub class: Option<String>,
+    /// `--thread T`: the sender's thread.
+    pub thread: Option<String>,
+}
+
+impl Args {
+    /// Who sends the `-p` message: `--from`, else the acpmux session this
+    /// runs in, else the coding agent it runs under (`caller.rs`); None for
+    /// the person at a terminal.
+    pub(super) fn sender(
+        &self,
+        env: &dyn Fn(&str) -> Option<String>,
+        host: &dyn Fn() -> Option<String>,
+    ) -> Option<AgentSender> {
+        caller::sender(
+            self.from.as_deref(),
+            self.class.as_deref(),
+            self.thread.as_deref(),
+            env,
+            host,
+        )
+    }
 }
 
 /// `cmux [global options] chief …`; `None` when `args` names another scope.
@@ -142,6 +176,9 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             }
             "-h" | "--help" | "help" => parsed.help = true,
             "-p" | "--prompt" => parsed.prompt = Some(value()?),
+            "--from" => parsed.from = Some(value()?),
+            "--class" => parsed.class = Some(value()?),
+            "--thread" => parsed.thread = Some(value()?),
             "--timeout" => {
                 let text = value()?;
                 let secs: u64 =
@@ -149,7 +186,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
                 parsed.timeout_secs = (secs > 0).then_some(secs);
             }
             "--chief-home" => parsed.chief_home = Some(value()?.into()),
-            "--chief" => {
+            "--chief" | "--to" => {
                 let id = value()?;
                 // `--chief --json` is a missing id, not a Chief named `--json`.
                 if inline.is_none() && id.starts_with('-') {
@@ -158,6 +195,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
                 parsed.chief = Some(id);
             }
             "--no-wait-agents" => parsed.no_wait_agents = true,
+            "--no-wait" => parsed.no_wait = true,
             "--chat" | "--cloud" | "--cloud-api" | "--cloud-token-file" | "--cloud-auth" => {
                 parsed.target.flag(flag, &mut value)?;
             }
@@ -171,8 +209,14 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
         }
         index += 1;
     }
-    if parsed.chief.is_some() && parsed.control.is_none() {
-        return Err("--chief goes with `cmux chief engine` or `cmux chief stop`".into());
+    // `-p TEXT --chief NAME` (or `--to NAME`): that Chief's chat, by its id or name.
+    if parsed.control.is_none()
+        && let Some(chief) = parsed.chief.take()
+    {
+        if parsed.target.chat.is_some() {
+            return Err("--chief and --chat name the same thing; give one".into());
+        }
+        parsed.target.chat = Some(chief);
     }
     Ok(parsed)
 }
@@ -188,8 +232,14 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
     if args.first().is_some_and(|word| registry::WORDS.contains(&word.as_str())) {
         return registry::run(&global, args);
     }
+    if args.first().is_some_and(|word| word == "primary") {
+        return primary::run(&global, &args[1..]);
+    }
     if args.first().is_some_and(|word| word == "move") {
         return relocate::run(&global, &args[1..]);
+    }
+    if args.first().is_some_and(|word| word == "acp") {
+        return acp::run(&global, args.get(1..).unwrap_or_default());
     }
     if args.first().is_some_and(|word| word == "usage") {
         return usage::run(&global, &args[1..]);
@@ -305,6 +355,9 @@ struct Session {
     rx: Receiver<Input>,
     /// Ends the current event stream when replaced or dropped.
     _events: Option<link::EventsHandle>,
+    /// The agent this CLI sends for (`--from`, the acpmux session it runs
+    /// in, or `chief acp`'s prompt sender); None: the person.
+    sender: Option<AgentSender>,
 }
 
 impl Session {
@@ -360,6 +413,7 @@ impl Session {
             tx,
             rx,
             _events: None,
+            sender: None,
         })
     }
 
@@ -426,10 +480,26 @@ impl Session {
         reply_to: Option<Value>,
         thread_root: Option<&str>,
     ) -> Result<(u64, String), LinkError> {
+        // Another agent's message carries its name, class and thread in its
+        // `client_msg_id` and shows as `[from NAME] text`, so the Chief reads
+        // it as that agent's words (no owner trust) and Home does not show it
+        // as the owner's (`cmux_conversation::agent_sender`).
+        let mut parts = parts;
+        if let Some(sender) = &self.sender {
+            let fields = parts.iter_mut().filter_map(Value::as_object_mut);
+            if let Some(text) = fields.into_iter().find_map(|part| part.get_mut("text"))
+                && let Some(words) = text.as_str()
+            {
+                *text = json!(sender.labelled(words));
+            }
+        }
         let message = match self.client.owner {
             // `conversation.send` takes no thread root: a thread reply is the op.
             backend::Owner::Local if thread_root.is_none() => {
-                let key = link::new_message_id();
+                let key = match &self.sender {
+                    Some(sender) => sender.client_msg_id(&link::new_message_id().replace('-', "")),
+                    None => link::new_message_id(),
+                };
                 let params = link::send_parts_params(&self.conversation, parts, reply_to);
                 let result = self.client.link.call("conversation.send", params, Some(&key))?;
                 result.pointer("/value/message").cloned().unwrap_or(Value::Null)
@@ -452,18 +522,35 @@ impl Session {
     }
 }
 
-/// The chat `chat` names among `chats` (an id, or a unique title), or the
-/// default chat: the Chief conversation (local), the newest chat with an
-/// agent (cloud).
+/// The chat `chat` names among `chats` (an id, its Chief's agent id, a unique
+/// title, or a unique title without its " Chief" ending: `codex` is "Codex
+/// Chief"; `chief` is the default), or the default chat: the Chief
+/// conversation (local), the newest chat with an agent (cloud).
 fn pick_chat(chats: &[Value], chat: Option<&str>, owner: backend::Owner) -> Result<Value, String> {
     let t = script_text::text();
     let text = |c: &Value, key: &str| c.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
-    if let Some(wanted) = chat {
-        if let Some(found) = chats.iter().find(|c| text(c, "id") == wanted) {
+    if let Some(wanted) = chat.map(str::trim).filter(|w| !w.eq_ignore_ascii_case("chief")) {
+        if let Some(found) = chats
+            .iter()
+            .find(|c| text(c, "id") == wanted)
+            .or_else(|| chats.iter().find(|c| backend::chief_of(c) == wanted))
+        {
             return Ok(found.clone());
         }
+        let short = |c: &Value| {
+            let title = text(c, "title");
+            let lower = title.to_ascii_lowercase();
+            match lower.strip_suffix(" chief") {
+                Some(head) if !head.trim().is_empty() => head.trim().to_owned(),
+                _ => lower,
+            }
+        };
         let titled: Vec<&Value> =
             chats.iter().filter(|c| text(c, "title").eq_ignore_ascii_case(wanted)).collect();
+        let titled = match titled.as_slice() {
+            [] => chats.iter().filter(|c| short(c) == wanted.to_ascii_lowercase()).collect(),
+            _ => titled,
+        };
         return match titled.as_slice() {
             [one] => Ok((*one).clone()),
             [] => Err(t.no_such_chat.replace("{chat}", wanted)),

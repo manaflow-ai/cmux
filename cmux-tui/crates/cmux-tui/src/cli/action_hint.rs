@@ -32,6 +32,24 @@ fn non_verbs() -> &'static HashMap<String, String> {
     })
 }
 
+/// Whether the catalog has an app action that the CLI offers as `cmux <name>`.
+pub(super) fn offered_app_action(name: &str) -> bool {
+    static OFFERED: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
+    OFFERED
+        .get_or_init(|| {
+            let doc: Value = serde_json::from_str(ACTIONS_JSON).unwrap_or(Value::Null);
+            doc.get("actions")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|action| action.get("cli").and_then(Value::as_str) == Some("offered"))
+                .filter_map(|action| action.get("cli_name").and_then(Value::as_str))
+                .map(str::to_owned)
+                .collect()
+        })
+        .contains(name)
+}
+
 /// The action id of `name` when the catalog has an action with that CLI
 /// name that the CLI does not offer as a verb.
 pub(super) fn non_verb_action(name: &str) -> Option<&'static str> {

@@ -106,6 +106,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "chief-kernel"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "optchat-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "chief-turn"
 version = "0.1.0"
 dependencies = [
@@ -136,7 +146,16 @@ dependencies = [
 name = "cmux-conversation"
 version = "0.1.0"
 dependencies = [
+ "pulldown-cmark",
  "serde",
+ "serde_json",
+ "unicase",
+]
+
+[[package]]
+name = "cmux-json"
+version = "0.1.0"
+dependencies = [
  "serde_json",
 ]
 
@@ -159,6 +178,7 @@ name = "cmux-server-core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-json",
  "hmac",
  "ring",
  "serde",
@@ -758,6 +778,7 @@ name = "optchat-chief"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "chief-kernel",
  "chief-turn",
  "chrono",
  "cmux-chief",
@@ -862,6 +883,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "pulldown-cmark"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
+dependencies = [
+ "bitflags",
+ "memchr",
+ "unicase",
 ]
 
 [[package]]
@@ -1350,6 +1382,12 @@ dependencies = [
  "tempfile",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "unicase"
+version = "2.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
 
 [[package]]
 name = "unicode-ident"

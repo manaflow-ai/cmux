@@ -35,8 +35,8 @@ import Testing
         /// One key of the table and its English text.
         var sample: (key: String, english: String) {
             switch self {
-            case .browserImportOffer: ("browserImportOffer.detail", "Nothing leaves this Mac.")
-            case .billing: ("billing.error.notSignedIn", "Sign in to cmux in the cmux app first.")
+            case .browserImportOffer: ("browserImportOffer.notNow", "Not Now")
+            case .billing: ("billing.error.notSignedIn", "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.")
             case .fileExplorer: ("fileExplorer.noFolder", "No folder")
             case .screens: ("screens.bar.accessibility", "Screens")
             case .workspaceChecklist: ("workspaceChecklist.page.addPlaceholder", "Add an item")

@@ -16,6 +16,10 @@ const githubApp = await generateKeyPair("RS256", { extractable: true })
 const pubsub = await generateKeyPair("RS256", { extractable: true })
 const pubsubPublic = { ...(await exportJWK(pubsub.publicKey)), kid: "google-test", alg: "RS256" }
 const pubsubPrivate = { ...(await exportJWK(pubsub.privateKey)), kid: "google-test" }
+// Test-only key that signs GitHub Actions OIDC tokens (replaces GitHub's JWKS when ENVIRONMENT=test).
+const githubActions = await generateKeyPair("RS256", { extractable: true })
+const githubActionsPublic = { ...(await exportJWK(githubActions.publicKey)), kid: "github-actions-test", alg: "RS256" }
+const githubActionsPrivate = { ...(await exportJWK(githubActions.privateKey)), kid: "github-actions-test" }
 // Test-only link-token signing keys (two kids, the second active); never a real key.
 const linkKeys: Record<string, unknown> = {}
 for (const kid of ["test-link-1", "test-link-2"]) {
@@ -30,6 +34,8 @@ const kek = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("ba
 
 export default defineConfig({
   test: {
+    // test-node/ runs under Node (vitest.node.config.ts): tests there spawn local programs, which workerd cannot.
+    include: ["test/**/*.test.ts"],
     // Loads the Worker once per test file before any test runs (test/setup/warm-worker.ts).
     setupFiles: ["./test/setup/warm-worker.ts"],
     // The full parallel run of every file (309 s on a 32 vCPU Freestyle VM, 2026-10-16) makes each case about 9x
@@ -121,19 +127,26 @@ export default defineConfig({
           TEAM_VM_BIND_ENABLED: "1",
           // Cloud machines use the in-object fake provider under the test prefix (cloud-driver.ts).
           CLOUD_DRIVER: "fake",
+          // ACP chat trajectories kept outside the VM (cloud-trajectory.ts); off unless "1".
+          CLOUD_TRAJECTORIES_ENABLED: "1",
           CLOUD_API_ORIGIN: "https://api.test",
           CLOUD_LINK_SIGNING_KEYS: JSON.stringify({ active: "test-link-2", keys: linkKeys, published_at: { "test-link-1": 0, "test-link-2": 0 } }),
           CLOUD_ADMIN_KEY: "test-cloud-admin-key-0123456789abcdef",
           // userIdFor(STACK_PROJECT_ID, "ops_person_1"): the only person the abandoned-clear route accepts in tests.
           CLOUD_ADMIN_USERS: "user_6412abe5b2830d00012b",
           CLOUD_NAME_PREFIX: "cmuxnp-test-cld-",
+          // PlatformMachines answers (test/platform-machines.test.ts); development only among the deployments.
+          PLATFORM_MACHINES: "on",
+          PLATFORM_AGENT_GATEWAY: "on",
           // Only these teams get the stub plan and provider calls (P1-1); test/setup/cloud-teams.ts.
           CLOUD_ALLOWED_TEAMS: cloudAllowedTeams().join(","),
           GOOGLE_PUBSUB_TOPIC: "projects/cmux-integrations-dev/topics/gmail-push",
           GOOGLE_PUBSUB_AUDIENCE: "https://api.test/v1/hooks/google/pubsub",
           GOOGLE_PUBSUB_SERVICE_ACCOUNT: "gmail-push-invoker@cmux-integrations-dev.iam.gserviceaccount.com",
           GOOGLE_PUBSUB_TEST_JWKS: JSON.stringify({ keys: [pubsubPublic] }),
-          GOOGLE_PUBSUB_TEST_PRIVATE_JWK: JSON.stringify(pubsubPrivate)
+          GOOGLE_PUBSUB_TEST_PRIVATE_JWK: JSON.stringify(pubsubPrivate),
+          GITHUB_ACTIONS_TEST_JWKS: JSON.stringify({ keys: [githubActionsPublic] }),
+          GITHUB_ACTIONS_TEST_PRIVATE_JWK: JSON.stringify(githubActionsPrivate)
         }
       }
     })

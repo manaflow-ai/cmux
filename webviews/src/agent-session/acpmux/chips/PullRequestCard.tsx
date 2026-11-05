@@ -214,7 +214,7 @@ function Checks({ read, t }: { read: LinkedPullRequest | undefined; t: Translate
       )}
       {onBase > 0 && (
         <span className="acpmux-pr-card__onBase" aria-hidden="true">
-          {t("chatInspector.changes.failingOnBase", { count: onBase })}
+          {t("sessionInfo.changes.failingOnBase", { count: onBase })}
         </span>
       )}
       {pending > 0 && (

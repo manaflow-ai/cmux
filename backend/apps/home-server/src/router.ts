@@ -1,7 +1,7 @@
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import { cloudOpByName } from "@cmux/protocol"
 import { conversationMutate, conversationRead } from "../../api/src/home-routes.ts"
-import { handleAttachmentCommit, handleAttachmentDerived, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentUpload, handleAttachmentUrl } from "../../api/src/home-attachments.ts"
+import { handleAttachmentCommit, handleAttachmentDerived, handleAttachmentDirectPart, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentMultipartComplete, handleAttachmentMultipartPart, handleAttachmentUpload, handleAttachmentUrl } from "../../api/src/home-attachments.ts"
 import { linkVerifiedAddress } from "../../api/src/home-requests.ts"
 import { presignUrl } from "../../api/src/r2-presign.ts"
 import type { SubmitResult } from "../../api/src/owner-do.ts"
@@ -17,6 +17,7 @@ const USER_OPS = new Set(["user.ensure", "home.settings.set"])
 /** Attachment paths (home-attachments.ts), as the Worker routes them (index.ts). */
 const CONV = "conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26}"
 const UPLOAD = new RegExp(`^/v1/home/attachments/upload/(${CONV})/([A-Za-z0-9_.-]{1,256})$`)
+const MULTIPART = new RegExp(`^/v1/home/attachments/multipart/(${CONV})/([A-Za-z0-9_.-]{1,256})$`)
 const DERIVED = new RegExp(`^/v1/home/attachments/(poster|preview)/(${CONV})/([A-Za-z0-9_.-]{1,256})$`)
 const DOWNLOAD = new RegExp(`^/v1/home/attachments/(${CONV})/([0-9a-f]{32})$`)
 /** The conversation socket path: `/v1/wire/conv/<id>`. */
@@ -130,9 +131,13 @@ export class Router {
       const env = this.env
       if (url.pathname === "/v1/home/attachments/intent" && request.method === "POST") return handleAttachmentIntent(request, env, presignUrl, principal)
       if (url.pathname === "/v1/home/attachments/commit" && request.method === "POST") return handleAttachmentCommit(request, env, principal)
+      if (url.pathname === "/v1/home/attachments/multipart/complete" && request.method === "POST") return handleAttachmentMultipartComplete(request, env, principal)
       if (url.pathname === "/v1/home/attachments/url" && request.method === "POST") return handleAttachmentUrl(request, env, principal)
       const up = UPLOAD.exec(url.pathname)
       if (up && request.method === "PUT") return handleAttachmentUpload(request, env, up[1]!, up[2]!)
+      const multipart = MULTIPART.exec(url.pathname)
+      if (multipart && request.method === "PUT") return handleAttachmentMultipartPart(request, env, multipart[1]!, multipart[2]!)
+      if (multipart && request.method === "POST") return handleAttachmentDirectPart(request, env, multipart[1]!, multipart[2]!)
       const d = DERIVED.exec(url.pathname)
       if (d && request.method === "PUT") return handleAttachmentDerived(request, env, d[1] as "poster" | "preview", d[2]!, d[3]!)
       const file = DOWNLOAD.exec(url.pathname)

@@ -4,6 +4,7 @@
 // work under the message it answers. Rows read one run each through `useRun` (an external store with
 // per-run versions), so a streaming run re-renders only its own card.
 import { useCallback, useSyncExternalStore } from "react";
+import { stepMessage } from "./runMessages";
 import type { HomeMessage, HomeRun, HomeRunChange, HomeRunStep } from "./types";
 
 export interface RunEntry {
@@ -12,6 +13,8 @@ export interface RunEntry {
   steps: readonly HomeRunStep[];
   /** Every step was read from the owner (not only the ones events brought). */
   complete: boolean;
+  /** Cached when steps arrive; timeline lookups never scan a run per render. */
+  hasMessages?: boolean;
 }
 
 const MAX_RUNS = 400;
@@ -46,8 +49,13 @@ export class RunBook {
   private readonly byTurn = new Map<string, string>();
   /** Reply keys (`conversation\0turn\0author`) of the agent messages the page has seen. */
   private readonly replied = new Set<string>();
+  /** Message ids in the timeline/thread cache. Anchored runs stay available while these are held. */
+  private loadedMessages = new Set<string>();
+  private loadedReplies = new Set<string>();
   /** `conversation\0message` to the keys of the runs that work on that message. */
   private readonly byAnswer = new Map<string, Set<string>>();
+  /** The one answer row currently chosen for each run (a report must not render twice). */
+  private readonly runAnswers = new Map<string, string | undefined>();
   private readonly listeners = new Set<() => void>();
   private version = 0;
 
@@ -76,8 +84,9 @@ export class RunBook {
 
   /** Runs that work on this message and whose reply the page has not seen: live work, or a run
    * that failed or stopped with no reply (shown where it was asked). A finished run whose reply
-   * went into a thread the page has not loaded stays out (it shows on its reply). */
-  liveFor(message: HomeMessage): RunEntry[] {
+   * went into a thread the page has not loaded stays out (it shows on its reply). Transcript
+   * includes silent summaries too, so their steps can be loaded when they enter the viewport. */
+  liveFor(message: HomeMessage, includeSilent = false): RunEntry[] {
     const keys = this.byAnswer.get(`${message.conversation}\0${message.id}`);
     if (!keys) return [];
     const out: RunEntry[] = [];
@@ -86,7 +95,10 @@ export class RunBook {
       if (!entry) continue;
       const reply = turnKey(entry.run);
       const replied = reply !== undefined && this.replied.has(reply);
-      if (entry.run.status === "running" || (entry.run.status !== "done" && !replied)) out.push(entry);
+      // A silent Chief turn can still contain messages: keep them beside its question.
+      const messages = entry.hasMessages ?? false;
+      if (entry.run.status === "running" || ((includeSilent || entry.run.status !== "done" || messages) && !replied))
+        out.push(entry);
     }
     return out.sort((a, b) => a.run.startedAt - b.run.startedAt);
   }
@@ -103,6 +115,20 @@ export class RunBook {
       this.replied.add(key);
       changed = changed || this.byTurn.has(key);
     }
+    if (changed) this.bump();
+  }
+
+  /** Replace the actual retained timeline and thread window, never the ever-seen history. */
+  setLoadedMessages(messages: readonly HomeMessage[]): void {
+    this.loadedMessages = new Set(messages.map((message) => `${message.conversation}\0${message.id}`));
+    this.loadedReplies = new Set(
+      messages
+        .filter((message) => message.clientMessageId)
+        .map((message) => `${message.conversation}\0${message.clientMessageId}\0${message.author}`),
+    );
+    let changed = false;
+    for (const [key, entry] of this.runs) changed = this.indexAnswer(key, entry.run) || changed;
+    changed = this.evict() || changed;
     if (changed) this.bump();
   }
 
@@ -137,7 +163,9 @@ export class RunBook {
   /** Summaries the owner listed: kept steps stay; a newer summary replaces an older one. */
   setRuns(runs: readonly HomeRun[]): void {
     let changed = false;
-    for (const run of runs) changed = this.put(run, [], false) || changed;
+    // Some Cloud owners expose neither revision nor update time. Only a fresh summary lookup
+    // invalidates those cached steps; live events and repeated card loads do not trigger retries.
+    for (const run of runs) changed = this.put(run, [], false, run.rev === 0 && run.updatedAt === 0) || changed;
     if (changed) this.bump();
   }
 
@@ -153,7 +181,7 @@ export class RunBook {
     if (changed) this.bump();
   }
 
-  private put(run: HomeRun, steps: readonly HomeRunStep[], complete: boolean): boolean {
+  private put(run: HomeRun, steps: readonly HomeRunStep[], complete: boolean, invalidateComplete = false): boolean {
     const key = this.key(run.conversation, run.author, run.id);
     const current = this.runs.get(key);
     const newer = !current || newerRun(run, current.run);
@@ -163,35 +191,68 @@ export class RunBook {
       const held = merged.get(step.id);
       if (!held || newerStep(step, held)) merged.set(step.id, step);
     }
+    const latest = newer ? run : current!.run;
+    // A summary can advance an existing step without changing the step count. Only a full read
+    // of this revision can make it complete again; Cloud summaries without rev use updatedAt.
+    const unchanged =
+      !invalidateComplete &&
+      current !== undefined &&
+      latest.rev === current.run.rev &&
+      latest.updatedAt === current.run.updatedAt;
     const entry: RunEntry = {
-      run: newer ? run : current!.run,
+      run: latest,
       steps: [...merged.values()].sort((a, b) => a.seq - b.seq),
-      complete: (current?.complete ?? false) || complete,
+      complete: (((current?.complete ?? false) && unchanged) || (complete && newer)) && merged.size >= latest.stepCount,
+      hasMessages: (current?.hasMessages ?? false) || steps.some((step) => stepMessage(step) !== undefined),
     };
     this.runs.set(key, entry);
     if (entry.run.turn) this.byTurn.set(`${entry.run.conversation}\0${entry.run.turn}\0${entry.run.author}`, key);
-    const asked = entry.run.answers[0];
-    if (asked) {
-      const answer = `${entry.run.conversation}\0${asked}`;
-      const keys = this.byAnswer.get(answer) ?? new Set<string>();
-      keys.add(key);
-      this.byAnswer.set(answer, keys);
-    }
+    this.indexAnswer(key, entry.run);
     if (this.runs.size > MAX_RUNS) this.evict();
     return true;
   }
 
-  /** Drops the oldest finished runs past MAX_RUNS (they are read again when shown). */
-  private evict(): void {
-    const finished = [...this.runs.entries()]
-      .filter(([, entry]) => entry.run.status !== "running")
-      .sort((a, b) => a[1].run.updatedAt - b[1].run.updatedAt);
-    for (const [key, entry] of finished.slice(0, this.runs.size - MAX_RUNS)) {
-      this.runs.delete(key);
-      if (entry.run.turn) this.byTurn.delete(`${entry.run.conversation}\0${entry.run.turn}\0${entry.run.author}`);
-      const asked = entry.run.answers[0];
-      if (asked) this.byAnswer.get(`${entry.run.conversation}\0${asked}`)?.delete(key);
+  /** One loaded question anchors the run even when the first answer is outside the window. */
+  private indexAnswer(key: string, run: HomeRun): boolean {
+    const asked = run.answers.find((id) => this.loadedMessages.has(`${run.conversation}\0${id}`)) ?? run.answers[0];
+    const answer = asked ? `${run.conversation}\0${asked}` : undefined;
+    const previous = this.runAnswers.get(key);
+    if (previous === answer) return false;
+    if (previous) {
+      const keys = this.byAnswer.get(previous);
+      keys?.delete(key);
+      if (!keys?.size) this.byAnswer.delete(previous);
     }
+    this.runAnswers.set(key, answer);
+    if (answer) {
+      const keys = this.byAnswer.get(answer) ?? new Set<string>();
+      keys.add(key);
+      this.byAnswer.set(answer, keys);
+    }
+    return true;
+  }
+
+  /** Keep loaded questions/replies; bound the finished records without a retained transcript row. */
+  private evict(): boolean {
+    const unshown = [...this.runs.entries()]
+      .filter(([, { run }]) => run.status !== "running")
+      .filter(([, { run }]) => !run.answers.some((id) => this.loadedMessages.has(`${run.conversation}\0${id}`)))
+      .filter(([, { run }]) => !this.loadedReplies.has(turnKey(run) ?? ""))
+      .sort((a, b) => a[1].run.updatedAt - b[1].run.updatedAt);
+    const removed = unshown.slice(0, Math.max(0, unshown.length - MAX_RUNS));
+    for (const [key, entry] of removed) {
+      this.runs.delete(key);
+      const reply = turnKey(entry.run);
+      if (reply && this.byTurn.get(reply) === key) this.byTurn.delete(reply);
+      const answer = this.runAnswers.get(key);
+      if (answer) {
+        const keys = this.byAnswer.get(answer);
+        keys?.delete(key);
+        if (!keys?.size) this.byAnswer.delete(answer);
+      }
+      this.runAnswers.delete(key);
+    }
+    return removed.length > 0;
   }
 
   clear(): void {
@@ -199,6 +260,9 @@ export class RunBook {
     this.byTurn.clear();
     this.replied.clear();
     this.byAnswer.clear();
+    this.runAnswers.clear();
+    this.loadedMessages.clear();
+    this.loadedReplies.clear();
     this.bump();
   }
 
@@ -215,10 +279,16 @@ export function useRunEntry(book: RunBook | undefined, select: (book: RunBook) =
 }
 
 /** The live runs under a message (stable while nothing changed: compared by entry identity). */
-export function useLiveRuns(book: RunBook | undefined, message: HomeMessage): readonly RunEntry[] {
+export function useLiveRuns(
+  book: RunBook | undefined,
+  message: HomeMessage,
+  includeSilent = false,
+): readonly RunEntry[] {
   const subscribe = useCallback((listener: () => void) => (book ? book.subscribe(listener) : () => {}), [book]);
-  const id = `${message.conversation}\0${message.id}`;
-  return useSyncExternalStore(subscribe, () => liveKey(book, id, () => (book ? book.liveFor(message) : NONE)));
+  const id = `${message.conversation}\0${message.id}\0${includeSilent}`;
+  return useSyncExternalStore(subscribe, () =>
+    liveKey(book, id, () => (book ? book.liveFor(message, includeSilent) : NONE)),
+  );
 }
 
 const NONE: readonly RunEntry[] = [];

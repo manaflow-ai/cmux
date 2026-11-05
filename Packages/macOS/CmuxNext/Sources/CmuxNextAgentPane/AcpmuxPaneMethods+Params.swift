@@ -10,31 +10,40 @@ nonisolated extension AcpmuxPaneMethods {
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
         // `model`: a chat on another machine starts on the model the page showed (direct.ts
-        // newSessionParams); one model id only (``isModelID(_:)``).
-        "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
+        // newSessionParams); one model id only (``isModelID(_:)``). `additionalDirectories`: the folders
+        // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
+        // each as it checks `cwd`.
+        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model"]),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
         // agent and keeps it out of the transcript text. `surface`: the place a prompt was typed
         // (labs.previewFeatures; acpmux hub/composers.rs, cmuxterm-hq#2580). No `provenance`: a reply
         // in place is `_acpmux/app_reply`, never a prompt (acpmux refuses one from the app too).
         // `inlineParts`: display descriptors for the prompt's attachment blocks. The daemon
         // validates them against those blocks and keeps them out of the agent's request.
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts"]),
+        // `promptSuggestion: "taken"`: the person sent the suggested next prompt (direct.ts, #34496);
+        // acpmux only counts it taken for the suggestion gate (suggestion_gate.rs marked_taken).
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
         "_acpmux/watch": (["enabled", "limit"], []),
-        "_acpmux/sessions": (["limit", "cursor"], []),
+        // `usage`: each chat's usage read first (SessionSummary.usageStats), for Session Info's Usage.
+        "_acpmux/sessions": (["limit", "cursor", "usage"], []),
         // `maxBytes`: the most one page downloads, opening a chat or paging older turns in (cx-2lv1k).
-        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds"], []),
+        // `promptIndex`: the prompt rail's index of every turn (direct.ts readPromptIndex; acpmux
+        // hub/paging.rs prompt_index, #34273). Refused, the rail never learns a long chat's turns.
+        "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "maxBytes", "kinds", "promptIndex"], []),
         "_acpmux/attachment": (["sessionId", "id"], []),
         // The pane names the listed chat (its id or `HOST/id`) and takes acpmux's default bounds:
         // no `host`, `limit` or `maxBytes`.
         "_acpmux/peer_snapshot": (["sessionId"], []),
+        // The peer machine to retry; `wait` asks the daemon to include the settled doctor result.
+        "_acpmux/peer_reconnect": (["name", "wait"], []),
         // runRetry sends `{sessionId, subagentId}` for a subagent, `{sessionId}` for a sub-session
         // (its own id) or the chat's own turn.
         "_acpmux/retry": (["sessionId", "subagentId"], []),
         // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
@@ -52,6 +61,9 @@ nonisolated extension AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute).
         "_acpmux/route/list": (["sessionId"], []),
         "_acpmux/chat/route.set": (["sessionId", "routeId", "when"], []),
+        // The sign-in check (direct.ts sessionAuth): a chat in scope, or a new chat's `target`
+        // ({harness, host?, routeId?}), and `refresh` to ask the harness now instead of its last answer.
+        "_acpmux/session/auth": (["sessionId", "target", "refresh"], []),
         // The running-limit stepper: `maxRunning` only, never `maxChildren` or `maxDepth`.
         "_acpmux/subsession/limits": (["sessionId", "maxRunning"], []),
         // `server`: one of that chat's MCP servers by name; acpmux refuses a name the chat does not list.
@@ -65,11 +77,18 @@ nonisolated extension AcpmuxPaneMethods {
         // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
         "_acpmux/models": (["refresh"], []),
         "_acpmux/status": ([], []),
+        "_acpmux/peers": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
+        "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
+        // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers
+        // `queue.stale` on another one; direct.ts answerHeld names both).
+        "_acpmux/queue_approve": (["sessionId", "promptId", "turnId", "revision"], []),
+        "_acpmux/queue_decline": (["sessionId", "promptId"], []),
+        "_acpmux/queue_get": (["sessionId", "promptId"], []),
         // `images`: an edit's kept image ids (acpmux attachment ids the queue lists); it names only
         // the prompt's own images, so it reaches nothing the chat does not already hold.
         "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "images", "index"], []),
@@ -89,23 +108,37 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/forum/rules": ([], []),
+        "_acpmux/resolve": (["query"], []),
         "_acpmux/side": (["sessionId", "chat"], []),
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
-        "_acpmux/btw": (["sessionId", "question", "model"], []),
+        "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
+        "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
+        // `before`: a `native_history` cursor, a byte offset into the chat's own transcript.
+        "_acpmux/native_history": (["sessionId", "before", "mark"], []),
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
         // `peerSessionId`: one of that chat's paused pairs, a selector only (acpmux checks the pair has the chat).
         "_acpmux/agent_pair_resume": (["sessionId", "peerSessionId"], []),
+        "_acpmux/agent_hold": (["sessionId", "held"], []),
         // The pane's chat (`sessionId`) answers `replyTo` of `threadId`, which chat `to` sent it;
         // `replyId` keys it. No recipient, sender name or credential: acpmux signs it, the daemon
         // sends it to the message's sender (``AgentPaneAgentReply``).
         "_acpmux/app_reply": (["sessionId", "to", "replyTo", "threadId", "text", "replyId"], []),
         // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
         "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
-        "acp.session.fork": (["sessionId", "throughSeq"], []),
-        "acp.trust.get": (["cwd", "sessionId"], []),
-        "acp.trust.set": (["cwd", "level", "sessionId"], []),
+        // A Cloud chat's sign-in (cloudAgentLogin.ts): `agent` is `claude` or `codex`; `code` is
+        // Claude's pasted code, `key` an API key, both kept out of every log; `sessionId` the chat.
+        "_acpmux/agent_login/start": (["agent", "sessionId"], []),
+        "_acpmux/agent_login/finish": (["loginId", "code", "sessionId"], []),
+        "_acpmux/agent_login/api_key": (["agent", "key", "sessionId"], []),
+        "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
+        // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
+        "acp.session.fork": (["sessionId", "throughSeq", "live"], []),
+        // `peer` names the machine that owns `cwd`; its folder is checked for shape only and
+        // never canonicalized against this Mac's filesystem (the owning daemon checks it).
+        "acp.trust.get": (["cwd", "sessionId", "peer"], []),
+        "acp.trust.set": (["cwd", "level", "sessionId", "peer"], []),
         // Never `sha256`: only the relay adds it, after the native sheet's Enable.
         "_acpmux/harness_enable": (["folder", "id"], []),
         // They meet the gesture rule and the sheet; their mode field is their purpose.
@@ -124,6 +157,9 @@ nonisolated extension AcpmuxPaneMethods {
         guard let params = rawParams as? [String: Any] else { return true }
         guard let known = knownParams[method] else { return !params.isEmpty }
         if params.keys.contains(where: { !known.params.contains($0) }) { return true }
+        if (method == "acp.trust.get" || method == "acp.trust.set"), let peer = params["peer"] {
+            guard let name = peer as? String, !name.isEmpty else { return true }
+        }
         let setting = settingMethods.contains(method)
         let denied = setting ? [] : modeFields ?? []
         if params.keys.contains(where: denied.contains) { return true }

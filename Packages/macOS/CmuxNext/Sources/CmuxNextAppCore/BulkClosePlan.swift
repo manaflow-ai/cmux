@@ -57,14 +57,46 @@ extension WorkspaceClose {
                                      hasTabs: { $0.screens.contains { $0.panes.contains { !$0.tabs.isEmpty } } })
             if !plan.bulk.isEmpty {
                 for (workspace, _) in plan.bulk { _ = WorkspaceClose.closing(workspace, on: daemon) }
-                let ids = plan.bulk.map(\.id)
-                send(daemon, "close-workspaces") { try await $0.state.closeBulk(.workspace, ids: ids, endTerminals: true) }
+                let ids = plan.bulk.map(\.id), keys = plan.bulk.compactMap(\.object.key), bound = daemon.closeReplyBound
+                send(daemon, "close-workspaces") { connection in
+                    do {
+                        try await connection.state.closeBulk(.workspace, ids: ids, endTerminals: true, within: bound)
+                    } catch DaemonError.timedOut(_) {
+                        try await WorkspaceClose.unanswered(keys, on: daemon, connection: connection) // the store decides past the bound
+                    }
+                }
             }
             for workspace in plan.each {
                 guard let key = workspace.key else { continue }
                 let terminals = WorkspaceClose.closing(workspace, on: daemon)
-                send(daemon, "close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
+                send(daemon, "close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0, awaitingReplyOn: daemon) }
             }
         }
+    }
+}
+
+/// The closed items of one close, for its Undo: the new workspace items
+/// (newest first) whose members carry the closing workspaces' names, each
+/// name taken once (one bulk close is one item of several members,
+/// `BulkClosePlan`; an older daemon stores one item per workspace), the
+/// names no item took yet, and the group's own record.
+public struct ClosedItemMatch: Sendable {
+    public var workspaces: [String] = []
+    public var missing: [String]
+    public var group: String?
+
+    public init(names: [String], group id: String?, fresh: [ClosedItem]) {
+        missing = names
+        for item in fresh where item.kind == .workspace && item.group == nil {
+            let carried = item.memberNames.isEmpty ? [item.name] : item.memberNames
+            var took = false
+            for name in carried {
+                guard let index = missing.firstIndex(of: name ?? "") else { continue }
+                missing.remove(at: index)
+                took = true
+            }
+            if took { workspaces.append(item.id) }
+        }
+        group = id.flatMap { id in fresh.first { $0.group?.id == id }?.id }
     }
 }

@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// cx-pd83 (nxdog89-v1): the browser import card ("Import bookmarks, history and passwords from
@@ -11,7 +12,7 @@ import Testing
 /// card floats on the window's overlay host, not in the browser's views, so it must leave the
 /// screen with its tab and come back when the tab shows again. Runs a real pane and a real WebKit
 /// browser tab in a window, as the app shows them.
-@MainActor @Suite(.serialized) struct BrowserImportCardTabSwitchTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct BrowserImportCardTabSwitchTests {
     /// A tab that draws nothing until it paints, as the New Tab page (an agent page) does.
     final class UnpaintedPage: NSView, PaneFirstPaintGated {
         private var painted = false
@@ -69,6 +70,7 @@ import Testing
 
         func tearDown() {
             chrome.hideCookieImportOffer()
+            chrome.closePopupPanels()
             window.orderOut(nil)
             window.close()
             page.close()

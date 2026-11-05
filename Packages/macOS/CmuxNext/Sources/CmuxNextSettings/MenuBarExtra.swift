@@ -20,7 +20,7 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
 
     /// - Parameters:
     ///   - registry: Runs every row.
-    ///   - icon: The item's image; drawn as a template (monochrome, follows the menu bar).
+    ///   - icon: The item's image (``MenuBarIcon``, cmux-classic's); drawn as a template (monochrome, follows the menu bar).
     ///   - host: What the menu reads as it opens; held weakly.
     public init(registry: ActionRegistry, icon: NSImage, host: any MenuBarExtraHost) {
         self.registry = registry
@@ -58,7 +58,10 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
 
     private func show() {
         guard item == nil else { return }
-        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // cmux-classic's item: variable length, image only, scaled down proportionally.
+        let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.imagePosition = .imageOnly
+        statusItem.button?.imageScaling = .scaleProportionallyDown
         statusItem.button?.image = icon
         statusItem.button?.identifier = NSUserInterfaceItemIdentifier("cmux.menuBarExtra")
         let menu = NSMenu()

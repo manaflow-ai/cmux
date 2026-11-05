@@ -33,6 +33,20 @@ struct AgentPaneAgentAvatarTests {
         #expect(removed == ["s1"])
     }
 
+    /// A Chief's message line asks for that Chief's face by its participant id (manaflow-ai/cmux#27914).
+    @Test func chiefFaceTakesOnlyAChiefIdAndAnswersThroughTheAppsHook() async {
+        if case .chiefFace("agent_ops") = request("chief.face", ["chief": "agent_ops"]) {} else { Issue.record("chief.face") }
+        for params: [String: Any] in [[:], ["chief": "ops"], ["chief": "agent_"], ["chief": "agent_a b"], ["chief": "agent_" + String(repeating: "x", count: 64)], ["chief": 7]] {
+            if case .unsupported = request("chief.face", params) {} else { Issue.record("\(params)") }
+        }
+        let model = AgentPaneModel(host: NoHost())
+        #expect((await model.respond(to: .chiefFace("agent_ops"))["value"] as? [String: Any])?.isEmpty == true, "no hook: no face")
+        model.onChiefFace = { $0 == "agent_ops" ? ["name": "Ops Chief", "src": "data:image/png;base64,AAAA"] : [:] }
+        let face = await model.respond(to: .chiefFace("agent_ops"))["value"] as? [String: Any]
+        #expect(face?["name"] as? String == "Ops Chief")
+        #expect(face?["src"] as? String == "data:image/png;base64,AAAA")
+    }
+
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }

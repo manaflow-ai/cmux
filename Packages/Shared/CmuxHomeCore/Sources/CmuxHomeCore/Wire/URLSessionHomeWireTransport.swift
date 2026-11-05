@@ -44,6 +44,7 @@ public struct URLSessionHomeWireTransport: HomeWireHTTP, HomeWireSocketConnectin
     private static func reply(_ data: Data, _ response: URLResponse) -> HomeWireHTTPReply {
         let http = response as? HTTPURLResponse
         let retryAfter = http?.value(forHTTPHeaderField: "Retry-After").flatMap(TimeInterval.init)
-        return HomeWireHTTPReply(status: http?.statusCode ?? 0, body: data, retryAfter: retryAfter)
+        return HomeWireHTTPReply(status: http?.statusCode ?? 0, body: data, retryAfter: retryAfter,
+                                 etag: http?.value(forHTTPHeaderField: "ETag"))
     }
 }

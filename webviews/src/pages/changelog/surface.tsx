@@ -5,13 +5,17 @@
 // `cmux.changelog.surface.changes` (UpdateHighlights, or null while there is nothing to show). The
 // Updated card also reads the notes of every build the update spans (`cmux.changelog.list` and
 // `get`, the page's own ChangelogStore), so it sums up skipped nightlies too.
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
+import { languageDirection, UiProvider } from "../../ui/UiProvider";
+import { routeChipHost } from "./ChangePullRequest";
 import { CARD_SCROLL_ATTRIBUTE } from "../../scrollers";
+import { NATIVE_GLASS_ATTRIBUTE } from "../../ui/glass/glassState";
 import type { PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { ChangelogStore, compareVersions, type UpdateSpan } from "./store";
-import type { IndexEntry, ReleaseNotes } from "./types";
+import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
 import "../shared/pageBase.css";
@@ -35,9 +39,13 @@ export function parseSurface(hash: string): SurfaceKind | null {
 }
 
 export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client: PageClient | null): void {
+  routeChipHost(client);
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.documentElement.dataset.surface = kind;
+  // The sidebar draws the Updated card's glass natively under this page (SidebarUpdatedCardHost):
+  // the lens draws no wallpaper copy over it, not even around a tooltip's glass.
+  if (kind === "updated") document.documentElement.setAttribute(NATIVE_GLASS_ATTRIBUTE, "");
   const call = (op: string, params: unknown = {}) => void client?.call(op, params).catch(() => undefined);
   const actions: UpdateSurfaceActions =
     kind === "updated"
@@ -61,36 +69,55 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   let latest: UpdateHighlights | null = null;
   const render = (data: UpdateHighlights | null) => {
     latest = data;
-    react.render(
-      data === null ? null : kind === "ready" ? (
-        <UpdateReadyHighlights data={data} strings={strings} actions={actions} />
-      ) : (
-        <UpdatedCard
-          data={data}
-          span={spans?.notes(data.changelog)}
-          builds={spans?.builds}
-          strings={strings}
-          actions={actions}
-          closeButton={false}
-        />
+    // Committed now, not on React's next task: the size below reads these rows. The card's page is
+    // hidden until it reports (the host shows it once it has a height), so it gets no animation frame
+    // to report from, and its rows may already have their size (no resize to observe).
+    flushSync(() =>
+      react.render(
+        <UiProvider container={root} dir={languageDirection(strings.language)} overlayPosition="fixed">
+          {data === null ? null : kind === "ready" ? (
+            <UpdateReadyHighlights data={data} strings={strings} actions={actions} />
+          ) : (
+            <UpdatedCard
+              data={data}
+              span={spans?.notes(data.changelog)}
+              strings={strings}
+              actions={actions}
+              closeButton={false}
+              glass={false}
+            />
+          )}
+        </UiProvider>,
       ),
     );
-    // The new rows exist after React's commit: size them from the next frame on.
-    requestAnimationFrame(observeCard);
+    observeCard();
+    report();
   };
   // The host sizes the popover or the card slot to the content; 0 while there is nothing.
   // A scrolling card (the popover) reports its whole content, not the part the page view shows.
-  let reported = -1;
-  const sizer = new ResizeObserver(() => {
+  // A short popover (`.wn-pop-brief`, no change list) also reports its own width, so the host is as
+  // wide as its lines (Leo 2026-11-03: "stretched out wasted space"); 0 fills the host's width.
+  // The Updated card reports its height once its words are final (the notes of the update's span
+  // loaded, or none will): the host lays the card out at the first height it hears, so a first
+  // report from the host's items, then the span's summary, moved the sidebar's list twice on a
+  // relaunch (Leo 2026-11-04: "the restarted after nightly update does too many layout shifts").
+  const settled = () => spans === null || spans.settled;
+  let reported = "";
+  const report = () => {
+    if (!settled()) return;
     const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
     const height = Math.ceil(Math.max(root.getBoundingClientRect().height, card?.scrollHeight ?? 0));
-    if (height === reported) return;
-    reported = height;
-    call(SurfaceOps.size, { height });
-  });
+    const width = card?.classList.contains("wn-pop-brief") ? Math.ceil(card.getBoundingClientRect().width) : 0;
+    const key = `${height}x${width}`;
+    if (key === reported) return;
+    reported = key;
+    call(SurfaceOps.size, { height, width });
+  };
+  const sizer = new ResizeObserver(report);
   sizer.observe(root);
   const observeCard = () => {
     const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
+    if (card) sizer.observe(card);
     for (const child of card?.children ?? []) sizer.observe(child);
   };
   if (!client) return;
@@ -101,13 +128,15 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
 /** The notes of an update's span (after `from`, up to `to`), newest first, loaded once per span;
     undefined until every build in it has loaded or is unavailable, and when none loaded (an
     older host without `cmux.changelog.*` here): the card then reads the host's items. */
-class SpanNotes {
+/** How long the Updated card waits for its span's notes before it reports the host's items. */
+export const SPAN_SETTLE_MS = 1500;
+
+export class SpanNotes {
   private key = "";
   private store: ChangelogStore | null = null;
-  private settled: ReleaseNotes[] | undefined;
-  /** The channel's published builds (the notes index), newest first, once listed: the card says how
-      far the installed build is from the newest. */
-  builds: IndexEntry[] | undefined;
+  private loaded: ReleaseNotes[] | undefined;
+  /** The span's notes loaded, failed, came back empty or took too long: the card's words are final. */
+  settled = false;
 
   constructor(
     private readonly client: PageClient,
@@ -117,35 +146,43 @@ class SpanNotes {
   notes(span: UpdateSpan): ReleaseNotes[] | undefined {
     const key = `${span.from ?? ""}..${span.to}`;
     if (key !== this.key) this.load(key, span);
-    return this.settled;
+    return this.loaded;
+  }
+
+  /** The card's words are final now (the notes, or the host's items): it renders and reports. */
+  settle(): void {
+    if (this.settled) return;
+    this.settled = true;
+    this.onChange();
   }
 
   private load(key: string, span: UpdateSpan): void {
     this.key = key;
-    this.settled = undefined;
-    this.builds = undefined;
+    this.loaded = undefined;
+    // A new span's words are not final until its own notes answer.
+    this.settled = false;
     const store = new ChangelogStore(this.client);
     this.store = store;
-    // The index is the store's first answer (`list`): the build line shows its place at once, not
-    // after every note of the span has loaded.
-    const listed = store.subscribe(() => {
-      const { builds } = store.getSnapshot();
-      if (this.store !== store || builds.length === 0) return;
-      listed();
-      this.builds = builds;
-      this.onChange();
-    });
+    // Notes that never answer leave the card showing the host's items after a while.
+    setTimeout(() => {
+      if (this.store === store) this.settle();
+    }, SPAN_SETTLE_MS);
+    // The build list the host kept on disk first: after a relaunch the network's answered after the
+    // card had drawn, so the card reported the host's items and then the span's notes (two heights).
     void store
-      .start(span)
+      .start(span, { cachedFirst: true })
       .then(() => store.firstScreen())
       .then(() => {
-        listed();
         if (this.store !== store) return;
         const snapshot = store.getSnapshot();
         const notes = snapshot.inSpan.flatMap((build) => snapshot.loaded[build] ?? []);
-        if (notes.length === 0) return;
-        this.settled = notes.sort((a, b) => compareVersions(b.shortVersion, a.shortVersion));
-        this.onChange();
+        if (notes.length > 0) this.loaded = notes.sort((a, b) => compareVersions(b.shortVersion, a.shortVersion));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.store !== store) return;
+        if (this.settled) this.onChange();
+        else this.settle();
       });
   }
 }

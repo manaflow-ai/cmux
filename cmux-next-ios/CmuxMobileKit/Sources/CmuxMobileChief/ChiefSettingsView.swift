@@ -26,6 +26,7 @@ public struct ChiefSettingsView: View {
     let session: ChiefSession
     /// Message: back to the conversation with the keyboard up.
     let onMessage: (() -> Void)?
+    private let computer = ChiefComputer.shared
     @State private var report: ChiefEngineReport?
     /// A change or stop the Mac did not take (a failed read is the session's ``ChiefSession/engineProblem``).
     @State private var engineError: String?
@@ -67,6 +68,8 @@ public struct ChiefSettingsView: View {
         Form {
             engineSection
             if hasControl, !(report?.recent.isEmpty ?? true) { recentSection }
+            // Messages' Find My slot: the account's Cloud machine (hidden unless it pays and one ran).
+            ChiefComputerSection(computer: computer)
             notificationsSection
             #if DEBUG
             diagnosticsSection
@@ -96,7 +99,6 @@ public struct ChiefSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(removing: .title)
         .toolbar(.visible, for: .navigationBar)
-        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             // Messages' Edit: Chief's name and avatar, on a Mac that sets them.
             if hasControl {
@@ -114,6 +116,8 @@ public struct ChiefSettingsView: View {
         // Mac or its model server is down, until the page closes; again
         // once Chief connects with the page open.
         .task(id: hasControl) { await session.watchEngine() }
+        // The Computer card reads the Mac's Cloud directory now and each time a Mac (re)connects.
+        .task(id: computer.reload(preferring: session.macID)) { await computer.load(preferring: session.macID) }
         .onChange(of: session.engineReport) { _, newer in if !saving { report = newer } }
         // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
         .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation { muted = on } } }
@@ -191,7 +195,7 @@ public struct ChiefSettingsView: View {
             .accessibilityIdentifier("chief.settings.call")
             if !session.runsInCloud {
                 ChiefQuickAction(symbol: "stop.fill", title: String(localized: "Stop"),
-                                 enabled: hasControl && session.isTyping && !stopping,
+                                 enabled: hasControl && session.isWorking && !stopping,
                                  busy: stopping) { Task { await stop() } }
                     .accessibilityIdentifier("chief.settings.stop")
             }
@@ -209,7 +213,8 @@ public struct ChiefSettingsView: View {
             return session.unavailableReason ?? String(localized: "Not connected to your Mac")
         }
         let mac = session.macName ?? String(localized: "your Mac")
-        if session.isTyping { return String(localized: "Working on \(mac)") }
+        // A run with tools and no typing is work too (``ChiefSession/isWorking``).
+        if session.isWorking { return String(localized: "Working on \(mac)") }
         return String(localized: "Runs on \(mac)")
     }
 
@@ -335,7 +340,7 @@ public struct ChiefSettingsView: View {
                     session.setSendsReadReceipts(on) { withAnimation { receipts = !on } }
                 }
         } footer: {
-            Text("Hide Alerts silences Chief's notifications on this iPhone. With Send Read Receipts off, reading Chief here does not mark it read on your Mac.")
+            Text(String(localized: "mobile.chief.notificationsFooter", defaultValue: "These settings apply to this iPhone.", bundle: .module))
         }
         .disabled(session.conversationID == nil)
         .listRowBackground(ChiefInfoGeometry.card)
@@ -395,11 +400,13 @@ public struct ChiefSettingsView: View {
     #if DEBUG
     /// The raw errors behind the plain sentences (DEBUG builds only).
     private var diagnosticsSection: some View {
-        Section("Diagnostics") {
-            LabeledContent("Engine read", value: session.engineError.map { String(describing: $0) } ?? "OK")
-            LabeledContent("Report", value: session.engineReportIsCurrent ? "Current" : (report == nil ? "None" : "Kept from earlier"))
-            if let failure = session.lastTurnFailure {
-                LabeledContent("Last failed turn", value: failure.detail)
+        Section {
+            DisclosureGroup(String(localized: "mobile.chief.diagnostics", defaultValue: "Diagnostics", bundle: .module)) {
+                LabeledContent("Engine read", value: session.engineError.map { String(describing: $0) } ?? "OK")
+                LabeledContent("Report", value: session.engineReportIsCurrent ? "Current" : (report == nil ? "None" : "Kept from earlier"))
+                if let failure = session.lastTurnFailure {
+                    LabeledContent("Last failed turn", value: failure.detail)
+                }
             }
         }
         .font(.caption)
@@ -450,12 +457,12 @@ public struct ChiefSettingsView: View {
         // No answer from the Mac is not Chief refusing (the old copy blamed Chief for a dropped link).
         switch ChiefEngineProblem(error) {
         case .macUnreachable: return String(localized: "Your Mac didn't answer. Check that it's on and connected, then try again.")
-        case .chiefBusy: return String(localized: "Chief on your Mac is busy and didn't answer in time. Try again.")
+        case .chiefBusy: return String(localized: "mobile.chief.busy", defaultValue: "Chief is busy. Try again.", bundle: .module)
         default: break
         }
         return switch action {
-        case .change: String(localized: "Chief on your Mac didn't take the change. Try again.")
-        case .stop: String(localized: "Chief on your Mac didn't stop. Try again.")
+        case .change: String(localized: "mobile.chief.saveFailed", defaultValue: "Couldn't save the change. Try again.", bundle: .module)
+        case .stop: String(localized: "mobile.chief.stopFailed", defaultValue: "Couldn't stop Chief. Try again.", bundle: .module)
         }
     }
 

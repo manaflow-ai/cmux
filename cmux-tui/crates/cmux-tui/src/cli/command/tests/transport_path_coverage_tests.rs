@@ -43,6 +43,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         (vec!["workspace", "create", "--cwd", "/tmp", "--", "make", "watch"], "workspace.create"),
         (vec!["workspace", "create", "--shell", "make watch"], "workspace.create"),
         (vec!["workspace", "group", "g", "update", "--clear-top-index"], "workspace_group.update"),
+        // A create that finds the space's group of that name instead of making one (#32097).
+        (vec!["workspace", "group", "create", "--name", "n", "--reuse"], "workspace_group.create"),
         // closed.delete takes either a group (with members) or all, and all
         // takes retention bounds.
         (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),
@@ -50,8 +52,19 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // closed.reopen by a closed tab's id (its link), with the pane a tab
         // whose pane and workspace are gone opens in.
         (vec!["closed", "reopen", "--tab", TAB, "--fallback-pane", PANE], "closed.reopen"),
+        // closed.reopen by a closed workspace's old id (its link, #25659).
+        (vec!["closed", "reopen", "--workspace", WORKSPACE], "closed.reopen"),
         // Fields added since the case list last covered them: each one's CLI path.
         (vec!["notification", "clear", "--workspace", WORKSPACE], "notification.clear"),
+        (
+            vec![
+                "notification",
+                "clear",
+                "--notification",
+                "notification_00000000000000000000000000000041",
+            ],
+            "notification.clear",
+        ),
         (
             vec!["notification", "create", "--title", "t", "--body", "", "--workspace", WORKSPACE],
             "notification.create",
@@ -345,6 +358,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.engine.get"
                         | "chief.engine.set"
                         | "chief.stop"
+                        | "chief.continue"
+                        | "chief.retry"
                         // `cmux chief list|new|adopt|edit|delete` send these
                         // (cli/chief/registry.rs), outside the noun grammar.
                         | "chief.profile.list"
@@ -365,11 +380,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "credential.verify"
                         | "credential.mint"
                         | "credential.rotate"
-                        // The daemon's settings ops (cx-9ce.10) have no
+                        // Apart from settings.list, daemon settings ops have no
                         // noun-first CLI verb yet, as they have no MCP tool
                         // (83285ad2b3bf; cx-9ce.12, cx-ncc.32).
                         | "settings.get"
-                        | "settings.list"
                         | "settings.reset"
                         | "settings.reset_all"
                         | "settings.schema"
@@ -409,6 +423,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ("tab.update", "owner"),
         ("tab.update", "back"),
         ("tab.update", "forward"),
+        // The guarded attention clear: an app acknowledging the mark it captured
+        // (`extra.attention.request_id`) sends it with `attention:null`; the CLI
+        // keeps the unconditional clear (docs/protocol.md, #27497).
+        ("tab.update", "attention_request_id"),
         ("client.metadata.update", "capabilities"),
         // layout.bulk: the CLI names the anchor by its selector and has no
         // selection; apps and MCP send anchor and ids.

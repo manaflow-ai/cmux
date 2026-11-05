@@ -15,15 +15,19 @@ public import CmuxNextDesignTokens
 public struct Motion {
     public init() {}
     /// Tests set this to pin Reduce Motion; nil reads the system setting.
-    /// A change posts `reduceMotionDidChange`, so a host that caches a value
+    /// A change posts `reduceMotionDidChange` and tells ``changes``, so a host that caches a value
     /// derived from `reduceMotion` (StatusIndicatorAppearance) re-reads it at
     /// once, as it does for the system setting's notification.
     public static var reduceMotionOverride: Bool? {
         didSet {
             guard reduceMotionOverride != oldValue else { return }
-            NotificationCenter.default.post(name: reduceMotionDidChange, object: nil)
+            changes.post(.reduceMotion)
         }
     }
+
+    /// The app's one subscription to every motion-setting change, the system Reduce Motion
+    /// included (``MotionChanges``).
+    public static var changes: MotionChanges { DesignSettings.shared.motionChanges }
 
     /// Posted on the main actor when `reduceMotionOverride` changes. The
     /// system setting has its own notification
@@ -109,10 +113,4 @@ extension MotionGate {
     public func duration(_ token: MotionFade) -> TimeInterval { policy.duration(token) }
     public func duration(_ token: MotionSpring) -> TimeInterval { policy.duration(token) }
     public func period(_ loop: MotionLoop) -> TimeInterval? { policy.period(loop) }
-
-    /// Seconds of a released divider's velocity projected to find a snap; 0
-    /// when movement does not animate.
-    public var dividerReleaseProjection: Double {
-        animatesMovement ? MotionTunables.dividerReleaseProjection.value * speed.timeScale : 0
-    }
 }

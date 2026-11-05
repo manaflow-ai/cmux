@@ -221,6 +221,7 @@ impl App {
         self.machine_sidebar_width = 0;
         self.tabs_sidebar_width = 0;
         self.content_area = Rect::default();
+        self.docks.clear_placement();
         self.hits.clear();
         self.pane_areas.clear();
         self.viewport_projection.clear();

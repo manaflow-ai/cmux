@@ -48,11 +48,16 @@ struct NewTabStyleSwitchTests {
         let saved = try String(contentsOf: directory.appending(path: "cmux.json"), encoding: .utf8)
         #expect(saved.contains("\"threads\""))
 
-        // Terminal and unknown values are not page styles: the setting stays.
+        // Terminal and unknown values are not page styles: the setting stays. A stale Composer
+        // pick is normalized to Minimal before it reaches the saved config.
         _ = await Self.pick(model, "terminal")
         _ = await Self.pick(model, "sparkles")
-        #expect(saves.count == 3)
+        _ = await Self.pick(model, "composer")
+        #expect(saves.count == 4)
         for save in saves { await save.value }
-        #expect(settings.snapshot.newTabTemplate == .threads)
+        #expect(settings.snapshot.newTabTemplate == .minimal)
+        let migrated = try String(contentsOf: directory.appending(path: "cmux.json"), encoding: .utf8)
+        #expect(migrated.contains("\"minimal\""))
+        #expect(!migrated.contains("\"composer\""))
     }
 }

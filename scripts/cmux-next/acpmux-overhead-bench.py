@@ -30,9 +30,28 @@ through acpmux, each run in a fresh folder, from the moment the person presses E
 Then the idle cost of typing in 5 new chats in 5 folders and sending none: ready warm sessions
 left and their RSS (`abandoned_ready`, `abandoned_rss_mb`).
 
+--mode hibernate: an idle chat's hibernation (acpmux hub/idle.rs). n chats per harness, each attached
+(the chat on screen), one turn each, then all left idle for --idle-wait seconds (default 135: the
+2 min default and a margin). Per chat:
+  procs / rss_mb   the agent's processes (its host, harness and MCP servers) and their RSS after the turn
+  left             how many of those still run after the idle wait (0: hibernated)
+  first            ms from the next prompt's send to its first answer text (a wake when hibernated);
+                   every other chat first says `_acpmux/typing` on and waits 1 s (`typed` 1), as a
+                   person typing does
+  warm_first       the same for a prompt right after, the agent awake
+
+--mode build-turn: an agent turn that runs a build (cpu_class.rs: the CPU class a session's harness
+starts at). Claude Code only, through acpmux, each run a fresh session: the stand-in answers the
+prompt with one Bash call running --build-cmd, then "ok". Per run:
+  end     ms from the prompt's send to the turn's end (the build is most of it)
+  pri     the base priority (`ps -o pri=`) of the shell Claude Code ran the build in: 4 is
+          background (darwinbg), 31 the default class
+  build_s the build's own seconds, as the shell measured them
+
 Usage:
   acpmux-overhead-bench.py --acpmux PATH [--harness claude,codex,opencode] [-n 20]
-                           [--mode overhead|prewarm] [--json OUT] [--md OUT]
+                           [--mode overhead|prewarm|hibernate|build-turn] [--build-cmd CMD]
+                           [--json OUT] [--md OUT]
 """
 
 from __future__ import annotations
@@ -64,6 +83,10 @@ class StandIn(http.server.ThreadingHTTPServer):
         # Model requests and their body bytes, for each run's share (`Counter`).
         self.requests = 0
         self.bytes = 0
+        # --mode build-turn: the Bash command a prompt naming BUILD_TURN gets, and every tool
+        # result the harness sent back, in order.
+        self.build_cmd: str | None = None
+        self.tool_results: list[str] = []
 
     def hit(self, tag: str, size: int = 0):
         with self.lock:
@@ -135,6 +158,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def anthropic(self, body):
         model = body.get("model", "claude-bench")
         usage = {"input_tokens": 10, "output_tokens": 1, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+        call = build_call(self.server, body)
+        if call is not None and body.get("stream"):
+            return self.reply(200, sse(tool_use_events(model, usage, call)), "text/event-stream")
         if not body.get("stream"):
             msg = {"id": "msg_bench", "type": "message", "role": "assistant", "model": model,
                    "content": [{"type": "text", "text": "ok"}], "stop_reason": "end_turn",
@@ -190,6 +216,53 @@ class Handler(http.server.BaseHTTPRequestHandler):
             (None, "[DONE]"),
         ]
         self.reply(200, sse(events), "text/event-stream")
+
+
+# The prompt of a --mode build-turn run: the stand-in answers it with one Bash call.
+BUILD_TURN = "BUILD_TURN: run the build."
+
+
+def build_call(server, body):
+    """The Bash input a main-loop request of a build turn gets, or None (answer "ok").
+
+    Only a request that offers the Bash tool (a side request, such as a title, offers none) and
+    whose last user message is the build prompt itself, not the tool result that follows it.
+    Claude Code may end its messages with a system one (its environment), so the last user
+    message is looked for, never the last message."""
+    if not server.build_cmd or not any(t.get("name") == "Bash" for t in body.get("tools") or []):
+        return None
+    users = [m for m in body.get("messages") or [] if m.get("role") == "user"]
+    content = users[-1].get("content") if users else None
+    blocks = content if isinstance(content, list) else [{"type": "text", "text": content or ""}]
+    results = [b for b in blocks if isinstance(b, dict) and b.get("type") == "tool_result"]
+    if results:
+        for r in results:
+            inner = r.get("content")
+            text = inner if isinstance(inner, str) else "".join(
+                c.get("text", "") for c in inner or [] if isinstance(c, dict))
+            with server.lock:
+                server.tool_results.append(text)
+        return None
+    if not any(BUILD_TURN in (b.get("text") or "") for b in blocks if isinstance(b, dict)):
+        return None
+    return {"command": server.build_cmd, "description": "Run the build", "timeout": 600000}
+
+
+def tool_use_events(model, usage, call):
+    tid = "toolu_bench_" + uuid.uuid4().hex[:12]
+    return [
+        ("message_start", {"type": "message_start", "message": {"id": "msg_bench", "type": "message", "role": "assistant",
+                                                                 "model": model, "content": [], "stop_reason": None,
+                                                                 "stop_sequence": None, "usage": usage}}),
+        ("content_block_start", {"type": "content_block_start", "index": 0,
+                                 "content_block": {"type": "tool_use", "id": tid, "name": "Bash", "input": {}}}),
+        ("content_block_delta", {"type": "content_block_delta", "index": 0,
+                                 "delta": {"type": "input_json_delta", "partial_json": json.dumps(call)}}),
+        ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+        ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "tool_use", "stop_sequence": None},
+                           "usage": {"output_tokens": 1}}),
+        ("message_stop", {"type": "message_stop"}),
+    ]
 
 
 # ---------------------------------------------------------------- line pipes
@@ -511,6 +584,101 @@ def abandoned_cost(daemon: Daemon, harness, scratch, folders=5):
     return {"abandoned_ready": len(ready), "abandoned_rss_mb": round(rss / (1 << 20), 1)}
 
 
+def proc_table():
+    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,rss="], capture_output=True, text=True).stdout
+    rows = {}
+    for line in out.splitlines():
+        f = line.split()
+        if len(f) == 3 and all(x.isdigit() for x in f):
+            rows[int(f[0])] = (int(f[1]), int(f[2]))
+    return rows
+
+
+def agent_procs(home, session):
+    """The pids of `session`'s agent: its host (`hosts/<id>.json`) or the daemon's child, and everything
+    under it (the harness and its MCP servers)."""
+    rows = proc_table()
+    path = os.path.join(home, "hosts", f"{session}.json")
+    if not os.path.exists(path):
+        # Not hosted: its harness is the daemon's child, and nothing names which one is this
+        # session's. Counted as unknown, never as another session's processes.
+        return None, 0
+    rec = json.load(open(path))
+    roots = [p for p in (rec.get("host_pid"), rec.get("harness_pid")) if p]
+    tree = list(dict.fromkeys(roots))
+    i = 0
+    while i < len(tree):
+        tree.extend(pid for pid, (ppid, _) in rows.items() if ppid == tree[i] and pid not in tree)
+        i += 1
+    return [p for p in tree if p in rows], sum(rows[p][1] for p in tree if p in rows)
+
+
+def alive(pid):
+    out = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(out) and not out.startswith("Z")
+
+
+def hibernate_main(args, daemon: Daemon, scratch):
+    results = {}
+    chats = []
+    for h in args.harness.split(","):
+        for k in range(args.n):
+            cwd = os.path.realpath(os.path.join(scratch, f"hib-{h}-{k}"))
+            os.makedirs(cwd, exist_ok=True)
+            _, r = daemon.request("session/new", {"cwd": cwd, "mcpServers": [],
+                                                   "_meta": {"acpmux": {"harness": h, "policy": "approve-all",
+                                                                        "model": MODELS[h]}}}, timeout=180)
+            sid = r["sessionId"]
+            daemon.next += 1
+            acp_turn(daemon.io, daemon.io.mark(), daemon.next, sid, "Reply with ok.")
+            pids, rss = agent_procs(daemon.home, sid)
+            chats.append({"harness": h, "sid": sid, "pids": pids or [], "procs": None if pids is None else len(pids),
+                          "rss_mb": round(rss / 1024, 1),
+                          "typed": k % 2})
+    print(f"hibernate: {len(chats)} chats idle for {args.idle_wait} s", file=sys.stderr, flush=True)
+    time.sleep(args.idle_wait)
+    for c in chats:
+        pids = c.pop("pids")
+        c["left"] = sum(1 for p in pids if alive(p)) if c["procs"] is not None else None
+    for c in chats:
+        if c["typed"]:
+            daemon.request("_acpmux/typing", {"sessionId": c["sid"], "on": True})
+            time.sleep(1.0)
+        daemon.next += 1
+        ts, tf, _, _ = acp_turn(daemon.io, daemon.io.mark(), daemon.next, c["sid"], "Again: reply with ok.")
+        c["first"] = ms(ts, tf)
+        daemon.next += 1
+        ts, tf, _, _ = acp_turn(daemon.io, daemon.io.mark(), daemon.next, c["sid"], "Once more: reply with ok.")
+        c["warm_first"] = ms(ts, tf)
+    for h in args.harness.split(","):
+        rows = [c for c in chats if c["harness"] == h]
+        results[h] = {"runs": rows}
+    log = open(os.path.join(daemon.home, "daemon.log"), errors="replace").read()
+    # The hibernations and wakes, and why an idle harness stayed up (`idle_census.rs` `note_refusal`):
+    # with no hibernation, the refusal names the process that kept it.
+    marks = ("hibernated", "woke", "wake failed", "idle harness stays up")
+    results["_log"] = [line for line in log.splitlines() if any(m in line for m in marks)][-40:]
+    results["_meta"] = {"label": args.label, "acpmux": args.acpmux, "n": args.n, "mode": "hibernate",
+                        "idle_wait": args.idle_wait, "host": socket.gethostname(), "load": os.getloadavg()}
+    if args.json:
+        with open(args.json, "w") as f:
+            json.dump(results, f, indent=1)
+    lines = [f"### {args.label or 'run'} hibernate ({socket.gethostname()}, n={args.n}, idle {args.idle_wait} s, "
+             f"load {os.getloadavg()[0]:.1f})", "",
+             "| harness | typed first | agent procs after the turn | RSS MB | still running after idle | "
+             "next prompt to first text (ms) | awake prompt to first text (ms) |", "|---|---|---|---|---|---|---|"]
+    for c in chats:
+        lines.append(f"| {c['harness']} | {'yes' if c['typed'] else 'no'} | {c['procs']} | {c['rss_mb']} | {c['left']} | "
+                     f"{c['first']} | {c['warm_first']} |")
+    text = "\n".join(lines) + "\n"
+    print(text)
+    for line in results["_log"]:
+        print("LOG " + line)
+    if args.md:
+        with open(args.md, "a") as f:
+            f.write(text + "\n")
+
+
 # ---------------------------------------------------------------- main
 
 PREWARM_METRICS = ["ready", "first", "end", "warm_start", "pool_hit"]
@@ -578,7 +746,9 @@ def main():
     ap.add_argument("--harness", default="claude,codex,opencode")
     ap.add_argument("-n", type=int, default=20)
     ap.add_argument("--warmup", type=int, default=2)
-    ap.add_argument("--mode", choices=["overhead", "prewarm"], default="overhead")
+    ap.add_argument("--mode", choices=["overhead", "prewarm", "hibernate", "build-turn"], default="overhead")
+    ap.add_argument("--build-cmd", help="--mode build-turn: the shell command the turn's Bash call runs")
+    ap.add_argument("--idle-wait", type=int, default=135, help="--mode hibernate: seconds the chats sit idle")
     ap.add_argument("--json")
     ap.add_argument("--md")
     ap.add_argument("--label", default="")
@@ -602,9 +772,15 @@ def main():
     if args.no_agent_tools:
         extra["ACPMUX_AGENT_TOOLS"] = "0"
     daemon = Daemon(os.path.abspath(args.acpmux), env, home, extra)
-    if args.mode == "prewarm":
+    if args.mode == "build-turn":
         try:
-            return prewarm_main(args, daemon, scratch)
+            return build_turn_main(args, daemon, stand, scratch)
+        finally:
+            daemon.close()
+            shutil.rmtree(scratch, ignore_errors=True)
+    if args.mode in ("prewarm", "hibernate"):
+        try:
+            return (prewarm_main if args.mode == "prewarm" else hibernate_main)(args, daemon, scratch)
         finally:
             daemon.close()
             shutil.rmtree(scratch, ignore_errors=True)
@@ -670,6 +846,68 @@ def main():
     shutil.rmtree(scratch, ignore_errors=True)
 
 
+def build_turn_main(args, daemon: Daemon, stand: StandIn, scratch):
+    """--mode build-turn: n turns, each in a fresh session, whose one tool call runs the build."""
+    stand.build_cmd = args.build_cmd
+    rows, errors = [], []
+    for k in range(args.warmup + args.n):
+        cwd = os.path.join(scratch, f"build-{k}")
+        os.makedirs(cwd)
+        sid = None
+        try:
+            _, r = daemon.request("session/new", {"cwd": cwd, "mcpServers": [],
+                                                   "_meta": {"acpmux": {"harness": "claude", "policy": "approve-all",
+                                                                        "model": MODELS["claude"]}}})
+            sid = r["sessionId"]
+            io = daemon.io
+            daemon.next += 1
+            rid, start, seen = daemon.next, io.mark(), len(stand.tool_results)
+            ts = time.perf_counter()
+            io.send({"jsonrpc": "2.0", "id": rid, "method": "session/prompt",
+                     "params": {"sessionId": sid, "prompt": [{"type": "text", "text": BUILD_TURN}]}})
+            te, m, _ = io.wait(lambda m: m.get("id") == rid, timeout=1200, start=start)
+            if "error" in m:
+                raise RuntimeError(f"session/prompt: {m['error']}")
+            out = "\n".join(stand.tool_results[seen:])
+            row = {"end": ms(ts, te)}
+            for key, name in (("pri", "BUILD-PRI"), ("build_s", "BUILD-SECONDS"), ("exit", "BUILD-EXIT")):
+                hit = [line.split()[1] for line in out.splitlines() if line.startswith(name + " ") and len(line.split()) > 1]
+                row[key] = float(hit[-1]) if hit else None
+            if row["exit"] != 0:
+                raise RuntimeError(f"the build did not pass: {out[-400:]!r}")
+            print(f"build-turn run {k + 1}/{args.warmup + args.n}: {row}", file=sys.stderr, flush=True)
+            if k >= args.warmup:
+                rows.append(row)
+        except Exception as e:  # noqa: BLE001: a bench reports and goes on
+            errors.append(f"run {k}: {e}")
+            print(f"build-turn run {k}: {e}", file=sys.stderr)
+        finally:
+            if sid:
+                try:
+                    daemon.request("session/close", {"sessionId": sid}, timeout=20)
+                except Exception:
+                    pass
+    summary = {m: {"p50": pct([r[m] for r in rows if r[m] is not None], 0.5),
+                   "min": min((r[m] for r in rows if r[m] is not None), default=None),
+                   "max": max((r[m] for r in rows if r[m] is not None), default=None)} for m in ("end", "build_s", "pri")}
+    results = {"claude": {"summary": summary, "runs": rows, "errors": errors},
+               "_meta": {"label": args.label, "acpmux": args.acpmux, "n": args.n, "build_cmd": args.build_cmd,
+                         "host": socket.gethostname(), "load": os.getloadavg()}}
+    if args.json:
+        with open(args.json, "w") as f:
+            json.dump(results, f, indent=1)
+    lines = [f"### build-turn {args.label or 'run'} ({socket.gethostname()}, n={len(rows)}, load {os.getloadavg()[0]:.1f})", "",
+             "| metric | p50 | min | max |", "|---|---|---|---|"]
+    for m, v in summary.items():
+        lines.append(f"| {m} | {v['p50']} | {v['min']} | {v['max']} |")
+    text = "\n".join(lines) + "\n"
+    print(text)
+    if args.md:
+        with open(args.md, "a") as f:
+            f.write(text + "\n")
+    return 1 if errors else 0
+
+
 def prewarm_main(args, daemon: Daemon, scratch):
     results = {}
     for h in args.harness.split(","):
@@ -726,4 +964,4 @@ def prewarm_main(args, daemon: Daemon, scratch):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

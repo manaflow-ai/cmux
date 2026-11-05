@@ -943,6 +943,43 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
                 self.assertIn("CMUX_SWIFT_TEST_SHARD", completed.stdout)
                 self.assertEqual(calls, [])
 
+    def _suites_run(self, only: str, suites: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            self._write_fake_swift(temp, "print('Test run with 1 test passed after 0.001 seconds.')\n")
+            package = temp / "ExampleTests"
+            package.mkdir()
+            env = self._jobs_env(temp, suites, "2")
+            env["CMUX_SWIFT_TEST_SUITES"] = only
+            completed = run_runner(package, env)
+            calls_path = temp / "calls.txt"
+            calls = calls_path.read_text(encoding="utf-8").splitlines() if calls_path.exists() else []
+            return completed, calls
+
+    def test_named_suites_run_alone(self) -> None:
+        """CMUX_SWIFT_TEST_SUITES runs only the named suites (bare or Target.Suite),
+        so a fleet step can run one suite of a package."""
+        completed, calls = self._suites_run("Charlie,ExampleTests.Alpha", ["Alpha", "Bravo", "Charlie", "Delta"])
+        self.assertEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn("test list", calls[0])
+        ran = sorted(next(s for s in ["Alpha", "Bravo", "Charlie", "Delta"] if f".{s}/" in call) for call in calls[1:])
+        self.assertEqual(ran, ["Alpha", "Charlie"], completed.stdout)
+        self.assertIn("Swift test suites: 2 passed, 0 failed", completed.stdout)
+
+    def test_a_named_suite_the_package_lacks_is_refused(self) -> None:
+        completed, calls = self._suites_run("Alpha,Zulu", ["Alpha", "Bravo"])
+        self.assertEqual(completed.returncode, 2, completed.stdout)
+        self.assertIn("CMUX_SWIFT_TEST_SUITES names Zulu", completed.stdout)
+        self.assertEqual(len(calls), 1, calls)
+
+    def test_an_invalid_suite_list_is_refused_before_the_build(self) -> None:
+        for only in ("Alpha;rm", ",Alpha", "Alpha,", "Al pha", "^Alpha/"):
+            with self.subTest(only=only):
+                completed, calls = self._suites_run(only, ["Alpha"])
+                self.assertEqual(completed.returncode, 2, completed.stdout)
+                self.assertIn("CMUX_SWIFT_TEST_SUITES", completed.stdout)
+                self.assertEqual(calls, [])
+
 
 # The fake toolchain for CMUX_SWIFT_TEST_DIRECT=1: `swift` lists and builds,
 # `xcrun` finds the tools, and the fake xctest and swiftpm-testing-helper record

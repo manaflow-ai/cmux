@@ -14,6 +14,13 @@ enum ColumnHandlers {
             guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return }
             content.layoutModel.newColumn(after: pane.layoutPaneID)
         })
+        // New Column Left: disabled, with the reason, on a daemon without `column-left-v1`.
+        // The column shows in the key's turn (an optimistic intent, WorkspaceContentController.newColumn).
+        registry.bindEffect("newColumnLeft", unavailable: { newColumnLeftUnavailableReason(ctx) }, effect: { invocation in
+            guard let pane = ctx.paneController(invocation), let content = pane.workspace else { return .done }
+            content.layoutModel.newColumn(before: pane.layoutPaneID)
+            return .done
+        })
         // New Row (plans/cmux-next/rows.md): disabled while rows are off (O2)
         // or the daemon lacks rows-v1; the layout model checks both again.
         registry.bind("newRow", unavailable: { newRowUnavailableReason(ctx) }, invoke: { invocation in
@@ -51,6 +58,13 @@ enum ColumnHandlers {
         let daemon = ctx.services.activeDaemon
         guard !daemon.supports(DaemonCapability.rows.rawValue) else { return nil }
         return daemon.missingCapabilityMessage(DaemonCapability.rows.rawValue)
+    }
+
+    /// Why New Column Left cannot run now: a daemon without `column-left-v1`.
+    @MainActor static func newColumnLeftUnavailableReason(_ ctx: AppActionContext) -> String? {
+        let daemon = ctx.services.activeDaemon
+        guard !daemon.supports(DaemonCapability.columnLeft.rawValue) else { return nil }
+        return daemon.missingCapabilityMessage(DaemonCapability.columnLeft.rawValue)
     }
 
     /// The targeted column (`column:<id>`), else the targeted or focused

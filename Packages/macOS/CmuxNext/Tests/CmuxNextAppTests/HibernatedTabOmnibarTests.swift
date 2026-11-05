@@ -12,6 +12,11 @@ import Testing
 /// The omnibar keeps the address the tab slept on from the first frame of the wake, and changes
 /// only when the woken page reports another real address.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HibernatedTabOmnibarTests {
+    /// The omnibar showing `entry`: the rig's pane chrome bound to it, as the pane does when it shows the tab.
+    static func omnibar(_ entry: BrowserEntry, in rig: HiddenPageHibernationTests.Rig) -> AddressBarView {
+        (entry.chrome ?? rig.pane.browserChrome.bind(entry.tab, state: entry.state)).addressBar
+    }
+
     @Test func aWokenChromiumTabShowsItsAddressInTheFirstFrame() async throws {
         let wake = try await ChromiumWake()
         defer { wake.rig.close() }
@@ -26,11 +31,11 @@ import Testing
         defer { rig.close() }
         let key = try await rig.hide(rig.page("asleep", body: "<p>asleep</p>"))
         try await rig.until("the page hibernated") { rig.isHibernated(key) }
-        let asleepText = try #require(rig.services.cache.existingBrowser(key)).chrome.addressBar.displayedText
+        let asleepText = Self.omnibar(try #require(rig.services.cache.existingBrowser(key)), in: rig).displayedText
         var firstFrame: String?
         rig.services.cache.onBrowserReady = { [weak cache = rig.services.cache] ready in
             guard ready == key, firstFrame == nil, !(cache?.existingBrowser(ready)?.tab is HibernatedBrowserTab) else { return }
-            firstFrame = cache?.existingBrowser(ready)?.chrome.addressBar.displayedText
+            firstFrame = cache?.existingBrowser(ready).map { Self.omnibar($0, in: rig).displayedText }
         }
         rig.services.cache.present(key, by: rig.pane, presence: .visible)
         try await rig.until("the page woke") { firstFrame != nil }
@@ -60,7 +65,7 @@ import Testing
         let key: String
         let asleepText: String
         private(set) var made: MockBrowserTab?
-        var bar: AddressBarView { rig.services.cache.existingBrowser(key)!.chrome.addressBar }
+        var bar: AddressBarView { HibernatedTabOmnibarTests.omnibar(rig.services.cache.existingBrowser(key)!, in: rig) }
 
         init() async throws {
             let rig = try HiddenPageHibernationTests.Rig()
@@ -74,7 +79,7 @@ import Testing
             cache.swapPage(key, with: asleep)
             self.rig = rig
             self.key = key
-            asleepText = cache.existingBrowser(key)?.chrome.addressBar.displayedText ?? ""
+            asleepText = cache.existingBrowser(key).map { HibernatedTabOmnibarTests.omnibar($0, in: rig).displayedText } ?? ""
             cache.makeCEFTab = { [weak self] configuration in
                 let page = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false).makeMockTab(configuration)
                 page.simulate(.urlChanged(URL(string: "about:blank")))
@@ -90,7 +95,7 @@ import Testing
             let key = key
             cache.onBrowserReady = { [weak cache] ready in
                 guard ready == key, firstFrame == nil, !(cache?.existingBrowser(ready)?.tab is HibernatedBrowserTab) else { return }
-                firstFrame = cache?.existingBrowser(ready)?.chrome.addressBar.displayedText
+                firstFrame = cache?.existingBrowser(ready).map { HibernatedTabOmnibarTests.omnibar($0, in: self.rig).displayedText }
             }
             cache.present(key, by: rig.pane, presence: .visible)
             try await rig.until("the page woke") { firstFrame != nil }

@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use serde_json::{Value, json};
 
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 
 /// The keys a session's env may set. Every key added here needs a comment
 /// with its reason; never a variable that changes what runs or where it
@@ -31,6 +32,12 @@ pub const ALLOWED_KEYS: &[&str] = &[
     // Chiefs) to that turn alone. A secret, not a route: it changes nothing
     // about what runs or where it connects. Validated as 64 hex digits.
     "OPTCHAT_TURN_SEAL",
+    // The Chief a stable Chief session relays to (`cmux chief acp`, which
+    // posts each prompt into that Chief's conversation on the same cmux
+    // daemon): a participant id, not a route; the session runs the same
+    // CLI on the same socket whatever it names. Validated as `agent_` and
+    // `[A-Za-z0-9_-]`.
+    "CMUX_CHIEF_PARTICIPANT",
 ];
 
 /// Most keys one request may set.
@@ -41,7 +48,7 @@ pub const MAX_VALUE_BYTES: usize = 256;
 fn refusal(reason: &str, message: String, key: Option<&str>) -> RpcError {
     let mut data = json!({"reason": reason});
     if let Some(key) = key {
-        data["key"] = json!(key);
+        data.set("key", json!(key));
     }
     RpcError::invalid_params(message).with_data(data)
 }
@@ -53,6 +60,15 @@ pub fn origin_refused() -> RpcError {
         "a session env is accepted only over the local unix socket".to_owned(),
         None,
     )
+}
+
+/// A Chief's participant id: `agent_` and at most 64 of `[A-Za-z0-9_-]`.
+pub(crate) fn is_participant_id(value: &str) -> bool {
+    value.len() <= 70
+        && value.strip_prefix("agent_").is_some_and(|rest| {
+            !rest.is_empty()
+                && rest.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        })
 }
 
 /// A workspace id: a UUID (8-4-4-4-12 hex digits, either case).
@@ -125,6 +141,13 @@ pub fn parse(meta: Option<&Value>) -> Result<BTreeMap<String, String>, RpcError>
             return Err(refusal(
                 "env.value_refused",
                 format!("env.{key} must be 64 hex digits"),
+                Some(key),
+            ));
+        }
+        if key == "CMUX_CHIEF_PARTICIPANT" && !is_participant_id(value) {
+            return Err(refusal(
+                "env.value_refused",
+                format!("env.{key} must be a Chief participant id (agent_...)"),
                 Some(key),
             ));
         }

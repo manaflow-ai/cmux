@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 
@@ -7,7 +8,7 @@ import Testing
 /// 1400 pt strip (from about 30 tabs it scrolls). Prints `TAB-STRIP-SELECT n=<count> <step>=<µs>`: the
 /// whole `syncFromModel` and, apart, each step it runs (selection flags, separators, occlusion, the
 /// reveal scroll with and without its spring, the hover card). Timing is printed, not gated.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .closesItsWindows)
 struct TabStripSelectionBench {
     @Test(arguments: [2, 10, 30, 60])
     func selectionSteps(_ count: Int) {

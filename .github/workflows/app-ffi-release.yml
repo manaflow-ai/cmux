@@ -40,7 +40,11 @@ on:
     branches: [feat-cmux-next]
     paths:
       - "cmux-tui/crates/cmux-app-ffi/**"
+      - "cmux-tui/crates/cmux-bookmarks-core/**"
+      - "cmux-tui/crates/cmux-cloud-config/**"
+      - "cmux-tui/crates/cmux-cloud-start-core/**"
       - "cmux-tui/crates/cmux-focus-core/**"
+      - "cmux-tui/crates/cmux-imessage/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
       - "cmux-tui/crates/cmux-palette-ranker/**"
@@ -72,7 +76,7 @@ jobs:
     # blacksmith-12vcpu-macos-26 for 12 hours (run 39402525970, 2026-10-20) and
     # the app FFI pin stayed red on every push. A re-run, a dispatch or an empty
     # variable takes the Blacksmith label as before.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     permissions:
       contents: read
@@ -213,6 +217,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: CCmuxAppFFI.xcframework
+          retention-days: 7
           path: ${{ runner.temp }}/dist/*
           if-no-files-found: error
 
@@ -228,7 +233,7 @@ jobs:
     name: macOS cross-compile shadow (Linux, compare only)
     needs: build
     if: github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 45
     continue-on-error: true
     permissions:
@@ -332,6 +337,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: macos-cross-parity-app-ffi
+          retention-days: 3
           path: ${{ runner.temp }}/macos-cross/reports/
           if-no-files-found: warn
 
@@ -339,7 +345,7 @@ jobs:
     name: publish release
     needs: build
     if: github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     # Holds the FFI release App credentials; its deployment policy admits only
     # feat-cmux-next. GITHUB_TOKEN stays read-only: the release create uses
@@ -484,7 +490,7 @@ jobs:
     needs: [build, publish]
     if: needs.publish.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: ffi-release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -527,38 +533,22 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
 
+      # The re-pin is checked before it is pushed: the FFI sources here must
+      # match the release's SOURCE_SHA tree and the pinned checksum must be the
+      # published one (--verify-release). A base that gained newer FFI sources
+      # fails here and waits for the newer publish. The commit goes through
+      # GitHub's contents API, so it is written by the release App and signed
+      # by GitHub: the review reconciler reviews the app-ffi-repin pull request
+      # on first sight only when it changes Package.swift alone in such
+      # commits, and the lander lands it on that receipt. Base is then red on
+      # "Check the app FFI pin" for about the build time, not until someone
+      # notices (#32305, #31927 and #32436 each
+      # left it red for about an hour on 2026-11-02 while #32121 waited).
       - name: Pin the new release and open or update the pull request
         env:
           GH_TOKEN: ${{ steps.pr-token.outputs.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG: ${{ needs.build.outputs.tag }}
           CHECKSUM: ${{ needs.build.outputs.checksum }}
         shell: bash
-        run: |
-          set -euo pipefail
-          branch=app-ffi-repin
-          scripts/cmux-next/repin-app-ffi.sh "$GITHUB_SHA" "$CHECKSUM"
-          if git diff --quiet -- Packages/macOS/CmuxNext/Package.swift; then
-            echo "feat-cmux-next already pins $TAG"
-            exit 0
-          fi
-          git config user.name "cmux-release[bot]"
-          git config user.email "cmux-release[bot]@users.noreply.github.com"
-          git checkout -B "$branch"
-          git commit -q -m "cmux-next: pin CCmuxAppFFI to $TAG" -- Packages/macOS/CmuxNext/Package.swift
-          git push --force origin "HEAD:refs/heads/$branch"
-          body="Pins CCmuxAppFFI to [$TAG]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG) (checksum \`$CHECKSUM\`), published by run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. A newer publish updates this branch.
-
-          ## Changelog
-
-          none"
-          if [[ -z "$GH_TOKEN" ]]; then
-            echo "::warning title=Open the re-pin pull request::the release App has no pull-requests permission; open $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/feat-cmux-next...$branch?expand=1"
-            exit 0
-          fi
-          pr_number="$(gh pr list --head "$branch" --base feat-cmux-next --state open --json number --jq '.[0].number // empty')"
-          if [[ -n "$pr_number" ]]; then
-            gh pr edit "$pr_number" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body"
-            echo "updated the open re-pin pull request #$pr_number"
-          else
-            gh pr create --base feat-cmux-next --head "$branch" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body"
-          fi
+        run: bash scripts/cmux-next/publish-app-ffi-repin.sh

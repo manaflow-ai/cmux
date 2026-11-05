@@ -29,6 +29,12 @@ public struct WorkspaceMutationResult: Decodable, Sendable, Equatable {
     public var registryID: String?
     public var generation: DaemonGeneration?
 
+    /// The `mutation_id` of this new workspace's first chat tab (`agent.openSessionWorkspace`). Its key is the
+    /// caller's, or derived from the run's idempotency key (`WorkspaceKey.generate()` in a ``DaemonCommandScope``),
+    /// so an open repeated with the same key asks for the same tab and gets it back (`replayed`), never a second one;
+    /// the handle gives a later workspace under the same key (the first one closed) its own tab.
+    public var firstChatTabMutationID: String { "\(key.rawValue).\(workspace.rawValue).first-chat-tab" }
+
     enum CodingKeys: String, CodingKey {
         case workspace, key, index, changed, replayed, generation
         case workspaceRevision = "workspace_revision"

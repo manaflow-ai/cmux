@@ -12,8 +12,8 @@
  *       --candidate (40 hex; the exact-SHA promote): G1 must prove exactly that commit (its own
  *       green staging deploy, soaked, no red one in its soak window) instead of the newest one.
  *   bun prod-promote.ts recheck --candidate SHA
- *       Right before the deploy: hold released, spacing, and production's commit a strict ancestor
- *       of SHA (a re-run never downgrades). Exit 0 = deploy; 3 = hold.
+ *       Right before the deploy: hold released, spacing, and production's changes are in SHA
+ *       (strict ancestry or patch-equivalent cherry-picks; a re-run never downgrades). Exit 0 = deploy; 3 = hold.
  *   bun prod-promote.ts serving
  *       Prints the full source commit of the code production serves (from its version tag).
  *   bun prod-promote.ts rollback [--execute] [--force] [--wrangler BIN]
@@ -69,8 +69,8 @@ export const SOAK_MINUTES = 60
 export const SPACING_HOURS = 6
 export const STALE_HOURS = 24
 export const STALE_COMMITS = 20
-/** G7: production vars whose change spends money or sends messages; each new value needs an approval. */
-export const GUARDED_VAR = /^(INFERENCE_|AUTOMATION_CAP_|HOME_INVITES_SEND$|HOME_INVITES_TEXT$|CHIEF_BRAIN_|CHIEF_CREDITS_|CHIEF_RUN_TOKEN_CAP_USD$)/
+/** G7: production vars whose change spends money, sends messages or opens a service-binding surface (PLATFORM_SURFACES: requests forwarded to cmux-platform); each new value needs an approval. */
+export const GUARDED_VAR = /^(INFERENCE_|AUTOMATION_CAP_|HOME_INVITES_SEND$|HOME_INVITES_TEXT$|CHIEF_BRAIN_|CHIEF_CREDITS_|CHIEF_RUN_TOKEN_CAP_USD$|CLOUD_PLAN_ENTITLEMENTS$|PLATFORM_MACHINES$|PLATFORM_SURFACES$)/
 
 export interface Approvals {
   /** Secrets production must have before any deploy (names). */
@@ -126,6 +126,12 @@ export const guardedVarGate = (prod: ProdEnv, cand: ProdEnv, approvals: Approval
 export const missingSecrets = (env: ProdEnv, approvals: Approvals, have: ReadonlySet<string>): Array<string> => {
   const need = new Set(approvals.required_secrets)
   if (env.vars.HOME_INVITES_SEND === "on") need.add("HOME_INVITE_FROM")
+  // Paid Cloud entitlements sell machines: the provider key of the configured transport must exist (cloud-driver.ts cloudConfig).
+  // Same transport split as cloudConfig: unset or "direct" is Freestyle, "vm-api" is the VM API, anything else has no provider.
+  if (env.vars.CLOUD_PLAN_ENTITLEMENTS === "on") {
+    const t = env.vars.CLOUD_VM_TRANSPORT
+    need.add(t === undefined || t === "direct" ? "CLOUD_FREESTYLE_API_KEY" : t === "vm-api" ? "CLOUD_VM_API_SERVICE_KEY" : `CLOUD_VM_TRANSPORT=${t} (no Cloud provider)`)
+  }
   return [...need].map((n) => (env.vars[n] !== undefined ? `${n} (a plain var shadows the secret)` : !have.has(n) ? n : "")).filter(Boolean).sort()
 }
 
@@ -139,17 +145,39 @@ const cf = async (path: string): Promise<any> => {
   return ((await r.json()) as { result: unknown }).result
 }
 
-const gh = async (path: string, init: RequestInit = {}): Promise<any> => {
+/** Waits before each retry of a GitHub 5xx or network error (one 502 failed promote-gates before G1-G7 ran). 4xx never retries. */
+export const GH_RETRY_DELAYS_MS: ReadonlyArray<number> = [2_000, 5_000, 10_000]
+
+export const gh = async (path: string, init: RequestInit = {}, delays: ReadonlyArray<number> = GH_RETRY_DELAYS_MS): Promise<any> => {
   const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN
   const repo = process.env.GITHUB_REPOSITORY ?? "manaflow-ai/cmux"
   if (!token) throw new Error("GITHUB_TOKEN is not set")
-  const r = await fetch(`https://api.github.com/repos/${repo}${path}`, { ...init, headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", ...(init.headers ?? {}) } })
+  // A POST is not retried: a 5xx may still have created the issue or comment, and a retry would duplicate it.
+  const retries = (init.method ?? "GET").toUpperCase() === "POST" ? [] : delays
+  const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
+  const url = `https://api.github.com/repos/${repo}${path}`
+  const opts = { ...init, headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", ...(init.headers ?? {}) } }
+  const fetchOnce = async (attempt: number): Promise<Response> => {
+    try {
+      const res = await fetch(url, opts)
+      if (res.status < 500 || attempt >= retries.length) return res
+      await res.body?.cancel().catch(() => {})
+    } catch (e) {
+      if (attempt >= retries.length) throw e
+    }
+    await sleep(retries[attempt]!)
+    return fetchOnce(attempt + 1)
+  }
+  const r = await fetchOnce(0)
   // The body and the rate-limit headers say why (a 403 is a rate limit or a permission; the status alone hid which).
   if (!r.ok) throw new Error(`GitHub ${path}: HTTP ${r.status} ${(await r.text().catch(() => "")).slice(0, 300)} [remaining ${r.headers.get("x-ratelimit-remaining")}, reset ${r.headers.get("x-ratelimit-reset")}, retry-after ${r.headers.get("retry-after")}]`)
   return r.status === 204 ? null : r.json()
 }
 
-const git = (...args: Array<string>) => execFileSync("git", args, { encoding: "utf8" }).trim()
+export type GitRunner = (args: ReadonlyArray<string>, input?: string) => string
+
+const runGit: GitRunner = (args, input) => execFileSync("git", args, { encoding: "utf8", ...(input === undefined ? {} : { input }) }).trim()
+const git = (...args: Array<string>) => runGit(args)
 const fileAt = (sha: string, path: string) => git("show", `${sha}:${path}`)
 
 /** The Chief off switch's version message (deploy-worker.sh CMUX_DEPLOY_CHIEF_OFF: "source <sha> chief-off run <id>"). */
@@ -230,6 +258,8 @@ export const stagingRuns = async (limit = 30): Promise<Array<StagingRun>> => {
     const jobs = (await gh(`/actions/runs/${run.id}/jobs?per_page=100`)).jobs as Array<any>
     const job = jobs.find((j) => j.name === "deploy-staging")
     if (!job || job.conclusion === "skipped") continue
+    // A source-fenced stale run made no staging mutation and contributes no soak evidence.
+    if ((job.steps as Array<any>).some((s) => s.name === "Newer deployment inputs already queued; skip" && s.conclusion === "success")) continue
     const smoke = (job.steps as Array<any>).find((s) => String(s.name).startsWith("Smoke the API Worker"))
     // G1 proves the tests too: the run's test and migrations-push-guard jobs passed.
     const passed = (name: string) => jobs.some((j) => j.name === name && j.conclusion === "success")
@@ -245,13 +275,44 @@ export const pickCandidate = (runs: ReadonlyArray<StagingRun>, now: number): Sta
 /** Exact SHA (--candidate or a one-shot hold): only that commit's green runs compete; every red run still counts against its soak window. */
 export const candidateRuns = (runs: ReadonlyArray<StagingRun>, want: string | undefined): ReadonlyArray<StagingRun> => (want ? runs.filter((r) => !r.green || r.sha === want) : runs)
 
-const isAncestor = (a: string, b: string) => {
+const isAncestor = (a: string, b: string, run: GitRunner = runGit) => {
   try {
-    execFileSync("git", ["merge-base", "--is-ancestor", a, b])
+    run(["merge-base", "--is-ancestor", a, b])
     return true
   } catch {
     return false
   }
+}
+
+const backendCommitsIn = (sha: string, run: GitRunner, exclude?: string): Array<string> => {
+  const args = ["rev-list", "--no-merges", sha]
+  if (exclude) args.push("--not", exclude)
+  args.push("--", "backend/")
+  return run(args).split("\n").filter(Boolean)
+}
+
+const patchId = (sha: string, run: GitRunner): string | undefined => {
+  const patch = run(["show", "--format=", "--no-ext-diff", sha])
+  if (!patch) return undefined
+  const id = run(["patch-id", "--stable"], patch).split(/\s+/, 1)[0]
+  return id || undefined
+}
+
+/**
+ * Production must be an ancestor of the staging candidate, or every production-only backend
+ * commit must be represented by the same patch in the candidate's history. The latter allows a
+ * deployment assembled from cherry-picks while still holding any candidate with an unmatched
+ * production change.
+ */
+export const isPromotableLineage = (productionSha: string, candidateSha: string, run: GitRunner = runGit): boolean => {
+  if (productionSha === candidateSha || isAncestor(productionSha, candidateSha, run)) return true
+  const productionOnly = backendCommitsIn(productionSha, run, candidateSha)
+  if (!productionOnly.length) return false
+  const candidatePatches = new Set(backendCommitsIn(candidateSha, run).map((sha) => patchId(sha, run)).filter((id): id is string => id !== undefined))
+  return productionOnly.every((sha) => {
+    const id = patchId(sha, run)
+    return id !== undefined && candidatePatches.has(id)
+  })
 }
 
 const backendCommits = (from: string, to: string) => Number(git("rev-list", "--count", `${from}..${to}`, "--", "backend/"))
@@ -302,7 +363,7 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     const cand = pickCandidate(candidateRuns(runs, want), now)
     if (!cand) return hold("G1", want ? `${want.slice(0, 12)} has no green staging deploy (tests, push guard, deploy and smoke) older than ${SOAK_MINUTES} min without a red one after it, among the last ${runs.length} staging runs` : `no green staging deploy older than ${SOAK_MINUTES} min without a red one after it`)
     if (cand.sha === prodSha || isAncestor(cand.sha, prodSha)) return hold("none", `production ${prodSha.slice(0, 12)} already has the staging-proven ${cand.sha.slice(0, 12)}`)
-    if (!isAncestor(prodSha, cand.sha)) return hold("lineage", `${cand.sha.slice(0, 12)} does not descend from production ${prodSha.slice(0, 12)}`)
+    if (!isPromotableLineage(prodSha, cand.sha)) return hold("lineage", `${cand.sha.slice(0, 12)} does not descend from production ${prodSha.slice(0, 12)}`)
     // G2: an open regression issue (P0/P1) blocks; the chief applies the label or the hold.
     const blocking: Array<{ number: number }> = []
     for (const p of ["P0", "P1"]) {
@@ -336,7 +397,7 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     if (prod.codeDeployedAt && Date.now() - prod.codeDeployedAt < SPACING_HOURS * 3600_000) return hold(`production code changed less than ${SPACING_HOURS} h ago`)
     const prodSha = fullSha(prod.sourceTag)
     // Strict ancestor: equal or older candidates (a re-run, a stale job) never deploy.
-    if (prodSha === cand || !isAncestor(prodSha, cand)) return hold(`production ${prodSha.slice(0, 12)} is not a strict ancestor of ${cand.slice(0, 12)}`)
+    if (prodSha === cand || !isPromotableLineage(prodSha, cand)) return hold(`production ${prodSha.slice(0, 12)} is not a strict ancestor of ${cand.slice(0, 12)}`)
     console.log(`prod-promote recheck: ok, ${prodSha.slice(0, 12)} -> ${cand.slice(0, 12)}`)
     return 0
   }

@@ -69,6 +69,25 @@ public enum Intent: Sendable, Hashable {
     /// them, or a snapshot), or come back when the close fails. One mechanism with the creates,
     /// so a reply that beats its `tab-closed` event never shows the tab again (tab-spam-race).
     case closeTabs(surfaces: [SurfaceID])
+    /// `move-tab-to-column {dock, respawn, pane_id}` (`tab-column-client-pane-v1`): a pane's only
+    /// tab `surface` moves into a new dock column under `provisional`'s client-minted pane id, and
+    /// `pane` shows `standIn` (its fresh tab's stand-in) until the daemon's fresh tab arrives. It
+    /// shows in the input's turn until the daemon's layout places the pane with that id or the
+    /// move is refused (``ProvisionalDock``).
+    case dockTab(surface: SurfaceID, pane: PaneID, provisional: ProvisionalPane, dock: DockSnapshot, standIn: TabSnapshot?)
+    /// `close-pane` of a pane still opening (a dock's stand-in pane; ``DaemonStore/intendStandInPaneClose(_:)``): the
+    /// pane leaves the visible records in the input's turn, and so does the daemon's pane that takes it over (the same
+    /// public `paneID`, or the pane of Cmd-N's workspace `workspace` that holds its first tab), until the daemon's
+    /// records drop it or the close fails. Leo 2026-11-03: "i should be able to just close immedeiately".
+    case closeStandInPane(pane: PaneID, paneID: String?, workspace: WorkspaceKey?)
+
+    /// The provisional pane a split or a dock shows until the daemon's pane with its public id.
+    var provisionalPane: ProvisionalPane? {
+        switch self {
+        case .splitPane(_, _, _, let provisional), .dockTab(_, _, let provisional, _, _): provisional
+        default: nil
+        }
+    }
 }
 
 /// One row's height in permille (`set-row-heights` `heights[]`).

@@ -4,6 +4,10 @@
  *   bun worker-release.ts previous --worker NAME [--wrangler BIN] [--out FILE] [--allow-first-deploy]
  *       Prints (and writes to FILE) the version id serving 100% now. Run BEFORE the deploy.
  *       Refuses (exit 1) when wrangler cannot name it, unless --allow-first-deploy.
+ *   bun worker-release.ts advance --branch BRANCH --source-dir DIR --github-output FILE
+ *       Inside the environment deployment lock, skips a push superseded by newer deployment
+ *       inputs on BRANCH. Paths come from backend.yml's push trigger; unrelated tips admit.
+ *       Unknown source, divergent history or unsupported path declarations refuse.
  *   bun worker-release.ts verify --worker NAME --url BASE --routes FILE --previous-file FILE
  *       [--changed-since REV] [--source-dir DIR] [--wrangler BIN] [--attempts N] [--interval-ms MS]
  *       Smokes every route of FILE without `sources`, and each route whose
@@ -15,8 +19,10 @@
  *       the config's env.ENV.vars with the plain-text and JSON vars of the version serving 100%
  *       (`wrangler versions view --json`; secrets and other bindings are not compared) and
  *       refuses (exit 1) on any added, removed or changed var, naming the vars, never their values.
- *   bun worker-release.ts vars ... --base-config <wrangler.jsonc at the push's BEFORE commit>
- *       The deployed vars must equal the BASE config's (else drift: refuse as above). Then the repo
+ *   bun worker-release.ts vars ... --base-config <wrangler.jsonc at the push's BEFORE commit> [--base-config <older commit's>]...
+ *       The deployed vars must equal one BASE config's (else drift: refuse as above). More than one:
+ *       the configs of BEFORE and older commits, so a cancelled deploy (an older commit's vars still
+ *       serve) is not drift, while a var set out of band matches none. Then the repo
  *       is the source: a var the pushed commits change deploys, and each change is logged by name
  *       with its plain string value (json vars by name only). Vars are plain text by contract
  *       (secrets live in secrets, never in vars).
@@ -28,7 +34,7 @@
  * seconds to reach every location.
  */
 import { execFileSync, spawnSync } from "node:child_process"
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs"
 import { relative, resolve } from "node:path"
 
 export interface Route {
@@ -238,6 +244,37 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
   const value = (flag: string) => (rest.includes(flag) ? rest[rest.indexOf(flag) + 1] : undefined)
   const worker = value("--worker")
   const wrangler = value("--wrangler") ?? process.env.WRANGLER_BIN ?? "wrangler"
+  if (command === "advance") {
+    try {
+      const branch = value("--branch")
+      const out = value("--github-output")
+      if (!branch || !out) throw new Error("advance needs --branch and --github-output")
+      const cwd = value("--source-dir") ?? "."
+      const git = (...args: Array<string>) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
+      git("check-ref-format", `refs/heads/${branch}`)
+      // Fetch only the protected source branch. No environment/provider credential is needed.
+      git("fetch", "--quiet", "--no-tags", "origin", `refs/heads/${branch}`)
+      const tip = git("rev-parse", "--verify", "FETCH_HEAD^{commit}")
+      const candidate = git("rev-parse", "--verify", "HEAD^{commit}")
+      const ancestry = spawnSync("git", ["-C", cwd, "merge-base", "--is-ancestor", candidate, tip])
+      if (ancestry.status !== 0) throw new Error("checkout is not a proven ancestor of the protected tip")
+      const workflowPath = ".github/workflows/backend.yml"
+      const workflow = Bun.YAML.parse(git("show", `${candidate}:${workflowPath}`)) as { on?: { push?: { paths?: unknown } } }
+      const paths = workflow?.on?.push?.paths
+      // GitHub's path language is broader than our current declarations. Refuse new syntax
+      // rather than silently interpreting it differently from the workflow trigger.
+      if (!Array.isArray(paths) || !paths.includes(workflowPath) || paths.some((p) => typeof p !== "string" || !/^[a-zA-Z0-9_.\/-]+(?:\/\*\*)?$/.test(p)))
+        throw new Error("unsupported or missing backend push.paths declaration")
+      const changed = git("diff", "--no-renames", "--name-only", "-z", candidate, tip).split("\0").filter(Boolean)
+      const superseded = changed.some((file) => paths.some((path: string) => path.endsWith("/**") ? file.startsWith(path.slice(0, -2)) : file === path))
+      appendFileSync(out, `deploy=${!superseded}\n`)
+      io.log(superseded ? `newer deployment inputs at ${tip}; skip checkout ${candidate}` : `source admitted: ${candidate} (protected tip ${tip})`)
+      return 0
+    } catch (error) {
+      io.error(`source ordering refused: ${(error as Error).message}`)
+      return 1
+    }
+  }
   if (!worker) {
     io.error("--worker is required")
     return 2
@@ -342,16 +379,21 @@ export const main = async (argv: ReadonlyArray<string>, io: IO = defaultIO): Pro
       io.error(`version ${id} of ${worker} answered no bindings (wrangler versions view exit ${view.status}: ${(view.stderr || "").trim().slice(0, 300)}); deploy refused`)
       return 1
     }
-    let base: Record<string, unknown> | undefined
-    const baseFile = value("--base-config")
-    if (baseFile) {
+    // Each --base-config is a committed config: BEFORE's first, then older commits of the branch, so
+    // a deploy that was cancelled (the Worker still serves an older commit's vars) is not drift.
+    const baseFiles = rest.flatMap((arg, i) => (arg === "--base-config" && rest[i + 1] !== undefined ? [rest[i + 1]!] : []))
+    const bases: Array<{ file: string; vars: Record<string, unknown> }> = []
+    for (const file of baseFiles) {
       try {
-        base = envVars(readFileSync(baseFile, "utf8"), env)
+        bases.push({ file, vars: envVars(readFileSync(file, "utf8"), env) })
       } catch (e) {
-        io.error(`cannot read env.${env}.vars from the base config ${baseFile}: ${(e as Error).message}; deploy refused`)
+        io.error(`cannot read env.${env}.vars from the base config ${file}: ${(e as Error).message}; deploy refused`)
         return 1
       }
     }
+    const served = bases.find((b) => ((x) => x.added.length + x.removed.length + x.changed.length === 0)(diffVars(b.vars, bindings as Array<Binding>)))
+    const base = served?.vars ?? bases[0]?.vars
+    const baseFile = served?.file ?? bases[0]?.file
     const d = diffVars(want, bindings as Array<Binding>)
     if (base) {
       const drift = diffVars(base, bindings as Array<Binding>)

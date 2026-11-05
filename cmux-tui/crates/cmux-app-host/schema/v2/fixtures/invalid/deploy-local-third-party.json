@@ -1,0 +1,43 @@
+{
+  "manifestVersion": 2,
+  "id": "acme/hello-deploy",
+  "name": "Hello Deploy",
+  "version": "1.0.0",
+  "description": "A container deployed to the user's Cloud VM or to a self-hosted machine, pinned as a remote web pane.",
+  "repository": "https://github.com/acme/hello-deploy",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "implements": {
+    "cmux.pane/1": {
+      "remote": "instance",
+      "title": "Hello Deploy",
+      "symbol": "server.rack"
+    }
+  },
+  "presentation": {
+    "sidebarItem": {
+      "section": "top",
+      "order": 160
+    },
+    "screen": "app",
+    "tab": true
+  },
+  "deploy": {
+    "server": {
+      "kind": "container",
+      "image": "docker.io/traefik/whoami:v1.10",
+      "port": 80,
+      "health": "/health"
+    },
+    "tenancy": [
+      "user"
+    ],
+    "targets": [
+      "local"
+    ]
+  },
+  "billing": {
+    "model": "free"
+  }
+}

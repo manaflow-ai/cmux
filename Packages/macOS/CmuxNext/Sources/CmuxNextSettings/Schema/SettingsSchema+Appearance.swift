@@ -22,8 +22,8 @@ nonisolated enum AppearanceSettingsSchema {
                 AppThemeSetting().configPath, section: .appearance, group: appTheme,
                 title: SettingsText.keyed("settings.appearance.theme", "Theme"),
                 help: SettingsText.keyed("settings.appearance.theme.help",
-                                        "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."),
-                summary: SettingsText.keyed("settings.appearance.theme.summary", "Colors for cmux and its terminals"),
+                                        "Colors for terminals. cmux uses them too while App Theme is Match Terminal Theme. A space, workspace or terminal theme overrides it."),
+                summary: SettingsText.keyed("settings.appearance.theme.summary", "Colors for terminals, and cmux unless App Theme is set"),
                 kind: .theme, default: nil, defaultLabel: ghostty,
                 keywords: ["theme", "color", "colors", "color scheme", "dark", "light", "ghostty", "palette"]
             ),
@@ -31,8 +31,8 @@ nonisolated enum AppearanceSettingsSchema {
                 ChromeThemeSetting().configPath, section: .appearance, group: appTheme,
                 title: SettingsText.keyed("settings.appearance.appTheme", "App Theme"),
                 help: SettingsText.keyed("settings.appearance.appTheme.help",
-                                        "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast."),
-                summary: SettingsText.keyed("settings.appearance.appTheme.summary", "Colors for cmux's own pages"),
+                                        "Colors for the window, sidebar, tabs and cmux's pages. Terminals keep the Terminal Theme. Every color meets WCAG AA contrast."),
+                summary: SettingsText.keyed("settings.appearance.appTheme.summary", "Colors for the window, sidebar, tabs and pages"),
                 kind: .theme, default: .string(ChromeThemeSetting.followTerminal),
                 defaultLabel: SettingsText.keyed("settings.default.followTerminal", "Match Terminal Theme"),
                 keywords: ["app theme", "accent", "chrome", "interface", "colors", "contrast", "wcag"]
@@ -44,6 +44,28 @@ nonisolated enum AppearanceSettingsSchema {
                                         "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color."),
                 kind: .stringMap, default: .object([:]),
                 keywords: ["theme", "custom", "edit", "color", "colour", "palette", "background", "foreground", "cursor", "selection"]
+            ),
+            SettingDescriptor(
+                ThemeFavoritesSetting().configPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.favoriteThemes", "Starred Themes"),
+                help: SettingsText.keyed("settings.appearance.favoriteThemes.help",
+                                        "Themes starred in a theme picker. The picker lists them first."),
+                kind: .stringList, default: .array([]),
+                keywords: ["theme", "star", "starred", "favorite", "favourite", "pin"]
+            ).hiddenFromPalette("a theme picker's stars edit it: a list of theme names"),
+            SettingDescriptor(
+                ThemeFavoritesSetting().rotationPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.rotateFavoriteThemes", "Rotate Starred Themes"),
+                help: SettingsText.keyed("settings.appearance.rotateFavoriteThemes.help",
+                                        "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on."),
+                summary: SettingsText.keyed("settings.appearance.rotateFavoriteThemes.summary", "Change to the next starred theme"),
+                kind: .choice([
+                    SettingChoice(ThemeFavoritesSetting.Rotation.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(ThemeFavoritesSetting.Rotation.launch.rawValue, SettingsText.keyed("settings.choice.eachLaunch", "Each Launch")),
+                    SettingChoice(ThemeFavoritesSetting.Rotation.daily.rawValue, SettingsText.keyed("settings.choice.everyDay", "Every Day")),
+                ]),
+                default: .string(ThemeFavoritesSetting.Rotation.off.rawValue),
+                keywords: ["theme", "rotate", "rotation", "shuffle", "starred", "favorite", "daily", "launch"]
             ),
             SettingDescriptor(
                 AccentSetting().configPath, section: .appearance, group: appTheme,
@@ -64,6 +86,26 @@ nonisolated enum AppearanceSettingsSchema {
                 ]),
                 default: .string(ThemeAccent.neutral.rawValue),
                 keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
+            ),
+            SettingDescriptor(
+                ThemeFileSetting.path, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.themeFile", "Theme File"),
+                help: SettingsText.keyed("settings.appearance.themeFile.help",
+                                        "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."),
+                summary: SettingsText.keyed("settings.appearance.themeFile.summary", "A look from ~/.config/cmux/themes"),
+                kind: .text, default: nil,
+                defaultLabel: SettingsText.keyed("settings.choice.none", "None"),
+                keywords: ["theme file", "rice", "ricing", "dotfile", "dotfiles", "look", "config", "themes folder", "json"]
+            ),
+            SettingDescriptor(
+                HighlightColorSetting().configPath, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.highlightColor", "Highlight Color"),
+                help: SettingsText.keyed("settings.appearance.highlightColor.help",
+                                        "The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color."),
+                summary: SettingsText.keyed("settings.appearance.highlightColor.summary", "Color of selected text"),
+                kind: .color, default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.terminalTheme", "Terminal Theme"),
+                keywords: ["highlight", "selection", "selected text", "selection-background", "color", "colour", "theme"]
             ),
             SettingDescriptor(
                 BackdropArtSetting().configPath, section: .appearance, group: window,
@@ -98,6 +140,20 @@ nonisolated enum AppearanceSettingsSchema {
                                SettingChoice("daily", SettingsText.keyed("settings.choice.everyDay", "Every Day"))]),
                 default: .string(BackdropRotation.defaultRotation.rawValue),
                 keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background"]
+            ),
+            SettingDescriptor(
+                ["appearance", "displayBackgrounds"], section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.displayBackgrounds", "Per-display Backgrounds"),
+                help: SettingsText.keyed("settings.appearance.displayBackgrounds.help", "Map stable display identifiers to daily, folder:<absolute path>, desktop, a fixed background, or none."),
+                kind: .stringMap, default: nil,
+                keywords: ["display", "screen", "wallpaper", "background", "folder", "none"]
+            ),
+            SettingDescriptor(
+                ["appearance", "displayBackgroundRotations"], section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.displayBackgroundRotations", "Per-display Background Rotation"),
+                help: SettingsText.keyed("settings.appearance.displayBackgroundRotations.help", "Map stable display identifiers to 15m, hourly, or daily. Unset displays use the global rotation."),
+                kind: .stringMap, default: nil,
+                keywords: ["display", "screen", "wallpaper", "rotation", "cadence", "hourly"]
             ),
             PaneBackgroundsSetting.descriptor(group: window),
             ReducedBackgroundsSetting.descriptor(group: window),
@@ -338,8 +394,18 @@ nonisolated enum AppearanceSettingsSchema {
             SettingDescriptor(
                 ["layout", "paneCornerRadius"], section: .appearance, group: panes,
                 title: SettingsText.keyed("settings.layout.paneCornerRadius", "Corner Radius"),
-                kind: .number(appearancePoints(PaneChromeOverrides.cornerRadiusRange, step: 1, placeholder: 6)),
-                default: nil, defaultLabel: densityDefault, keywords: ["rounded"]
+                help: SettingsText.keyed("settings.layout.paneCornerRadius.help",
+                                         "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding."),
+                kind: .number(appearancePoints(PaneChromeOverrides.cornerRadiusRange, step: 1, placeholder: 10)),
+                default: nil, defaultLabel: densityDefault, keywords: ["rounded", "radius", "tabs", "concentric", "corners"]
+            ),
+            SettingDescriptor(
+                ["layout", "cornerPadding"], section: .appearance, group: panes,
+                title: SettingsText.keyed("settings.layout.cornerPadding", "Corner Padding"),
+                help: SettingsText.keyed("settings.layout.cornerPadding.help",
+                                         "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."),
+                kind: .number(appearancePoints(PaneChromeOverrides.cornerPaddingRange, step: 1, placeholder: 2)),
+                default: nil, defaultLabel: densityDefault, keywords: ["inset", "gap", "tabs", "concentric", "corners", "radius"]
             ),
             SettingDescriptor(
                 ["layout", "paneBorder"], section: .appearance, group: panes,

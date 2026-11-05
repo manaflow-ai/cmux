@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import Observation
 
-/// Labs dogfood for the no-wake reports target. Durable mailbox rows are
+/// The Feed inbox's Reports tab: the no-wake reports target. Durable mailbox rows are
 /// projected here as a human-only basket; selecting Reply sends a new
 /// addressed message through the host callback and never mutates the report.
 ///
@@ -32,8 +32,6 @@ final class ReportsBasketView: NSView {
     private(set) var detail: ReportsBasketDetail?
     private let title = ReportsBasketText.label(FeedStrings.reportsTitle, size: TypeScale.title, weight: TypeScale.emphasis)
     private let subtitle = ReportsBasketText.label(FeedStrings.reportsSubtitle, size: TypeScale.caption)
-    private let labs = ReportsBasketText.label(FeedStrings.reportsLabs, size: TypeScale.caption,
-                                               weight: TypeScale.emphasis, rounded: true)
     private let lines = [ReportsBasketHairline(), ReportsBasketHairline(vertical: true)]
     private let list = ReportsBasketText.stack([], spacing: 2, insets: 8)
     private lazy var listScroll = ReportsBasketText.scroll(list)
@@ -64,10 +62,8 @@ final class ReportsBasketView: NSView {
 
     private func build() {
         emptyHint.alignment = .center
-        labs.setContentCompressionResistancePriority(.required, for: .horizontal)
-        labs.setContentHuggingPriority(.required, for: .horizontal)
         let titles = ReportsBasketText.stack([title, subtitle], spacing: 2)
-        let header = ReportsBasketText.stack([titles, labs], vertical: false, alignment: .centerY)
+        let header = ReportsBasketText.stack([titles], vertical: false, alignment: .centerY)
         header.edgeInsets = NSEdgeInsets(top: 13, left: 16, bottom: 13, right: 16)
         content.translatesAutoresizingMaskIntoConstraints = false
         side.translatesAutoresizingMaskIntoConstraints = false
@@ -203,7 +199,6 @@ final class ReportsBasketView: NSView {
         layer?.backgroundColor = colors.background.cgColor
         title.textColor = colors.primary
         subtitle.textColor = colors.tertiary
-        labs.textColor = colors.tertiary
         emptyIcon.contentTintColor = colors.secondary
         emptyTitle.textColor = colors.secondary
         emptyHint.textColor = colors.tertiary

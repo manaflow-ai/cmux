@@ -141,6 +141,7 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
     }
     check_scopes(m, first_party, &mut out);
     crate::presentation::check(m, first_party, &mut out);
+    crate::deploy::check(m, first_party, &mut out);
     crate::toolbar::check(m, &mut out);
     if !m["icon"].is_string() {
         out.push(Issue::warning(

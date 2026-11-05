@@ -44,6 +44,13 @@ public nonisolated struct CloudIdentity: Hashable, Sendable {
         return "user_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
     }
 
+    /// The Worker's team id for a Stack team of a Stack project (the API's `stackTeamIdFor`), the
+    /// id `x-cmux-team` and `user.teams.list` use for the team `ActiveTeam` names by its Stack id.
+    public static func workerTeamID(stackProjectID: String, stackTeamID: String) -> String {
+        let digest = SHA256.hash(data: Data("stack-team:\(stackProjectID):\(stackTeamID.lowercased())".utf8))
+        return "team_" + digest.map { String(format: "%02x", $0) }.joined().prefix(20)
+    }
+
     func toHome(_ id: String) -> ParticipantID { id == participantID || id == cloudID ? localID : ParticipantID(id) }
     func toCloud(_ id: ParticipantID) -> String { id == localID ? participantID : id.rawValue }
     /// This account as a cloud participant (the creator of a new conversation).

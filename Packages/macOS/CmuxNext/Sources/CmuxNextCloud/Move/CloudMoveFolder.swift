@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The folder a chat moves with: the git working copy that holds the chat's
@@ -8,6 +9,12 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable {
     public let root: String
     /// The chat's folder inside ``root``; empty for ``root`` itself.
     public let subpath: String
+
+    /// Whether `path` is an existing folder, read off the main thread before a copy starts.
+    @concurrent nonisolated public static func isFolder(_ path: String) async -> Bool {
+        var isFolder: ObjCBool = false
+        return FileManager.checked.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
+    }
 
     /// Nil for a relative folder, or one whose `..` parts climb above the disk's root.
     ///
@@ -44,10 +51,11 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable {
         return "/" + parts.joined(separator: "/")
     }
 
-    /// The home folder or the disk's root: never copied to a machine.
+    /// The home folder or the disk's root: never copied to a machine. The rule is Rust's
+    /// (cmux-cloud-start-core `start::too_broad`); this spells both paths as Foundation standardizes them.
     public var isTooBroad: Bool {
-        let path = URL(fileURLWithPath: root).standardizedFileURL.path
-        return path == "/" || path == URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
+        CloudStartCore().isTooBroad(root: URL(fileURLWithPath: root).standardizedFileURL.path,
+                                    home: URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path)
     }
 
     /// The folder's name on a machine: its own name and a short hash of where it

@@ -9,6 +9,7 @@ export const AREAS = [
   ["sidebar", /\b(?:sidebar|workspace groups?)\b/i],
   ["newTab", /\bnew tab\b/i],
   ["composer", /\b(?:composer|dictation)\b/i],
+  ["cloud", /\bcloud\b/i],
   ["agentChat", /\b(?:agents?|agent chat|agent pane|transcript|chats?|sub-sessions?)\b/i],
   ["home", /\b(?:home|chief)\b/i],
   ["tabs", /\b(?:tabs?|tab row)\b/i],

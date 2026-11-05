@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -14,7 +15,7 @@ import Testing
 /// stripes, so a fill that hides the glass shows), into one contact sheet a fleet run returns:
 /// `cmux-ci run ... --artifact Packages/macOS/CmuxNext/.build/pane-more-shots.png`. The menu's rows draw
 /// only inside a menu window, so `PaneMoreOverflowButtonTests` checks that they are themed instead.
-@MainActor @Suite(.serialized) struct PaneMoreShotsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaneMoreShotsTests {
     static let packageRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     static let repoRoot = packageRoot.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

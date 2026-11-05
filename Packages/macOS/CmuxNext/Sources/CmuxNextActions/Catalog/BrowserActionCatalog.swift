@@ -176,17 +176,19 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "rectangle.righthalf.inset.filled", surfaces: [.palette, .keyboard],
                 requires: [.browserFocused], targets: [.pane], cliName: "browser link-hints-split"
             ),
+            // Opt-Cmd-X / Opt-Shift-Cmd-X: not Opt-Cmd-D, macOS's Dock hiding (system hot key 52, on by
+            // default), which takes it before cmux (MacOSSystemShortcutsTests, PaneCreateKeySetTests).
             ActionDescriptor(
                 id: "splitBrowserRight",
                 title: String(localized: "action.splitBrowserRight", defaultValue: "Split Browser Right", bundle: .module),
-                keywords: ["browser", "split"], defaultShortcut: Shortcut("d", modifiers: [.option, .command]),
+                keywords: ["browser", "split"], defaultShortcut: Shortcut("x", modifiers: [.option, .command]),
                 category: .browser, symbol: "rectangle.righthalf.inset.filled", surfaces: [.palette, .keyboard, .menu],
                 targets: [.pane], cliName: "browser split-right", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "splitBrowserDown",
                 title: String(localized: "action.splitBrowserDown", defaultValue: "Split Browser Down", bundle: .module),
-                keywords: ["browser", "split"], defaultShortcut: Shortcut("d", modifiers: [.shift, .option, .command]),
+                keywords: ["browser", "split"], defaultShortcut: Shortcut("x", modifiers: [.shift, .option, .command]),
                 category: .browser, symbol: "rectangle.bottomhalf.inset.filled", surfaces: [.palette, .keyboard, .menu],
                 targets: [.pane], cliName: "browser split-down", mainMenu: .view
             ),
@@ -317,6 +319,15 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 keywords: ["file", "editor", "wrap"], defaultShortcut: Shortcut("z", modifiers: [.option]),
                 category: .browser, symbol: "text.word.spacing", surfaces: [.keyboard], requires: [.codeEditorFocused],
                 targets: [.pane], cliName: "browser toggle-word-wrap"
+            ),
+            // The Monaco editor's minimap (`editor.minimap.enabled`), as VS Code's Toggle Minimap; the
+            // page toolbar's Minimap button writes the same setting. No default key: a default needs a design call.
+            ActionDescriptor(
+                id: "toggleFileEditorMinimap",
+                title: String(localized: "action.toggleFileEditorMinimap", defaultValue: "Toggle Editor Minimap", bundle: .module),
+                keywords: ["file", "editor", "code", "minimap", "overview", "vscode", "monaco"],
+                category: .browser, symbol: "sidebar.squares.right", surfaces: [.keyboard], requires: [.codeEditorFocused],
+                targets: [.pane], cliName: "browser toggle-minimap"
             ),
             ActionDescriptor(
                 id: "filePreviewOpenWith",
@@ -460,7 +471,7 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "desktopcomputer", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser fit-desktop-1280"
             ),
-        ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + importCookiesDescriptors() + pinnedPageDescriptors()
+        ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + importCookiesDescriptors() + cookieBannerDescriptors() + pinnedPageDescriptors() + editSourceDescriptors()
             + devToolsDescriptors()
     }
 }

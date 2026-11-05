@@ -3,8 +3,8 @@
 // command line as a shell reads it, through the wrappers agents put around it.
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
-import { acpmuxSend, acpmuxSendCall, shellCommands } from "./acpmuxSends";
-import { sendLabel } from "../inspector/processes";
+import { acpmuxSend, acpmuxSendCall, recordedMessageBodyChanges, shellCommands } from "./acpmuxSends";
+import { sendLabel } from "../session-info/processes";
 import type { Translate } from "../i18n";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -60,7 +60,12 @@ describe("acpmuxSend", () => {
   });
 
   test("an expansion in the prompt leaves the text unknown; in the session, no send", () => {
-    expect(read(`acpmux send --no-wait lane "$(cat /tmp/report.md)"`)).toEqual({ target: "lane", noWait: true });
+    // The file it reads is named, so the row can say where the words came from.
+    expect(read(`acpmux send --no-wait lane "$(cat /tmp/report.md)"`)).toEqual({
+      target: "lane",
+      file: "/tmp/report.md",
+      noWait: true,
+    });
     expect(read('acpmux send lane "PR $PR merged"')).toEqual({ target: "lane", noWait: false });
     expect(read("acpmux send lane `cat x`")).toEqual({ target: "lane", noWait: false });
     expect(read('acpmux send "$LANE" hi')).toBeUndefined();
@@ -106,12 +111,43 @@ describe("acpmuxSend", () => {
     // An escape echo may turn into a character (zsh, bash -e) is not read as typed.
     expect(read("echo -e 'a\\nb' | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
     expect(read("cat <<'EOF' | acpmux send lane\nvia cat\nEOF")?.text).toBe("via cat\n");
-    expect(read("acpmux send lane - < /tmp/note.md")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - < /tmp/note.md")).toEqual({ target: "lane", file: "/tmp/note.md", noWait: false });
+    // A same-turn literal write is safe to display without reading the filesystem. The writer is
+    // still counted as other work, and a later unrelated command cannot provide its body.
+    expect(
+      read("cat > /tmp/message.md <<'EOF'\n# Review\n\n- pass\nEOF\nacpmux send --no-wait lane - < /tmp/message.md"),
+    ).toEqual({ target: "lane", file: "/tmp/message.md", noWait: true, others: 1 });
+    expect(read("acpmux send lane - < /tmp/message.md")).toEqual({
+      target: "lane",
+      file: "/tmp/message.md",
+      noWait: false,
+    });
     // The last stdin redirect wins; a writer whose stdout goes elsewhere feeds nothing.
     expect(read("acpmux send lane - <<EOF < /tmp/message\nbody\nEOF")).toEqual({ target: "lane", noWait: false });
+    expect(
+      acpmuxSend(
+        "acpmux send lane - <<EOF < /tmp/message\nbody\nEOF",
+        undefined,
+        0,
+        new Map([["/tmp/message", "stale\n"]]),
+      )?.text,
+    ).toBeUndefined();
     expect(read("acpmux send lane - < /tmp/message <<EOF\nbody\nEOF")?.text).toBe("body\n");
     expect(read("echo secret >/dev/null | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
     expect(read("echo shown 2>/dev/null | acpmux send lane -")?.text).toBe("shown");
+    // A non-zero-fd here-document is not the producer's stdin, even when it is piped onward.
+    expect(read("cat 1<<'EOF' | acpmux send lane -\nwrong fd\nEOF")?.text).toBeUndefined();
+    expect(read("cat 3<<<'wrong fd' | acpmux send lane -")?.text).toBeUndefined();
+    expect(read("acpmux send lane - <<'EOF' 0<&-\nclosed\nEOF")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - <<EOF <<<NEW\nOLD\nEOF")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - <<$'\\x45OF'\nSECRET\nEOF")).toEqual({ target: "lane", noWait: false });
+    // A later independent command runs after the send has opened stdin and cannot erase its text.
+    expect(read("acpmux send lane 'hello'; printf done > /tmp/log")).toEqual({
+      target: "lane",
+      text: "hello",
+      noWait: false,
+      others: 1,
+    });
     expect(read("acpmux send lane")).toEqual({ target: "lane", noWait: false });
   });
 
@@ -136,6 +172,52 @@ describe("acpmuxSend", () => {
       target: "cmux16/x",
       text: "deep",
     });
+  });
+
+  test("through ssh, as through reach: the session is on that host", () => {
+    // ask-1b0c0b04de: a lane relayed to cmux16 by copying the message file there and running the
+    // send over ssh; the pane drew it as a raw Shell block instead of a sent message.
+    expect(read(`ssh cmux16 'acpmux send --no-wait lane-7 "rebased"'`)).toEqual({
+      target: "cmux16/lane-7",
+      text: "rebased",
+      noWait: true,
+    });
+    expect(
+      read(
+        `scp -q /tmp/claude-sr2/m318.txt cmux16:/tmp/cx-lanes/ && ssh cmux16 'acpmux send --no-wait cx-lane "$(cat /tmp/cx-lanes/m318.txt)"'`,
+      ),
+    ).toEqual({ target: "cmux16/cx-lane", file: "/tmp/cx-lanes/m318.txt", noWait: true, others: 1 });
+    // Options, a user and a port: the host is what names the machine.
+    expect(read("ssh -o ConnectTimeout=5 -i ~/.ssh/fleet leoli@cmux16 acpmux send x hi")?.target).toBe("cmux16/x");
+    expect(read("ssh -qtt -p22 ssh://me@box:2222 'acpmux send x hi'")?.target).toBe("box/x");
+    expect(read("ssh -- box 'acpmux send x hi'")?.target).toBe("box/x");
+    // A target that names its own host keeps it.
+    expect(read("ssh box 'acpmux send hb/review ship'")?.target).toBe("hb/review");
+    // -n points ssh's stdin at /dev/null: the here-string never reaches the send.
+    expect(read("ssh box 'acpmux send x -' <<< 'local words'")?.text).toBe("local words\n");
+    expect(read("ssh -n box 'acpmux send x -' <<< 'local words'")?.text).toBeUndefined();
+    // Modes that run no command, a missing value, a host that is not literal: no send row.
+    expect(read("ssh -N box acpmux send x y")).toBeUndefined();
+    expect(read("ssh -G box acpmux send x y")).toBeUndefined();
+    expect(read("ssh -O exit box acpmux send x y")).toBeUndefined();
+    expect(read("ssh -s box acpmux send x y")).toBeUndefined();
+    expect(read("ssh -p")).toBeUndefined();
+    expect(read(`ssh "$HOST" 'acpmux send x y'`)).toBeUndefined();
+    // Options that change what ssh runs, where its stdin goes, or write a file of their own.
+    expect(read("ssh -o SessionType=none box 'acpmux send x y'")).toBeUndefined();
+    expect(read("ssh -oStdinNull=yes box 'acpmux send x y'")).toBeUndefined();
+    expect(read("ssh -o 'LocalCommand=rm -rf ~/x' -o PermitLocalCommand=yes box 'acpmux send x y'")).toBeUndefined();
+    expect(read("ssh -E /tmp/ssh.log box 'acpmux send x y'")).toBeUndefined();
+    // A bare IPv6 address keeps its colons; the user runs to the last @.
+    expect(read("ssh ::1 'acpmux send x hi'")?.target).toBe("::1/x");
+    expect(read("ssh a@b@box 'acpmux send x hi'")?.target).toBe("box/x");
+    // A host or command that is not literal may hold a second send: no row, through reach too.
+    expect(read('ssh "$H" "$CMD"; acpmux send a b')).toBeUndefined();
+    expect(read('reach "$H" "$CMD"; acpmux send a b')).toBeUndefined();
+    // Two sends, one over ssh, are two messages.
+    expect(read("acpmux send a x; ssh box 'acpmux send b y'")).toBeUndefined();
+    // ssh that runs no send leaves the local send alone, as other work.
+    expect(read("ssh box 'df -h'; acpmux send a b")?.others).toBe(1);
   });
 
   test("output plumbing and reporting are not other work; other work is counted", () => {
@@ -221,6 +303,31 @@ describe("acpmuxSend", () => {
     expect(read(`perl -e 'exec @ARGV' acpmux send a b`)).toBeUndefined();
   });
 
+  test("nested wrappers count executable sends without counting quoted mentions", () => {
+    for (const command of [`bash -c 'echo "acpmux send x y"'; acpmux send lane hi`]) {
+      const send = read(command);
+      expect(send?.target).toBe("lane");
+      expect(send?.text).toBe("hi");
+      expect(send?.others).toBe(1);
+    }
+    for (const command of [
+      `bash -c 'acpmux send first hi'; acpmux send second hi`,
+      `bash -c 'acpmux send first hi; acpmux send second hi'`,
+      `bash -c 'echo "$(acpmux send hidden hi)"'; acpmux send second hi`,
+      "bash -c 'cat <<EOF\n$(acpmux send hidden hi)\nEOF'; acpmux send second hi",
+      `bash -c 'acpmux send "$FIRST" hi'; acpmux send second hi`,
+      `reach box 'acpmux send "$FIRST" hi'; acpmux send second hi`,
+      `bash -c "$SCRIPT"; acpmux send lane hi`,
+      `reach "$HOST" 'acpmux send first hi'; acpmux send second hi`,
+    ]) {
+      try {
+        expect(read(command)).toBeUndefined();
+      } catch (error) {
+        throw new Error(`${command}: ${String(error)}`);
+      }
+    }
+  });
+
   test("a send anywhere in a compound command, with the other work counted", () => {
     expect(
       read(
@@ -233,8 +340,9 @@ describe("acpmuxSend", () => {
       text: "done",
       noWait: false,
     });
-    // The text from a file on stdin: the target only.
+    // The text from a file on stdin: the target and the file.
     expect(read("acpmux send --no-wait --from net-retries coord-deputy - < /tmp/report.md")).toEqual({
+      file: "/tmp/report.md",
       target: "coord-deputy",
       noWait: true,
     });
@@ -257,9 +365,91 @@ describe("acpmuxSend", () => {
   test("a long pipeline after the send, and many here-documents, are one pass", () => {
     const started = performance.now();
     expect(read(`acpmux send a b${" | cat".repeat(5000)}`)?.text).toBe("b");
+    expect(read(`bash -c '${"cat | ".repeat(5000)}acpmux send a -' <<< 'forwarded'`)?.text).toBe("forwarded\n");
     const docs = `${"cat <<E; ".repeat(5000)}\n${"E\n".repeat(5000)}acpmux send a b`;
     expect(shellCommands(docs)).toHaveLength(5001);
     expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  test("recorded message producers fail closed around control flow and path mutators", () => {
+    expect(recordedMessageBodyChanges("true || cat > /tmp/message <<'EOF'\nskipped\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("mv /tmp/other /tmp/message")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat 2> /tmp/message <<'EOF'\nnot stdout\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat >> /tmp/message <<'EOF'\nappend\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat <> /tmp/message <<'EOF'\nread-write\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat > \"$MESSAGE\" <<'EOF'\ndynamic\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cd /tmp")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges('python3 -c \'open("/tmp/message", "w").write("new")\'')).toEqual([
+      { reset: true },
+    ]);
+    expect(recordedMessageBodyChanges("cat > /tmp/message 3<<'EOF'\nwrong fd\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat > /tmp/message <<EOF\nunquoted\nEOF")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat > /tmp/message <<A <<B\nA\nOLD\nB\n")).toEqual([{ reset: true }]);
+    expect(recordedMessageBodyChanges("cat > /tmp/message <<'EOF'\n\\\nEOF")).toEqual([
+      { path: "/tmp/message", text: "\\\n" },
+    ]);
+    expect(read("acpmux send lane - 3<<<'SECRET'")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - 1<<'EOF'\nSECRET\nEOF")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - <<'EOF' 0>/tmp/out\nSECRET\nEOF")).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
+    expect(read("acpmux send lane - <<EOF\nfirst \\\nsecond\nEOF")).toEqual({ target: "lane", noWait: false });
+    expect(read("cat > /tmp/message >> /tmp/other <<'EOF'\nambiguous\nEOF\nacpmux send lane - < /tmp/message")).toEqual(
+      {
+        file: "/tmp/message",
+        target: "lane",
+        noWait: false,
+        others: 1,
+      },
+    );
+    expect(read("cat > /tmp/message 1>&2 <<'EOF'\nredirected\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      file: "/tmp/message",
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
+    expect(read("cat > /tmp/message 2> /tmp/other <<'EOF'\nstderr\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      file: "/tmp/message",
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
+    expect(read("cat > /tmp/message <<'EOF'\nOLD\nEOF\nacpmux send lane - < /tmp/message > /tmp/message")).toEqual({
+      file: "/tmp/message",
+      target: "lane",
+      noWait: false,
+      others: 2,
+    });
+    expect(
+      read("cat > /tmp/message <<'EOF'\nOLD\nEOF\nacpmux send lane - < /tmp/message \"$(rm -f /tmp/message)\""),
+    ).toEqual({
+      target: "lane",
+      noWait: false,
+      others: 2,
+    });
+    expect(read("{ cat > /tmp/message <<'EOF'\nGROUPED\nEOF\n}\nacpmux send lane - < /tmp/message")).toEqual({
+      file: "/tmp/message",
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
+    expect(
+      read("cat > /tmp/message <<'EOF'\nOLD\nEOF\nprintf NEW > /tmp/message\nacpmux send lane - < /tmp/message"),
+    ).toEqual({ file: "/tmp/message", target: "lane", noWait: false, others: 2 });
+    expect(read("cat > /tmp/message > /dev/null <<'EOF'\nSHADOWED\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      file: "/tmp/message",
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
+    expect(read("true || cat > /tmp/message <<'EOF'\nSKIPPED\nEOF\nacpmux send lane - < /tmp/message")).toEqual({
+      file: "/tmp/message",
+      target: "lane",
+      noWait: false,
+      others: 1,
+    });
   });
 });
 
@@ -289,6 +479,31 @@ describe("whose exit status the call reports", () => {
 });
 
 describe("shellCommands", () => {
+  test("only executable grouping is syntax; quoted words and heredoc bodies are content", () => {
+    for (const command of [
+      `acpmux send lane '[review](https://example.com) {pass}'`,
+      `acpmux send lane "[review](https://example.com) {pass}"`,
+      `acpmux send lane \\(review\\) \\{pass\\}`,
+      `cat > /tmp/message <<'EOF'\n[review](https://example.com)\n{pass}\nEOF`,
+      "acpmux send lane ready # (comment) {comment}",
+    ])
+      expect(shellCommands(command).every((part) => !part.grouped)).toBe(true);
+    for (const command of [
+      "(acpmux send lane - < /tmp/message)",
+      "{ acpmux send lane - < /tmp/message; }",
+      "(cat > /tmp/message <<'EOF'\ngrouped\nEOF\n)",
+      "{ cat > /tmp/message <<'EOF'\ngrouped\nEOF\n}",
+    ]) {
+      expect(shellCommands(command).every((part) => part.grouped)).toBe(true);
+      expect(recordedMessageBodyChanges(command)).toEqual([{ reset: true }]);
+    }
+    for (const command of [
+      "bash -c '(acpmux send lane - < /tmp/message)'",
+      "reach box '{ acpmux send lane - < /tmp/message; }'",
+    ])
+      expect(recordedMessageBodyChanges(command)).toEqual([{ reset: true }]);
+  });
+
   test("operators split commands; redirects and here-documents are not words", () => {
     const commands = shellCommands("a 1 2>&1 | b && c || d; e & f\ng <<X\nbody\nX\nh");
     expect(commands.map((command) => [command.words.map((word) => word.text).join(" "), command.op])).toEqual([
@@ -308,13 +523,26 @@ describe("shellCommands", () => {
     const [send, copy] = shellCommands('x "$(cat a)" `pwd` 2>&1 >/dev/null; > out');
     expect(send!.writes).toBeUndefined();
     expect(send!.runs).toEqual(["cat a", "pwd"]);
-    expect(copy).toEqual({ words: [], op: "", writes: true, stdout: true });
+    expect(copy).toEqual({
+      words: [],
+      op: "",
+      writes: true,
+      writeFile: { text: "out", literal: true },
+      redirectWrites: 1,
+      stdout: true,
+    });
   });
 
   test("a substitution keeps its operators inside its word", () => {
     const [command] = shellCommands('x "$(a | b; c)" `d && e`');
     expect(command!.words.map((word) => word.literal)).toEqual([true, false, false]);
     expect(shellCommands('x "$(a | b; c)"')).toHaveLength(1);
+  });
+
+  test("arithmetic expansion stays text while nested command substitutions still run", () => {
+    expect(shellCommands("sleep $((60 * 5))")[0]!.runs).toBeUndefined();
+    expect(shellCommands('printf "%s" "$(git rev-parse HEAD)"')[0]!.runs).toEqual(["git rev-parse HEAD"]);
+    expect(shellCommands('echo "$(( $(git rev-parse HEAD) + 1 ))"')[0]!.runs).toEqual(["git rev-parse HEAD"]);
   });
 });
 

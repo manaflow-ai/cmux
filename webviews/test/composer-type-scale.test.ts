@@ -1,7 +1,9 @@
+// cmux-web-test-timeout: 240
 // Leo, 2026-10-13 (coherence pass): "we ought to be unifying more font sizes". Every text the agent
 // composer draws, its footer and the menus it opens included, sits on the one type scale
 // (schemas/type-scale/type-scale.json): sizes 11, 12, 13, 15 and 20 px in two weights, 400 and 600. The
-// prompt is reading content and follows the user's agent pane font size (--text-content). This loads
+// prompt, the queued prompts and the model picker are reading content and follow the user's agent
+// pane font size (--text-content). This loads
 // every gallery state of the composer, its scope row and its pickers in Chromium and reads the
 // computed size and weight of every element that draws text.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -97,7 +99,10 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
           if (style.visibility === "hidden" || style.display === "none") continue;
           const size = parseFloat(style.fontSize);
           const weight = parseInt(style.fontWeight, 10);
-          const prompt = Boolean(element.closest(".acpmux-composer-prompt"));
+          // Reading content follows the chat font size (--text-content): the prompt, the queued
+          // prompts (#26523, 2026-10-28) and the model picker's menu, which matches the composer's
+          // text (#26071, 2026-10-27).
+          const prompt = Boolean(element.closest(".acpmux-composer-prompt, .acpmux-queued-text, .acpmux-quick-menu"));
           const sizeOk = sizes.includes(size) || (prompt && size === content);
           if (sizeOk && weights.includes(weight)) continue;
           // The shared ghost button (src/ui/ghost.css, the footer's location buttons) keeps base's

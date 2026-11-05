@@ -48,7 +48,7 @@ export type VmEntitlements = {
   readonly planId: string;
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
-  /** Active-machine ceiling for the plan; null when the plan has no cap. */
+  /** Saved-machine ceiling for the plan; null when the plan has no cap. */
   readonly maxActiveVms: number | null;
   /** vCPUs and memory the active machines share; null when the plan has no pool. */
   readonly resourcePool: VmComputeResources | null;
@@ -201,7 +201,7 @@ function resolveBillingContext(
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576, 32768, 65536];
 
 /**
- * The largest machine Pro, Team, and Founder's Edition may start: the lg row,
+ * The largest machine Pro, Team, and legacy lifetime grants may start: the lg row,
  * 8 vCPU / 16 GB. The 24 GB, 32 GB, and 64 GB rows above it are what Max sells;
  * the plan that unlocks them is MEMORY_UPGRADE_PLAN_ID so every surface names
  * the same upgrade.
@@ -209,8 +209,8 @@ export const VM_MEMORY_OPTIONS_MB: readonly number[] = [4096, 8192, 16384, 24576
 export const PLAN_MAX_MEMORY_MB = 16384;
 /** Free machines exist only where an operator opens free provisioning; they stay at 8 GB. */
 export const FREE_PLAN_MAX_MEMORY_MB = 8192;
-export const GO_PLAN_MAX_MEMORY_MB = 4096;
-export const GO_PLAN_DEFAULT_MEMORY_MB = 4096;
+export const GO_PLAN_MAX_MEMORY_MB = PLAN_MAX_MEMORY_MB;
+export const GO_PLAN_DEFAULT_MEMORY_MB = PLAN_MACHINE_MEMORY_MB;
 /** Max machines stop at the validated 2xl row, 32 vCPU / 64 GB. */
 export const MAX_PLAN_MAX_MEMORY_MB = Math.max(...VM_MEMORY_OPTIONS_MB);
 /** The image ladder pairs one vCPU with every 2 GB of memory. */
@@ -268,9 +268,7 @@ export function maxDiskMbForPlan(
   const key = normalized.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
   const fallback = normalized === MAX_PLAN_ID
     ? 256 * 1024
-    : normalized === GO_PLAN_ID
-      ? 16 * 1024
-      : 128 * 1024;
+    : 128 * 1024;
   const raw = env[`CMUX_VM_PLAN_${key}_MAX_DISK_MB`];
   return raw?.trim()
     ? Math.min(fallback, positiveInteger(raw, `CMUX_VM_PLAN_${key}_MAX_DISK_MB`))
@@ -297,7 +295,7 @@ export function lockedMemoryOptionsMbForPlan(
   const max = maxMemoryMbForPlan(planId, env);
   const locked = VM_MEMORY_OPTIONS_MB.filter((mb) => mb > max);
   const normalized = normalizedPlanId(planId ?? "");
-  const candidateUpgradePlanId = planIncludes(normalized, "pro")
+  const candidateUpgradePlanId = max >= PLAN_MAX_MEMORY_MB || planIncludes(normalized, "pro")
     ? MEMORY_UPGRADE_PLAN_ID
     : GO_MEMORY_UPGRADE_PLAN_ID;
   const upgradePlanId = locked.length > 0 && normalized !== candidateUpgradePlanId &&
@@ -348,7 +346,7 @@ export function defaultMemoryMbForPlan(
 }
 
 /**
- * Active-machine ceiling for a plan, or null when there is none. Paid plans
+ * Saved-machine ceiling for a plan, or null when there is none. Paid plans
  * get the allowance sold on /pricing (PAID_MAX_ACTIVE_VMS_DEFAULT), counted
  * per billing team; a Team subscription multiplies it by its paid seats
  * (`cmuxSeats`), so "5 per user" holds for the whole team. Free plans stay
@@ -474,7 +472,7 @@ export function isVmFreeAccessExpired(
   return nowMs - createdMs > windowDays * 24 * 60 * 60 * 1000;
 }
 
-/** Go, Pro, Team, and Founder's Edition are paid Cloud VM plans. */
+/** Go, Pro, Team, and legacy lifetime grants are paid Cloud VM plans. */
 export function isPaidVmPlan(planId: string): boolean {
   return isPaidPlanId(normalizedPlanId(planId));
 }

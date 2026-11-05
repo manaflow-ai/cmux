@@ -271,6 +271,7 @@ fn open_directory(path: &Path) -> io::Result<File> {
 /// owner-only (mode 0700 on create on Unix). An existing folder is left as
 /// it is.
 pub(crate) fn create_dir_all(dir: &Path) -> io::Result<()> {
+    crate::config::refuse_lost_home(dir).map_err(io::Error::other)?;
     create_missing_directories(&missing_directories(dir))
 }
 

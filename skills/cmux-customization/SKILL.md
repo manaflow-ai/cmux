@@ -1,6 +1,6 @@
 ---
 name: cmux-customization
-description: "Customize cmux for an end user, including terminal, browser, Markdown, diff, file preview, notes, HTML, and right-sidebar viewers. Use when changing cmux-next.json (or classic cmux.json) actions, custom commands, workspace layouts, plus-button behavior, surface tab bar buttons, Command Palette entries, Dock controls, sidebar and app settings, shortcuts, notifications, browser routing, examples-library presets, or Ghostty-backed terminal preferences."
+description: "Customize cmux for an end user, including terminal, browser, Markdown, diff, file preview, notes, HTML, and right-sidebar viewers. Use when changing cmux-next.json (or classic cmux.json) actions, custom commands, workspace layouts, plus-button behavior, surface tab bar buttons, Command Palette entries, Dock controls, sidebar and app settings, shortcuts, notifications, browser routing, examples-library presets, Ghostty-backed terminal preferences, or a view of their own (a sidebar or Session Info section built as the customize app, such as the PRs from the last 24h)."
 ---
 
 # cmux Customization
@@ -99,3 +99,94 @@ Before choosing a preset, template, starter config, or known workflow pattern, r
 - Do not use sleeps or timing workarounds in generated commands.
 - Do not add a cmux setting for behavior Ghostty already owns.
 - Keep labels short enough for menus, buttons, and the Command Palette.
+
+## Rice cmux
+
+A whole look (terminal theme, App Theme, accent, background and its opacity,
+borders, glass, motion, even the terminal's own colors) lives in one dotfile:
+`~/.config/cmux/themes/<name>.json`. No build, no restart: pick it once with
+`cmux settings set appearance.themeFile <name>` (or the palette's Theme File row,
+which previews each file on the whole app as you move over it), and from then on
+every save of that file re-applies it live to the window, every page, the agent
+pane and the terminals. `cmux settings reset appearance.themeFile` goes back.
+
+The file is JSONC in cmux-next.json's own shape, nested or with dotted keys at the
+top, so a block copies between the two:
+
+```jsonc
+// ~/.config/cmux/themes/tokyo.json
+{
+  "appearance.theme": "TokyoNight",       // the terminal theme
+  "appearance.appTheme": "TokyoNight",    // the window, sidebar, tabs and pages
+  "appearance.accent": "magenta",
+  "appearance.background": "none",
+  "appearance.backgroundOpacity": 0.85,
+  "appearance.borders": "none",
+  "appearance.glassTransparency": 0.6,
+  "ui.animationSpeed": "fast",
+  // The terminal theme's own colors, as appearance.themeEdits of the theme above.
+  "colors": { "background": "#16161e", "foreground": "#c0caf5", "accent": "#bb9af7" },
+  // Or a Ghostty theme block:
+  // "ghostty": ["background = #16161e", "foreground = #c0caf5", "palette = 4=#7aa2f7"]
+}
+```
+
+- Only look settings apply (`appearance.*`, `ui.animation*`, `ui.calm`,
+  `browser.omnibar.glass*`, `app.uiScale`), each checked like `cmux settings set`.
+  A refused value or key is dropped with the toast settings use, naming the
+  theme file and the key (`themes/tokyo.json: appearance.accent = "purple" was
+  ignored: ...`); the rest still applies. Look keys up as in
+  [cmux-settings](../cmux-settings/SKILL.md).
+- The theme file wins over the same keys in cmux-next.json (their Settings rows say
+  so), and a managed (MDM or team) value wins over it. To change one of those keys,
+  edit the theme file, or unset `appearance.themeFile`.
+- Contrast is guarded: a `foreground` under 4.5:1 on its `background` shows as the
+  app theme's text color instead, and Settings says so at the Theme File row.
+
+## Make a view
+
+When someone asks for a view of their own (a sidebar section, a Session Info
+section, "a view of the PRs from the last 24h"), write the customize app in
+`~/.config/cmux/customize`: `cmux-app.json` (id `local/customize`, manifest v2)
+and `main.js`, a classic script that uses the scene globals (`VStack`, `Row`,
+`ForEach`, `EmptyState`, ...) and ends with
+`globalThis.__cmuxAppExports = { ... }`. cmux watches the folder: every save
+reloads the view, and the app installs itself the first time. No restart, no
+install click.
+
+- `implements["cmux.section/1"]` is its one sidebar section; `options.defaultRegion`
+  `top`, `middle` or `bottom` (the band under the workspace list). cmux places it
+  there the first time it sees it, and the person's later move or removal wins.
+  Put it back on purpose with `cmux apps place 'local/customize#cmux.section/1' --region bottom`.
+- `implements["cmux.session.info.section/1"]` is its one Session Info section; its
+  render function gets `{ session_id, cwd, branch?, harness? }` as its argument.
+- Scopes: read scopes (`integration:github:read`) are granted at install. Others
+  (`actions:run`, `net:<host>`) need the person to turn them on in Settings > Apps.
+- Script errors: `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'`.
+- Adding a view: keep every existing implementation and render function. A taken
+  slot gets the new view inside its existing render; add each new name to the one
+  `__cmuxAppExports` object.
+
+### Matching the app
+
+Build a pane only from the kit so it looks like cmux in every theme: `Panel`
+(the app's card surface), `Row`, `Button`, `Menu`, `Toggle`, `Slider`,
+`TextField`, `Badge`, `EmptyState`, plus `cmux.toast({ title, message?, tone? })`
+for a notice and `cmux.theme` for the tone names. Never a literal color
+(`#RRGGBB`) or size (point fonts, hand-set padding or radii): pass tones
+(`tint: cmux.theme.success`) and font names. The kit, its rules and a
+copy-paste focus timer template are in
+[references/local-app-views.md](references/local-app-views.md#matching-the-app).
+
+The worked example, as copy-paste files, and the recipe for adding a view:
+[references/local-app-views.md](references/local-app-views.md).
+
+### Change what cmux does
+
+To make a button run the person's own command, read the current workspace,
+follow changes or open a pane of their own, start from a folder in
+[templates/](templates/) (`starter`, `sidebar-section`, `command-button`,
+`pane`). A button runs a `cmux-next.json` action with
+`cmux.actions.run("cmuxConfig.<name>")` from a click, once the person turns on
+`actions:run`. What an extension can call, what is missing, and how to install
+a template: [references/extensions.md](references/extensions.md).

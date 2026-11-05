@@ -217,7 +217,18 @@ if [[ -d "$repo/webviews" ]]; then
     # The reference PR's tests under their own names, beside whatever the agents
     # wrote. Browser-lane tests run only with CMUX_BROWSER_TESTS=1 and the
     # engines installed, else they skip; the counts show which happened.
-    (cd "$repo/webviews" && "$BUN" x playwright install chromium webkit > "$work/out/playwright-install.log" 2>&1) || true
+    # Never on a Mac (Lawrence's rule, 2026-11-02: no Playwright, Puppeteer or downloaded Chromium on
+    # his Mac or a fleet Mac): there no engine is installed, Playwright looks in a folder that cannot
+    # hold one, and the browser-lane tests skip (browser_lane "off on a Mac" in checks.json).
+    browser_lane=on
+    lane=(env CMUX_BROWSER_TESTS=1)
+    if [[ "$(uname -s)" == Darwin ]]; then
+      browser_lane="off on a Mac"
+      echo "TEAM-EVAL browser lane: not on a Mac (Lawrence's rule: no Playwright on Macs); run it in CI or on a cloud VM"
+      lane=(env -u CMUX_BROWSER_TESTS PLAYWRIGHT_BROWSERS_PATH=/var/empty/cmux-no-playwright-on-macs)
+    else
+      (cd "$repo/webviews" && { "$BUN" x playwright install webkit && "$repo/scripts/ci/ensure-system-chrome.sh" --optional; } > "$work/out/playwright-install.log" 2>&1) || true
+    fi
     hidden_rc=0
     IFS=, read -ra files <<< "$hidden"
     names=()
@@ -227,16 +238,17 @@ if [[ -d "$repo/webviews" ]]; then
       names+=("${name#webviews/}")
     done
     if [[ "$hidden_rc" == 0 ]]; then
-      (cd "$repo/webviews" && CMUX_BROWSER_TESTS=1 "$BUN" test "${names[@]}" > "$work/out/hidden-tests.log" 2>&1) || hidden_rc=$?
+      (cd "$repo/webviews" && "${lane[@]}" "$BUN" test "${names[@]}" > "$work/out/hidden-tests.log" 2>&1) || hidden_rc=$?
     fi
   fi
-  checks="$(python3 -I - "$check_rc" "$hidden_rc" "$work/out/hidden-tests.log" <<'PY'
+  checks="$(python3 -I - "$check_rc" "$hidden_rc" "$work/out/hidden-tests.log" "${browser_lane:-none}" <<'PY'
 import json, os, re, sys
 log = open(sys.argv[3]).read() if os.path.exists(sys.argv[3]) else ""
 count = lambda word: sum(int(n) for n in re.findall(rf"^\s*(\d+) {word}$", log, re.M))
 rc = sys.argv[2]
 print(json.dumps({"bun_check_rc": int(sys.argv[1]), "hidden_tests_rc": int(rc) if rc.isdigit() else rc,
-                  "hidden_pass": count("pass"), "hidden_skip": count("skip"), "hidden_fail": count("fail")}))
+                  "hidden_pass": count("pass"), "hidden_skip": count("skip"), "hidden_fail": count("fail"),
+                  "browser_lane": sys.argv[4]}))
 PY
 )"
 fi

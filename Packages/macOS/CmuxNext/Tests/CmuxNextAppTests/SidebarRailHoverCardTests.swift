@@ -5,8 +5,8 @@ import Testing
 
 /// The rail's hover card (`sidebar.style` = rail). Lawrence 2026-10-21: "im talking about the
 /// floating card... floating card relative to the workspace row". Pointing at a mark shows one
-/// small card for that workspace, its top on the mark's row's top, exactly one device pixel right
-/// of the rail, following the pointer row to row, inside the window. Here: the rows the card is
+/// small card for that workspace, its top on the mark's row's top, flush with the rail,
+/// following the pointer row to row, inside the window. Here: the rows the card is
 /// anchored to, where the list rows' one anchor rule (`HoverCardEscapeGeometry.rowBand`, placement
 /// `.besideRow`) puts the card for them, and the toggle.
 @MainActor
@@ -44,14 +44,14 @@ struct SidebarRailHoverCardTests {
         return (row, geometry.card)
     }
 
-    @Test func aMarksCardTopIsItsRowsTopAndOnePixelPastTheRailAtTopMiddleAndBottom() {
+    @Test func aMarksCardTopIsItsRowsTopAndFlushWithTheRailAtTopMiddleAndBottom() {
         let layout = Self.layout()
         let rail = SidebarRailLayout.Metrics().railWidth
         for index in [0, 20, 39] {
             let (_, card) = Self.card(layout, index)
             // The row's top is where the mark's row starts (`rowY`), not the 2 pt tick's top.
             #expect(card.maxY == 700 - layout.ticks[index].rowY, "row \(index): the card's top is the mark's row's top")
-            #expect(card.minX == rail + 0.5, "row \(index): one device pixel past the rail")
+            #expect(card.minX == rail, "row \(index): card is not flush with the rail")
         }
     }
 

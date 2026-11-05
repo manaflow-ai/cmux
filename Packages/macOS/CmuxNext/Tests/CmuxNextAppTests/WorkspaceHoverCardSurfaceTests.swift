@@ -43,6 +43,7 @@ import Testing
         panel.glass.contentView.addSubview(body)
         scope.adopt(panel)
         body.configure(Self.content)
+        body.detailsToggle.performClick(nil)
         panel.themeDidChange()
         body.applyColors()
         return (panel, body)
@@ -76,12 +77,18 @@ import Testing
         panel.glass.materialOverride = nil
     }
 
-    /// Nothing in the card's body paints a fill (no fixed gray box over the glass): the surface
-    /// under it is the only background.
+    /// The card's body lays a veil of the scope's own window background over the glass (Lawrence msg 19245:
+    /// the glass over a busy terminal was hard to read), under the overlay rule's solid alpha and never a
+    /// fixed gray; nothing inside it paints a fill of its own.
     @Test(arguments: Look.allCases)
-    func theBodyPaintsNoFillOverTheSurface(look: Look) throws {
-        let (_, body) = mounted(in: try scope(look))
-        var pending: [NSView] = [body]
+    func theBodyPaintsOnlyAFrostedVeil(look: Look) throws {
+        let scope = try scope(look)
+        let (_, body) = mounted(in: scope)
+        let fill = try #require(body.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)), "\(look): the card has no veil")
+        let veil = scope.perform { Palette.windowBackground.withAlphaComponent(0.55) }
+        #expect(Self.same(fill, veil), "\(look): the card paints \(fill)")
+        #expect(fill.alphaComponent < 0.6, "\(look): the veil is solid")
+        var pending: [NSView] = body.subviews
         while let view = pending.popLast() {
             // A label's ink layer and the status indicator's glyph are not fills.
             if view.isHidden || view is ChromeLabel || view is StatusIndicatorView { continue }

@@ -14,6 +14,7 @@ struct HomeCmuxAppLinkTests {
         "cmux://chief/2e448bc2/session/01a12408-f0a2",
         "cmux-dev-tag://workspace/ws_0123456789abcdef0123456789abcdef",
         "cmux://workspace/ws_0123456789abcdef0123456789abcdef?machine=machine_0123456789abcdef0123456789abcdef",
+        "cmux://settings/background",
     ])
     func appLinks(_ text: String) {
         #expect(URL(string: text)!.isCmuxAppLink)
@@ -25,6 +26,7 @@ struct HomeCmuxAppLinkTests {
         "cmux://workspace/ws_0123456789abcdef0123456789abcdef/extra", "cmux://u:p@workspace/ws_0123456789abcdef0123456789abcdef",
         "cmux://workspace/ws_0123456789abcdef0123456789abcdef?x=1", "cmux://auth-callback", "cmuxx://workspace/ws_0123456789abcdef0123456789abcdef",
         "https://cmux.dev/",
+        "cmux://settings/other", "cmux://settings/background#x",
     ])
     func notAppLinks(_ text: String) {
         #expect(!URL(string: text)!.isCmuxAppLink)

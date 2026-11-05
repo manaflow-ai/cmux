@@ -1,0 +1,22 @@
+{
+  "title": "A fresh profile's sidebar and Settings (Lawrence 2026-10-30: \"i dont want to see tabs expanded inside of sidebar\", \"wtf is cmux classic mode get rid of it\"): an empty cmux-next.json, two workspaces with three tabs each, then Settings at General > Tabs and Appearance > Sidebar. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/no-tabs-in-sidebar.json",
+  "settings": {},
+  "steps": [
+    {"title": "Launch on an empty cmux-next.json", "wait": 3},
+    {"title": "Workspace api: a terminal", "cmux": ["workspace", "new", "--name", "api"], "wait": 2},
+    {"title": "api: a second terminal tab", "cmux": ["action", "run", "newSurface"], "wait": 1.5, "shot": false},
+    {"title": "api: a browser tab", "cmux": ["tab", "new-browser", "--url", "https://example.com"], "wait": 2, "shot": false},
+    {"title": "Workspace docs: a terminal", "cmux": ["workspace", "new", "--name", "docs"], "wait": 2, "shot": false},
+    {"title": "docs: a second terminal tab", "cmux": ["action", "run", "newSurface"], "wait": 1.5, "shot": false},
+    {"title": "docs: a browser tab", "cmux": ["tab", "new-browser", "--url", "https://example.com"], "wait": 2, "shot": false},
+    {"title": "The sidebar of a fresh profile, light: which rows it lists", "rpc": {"method": "debug.sidebar_rows", "params": {}}, "wait": 2},
+    {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1, "shot": false,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Settings > General > Tabs", "cmux": ["action", "run", "openSettings", "--setting", "tabs.newTabTemplate"], "wait": 3},
+    {"title": "Settings > Appearance > Sidebar", "cmux": ["action", "run", "openSettings", "--setting", "sidebar.pinnedBandsScroll"], "wait": 3},
+    {"title": "Settings, dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"}
+  ]
+}

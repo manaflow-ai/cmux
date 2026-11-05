@@ -181,6 +181,12 @@ class RustWorkspacesTests(unittest.TestCase):
         self.change("ws/crates/a/src/lib.rs")
         self.assertEqual(self.planned(), ["ws/crates/own", "solo"])
 
+    def test_a_path_dependency_manifest_change_plans_its_consumers(self) -> None:
+        # Cargo metadata changes can invalidate a consumer's standalone lockfile
+        # even when the dependency source itself is untouched.
+        self.change("ws/crates/a/Cargo.toml", '[package]\nname = "a"\n\n[dependencies]\nserde = "1"\n')
+        self.assertEqual(self.planned(), ["ws/crates/own", "solo"])
+
     def test_a_dev_dependency_of_a_dependency_does_not_reach_further(self) -> None:
         # b's tests use c, but solo only builds b's library.
         self.change("ws/crates/c/src/lib.rs")

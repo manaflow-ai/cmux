@@ -15,6 +15,8 @@ public protocol SidebarArchiveHost: AnyObject {
     func archiveItem(workspace id: String) -> String?
     /// What the person reads for an error the host threw.
     func archiveRefusal(_ error: any Error) -> String
+    /// The app's own sidebar document store; nil before it starts.
+    var archiveDocument: SidebarDocStore? { get }
 }
 
 /// Archive and Unarchive (plans/cmux-next/archiving-DESIGN.md): a workspace, a group or a link, tab
@@ -27,11 +29,11 @@ public protocol SidebarArchiveHost: AnyObject {
 public final class SidebarArchiveActions {
     /// Held for the registry's life: the bound actions are its only owner.
     private let host: any SidebarArchiveHost
-    private let store: () -> SidebarDocStore?
+    private let store: @MainActor () -> SidebarDocStore?
 
-    public init(host: any SidebarArchiveHost, store: @escaping () -> SidebarDocStore? = { SidebarDocStore.current }) {
+    public init(host: any SidebarArchiveHost) {
         self.host = host
-        self.store = store
+        store = { [weak host] in host?.archiveDocument }
     }
 
     public func bind(into registry: ActionRegistry) {

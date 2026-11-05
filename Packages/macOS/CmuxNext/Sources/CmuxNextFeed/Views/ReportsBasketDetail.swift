@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// The selected report in the Labs reports basket: its sender, when it arrived, its text, and a
+/// The selected report in the reports basket: its sender, when it arrived, its text, and a
 /// reply field whose Reply button calls `onSend`. The basket owns the draft: the field reports each
 /// edit through `onDraft` and the basket sets it back with ``setDraft(_:)``. `sending`: a reply is
 /// in flight (the button waits for it); `notSent`: the last reply was not sent.

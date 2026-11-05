@@ -1,6 +1,9 @@
 import CmuxNextActions
+import CmuxNextAgentActivity
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextOnboarding
 import Foundation
@@ -12,11 +15,12 @@ import Foundation
 /// a workspace through `windows.reveal(workspaceID:)` and
 /// `WindowActivation`. It never runs a command, sends text or changes
 /// state; the only things it creates are the agent tab for a session no tab
-/// shows, as opening that session from history does, and a closed tab a tab
+/// shows, as opening that session from history does, a closed tab a tab
 /// link names, reopened from Recently Closed under its own id
-/// (``DurableTabLink``). An agent link (`agent/<harness>/<session>`) only
-/// reveals a tab this app already shows that session in, then, when the user
-/// opened it, gives that tab's input the keyboard.
+/// (``DurableTabLink``), and a closed workspace a workspace link names,
+/// reopened from Recently Closed (``DurableWorkspaceLink``). An agent link (`agent/<harness>/<session>`)
+/// reveals a tab this app already shows that session in, else opens the acpmux chat it names as a
+/// session link does (``openAgentLink(_:bare:_:asking:notFound:)``).
 @MainActor
 struct DeepLinkNavigator {
     let services: AppServices
@@ -33,7 +37,7 @@ struct DeepLinkNavigator {
     /// - Throws: `ActionFailure` when the target is closed, deleted or on a
     ///   machine that is not connected, or (nightly pane and tab links)
     ///   when only its workspace could be shown.
-    func open(_ link: DeepLink, background: Bool, asking: Bool = true) throws {
+    func open(_ link: DeepLink, background: Bool, asking: Bool = true, beside: String? = nil) throws { // beside: the tab clicked in
         let intent: WindowActivation.Intent = background ? .bringForward : .raise
         switch link.target {
         case .tab(let id):
@@ -45,19 +49,27 @@ struct DeepLinkNavigator {
             guard let pane = services.pane(id: id) else { throw Self.gone }
             try reveal(pane, intent)
         case .workspace(let id):
+            // Open: show it. Closed: reopen it from Recently Closed and show it
+            // (DurableWorkspaceLink; a Chief reply links the workspaces it names, cmux#25572).
             let workspace = services.machines.allWorkspaces.map(\.0).first { $0.resourceID?.rawValue == id }
-            guard let workspace else { throw Self.gone }
+            guard let workspace else {
+                let resolver = DurableWorkspaceLink(daemons: services.machines.daemons, reveal: { [services] key in
+                    guard let window = services.windows.reveal(workspaceID: key)?.window else { return false }
+                    services.showJumpWindow(window, intent)
+                    return true
+                }, refuse: { [services] in services.registry.refuse(RefusalStrings.linkTargetGone) })
+                services.registry.track(Task { await resolver.open(id) })
+                return
+            }
             try reveal(workspace: workspace.id, intent)
         case .session(let id, let turn):
             try openSession(id, turn: turn, intent, asking: asking)
         case .chiefSession(let home, let session):
-            // Only this app's Chief home, only a tab that shows that session there; never a
-            // new tab (the session runs in the Chief home's acpmux, not this Mac's).
-            let host = "chief:" + home
-            guard services.agentTabs.chiefHost == host, let shown = services.agentTabs.tab(showing: session, host: host),
-                  services.revealTab(shown, intent: intent) else { throw Self.gone }
-        case .agent(let harness, let session):
-            try openAgent(harness: harness, session: session, message: link.message, intent)
+            // This app's Chief home only; its tab, else its chat as the subagent's sidebar row opens it (ChiefSidebar).
+            guard ChiefSidebar.shared.openSubagentLink(session: session, chiefHost: "chief:" + home, registry: services.registry, besideTab: beside,
+                                                       reveal: { services.revealTab($0, intent: intent) }) else { throw Self.gone }
+        case .agent:
+            try openAgentLink(link, intent, asking: asking)
         case .group(let id, let workspace):
             // The named workspace when this Mac shows it; else the group's record from cmux Cloud
             // (CloudGroupLink), whose first workspace open here is shown.
@@ -128,18 +140,30 @@ struct DeepLinkNavigator {
         Task { if await outcome.value == .refused { hud.show(Self.gone.message, in: window) } }
     }
 
-    /// An outside agent's session (hq#2555): only a tab already showing it (the chat that adopted
-    /// it, else the terminal running it), never a new tab, resume or connection. A user's open
-    /// raises it, so its composer or terminal has the keyboard. A link's `message=<id>` then
-    /// scrolls that message's row into view and marks it, in the chat tab that shows the session;
-    /// a message this machine's transcript does not have, or a terminal, leaves the view where it
-    /// is (schemas/deeplinks/agent-link.json).
-    private func openAgent(harness: String, session: String, message: String?,
-                           _ intent: WindowActivation.Intent) throws {
+    /// An agent link (`agent/<harness>/<session>`, or its cmux.com form clicked in the app) opens the
+    /// chat inside the app (Leo, 2026-11-03: "we need to be able to link WITHIN THE APP"): a tab that
+    /// shows the session already (the chat that adopted it, else the terminal running it, hq#2555),
+    /// else the acpmux chat the link names (`_acpmux/resolve` reads the link; it lists only this
+    /// Mac's and its peers' chats, the reader's own), opened as a session link opens one. A link's
+    /// `message=<id>` then scrolls that message into view (schemas/deeplinks/agent-link.json).
+    /// `notFound` runs when acpmux lists no such chat (nil: the refusal shows).
+    /// `bare`: a harness session id to resolve instead (a cmux.com link with no harness).
+    func openAgentLink(_ link: DeepLink?, bare: String? = nil, _ intent: WindowActivation.Intent, asking: Bool,
+                       notFound: (@MainActor () -> Void)? = nil) throws {
         guard AgentPaneTunables.agentLinks.value else { throw ActionFailure(message: RefusalStrings.agentLinksOff) }
-        guard let shown = services.revealedAgentSessionTab(harness: harness, session: session, intent: intent) else { throw Self.gone }
-        if let message, shown.adopted {
-            services.agentTabs.revealTurn(AgentTabStore.messageReveal(message), in: shown.tab)
+        let turn = link?.message.map(AgentTabStore.messageReveal)
+        if case .agent(let harness, let session) = link?.target,
+           let shown = services.revealedAgentSessionTab(harness: harness, session: session, intent: intent) {
+            if let turn, shown.adopted { services.agentTabs.revealTurn(turn, in: shown.tab) }
+            return
+        }
+        let (hud, window) = (services.refusalHUD, services.windows.active?.window)
+        let missing = notFound ?? { hud.show(Self.gone.message, in: window) }
+        guard let socket = AgentLaneStore.shared.socketPath, let query = link?.url(scheme: DeepLink.chiefScheme)?.absoluteString ?? bare else { return missing() }
+        // task-owner: one resolve, then one open.
+        Task { @MainActor in
+            guard let id = try? await AcpmuxSessionPage(socketPath: socket).linked(query) else { return missing() }
+            do { try openSession(id, turn: turn, intent, asking: asking) } catch { hud.show((error as? ActionFailure)?.message ?? Self.gone.message, in: window) }
         }
     }
 

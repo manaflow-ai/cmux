@@ -21,7 +21,7 @@ import CmuxNextDesign
         strip.hoverCards.dismiss(.action)
         // Follows theme changes while open (ThemedTextField).
         let field = ThemedTextField(string: item.title)
-        field.font = Typography.body
+        field.font = Typography.tabTitle
         field.isBordered = false
         field.drawsBackground = true
         field.focusRingType = .none
@@ -32,7 +32,7 @@ import CmuxNextDesign
         let delegate = InlineRenameDelegate(rename: self)
         field.delegate = delegate
         let inset = strip.metrics.contentLeadingInset
-        let height = ceil(Typography.body.ascender - Typography.body.descender) + Metrics.space1
+        let height = ceil(Typography.tabTitle.ascender - Typography.tabTitle.descender) + Metrics.space1
         field.frame = CGRect(x: cell.frame.minX + inset, y: (strip.tabsClip.bounds.height - height) / 2,
                              width: max(cell.frame.width - inset * 2, Metrics.space4 * 4), height: height)
         strip.tabsClip.addSubview(field)

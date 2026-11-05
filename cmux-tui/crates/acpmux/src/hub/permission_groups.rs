@@ -2,6 +2,7 @@
 //! callbacks and receipts, so a decision cannot approve an unseen member.
 use super::mac_approvers::MacProof;
 use super::*;
+use cmux_json::JsonSet as _;
 use std::collections::{HashSet, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -516,7 +517,7 @@ impl Hub {
                     .with_data(json!({"reason":"key_conflict"})));
             }
             let mut result = receipt.clone();
-            result["replayed"] = json!(true);
+            result.set("replayed", json!(true));
             return Ok(result);
         }
         let index = state

@@ -34,7 +34,8 @@ import Testing
         var policy = AutoArchivePolicy(style: .quiet, idleDays: 3)
         var toasts: [(String, @MainActor () -> Void)] = []
         var cards: [SidebarNoticeCard] = []
-        var answer = true
+        var answer: String? = "archive"
+        var styles: [AutoArchivePolicy.Style] = []
 
         func autoArchiveCandidates() -> [AutoArchivePlanner.Candidate] {
             active.keys.sorted().map { AutoArchivePlanner.Candidate(item: "itm_\($0)", workspace: $0, title: $0.uppercased(), lastActive: active[$0] ?? nil) }
@@ -42,7 +43,11 @@ import Testing
         func autoArchiveShownWorkspaces() -> Set<String> { shown }
         func autoArchivePolicy() -> AutoArchivePolicy { policy }
         func autoArchiveToast(_ message: String, undo: @escaping @MainActor () -> Void) { toasts.append((message, undo)) }
-        func autoArchiveAsk(_ card: SidebarNoticeCard) async -> Bool {
+        func autoArchiveSetStyle(_ style: AutoArchivePolicy.Style) async {
+            styles.append(style)
+            policy.style = style
+        }
+        func autoArchiveAsk(_ card: SidebarNoticeCard) async -> String? {
             cards.append(card)
             return answer
         }
@@ -84,6 +89,19 @@ import Testing
         #expect(document.sent.isEmpty && host.toasts.isEmpty && host.cards.isEmpty)
     }
 
+    /// Lawrence 18515/18517: the Tidy Up card popping up on its own was annoying. With no
+    /// `workspaces.autoArchive.style` set, a pass neither asks nor archives; Archive Idle Workspaces
+    /// still archives on request.
+    @Test func theDefaultStyleNeverPopsACardOrArchivesOnItsOwn() async throws {
+        host.policy = AutoArchivePolicy(styleName: nil, idleDays: nil)
+        coordinator.runPass()
+        await Task.yield()
+        await Task.yield()
+        #expect(host.cards.isEmpty, "no card on its own")
+        #expect(document.sent.isEmpty && host.toasts.isEmpty)
+        #expect(try coordinator.sweep() == 2, "Archive Idle Workspaces still works")
+    }
+
     @Test func suggestAsksFirstAndArchivesOnArchive() async throws {
         host.policy.style = .suggest
         coordinator.runPass()
@@ -92,9 +110,40 @@ import Testing
         #expect(archived() == ["itm_old", "itm_older"])
     }
 
+    @Test func theCardIsOneQuestionWithArchiveAndAlwaysArchive() async throws {
+        host.policy.style = .suggest
+        host.answer = "always"
+        coordinator.runPass()
+        try await waitFor { !host.cards.isEmpty && !document.sent.isEmpty }
+        let card = try #require(host.cards.first)
+        #expect(card.title == "2 idle workspaces", "the button says Archive; the title fits the sidebar (a capture cut \"Archive 6 idle workspa…\")")
+        #expect(card.eyebrow == nil && card.detail == nil, "no heading, no paragraph")
+        #expect(card.actions.map(\.id) == ["archive", "always"])
+        #expect(card.actions.map(\.isSwitch) == [false, true], "T3: Always is an inline switch, not a button")
+        #expect(host.styles == [.quiet], "Always Archive turns on automatic archiving")
+        #expect(archived() == ["itm_old", "itm_older"])
+    }
+
+    /// Lawrence 18519 ("grammar", a card reading "1 workspaces look idle"): one idle workspace reads
+    /// in the singular on the card and on the toast; two read in the plural.
+    @Test func oneIdleWorkspaceReadsInTheSingular() async throws {
+        host.active["old"] = .some(Self.start.addingTimeInterval(-1 * Self.day))
+        host.policy.style = .suggest
+        coordinator.runPass()
+        try await waitFor { !host.cards.isEmpty && !document.sent.isEmpty }
+        #expect(host.cards.first?.title == "1 idle workspace")
+        #expect(host.cards.first?.lines == ["OLDER"])
+        #expect(host.toasts.first?.0 == "Archived 1 idle workspace")
+    }
+
+    @Test func twoIdleWorkspacesReadInThePlural() throws {
+        coordinator.runPass()
+        #expect(host.toasts.first?.0 == "Archived 2 idle workspaces")
+    }
+
     @Test func notNowSnoozesTheCardForADay() async throws {
         host.policy.style = .suggest
-        host.answer = false
+        host.answer = nil
         coordinator.runPass()
         try await waitFor { host.cards.count == 1 }
         await Task.yield()

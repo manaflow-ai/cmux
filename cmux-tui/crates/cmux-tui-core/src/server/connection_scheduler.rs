@@ -1,6 +1,8 @@
 //! The per-connection surface scheduler: pending surface requests, the
 //! connection's cancellation token, clear-history barriers, and the
-//! dispatcher thread that runs queued surface operations in order.
+//! dispatcher thread that runs queued surface operations in order. Terminal
+//! creates (`terminal_create`) and `wait-for` (`connection_wait`) start in
+//! that order but finish off the dispatcher.
 
 use super::MessageWriter;
 use crate::panic_free::RecoverPoison;
@@ -45,6 +47,8 @@ pub(super) struct ConnectionSurfaceState {
     pub(super) active_clear_surfaces: HashSet<SurfaceId>,
     /// Terminal creates handed to the terminal work pool and not yet answered (`terminal_create`).
     pub(super) active_creations: usize,
+    /// `wait-for` requests handed to a wait worker and not yet answered (`connection_wait`).
+    pub(super) active_waits: usize,
     pub(super) dispatcher_started: bool,
     pub(super) dispatcher_done: bool,
     pub(super) closed: bool,
@@ -272,6 +276,7 @@ impl ConnectionSurfaceScheduler {
 
     pub(super) fn close(&self) {
         self.cancelled.cancel();
+        self.wake_reply_waiters();
         let mut state = self.state.lock().recover_poison();
         state.closed = true;
         state.requests.clear();
@@ -308,6 +313,7 @@ impl ConnectionSurfaceScheduler {
         while !state.dispatcher_done
             || !state.active_clear_surfaces.is_empty()
             || state.active_creations != 0
+            || state.active_waits != 0
         {
             if let Some(deadline) = deadline {
                 if Instant::now() >= deadline {
@@ -322,7 +328,8 @@ impl ConnectionSurfaceScheduler {
         }
         let drained = state.dispatcher_done
             && state.active_clear_surfaces.is_empty()
-            && state.active_creations == 0;
+            && state.active_creations == 0
+            && state.active_waits == 0;
         drop(state);
         if drained && let Some(dispatcher) = self.dispatcher.lock().recover_poison().take() {
             let _ = dispatcher.join();
@@ -381,6 +388,8 @@ fn run_connection_surface_dispatcher(
     let _dispatcher = ConnectionDispatcherGuard(scheduler.clone());
     while writer.is_open() {
         let Some(pending) = scheduler.next_request() else { return };
+        writer.input_lane.raise_this_thread_if_marked();
+        super::input_qos::note_thread_qos("mux-control-dispatch");
         if pending.request.cmd.is_clear_history()
             && let Some(surface) = pending.request.cmd.ordering_surface()
         {
@@ -448,10 +457,71 @@ fn run_connection_surface_dispatcher(
                 scheduler.close();
                 return;
             }
-        } else if !run_pending_request(&scheduler, &mux, client, pending, &writer) {
-            scheduler.close();
-            return;
+        } else if pending.request.cmd.waits_off_dispatch() {
+            if !scheduler.submit_wait(&mux, client, pending, &writer) {
+                scheduler.close();
+                return;
+            }
+        } else {
+            // Key-press flows: what the connection's dispatcher runs, so a key's wait in the queue names the request
+            // ahead of it (same thread id as the key's `daemon.send.write`; `CMUX_TRACE_FLOWS` only).
+            let traced = cmux_flow_trace::enabled().then(|| pending.request.cmd.flow_trace_names());
+            if let Some((begin, _)) = traced {
+                cmux_flow_trace::hop(begin, 0, "");
+            }
+            let open = run_pending_request(&scheduler, &mux, client, pending, &writer);
+            if let Some((_, end)) = traced {
+                cmux_flow_trace::hop(end, 0, "");
+            }
+            if !open {
+                scheduler.close();
+                return;
+            }
         }
     }
     scheduler.close();
+}
+
+impl super::Command {
+    /// The key-press flow hops a connection's dispatcher marks around this request (begin, end): the requests a
+    /// terminal view sends by name, every other one as `other` (`CMUX_TRACE_FLOWS` only).
+    fn flow_trace_names(&self) -> (&'static str, &'static str) {
+        use super::Command as C;
+        match self {
+            C::Send(_) => ("daemon.req.begin.send", "daemon.req.end.send"),
+            C::SendKey { .. } => ("daemon.req.begin.send-key", "daemon.req.end.send-key"),
+            C::ResizeAttachedView { .. } => {
+                ("daemon.req.begin.resize-attached-view", "daemon.req.end.resize-attached-view")
+            }
+            C::ResizeSurface { .. } => {
+                ("daemon.req.begin.resize-surface", "daemon.req.end.resize-surface")
+            }
+            C::SetClientSizing { .. } => {
+                ("daemon.req.begin.set-client-sizing", "daemon.req.end.set-client-sizing")
+            }
+            C::SetSizePolicy { .. } => {
+                ("daemon.req.begin.set-size-policy", "daemon.req.end.set-size-policy")
+            }
+            C::SnapshotRequest(_) => {
+                ("daemon.req.begin.snapshot-request", "daemon.req.end.snapshot-request")
+            }
+            C::ReleaseAttachedViewSize { .. } => (
+                "daemon.req.begin.release-attached-view-size",
+                "daemon.req.end.release-attached-view-size",
+            ),
+            C::SetSizeCounts { .. } => {
+                ("daemon.req.begin.set-size-counts", "daemon.req.end.set-size-counts")
+            }
+            C::SetAttachVisibility(_) => {
+                ("daemon.req.begin.set-attach-visibility", "daemon.req.end.set-attach-visibility")
+            }
+            C::DetachAttachedView { .. } => {
+                ("daemon.req.begin.detach-attached-view", "daemon.req.end.detach-attached-view")
+            }
+            C::ScrollSurface { .. } => {
+                ("daemon.req.begin.scroll-surface", "daemon.req.end.scroll-surface")
+            }
+            _ => ("daemon.req.begin.other", "daemon.req.end.other"),
+        }
+    }
 }

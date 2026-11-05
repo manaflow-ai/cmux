@@ -4,25 +4,20 @@ import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
 import ImageIO
-import Observation
 import UniformTypeIdentifiers
 
-/// Debug/Labs picker for cmux NEXT's own window. A local monitor observes the
-/// real event before AppKit dispatches it; the overlay is click-through, so
-/// hover never changes the product's hit-testing path.
+/// Inspect Element for cmux NEXT's own web content: the HTML/React pages the
+/// app hosts (an agent chat, `AgentPaneView`). Native AppKit/SwiftUI views are
+/// never inspectable and pay nothing: no monitor runs until the picker starts,
+/// and while it runs an event over a native view goes on untouched (no
+/// hit-test, no highlight, no swallowed click).
 @MainActor
 final class UIInspectorController {
     private weak var services: AppServices?
+    /// The picker's monitor, installed only between `start()` and `stop()`.
     private var monitor: Any?
-    /// Records the gesture that opened a native or app-owned webview menu. The
-    /// menu action then starts the picker at that exact screen point.
-    private var contextMonitor: Any?
-    private var lastContextPoint: NSPoint?
-    private weak var lastContextWindow: NSWindow?
     private var inspectNotification: NSObjectProtocol?
-    private var activeWindow: NSWindow?
-    private var highlighted: NSView?
-    private var highlight: OverlayHandle?
+    private var watchesToggle = false // armed by the first start(), when the tunables are active
     private weak var activePage: AgentPaneView?
     private var selectionGeneration = 0
     private var pendingAction: SelectionAction = .send
@@ -36,8 +31,6 @@ final class UIInspectorController {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in self?.inspectFromContextMenu() }
         }
-        if AgentPaneTunables.pointerInspector.value { installContextMonitor() }
-        observeToggle()
     }
 
     // AppKit monitor removal is main-thread-only. The controller can be
@@ -47,7 +40,6 @@ final class UIInspectorController {
         guard Thread.isMainThread else { return }
         MainActor.assumeIsolated { // main-proof: the guard above returns unless Thread.isMainThread.
             if let monitor { NSEvent.removeMonitor(monitor) }
-            if let contextMonitor { NSEvent.removeMonitor(contextMonitor) }
             if let inspectNotification { NotificationCenter.default.removeObserver(inspectNotification) }
         }
     }
@@ -60,56 +52,32 @@ final class UIInspectorController {
         start()
     }
 
-    /// Starts the picker and immediately highlights the element that opened the
-    /// most recent app-owned context menu. This is the native equivalent of
-    /// browser DevTools' Inspect Element command.
+    /// Starts the picker and highlights the element under the most recent
+    /// right-click in an app-owned web page (the page whose menu opened last).
+    /// The page records that point itself, so no app-wide right-click monitor
+    /// runs. The web equivalent of DevTools' Inspect Element.
     func inspectFromContextMenu() {
         guard AgentPaneTunables.pointerInspector.value else { return }
         start()
-        guard let point = lastContextPoint,
-              let window = lastContextWindow,
-              window.isVisible else { return }
-        highlight(at: point, in: window)
-    }
-
-    private func observeToggle() {
-        withObservationTracking { _ = AgentPaneTunables.pointerInspector.value } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if AgentPaneTunables.pointerInspector.value {
-                    self.installContextMonitor()
-                } else {
-                    self.stop()
-                    self.removeContextMonitor()
-                }
-                self.observeToggle()
-            }
-        }
-    }
-
-    private func installContextMonitor() {
-        guard contextMonitor == nil else { return }
-        contextMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown]) { [weak self] event in
-            guard let self, let window = self.shellWindow(for: event.window), let point = self.screenPoint(of: event) else { return event }
-            self.lastContextPoint = point
-            self.lastContextWindow = window
-            return event
-        }
-    }
-
-    private func removeContextMonitor() {
-        if let contextMonitor { NSEvent.removeMonitor(contextMonitor) }
-        contextMonitor = nil
-        lastContextPoint = nil
-        lastContextWindow = nil
+        let candidates = services.map { Array($0.agentTabs.views.values) } ?? []
+        let menus = candidates.compactMap { page in page.lastContextMenu.map { (page: page, menu: $0) } }
+        guard let latest = menus.max(by: { $0.menu.uptime < $1.menu.uptime }),
+              latest.page.window?.isVisible == true else { return }
+        let menuPage = latest.page, point = latest.menu.point
+        activate(menuPage)
+        menuPage.evaluateUiPointer(pointerScript("highlight", point: point, page: menuPage))
     }
 
     private func start() {
         guard monitor == nil else { return }
+        if !watchesToggle {
+            watchesToggle = true
+            AgentPaneTunables.whenPointerInspectorTurnsOff { [weak self] in self?.stop() }
+        }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
             guard let self else { return event }
             guard Thread.isMainThread else { return event } // main-proof: AppKit local monitors are delivered on the main thread
-            return self.handle(event)
+            return self.handle(event, window: self.shellWindow(for: event.window), point: self.screenPoint(of: event))
         }
     }
 
@@ -118,32 +86,21 @@ final class UIInspectorController {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         deactivatePage()
-        highlight?.dismiss()
-        highlight = nil
-        highlighted = nil
-        activeWindow = nil
     }
 
-    private func handle(_ event: NSEvent) -> NSEvent? {
+    /// One picker event in `window` at `point` (screen points; the monitor passes the event's
+    /// own): over an app-owned web page it drives the page's own picker; anywhere else (native
+    /// UI) it returns `event` untouched.
+    func handle(_ event: NSEvent, window: NSWindow?, point: NSPoint?) -> NSEvent? {
         if event.type == .keyDown, event.keyCode == 53 { stop(); return nil }
-        guard services != nil, let window = shellWindow(for: event.window), let point = screenPoint(of: event) else { return event }
-        activeWindow = window
-        if let page = page(at: point, in: window) {
-            activate(page)
-            if event.type == .leftMouseDown || event.type == .rightMouseDown {
-                pendingAction = event.type == .rightMouseDown ? .copy : .send
-                page.evaluateUiPointer(pointerScript("pick", point: point, page: page))
-                return nil
-            }
+        guard services != nil, let window, let point, let page = page(at: point, in: window) else {
+            deactivatePage()
             return event
         }
-        deactivatePage()
-        guard let content = window.contentView else { return event }
-        let local = content.convert(window.convertPoint(fromScreen: point), from: nil)
-        guard let view = content.hitTest(local), !isInspectorView(view) else { return event }
-        showHighlight(for: view, in: window)
+        activate(page)
         if event.type == .leftMouseDown || event.type == .rightMouseDown {
-            selectNative(view, in: window, action: event.type == .rightMouseDown ? .copy : .send)
+            pendingAction = event.type == .rightMouseDown ? .copy : .send
+            page.evaluateUiPointer(pointerScript("pick", point: point, page: page))
             return nil
         }
         return event
@@ -163,20 +120,6 @@ final class UIInspectorController {
         let x = local.x / scale
         let y = (page.bounds.height - local.y) / scale
         return "globalThis.__cmuxUiPointer?.\(operation)(\(x), \(y));"
-    }
-
-    private func highlight(at point: NSPoint, in window: NSWindow) {
-        activeWindow = window
-        if let page = page(at: point, in: window) {
-            activate(page)
-            page.evaluateUiPointer(pointerScript("highlight", point: point, page: page))
-            return
-        }
-        deactivatePage()
-        guard let content = window.contentView else { return }
-        let local = content.convert(window.convertPoint(fromScreen: point), from: nil)
-        guard let view = content.hitTest(local), !isInspectorView(view) else { return }
-        showHighlight(for: view, in: window)
     }
 
     private func shellWindow(for eventWindow: NSWindow?) -> NSWindow? {
@@ -200,56 +143,6 @@ final class UIInspectorController {
             guard view.window === window, !view.isHiddenOrHasHiddenAncestor else { return false }
             let rect = view.convert(view.bounds, to: nil)
             return rect.contains(window.convertPoint(fromScreen: point))
-        }
-    }
-
-    private func showHighlight(for view: NSView, in window: NSWindow) {
-        let rect = view.convert(view.bounds, to: nil)
-        guard !rect.isEmpty else { return }
-        if highlighted === view, let highlight { highlight.update(anchor: rect); return }
-        highlighted = view
-        highlight?.dismiss()
-        let outline = UIInspectorHighlightView(frame: NSRect(origin: .zero, size: rect.size))
-        highlight = WindowOverlayHost.host(for: window).present(outline, options: OverlayOptions(kind: .attached, anchor: rect, passesThroughClicks: true))
-    }
-
-    private func selectNative(_ view: NSView, in window: NSWindow, action: SelectionAction) {
-        guard let content = window.contentView else { return }
-        let rect = view.convert(view.bounds, to: nil)
-        let name = view.accessibilityIdentifier().isEmpty ? String(describing: type(of: view)) : view.accessibilityIdentifier()
-        let source = source(for: view)
-        let styles = [
-            "frame": "\(Int(rect.width))×\(Int(rect.height))",
-            "hidden": view.isHidden ? "true" : "false",
-            "alpha": String(format: "%.2f", view.alphaValue),
-            "cornerRadius": view.layer.map { String(format: "%.1f", $0.cornerRadius) } ?? "0",
-            "background": view.layer?.backgroundColor.map { NSColor(cgColor: $0)?.description ?? "set" } ?? "none",
-        ]
-        let role = view.accessibilityRole()?.rawValue ?? "unavailable"
-        let label = view.accessibilityLabel() ?? "unavailable"
-        let styleText = styles.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ", ")
-        let text = [
-            "cmux NEXT UI pointer selection",
-            "View: \(name)",
-            "Source: \(source)",
-            "Accessibility role: \(role)",
-            "Accessibility label: \(label)",
-            "Frame (window points): x=\(Int(rect.minX)) y=\(Int(rect.minY)) width=\(Int(rect.width)) height=\(Int(rect.height))",
-            "Styles: \(styleText)",
-        ].joined(separator: "\n")
-        selectionGeneration &+= 1
-        let generation = selectionGeneration
-        highlight?.dismiss()
-        highlight = nil
-        highlighted = nil
-        Task { @MainActor [weak self, weak window, weak view] in
-            guard let self, let window, let view, self.selectionGeneration == generation else { return }
-            guard let services = self.services else { return }
-            let image = try? await AppWindowImage(services: services).capture(window, masked: false)
-            guard self.selectionGeneration == generation else { return }
-            let png = image.flatMap { Self.crop($0, rect: view.convert(view.bounds, to: nil), window: window) }
-            self.finish(action: action, name: "UI: \(name)", text: text, png: png, preferred: nil)
-            self.stop()
         }
     }
 
@@ -301,40 +194,6 @@ final class UIInspectorController {
         AgentPaneDesignSelection(id: "ui-pointer-" + UUID().uuidString, name: name, text: text, png: png).push(to: target)
     }
 
-    private func source(for view: NSView) -> String {
-        let type = String(reflecting: type(of: view)).split(separator: ".").last.map(String.init) ?? "NSView"
-        return Self.sourceByViewType[type] ?? "debug view registry: \(type) (source unavailable)"
-    }
-
-    /// Stable debug-only source anchors for native views. SwiftUI/AppKit wrappers often erase
-    /// their concrete type at runtime, so the registry intentionally reports a stable type name
-    /// when a source anchor has not been registered yet.
-    private static let sourceByViewType: [String: String] = [
-        "AgentPaneView": "CmuxNextAgentPane/AgentPaneView.swift:18",
-        "LayoutRootView": "CmuxNextLayout/Views/LayoutRootView.swift:13",
-        "SidebarView": "CmuxNextSidebar/Views/SidebarView.swift:21",
-        "SidebarContainerView": "CmuxNextSidebar/Views/SidebarContainerView.swift:22",
-        "SidebarRowView": "CmuxNextSidebar/Views/SidebarRowView.swift:8",
-        "SidebarItemListRowView": "CmuxNextSidebar/Views/SidebarItemListRowView.swift:9",
-        "SidebarTabRowView": "CmuxNextSidebar/Views/SidebarTabRowView.swift:11",
-        "TabStripView": "CmuxNextTabs/TabStripView.swift:15",
-        "PaneToolbarView": "CmuxNextTabs/PaneToolbarView.swift:32",
-    ]
-
-    private func isInspectorView(_ view: NSView) -> Bool { view is UIInspectorHighlightView }
-
-    private static func crop(_ image: CGImage, rect: NSRect, window: NSWindow) -> Data? {
-        let scale = Double(image.width) / max(Double(window.frame.width), 1)
-        let cut = CGRect(x: rect.minX * scale, y: (window.frame.height - rect.maxY) * scale,
-                         width: rect.width * scale, height: rect.height * scale).integral
-            .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        guard let cropped = image.cropping(to: cut), !cut.isEmpty else { return nil }
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(destination, cropped, nil)
-        return CGImageDestinationFinalize(destination) ? data as Data : nil
-    }
-
     private static func cropWeb(_ image: NSImage, value: [String: Any]) -> Data? {
         guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil), let bounds = value["bounds"] as? [String: Any],
               let x = bounds["x"] as? NSNumber, let y = bounds["y"] as? NSNumber,
@@ -353,17 +212,4 @@ final class UIInspectorController {
         CGImageDestinationAddImage(destination, cut, nil)
         return CGImageDestinationFinalize(destination) ? data as Data : nil
     }
-}
-
-@MainActor
-private final class UIInspectorHighlightView: NSView {
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.systemBlue.withAlphaComponent(0.15).setFill()
-        dirtyRect.fill()
-        NSColor.systemBlue.setStroke()
-        let path = NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1))
-        path.lineWidth = 2
-        path.stroke()
-    }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

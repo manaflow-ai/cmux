@@ -15,7 +15,9 @@ enum WhatsNewPage {
     /// the item.
     @discardableResult
     static func open(_ services: AppServices, in state: WindowState? = nil) -> Bool {
-        guard ActionRunScope.viewChangeAllowed(), services.settings?.snapshot.previewFeatures == true else { return false }
+        // Not behind Labs (Leo, 2026-10-29: "why the fuck does See What's New not fucking open the
+        // What's New tab anymore"; 2026-10-30: "i dont like putting so much stuff in labs").
+        guard ActionRunScope.viewChangeAllowed() else { return false }
         let center = services.updater.whatsNew
         // The span starts at the version seen before this update (read before `open` marks seen).
         let from = center.lastSeen.flatMap { seen in center.current.map { seen < $0 } == true ? seen : nil }
@@ -24,10 +26,9 @@ enum WhatsNewPage {
     }
 
     /// A click on a client-only sidebar item: the Channels entry switches Home to Channels; a
-    /// Chief subagent row opens its chat; another machine's group folds and its chat rows open.
+    /// Chief subagent row opens its chat. Other machines' chats draw no rows (`RemoteMachinesSidebar` is not bound).
     static func activateClientItem(_ id: LayoutItemID, services: AppServices, in state: WindowState?) {
         if ChiefSidebar.shared.activate(id, registry: services.registry) { return }
-        if RemoteMachinesSidebar.shared.activate(id) { return }
         // The Channels entry after Home (cx-frn2y): the one Home view path, as a person's click.
         if id == SidebarTransientItem.channelsID { _ = services.registry.perform("home.switchView", invocation: .init(arguments: ["view": .string("channels")], origin: .user)) }
     }

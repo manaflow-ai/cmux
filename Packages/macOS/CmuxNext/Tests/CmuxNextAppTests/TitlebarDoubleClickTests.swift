@@ -2,11 +2,13 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// A double-click on empty titlebar space runs the user's titlebar action once (Leo, cosmic-gray
 /// 2026-10-13). The press reached both the sidebar header's `mouseDown` and the window's
 /// `sendEvent`, which each zoomed: the window bounced and ended where it started.
+@Suite(.closesItsWindows)
 @MainActor struct TitlebarDoubleClickTests {
     /// The app's window and root, sidebar shown, on the main screen and not zoomed.
     func shownRoot() throws -> (ShellWindow, WindowRootView) {

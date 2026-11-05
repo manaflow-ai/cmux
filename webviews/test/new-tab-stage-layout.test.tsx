@@ -105,7 +105,7 @@ const PROJECTS = [
   { cwd: "/Users/you/src/web", label: "web" },
 ];
 
-async function render(template?: "default" | "threads", projects = PROJECTS) {
+async function render(template: "default" | "threads" = "default", projects = PROJECTS) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -238,7 +238,7 @@ test("the needs-you rows keep the first three: chats asking first, then the newe
 // App lists among the projects; the environment card never offers it by its workspace id.
 test("the environment card lists no private agent-home folder", async () => {
   const home = "/Users/you/Library/Application Support/cmux/agent-home/ws-0f3a9c";
-  const root = await render(undefined, [{ cwd: home, label: "ws-0f3a9c" }, ...PROJECTS]);
+  const root = await render("default", [{ cwd: home, label: "ws-0f3a9c" }, ...PROJECTS]);
   try {
     const env = host.querySelector(".nt-env")!;
     const rows = [...env.querySelectorAll(".nt-stage-row")].map((row) => row.textContent ?? "");

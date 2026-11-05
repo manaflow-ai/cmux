@@ -125,8 +125,11 @@ async fn a_web_connection_with_the_dashboard_token_stays_web() {
     let init = json!({"jsonrpc": "2.0", "id": 0, "method": "initialize",
         "params": {"protocolVersion": 1, "_meta": {"acpmux": {"peerToken": peer}}}});
     assert_eq!(origin(port, "", &[(a, &b)], Some(init)).await, "remote");
+    let query = format!("?peerToken={peer}");
+    assert_eq!(origin(port, &query, &[(a, &b)], None).await, "remote");
+    // The dashboard token in the query admits nothing (`server/ws_auth.rs`).
     let query = format!("?token={TOKEN}&peerToken={peer}");
-    assert_eq!(origin(port, &query, &[], None).await, "remote");
+    assert!(session(port, &query, &[], None, &[]).await.is_err());
 }
 
 #[tokio::test]

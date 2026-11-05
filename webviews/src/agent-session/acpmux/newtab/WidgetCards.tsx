@@ -75,7 +75,9 @@ export function WidgetCards({
                 onClick={() => onProject(project.cwd)}
               >
                 <Icon name="folder" size={16} className="nt-widget-icon" />
-                <span className="nt-widget-label">{project.label}</span>
+                <span className="nt-widget-label" title={project.cwd}>
+                  {project.label}
+                </span>
                 {picked && <CheckMark />}
               </button>
             );

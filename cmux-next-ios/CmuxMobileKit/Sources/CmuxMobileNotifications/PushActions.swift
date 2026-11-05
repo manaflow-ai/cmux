@@ -10,6 +10,12 @@ public enum PushCategory: String, CaseIterable, Sendable {
     case failed = "CMUX_MOBILE_FAILED"
     case chief = "CMUX_MOBILE_CHIEF"
     case terminal = "CMUX_MOBILE_TERMINAL"
+    /// Cloud attention pushes navigate to the Cloud chat and never carry
+    /// reply buttons. These categories still need registration so APNs does
+    /// not silently fall back to an unknown category.
+    case cloudQuestion = "CLOUD_QUESTION"
+    case cloudPermission = "CLOUD_PERMISSION"
+    case cloudDone = "CLOUD_DONE"
     /// The phone's own "Couldn't reach <Mac>" notification.
     case retry = "CMUX_MOBILE_RETRY"
     /// A sealed push before it opened, and any push that is not to be acted
@@ -65,8 +71,8 @@ public enum PushAction: Equatable, Hashable, Sendable {
         }
     }
 
-    /// Opens the app: an Allow and an answer are signed after Face ID, which
-    /// iOS shows only in a foreground app (verify/rich-push.md).
+    /// Opens the app: an Allow and an answer are signed and sent by the app
+    /// in the foreground (verify/rich-push.md); no Face ID is asked.
     public var opensApp: Bool {
         switch self {
         case .option, .answer, .allowOnce, .allowAlways, .retry: true
@@ -124,7 +130,9 @@ public struct PushActions: Sendable {
     /// (the button opened a second field, and read as unexplained).
     public func extensionActions(for payload: PushPayload, replyField: Bool = false) -> [UNNotificationAction]? {
         guard payload.previews else { return nil }
-        let plan = plan(for: payload).filter { !(replyField && $0.action == .reply) }
+                // Chief keeps its Reply button: its long look has no composer, and a
+        // Chief alert without Reply read as unrepliable (2026-10-30).
+        let plan = plan(for: payload).filter { !(replyField && $0.action == .reply && payload.kind != .chief) }
         return plan.map { button in
             // Without the composer the system field is the way to reply: say to whom.
             let title = button.action == .reply ? payload.agent.map { String(localized: "Reply to \($0)") } ?? button.title : button.title
@@ -151,7 +159,7 @@ public struct PushActions: Sendable {
         case .question, .questionForm: [action(.answer)]
         case .permission: [action(.allowOnce), action(.deny)]
         case .completed, .failed, .chief: [action(.reply)]
-        case .terminal, .sealed: []
+        case .terminal, .sealed, .cloudQuestion, .cloudPermission, .cloudDone: []
         case .retry: [action(.retry)]
         }
     }
@@ -170,6 +178,7 @@ public struct PushActions: Sendable {
             if question.allowsOther { out.append((.answer, title(.answer))) }
             return out
         case .permission:
+            // A terminal agent's approval is answered in its terminal: "Answer…" opens the tab.
             // None listed (a v1 push, or a sealed one the Mac trimmed to fit): the app opens on it.
             guard !payload.options.isEmpty else { return [(.answer, title(.answer))] }
             // As the Feed (`PushPayload.phoneOptions`): Always allow only when the agent offers no
@@ -184,7 +193,8 @@ public struct PushActions: Sendable {
             if options.contains(where: \.isReject) { out.append((.deny, title(.deny))) }
             return out
         case .completed, .failed, .chief:
-            return [(.reply, title(.reply))]
+            // A terminal agent's event names no chat to reply to: a tap opens its tab.
+            return payload.fromTerminalAgent ? [] : [(.reply, title(.reply))]
         case .terminal:
             // Text into the terminal (device unlock), only when its poster takes a reply.
             return payload.replyable && payload.notificationId != nil ? [(.terminalReply, title(.terminalReply))] : []
@@ -253,10 +263,9 @@ public struct PushSharedPreference {
     }
 }
 
-/// Which stores a Require Face ID call writes. `AppLockController.init` runs in
-/// `RootView.body`, so the same value arrives on every body pass: a write then
-/// (a `UserDefaults.standard` write wakes `@AppStorage` readers, which run the
-/// body again) loops the first frame forever. Only a change writes.
+/// Which stores a Require Face ID call writes. AppLock sends the setting on
+/// appear, which may equal the stored value, and a needless
+/// `UserDefaults.standard` write wakes `@AppStorage` readers. Only a change writes.
 public struct PushFaceIDSync: Sendable, Equatable {
     /// The app's own defaults' value.
     public private(set) var local: Bool

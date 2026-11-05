@@ -32,7 +32,7 @@ final class AppPaletteGoToSource: PaletteGoToSource {
             pane.newTerminalTab(cwd: url.path)
         case .web(let url):
             let invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey),
-                                              arguments: ["url": .string(url.absoluteString)], origin: .user)
+                                              arguments: ["url": .string(url.absoluteString)], origin: .user).onMachine(pane.daemon.machineID)
             _ = services.registry.perform(.openBrowser, invocation: invocation)
         }
     }

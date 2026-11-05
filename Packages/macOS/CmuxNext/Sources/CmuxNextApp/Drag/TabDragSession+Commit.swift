@@ -33,6 +33,8 @@ extension TabDragSession {
                 self.services.registry.refuse(TabDropStrings.failed)
             }
             let end: @MainActor () -> Void = { [weak self] in
+                drag.settleDrop?(ok)
+                drag.settleDrop = nil
                 lifecycle.settle(transaction, ok: ok)
                 self?.commitsInFlight.remove(transaction)
                 self?.services.input.monitor?.noteChange()
@@ -51,7 +53,7 @@ extension TabDragSession {
         case .tab(let id):
             // A session-local tab (an internal page) is not a daemon tab
             // and cannot move: it springs back.
-            guard let (tab, _) = services.locateTab(id) else { return settle(false) }
+            guard let (tab, _) = services.locateTab(id, onMachine: drag.source.pane.map { services.machines.daemon(forPane: $0.pane).machineID } ?? services.machines.local.machineID) else { return settle(false) }
             executeTab(outcome, tab: tab, dropWindow: dropWindow, drag: drag, transaction: transaction, settle: settle)
         case .group(let id, _):
             executeGroup(outcome, group: CmuxNextDaemon.TabGroupID(rawValue: id.rawValue), dropWindow: dropWindow, drag: drag,
@@ -72,7 +74,7 @@ extension TabDragSession {
                     pane?.syncGroupMembership(of: tab, to: groupID)
                     StripOrder.settle([pane])
                 } else {
-                    pane?.resyncStrip()
+                    pane?.syncStripFromStore()
                 }
                 settle(ok)
             }
@@ -130,7 +132,7 @@ extension TabDragSession {
         case .strip(let stripID, let index, _):
             guard let pane = paneController(stripID: stripID) else { return gone(settle) }
             TabGroupMoves.move(group, to: pane.pane, index: index, services: services, transaction: transaction) { [weak pane] ok in
-                if !ok { pane?.resyncStrip() }
+                if !ok { pane?.syncStripFromStore() }
                 settle(ok)
             }
         case .newSplit(let paneID, let edge):
@@ -194,10 +196,14 @@ extension TabDragSession {
 
     /// The sidebar gap or collapsed group the drag was dropped on.
     func gapSlot(_ drag: Drag) -> WorkspaceSlot? {
-        switch (drag.winner?.provider as? SidebarTabDropTarget)?.lastDrop {
-        case .newWorkspace(let section, let group, let index)?: .at(DropPosition(section: section, group: group, index: index))
-        case .intoGroup(let group)?: .endOfGroup(group)
-        case .intoWorkspace?, .beforeTab?, nil: nil
+        let target = drag.winner?.provider as? SidebarTabDropTarget
+        switch target?.lastDrop {
+        case .newWorkspace(let section, let group, let index)?:
+            guard let sections = target?.bridgeForDrop?.model.sections,
+                  let gap = WorkspaceGap(DropPosition(section: section, group: group, index: index), in: sections) else { return nil }
+            return .gap(gap)
+        case .intoGroup(let group)?: return .endOfGroup(group)
+        case .intoWorkspace?, nil: return nil
         }
     }
 

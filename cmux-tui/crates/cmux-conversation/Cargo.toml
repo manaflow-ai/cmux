@@ -14,3 +14,5 @@ workspace = true
 serde.workspace = true
 # A part of an unknown type is kept as its JSON (types.rs `Part::Unknown`).
 serde_json.workspace = true
+pulldown-cmark = { version = "0.13", default-features = false }
+unicase = "2.9"

@@ -27,7 +27,7 @@ enum WorkspaceGroupUndo {
         sidebar.handle(.ungroup(id))
         // On the sidebar document the ungroup puts its own undo step now (the daemon's inverse keeps the pin, icon and
         // every member): the toast shares that step, and no client restore is added beside it.
-        let onDoc = SidebarDocStore.activeRecords != nil, docStep = onDoc ? ToastUndoStep.latest.flatMap { $0 === prior ? nil : $0 } : nil
+        let onDoc = context.services.sidebarDoc.store?.activeRecords != nil, docStep = onDoc ? ToastUndoStep.latest.flatMap { $0 === prior ? nil : $0 } : nil
         guard invocation.origin == .user, let restore, let window = context.activeWindow?.window else { return }
         let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name
         let services = context.services, groupID = group.id.rawValue

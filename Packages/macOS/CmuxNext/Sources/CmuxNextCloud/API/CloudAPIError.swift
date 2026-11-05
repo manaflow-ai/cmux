@@ -60,8 +60,10 @@ public enum CloudAPIError: Error, Sendable, Equatable, CustomStringConvertible {
             guard let value = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
             return value
         }
-        let code = headerCode ?? text(object?["error"])
-        let message = text(ui?["message"]) ?? text(object?["message"])
+        // The cmux API Worker nests its refusal: `{ok: false, error: {code, message}}`.
+        let nested = object?["error"] as? [String: Any]
+        let code = headerCode ?? text(object?["error"]) ?? text(nested?["code"])
+        let message = text(ui?["message"]) ?? text(object?["message"]) ?? text(nested?["message"])
         if let object, let plan = liftingPlan(object, code: code) {
             return .planRequired(message: message, upgradeURL: upgradeURL(object), plan: plan)
         }

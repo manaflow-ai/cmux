@@ -20,14 +20,30 @@ public nonisolated struct SidebarWorkspaceDetail: Hashable, Sendable {
     /// when it started (the daemon's OSC 133 fact).
     public var command: String?
     public var commandSince: Date?
+    /// What the row's agent chat carries per model call and the window it fits in, in tokens,
+    /// and what it spent in the last 24 hours, in US dollars (acpmux `usageStats`); nil when
+    /// acpmux has not read them. Leo 2026-10-30: "that visibility into huge-blue guys was (and
+    /// is?) pretty bad".
+    public var contextTokens: Int?
+    public var contextWindow: Int?
+    public var costUsd24h: Double?
+    /// What the workspace's agent chats run below their turns now (acpmux, summed over its
+    /// tabs): running subagents, the first of their names, and background commands.
+    public var subagentsRunning = 0
+    public var subagentNames: [String] = []
+    public var commandsRunning = 0
 
     public init(activitySince: Date? = nil, model: String? = nil, task: String? = nil, needsInput: String? = nil,
-                command: String? = nil, commandSince: Date? = nil) {
+                command: String? = nil, commandSince: Date? = nil, contextTokens: Int? = nil, contextWindow: Int? = nil,
+                costUsd24h: Double? = nil) {
         self.activitySince = activitySince
         self.model = model
         self.task = task
         self.needsInput = needsInput
         self.command = command
         self.commandSince = commandSince
+        self.contextTokens = contextTokens
+        self.contextWindow = contextWindow
+        self.costUsd24h = costUsd24h
     }
 }

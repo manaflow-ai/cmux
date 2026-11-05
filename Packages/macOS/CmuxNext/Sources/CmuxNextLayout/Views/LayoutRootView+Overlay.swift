@@ -37,8 +37,8 @@ extension LayoutRootView {
     /// Syncs the overlay when it is stale.
     func flushOverlaySync() {
         // A parked or hidden root keeps its overlay stale: nothing shows it, and it syncs once when it goes
-        // live again (`setLive`).
-        guard overlayIsStale, isLive else { return }
+        // live again (`setLive`). The frame tick's input keeps it stale for the frame's one sync (`LayoutFrameInput`).
+        guard overlayIsStale, isLive, !context.holdsPresentations else { return }
         syncOverlay()
     }
 
@@ -93,7 +93,8 @@ extension LayoutRootView {
                 overlayHostsPlaced += 1
             }
         }
-        for view in plane.subviews where view is PaneOverlayView && !shown.contains(ObjectIdentifier(view)) {
+        // A retired host's ring is hidden with it and goes with its teardown, not in a close's first frame.
+        for view in plane.subviews where view is PaneOverlayView && !shown.contains(ObjectIdentifier(view)) && !context.isRetiredChrome(view) {
             view.removeFromSuperview()
         }
         panesMovedInLastOverlaySync = moved
@@ -108,7 +109,7 @@ extension LayoutRootView {
     public var interactiveOverlayRects: [CGRect] {
         var rects: [CGRect] = []
         if let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden {
-            rects += screen.dividerLineRects.map { convert($0, from: screen) }
+            rects += ScreenDividers(screen: screen).lineRects.map { convert($0, from: screen) }
         }
         return rects
     }
@@ -129,30 +130,32 @@ extension LayoutRootView {
     /// Shows or hides a divider's hover line for a pointer that is over a
     /// click-catching panel above a page.
     public func setDividerHovered(_ id: String, _ hovered: Bool) {
-        guard let active = model.activeScreenID else { return }
-        screenViews[active]?.refreshDividerHover()
+        refreshDividerHover()
     }
 
     /// Whether a layout motion runs (a split, close, zoom, New Column, column scroll): its springs
     /// move panes and dividers on every display frame until they land, including the frame they
     /// land in (``isLayoutInMotion``), or a change has started springs the display link has not
-    /// stepped yet. A divider drag moves them under the pointer, not on a spring. The window keeps
-    /// what follows the dividers only at rest (`WindowOverlayLayer`: divider catcher panels over
-    /// pages), and hears the end once, after the landing frame's last sync (`setLayoutInMotion`).
+    /// stepped yet, or a divider drag moves them under the pointer. The window keeps what follows the dividers
+    /// only at rest (`WindowOverlayLayer`: divider catcher panels over pages, the pressed one keeps the drag), and
+    /// hears the end once, after the landing frame's (or with no spring the release's) last sync (`setLayoutInMotion`).
     public var isInLayoutMotion: Bool {
-        isLayoutInMotion || screenViews.values.contains { !$0.isHidden && $0.hasMotion }
+        isLayoutInMotion || screenViews.values.contains { !$0.isHidden && ($0.hasMotion || $0.activeDrag != nil) }
     }
 
-    func reportInteractiveRects() {
+    /// A divider, column-edge or row-edge drag runs on a shown screen (its catcher panel keeps the resize cursor).
+    public var isDividerDragging: Bool { screenViews.values.contains { !$0.isHidden && $0.activeDrag != nil } }
+
+    func reportInteractiveRects() { // One report (lines, areas, motion, strip clips) asks the pages for one update at most.
         guard let planeHost else { return }
         let rects = interactiveOverlayRects
         let areas = dividerMouseAreas
-        let moving = isInLayoutMotion
-        guard rects != reportedInteractiveRects || areas != reportedDividerMouseAreas || moving != reportedLayoutMotion else { return }
+        let moving = isInLayoutMotion, shapes = context.stripClipsChanged
+        guard rects != reportedInteractiveRects || areas != reportedDividerMouseAreas || moving != reportedLayoutMotion || shapes else { return }
         reportedInteractiveRects = rects
         reportedDividerMouseAreas = areas
-        reportedLayoutMotion = moving
-        planeHost.interactiveOverlayRectsDidChange(overlayPlane)
+        (reportedLayoutMotion, context.stripClipsChanged) = (moving, false)
+        planeHost.interactiveOverlayRectsDidChange(overlayPlane, shapesChanged: shapes)
     }
 
     /// Displayed pane rings, for `debug.layers`: pane id, the pane's frame

@@ -124,6 +124,8 @@ final class PaletteRowCell: NSTableCellView {
     private let subtitle = PaletteText.label(Typography.caption, tone: .secondary)
     private let accessory = PaletteText.label(Typography.caption, tone: .tertiary)
     private let keycaps = PaletteKeycapsView()
+    /// An on/off command's state (``PaletteItem/toggleState``), left of the keycaps.
+    let toggleBadge = PaletteToggleBadgeView()
     private var symbolName: String?
     private var titleText = ""
     private var titleFace: NSFont?
@@ -137,7 +139,7 @@ final class PaletteRowCell: NSTableCellView {
         identifier = Self.identifier
         icon.imageScaling = .scaleProportionallyDown
         subtitle.lineBreakMode = .byTruncatingMiddle
-        [icon, swatch, title, subtitle, accessory, keycaps].forEach(addSubview)
+        [icon, swatch, title, subtitle, accessory, toggleBadge, keycaps].forEach(addSubview)
     }
 
     @available(*, unavailable)
@@ -164,14 +166,24 @@ final class PaletteRowCell: NSTableCellView {
         titleFace = item.fontFamily.flatMap { PaletteFontFaces.shared.font(family: $0, size: Typography.body.pointSize) }
         highlights = row.highlights
         applyColors()
+        // A reused cell can come from before a text size change.
+        subtitle.refreshFont()
+        accessory.refreshFont()
         subtitle.stringValue = item.subtitle ?? ""
         subtitle.isHidden = item.subtitle == nil
         accessory.stringValue = item.accessory ?? ""
         accessory.isHidden = item.accessory == nil
         keycaps.keycaps = item.keycaps ?? []
+        keycaps.needsDisplay = true
         keycaps.isHidden = item.keycaps == nil
+        let toggleStyle = PaletteTunables.toggleStyle.value
+        toggleBadge.style = toggleStyle
+        toggleBadge.isOn = item.toggleState ?? false
+        toggleBadge.isHidden = item.toggleState == nil || !toggleStyle.drawsBadge
         alphaValue = item.isEnabled ? 1 : 0.45
         setAccessibilityLabel(item.title)
+        // VoiceOver reads the state with the title in every style ("Toggle Left Sidebar, On").
+        setAccessibilityValue(item.toggleState.map { $0 ? PaletteStrings.on : PaletteStrings.off })
         needsLayout = true
     }
 
@@ -210,6 +222,12 @@ final class PaletteRowCell: NSTableCellView {
             let size = keycaps.intrinsicContentSize
             right -= size.width
             keycaps.frame = pixelAligned(NSRect(x: right, y: midY - size.height / 2, width: size.width, height: size.height))
+            right -= Metrics.space4
+        }
+        if !toggleBadge.isHidden {
+            let size = toggleBadge.intrinsicContentSize
+            right -= size.width
+            toggleBadge.frame = pixelAligned(NSRect(x: right, y: midY - size.height / 2, width: size.width, height: size.height))
             right -= Metrics.space4
         }
         if !accessory.isHidden {

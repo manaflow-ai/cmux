@@ -37,6 +37,11 @@ enum IPhoneHostStrings {
     static var unavailable: String {
         String(localized: "iphone.status.unavailable", defaultValue: "iPhone connections are not available in this build.", table: "IPhone", bundle: .module)
     }
+    /// A refused Keychain read of this Mac's iPhone key: the host waits and tries again.
+    static var keychainLocked: String {
+        String(localized: "iphone.status.keychainLocked", defaultValue: "Waiting for the login keychain to unlock. iPhones connect once it does.",
+               table: "IPhone", bundle: .module)
+    }
     static var connecting: String { String(localized: "iphone.status.connecting", defaultValue: "Connecting…", table: "IPhone", bundle: .module) }
     static var online: String { String(localized: "iphone.status.online", defaultValue: "Online", table: "IPhone", bundle: .module) }
     static var reconnecting: String {
@@ -57,8 +62,16 @@ enum IPhoneHostStrings {
     static func phone(_ shortID: String) -> String {
         String(format: String(localized: "iphone.phone.title", defaultValue: "iPhone %@", table: "IPhone", bundle: .module), shortID)
     }
-    static func pairTitle(_ name: String) -> String {
-        String(format: String(localized: "iphone.pair.title", defaultValue: "Allow “%@” to connect to this Mac?", table: "IPhone", bundle: .module), name)
+    static func phoneAccessPhone(_ name: String) -> String {
+        String(format: String(localized: "iphone.phone.transport.next", defaultValue: "%@ · cmux next", table: "IPhone", bundle: .module), name)
+    }
+    static func legacyPhone(_ name: String) -> String {
+        String(format: String(localized: "iphone.phone.transport.ios", defaultValue: "%@ · cmux (iOS)", table: "IPhone", bundle: .module), name)
+    }
+    /// The phone's name with its short key fingerprint beside it (``MobileHostPairRequest/shortFingerprint``).
+    static func pairTitle(_ name: String, key: String) -> String {
+        String(format: String(localized: "iphone.pair.title", defaultValue: "Allow “%1$@” (%2$@) to connect to this Mac?", table: "IPhone", bundle: .module),
+               name, key)
     }
     static func pairBody(_ account: String) -> String {
         String(format: String(localized: "iphone.pair.body",
@@ -67,6 +80,14 @@ enum IPhoneHostStrings {
     }
     static func pairKey(_ fingerprint: String) -> String {
         String(format: String(localized: "iphone.pair.key", defaultValue: "Device key %@", table: "IPhone", bundle: .module), fingerprint)
+    }
+    static func phoneAccessTitle(_ name: String, key: String) -> String {
+        String(format: String(localized: "iphone.pair.phoneAccessTitle", defaultValue: "Allow “%1$@” (%2$@) to use this Mac?",
+                              table: "IPhone", bundle: .module), name, key)
+    }
+    static var irohAdmissionBody: String {
+        String(localized: "iphone.pair.irohBody", defaultValue: "It can use this Mac’s terminals and agent chats. Remove it in Settings > Mobile to ask again.",
+               table: "IPhone", bundle: .module)
     }
     static var pairAllow: String { String(localized: "iphone.pair.allow", defaultValue: "Allow", table: "IPhone", bundle: .module) }
     static var pairDeny: String { String(localized: "iphone.pair.deny", defaultValue: "Don't Allow", table: "IPhone", bundle: .module) }

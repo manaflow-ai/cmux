@@ -63,6 +63,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["shortcuts", "keybindings", "hotkeys", "help"], category: .settings, symbol: "keyboard",
                 surfaces: [.palette, .menu], cliName: "settings search-keyboard-shortcuts", mainMenu: .help
             ),
+            // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it on one menu).
+            ActionDescriptor(
+                id: "settings.customizeMenus",
+                title: String(localized: "action.settings.customizeMenus", defaultValue: "Customize Right-Click Menus…", bundle: .module),
+                keywords: ["context menu", "right click", "menu", "customize", "reorder", "hide", "more"], category: .settings,
+                symbol: "contextualmenu.and.cursorarrow", surfaces: [.palette, .menu], cliName: "settings customize-menus", mainMenu: .app
+            ),
             // The Keyboard Shortcuts editor (R59), a React page tab; no
             // default key (defaults do not change, K1).
             ActionDescriptor(
@@ -169,6 +176,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["rollback", "roll back", "downgrade", "previous", "revert", "update", "nightly", "drop back"],
                 category: .settings, symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .menu],
                 cliName: "settings rollback-update", mainMenu: .app, destructive: true
+            ),
+            // Any recent nightly, older or newer, not only the kept one (Leo 2026-11-02: "idk if i should go without a
+            // way to revert nightlies to an older version convieniently"): opens Settings > Updates at its Channels
+            // card, whose Switch installs the build and skips the one left behind. `cmux nightly install` is its CLI.
+            ActionDescriptor(
+                id: "updates.installEarlierBuild",
+                title: String(localized: "action.updates.installEarlierBuild", defaultValue: "Install an Earlier Nightly…", bundle: .module),
+                keywords: ["rollback", "roll back", "downgrade", "older", "earlier", "previous", "revert", "nightly", "build", "version"],
+                category: .settings, symbol: "clock.arrow.circlepath", surfaces: [.palette, .menu],
+                cliName: "settings install-earlier-nightly", mainMenu: .app
             ),
             ActionDescriptor(
                 id: "palette.pro.upgrade",
@@ -464,6 +481,87 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.appearance.glass.lens.toggle", defaultValue: "Toggle Liquid Glass Lens", bundle: .module),
                 keywords: ["glass", "liquid glass", "lens", "refraction", "wallpaper", "plain glass", "appearance"],
                 category: .settings, symbol: "drop", surfaces: [.palette, .menu], mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Lawrence 2026-11-02: "get rid of host-pressure warning by default, can be enabled in cmd shift p tho".
+            // Set the Debug toggle `hostPressure.enabled` (off by default), as Enable / Disable Channels set theirs
+            // (DEV and NIGHTLY, where the tunable store is active).
+            ActionDescriptor(
+                id: "hostPressure.showWarning",
+                title: String(localized: "action.hostPressure.showWarning", defaultValue: "Show Host Pressure Warning", bundle: .module),
+                keywords: ["host pressure", "cpu", "ram", "memory", "load", "busy", "overloaded", "warning", "gauge", "enable"],
+                category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "hostPressure.hideWarning",
+                title: String(localized: "action.hostPressure.hideWarning", defaultValue: "Hide Host Pressure Warning", bundle: .module),
+                keywords: ["host pressure", "cpu", "ram", "memory", "load", "busy", "overloaded", "warning", "gauge", "disable"],
+                category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Lawrence msgs 19596, 19605, 19613, 19627: a live Swift playground of tab bar designs (crowded
+            // tabs, the new-tab control, the trailing ⋮), each row the real tab strip (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.tabBarPlayground",
+                title: String(localized: "action.debug.tabBarPlayground", defaultValue: "Tab Bar Playground", bundle: .module),
+                keywords: ["tab bar", "tabs", "playground", "gallery", "variants", "crowded", "new tab", "plus", "chevron", "more", "debug"],
+                category: .settings, symbol: "rectangle.3.group", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // User 2026-11-03 ("we need to make sure every single theme, all the UI elements are colored properly"):
+            // every bundled theme as the App Theme, each element's ink on its grounds with its contrast, failures
+            // ringed red; the same audit EveryThemeElementContrastTests runs (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.allThemesPlayground",
+                title: String(localized: "action.debug.allThemesPlayground", defaultValue: "All Themes Playground", bundle: .module),
+                keywords: ["themes", "app theme", "contrast", "colors", "playground", "gallery", "audit", "debug"],
+                category: .settings, symbol: "paintpalette", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Lawrence msg 19746: "show me all the possible sidebar states, and i will critique their sizings": every
+            // sidebar row state at every density and text size, light and dark, each the real row with its trailing
+            // marks measured (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.sidebarStatesPlayground",
+                title: String(localized: "action.debug.sidebarStatesPlayground", defaultValue: "Sidebar States Playground", bundle: .module),
+                keywords: ["sidebar", "states", "rows", "playground", "gallery", "density", "text size", "dots", "spinner", "sizes", "debug"],
+                category: .settings, symbol: "sidebar.left", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Leo 2026-11-05 (HQ#7149 L10): "the view of the app that's separate ... with your actual config, your
+            // actual settings": a real window of this app whose pages load from a worktree's dev server, the other
+            // windows untouched (WebProjection, CmuxNextPages; Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.projection",
+                title: String(localized: "action.debug.projection", defaultValue: "Open Projection Window", bundle: .module),
+                keywords: ["projection", "worktree", "dev server", "hot reload", "live", "preview", "view", "window", "debug"],
+                category: .settings, symbol: "rectangle.on.rectangle", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "server", title: String(localized: "argument.projection.server", defaultValue: "Server", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "worktree", title: String(localized: "argument.projection.worktree", defaultValue: "Worktree", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "test", title: String(localized: "argument.projection.test", defaultValue: "Test Command", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "page", title: String(localized: "argument.projection.page", defaultValue: "Page", bundle: .module), kind: .string, isRequired: false),
+                ],
+                mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // One click runs the projection's one named test in its worktree, in the projection window.
+            ActionDescriptor(
+                id: "debug.projection.runTest",
+                title: String(localized: "action.debug.projection.runTest", defaultValue: "Run Projection Test", bundle: .module),
+                keywords: ["projection", "test", "run", "worktree", "debug"],
+                category: .settings, symbol: "checkmark.circle", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "test", title: String(localized: "argument.projection.test", defaultValue: "Test Command", bundle: .module), kind: .string, isRequired: false),
+                ],
+                mainMenu: .debug,
+                isDebugOnly: true,
+                startsTerminal: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs

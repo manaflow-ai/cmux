@@ -1,15 +1,21 @@
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
+import { useScrollEdges } from "../../ui/scrollEdges";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentDisplayName } from "./agents";
 import { seedLastPicks, useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
 import { useComposerLook } from "./composerLook";
+import { ComposerFoot } from "./ComposerFoot";
+import { useRowFit } from "./composerRowFit";
+import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
+import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "./AddProjectPanel";
+import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
 import {
   defaultRow,
   stepSelection,
@@ -52,6 +58,8 @@ import {
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
+import { ageWithDate } from "./timeLabels";
+import { useNewTabCommand, type NewTabCommandActions } from "./newtab/useNewTabCommand";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -104,6 +112,9 @@ export type NewTabHost = {
   cwd?: string;
   host?: string;
   location?: string;
+  /// What a new chat of this window left when its tab opened another chat (cmux#32276): the
+  /// field's draft, taken once; nothing sends it.
+  draft?: string;
   /// Project folders found by the host scan, before session-derived folders.
   projects?: string[];
   omnibar?: OmnibarContext;
@@ -143,7 +154,22 @@ export type NewTabHost = {
   allChats?: false;
   /// How the rows under the field rank (newtab/screenModel.ts SuggestionOrder); unset is the default.
   suggestionOrder?: SuggestionOrder;
+  /// Where the page's new chat starts as the app already knows it (AgentPaneNewTabStart): drawn on
+  /// the first frame; the handshake's answer from the store replaces it only when it differs.
+  start?: NewTabStart;
 };
+
+/// A new chat's start before the store's answer: its folder, or none with Choose Folder… offered.
+export type NewTabStart = { cwd?: string; chooseFolder: boolean };
+
+function readNewTabStart(value: unknown): NewTabStart | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { cwd, chooseFolder } = value as { cwd?: unknown; chooseFolder?: unknown };
+  return {
+    ...(typeof cwd === "string" && cwd.startsWith("/") ? { cwd } : {}),
+    chooseFolder: chooseFolder === true,
+  };
+}
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
 export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewTabHost | undefined {
@@ -169,12 +195,14 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const pageWidgets = parsePageWidgets(object.pageWidgets);
   const weather = parseWeather(object.weather);
   const order = suggestionOrder(object.suggestionOrder);
+  const start = readNewTabStart(object.start);
   return {
     hotkeys,
     initialKind,
     ...(cwd ? { cwd } : {}),
     ...(typeof object.host === "string" ? { host: object.host } : {}),
     ...(typeof object.location === "string" && object.location ? { location: object.location } : {}),
+    ...(typeof object.draft === "string" && object.draft.trim() ? { draft: object.draft } : {}),
     ...(omnibar ? { omnibar } : {}),
     ...(openTabs?.length ? { openTabs } : {}),
     ...(Array.isArray(object.projects)
@@ -201,6 +229,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
     ...(order ? { suggestionOrder: order } : {}),
+    ...(start ? { start } : {}),
   };
 }
 
@@ -218,6 +247,12 @@ export function prefixedEdit(previous: string, next: string): { kind: TabKind; t
   if (previous !== "" || next.length === 0) return undefined;
   const kind = KIND_PREFIXES[next[0]!];
   return kind ? { kind, text: next.slice(1) } : undefined;
+}
+
+/// `value` as literal text in the field's Markdown: every ASCII punctuation mark escaped, line
+/// breaks kept (the New Tab screen's location escaping).
+function escapedLiteral(value: string): string {
+  return value.replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n");
 }
 
 /// The next kind for Tab (or Shift+Tab with `step` -1), wrapping.
@@ -259,15 +294,22 @@ export function recentSessions(
 
 /// "now", "5m", "3h", "2d": the card's age, as compact as the sidebar's.
 export function ageLabel(updatedAt: number | undefined, now = Date.now(), t: Translate = translate): string {
-  if (!updatedAt) return "";
-  const minutes = Math.max(0, Math.round((now - updatedAt) / 60_000));
-  if (minutes < 1) return t("age.now");
-  if (minutes < 60) return t("age.minutes", { n: minutes });
-  const hours = Math.round(minutes / 60);
-  return hours < 24 ? t("age.hours", { n: hours }) : t("age.days", { n: Math.round(hours / 24) });
+  return ageWithDate(
+    updatedAt,
+    now,
+    (_, translate, elapsedMs) => {
+      // Rounded, as this card's age always was; the date switch is ageWithDate's.
+      const minutes = Math.round(elapsedMs / 60_000);
+      if (minutes < 1) return translate("age.now");
+      if (minutes < 60) return translate("age.minutes", { n: minutes });
+      const hours = Math.round(minutes / 60);
+      return hours < 24 ? translate("age.hours", { n: hours }) : translate("age.days", { n: Math.round(hours / 24) });
+    },
+    t,
+  );
 }
 
-type Props = {
+type Props = NewTabCommandActions & {
   snapshot: AcpmuxSnapshot;
   /// Each kind's shortcut as the host shows it ("⌃⇧⌘T"); a kind without one shows none.
   hotkeys?: Partial<Record<TabKind, string>>;
@@ -315,7 +357,15 @@ type Props = {
   onShowAll(): void;
   onEditShortcut?(kind: TabKind): void;
   /// Choose Folder…: the host's folder panel; resolves to the picked folder.
-  onBrowseProject?(): Promise<string | undefined>;
+  onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
+  /// The page goes with an unsent Agent draft (a typed prompt, staged attachments): handed over so
+  /// the chat view that replaces it keeps it (newtab/NewTabScreen.tsx `onLeaveDraft`).
+  onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
+  /// The chat view's composer stood in for this page while the host failed before its handshake:
+  /// what was typed there, taken once as the page's own draft when the page comes back.
+  takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
+  /// The field's text as typed, after each edit (for a draft it was handed: what a pick leaves again).
+  onFieldEdit?(text: string): void;
   now?: number;
 };
 
@@ -337,6 +387,10 @@ export function NewTabPage({
   location,
   projects = [],
   onSubmit,
+  onCmuxCommand,
+  onImportFile,
+  importError,
+  importSandboxed,
   onJump,
   onOpenSession,
   onShowAll,
@@ -344,13 +398,18 @@ export function NewTabPage({
   onBrowseProject,
   inputToken,
   onInputReady,
+  onLeaveDraft,
+  takeDraft,
+  onFieldEdit,
 }: Props) {
   const t = useT();
-  const { spellChecking } = useComposerSettings();
+  const { plainFooter, spellChecking } = useComposerSettings();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
   // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
   useNoEntryMotion();
-  const [kind, setKind] = useState<TabKind>(initialKind);
+  const [carried] = useState(() => takeDraft?.());
+  // A draft the chat view's composer held is a prompt: the page comes back on Agent with it.
+  const [kind, setKind] = useState<TabKind>(carried ? "agent" : initialKind);
   // The field is reused when the kind changes. A short directional handoff gives the new
   // placeholder and context a visible swipe without moving the composer or stealing its focus.
   const [kindSwitch, setKindSwitch] = useState<KindSwitchDirection>();
@@ -360,6 +419,40 @@ export function NewTabPage({
   // newtab/startedProject.ts), else the newest chat's, each only while the host still lists it; a
   // page on another machine (no `home`) never on this Mac's. A pick replaces it.
   const [picked, setProjectCwd] = useState<string | undefined>(undefined);
+  const [browseError, setBrowseError] = useState<string>();
+  const browseRequest = useRef(0);
+  const browsePending = useRef(false);
+  useEffect(
+    () => () => {
+      browseRequest.current += 1;
+    },
+    [],
+  );
+  const pickProject = (path: string) => {
+    browseRequest.current += 1;
+    setBrowseError(undefined);
+    setProjectCwd(path);
+  };
+  const browseProject = async (request?: BrowseRequest): Promise<BrowseResult> => {
+    if (browsePending.current) return BROWSE_BUSY;
+    browsePending.current = true;
+    // The Add Project dialog owns its result and errors until it commits the choice.
+    try {
+      if (request?.deferPick) return (await onBrowseProject?.(request)) ?? undefined;
+      const id = ++browseRequest.current;
+      setBrowseError(undefined);
+      try {
+        const path = await onBrowseProject?.(request);
+        if (browseRequest.current === id && typeof path === "string" && path.length > 0) setProjectCwd(path);
+        return path;
+      } catch (error) {
+        if (browseRequest.current === id) setBrowseError(browseFailureMessage(error));
+        return undefined;
+      }
+    } finally {
+      browsePending.current = false;
+    }
+  };
   const [started] = useState(() => (home ? (rememberedStartedProject() ?? startedProject) : undefined));
   const projectCwd =
     picked ??
@@ -377,7 +470,22 @@ export function NewTabPage({
     [snapshot, lastAgent, projectCwd, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
-  const [text, setText] = useState(location ?? "");
+  // The field is the chat composer's prompt editor (MarkdownField), as on the New Tab screen
+  // (newtab/NewTabScreen.tsx): one composer everywhere (leo-workspace design/new-tab.md). Its value is
+  // Markdown; a host-provided location is literal text (paths and URLs can hold `_`, `*` or `[`), so
+  // it goes in escaped. A carried composer draft is already Markdown, attachment tokens included.
+  const field = useRef<MarkdownFieldHandle | null>(null);
+  const [fieldReady, setFieldReady] = useState(false);
+  const fieldElement = () => field.current?.element() ?? null;
+  const untouchedText = useRef(escapedLiteral(location ?? ""));
+  const [text, setText] = useState(carried?.text || untouchedText.current);
+  // What was typed, as the agent, a terminal or an address bar gets it: the characters themselves,
+  // never the field's Markdown escaping (the screen's `typed`).
+  const typed = useMemo(
+    () =>
+      fieldReady ? (field.current?.agentText(text) ?? text) : text === untouchedText.current ? (location ?? "") : text,
+    [text, fieldReady, location],
+  );
   /// The last open was refused (the host made no tab): a note under the field until the next edit.
   const [openFailed, setOpenFailed] = useState(false);
   const attachmentRef = useRef<ComposerAttachment[]>([]);
@@ -385,6 +493,7 @@ export function NewTabPage({
     setOpenFailed(false);
     const attachments = next === "agent" ? attachmentRef.current : [];
     const chat = next === "agent" && harness ? { harness, ...(chipModel ? { model: chipModel } : {}) } : undefined;
+    if (next === "agent" && command.intercept(value, harness, attachments.length)) return;
     const result = onSubmit(next, value, folder, attachments.length ? attachments : undefined, chat);
     // The suggestions float over the note: they close until the next edit, so it shows.
     if (result)
@@ -394,8 +503,8 @@ export function NewTabPage({
       });
   };
   // The location stays a suggestion until edited: the rows are the empty bar's.
-  const [touched, setTouched] = useState(false);
-  const query = touched ? text : "";
+  const [touched, setTouched] = useState(Boolean(carried?.text));
+  const query = touched ? typed : "";
   const [selected, setSelected] = useState(-1);
   // The field was wholly selected before this edit, so a typed prefix starts it over.
   const replacing = useRef(false);
@@ -403,30 +512,69 @@ export function NewTabPage({
   // With no room under the field for every row, the rows go past the window's edge (cx-6k6cg).
   // A dismiss there (another app, a resize) hides the rows until the query changes; the text stays.
   const [dismissed, setDismissed] = useState<string>();
+  const listEdges = useScrollEdges();
   const escape = useEscapingList("bottom", 10, () => setDismissed(queryRef.current));
   const attachList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
+      listEdges(node);
       escape?.(node);
     },
-    [escape],
+    [escape, listEdges],
   );
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
-  const field = useRef<HTMLInputElement>(null);
-  const { attachments, setAttachments, pending, unsettled, cancel, retry, attachError, drop, dropLanded } =
-    useAttachmentIntake({
-      allowImages: snapshot.summary?.promptCapabilities?.image !== false,
-      pasteTarget: (target) => (kind === "agent" && field.current?.contains(target) ? { uploads: false } : undefined),
-      dropZone: () => field.current?.closest(".acpmux-newtab") ?? null,
-    });
-  attachmentRef.current = attachments;
+  const {
+    attachments,
+    setAttachments,
+    pending,
+    originalFailures,
+    unsettled,
+    cancel,
+    retry,
+    attachError,
+    drop,
+    dropLanded,
+  } = useAttachmentIntake({
+    allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+    pasteTarget: (target) => (kind === "agent" && fieldElement()?.contains(target) ? { uploads: false } : undefined),
+    dropZone: () => fieldElement()?.closest(".acpmux-newtab") ?? null,
+  });
   const holdForAttachments = useSendWhenAttached(unsettled);
+  const command = useNewTabCommand(
+    text,
+    setText,
+    { onCmuxCommand, onImportFile, importError, ...(importSandboxed ? { importSandboxed } : {}) },
+    {
+      attachments,
+      setAttachments,
+      pending,
+      cancel,
+      cancelHeldSend: holdForAttachments.cancel,
+    },
+  );
+  attachmentRef.current = attachments;
+  useEffect(() => {
+    if (carried?.attachments.length) setAttachments(carried.attachments);
+  }, [carried, setAttachments]);
+  // The Agent draft as it is now, for `onLeaveDraft` when the page goes (a terminal command or an
+  // address has no chat composer to go to).
+  const leaving = useRef({ text, attachments, typed: false, kind, onLeaveDraft });
+  leaving.current = { text, attachments, typed: text !== untouchedText.current, kind, onLeaveDraft };
+  useEffect(
+    () => () => {
+      const draft = leaving.current;
+      if (draft.kind !== "agent") return;
+      if ((draft.typed && draft.text.trim()) || draft.attachments.length)
+        draft.onLeaveDraft?.(draft.text, draft.attachments);
+    },
+    [],
+  );
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page), staged attachments, and a kind or folder picked
   // (pages/shared/webSwap.ts).
   useWebSwapHold(
-    text !== (location ?? "")
+    text !== untouchedText.current
       ? "newtab.draft"
       : attachments.length || pending.length
         ? "newtab.attachments"
@@ -436,10 +584,11 @@ export function NewTabPage({
   );
   const [dropHost, setDropHost] = useState<Element | null>(null);
   useEffect(() => {
-    const element = field.current;
+    const element = field.current?.element();
     setDropHost(element ? (element.closest(".acpmux-newtab") ?? element.ownerDocument.body) : null);
-  }, []);
-  const dropLandingTarget = useCallback(() => field.current?.parentElement ?? null, []);
+  }, [fieldReady]);
+  // The input card, which a file drag rings (composer/DropOverlay.tsx).
+  const dropLandingTarget = useCallback(() => field.current?.element()?.closest(".acpmux-newtab-box") ?? null, []);
   // Cmd-V anywhere on the page outside a text field (a row, a card, the empty page) goes into the
   // field, caret at the end, as in a chat (composer/pasteAnywhere.ts; Leo 2026-10-22: "cmd v anywhere
   // in chat should put it in chat").
@@ -447,7 +596,7 @@ export function NewTabPage({
     const input = field.current;
     if (!input) return false;
     input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
+    input.setCaret(input.plainText().length);
     return true;
   });
   const composing = useRef(false);
@@ -487,7 +636,7 @@ export function NewTabPage({
   const changeKind = (next: TabKind) => {
     if (next === kind) return;
     const direction: KindSwitchDirection = cycleKind(kind) === next ? "next" : "previous";
-    const view = field.current?.ownerDocument.defaultView;
+    const view = fieldElement()?.ownerDocument.defaultView ?? window;
     if (kindSwitchTimer.current !== undefined) view?.clearTimeout(kindSwitchTimer.current);
     // Clear first, then re-arm on the next frame. Consecutive forward switches (Tab) therefore
     // restart the animation even though the direction stays the same.
@@ -501,8 +650,7 @@ export function NewTabPage({
 
   useEffect(
     () => () => {
-      const view = field.current?.ownerDocument.defaultView;
-      if (kindSwitchTimer.current !== undefined) view?.clearTimeout(kindSwitchTimer.current);
+      if (kindSwitchTimer.current !== undefined) window.clearTimeout(kindSwitchTimer.current);
     },
     [],
   );
@@ -511,21 +659,32 @@ export function NewTabPage({
   // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page; only
   // then, so an update (the App hands a new callback on each render) or a click into the field
   // never moves its caret or restarts its blink.
+  // The editor mounts a moment after the field (`fieldReady`): the first focus waits for it.
   const inputReady = useRef(onInputReady);
   inputReady.current = onInputReady;
-  useEffect(() => {
+  const inputReadyReported = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!fieldReady) return;
     const focus = () => {
-      field.current?.focus();
-      field.current?.select();
+      const input = field.current;
+      if (!input) return;
+      input.focus();
+      // AllSelection in an empty document selects the root, outside its typing paragraph (the
+      // screen's focus does the same).
+      if (input.plainText().trim()) input.selectAll();
+      else input.setCaret(0);
       // A page shown in a window that is not key yet gets no focus event until it is.
-      setFocused(field.current === document.activeElement);
+      setFocused(input.focused());
     };
     focus();
-    if (inputToken) inputReady.current?.(inputToken);
-    const host = field.current?.ownerDocument.defaultView;
+    if (inputToken && inputReadyReported.current !== inputToken) {
+      inputReadyReported.current = inputToken;
+      inputReady.current?.(inputToken);
+    }
+    const host = fieldElement()?.ownerDocument.defaultView;
     host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
-  }, [inputToken]);
+  }, [inputToken, fieldReady]);
   const choose = (next: TabKind) => {
     changeKind(next);
     setBeforePrefix(undefined);
@@ -553,35 +712,47 @@ export function NewTabPage({
     }
   };
   // The row is the field's text area (the I-beam shows over all of it): a press beside the
-  // field focuses it; the field and the kind switch keep their own presses. Pointer only, so the
-  // row is presentation: keys reach the field itself.
+  // field, or on its padding above and below the text, focuses it; the editable text and the
+  // kind switch keep their own presses. Pointer only, so the row is presentation: keys reach the
+  // field itself.
   const focusFromRow = (event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as Element;
-    if (target === field.current || target.closest("fieldset, button")) return;
+    const editable = fieldElement()?.querySelector('[contenteditable="true"]');
+    if (editable?.contains(target) || target.closest("fieldset, button")) return;
     event.preventDefault();
     field.current?.focus();
   };
   const submitNow = useRef<() => void>(() => {});
   const submit = (event?: React.FormEvent) => {
     event?.preventDefault();
+    if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length, true)) return;
     if (holdForAttachments(() => submitNow.current())) return;
     submitNow.current();
   };
   submitNow.current = () => {
+    if (kind === "agent" && command.intercept(query.trim(), harness, attachments.length)) return;
     const row = rows[selected];
     if (row) return activate(row);
     if (kind === "browser" && !query.trim()) return;
     make(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
   };
-  const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (composing.current || event.nativeEvent.isComposing) return;
-    const input = event.currentTarget;
+  const keyDown = (event: KeyboardEvent) => {
+    if (composing.current || event.isComposing || event.keyCode === 229) return;
+    const input = field.current?.text() ?? { value: typed, selectionStart: typed.length, selectionEnd: typed.length };
     replacing.current = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
-    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length) {
+    // A prompt of several lines keeps ↑ and ↓ for its caret while there is a line to move to (the
+    // New Tab screen's rule, newtab/NewTabScreen.tsx `movesCaretInPrompt`); past it they step the rows.
+    const plainArrow = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+    const movesCaret =
+      plainArrow &&
+      (event.key === "ArrowUp"
+        ? input.value.slice(0, input.selectionStart).includes("\n")
+        : event.key === "ArrowDown" && input.value.slice(input.selectionEnd).includes("\n"));
+    if ((event.key === "ArrowDown" || event.key === "ArrowUp") && rows.length && !movesCaret) {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
       setSelected((current) => stepSelection(current, step, rows.length));
-    } else if (event.key === "Escape" && text) {
+    } else if (event.key === "Escape" && typed) {
       event.preventDefault();
       setText("");
       setTouched(true);
@@ -589,38 +760,55 @@ export function NewTabPage({
       event.preventDefault();
       setBeforePrefix(undefined);
       changeKind(cycleKind(kind, event.shiftKey ? -1 : 1));
-    } else if (event.key === "Backspace" && text === "" && beforePrefix) {
+    } else if (event.key === "Backspace" && typed === "" && beforePrefix) {
       event.preventDefault();
       changeKind(beforePrefix);
       setBeforePrefix(undefined);
     } else {
       // Backspace at the field's start takes back the last chip (backspacedAttachment).
-      const backspaced = backspacedAttachment(
-        event,
-        input.selectionStart === 0 && input.selectionEnd === 0,
-        attachments,
-      );
+      const backspaced = backspacedAttachment(event, field.current?.atStart() ?? false, attachments);
       if (!backspaced) return;
       event.preventDefault();
       setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
     }
   };
+  const prefixReset = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    const value = prefixReset.current;
+    if (value === undefined) return;
+    prefixReset.current = undefined;
+    if (field.current?.value() !== value) field.current?.reset(value);
+  }, [kind]);
   const edit = (next: string) => {
+    // The editor canonicalizes the location's escaping as it mounts: still the untouched location,
+    // not a typed draft, a reason to show suggestions or a web swap to hold.
+    if (!fieldReady && field.current?.agentText(next) === (location ?? "")) {
+      untouchedText.current = next;
+      setText(next);
+      return;
+    }
     setTouched(true);
     setOpenFailed(false);
-    const prefixed = composing.current ? undefined : prefixedEdit(replacing.current ? "" : text, next);
+    const plain = field.current?.agentText(next) ?? next;
+    onFieldEdit?.(plain);
+    const prefixed = composing.current ? undefined : prefixedEdit(replacing.current ? "" : typed, plain);
     replacing.current = false;
     if (prefixed && prefixed.kind !== kind) {
       setBeforePrefix(kind);
       changeKind(prefixed.kind);
-      setText(prefixed.text);
+      // The prefix is consumed: the field holds what follows it, as typed. The editor already holds
+      // the prefix, and the value may not change (a lone `!`), so it is reset after this edit.
+      prefixReset.current = escapedLiteral(prefixed.text);
+      setText(prefixReset.current);
       return;
     }
     setText(next);
   };
-  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): Codex's
-  // lays the row under the field out as Codex's (composerLook.css).
+  // The composer's look (composerLook.ts; the page's first two dots, newtab/PageDots.tsx): both lay
+  // the row under the field out the same; Codex's names Full access in the accent (composerLook.css).
   const look = useComposerLook();
+  const foot = useRef<HTMLDivElement>(null);
+  useRowFit(foot, `${kind}:${plainFooter}:${look}`);
 
   return (
     <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "codex" ? "codex" : undefined}>
@@ -632,29 +820,45 @@ export function NewTabPage({
             data-kind-switch={kindSwitch}
             role="presentation"
             onMouseDown={focusFromRow}
+            onFocus={(event) => {
+              if (fieldElement()?.contains(event.target)) setFocused(true);
+            }}
+            onBlur={(event) => {
+              if (
+                fieldElement()?.contains(event.target) &&
+                !fieldElement()?.contains(event.relatedTarget as Node | null)
+              )
+                setFocused(false);
+            }}
           >
             <KindIcon kind={kind} />
-            <input
+            {/* The chat composer's prompt editor (MarkdownField), as the New Tab screen draws it: a long
+                prompt wraps and grows to its cap, then scrolls; Return opens; Shift-Return adds a line.
+                Commands and addresses keep their characters (literal). */}
+            <MarkdownField
               ref={field}
               className="acpmux-newtab-field"
-              {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
-              aria-label={placeholder}
-              placeholder={placeholder}
               value={text}
-              aria-controls="acpmux-omni"
-              aria-activedescendant={selected >= 0 ? `acpmux-omni-${selected}` : undefined}
-              spellCheck={spellChecking && kind === "agent"}
-              autoCapitalize="off"
-              autoCorrect="off"
-              onChange={(event) => edit(event.target.value)}
-              onFocus={() => setFocused(true)}
-              onBlur={() => setFocused(false)}
+              placeholder={placeholder}
+              multiline
+              plainInput
+              literal={kind !== "agent"}
+              onReady={() => setFieldReady(true)}
+              onChange={(value) => edit(value)}
               onKeyDown={keyDown}
-              onCompositionStart={() => {
-                composing.current = true;
+              onCompositionChange={(value) => {
+                composing.current = value;
               }}
-              onCompositionEnd={() => {
-                composing.current = false;
+              onSubmit={() => submit()}
+              attributes={{
+                [WEB_SWAP_KEPT_TEXT]: "",
+                "data-focus-ring": "none",
+                "aria-label": placeholder,
+                "aria-controls": "acpmux-omni",
+                "aria-activedescendant": selected >= 0 ? `acpmux-omni-${selected}` : undefined,
+                spellcheck: spellChecking && kind === "agent" ? "true" : "false",
+                autocapitalize: "off",
+                autocorrect: "off",
               }}
             />
             <fieldset className="acpmux-newtab-switch" aria-label={t(NEW_TAB_LABELS.switchLabel)}>
@@ -688,10 +892,11 @@ export function NewTabPage({
               ))}
             </fieldset>
           </div>
+          {command.input}
           <AttachmentStrip
             attachments={attachments}
             pending={pending}
-            {...(attachError ? { error: attachError } : {})}
+            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
             codex={false}
             onRemove={(id) => {
               setAttachments((current) => current.filter((item) => item.id !== id));
@@ -702,6 +907,7 @@ export function NewTabPage({
               field.current?.focus();
             }}
             onRetry={retry}
+            originalFailures={originalFailures}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
           {dropHost && (
@@ -715,14 +921,8 @@ export function NewTabPage({
                   current={projectCwd}
                   currentLabel={selectedProject}
                   icon={<FolderIcon />}
-                  onPick={setProjectCwd}
-                  onBrowse={
-                    onBrowseProject &&
-                    (() =>
-                      void onBrowseProject().then((picked) => {
-                        if (picked) setProjectCwd(picked);
-                      }))
-                  }
+                  onPick={pickProject}
+                  onBrowse={onBrowseProject && browseProject}
                 />
               )}
               {kind === "terminal" && (
@@ -737,7 +937,6 @@ export function NewTabPage({
                   {agent}
                 </span>
               )}
-              {kind === "agent" && Chips && <Chips snapshot={chipSnapshot} cwd={projectCwd} />}
             </span>
             <button
               type="submit"
@@ -749,10 +948,17 @@ export function NewTabPage({
             </button>
           </div>
         </form>
+        {kind === "agent" && Chips && (
+          <div className="acpmux-newtab-foot">
+            <ComposerFoot ref={foot} plain={plainFooter}>
+              <Chips snapshot={chipSnapshot} cwd={projectCwd} />
+            </ComposerFoot>
+          </div>
+        )}
         {rows.length > 0 && (
           <div
             ref={attachList}
-            className="acpmux-omni ui-popup ui-glass"
+            className="acpmux-omni ui-popup ui-glass ui-scroll-edge-fade"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
@@ -768,7 +974,8 @@ export function NewTabPage({
                 tabIndex={-1}
                 aria-selected={index === selected}
                 className={index === selected ? "acpmux-omni-row is-selected" : "acpmux-omni-row"}
-                onMouseMove={() => index !== selected && setSelected(index)}
+                // Hover only lights the row (styles.css); Return stays the keyboard's row, as on
+                // the New Tab screen (newtab/NewTabScreen.tsx). A press still runs the row.
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row);
@@ -791,6 +998,13 @@ export function NewTabPage({
           </div>
         )}
       </div>
+      {browseError && (
+        <BrowseFailure
+          error={browseError}
+          onRetry={() => void browseProject()}
+          onDismiss={() => setBrowseError(undefined)}
+        />
+      )}
       {openFailed && (
         <p className="acpmux-newtab-failed" role="alert">
           {t(NEW_TAB_LABELS.openFailed)}
@@ -820,8 +1034,14 @@ function rowKey(row: OmnibarRow): string {
       return `command:${row.command}`;
     case "history":
       return `history:${row.url}`;
-    default:
-      return row.type;
+    // Rows that are the typed text itself (Run, Open, Ask) are a new row for each query, as a command
+    // row is: kept by their type alone, the last row (Ask) slid up whenever the matches above it fell
+    // away (`g` drew six rows, `gi` two), which counts as a layout shift on the frames that drew both
+    // (cmux#35744).
+    case "run":
+    case "open":
+    case "ask":
+      return `${row.type}:${row.text}`;
   }
 }
 

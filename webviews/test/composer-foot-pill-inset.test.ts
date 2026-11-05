@@ -5,22 +5,27 @@
 // label like a sliver; it is 8 px, the inset of an NSMenu row's highlight and of Codex's and
 // ChatGPT's mode chip. The row's own padding is counted from the same inset, so the mode's text
 // stays 17 px in from the box's side and the model's 14 px in from the other, and neighbouring chips
-// tuck the extra padding under each other: only the pill grows.
+// tuck the extra padding under each other: only the pill grows. Since #24216 the row itself has no
+// side padding: it spans the box.
 // test/composer-row-rhythm.test.ts measures the drawn row in Chromium.
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 
 const css = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/composerLocation.css"), "utf8").replace(
   /\/\*[\s\S]*?\*\//g,
   "",
 );
-const baseStyles = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+const sharedFooter = readFileSync(
+  join(import.meta.dir, "../src/agent-session/acpmux/composerFooterShared.css"),
+  "utf8",
+).replace(/\/\*[\s\S]*?\*\//g, "");
 
 /** The declarations of every rule whose selector is exactly `selector`, in source order. */
-function rules(selector: string): string[] {
+function rules(selector: string, source = css): string[] {
   const found: string[] = [];
-  for (const [, sel = "", body = ""] of css.matchAll(/([^{}]+)\{([^{}]*)\}/g))
+  for (const [, sel = "", body = ""] of source.matchAll(/([^{}]+)\{([^{}]*)\}/g))
     if (sel.trim().replace(/\s+/g, " ") === selector) found.push(body);
   return found;
 }
@@ -33,9 +38,14 @@ function px(body: string, property: string): number | undefined {
 test("the quiet row's chips get the native pill inset, 8 px from the text", () => {
   const foot = rules(".acpmux-composer-foot");
   expect(foot.length).toBeGreaterThan(0);
-  // The last declaration wins, as in the cascade.
-  const insets = foot.map((body) => px(body, "--acpmux-row-inset")).filter((value) => value !== undefined);
-  expect(insets[insets.length - 1]).toBe(8);
+  // The last declaration wins, as in the cascade. Since #27559 the row takes the grid's composer
+  // inset token (design/grid.md 5.1, schemas/layout-grid/layout-grid.json `composer-inset`) instead
+  // of a literal 8px, so the declaration names the token and the token is 8.
+  const insets = foot
+    .map((body) => body.match(/--acpmux-row-inset\s*:\s*([^;]+)/)?.[1]?.trim())
+    .filter((value) => value !== undefined);
+  expect(insets[insets.length - 1]).toBe("var(--grid-composer-inset)");
+  expect(gridLength("composer-inset")).toBe(8);
 });
 
 test("each chip's pill is padded by the row's inset", () => {
@@ -43,12 +53,13 @@ test("each chip's pill is padded by the row's inset", () => {
   expect(chip).toMatch(/padding-inline\s*:\s*var\(--acpmux-row-inset\)/);
 });
 
-test("the row's padding is counted from the inset, so only the pill grows, not the text's place", () => {
+test("the row adds no side padding of its own, so each pill's inset is the only one", () => {
   const foot = rules(".acpmux-composer-foot").join(";");
-  // The mode's text 17 px in from the box's side; the model's --acpmux-row-edge in from the other.
-  expect(foot).toMatch(
-    /padding-inline\s*:\s*calc\(17px - var\(--acpmux-row-inset\)\)\s+calc\(var\(--acpmux-row-edge\) - var\(--acpmux-row-inset\)\)/,
-  );
+  // #24216 (Leo 2026-10-22, "stop with the left right padding"): the row spans the box, the mode's
+  // pill starting on its left edge and the last control's ending on its right edge.
+  // test/composer-side-inset.test.ts measures it.
+  const paddings = [...foot.matchAll(/padding-inline\s*:\s*([^;]+)/g)].map((match) => match[1].trim());
+  expect(paddings[paddings.length - 1]).toBe("0");
   // Chips touch (no gap of their own), so neighbouring pills never overlap.
   expect(px(foot, "--acpmux-row-gap")).toBe(0);
 });
@@ -68,13 +79,22 @@ test("neighbouring chips on the right keep their labels 8 px apart, as with the 
 });
 
 test("the context ring keeps its place past the model's text", () => {
-  const ring = rules(".acpmux-composer-foot .acpmux-context-ring").join(";");
-  expect(ring).toMatch(/margin-inline-start\s*:\s*4px/);
+  // The shared owner outranks composerLocation.css's legacy 4 px margin.
+  // composer-model-quiet.test.ts also measures the resulting glyph-to-label gap in Chromium.
+  const ring = rules(".acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-context-ring", sharedFooter).join(
+    ";",
+  );
+  expect(px(ring, "margin-inline-start")).toBe(2);
 });
 
 test("the context ring uses one compact control size in the main and quiet rows", () => {
-  expect(baseStyles).toMatch(/\.acpmux-context-ring\{[^}]*width:22px;height:22px/);
-  const ring = rules(".acpmux-composer-foot .acpmux-context-ring").join(";");
-  expect(ring).toMatch(/width\s*:\s*22px/);
-  expect(ring).toMatch(/height\s*:\s*22px/);
+  expect(px(rules(":root", sharedFooter).join(";"), "--acpmux-context-control-size")).toBe(22);
+  for (const selector of [
+    ".acpmux-context-ring",
+    ".acpmux-composer.acpmux-composer .acpmux-composer-foot .acpmux-context-ring",
+  ]) {
+    const ring = rules(selector, sharedFooter).join(";");
+    expect(ring).toMatch(/width\s*:\s*var\(--acpmux-context-control-size\)/);
+    expect(ring).toMatch(/height\s*:\s*var\(--acpmux-context-control-size\)/);
+  }
 });

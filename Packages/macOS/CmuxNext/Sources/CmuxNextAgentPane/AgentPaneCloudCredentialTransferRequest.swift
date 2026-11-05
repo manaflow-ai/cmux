@@ -18,19 +18,25 @@ public nonisolated struct AgentPaneCloudCredentialTransferRequest: Equatable, Se
     public let machineID: String
     public let sessionID: String
     public let retryPromptID: String
+    /// Automatic recovery uses only a cached local login and never presents setup UI.
+    public let automatic: Bool
 
     public static let method = "chat.cloudCredentialTransfer"
 
     @MainActor init?(params: [String: Any]?) {
-        guard let params, Set(params.keys) == ["provider", "machineID", "sessionId", "retryPromptId"],
+        guard let params,
+              Set(params.keys).isSubset(of: ["provider", "machineID", "sessionId", "retryPromptId", "automatic"]),
+              Set(["provider", "machineID", "sessionId", "retryPromptId"]).isSubset(of: params.keys),
               let raw = params["provider"] as? String, let provider = Provider(rawValue: raw),
               let machineID = AgentPaneCloudMachineRequest.machineID(params["machineID"]),
               let sessionID = params["sessionId"] as? String, AgentPaneProcessViewer.isToken(sessionID),
-              let retryPromptID = params["retryPromptId"] as? String, AgentPaneProcessViewer.isToken(retryPromptID)
+              let retryPromptID = params["retryPromptId"] as? String, AgentPaneProcessViewer.isToken(retryPromptID),
+              let automatic = params["automatic"] as? Bool ?? (params["automatic"] == nil ? false : nil)
         else { return nil }
         self.provider = provider
         self.machineID = machineID
         self.sessionID = sessionID
         self.retryPromptID = retryPromptID
+        self.automatic = automatic
     }
 }

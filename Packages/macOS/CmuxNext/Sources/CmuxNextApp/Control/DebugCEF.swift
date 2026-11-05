@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextChromiumRuntime
+import CmuxNextControl
 import CmuxNextSettings
+import CmuxNextWakeups
 import Darwin
 
 /// `debug.cef`: how Chromium started in this process (lazy tab, or a warm
@@ -14,15 +16,18 @@ import Darwin
 /// processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
-    static func report(_ services: AppServices) -> JSONValue {
+    /// The engine's state, read on the main actor, then its footprint (`task_info`, a system call) on a
+    /// ``BackgroundWork`` system lane: a diagnostic never makes one on the main thread.
+    static func report(_ services: AppServices) -> ControlReply {
         let report = services.cache.cef.startReport
         var object: [String: JSONValue] = [
             "state": .string(report.state),
             "preloaded": .bool(report.preloaded),
             "likely": services.chromiumWarmup.reason.map { .string($0.rawValue) } ?? .null,
             "trigger": report.trigger.map { .string($0) } ?? .null,
-            "footprint_mb": .number(footprintMegabytes()),
             "spare_window": .string(services.cache.cef.spareWindowState),
+            "spare_page": .string(services.cache.cef.sparePageState),
+            "spare_pages_taken": .number(Double(services.cache.cef.sparePagesTaken)),
             "engine_start_main_ms": .number(milliseconds(services.cache.cef.engineStartMainThreadTime)),
             "start_steps": .array(services.cache.cef.startMarks.map {
                 .object(["name": .string($0.name), "start_uptime_ns": .number(Double($0.startUptimeNanos)), "ms": .number($0.milliseconds)])
@@ -44,12 +49,18 @@ enum DebugCEF {
         object["runtime"] = runtime(services.chromiumRuntime)
         object["devtools"] = .array(devTools(services))
         if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
-        object["tracker"] = trackerReport(services.cache.cef.trackerStats)
+        object["tracker"] = .object(services.cache.cef.trackerStats.reportFields.mapValues { .number($0) })
         object["windows"] = windows(services.cache.cef.windowReport)
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
-        return .object(object)
+        let fields = object
+        return .followUp { [work = services.work] in
+            var fields = fields
+            // Unread (cancelled, shutting down) is null, never a footprint of 0.
+            fields["footprint_mb"] = (try? await work.run(.bestEffort, mayBlock: .system) { footprintMegabytes() }).map(JSONValue.number) ?? .null
+            return .object(fields)
+        }
     }
 
     /// Per shown Chromium tab: its DevTools state, the page and docked
@@ -137,21 +148,6 @@ enum DebugCEF {
         ])
     }
 
-    /// Per action = the change of each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
-    private static func trackerReport(_ stats: CEFTrackerStats) -> JSONValue {
-        .object([
-            "clip_reads": .number(Double(stats.clipReads)),
-            "occlusion_reads": .number(Double(stats.occlusionReads)),
-            "clip_builds": .number(Double(stats.clipBuilds)),
-            "clip_hits": .number(Double(stats.clipHits)),
-            "clip_ms": .number(stats.clipSeconds * 1_000),
-            "geometry_posts": .number(Double(stats.geometryPosts)),
-            "hosted_pages": .number(Double(stats.hostedPages)),
-            "hosting_refused": .number(Double(stats.hostingRefused)),
-            "geometry_skips": .number(Double(stats.geometrySkips)),
-        ])
-    }
-
     /// Where the runtime came from and the download state (Chromium on demand).
     private static func runtime(_ service: ChromiumRuntimeService) -> JSONValue {
         var object: [String: JSONValue] = [
@@ -177,7 +173,7 @@ enum DebugCEF {
     }
 
     /// `phys_footprint` (Activity Monitor's "Memory"), in MiB.
-    static func footprintMegabytes() -> Double {
+    nonisolated static func footprintMegabytes() -> Double {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
         let result = withUnsafeMutablePointer(to: &info) { pointer in

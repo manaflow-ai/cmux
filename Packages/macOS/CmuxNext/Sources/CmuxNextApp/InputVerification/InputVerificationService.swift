@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextWakeups
 
 /// Input verification (plans/cmux-next/input-spec.md): the journal policy,

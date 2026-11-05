@@ -24,17 +24,17 @@ final class BrowserDesignModeController {
 
     /// Turns design mode on or off for the browser tab `key` (its entry `entry`).
     func toggle(_ entry: BrowserEntry, key: String) {
-        let modes = entry.chrome.toolbarButtons.modes
+        let modes = entry.state.modes
         modes.designMode.toggle()
         let on = modes.designMode, tab = entry.tab
         cards[key] = on ? BrowserDesignModeCards() : nil
-        Task { [weak self, weak chrome = entry.chrome] in
+        Task { [weak self, state = entry.state] in
             guard on else { return await tab.disableDesignMode() }
             do {
                 try await tab.enableDesignMode(self?.script ?? BrowserDesignModeScript())
             } catch {
                 modes.designMode = false
-                chrome?.showNotice(self?.strings.couldNotStart ?? "")
+                state.showNotice(self?.strings.couldNotStart ?? "")
             }
         }
     }
@@ -43,7 +43,7 @@ final class BrowserDesignModeController {
     func receive(_ message: Data, from page: any BrowserTab) {
         guard let services, let key = services.cache.key(of: page) else { return }
         if BrowserDesignModeCards.isExitRequest(message) {
-            if let entry = services.cache.existingBrowser(key), entry.chrome.toolbarButtons.modes.designMode { toggle(entry, key: key) }
+            if let entry = services.cache.existingBrowser(key), entry.state.modes.designMode { toggle(entry, key: key) }
             return
         }
         guard var tracker = cards[key] else { return }
@@ -61,7 +61,7 @@ final class BrowserDesignModeController {
         guard !made.isEmpty else { return }
         let deliveries = made.map { BrowserDesignModeDelivery($0, homeShown: home != nil, agentChat: chat != nil) }
         if deliveries.contains(.nowhere) {
-            services.cache.existingBrowser(key)?.chrome.showNotice(strings.noAgentChat)
+            services.cache.existingBrowser(key)?.state.showNotice(strings.noAgentChat)
             return
         }
         for case .sendToHome(let text) in deliveries {
@@ -123,7 +123,7 @@ final class BrowserDesignModeController {
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.
     private func chatView(near key: String) -> AgentPaneView? {
-        guard let services, let (_, pane) = services.locateTab(key) else { return nil }
+        guard let services, let (_, pane) = services.locateTabOnAnyMachine(key) else { return nil }
         let store = services.daemon(for: pane).store
         guard let workspace = store.workspace(containing: pane.handle) else { return nil }
         let panes = workspace.screens.flatMap(\.panes).sorted { $0.focusedAt > $1.focusedAt }

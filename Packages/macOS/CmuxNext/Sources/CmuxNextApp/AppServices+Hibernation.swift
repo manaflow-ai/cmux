@@ -14,7 +14,7 @@ extension AppServices {
     func startHibernation(settings: SettingsController) {
         let hibernation = BrowserHibernation(cache: cache, memoryPressure: memoryPressure)
         cache.hibernation = hibernation
-        hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
+        hibernation.isPinned = { [weak self] key in self?.locateTabOnAnyMachine(key)?.0.pinned ?? false }
         hibernation.onPressureChange = { [weak self] level in self?.memoryPressureDidChange(level) }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in
@@ -39,6 +39,13 @@ extension AppServices {
 extension AppServices {
     /// Whether tab `key` holds memory in this app: a terminal surface, a live page, a chat page.
     func holdsTabMemory(_ key: String) -> Bool { cache.holdsMemory(key) || madeAgentTabs?.existingView(key) != nil }
+
+    /// A window opened or closed (`WindowManager.controllers`): none left means background mode (cx-ghagp), and a
+    /// close can hide a space, so workspace hibernation re-plans (#30854).
+    func windowsDidChange() {
+        background.windowsDidChange()
+        workspaceHibernation.windowsDidChange()
+    }
 
     /// Unmounts workspace `id` in every window, then frees its tabs' surfaces and pages.
     func hibernateWorkspace(_ id: String) {

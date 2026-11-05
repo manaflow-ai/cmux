@@ -11,6 +11,7 @@ description = "Owner of the settings file (~/.config/cmux/cmux-next.json) in the
 workspace = true
 
 [dependencies]
+cmux-json.workspace = true
 base64.workspace = true
 notify.workspace = true
 plist = "1"

@@ -46,6 +46,8 @@ extension AddressBarView: OmnibarFieldEditorSink {
 
     func fieldEditorMouseUp() { controller.send(.fieldMouseUp) }
 
+    func fieldEditorDrop(_ pasteboard: NSPasteboard) -> Bool { acceptDrop(from: pasteboard) }
+
     var copyContent: OmnibarCopy? { OmnibarReducer.copyContent(of: controller.state, resolver: resolver) }
 
     var canUndo: Bool { controller.state.hasFocus && !controller.state.undo.isEmpty }

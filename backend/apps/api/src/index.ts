@@ -14,7 +14,7 @@ import { forwardHeaders, handleWireTicket, spendTicketAtEntry, wireCredential, w
 /** The owner each wire scope reaches (principalForOwner). */
 const WIRE_OWNER: Readonly<Record<string, string>> = { team: "cloud:TeamDO", feed: "cloud:FeedDO", cloud: "cloud:CloudDO", conv: "cloud:ConversationDO", mux: "cloud:MuxDO" }
 import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
-import { handleAttachmentCommit, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentDerived, handleAttachmentUpload, handleAttachmentUrl } from "./home-attachments.ts"
+import { handleAttachmentCommit, handleAttachmentDownload, handleAttachmentIntent, handleAttachmentDerived, handleAttachmentDirectPart, handleAttachmentMultipartComplete, handleAttachmentMultipartPart, handleAttachmentUpload, handleAttachmentUrl } from "./home-attachments.ts"
 import { CARD_PATH, handleContactCard, handleSendblueHook } from "./home-text.ts"
 import { GROUP_PAGE_ANY, GROUP_PAGE_PATH, groupLinkPage } from "./group-link-page.ts"
 import { handleOutboxReplay } from "./admin-outbox.ts"
@@ -24,11 +24,18 @@ import { handleTeamVmExport } from "./team-vm-export-route.ts"
 import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
+import { handlePairInviteWait } from "./pair-invite-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
+import { CI_SESSION_PATH, handleCiSession } from "./ci-session.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
 import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-token-route.ts"
+import { platformForward } from "./platform-forward.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
+// Named entrypoint for service bindings only (the platform Worker's environment setups); no HTTP route reaches it.
+export { PlatformMachines } from "./platform-machines.ts"
+export { PlatformChief } from "./platform-chief.ts"
+export { AgentGateway } from "./agent-gateway.ts"
 export { HandoffDO } from "./handoffs/handoff-do.ts"
 export { HandoffIndexDO } from "./handoffs/index-do.ts"
 import { handleHandoffs, HANDOFFS_PATH } from "./handoffs/routes.ts"
@@ -52,12 +59,17 @@ import { HAND_PATH, handleHands } from "./hand-routes.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
 export { CloudDO } from "./cloud-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
+export { TrajectoryDO } from "./cloud-trajectory-store.ts"
 import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
 import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
+import { handleCloudTrajectory, TRAJECTORY_PATH, type TrajectoryAction } from "./cloud-trajectory.ts"
+import { CLIENT_SESSION_PATH, handleCloudClientSession } from "./cloud-client-session.ts"
+import { GUEST_PATH, handleCloudMachineGuest } from "./cloud-machine-guest.ts"
 import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBillingSync } from "./billing-levels.ts"
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
 import { CREDITS_PATH, CREDITS_WEBHOOK_PATH, handleCredits, handleCreditsWebhook } from "./credits-routes.ts"
+import { CHIEF_JOB_HOOK, handleChiefJobHook, handleUpstashChiefJob, UPSTASH_WORKFLOW_PATH } from "./chief-brain-cc/jobs-upstash.ts"
 import { handlePlanCheckout, PLAN_PATH } from "./plan-checkout.ts"
 import { HOME_HEALTH_CRON, runHomeHealth, sentryFetch } from "./home-health.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
@@ -187,20 +199,34 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   return Response.json({ ok: true, value: reply.value })
 }
 
-/** The projection compare's cron expression (wrangler.jsonc staging and development triggers). */
+/** The projection compare's cron expression (wrangler.jsonc triggers of every environment). */
 const PROJECTION_COMPARE_CRON = "*/15 * * * *"
+/** The hourly full verify of every projected row (projection-compare-full-cron.ts); staging only until the cutover runbook turns it on in production. */
+const PROJECTION_COMPARE_FULL_CRON = "7 * * * *"
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
     // A wire ticket is spent by the first request that carries it, on any path (wire-ticket.ts).
     const spent = await spendTicketAtEntry(request, env)
+    // The platform cutover (platform-forward.ts): a surface in PLATFORM_SURFACES goes to the PLATFORM binding. Unset: nothing changes.
+    const forwarded = await platformForward(request, env, url.pathname)
+    if (forwarded) return forwarded
     // The Cloud VM's bind agent (state-placement.md 5.8 item 2): the one-time bind token is the credential.
     if (url.pathname === "/v1/cloud/bind" && request.method === "POST") return handleCloudBind(request, env)
     if (url.pathname === "/v1/cloud/keyset") return handleCloudKeyset(request, env)
     // The keyed acpmux start (cx-kvmz): outside the op path, so the key never becomes an op or a log line.
     const acpmux = url.pathname.match(ACPMUX_PATH)
     if (acpmux) return handleCloudAcpmux(request, env, acpmux[1]!, acpmux[2] as "keyed-start" | "person-holds")
+    // ACP chat trajectories kept outside the VM (#25584): a log stream, not an op.
+    const trajectory = url.pathname.match(TRAJECTORY_PATH)
+    if (trajectory) return handleCloudTrajectory(request, env, trajectory[1]!, trajectory[2] as TrajectoryAction)
+    // A scoped provider token for one of the caller's machines (cloud-client-session.ts): outside the op path, never logged.
+    const clientSession = url.pathname.match(CLIENT_SESSION_PATH)
+    if (clientSession) return handleCloudClientSession(request, env, clientSession[1]!)
+    // Exec and files on a Cloud machine in classic /api/vm's shapes (cloud-machine-guest.ts): outside the op path, never logged.
+    const guest = url.pathname.match(GUEST_PATH)
+    if (guest) return handleCloudMachineGuest(request, env, guest[1]!, guest[2] as Parameters<typeof handleCloudMachineGuest>[3])
     // A single-use wire ticket for a browser socket (wire-ticket.ts): Authorization header only.
     if (url.pathname === "/v1/wire/ticket") return handleWireTicket(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
@@ -221,7 +247,7 @@ export default {
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
-    const chiefBrainPath = chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "github" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" ? chiefBrain[2] : "runs"
+    const chiefBrainPath = chiefBrain?.[2]?.startsWith("machine-login") ? "machine-login" : chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "github" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" ? chiefBrain[2] : "runs"
     if (chiefBrain && chiefBrainPath === "runs" && (opencodeOn(env) || durableOn(env))) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
     if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrainPath, chiefBrain[3])
     const fault = url.pathname.match(FAULT_PATH)
@@ -250,9 +276,13 @@ export default {
     // Home attachments (home-attachments.ts): intent, commit and URL mint need a bearer; the slot and the signed URL are the credential.
     if (url.pathname === "/v1/home/attachments/intent" && request.method === "POST") return handleAttachmentIntent(request, env)
     if (url.pathname === "/v1/home/attachments/commit" && request.method === "POST") return handleAttachmentCommit(request, env)
+    if (url.pathname === "/v1/home/attachments/multipart/complete" && request.method === "POST") return handleAttachmentMultipartComplete(request, env)
     if (url.pathname === "/v1/home/attachments/url" && request.method === "POST") return handleAttachmentUrl(request, env)
     const upload = url.pathname.match(/^\/v1\/home\/attachments\/upload\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})\/([A-Za-z0-9_.-]{1,256})$/)
     if (upload && request.method === "PUT") return handleAttachmentUpload(request, env, upload[1]!, upload[2]!)
+    const multipart = url.pathname.match(/^\/v1\/home\/attachments\/multipart\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})\/([A-Za-z0-9_.-]{1,256})$/)
+    if (multipart && request.method === "PUT") return handleAttachmentMultipartPart(request, env, multipart[1]!, multipart[2]!)
+    if (multipart && request.method === "POST") return handleAttachmentDirectPart(request, env, multipart[1]!, multipart[2]!)
     const derivedPut = url.pathname.match(/^\/v1\/home\/attachments\/(poster|preview)\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})\/([A-Za-z0-9_.-]{1,256})$/)
     if (derivedPut && request.method === "PUT") return handleAttachmentDerived(request, env, derivedPut[1] as "poster" | "preview", derivedPut[2]!, derivedPut[3]!)
     const file = url.pathname.match(/^\/v1\/home\/attachments\/(conv_(?:dm_)?[0-9A-HJKMNP-TV-Z]{26})\/([0-9a-f]{32})$/)
@@ -271,7 +301,11 @@ export default {
     // A Chief's upsell link: a Stripe Checkout page for a plan (plan-checkout.ts, test mode only).
     const planCheckout = url.pathname.match(PLAN_PATH)
     if (planCheckout) return handlePlanCheckout(request, env, planCheckout[1]!)
+    // The console's billing page: plan, usage, credits, upgrades (billing-summary.ts, paid-plans-DESIGN.md §3).
+    if (url.pathname === "/v1/billing/summary") return (await import("./billing-summary.ts")).handleBillingSummary(request, env)
     if (url.pathname === CREDITS_WEBHOOK_PATH) return handleCreditsWebhook(request, env)
+    // Chief jobs on Upstash Workflow: QStash-signed requests only (jobs-upstash.ts).
+    if (url.pathname === UPSTASH_WORKFLOW_PATH && request.method === "POST") return handleUpstashChiefJob(request, env)
     if (url.pathname === CREDITS_ADMIN_PATH) return handleCreditsAdmin(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
     if (url.pathname.startsWith("/v1/admin/team-vm/")) return handleTeamVmAdmin(request, env)
@@ -281,14 +315,19 @@ export default {
     if (url.pathname === STACK_WEBHOOK_PATH) return handleStackWebhook(request, env)
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)
+    const chiefHook = url.pathname.match(CHIEF_JOB_HOOK)
+    if (chiefHook) return handleChiefJobHook(request, env, chiefHook[1]!, chiefHook[2]!)
     if (url.pathname === "/v1/sso/discover") return handleSsoDiscover(request, env)
     // cmux server pairing: no account on the server side; each route verifies its own proof.
     if (url.pathname === "/v1/pair/begin") return handlePairBegin(request, env)
     if (url.pathname === "/v1/pair/wait") return handlePairWait(request, env)
+    if (url.pathname === "/v1/pair/invite/wait") return handlePairInviteWait(request, env)
     if (url.pathname === "/v1/sso/start") return handleSsoStart(request, env)
     const ssoCallbackPath = url.pathname.match(/^\/v1\/sso\/callback\/([^/]+)$/)
     if (ssoCallbackPath) return handleSsoCallback(request, env, ssoCallbackPath[1]!)
     if (url.pathname === "/v1/sso/redeem") return handleSsoRedeem(request, env)
+    // A GitHub Actions job signs in as its one test account by OIDC token (ci-session.ts): no stored password.
+    if (url.pathname === CI_SESSION_PATH) return handleCiSession(request, env)
     // Google push receivers: staging and development only until the backend lead reviews them for production.
     if (env.ENVIRONMENT !== "production" && url.pathname === "/v1/hooks/google/pubsub") return handleGooglePubsub(request, env)
     // GitHub installation tokens for git and gh (integrations/github-token-route.ts): bearer only, never the op path.
@@ -299,7 +338,8 @@ export default {
     return apiHandler(request)
   },
   // Cron (wrangler triggers): every 5 minutes the Cloud Home health probe (home-health.ts), the feed text sweep (feed-sweep.ts), and every 15 minutes the
-  // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts).
+  // Postgres/MySQL projection compare while the MySQL shadow runs (projection-compare-cron.ts) and the shadow-read probe (shadow-read-probe.ts),
+  // and hourly where configured the full read-only verify of every projected row (projection-compare-full-cron.ts).
   // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     // Cloud Home health (home-health.ts): a probe round trip and a Sentry Cron check-in; it never throws.
@@ -307,9 +347,23 @@ export default {
       await runHomeHealth(env, { fetcher: sentryFetch })
       return
     }
+    // The full Postgres/MySQL verify: its own hourly invocation (a 15-minute CPU limit), read only.
+    if (controller.cron === PROJECTION_COMPARE_FULL_CRON) {
+      await (await import("./projection-compare-full-cron.ts")).compareFullFromEnv(env, controller.scheduledTime)
+      return
+    }
     if (controller.cron === PROJECTION_COMPARE_CRON) {
       // The usage sync (cx-y79zh S4) runs beside the projection compare; a failure of one does not stop the other.
-      const [compare, usage] = await Promise.allSettled([(async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(), env.STRIPE_USAGE_KEY ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null)])
+      // Never in production yet: production runs this cron for the Vitess dual write, and the usage sync's live switch is its
+      // own reviewed change with the live key (plans/cmux-next/usage-billing.md section 10), which removes this condition.
+      const usageSync = env.STRIPE_USAGE_KEY && env.ENVIRONMENT !== "production"
+      const [compare, usage, probe] = await Promise.allSettled([
+        (async () => (await import("./projection-compare-cron.ts")).compareFromEnv(env))(),
+        usageSync ? (async () => (await import("./billing-usage-sync.ts")).syncUsage(env))() : Promise.resolve(null),
+        // Shadow-read soak traffic (shadow-read-probe.ts): every user id through the feed.users shadow read.
+        (async () => (await import("./shadow-read-probe.ts")).shadowReadProbe(env, sweepDeps(env).listUsers))()
+      ])
+      if (probe.status === "rejected") console.error(JSON.stringify({ msg: "projection.read.probe_failed", error: String(probe.reason).slice(0, 200) }))
       if (usage.status === "rejected") console.error(JSON.stringify({ msg: "billing.usage_sync.run_failed", error: String(usage.reason).slice(0, 200) }))
       if (compare.status === "rejected") throw compare.reason
       return

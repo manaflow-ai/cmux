@@ -80,12 +80,20 @@ sign_info() { /usr/bin/codesign -d --verbose=2 "$1" 2>&1 | grep -E '^(CodeDirect
 echo "browser host signature: $(sign_info "$host" | tr '\n' ';')"
 echo "daemon signature:       $(sign_info "$daemon" | tr '\n' ';')"
 if (( hardened )); then
-  /usr/bin/codesign -d --verbose=2 "$host" 2>&1 | grep -q 'flags=.*runtime' \
-    || fail "$host is not signed with the hardened runtime"
-  host_authority="$(/usr/bin/codesign -d --verbose=2 "$host" 2>&1 | grep -m1 '^Authority=' || true)"
-  daemon_authority="$(/usr/bin/codesign -d --verbose=2 "$daemon" 2>&1 | grep -m1 '^Authority=' || true)"
-  [[ -n "$host_authority" && "$host_authority" == "$daemon_authority" ]] \
-    || fail "$host is signed by '${host_authority:-nobody}', bin/cmux by '${daemon_authority:-nobody}'"
+  # Read codesign's output whole before matching: `codesign | grep -q` let grep exit at its first
+  # match, codesign died of SIGPIPE (141), and pipefail turned a hardened host into a failure.
+  host_sig="$(/usr/bin/codesign -d --verbose=2 "$host" 2>&1 || true)"
+  daemon_sig="$(/usr/bin/codesign -d --verbose=2 "$daemon" 2>&1 || true)"
+  [[ "$host_sig" =~ flags=[^$'\n']*runtime ]] || fail "$host is not signed with the hardened runtime"
+  host_authority="$(grep -m1 '^Authority=' <<<"$host_sig" || true)"
+  daemon_authority="$(grep -m1 '^Authority=' <<<"$daemon_sig" || true)"
+  if [[ "$host_sig" == *$'\nSignature=adhoc'* && "$daemon_sig" == *$'\nSignature=adhoc'* ]]; then
+    # An ad-hoc dry run (sign-cmux-bundle.sh with identity "-") has no authority to compare.
+    echo "browser host and bin/cmux are both ad-hoc signed"
+  else
+    [[ -n "$host_authority" && "$host_authority" == "$daemon_authority" ]] \
+      || fail "$host is signed by '${host_authority:-nobody}', bin/cmux by '${daemon_authority:-nobody}'"
+  fi
 fi
 
 machine="$(uname -m)"

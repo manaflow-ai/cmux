@@ -50,7 +50,7 @@ and the end of the turn.
 | Muse / Unii | acpmux harness `muse`, `unii` | `chief` CLI | at turn end | exists (Muse Chief, Unii) |
 | OpenCode, Gemini | acpmux harnesses | `chief` CLI | varies | harness exists |
 | Native API | `native/` Messages API loop, with any OpenAI-compatible base URL (Vercel AI Gateway) | in process | at tool boundaries | exists for Claude; gateway route new |
-| pi-durable | a pi-durable harness in a Bun sidecar, one conversation per turn, whose tools call back into the kernel | in process (sidecar RPC) | `whenBusy: "steer"` | new |
+| pi-durable | in the Cloud Chief's Durable Object, in process with the wasm kernel (start = `submit`, steer = `whenBusy: "steer"`, cancel = `abort`); off the cloud, a Bun sidecar behind the same adapter if one is ever wanted | in process | `whenBusy: "steer"` | building (a749, `cloud-chief-durable-DESIGN.md`) |
 
 What each engine does not own:
 
@@ -67,16 +67,31 @@ What each engine does not own:
 | --- | --- | --- | --- |
 | Mac (Home Chief) | `optchat-chief host` on the Mac | no | the Mac's apps, browser, files, fleet |
 | Linux box / Mac mini | the same binary (CI already builds Linux targets) | yes | its own machine; the Mac through the hub |
-| Cloud | the same Rust kernel on a cloud VM; pi-durable engine; models through the Vercel AI Gateway | yes | the VM and cloud APIs; the Mac through the hub |
+| Cloud | the same Rust kernel compiled to wasm, inside the Chief's Durable Object; pi-durable engine in process; models through the Vercel AI Gateway | yes | cloud APIs; a machine through a hand (Freestyle sandbox or the Mac) |
+
+**One kernel, built two ways** (Oct 28, agreed with a749; its section 11 in
+`cloud-chief-durable-DESIGN.md`): the native binary on a Mac, a Linux box or a VM, and the same
+kernel compiled to wasm inside the Durable Object, as the memory core already is (`optchat-wasm`).
 
 The **Cloud Chief** becomes a placement, not a codebase:
-- the same kernel and ledgers;
-- the pi-durable engine for durable mid-turn steps (a tool's intent is stored before it runs; a
-  crash replays only `replay: "safe"` tools);
+- the same kernel and ledgers, as wasm in the DO;
+- the pi-durable engine in process for durable mid-turn steps (a tool's intent is stored before it
+  runs; a crash replays only `replay: "safe"` tools);
+- tools that need a machine call a hand: a Freestyle sandbox, or the Mac through the hub;
 - any model through the gateway.
 
-The TypeScript brain retires once the Rust kernel passes the same replay and barrage evals on the
-cloud placement. Until then, step 1 below stops the prompt drift.
+Why not a VM per user (this doc's first version): a cold wake would be a VM start plus a host start
+(never measured; the cc route already boots a machine per message), a VM costs money while idle (a
+DO costs nothing idle and starts in about 1 s), and a sidecar adds an RPC hop per tool call.
+
+What that asks of the kernel: everything a turn needs compiles to `wasm32-unknown-unknown`. Memory,
+ledgers, prompt rendering and the tool contract are pure logic. Clock, storage, network and
+processes come in through traits that the DO and the native host each implement. The native-only
+parts (acpmux, PTYs, the app socket) stay outside that core.
+
+The TypeScript brain retires once the wasm kernel passes the same replay and barrage evals on the
+cloud placement. Until then it gets no new kernel features (no ledgers, no new tools), and step 1
+below stops the prompt drift.
 
 ## 4. One inference key for everyone (Vercel AI Gateway)
 
@@ -148,8 +163,9 @@ Findings:
    tool contract).
 3. The `Engine` trait over today's acpmux path, with no behavior change. Then the native engine
    through the gateway endpoint.
-4. pi-durable engine as a Bun sidecar, behind a flag, on a scratch Chief first.
-5. The Cloud placement: the Rust kernel on a cloud VM with the pi-durable engine. It is compared
-   with the TypeScript brain on the replay, barrage and health evals, and the TypeScript brain is
-   retired once it is not worse.
+4. Split the kernel into a wasm-clean core (memory, ledgers, prompt, tool contract, behind clock,
+   storage and network traits) and the native host. CI builds both targets.
+5. The Cloud placement (a749): the wasm kernel in the Durable Object with the pi-durable engine in
+   process and hands for machine tools. It is compared with the TypeScript brain on the replay,
+   barrage and health evals, and the TypeScript brain retires once it is not worse.
 6. The barrage runner's `during` field, and harder barrage cases built from real corrected messages.

@@ -1,6 +1,7 @@
 //! Notifications: per-surface unread markers, posting (CLI, terminal, resource), the durable notification ledger, reads, acks and clears.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 impl Mux {
     pub fn surface_notification(&self, surface: SurfaceId) -> Option<SurfaceNotification> {
@@ -105,8 +106,11 @@ impl Mux {
     }
 
     /// Post what a program in `surface`'s terminal asked for with OSC 9,
-    /// OSC 777 or OSC 99, or an OSC 7501 record's alert. Called by the terminal's output reader after it
-    /// released the terminal lock; the reader already applied the rate limit.
+    /// OSC 777 or OSC 99, or an OSC 7501 record's alert. The terminal
+    /// publisher calls this for what an output reader queued
+    /// (`mux/terminal_publisher.rs`); the reader already applied the rate
+    /// limit. Adoption and a terminal's first view post a record's alerts
+    /// directly (`Surface::publish_pending_progress`).
     pub(crate) fn post_terminal_notifications(
         &self,
         surface: SurfaceId,
@@ -301,16 +305,16 @@ impl Mux {
             "read_by": read_by,
         });
         if let Some(terminal_id) = &notification.terminal_id {
-            value["terminal_id"] = serde_json::json!(terminal_id);
+            value.set("terminal_id", serde_json::json!(terminal_id));
         }
         if let Some(subtitle) = &notification.subtitle {
-            value["subtitle"] = serde_json::json!(subtitle);
+            value.set("subtitle", serde_json::json!(subtitle));
         }
         // Stored under `extra`, which every registry schema already accepts,
         // so a downgraded daemon still opens the receipt.
-        value["extra"] = serde_json::json!({"source": notification.source.as_str()});
+        value.set("extra", serde_json::json!({"source": notification.source.as_str()}));
         if let Some(workspace) = &notification.workspace_id {
-            value["extra"]["workspace_id"] = serde_json::json!(workspace);
+            value.set_path(&["extra", "workspace_id"], serde_json::json!(workspace));
         }
         value
     }
@@ -324,7 +328,7 @@ impl Mux {
         session_id: &SessionPublicId,
     ) -> Value {
         let mut value = self.notification_snapshot_value(notification, session_id, &[]);
-        value["unread"] = Value::Bool(notification.terminal_id.is_some());
+        value.set("unread", Value::Bool(notification.terminal_id.is_some()));
         // A non-terminal tab (an agent chat) is named by its content, so a
         // restart finds the tab again to dedupe and acknowledge against.
         if notification.terminal_id.is_none()
@@ -338,7 +342,7 @@ impl Mux {
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| identity.content_id.clone())
         {
-            value["extra"]["browser_id"] = serde_json::json!(browser);
+            value.set_path(&["extra", "browser_id"], serde_json::json!(browser));
         }
         value
     }
@@ -410,7 +414,7 @@ impl Mux {
             "terminal_id": terminal_id,
         });
         if let Some(subtitle) = &subtitle {
-            fingerprint["subtitle"] = serde_json::json!(subtitle);
+            fingerprint.set("subtitle", serde_json::json!(subtitle));
         }
         let committed = |outcome: ResourceEffectOutcome| match outcome {
             ResourceEffectOutcome::Success(_) => Ok(None),
@@ -664,20 +668,33 @@ impl Mux {
         expected_revision: Option<u64>,
         scope: NotificationClearScope<'_>,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        let members = match scope {
+        let workspace_members = match scope {
             NotificationClearScope::Workspace(workspace) => Some(
                 self.workspace_notification_members(workspace)
                     .with_context(|| format!("unknown workspace {}", workspace.as_str()))?,
             ),
             _ => None,
         };
-        let cleared_scope = ClearedScope { scope, members: members.as_ref() };
+        // A one-row clear resolves its row's source under the feed lock: a
+        // notification of that source commits its ledger row before its ring
+        // and item, so a post racing the clear is either seen (its source
+        // keeps its marker) or rings after the clear.
+        let resolve = || match scope {
+            NotificationClearScope::Notification(notification) => {
+                Some(self.notification_row_members(notification))
+            }
+            _ => workspace_members,
+        };
         // The clear reads the cleared scope's local items (every item for a
         // session-wide clear) in its transaction, and drops the rings, under
         // the feed lock (mux/feed_local.rs).
         let mut committed = None;
-        let cleared = |item: &cmux_feed_core::Item| cleared_scope.covers_item(item);
-        let wrote = self.read_feed_items_in(cleared, |extra, feed| {
+        let cleared = |members: &Option<WorkspaceNotificationMembers>,
+                       item: &cmux_feed_core::Item| {
+            ClearedScope { scope, members: members.as_ref() }.covers_item(item)
+        };
+        let wrote = self.read_feed_items_resolved(resolve, cleared, |members, extra, feed| {
+            let cleared_scope = ClearedScope { scope, members: members.as_ref() };
             let commit = self.apply_notification_clear(
                 mutation,
                 expected_revision,
@@ -723,8 +740,14 @@ impl Mux {
             "operation": OPERATION,
             "terminal_id": terminal_id,
         });
-        if let NotificationClearScope::Workspace(workspace) = cleared_scope.scope {
-            fingerprint["workspace_id"] = serde_json::json!(workspace);
+        match cleared_scope.scope {
+            NotificationClearScope::Workspace(workspace) => {
+                fingerprint.set("workspace_id", serde_json::json!(workspace));
+            }
+            NotificationClearScope::Notification(notification) => {
+                fingerprint.set("notification_id", serde_json::json!(notification));
+            }
+            NotificationClearScope::Session | NotificationClearScope::Terminal(_) => {}
         }
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(replay) = registry.replay_resource_patch(mutation, OPERATION, &fingerprint)? {
@@ -795,7 +818,10 @@ impl Mux {
                     self.terminal_notifications.lock().unwrap().remove(terminal_id);
                 }
                 (NotificationClearScope::Terminal(_), _) => {}
-                (NotificationClearScope::Workspace(_), Some(members)) => {
+                (
+                    NotificationClearScope::Workspace(_) | NotificationClearScope::Notification(_),
+                    Some(members),
+                ) => {
                     self.terminal_notifications.lock().unwrap().retain(|terminal, _| {
                         !members.terminals.contains(terminal) || terminal_unread(terminal)
                     });
@@ -803,7 +829,10 @@ impl Mux {
                         !members.surfaces.contains(surface) || tab_unread(&members.tabs, surface)
                     });
                 }
-                (NotificationClearScope::Workspace(_), None) => {}
+                (
+                    NotificationClearScope::Workspace(_) | NotificationClearScope::Notification(_),
+                    None,
+                ) => {}
                 (NotificationClearScope::Session, _) => {
                     let tabs = self.with_state(|state| state.resource_indexes.tab_ids.clone());
                     self.terminal_notifications.lock().unwrap().retain(|t, _| terminal_unread(t));
@@ -830,6 +859,9 @@ pub(crate) enum NotificationClearScope<'a> {
     /// One workspace's: its terminal-less rows (`notify --workspace`) and
     /// those of every terminal and tab it shows.
     Workspace(&'a WorkspacePublicId),
+    /// One ledger row by its id (the notifications panel's Clear on a row,
+    /// which has no terminal when an agent chat or a view posted it).
+    Notification(&'a NotificationPublicId),
 }
 
 /// The terminals, views and tabs one workspace shows, read before the clear
@@ -854,6 +886,7 @@ impl ClearedScope<'_> {
             NotificationClearScope::Terminal(terminal) => {
                 entry.terminal_id.as_ref() == Some(terminal)
             }
+            NotificationClearScope::Notification(notification) => entry.id == *notification,
             NotificationClearScope::Workspace(workspace) => {
                 entry.workspace_id.as_ref() == Some(workspace)
                     || entry.terminal_id.as_ref().is_some_and(|terminal| {
@@ -871,20 +904,67 @@ impl ClearedScope<'_> {
         match self.scope {
             NotificationClearScope::Session => true,
             NotificationClearScope::Terminal(wanted) => terminal == Some(wanted.as_str()),
-            NotificationClearScope::Workspace(_) => self.members.is_some_and(|members| {
-                terminal.is_some_and(|terminal| {
-                    members.terminals.iter().any(|known| known.as_str() == terminal)
-                }) || item
-                    .context
-                    .tab
-                    .as_deref()
-                    .is_some_and(|tab| members.tabs.values().any(|known| known.as_str() == tab))
-            }),
+            // A one-row clear's members are the row's terminal or tab only when it is that
+            // source's last row: its unread items go with it, so the tab's ring does too.
+            NotificationClearScope::Workspace(_) | NotificationClearScope::Notification(_) => {
+                self.members.is_some_and(|members| {
+                    terminal.is_some_and(|terminal| {
+                        members.terminals.iter().any(|known| known.as_str() == terminal)
+                    }) || item
+                        .context
+                        .tab
+                        .as_deref()
+                        .is_some_and(|tab| members.tabs.values().any(|known| known.as_str() == tab))
+                })
+            }
         }
     }
 }
 
 impl Mux {
+    /// What a one-row clear of `notification` reads with it: the row's
+    /// terminal, or its view and tab for a row without one, when no other
+    /// ledger row of that source remains; else nothing (its marker stays).
+    pub(crate) fn notification_row_members(
+        &self,
+        notification: &NotificationPublicId,
+    ) -> WorkspaceNotificationMembers {
+        let mut members = WorkspaceNotificationMembers::default();
+        let source = {
+            let ledger = self.notification_ledger.lock().unwrap();
+            let Some(row) = ledger.iter().find(|entry| entry.id == *notification) else {
+                return members;
+            };
+            let same_source = |entry: &ResourceNotification| match &row.terminal_id {
+                Some(terminal) => entry.terminal_id.as_ref() == Some(terminal),
+                None => {
+                    entry.terminal_id.is_none()
+                        && row.surface.is_some()
+                        && entry.surface == row.surface
+                }
+            };
+            if ledger.iter().any(|entry| entry.id != row.id && same_source(entry)) {
+                return members;
+            }
+            (row.terminal_id.clone(), row.surface)
+        };
+        match source {
+            (Some(terminal), _) => {
+                members.terminals.insert(terminal);
+            }
+            (None, Some(surface)) => {
+                members.surfaces.insert(surface);
+                let tab =
+                    self.with_state(|state| state.resource_indexes.tab_ids.get(&surface).cloned());
+                if let Some(tab) = tab {
+                    members.tabs.insert(surface, tab);
+                }
+            }
+            (None, None) => {}
+        }
+        members
+    }
+
     /// The terminals, views and tabs `workspace` shows; None when it is not
     /// a workspace of this session.
     pub(crate) fn workspace_notification_members(

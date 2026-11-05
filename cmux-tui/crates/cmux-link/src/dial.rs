@@ -13,8 +13,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::stamp::valid_id;
 
-/// The longest request, reply or hello line.
+/// The longest control request or reply line.
 pub const MAX_LINE_BYTES: usize = 1024;
+pub const MAX_LINK_TOKEN_BYTES: usize = 8192;
+/// One bounded signed token plus the service/epoch JSON envelope.
+pub const MAX_HELLO_BYTES: usize = MAX_LINK_TOKEN_BYTES + 128;
 
 /// The services a link stream can reach. Slice 1 has only the session
 /// daemon's remote entry.
@@ -82,19 +85,36 @@ pub enum DialError {
     HostPaused,
 }
 
+/// Readers ignore unknown fields (unlike the request types): a reply may
+/// gain a field such as `error_detail`, and a reader that predates it must
+/// still read the typed `error_code`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct DialReply {
     pub ok: bool,
     pub path_state: PathState,
     pub relay_available: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_code: Option<DialError>,
+    /// What failed, in one line (which lookup, which handshake, the
+    /// backend's refusal code): `error_code` keeps the typed retry
+    /// contract, this says why. Never a credential.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_detail: Option<String>,
 }
+
+/// The longest [`DialReply::error_detail`] in bytes: one display line, so a
+/// reply stays far inside [`MAX_LINE_BYTES`].
+pub const MAX_ERROR_DETAIL_BYTES: usize = 300;
 
 impl DialReply {
     pub fn connected(path_state: PathState) -> Self {
-        Self { ok: true, path_state, relay_available: RELAY_AVAILABLE, error_code: None }
+        Self {
+            ok: true,
+            path_state,
+            relay_available: RELAY_AVAILABLE,
+            error_code: None,
+            error_detail: None,
+        }
     }
 
     pub fn failed(error: DialError) -> Self {
@@ -103,6 +123,24 @@ impl DialReply {
             path_state: PathState::Unreachable,
             relay_available: RELAY_AVAILABLE,
             error_code: Some(error),
+            error_detail: None,
+        }
+    }
+
+    /// A failure with what failed: control characters dropped, at most
+    /// [`MAX_ERROR_DETAIL_BYTES`] (cut on a character boundary).
+    pub fn failed_because(error: DialError, detail: &str) -> Self {
+        let mut kept = String::new();
+        for c in detail.chars().filter(|c| !c.is_control()) {
+            if kept.len().saturating_add(c.len_utf8()) > MAX_ERROR_DETAIL_BYTES {
+                break;
+            }
+            kept.push(c);
+        }
+        let detail = kept.trim();
+        Self {
+            error_detail: (!detail.is_empty()).then(|| detail.to_owned()),
+            ..Self::failed(error)
         }
     }
 }
@@ -174,6 +212,18 @@ impl std::fmt::Debug for ServiceHello {
 }
 
 impl ServiceHello {
+    pub fn parse(line: &str) -> Option<Self> {
+        let line = line.strip_suffix('\n').unwrap_or(line);
+        if line.len() > MAX_HELLO_BYTES {
+            return None;
+        }
+        let hello: Self = serde_json::from_str(line).ok()?;
+        if hello.link_token.as_ref().is_some_and(|token| token.len() > MAX_LINK_TOKEN_BYTES) {
+            return None;
+        }
+        Some(hello)
+    }
+
     /// The hello to a paired peer (no token).
     pub fn paired(service: Service) -> Self {
         Self { service, link_token: None, epoch: None }
@@ -211,6 +261,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn receiver_protocol_hello_bounds_leave_control_frames_small() {
+        for length in [1100, MAX_LINK_TOKEN_BYTES] {
+            let hello = ServiceHello {
+                service: Service::Daemon,
+                epoch: Some(4),
+                link_token: Some("t".repeat(length)),
+            };
+            let wire = line(&hello);
+            assert!(wire.len() > MAX_LINE_BYTES && wire.len() <= MAX_HELLO_BYTES);
+            assert_eq!(ServiceHello::parse(&wire), Some(hello));
+            assert!(parse_line::<serde_json::Value>(&wire).is_none());
+        }
+        let oversized = ServiceHello {
+            service: Service::Daemon,
+            epoch: Some(4),
+            link_token: Some("t".repeat(MAX_LINK_TOKEN_BYTES + 1)),
+        };
+        assert!(ServiceHello::parse(&line(&oversized)).is_none());
+        let padded = format!(
+            "{}{}",
+            " ".repeat(MAX_HELLO_BYTES),
+            line(&ServiceHello::paired(Service::Daemon))
+        );
+        assert!(ServiceHello::parse(&padded).is_none());
+        assert!(ServiceHello::parse(r#"{"service":"daemon","extra":true}"#).is_none());
+    }
+
+    #[test]
     fn the_dial_contract_has_stable_wire_shapes() {
         let request =
             parse_request(r#"{"op":"link.dial","host":"inst_9","service":"daemon"}"#).unwrap();
@@ -231,6 +309,24 @@ mod tests {
             line(&DialReply::failed(DialError::HostPaused)),
             "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"host_paused\"}\n"
         );
+        assert_eq!(
+            line(&DialReply::failed_because(
+                DialError::Unreachable,
+                "connect_info: cloud.machine.not_bound\n"
+            )),
+            "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"unreachable\",\"error_detail\":\"connect_info: cloud.machine.not_bound\"}\n"
+        );
+        let long = DialReply::failed_because(DialError::Unreachable, &"x".repeat(1000));
+        assert_eq!(long.error_detail.map(|d| d.len()), Some(MAX_ERROR_DETAIL_BYTES));
+        let wide = DialReply::failed_because(DialError::Unreachable, &"\u{e9}".repeat(1000));
+        assert!(wide.error_detail.is_some_and(|d| d.len() <= MAX_ERROR_DETAIL_BYTES));
+        assert_eq!(DialReply::failed_because(DialError::Unreachable, " \n").error_detail, None);
+        // A reply with a field this reader does not know still parses.
+        let newer: DialReply = parse_line(
+            "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"unreachable\",\"later_field\":1}",
+        )
+        .expect("an unknown reply field is ignored");
+        assert_eq!(newer.error_code, Some(DialError::Unreachable));
     }
 
     #[test]

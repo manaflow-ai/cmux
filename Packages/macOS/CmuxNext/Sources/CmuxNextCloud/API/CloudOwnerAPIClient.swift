@@ -1,8 +1,9 @@
 public import Foundation
 
 /// The cmux-next API Worker's routes that a person's own session calls directly, outside the op
-/// path (`ownerAPIBaseURL`; cx-kvmz). Today only the keyed acpmux start and its person_holds check
-/// on a Cloud machine of the app server link: `POST /v1/cloud/machines/{machine}/acpmux/...`.
+/// path (`ownerAPIBaseURL`; cx-kvmz): the keyed acpmux start and its person_holds check on a Cloud
+/// machine of the app server link (`POST /v1/cloud/machines/{machine}/acpmux/...`), and the reads of
+/// the person's hand-offs (`GET /v1/handoffs...`, CloudHandoffs.swift).
 ///
 /// The person key never goes through `apps-run`, the local daemon or a Cloud op (those record
 /// their params). Every header this client sets is `Authorization` (the Stack session, which the
@@ -113,6 +114,45 @@ public struct CloudOwnerAPIClient: Sendable {
         } catch {
             throw CloudAPIError.decoding("\(path): \(error)")
         }
+    }
+
+    /// `GET path?name=value…` with integer query values and a list cursor (base64url) only: answers the 2xx
+    /// body as sent. Any other answer throws ``CloudAPIError/http(status:code:message:action:traceId:)``
+    /// with the route's `{error: {code, message}}`.
+    func get(_ path: String, query: [(String, Int)], cursor: String? = nil, timeout: Duration) async throws -> Data {
+        if let cursor, cursor.range(of: #"^[A-Za-z0-9_-]{1,512}$"#, options: .regularExpression) == nil {
+            throw CloudAPIError.transport("not a list cursor")
+        }
+        let access: String
+        do { access = try await accessToken() } catch { throw CloudAPIError.notSignedIn }
+        let pairs = (query.map { "\($0.0)=\($0.1)" } + (cursor.map { ["cursor=\($0)"] } ?? [])).joined(separator: "&")
+        let base = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: base + path + (pairs.isEmpty ? "" : "?" + pairs)) else { throw CloudAPIError.transport("bad path \(path)") }
+        var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeout.components.seconds))
+        request.httpMethod = "GET"
+        // RULE (cx-kvmz, hq-84), as in post(_:_:body:timeout:as:): Authorization and x-cmux-team
+        // only; the path's one varying part is a checked id and the query holds integers and the
+        // store's own list cursor alone.
+        request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
+        if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
+        let data: Data
+        let response: URLResponse
+        do {
+            let session = session, prepared = request
+            (data, response) = try await withDeadline(timeout, label: "GET \(path)") { try await session.data(for: prepared) }
+        } catch is DeadlineExceeded {
+            throw CloudAPIError.timedOut(path)
+        } catch let error as URLError where error.code == .timedOut {
+            throw CloudAPIError.timedOut(path)
+        } catch {
+            throw CloudAPIError.transport(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else { throw CloudAPIError.transport("no HTTP response") }
+        guard (200..<300).contains(http.statusCode) else {
+            let error = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["error"] as? [String: Any]
+            throw CloudAPIError.http(status: http.statusCode, code: error?["code"] as? String, message: error?["message"] as? String)
+        }
+        return data
     }
 
     /// No cache, no cookies, and redirects refused: the Stack bearer never follows one.

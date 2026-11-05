@@ -26,17 +26,38 @@ extension SidebarListViewComponents {
         }
         let before = displayed.viewport(height: height), after = layout.viewport(height: height)
         if displayed.rows.isEmpty {
-            // First rows: show the active workspace, no animation.
-            apply(layout, animated: false)
+            // First rows: show the active workspace, no animation. The clip goes to the reveal first and the rows are
+            // realized once, there (REOPEN-F7: applied at offset 0 and then scrolled, a reopened window far down its
+            // list built its rows twice before its first frame).
             if let extent = selectionReveal(in: layout, height: height) {
-                scrollClip(to: after.reveal(extent, from: clip.bounds.minY, padding: SidebarLayout.revealPadding), animated: false)
+                let target = after.reveal(extent, from: clip.bounds.minY, padding: SidebarLayout.revealPadding)
+                if target != clip.bounds.minY {
+                    let content = max(layout.totalHeight, height)
+                    if frame.height < content { setFrameSize(NSSize(width: frame.width, height: content)) }
+                    clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: target))
+                    enclosingScrollView?.reflectScrolledClipView(clip)
+                }
             }
+            apply(layout, animated: false)
             return
         }
         let offset = clip.bounds.minY
         let anchored = after.anchored(from: before, offset: offset)
         let delta = anchored - offset
-        if abs(delta) > 0.25 {
+        // Where the reveal ends, decided before anything moves (`settle` reads the layouts and this offset only).
+        let target = after.settle(from: before, offset: offset, focused: previousActive, newFocus: active,
+                                  padding: SidebarLayout.revealPadding, userMoved: userMoved,
+                                  extent: selectionReveal(in: layout, height: height))
+        let toNewRow = active.map { before.item($0) == nil && after.item($0) != nil } ?? false
+        // Cmd-N (Lawrence 2026-10-28, sidebar-burst-motion.md): a new row the reveal shows where the list already is
+        // (the list at its top, the row inserted there) needs no scroll at all. The anchor shift would move the rows
+        // and the offset down together and the reveal would jump back in one frame, so the rows below would stand in
+        // their new slots at once and the new row would grow from nothing in a gap already open: an empty slot. Kept
+        // at the offset instead, the rows below make room by the new row motion while the row opens above them. A
+        // reveal that does scroll to a new row (the list scrolled away) jumps there, and the row is in its slot,
+        // whole, in that frame (``apply(_:animated:newRowsInPlace:)``).
+        let keepsOffset = toNewRow && abs(target - offset) <= 0.25
+        if abs(delta) > 0.25, !keepsOffset {
             RowMotion.shift(self, by: delta) // closing rows too; nothing draws until the offset moves with them
             Motion.withoutAnimation {
                 // Rows and the offset move together: no visible change yet.
@@ -51,12 +72,25 @@ extension SidebarListViewComponents {
                 isShiftingViewport = false
             }
         }
-        apply(layout, animated: animated)
-        let target = after.settle(from: before, offset: offset, focused: previousActive, newFocus: active,
-                                  padding: SidebarLayout.revealPadding, userMoved: userMoved,
-                                  extent: selectionReveal(in: layout, height: height))
-        let toNewRow = active.map { before.item($0) == nil && after.item($0) != nil } ?? false
+        // A reload with no motion (a launch's restore; a held change released, a settle) jumps to the reveal in the frame it
+        // commits: the clip goes there first and apply realizes the rows once, around it (REOPEN-F7: applied at the
+        // anchor and then jumped, a reopened window far down its list built its rows twice before its first frame).
+        // A Cmd-N row is new to a list that shows workspace rows already; the launch's restored rows are all new to a list
+        // that shows none yet (only its section's header), so they jump too.
+        let firstWorkspaceRows = toNewRow && !displayed.rows.contains { if case .workspace = $0.key { true } else { false } }
+        let jumps = !animated && (!toNewRow || firstWorkspaceRows) && abs(target - clip.bounds.minY) > 0.25
+        if jumps {
+            if frame.height < after.content { setFrameSize(NSSize(width: frame.width, height: after.content)) }
+            isShiftingViewport = true
+            clip.setBoundsOrigin(NSPoint(x: clip.bounds.minX, y: target))
+            enclosingScrollView?.reflectScrolledClipView(clip)
+            isShiftingViewport = false
+        }
+        apply(layout, animated: animated, newRowsInPlace: toNewRow && !keepsOffset && abs(target - clip.bounds.minY) > 0.25)
         if abs(target - clip.bounds.minY) > 0.25 { scrollClip(to: target, animated: animated && !toNewRow) }
+        // The jump ends as the instant scroll it replaces did: the old viewport's rows park, a group editor follows, the
+        // hover follows the scroll. Apply already realized the rows in view, so this makes no row view.
+        if jumps { realizeVisibleRows() }
     }
 
     /// The identity a reveal tracks for the selection: its workspace, group or

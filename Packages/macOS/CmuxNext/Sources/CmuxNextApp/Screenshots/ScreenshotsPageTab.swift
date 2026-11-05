@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextFileGrid
 import CmuxNextFiles
 import CmuxNextIcons
@@ -41,6 +42,8 @@ final class ScreenshotsPageTab: BrowserTab {
         self.state = state
         self.model = model
         view = ScreenshotsView(model: model, cache: cache, workspace: workspace, files: files)
+        view.promptFonts = (Typography.bodyEmphasized, Typography.body)
+        (view.primaryText, view.secondaryText) = (Palette.textPrimary, Palette.textSecondary)
     }
 
     func load(_ url: URL) {
@@ -63,7 +66,7 @@ final class ScreenshotsPageTab: BrowserTab {
     }
 
     func setContentVisible(_ visible: Bool) {
-        view.isHidden = !visible
+        view.isHidden = !visible // shown is not asked: lists after the person's click (ScreenshotsView's prompt)
     }
 
     func snapshot() async throws -> CGImage {

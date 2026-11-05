@@ -139,7 +139,7 @@ struct FeedRowLayout: @unchecked Sendable {
         case none
         /// A line of secondary text with its symbol (a resolution, "Question cancelled").
         case label(NSAttributedString, CGRect)
-        /// An answer on its way ("Waiting for Face ID…"), with a spinner.
+        /// An answer on its way ("Sending…"), with a spinner.
         case pending(NSAttributedString, CGRect, spinner: CGRect)
         case terminal(CapsuleButton)
         case permission(card: CommandCard?, buttons: [CapsuleButton])
@@ -411,6 +411,8 @@ private struct FeedRowBuilder {
             return .question(card, openTerminal: button)
         case .needsInput:
             if let resolution = item.resolution { return secondaryLine("checkmark.circle", resolution) }
+            // A Mac Feed request opens its page from the row (its link is in the text), not a terminal.
+            if item.link != nil { return .none }
             let font = styles.font(.headline)
             let title = symbolText("terminal", "Answer in Terminal", font: font, color: capsuleColor(.primary))
             let top = place(44)
@@ -444,8 +446,7 @@ private struct FeedRowBuilder {
             let font = styles.font(.headline)
             let buttons = options.enumerated().map { index, option in
                 let kind: FeedRowLayout.CapsuleButton.Kind = option.kind == .allowOnce ? .primary : (option.isAllow ? .secondary : .destructive)
-                let title = option.isAllow ? symbolText("faceid", Self.feedTitle(option), font: font, color: capsuleColor(kind))
-                    : attributed(Self.feedTitle(option), font, capsuleColor(kind), alignment: .center)
+                let title = attributed(Self.feedTitle(option), font, capsuleColor(kind), alignment: .center)
                 return capsule(option.id, title, kind: kind, x: columnX + CGFloat(index) * (each + 8), y: buttonsTop, width: each)
             }
             return .permission(card: card, buttons: buttons)

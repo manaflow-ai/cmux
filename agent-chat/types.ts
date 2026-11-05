@@ -32,8 +32,33 @@ export type AgentEvent =
   | { kind: "tool-end"; toolId: string; name?: string; detail?: string; description?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
+  /** The agent waits on a person's answer (Codex request_user_input). */
+  | { kind: "question"; questionId: string; items: AgentQuestionItem[] }
+  /** The question is no longer waiting: answered here, declined, settled by
+   * the agent itself (`resolved`), or gone with its turn (`expired`). */
+  | { kind: "question-resolved"; questionId: string; outcome: AgentQuestionOutcome }
   // `prompt`: the prompt a failed send carried, which never reached the agent.
   | { kind: "error"; message: string; prompt?: string };
+
+export interface AgentQuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface AgentQuestionItem {
+  id: string;
+  header?: string;
+  question: string;
+  options: AgentQuestionOption[];
+  /** Typed text is accepted besides (or, with no options, instead of) the options. */
+  allowsOther: boolean;
+  /** Typed masked and never echoed into the transcript. */
+  secret: boolean;
+}
+
+/** One answer per question id. */
+export type AgentQuestionAnswers = Record<string, string>;
+export type AgentQuestionOutcome = "answered" | "declined" | "resolved" | "expired";
 
 export type SessionStatus = "idle" | "running" | "exited" | "error";
 export type OptionKind = "select" | "toggle";
@@ -125,6 +150,9 @@ export interface Adapter {
   listOptions?(cwd: string): Promise<SessionOption[]>;
   listCommands?(cwd: string): Promise<{ trigger: CommandTrigger; commands: CommandEntry[] }[]>;
   forkSession?(source: SessionCtx, target: SessionCtx): Promise<void>;
+  /** Answers a pending `question` event; `null` declines it. Throws on an
+   * unknown question or an answer its items do not accept. */
+  answerQuestion?(sess: SessionCtx, questionId: string, answers: AgentQuestionAnswers | null): void;
   capabilities?: ProviderCapabilities;
 }
 

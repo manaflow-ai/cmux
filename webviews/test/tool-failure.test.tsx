@@ -7,6 +7,8 @@ import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
+import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
+import { InStep } from "../src/agent-session/acpmux/conversation/ToolFailureCause";
 import { toolFailure } from "../src/agent-session/acpmux/conversation/toolFailure";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -40,6 +42,8 @@ test("a call that did not fail has no failure", () => {
 test("a hook's refusal names the hook and its reason, without the harness's lead", () => {
   const failure = toolFailure(call("PreToolUse:Bash hook error: Blocked: `gh pr merge` needs a review receipt."));
   expect(failure).toMatchObject({ kind: "hook", hook: "PreToolUse", cause: "`gh pr merge` needs a review receipt." });
+  // Opened, the call shows the hook's words without the harness's envelope.
+  expect(failure?.output).toBe("`gh pr merge` needs a review receipt.");
 });
 
 test("Claude Code's Exit code line becomes the exit code, and the cause is the error line", () => {
@@ -118,12 +122,15 @@ test("a long result is read only at its ends, and a long cause is cut", () => {
 });
 
 test("a command row says the word in the error tone and the cause on a quiet line under it", () => {
+  // A hook's block reads "blocked by hook" alone, as Claude Code desktop draws it: no "PreToolUse"
+  // and no line of its words until it is opened (Leo, 2026-10-31: "WHY IS THERE PRETOOLUSE").
   const html = renderToStaticMarkup(
     <CommandRow item={item(call("PreToolUse:Bash hook error: Blocked: needs a review.", { description: "Merge" }))} />,
   );
-  expect(html).toMatch(/class="cv-command__failed"[^>]*>blocked</);
-  expect(html).toContain('class="cv-tool-error"');
-  expect(words(html)).toContain("PreToolUse needs a review.");
+  expect(html).toMatch(/class="cv-command__failed"[^>]*>blocked by hook</);
+  expect(html).not.toContain('class="cv-tool-error"');
+  expect(words(html)).not.toContain("PreToolUse");
+  expect(words(html)).not.toContain("needs a review.");
   // Claude Code's exit line reads as the row's "Exit 1".
   const exited = renderToStaticMarkup(<CommandRow item={item(call("Exit code 1\nmake: *** [all] Error 2"))} />);
   expect(exited).toMatch(/class="cv-command__failed"[^>]*>Exit 1</);
@@ -190,6 +197,41 @@ test("a folded run says how many of its calls failed", () => {
     </ToolRun>,
   );
   expect(words(html)).toContain("1 failed");
+});
+
+test("a failed step of an opened group is one plain line, its error output behind its own disclosure", () => {
+  // Leo said yes (2026-11-02) to a "Scheduled check" whose opened "Ran 4 commands 1 failed" drew a
+  // raw "(eval):1: ==== not found" line under a step and "Exit 1" at its edge.
+  const failing = item(
+    call("Exit code 1\n(eval):1: ==== not found", { id: "f", description: "Read NOW.md and summarize stuck lanes" }),
+  );
+  const ok = (id: string, description: string) =>
+    item(call("done", { id, description, status: "completed", exitCode: 0 }));
+  const html = renderToStaticMarkup(
+    <ToolGroupRow
+      kind="commands"
+      items={[ok("a", "Check states of my routed lanes"), failing, ok("b", "Summarize live lane states")]}
+      disclosureKey="steps"
+    />,
+  );
+  // The group's head counts it; the step says "failed", never the shell's words.
+  expect(words(html)).toContain("1 failed");
+  expect(html).toMatch(/class="cv-command__failed"[^>]*>failed</);
+  expect(words(html)).not.toContain("Exit 1");
+  expect(words(html)).not.toContain("(eval):1");
+  expect(html).not.toContain('class="cv-tool-error"');
+  // A command drawn under InStep reads the same.
+  const step = renderToStaticMarkup(
+    <InStep.Provider value>
+      <CommandRow item={failing} />
+    </InStep.Provider>,
+  );
+  expect(step).toMatch(/class="cv-command__failed"[^>]*>failed</);
+  expect(words(step)).not.toContain("(eval):1");
+  // A lone command, not in a group, still says its exit and why.
+  const lone = renderToStaticMarkup(<CommandRow item={failing} />);
+  expect(lone).toMatch(/class="cv-command__failed"[^>]*>Exit 1</);
+  expect(words(lone)).toContain("(eval):1: ==== not found");
 });
 
 test("a failed test run that quotes a denial is its exit, not a denial", () => {

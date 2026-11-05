@@ -4,7 +4,7 @@
   "description": "The daemon page router (page-router.md): what each cmux page may call and which subscribe events it hears, and which v2 operation namespaces the daemon routes to an owner outside the operation catalog. The one source: the daemon embeds this file, and bindings/codegen/page_router.py generates the page clients' table from it.",
   "pages": {
     "home-channels": {
-      "description": "Channels (Home). It reads conversations through the raw conversation commands of its authenticated WebSocket, and the participants' pictures with participant.avatar.get. A web link the person clicks in the Chief chat opens on the right side of the home workspace with workspace.open_url, only on the person's gesture (a host confirmation on the page relay); its WebSocket has no confirmation, so it is refused there. It manages the person's Chiefs (chief-profile-ws-v1): it lists and reads them and changes display_name, role and the avatar; create, delete, undo, instructions, personality, the lock and the grant (tools, harnesses, engine, self_edit) need the person's gesture; it reads a Chief's kept revisions (chief.profile.history). Its WebSocket keeps its raw subscribe; a page relay of this page gets no event stream.",
+      "description": "Channels (Home). It reads conversations through the raw conversation commands of its authenticated WebSocket, and the participants' pictures with participant.avatar.get. A web link the person clicks in the Chief chat opens on the right side of the home workspace with workspace.open_url, only on the person's gesture (a host confirmation on the page relay); its WebSocket has no confirmation, so it is refused there. It manages the person's Chiefs (chief-profile-ws-v1): it lists and reads them and changes display_name, role and the avatar; create, delete, undo, instructions, personality, the lock and the grant (tools, harnesses, engine, self_edit) need the person's gesture; it reads a Chief's kept revisions (chief.profile.history). Its WebSocket keeps its raw subscribe; a page relay of this page gets no event stream. With chief-work-v1 its authenticated owner WebSocket may read chief-work: Chief-owned subagents and harness background commands on the configured Chief machine, through the same owner-page admission as the Chief registry. No other page or paired device gains this read.",
       "read": [
         "chief.profile.avatar.get",
         "chief.profile.avatar.set",
@@ -40,7 +40,7 @@
       ]
     },
     "apps": {
-      "description": "App Store. Reads the catalog and the installed-app panels (grants, logs, icons). Hide/Show and revoking a scope need the person's gesture (they never widen what an app may do); an install, uninstall, allowed scope or other change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox).",
+      "description": "App Store. Reads the catalog and the installed-app panels (grants, logs, icons). Hide/Show and revoking a scope need the person's gesture (they never widen what an app may do); an install, uninstall, allowed scope or other change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox). It hears apps-changed, so an open page shows an install, removal or instance change made elsewhere (the CLI, another window) without a reload.",
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
@@ -59,7 +59,9 @@
         "apps.uninstall",
         "apps.grant.set"
       ],
-      "events": []
+      "events": [
+        "apps-changed"
+      ]
     },
     "agent": {
       "description": "The agent pane, and in it the New Tab page (page id from cmux-page://cmux.agent). It asks the folder trust question of a chat on another machine (cx-1bhjj): it reads the folder's trust, and its answer needs the person's gesture. No other page reads folder trust: it tells a page which folders the person works in.",

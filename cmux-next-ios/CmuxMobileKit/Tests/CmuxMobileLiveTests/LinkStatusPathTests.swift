@@ -17,14 +17,14 @@ import Testing
         var machine = LinkMachine(transport: .wireGuard, relayOnly: true)
         _ = machine.handle(.target(LinkMachine.Target(macID: "m", name: "Studio", isOnline: true)))
         _ = machine.handle(.dialSucceeded(generation: machine.generation, path: .direct))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard direct")
+        #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard direct")
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .turn, rttMillis: 40))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN) · 40 ms")
+        #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (TURN) · 40 ms")
         // UDP blocked: TURN reached over TLS. (There is no WebSocket relay any more.)
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .turnTLS, rttMillis: nil))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS) · 40 ms")
+        #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard relay (TURN over TLS) · 40 ms")
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .noPath, rttMillis: nil))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard no path · 40 ms")
+        #expect(machine.phase.diagnosticLine(macName: "Studio") == "Connected · WireGuard no path · 40 ms")
     }
 }
 
@@ -36,16 +36,16 @@ import Testing
         _ = machine.handle(.target(LinkMachine.Target(macID: "m", name: "Studio", isOnline: true)))
         _ = machine.handle(.dialSucceeded(generation: machine.generation, path: .direct))
         _ = machine.handle(.linkUpdated(generation: machine.generation, path: .direct, rttMillis: 14))
-        #expect(machine.phase.statusLine(macName: "Studio", media: machine.media) == "Connected · WireGuard direct · 14 ms")
+        #expect(machine.phase.diagnosticLine(macName: "Studio", media: machine.media) == "Connected · WireGuard direct · 14 ms")
         _ = machine.handle(.mediaUpdated(generation: machine.generation, .up(.turn, rttMillis: 16)))
-        #expect(machine.phase.statusLine(macName: "Studio", media: machine.media)
+        #expect(machine.phase.diagnosticLine(macName: "Studio", media: machine.media)
             == "Connected · WireGuard direct · video WebRTC (TURN) · 14 ms")
         _ = machine.handle(.mediaUpdated(generation: machine.generation, .up(.direct, rttMillis: 9)))
-        #expect(machine.phase.statusLine(macName: "Studio", media: machine.media)
+        #expect(machine.phase.diagnosticLine(macName: "Studio", media: machine.media)
             == "Connected · WireGuard direct · video WebRTC (direct) · 14 ms")
         // The session failed: video rides the tunnel.
         _ = machine.handle(.mediaUpdated(generation: machine.generation, .failed(reason: "ICE failed")))
-        #expect(machine.phase.statusLine(macName: "Studio", media: machine.media)
+        #expect(machine.phase.diagnosticLine(macName: "Studio", media: machine.media)
             == "Connected · WireGuard direct · video in the tunnel · 14 ms")
     }
 
@@ -83,24 +83,34 @@ import Testing
     }
 
     /// Still unreachable after the first redials (about half a minute): say
-    /// why, with the relay hint, instead of spinning forever.
+    /// Offline with a retry action instead of spinning forever.
     @Test func aMacStillUnreachableAfterTheFirstRedialsIsAFailure() {
         let late = LiveCoordinator.reconnectingAttempts + 1
         let banner = LiveCoordinator.waitingBanner(
             macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: late, wasConnected: true,
             relayAvailable: false)
-        #expect(banner == .failed("Can't reach Studio over WireGuard. Relay (TURN) unavailable"))
+        #expect(banner == .connectionFailed)
     }
 
     @Test func aMacNeverReachedIsAFailure() {
         let banner = LiveCoordinator.waitingBanner(
             macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: 2, wasConnected: false,
             relayAvailable: true)
-        #expect(banner == .failed("Can't reach Studio over WireGuard"))
+        #expect(banner == .connectionFailed)
         let noRelay = LiveCoordinator.waitingBanner(
             macName: "Studio", transport: .webRTC, reason: timedOut, attempt: 2, wasConnected: false,
             relayAvailable: false)
-        #expect(noRelay == .failed("Can't reach Studio over WebRTC. Relay (TURN) unavailable"))
+        #expect(noRelay == .connectionFailed)
+    }
+
+    @Test func failureBannersKeepMacIdentityForDismissal() {
+        let first = LiveCoordinator.waitingBanner(
+            macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: 2, wasConnected: false,
+            relayAvailable: true, identity: "mac-1")
+        let second = LiveCoordinator.waitingBanner(
+            macName: "Studio", transport: .wireGuard, reason: timedOut, attempt: 2, wasConnected: false,
+            relayAvailable: true, identity: "mac-2")
+        #expect(first != second)
     }
 
     @Test func anOfflineMacIsOfflineEitherWay() {
@@ -130,4 +140,30 @@ import Testing
             return
         }
     }
+}
+
+@Suite struct PlainLinkStatusTests {
+    @Test func normalStatusDoesNotExposeDiagnostics() {
+        let secretError = "list-workspaces reply is not an object"
+        let failed = LinkMachine.Phase.waiting(.webRTC, attempt: 2, reason: secretError, retryIn: .seconds(1))
+        #expect(failed.statusLine(macName: "Studio") == "Reconnecting…")
+        #expect(failed.diagnosticLine(macName: "Studio")?.contains(secretError) == true)
+        #expect(LinkMachine.Phase.macOffline.statusLine(macName: "Studio") == "Offline")
+        #expect(LinkMachine.Phase.connecting(.wireGuard, attempt: 1).statusLine(macName: "Studio") == "Reconnecting…")
+        let connected = LinkMachine.Phase.connected(.wireGuard, .turnTLS, rttMillis: 27)
+        #expect(connected.statusLine(macName: "Studio", media: .up(.turn, rttMillis: 12)) == "Connected")
+        #expect(connected.diagnosticLine(macName: "Studio", media: .up(.turn, rttMillis: 12))
+                == "Connected · WireGuard relay (TURN over TLS) · video WebRTC (TURN) · 27 ms")
+    }
+
+    #if os(iOS)
+    @Test func offlineBannerOffersRetryWithoutEmbeddingAnInertActionInText() {
+        #expect(ConnectionBannerState.connectionFailed.text == "Offline")
+        #expect(ConnectionBannerState.connectionFailed.offersRetry)
+        #expect(ConnectionBannerState.offline.offersRetry)
+        #expect(ConnectionBannerState.macOffline("Studio").offersRetry)
+        #expect(!ConnectionBannerState.connected.offersRetry)
+        #expect(ConnectionBannerState.reconnecting(to: "Studio").text == "Reconnecting…")
+    }
+    #endif
 }

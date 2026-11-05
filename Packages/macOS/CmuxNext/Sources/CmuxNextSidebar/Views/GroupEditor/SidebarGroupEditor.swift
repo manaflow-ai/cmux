@@ -282,13 +282,16 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     }
 
     func pick(_ color: GroupColor) {
-        showChosen(.palette(color))
-        onColor?(.palette(color))
+        // The first dot is spoken "No color" (`GroupEditorStrings.colorName`): it clears the color, as the menu's ⊘ does,
+        // instead of storing a grey band.
+        let tint: GroupTint = color == .grey ? .none : .palette(color)
+        showChosen(tint)
+        onColor?(tint)
     }
 
-    /// The chosen ring: a palette dot, or the custom dot showing its color.
+    /// The chosen ring: a palette dot (the "No color" dot for no color), or the custom dot showing its color.
     private func showChosen(_ tint: GroupTint) {
-        for swatch in swatches { swatch.isChosen = tint == .palette(swatch.color) }
+        for swatch in swatches { swatch.isChosen = tint == .palette(swatch.color) || (tint.isNone && swatch.color == .grey) }
         if case .custom = tint { customSwatch.custom = tint } else { customSwatch.custom = nil }
         customSwatch.isChosen = customSwatch.custom != nil
     }
@@ -309,12 +312,13 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     /// Opens the bubble at `anchor` (screen coordinates): under the control that opened it,
     /// on the anchor's edge, above it when there is no room below.
     func present(at anchor: PopupAnchor, parent: NSWindow, ordersFront: Bool = true) {
-        let reopening = dismissing && isVisible
         dismissing = false
         isPresented = true
         ignoresMouseEvents = false
         self.anchor = anchor.rect
         generation += 1
+        // Restore the whole card before ordering it front, including during a closing fade.
+        if ordersFront { showPopupAtOnce() }
         if ordersFront, self.parent !== parent {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
@@ -325,12 +329,10 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
                                     window: parent.convertToScreen(parent.contentLayoutRect))
         setFrame(PopupStyle.standard.windowFrame(forCard: card), display: ordersFront)
         guard ordersFront else { return }
-        if !reopening { alphaValue = 0 }
         makeKeyAndOrderFront(nil)
         makeFirstResponder(nameField)
         nameField.currentEditor()?.selectAll(nil)
         styleFieldEditor()
-        openPopup(pivot: popupPivot(toward: anchor.rect), entrance: true)
     }
 
     /// Gray selection and caret: the system accent (blue) never shows in chrome.

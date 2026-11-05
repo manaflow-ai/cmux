@@ -64,6 +64,11 @@ DEPENDENCY_STEPS = {
     "Install workflow guard Python dependencies",
 }
 PYTHON_PACKAGES = ("PyYAML==6.0.3", "bashlex==0.18")
+# Steps that prepare an Actions runner's reused workspace, never a guard: the submodule reset deinits every
+# submodule, so run inside the parallel groups it would race release-notary's ghostty-next checkout.
+WORKSPACE_STEPS = {
+    "Drop stale submodule checkouts (self-hosted reused workspace)",
+}
 # Steps whose `if:` tests the event, which does not apply off Actions. Any
 # other condition beyond `matrix.group == '...'` fails the plan rather than
 # silently dropping a step.
@@ -276,7 +281,7 @@ def plan(workflow: dict, base_sha: str, head_sha: str) -> list[Unit]:
                     raise PlanError(f"step {name!r} has a condition run_ci_guards.py cannot evaluate: {condition}")
                 if named and group not in named:
                     continue
-                if "uses" in raw or name in DEPENDENCY_STEPS:
+                if "uses" in raw or name in DEPENDENCY_STEPS or name in WORKSPACE_STEPS:
                     continue
                 env = {k: resolve(v, context) for k, v in (raw.get("env") or {}).items()}
                 steps.append(
@@ -605,7 +610,7 @@ def main(argv: list[str]) -> int:
     step_names = {
         str(s.get("name")) for job in GUARD_JOBS for s in (workflow["jobs"].get(job) or {}).get("steps", [])
     }
-    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
+    stale = (DEPENDENCY_STEPS | WORKSPACE_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
     # An older checkout (--root, a bisect) may predate a special-cased step; the names only have to be current here.
     if stale and not args.root:
         print(f"run_ci_guards.py: ci-guards.yml has no step named {sorted(stale)}; update this script", file=sys.stderr)

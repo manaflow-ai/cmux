@@ -131,13 +131,13 @@
       "action": "cmux cloud new-machine"
     },
     "goLimit": {
-      "savedMessage": "Go 最多保存两台 VM，包括正在运行的 VM。",
+      "savedMessage": "Plus: 共可保存 1 台 VM，包括已暂停的机器",
       "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
-      "activeMessage": "Go 同时可运行一台 VM。",
+      "activeMessage": "Plus: 1 台 Cloud VM",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
-      "hoursMessage": "Go 本月的 40 VM 小时已用完。保存的 VM 可在下一个计费周期开始后继续使用。",
+      "hoursMessage": "Plus: 无每月小时数上限",
       "hoursAction": "https://cmux.com/pricing",
-      "shapeMessage": "Go 支持 2 vCPU、4 GiB 内存和 16 GiB 磁盘。",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
       "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
@@ -158,7 +158,7 @@
       "action": "暂停或删除一台 VM。"
     },
     "activeLimit": {
-      "counted": "当前计入：{machines}。已暂停的机器不计入。",
+      "counted": "当前计入：{machines}。已暂停的机器也计入上限。",
       "provisioning": "{name}（正在预配）",
       "separator": "、"
     }
@@ -423,13 +423,13 @@
     "faqCustomizeQ": "可以自定义 cmux 吗？",
     "faqCustomizeA": "是的。终端渲染使用你的 Ghostty 配置，因此主题、字体、颜色和光标会直接沿用。cmux 自身的设置位于 <path>~/.config/cmux/cmux.json</path>，用于控制侧边栏、标签栏、分割面板和行为，每个<shortcutsLink>键盘快捷键</shortcutsLink>都可编辑。参阅<link>配置</link>。",
     "faqIosQ": "有 iOS 应用吗？",
-    "faqIosA": "有，目前是 beta 版。在 Mobile Connect 窗口中将你的 iPhone 与 Mac 配对，即可从手机连接到你的终端，并可选择转发终端通知。它通过 TestFlight 以 cmux BETA 的形式发布。<foundersLink>cmux Founders Edition</foundersLink> 包含抢先访问权限。",
+    "faqIosA": "有，目前是 beta 版。在 Mobile Connect 窗口中将你的 iPhone 与 Mac 配对，即可从手机连接到你的终端，并可选择转发终端通知。它通过 TestFlight 以 cmux BETA 的形式发布。",
     "faqSkillsQ": "cmux 有 skills 吗？",
     "faqSkillsA": "有。skills 是可复用的工作流，你可以把它交给任何在 cmux 中运行的 agent，用于 CLI 控制、工作区自动化、设置和浏览器界面等场景。在 <skillsLink>cmux-skills</skillsLink> 浏览开放的集合，或阅读 <link>skills 文档</link>。",
     "faqBrowserQ": "内置浏览器能做什么？",
     "faqBrowserA": "cmux 可以在终端旁边分屏打开一个真正的浏览器面板，并且完全可编程：导航、对 DOM 截照、点击、输入、执行 JavaScript，以及通过同一个 socket API 读取控制台和网络活动。agent 用它来验证自己的 web 改动，无需离开 cmux。参阅<link>浏览器自动化</link>。",
     "faqSupportQ": "我该如何支持 cmux？",
-    "faqSupportA": "cmux 免费且开源，并且永远都会如此。如果你想支持开发并抢先体验后续内容，包括 cmux AI、iOS 应用和 Cloud VMs，请了解 <foundersLink>cmux Founders Edition</foundersLink>。",
+    "faqSupportA": "cmux 免费且开源，并且永远都会如此。",
     "faqFeatureQ": "我有功能请求或发现了一个 bug",
     "faqFeatureA": "我们很想听到你的反馈。在 GitHub 上提交一个 <issuesLink>issue</issuesLink> 或 <prLink>pull request</prLink>，或者 <mailLink>给我们发邮件</mailLink>。"
   },
@@ -552,12 +552,12 @@
           "granted": "由 cmux 授予，没有可更改的内容。",
           "grantedNoCancel": "由 cmux 授予，因此无需取消。",
           "paymentFailed": "更改方案前，请先更新付款方式。",
-          "foundersLifetime": "Founder's Edition 永久包含 Pro。",
+          "foundersLifetime": "你的永久购买包含 Pro。",
           "adminOnly": "只有团队管理员可以更改套餐。"
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -569,9 +569,10 @@
             "本地会话历史"
           ],
           "go": [
-            "1 台运行中的 Cloud VM",
-            "每月 40 VM 小时",
-            "2 台已保存的 VM"
+            "共可保存 1 台 VM，包括已暂停的机器",
+            "2–8 vCPU · 4–16 GiB 内存 · 16–128 GiB 磁盘",
+            "社区支持",
+            "无每月小时数上限"
           ],
           "pro": [
             "在 Cloud VM 上运行云端智能体",
@@ -608,8 +609,8 @@
         "title": "取消 {plan}？",
         "body": "你可以使用 {plan} 到 {date}。之后你将失去：",
         "bodyNoDate": "你可以使用 {plan} 到本计费周期结束。之后你将失去：",
-        "foundersBody": "你的 {plan} 订阅将于 {date} 结束。之后你将使用 Founder's Edition 永久包含的 Pro。",
-        "foundersBodyNoDate": "你的 {plan} 订阅将在本计费周期结束时结束。之后你将使用 Founder's Edition 永久包含的 Pro。",
+        "foundersBody": "你的 {plan} 订阅将于 {date} 结束。之后你仍可通过永久购买使用 Pro。",
+        "foundersBodyNoDate": "你的 {plan} 订阅将在本计费周期结束时结束。之后你仍可通过永久购买使用 Pro。",
         "reasonLabel": "为什么取消？（可选）",
         "otherPlaceholder": "告诉我们更多（可选）",
         "confirm": "取消套餐",
@@ -636,6 +637,12 @@
         "title": "通过 App Store 计费",
         "body": "你的方案是在 cmux iPhone 应用中购买的，由 Apple 计费。请在 App Store 订阅中更改或取消。",
         "manage": "在 App Store 中管理"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "你的 Plus 套餐将于 {date} 续订。",
+        "pendingBody": "你的 Plus 套餐将于 {date} 结束。",
+        "monthlyPrice": "${amount}/月"
       }
     },
     "mobileDevices": {
@@ -970,7 +977,7 @@
       },
       "plan": {
         "free": "免费",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2877,7 +2884,7 @@
       "intro": "cmux iOS 应用是你 Mac 的配套应用。将 iPhone 或 iPad 与运行 cmux 的 Mac 配对，即可从手机连接到你的终端，并可选择转发终端通知。",
       "betaNote": "iOS 应用处于测试版阶段。它通过 TestFlight 以 cmux BETA 的形式发布。",
       "accessTitle": "获取访问权限",
-      "accessDesc": "该应用通过 TestFlight 分发。<foundersLink>cmux Founders Edition</foundersLink> 包含抢先访问权限，以及其他早期功能。",
+      "accessDesc": "该应用通过 TestFlight 分发。cmux Pro 包含测试版访问权限；请在控制台的 TestFlight 页面加入。",
       "prereqTitle": "前提条件",
       "prereqIntro": "开始之前，你需要：",
       "prereq1": "一台运行 cmux 并已登录的 Mac。",
@@ -2965,9 +2972,9 @@
       "limitsTitle": "套餐限制",
       "limitsDesc": "你的活跃机器共享同一个 vCPU 和内存资源池。你可以运行一台大机器，也可以运行几台小机器。已暂停的机器不占用资源池。磁盘按每台机器单独设置，不计入资源池。",
       "limitsFree": "免费账户无法创建机器。",
-      "limitsPaid": "Pro 和 Founder's Edition 账户最多可拥有 5 台活跃机器，共享 20 个 vCPU 和 40 GB 内存。正在运行或正在启动的机器即为活跃机器。",
-      "limitsTeam": "Team 账户每个付费席位最多可拥有 5 台活跃机器。每个付费席位会为团队资源池增加 20 个 vCPU 和 40 GB 内存。",
-      "limitsMax": "Max 账户最多可拥有 5 台活跃机器，共享 80 个 vCPU 和 160 GB 内存。单台 Max 机器最多可使用 64 GB 和 32 个 vCPU，包括 24 GB / 12 vCPU 和 32 GB / 16 vCPU 规格；Pro 和 Team 的上限为 16 GB 和 8 个 vCPU。",
+      "limitsPaid": "Pro 账户最多可拥有 5 台机器（包括已暂停的机器），共享 20 个 vCPU 和 40 GB 内存。",
+      "limitsTeam": "Team 账户每个付费席位最多可拥有 5 台机器（包括已暂停的机器）。每个付费席位会为团队资源池增加 20 个 vCPU 和 40 GB 内存。",
+      "limitsMax": "Max 账户最多可拥有 5 台机器（包括已暂停的机器），共享 80 个 vCPU 和 160 GB 内存。单台 Max 机器最多可使用 64 GB 和 32 个 vCPU，包括 24 GB / 12 vCPU 和 32 GB / 16 vCPU 规格；Pro 和 Team 的上限为 16 GB 和 8 个 vCPU。",
       "limitsPoolFull": "如果新建、恢复、扩容或分叉的机器会超出资源池，cmux 会拒绝该请求，并显示资源池的已用量。暂停或删除一台机器以释放资源，或升级到 Max。",
       "limitsPricing": "当前价格请查看定价页面。不按用量计费，也没有超额费用。",
       "agentUpdatesTitle": "让编码代理保持最新",
@@ -2977,7 +2984,7 @@
       "agentUpdatesToggle": "“新建机器”面板默认开启此设置。要为现有机器更改，请右键点击机器并选择“让代理保持最新”，或运行 cmux vm agent-updates。除非传入 --agent-updates latest，否则 cmux vm new 会保留镜像中的版本。关闭更新后，已安装的版本会保留。",
       "agentUpdatesNetwork": "更新只使用 github.com, api.github.com, objects.githubusercontent.com 和 release-assets.githubusercontent.com。cmux 在所有网络模式下都允许这些主机，包括“允许列表”和“无互联网”，因此网络策略不会阻止更新。",
       "resizeTitle": "调整规格",
-      "resizeDesc": "你可以在不丢失数据的情况下扩大机器。右键点击机器并选择 Resize machine，或使用 cmux vm resize。调整规格只能扩大机器。磁盘以 4 GB 为步长，在 Pro 和 Team 中最多扩展到 128 GB，在 Max 中最多扩展到 256 GB（Go 限制为 16 GB）。在 Pro 和 Team 中，内存最多 16 GB，CPU 最多 8 vCPU；在 Max 中，内存最多 64 GB，CPU 最多 32 vCPU。机器越大，占用的资源池越多。实际上限由你的套餐决定。",
+      "resizeDesc": "你可以在不丢失数据的情况下扩大机器。右键点击机器并选择 Resize machine，或使用 cmux vm resize。调整规格只能扩大机器。磁盘以 4 GB 为步长，在 Pro 和 Team 中最多扩展到 128 GB，在 Max 中最多扩展到 256 GB（Plus 限制为 16 GB）。在 Pro 和 Team 中，内存最多 16 GB，CPU 最多 8 vCPU；在 Max 中，内存最多 64 GB，CPU 最多 32 vCPU。机器越大，占用的资源池越多。实际上限由你的套餐决定。",
       "pauseTitle": "暂停与恢复",
       "pauseDesc": "cmux vm pause 会停止机器的计算资源。磁盘、工作区和终端历史会保留，正在运行的进程会停止。cmux vm resume 会重新启动机器。打开已暂停的机器或在其上运行命令也会启动它。",
       "pauseIdle": "机器空闲时不会自动暂停。机器会一直运行，直到你暂停或删除它。",
@@ -5257,7 +5264,18 @@
     "billingUnavailable": "目前无法使用结算功能。请稍后再试。",
     "signedOutNotice": "你尚未登录。登录后可查看当前方案或恢复已有购买。",
     "signedOutSignIn": "登录",
-    "manageInAppStore": "在 App Store 中管理"
+    "manageInAppStore": "在 App Store 中管理",
+    "go": {
+      "name": "Plus",
+      "cta": "获取 Plus",
+      "featuresLead": "包含：",
+      "features": [
+        "共可保存 1 台 VM，包括已暂停的机器",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "社区支持",
+        "无每月小时数上限"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

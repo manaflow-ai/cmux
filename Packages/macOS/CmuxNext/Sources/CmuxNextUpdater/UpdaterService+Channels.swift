@@ -16,8 +16,20 @@ extension UpdaterService {
         let kept = await Task.detached { [keptVersions] in Set(keptVersions.list().map(\.build)) }.value
         async let verdicts = Self.verdicts(for: recent.map(\.build), in: folder)
         async let pulled = Self.pulled(in: folder)
+        async let feed = feedItems()
         return ChannelTrack.tracks(index: recent, verdicts: await verdicts, pulled: await pulled,
-                                   installedBuild: identity.build, keptBuilds: kept, followed: ring, limit: limit)
+                                   installedBuild: identity.build, keptBuilds: kept, followed: ring, limit: limit,
+                                   feedItems: await feed)
+    }
+
+    /// Every item of this app's feed the fastest ring sees; none offline or for a build that
+    /// follows no feed.
+    func feedItems() async -> [AppcastItem] {
+        guard switchesBuilds else { return [] }
+        let allowed = identity.feed().channel.allowedSparkleChannels(ring: .dev)
+        var feedIdentity = identity
+        if let testFeedURL { feedIdentity.infoFeedURL = testFeedURL }
+        return (try? await prober.offered(feedIdentity, allowedChannels: allowed)) ?? []
     }
 
     /// Where the cmux NEXT feed keeps `verdicts/` and `pulled.json`: beside its appcast

@@ -71,13 +71,14 @@ const pscale = (args: ReadonlyArray<string>, bin = process.env.PSCALE_BIN || "ps
 /** pscale's error text without anything that looks like a credential. */
 const errorText = (run: Run) => (run.stderr || run.stdout).replace(/pscale_[a-z]+_[A-Za-z0-9_.-]+/g, "<redacted>").replace(/"password"\s*:\s*"[^"]*"/g, '"password":"<redacted>"').trim().slice(0, 400)
 
-const must = async (args: ReadonlyArray<string>): Promise<string> => {
+/** pscale's stdout (JSON) for `args`, or an error with credentials redacted. Never log what it returns for role create/reset. */
+export const must = async (args: ReadonlyArray<string>): Promise<string> => {
   const run = await pscale(args)
   if (run.code !== 0) throw new Error(`pscale ${args.slice(0, 2).join(" ")} failed: ${errorText(run)}`)
   return run.stdout
 }
 
-interface RoleJson {
+export interface RoleJson {
   readonly id?: string
   readonly name?: string
   readonly username?: string

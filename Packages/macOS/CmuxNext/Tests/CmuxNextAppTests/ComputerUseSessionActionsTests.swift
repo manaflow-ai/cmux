@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextComputerUse
 import Foundation
 import Testing
 

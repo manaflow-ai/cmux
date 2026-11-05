@@ -15,6 +15,33 @@ public final class AgentPaneSandboxRuns {
 
     public var isRunning: Bool { running != nil }
 
+    /// Whether this pane's send, running or ended, is attempt `key`.
+    public func holds(key: String) -> Bool { running?.key == key || last?.key == key }
+
+    /// The attempt whose page may still show an answer older than its Run's end: its send answered
+    /// without the receipt, and ``settle(key:snapshot:)`` put the receipt in its place afterwards.
+    public private(set) var settledLate: String?
+    /// A running send's Run that ended before the send answered: the send's reply, if it carries
+    /// no receipt, becomes this one (``run(task:key:_:)``).
+    private var endedEarly: (key: String, snapshot: [String: Any])?
+
+    /// Attempt `key`'s Run ended. A send that answered without its receipt (a lost wait, the send's
+    /// deadline) takes it for the page's next read; a send still running takes it when it answers.
+    public func settle(key: String, snapshot: [String: Any]) {
+        if running?.key == key { endedEarly = (key, snapshot); return }
+        guard let last, last.key == key, last.reply["ok"] as? Bool != true else { return }
+        self.last = (last.task, key, AgentPaneReply.sandbox(snapshot: snapshot))
+        settledLate = key
+    }
+
+    /// A send that ended elsewhere, shown by this new pane as its own (``AgentPaneSeedSource/sandboxResult``):
+    /// the page reads it with `sandbox.state`, and the tab's one send is spent. A pane that holds a send keeps it.
+    func restore(_ result: AgentPaneSeed.SandboxResult?) {
+        guard let result, running == nil, last == nil else { return }
+        let card = result.card.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
+        last = (result.task, result.key, AgentPaneReply.sandbox(snapshot: card))
+    }
+
     /// A send's reply as its task's result: main-actor bound, so it may cross the task's end.
     @MainActor final class Reply {
         let value: [String: Any]
@@ -50,8 +77,10 @@ public final class AgentPaneSandboxRuns {
         // task-owner: the pane's one Sandboxed send; it ends when the App's runner answers (bounded there)
         let job = Task { @MainActor in Reply(await work()) }
         running = (task, key, job)
-        let reply = await job.value.value
+        var reply = await job.value.value
         running = nil
+        if let ended = endedEarly, ended.key == key, reply["ok"] as? Bool != true { reply = AgentPaneReply.sandbox(snapshot: ended.snapshot) }
+        endedEarly = nil
         last = (task, key, reply)
         return reply
     }

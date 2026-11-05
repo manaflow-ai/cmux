@@ -12,22 +12,29 @@ import java.util.Objects;
 
 /** Immutable cloud-inbox-list request. Protocol v12; authority: local-admin. */
 public final class CloudInboxListRequest implements WireValue {
+    private final Field<String> cursor;
     private final Field<Boolean> includeArchived;
     private final Field<Long> limit;
 
     private CloudInboxListRequest(Builder builder) {
+        this.cursor = builder.cursor;
         this.includeArchived = builder.includeArchived;
         this.limit = builder.limit;
     }
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<String> cursor() { return cursor; }
     public Field<Boolean> includeArchived() { return includeArchived; }
     public Field<Long> limit() { return limit; }
 
     public static CloudInboxListRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "CloudInboxListRequest");
         Builder builder = builder();
+        Object rawCursor = Wire.optional(object, "cursor");
+        if (!Wire.isMissing(rawCursor)) {
+            builder.cursor(rawCursor == null ? null : Wire.string(rawCursor, "CloudInboxListRequest.cursor"));
+        }
         Object rawIncludeArchived = Wire.optional(object, "include_archived");
         if (!Wire.isMissing(rawIncludeArchived)) {
             builder.includeArchived(Wire.bool(rawIncludeArchived, "CloudInboxListRequest.include_archived"));
@@ -42,6 +49,7 @@ public final class CloudInboxListRequest implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "cursor", cursor);
         Wire.put(object, "include_archived", includeArchived);
         Wire.put(object, "limit", limit);
         return Collections.unmodifiableMap(object);
@@ -50,19 +58,24 @@ public final class CloudInboxListRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloudInboxListRequest that)) return false;
-        return Objects.equals(includeArchived, that.includeArchived) && Objects.equals(limit, that.limit);
+        return Objects.equals(cursor, that.cursor) && Objects.equals(includeArchived, that.includeArchived) && Objects.equals(limit, that.limit);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(includeArchived, limit); }
+    public int hashCode() { return Objects.hash(cursor, includeArchived, limit); }
 
     @Override
     public String toString() { return "CloudInboxListRequest" + toWire(); }
 
     public static final class Builder {
+        private Field<String> cursor = Field.omitted();
         private Field<Boolean> includeArchived = Field.omitted();
         private Field<Long> limit = Field.omitted();
 
+        public Builder cursor(String value) {
+            this.cursor = Field.ofNullable(value);
+            return this;
+        }
         public Builder includeArchived(Boolean value) {
             this.includeArchived = Field.of(value);
             return this;

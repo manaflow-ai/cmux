@@ -1,0 +1,65 @@
+/* Activity rows share the transcript tool grid: icon, sentence, the chevron right after the words
+   (ChatGPT's "Worked for 11s ⌄"; Leo, 2026-11-03: "this how chatgpt does their chevrons"), then the
+   trailing status at the line's end. */
+.cv-agent-activity-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  color: var(--cv-activity-text);
+  cursor: default;
+  user-select: none;
+}
+/* The line's words keep their rest tone under the pointer and focus; only its chevron lifts, and
+   only on a line that is a button and opens something. A hover highlight covers only its own
+   control, never the whole row (Leo, 2026-11-03, on "2 background updates" brightening edge to
+   edge: "this thing appears/lights up on hover for no reason!?"; test
+   webviews/test/transcript-row-hover-scope.test.ts). */
+/* A line whose chevron sits beside its button, not inside it (SubagentDoneLine.tsx). A disabled
+   button opens nothing, so its chevron stays at rest. */
+.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > button.cv-agent-activity__control:not(:disabled) .cv-agent-activity__chevron,
+.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))):has(> button.cv-agent-activity__control:not(:disabled)) > .cv-agent-activity__chevron {
+  color: var(--cv-text);
+}
+.cv-agent-activity__control {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.cv-agent-activity__sentence {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  order: 1;
+  gap: var(--cv-tool-gap);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-agent-activity__sentence > :not(.cv-agent-tag) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-agent-activity__control > .cv-agent-activity__trail {
+  order: 4;
+  flex: none;
+  margin-inline-start: auto;
+}
+.cv-agent-activity__control > .cv-agent-activity__chevron {
+  order: 2;
+  flex: none;
+  cursor: default;
+}
+.cv-agent-activity-row > .cv-subagent-retry,
+.cv-agent-activity-row > .cv-subagent-done__actions {
+  order: 2;
+  flex: none;
+}
+
+/* A disclosure line (DisclosureRow: subagent, inbox and subsession lines) keeps its words at one
+   tone too; only its chevron lifts. A received message's line keeps even that steady
+   (conversation.css `.cv-received__text`). */
+.cv-agent-activity-row.cv-disclosure__line:not(.cv-received > *):is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) .cv-disclosure__toggle > .cv-rotor {
+  color: var(--cv-text);
+}

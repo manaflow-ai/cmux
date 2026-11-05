@@ -248,7 +248,7 @@ export const env = createEnv({
     CMUX_APNS_KEY_P8: z.string().min(1).optional(),
     CMUX_APNS_KEY_ID: z.string().min(1).optional(),
     CMUX_APNS_TEAM_ID: z.string().min(1).optional(),
-    // cmux Founder's Edition welcome email (Stripe webhook -> Resend). Optional:
+    // Legacy purchase welcome email (Stripe webhook -> Resend). Optional:
     // the /api/stripe/founders-welcome route returns "not configured" until the
     // webhook signing secret is set. CMUX_FOUNDERS_FROM_EMAIL overrides the
     // sender (defaults to austin@manaflow.ai) so the verified Resend domain can
@@ -297,7 +297,11 @@ export const env = createEnv({
     STRIPE_PRO_YEARLY_480_PRICE_ID: z.string().min(1).optional(),
     STRIPE_MAX_MONTHLY_200_PRICE_ID: z.string().min(1).optional(),
     STRIPE_MAX_YEARLY_1920_PRICE_ID: z.string().min(1).optional(),
-    STRIPE_GO_MONTHLY_10_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_STARTER_MONTHLY_20_PRICE_ID: retiredEnvValue(
+      "STRIPE_STARTER_MONTHLY_20_PRICE_ID",
+      "STRIPE_STARTER_MONTHLY_15_PRICE_ID",
+    ),
+    STRIPE_STARTER_MONTHLY_15_PRICE_ID: z.string().min(1).optional(),
     // Optional pin for the Pro <-> Max portal configuration; otherwise the
     // configuration is found by its metadata (see services/billing/stripe.ts).
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: z.string().min(1).optional(),
@@ -539,7 +543,8 @@ export const env = createEnv({
     STRIPE_PRO_YEARLY_480_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_480_PRICE_ID),
     STRIPE_MAX_MONTHLY_200_PRICE_ID: trimEnv(process.env.STRIPE_MAX_MONTHLY_200_PRICE_ID),
     STRIPE_MAX_YEARLY_1920_PRICE_ID: trimEnv(process.env.STRIPE_MAX_YEARLY_1920_PRICE_ID),
-    STRIPE_GO_MONTHLY_10_PRICE_ID: trimEnv(process.env.STRIPE_GO_MONTHLY_10_PRICE_ID),
+    STRIPE_STARTER_MONTHLY_20_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_20_PRICE_ID),
+    STRIPE_STARTER_MONTHLY_15_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_15_PRICE_ID),
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: trimEnv(
       process.env.STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID,
     ),

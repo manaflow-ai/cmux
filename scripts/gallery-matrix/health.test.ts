@@ -7,9 +7,30 @@ const ready = { id: "a", params: { entry: "ui.select", variant: "open" }, ready:
 
 test("a state that rendered is healthy, even with quality findings", () => {
   expect(brokenReason(ready)).toBeNull();
-  expect(brokenReason({ ...ready, play: { status: "fail", error: "" } })).toBeNull();
-  expect(brokenReason({ ...ready, play: { status: "fail", error: "motion did not settle" } })).toBeNull();
+  expect(brokenReason({ ...ready, play: null })).toBeNull();
+  expect(brokenReason({ ...ready, play: { status: "pass" } })).toBeNull();
+  expect(brokenReason({ ...ready, play: { status: "none" } })).toBeNull();
   expect(brokenReason({ ...ready, play: { status: "warn" } })).toBeNull();
+  // A play that finished with failing quality steps (layout shift, long frames) has no error.
+  expect(brokenReason({ ...ready, play: { status: "fail" } })).toBeNull();
+  // A play that threw its motion probe's own problem failed on motion, a quality finding.
+  const motion = { status: "fail", problems: ["motion did not settle"] };
+  expect(brokenReason({ ...ready, play: { status: "fail", error: "motion did not settle", motion } })).toBeNull();
+});
+
+test("a play that throws is broken, whatever it threw", () => {
+  const threw = (error: string) => brokenReason({ ...ready, play: { status: "fail", error } });
+  expect(threw("Permission mode titles are not in menu order: Default | Full access")).toBe(
+    "play threw: Permission mode titles are not in menu order: Default | Full access",
+  );
+  expect(threw("motion did not settle")).toBe("play threw: motion did not settle");
+  expect(threw("TypeError: Cannot read properties of null (reading 'click')\n    at play (entry.ts:12:3)")).toBe(
+    "play threw: TypeError: Cannot read properties of null (reading 'click')",
+  );
+  expect(threw("")).toBe("play threw with no message");
+  expect(brokenStates([{ ...ready, play: { status: "fail", error: "nothing runs: no tray" } }])).toEqual(
+    new Map([["ui.select#open", "play threw: nothing runs: no tray"]]),
+  );
 });
 
 test("a stage that errors, never readies or dies is broken; one that is empty on purpose is not", () => {

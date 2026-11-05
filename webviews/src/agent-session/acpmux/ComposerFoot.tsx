@@ -10,9 +10,17 @@ export const InQuietRow = createContext(false);
 // and Send or Stop. The chat composer (Composer.tsx) and the New Tab page (NewTabScreen.tsx) draw
 // the same row: it is the composer bar's controls (`acpmux-composer-bar`, its fit steps and chip
 // states) moved out of the box.
-export function ComposerFoot({ ref, children }: { ref?: React.Ref<HTMLDivElement>; children: React.ReactNode }) {
+export function ComposerFoot({
+  ref,
+  children,
+  plain = true,
+}: {
+  ref?: React.Ref<HTMLDivElement>;
+  children: React.ReactNode;
+  plain?: boolean;
+}) {
   return (
-    <div ref={ref} className="acpmux-composer-bar acpmux-composer-foot" data-footer-look="plain">
+    <div ref={ref} className="acpmux-composer-bar acpmux-composer-foot" data-footer-look={plain ? "plain" : undefined}>
       <InQuietRow.Provider value={true}>{children}</InQuietRow.Provider>
     </div>
   );

@@ -170,17 +170,25 @@ await requireBrowserLane("agent-pane-long-prompt.test.ts", async () => {
     // The last lines fade under a mask, not a solid cover.
     expect(closed.mask).toContain("gradient");
 
-    // The row below starts where the prompt's row ends: no overlap, no hole.
-    const gap = await page.evaluate(() => {
+    // The row below starts one turn gap under the prompt's row: no overlap, no hole. On the layout
+    // grid (#27580, leo-workspace design/grid.md 5.5) a row carries no gap of its own; the stack
+    // places a prompt's neighbour `--grid-gap-turn` (32) away, read here as the pane draws it.
+    const { gap, turnGap } = await page.evaluate(() => {
       const long = document.querySelector<HTMLElement>("article[data-row-id='user-1']")!.getBoundingClientRect();
       const after = long.bottom;
       const below = [...document.querySelectorAll<HTMLElement>("article[data-row-id]")]
         .map((row) => row.getBoundingClientRect())
         .filter((rect) => rect.top >= long.top + 1)
         .sort((a, b) => a.top - b.top)[0];
-      return below ? below.top - after : 0;
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:absolute;visibility:hidden;height:var(--grid-gap-turn)";
+      document.querySelector(".acpmux-thread")!.append(probe);
+      const turnGap = probe.getBoundingClientRect().height;
+      probe.remove();
+      return { gap: below ? below.top - after : Number.NaN, turnGap };
     });
-    expect(Math.abs(gap)).toBeLessThan(1);
+    expect(turnGap).toBeGreaterThan(0);
+    expect(Math.abs(gap - turnGap)).toBeLessThan(1);
 
     // The toggle by its state, not its English words (REVIEW.md).
     const toggle = longRow.locator(".cv-user__more");

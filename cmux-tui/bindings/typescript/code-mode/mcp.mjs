@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 const sourceRoot = join(import.meta.dir, "../../../..");
 const bundledRoot = join(import.meta.dir, "..");
@@ -27,9 +28,28 @@ const runner = root === sourceRoot
   : join(root, "bin/cmux-code-mode-runner");
 const MAX_FRAME_BYTES = 1024 * 1024;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
-const EXEC_TIMEOUT_MS = 30_000;
+const { DEFAULT_TIMEOUT_MS, timeoutMs } = await import(root === sourceRoot
+  ? "./supervise.mjs" : "./sdk/code-mode/supervise.mjs");
 const encoder = new TextEncoder();
 const activeExecutions = new Map();
+const controllers = new Set();
+const pendingRequests = new Set();
+let shuttingDown = false;
+function shutdown() {
+  shuttingDown = true;
+  for (const controller of controllers) controller.abort();
+}
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    shutdown();
+    process.stdin.destroy();
+    process.exitCode = signal === "SIGINT" ? 130 : 143;
+  });
+}
+process.stdout.on("error", () => {
+  shutdown();
+  process.stdin.destroy();
+});
 
 const tools = [
   {
@@ -49,7 +69,11 @@ const tools = [
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      properties: { script: { type: "string", minLength: 1, description: "UTF-8 TypeScript, at most 262144 bytes" } },
+      properties: {
+        script: { type: "string", minLength: 1, description: "UTF-8 TypeScript, at most 262144 bytes" },
+        timeout_ms: { type: "integer", minimum: 1, maximum: 2147483647,
+          default: DEFAULT_TIMEOUT_MS, description: "Wall-clock run limit in milliseconds, including tool calls" },
+      },
       required: ["script"],
     },
     annotations: { destructiveHint: false },
@@ -75,28 +99,30 @@ function docs(query) {
   return JSON.stringify({ query, results });
 }
 
-async function execute(script, signal) {
-  const path = `/tmp/cmux-code-mode-${randomUUID()}.ts`;
-  await Bun.write(path, script);
+async function execute(script, signal, limit) {
+  const path = join(tmpdir(), `cmux-code-mode-${randomUUID()}.ts`);
   try {
+    signal.throwIfAborted();
+    await Bun.write(path, script);
+    signal.throwIfAborted();
     const child = Bun.spawn([runner, path], {
       detached: true,
-      env: { ...process.env },
+      env: { ...process.env, CMUX_CODE_MODE_TIMEOUT_MS: String(limit) },
       stdout: "pipe",
       stderr: "pipe",
     });
-    let timedOut = false;
     let cancelled = false;
     let killTimer;
     let terminated = false;
     const terminate = () => {
       if (terminated) return;
       terminated = true;
-      try { process.kill(-child.pid, "SIGTERM"); } catch {}
-      child.kill();
+      // The shared supervisor owns the worker group and sandbox cleanup.
+      // Do not send a second TERM into a shell already running its exit trap.
+      child.kill("SIGTERM");
       killTimer = setTimeout(() => {
         try { process.kill(-child.pid, "SIGKILL"); } catch {}
-      }, 250);
+      }, 2_000);
     };
     const cancel = () => {
       cancelled = true;
@@ -104,7 +130,6 @@ async function execute(script, signal) {
     };
     if (signal?.aborted) cancel();
     else signal?.addEventListener("abort", cancel, { once: true });
-    const timer = setTimeout(() => { timedOut = true; terminate(); }, EXEC_TIMEOUT_MS);
     const read = async (stream) => {
       const reader = stream.getReader();
       const decoder = new TextDecoder();
@@ -126,9 +151,9 @@ async function execute(script, signal) {
     try {
       const [stdout, stderr] = await Promise.all([read(child.stdout), read(child.stderr)]);
       const exitCode = await child.exited;
-      return { exitCode, stdout, stderr, timedOut, cancelled };
+      return { exitCode, stdout, stderr, timedOut: exitCode === 124,
+        cancelled: cancelled || exitCode === 130 || exitCode === 143 };
     } finally {
-      clearTimeout(timer);
       clearTimeout(killTimer);
       signal?.removeEventListener("abort", cancel);
     }
@@ -176,16 +201,20 @@ async function handle(message) {
     }
     text = docs(args.query);
   } else if (name === "cmux_exec") {
-    if (Object.keys(args).some((key) => key !== "script")
+    if (Object.keys(args).some((key) => key !== "script" && key !== "timeout_ms")
       || typeof args.script !== "string" || !args.script
       || encoder.encode(args.script).byteLength > 262144) {
       throw new Error("script must be a non-empty UTF-8 string of at most 262144 bytes");
     }
+    const limit = timeoutMs(args.timeout_ms);
     const controller = new AbortController();
+    controllers.add(controller);
+    if (shuttingDown) controller.abort();
     if (hasId) activeExecutions.set(id, controller);
     try {
-      text = await execute(args.script, controller.signal);
+      text = await execute(args.script, controller.signal, limit);
     } finally {
+      controllers.delete(controller);
       if (hasId) activeExecutions.delete(id);
     }
   } else {
@@ -199,41 +228,55 @@ async function handle(message) {
 }
 
 function dispatch(message) {
-  handle(message).catch((error) => {
+  const request = handle(message).catch((error) => {
     if (Object.hasOwn(message, "id")) {
       send({ jsonrpc: "2.0", id: message.id, error: { code: -32602, message: String(error?.message ?? error) } });
     }
   });
+  pendingRequests.add(request);
+  request.finally(() => pendingRequests.delete(request));
 }
 
 let pending = Buffer.alloc(0);
-for await (const chunk of process.stdin) {
-  pending = Buffer.concat([pending, Buffer.from(chunk)]);
-  if (pending.length > MAX_FRAME_BYTES + 8192) {
-    send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "frame exceeds 1 MiB" } });
-    process.exit(1);
-  }
-  while (true) {
-    const end = pending.indexOf(10);
-    if (end < 0) break;
-    const body = pending.subarray(0, end).toString().replace(/\r$/, "");
-    pending = pending.subarray(end + 1);
-    if (Buffer.byteLength(body) > MAX_FRAME_BYTES) {
+try {
+  for await (const chunk of process.stdin) {
+    pending = Buffer.concat([pending, Buffer.from(chunk)]);
+    if (pending.length > MAX_FRAME_BYTES + 8192) {
       send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "frame exceeds 1 MiB" } });
-      continue;
+      process.exitCode = 1;
+      break;
     }
-    let message;
-    try {
-      message = JSON.parse(body);
-    } catch (error) {
-      send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: String(error?.message ?? error) } });
-      continue;
+    while (true) {
+      const end = pending.indexOf(10);
+      if (end < 0) break;
+      const body = pending.subarray(0, end).toString().replace(/\r$/, "");
+      pending = pending.subarray(end + 1);
+      if (Buffer.byteLength(body) > MAX_FRAME_BYTES) {
+        send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "frame exceeds 1 MiB" } });
+        continue;
+      }
+      let message;
+      try {
+        message = JSON.parse(body);
+      } catch (error) {
+        send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: String(error?.message ?? error) } });
+        continue;
+      }
+      if (!message || typeof message !== "object" || Array.isArray(message)
+        || message.jsonrpc !== "2.0" || typeof message.method !== "string") {
+        send({ jsonrpc: "2.0", id: message?.id ?? null, error: { code: -32600, message: "invalid JSON-RPC request" } });
+        continue;
+      }
+      dispatch(message);
     }
-    if (!message || typeof message !== "object" || Array.isArray(message)
-      || message.jsonrpc !== "2.0" || typeof message.method !== "string") {
-      send({ jsonrpc: "2.0", id: message?.id ?? null, error: { code: -32600, message: "invalid JSON-RPC request" } });
-      continue;
-    }
-    dispatch(message);
   }
+
+} catch (error) {
+  if (!shuttingDown) {
+    console.error(error);
+    process.exitCode = 1;
+  }
+} finally {
+  shutdown();
+  await Promise.allSettled(pendingRequests);
 }

@@ -10,6 +10,7 @@ import { isPageError, type PageClient } from "../shared/pageClient";
 import type { FilesView } from "./files";
 import {
   ACTION_RUN,
+  CloudActions,
   CloudOps,
   HostActions,
   isGone,
@@ -22,6 +23,13 @@ import {
   type PortListResult,
   type SnapshotListResult,
 } from "./ops";
+import { createPreviewShare, revokePreviewShare, type PreviewShare } from "./previewShare";
+
+export type PortAction = "forward" | "close" | "browser" | "share" | "revoke";
+export interface PendingPort {
+  port: number;
+  action: PortAction;
+}
 
 export interface MachineDetail {
   machine: string;
@@ -29,10 +37,14 @@ export interface MachineDetail {
   snapshots?: CloudSnapshot[];
   /** This Mac's forwards to the machine (`cloud.port.list`). */
   ports?: PortForward[];
+  /** Actions stay pending through their host call and reconciliation, independently per port. */
+  pendingPorts?: readonly PendingPort[];
   /** The last `cloud.browser.open` answer: its URL shows even when the host cannot open a tab. */
   browser?: BrowserRoute;
   /** The host refused the proxied tab for `browser` (typed error); nothing was opened. */
   browserRefused?: boolean;
+  /** One anonymous preview link per port, kept only to offer Revoke in this view. */
+  sharedPreviews?: Record<number, PreviewShare>;
   /** The Files section; read on demand (files.ts), never on selection. */
   files?: FilesView;
 }
@@ -63,6 +75,11 @@ export interface DetailHost {
 
 export class DetailReader {
   private generation = 0;
+  private portRevision = 0;
+  private readonly portChanges = new Map<number, { revision: number; forward: PortForward | null }>();
+  private readonly portActions = new Map<string, PendingPort & { machine: string }>();
+  /** Anonymous links survive a detail reload and a trip to another machine, but never leave memory. */
+  private readonly sharedByMachine = new Map<string, Record<number, PreviewShare>>();
 
   constructor(
     private readonly client: PageClient | null,
@@ -71,25 +88,44 @@ export class DetailReader {
 
   async load(machine: string | undefined): Promise<void> {
     const generation = ++this.generation;
+    const previous = this.host.get();
+    if (previous?.machine && previous.sharedPreviews)
+      this.sharedByMachine.set(previous.machine, previous.sharedPreviews);
+    this.portChanges.clear();
     if (!machine || !this.client) {
+      this.portActions.clear();
       this.host.set(undefined);
       return;
     }
-    this.host.set({ machine, loading: true });
+    const portRevision = this.portRevision;
+    this.host.set({
+      machine,
+      loading: true,
+      sharedPreviews: this.sharedByMachine.get(machine),
+      pendingPorts: this.pendingPorts(machine),
+    });
     const results = await Promise.allSettled(SECTIONS.map((section) => this.read(section, machine)));
     if (generation !== this.generation) return;
     // Keep what Browse, a forward or Open in browser wrote while the sections were read.
     const during = this.host.get();
     const kept =
       during?.machine === machine
-        ? { files: during.files, browser: during.browser, browserRefused: during.browserRefused }
+        ? {
+            files: during.files,
+            browser: during.browser,
+            browserRefused: during.browserRefused,
+            sharedPreviews: during.sharedPreviews ?? this.sharedByMachine.get(machine),
+          }
         : {};
-    const detail: MachineDetail = { machine, loading: false, ...kept };
+    const detail: MachineDetail = { machine, loading: false, ...kept, pendingPorts: this.pendingPorts(machine) };
     let failed: unknown;
     SECTIONS.forEach((section, index) => {
       const result = results[index];
-      if (result.status === "fulfilled") Object.assign(detail, { [section]: result.value });
-      else if (isUnsupported(result.reason)) this.host.unsupported(SECTION_OPS[section]);
+      if (result.status === "fulfilled") {
+        if (section === "ports") {
+          detail.ports = this.mergePorts(result.value as PortForward[], portRevision);
+        } else Object.assign(detail, { [section]: result.value });
+      } else if (isUnsupported(result.reason)) this.host.unsupported(SECTION_OPS[section]);
       else failed ??= result.reason;
     });
     this.host.set(detail);
@@ -97,15 +133,23 @@ export class DetailReader {
     if (failed !== undefined) this.host.fail(failed);
   }
 
-  async reload(section: DetailSection): Promise<void> {
+  async reload(section: DetailSection, changedPort?: number): Promise<void> {
     const current = this.host.get();
     if (!current || !this.client) return;
     const generation = this.generation;
+    const portRevision = this.portRevision;
     try {
       const value = await this.read(section, current.machine);
       const latest = this.host.get();
       if (generation !== this.generation || !latest) return;
-      this.host.set({ ...latest, [section]: value });
+      const resolved = section === "ports" ? this.mergePorts(value as PortForward[], portRevision) : value;
+      if (section === "ports" && changedPort !== undefined) {
+        // A selection load can still be waiting on another section with an
+        // older port list; preserve this authoritative mutation reconciliation.
+        const forward = (resolved as PortForward[]).find((item) => item.port === changedPort) ?? null;
+        this.portChanges.set(changedPort, { revision: ++this.portRevision, forward });
+      }
+      this.host.set({ ...latest, [section]: resolved });
     } catch (error) {
       if (generation === this.generation) this.reject(SECTION_OPS[section], error);
     }
@@ -127,17 +171,26 @@ export class DetailReader {
   }
 
   /** Forwards a port of the machine to 127.0.0.1 on this Mac; the answer names the local port. */
-  async forwardPort(machine: string, port: number): Promise<void> {
-    const forward = await this.change<PortForward>(CloudOps.portForward, { machine, port });
-    const latest = this.host.get();
-    if (!forward?.localPort || latest?.machine !== machine) return;
-    const others = (latest.ports ?? []).filter((f) => f.port !== forward.port);
-    this.host.set({ ...latest, ports: [...others, forward] });
+  forwardPort(machine: string, port: number): Promise<boolean> {
+    return this.portAction(machine, port, "forward", async () => {
+      const forward = await this.change<PortForward>(CloudOps.portForward, { machine, port });
+      const latest = this.host.get();
+      if (!forward?.localPort || latest?.machine !== machine) return false;
+      this.portChanges.set(forward.port, { revision: ++this.portRevision, forward });
+      const others = (latest.ports ?? []).filter((f) => f.port !== forward.port);
+      this.host.set({ ...latest, ports: [...others, forward] });
+      return true;
+    });
   }
 
-  async closePort(machine: string, port: number): Promise<void> {
-    const closed = await this.change(CloudOps.portClose, { machine, port });
-    if (closed !== undefined) await this.reload("ports");
+  closePort(machine: string, port: number): Promise<boolean> {
+    return this.portAction(machine, port, "close", async () => {
+      const closed = await this.change(CloudOps.portClose, { machine, port });
+      if (closed === undefined) return false;
+      this.portChanges.set(port, { revision: ++this.portRevision, forward: null });
+      await this.reload("ports");
+      return true;
+    });
   }
 
   /**
@@ -148,26 +201,148 @@ export class DetailReader {
    * retries in WebKit and never opens the URL without the proxy, which would load this Mac's
    * localhost. The URL stays visible in both cases.
    */
-  async openBrowser(machine: string, port: number, machineName: string): Promise<void> {
-    const route = await this.change<BrowserRoute>(CloudOps.browserOpen, { machine, port });
-    const latest = this.host.get();
-    if (!route?.url || latest?.machine !== machine) return;
-    this.host.set({ ...latest, browser: route, browserRefused: undefined });
-    const args: BrowserTabOpenArgs = {
-      url: route.url,
-      incarnation: route.incarnation,
-      generation: route.generation,
-      machineStore: { machine: route.machine, machineName, proxy: route.proxy },
-      engine: "cef",
-    };
+  openBrowser(machine: string, port: number, machineName: string): Promise<boolean> {
+    return this.portAction(machine, port, "browser", async () => {
+      const generation = this.generation;
+      const route = await this.change<BrowserRoute>(CloudOps.browserOpen, { machine, port });
+      const latest = this.host.get();
+      if (!route?.url || latest?.machine !== machine) return false;
+      this.host.set({ ...latest, browser: route, browserRefused: undefined });
+      const args: BrowserTabOpenArgs = {
+        url: route.url,
+        incarnation: route.incarnation,
+        generation: route.generation,
+        machineStore: { machine: route.machine, machineName, proxy: route.proxy },
+        engine: "cef",
+      };
+      try {
+        const result = await this.client!.call<ActionRunResult | null>(ACTION_RUN, {
+          action: HostActions.browserTabOpen,
+          args,
+        });
+        return result?.confirmed !== false;
+      } catch (error) {
+        if (generation !== this.generation) return false;
+        if (isUnsupported(error) || (isPageError(error) && error.code === "cmux.protocol.transport")) {
+          this.reject(HostActions.browserTabOpen, error);
+        } else {
+          const current = this.host.get();
+          if (current?.machine === machine && current.browser === route)
+            this.host.set({ ...current, browserRefused: true });
+        }
+        return false;
+      }
+    });
+  }
+
+  /** Creates and copies a one-day anonymous preview link, then leaves Revoke visible. */
+  sharePreview(machine: string, port: number): Promise<boolean> {
+    const generation = this.generation;
+    return this.portAction(machine, port, "share", async () => {
+      const shared = await createPreviewShare(this.client!, machine, port);
+      const latest = this.host.get();
+      if (!shared) return false;
+      // The platform has already created a bearer link even if this selection
+      // changed while the request was in flight. Keep it in the per-machine
+      // cache so returning to the machine still offers Revoke.
+      const sharedPreviews = { ...this.sharedByMachine.get(machine), ...latest?.sharedPreviews, [port]: shared };
+      this.sharedByMachine.set(machine, sharedPreviews);
+      // If the user has already returned to this machine, surface the link
+      // immediately even though the request started in an older selection.
+      // The link is revocable and must never disappear just because its answer
+      // arrived late.
+      if (latest?.machine === machine) this.host.set({ ...latest, sharedPreviews });
+      return generation === this.generation && latest?.machine === machine;
+    });
+  }
+
+  /** Revokes the link currently shown on a preview port. */
+  revokePreview(machine: string, port: number, linkId: string): Promise<boolean> {
+    const generation = this.generation;
+    return this.portAction(machine, port, "revoke", async () => {
+      if (!(await revokePreviewShare(this.client!, machine, port, linkId))) return false;
+      const latest = this.host.get();
+      if (generation !== this.generation || latest?.machine !== machine) return false;
+      const sharedPreviews = { ...this.sharedByMachine.get(machine), ...latest.sharedPreviews };
+      delete sharedPreviews[port];
+      this.sharedByMachine.set(machine, sharedPreviews);
+      this.host.set({ ...latest, sharedPreviews });
+      return true;
+    });
+  }
+
+  private mergePorts(ports: PortForward[], readRevision: number): PortForward[] {
+    const merged = new Map(ports.map((forward) => [forward.port, forward]));
+    for (const [port, { revision, forward }] of this.portChanges) {
+      if (revision <= readRevision) continue;
+      if (forward) merged.set(port, forward);
+      else merged.delete(port);
+    }
+    return [...merged.values()];
+  }
+
+  private pendingPorts(machine: string): PendingPort[] {
+    return [...this.portActions.values()].filter((pending) => pending.machine === machine);
+  }
+
+  /** Lock synchronously, including conflicting actions on the same port, before any host call. */
+  private async portAction(
+    machine: string,
+    port: number,
+    action: PortAction,
+    run: () => Promise<boolean>,
+  ): Promise<boolean> {
+    const current = this.host.get();
+    const key = JSON.stringify([machine, port]);
+    if (!this.client || !this.host.canChange() || current?.machine !== machine || this.portActions.has(key))
+      return false;
+    const generation = this.generation;
+    const pending = { machine, port, action };
+    this.portActions.set(key, pending);
+    this.host.set({ ...current, pendingPorts: this.pendingPorts(machine) });
     try {
-      await this.client!.call<ActionRunResult | null>(ACTION_RUN, { action: HostActions.browserTabOpen, args });
+      const accepted = await run();
+      // A parked mutation may finish after A → B → A loaded a list from before
+      // the effect. Its old answer is discarded, but the current selection must
+      // reconcile with the host before the pending guard is released.
+      if (
+        generation !== this.generation &&
+        action !== "browser" &&
+        action !== "share" &&
+        action !== "revoke" &&
+        this.host.get()?.machine === machine
+      )
+        await this.reload("ports", port);
+      return accepted && generation === this.generation;
     } catch (error) {
-      if (isUnsupported(error) || (isPageError(error) && error.code === "cmux.protocol.transport"))
-        return this.reject(HostActions.browserTabOpen, error);
-      const current = this.host.get();
-      if (current?.machine === machine && current.browser === route)
-        this.host.set({ ...current, browserRefused: true });
+      // A shared action can fail before it reaches `change`, and the page must
+      // turn that rejection into the normal banner/unavailable path rather
+      // than leaking an unhandled promise from a button click. Late errors
+      // belong to the old selection and are intentionally dropped.
+      if (generation === this.generation) this.reject(this.portActionOp(action), error);
+      return false;
+    } finally {
+      // A session reset can start a new action at the same key before the old call settles.
+      if (this.portActions.get(key) === pending) {
+        this.portActions.delete(key);
+        const latest = this.host.get();
+        if (latest?.machine === machine) this.host.set({ ...latest, pendingPorts: this.pendingPorts(machine) });
+      }
+    }
+  }
+
+  private portActionOp(action: PortAction): string {
+    switch (action) {
+      case "share":
+        return CloudActions.previewShare;
+      case "revoke":
+        return CloudActions.previewRevoke;
+      case "browser":
+        return HostActions.browserTabOpen;
+      case "forward":
+        return CloudOps.portForward;
+      case "close":
+        return CloudOps.portClose;
     }
   }
 
@@ -196,10 +371,12 @@ export class DetailReader {
    */
   private async change<R = unknown>(op: string, params: Record<string, unknown>): Promise<R | null | undefined> {
     if (!this.client || !this.host.canChange()) return undefined;
+    const generation = this.generation;
     try {
-      return (await this.client.call<R>(op, { ...params, idempotency_key: this.host.key() })) ?? null;
+      const result = await this.client.call<R>(op, { ...params, idempotency_key: this.host.key() });
+      return generation === this.generation ? (result ?? null) : undefined;
     } catch (error) {
-      this.reject(op, error);
+      if (generation === this.generation) this.reject(op, error);
       return undefined;
     }
   }

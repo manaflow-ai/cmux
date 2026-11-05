@@ -11,6 +11,7 @@
 
 use super::Conn;
 use crate::hub::{Hub, Session};
+use crate::rpc::RpcError;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -30,6 +31,18 @@ pub(super) async fn own(hub: &Hub, conn: &Conn, session: &Arc<Session>) {
         }
     }
     purge(hub, session).await;
+}
+
+/// Retain only a session this very connection owns, for a failed app open's
+/// retry. This cannot change another client's cleanup or session policy.
+pub(super) fn keep(conn: &Conn, id: &str) -> Result<(), RpcError> {
+    let mut owned = conn.ephemeral.lock().unwrap_or_else(|e| e.into_inner());
+    let ids = owned.as_mut().ok_or_else(|| RpcError::invalid_params("connection closed"))?;
+    let index = ids.iter().position(|owned| owned == id).ok_or_else(|| {
+        RpcError::invalid_params("this connection does not own that ephemeral session")
+    })?;
+    ids.remove(index);
+    Ok(())
 }
 
 /// The connection closed: purge every ephemeral session it created.

@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import CmuxNextTestSupport
 import Foundation
 import GhosttyNextKit
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// theme is a light/dark pair with different sides, so a plain theme always answered light.
 /// Drives a real Ghostty surface whose IO does not answer queries itself (`GHOSTTY_SURFACE_IO_MANUAL`,
 /// a local PTY's mode), so Ghostty writes the reply back to the IO.
-@MainActor @Suite(.serialized) struct GhosttyColorSchemeQueryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct GhosttyColorSchemeQueryTests {
     @Test func aPlainDarkThemeInDarkModeReportsDark() async throws {
         _ = NSApplication.shared
         _ = GhosttyRuntime.shared // runs ghostty_init, which config_new needs

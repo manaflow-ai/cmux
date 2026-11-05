@@ -5,7 +5,7 @@ body{background:var(--agent-page-bg,#171717);color:var(--agent-text,#f2f2f2);fon
 .acpmux-preview-controls label{display:flex;flex-direction:column;gap:4px;color:var(--agent-muted)}
 .acpmux-preview-controls select,.acpmux-preview-controls textarea{border:1px solid var(--agent-border-strong);border-radius:7px;background:var(--agent-input-bg);color:var(--agent-text);padding:6px;font:inherit}
 .acpmux-preview-controls input[type=range]{width:100%}
-.acpmux-preview-controls button{border:1px solid var(--agent-border-strong);border-radius:7px;padding:7px;background:var(--agent-control);color:var(--agent-text);cursor:pointer}
+.acpmux-preview-controls button{border:1px solid var(--agent-border-strong);border-radius:7px;padding:7px;background:var(--agent-control);color:var(--agent-text);cursor:default}
 .acpmux-preview-controls output{font-variant-numeric:tabular-nums;color:var(--agent-accent)}
 .acpmux-preview-controls small{line-height:1.4;color:var(--agent-muted)}
 .acpmux-preview-frame{height:100%;width:min(100%,900px);min-width:360px;border:1px solid var(--agent-border);border-radius:12px;overflow:hidden;box-shadow:var(--elevation-2);background:var(--agent-page-bg)}

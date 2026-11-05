@@ -6,7 +6,7 @@
 // Leo, 2026-10-26: "the dropdown should show the states of stuff when you've done the acp things
 // or any kind of connectivity."
 import { useSyncExternalStore } from "react";
-import type { Environment } from "./environments";
+import { environmentReady, type Environment } from "./environments";
 import { postNative } from "./native";
 
 /// One machine of the account: its id, name and `CloudMachineStage` name (`ready`, `paused`,
@@ -14,6 +14,11 @@ import { postNative } from "./native";
 export type CloudMachine = { id: string; name: string; stage: string };
 /// A Cloud machine as a row of the machine list: a Cloud environment carrying its machine.
 export type CloudMachineRow = Environment & { cloudMachine: CloudMachine };
+
+/// Whether the app's Cloud account is signed in. `undefined` means the app did not provide an
+/// explicit account state (for example, a fresh home where Cloud is not available yet); the
+/// picker treats that the same as signed out until a reply says `true`.
+let accountSignedIn: boolean | undefined;
 
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -32,6 +37,11 @@ export function cloudMachinesFromReply(reply: unknown): CloudMachine[] {
     machines.push({ id, name, stage });
   }
   return machines;
+}
+
+export function cloudSignedInFromReply(reply: unknown): boolean | undefined {
+  const value = reply as { signedIn?: unknown } | null | undefined;
+  return typeof value?.signedIn === "boolean" ? value.signedIn : undefined;
 }
 
 /// The account's machines the list does not already have: one acpmux lists by the same name (any
@@ -85,6 +95,49 @@ export function withCloudMachines<T extends Pick<Environment, "id" | "label" | "
   return [...kept, ...rows];
 }
 
+/// `CloudMachineStage` names of a machine on its way up (Swift CloudMachineStage: `resuming` while
+/// the server takes a resume, then `booting` and `connecting`; a page's own Resume reads `requesting`).
+const STARTING_STAGES = new Set(["requesting", "resuming", "creating", "booting", "connecting"]);
+
+/// The account's one machine named `name` (any case, as the app matches a peer to a Cloud machine by
+/// its title). Two of that name give none: a Resume must never start the other one.
+export function uniqueCloudMachine(machines: readonly CloudMachine[], name: string): CloudMachine | undefined {
+  const named = machines.filter((machine) => lower(machine.name) === lower(name));
+  return named.length === 1 ? named[0] : undefined;
+}
+
+/// What a Cloud machine acpmux lists but has no link to is, when the account says it sleeps: its
+/// link state reads `paused` or `resuming` in place of acpmux's `reconnecting` or `offline`, so the
+/// composer and the picker show a calm pause, never a broken link. With `pickable` (a new chat's
+/// list), a paused one also carries its machine, so a pick resumes it and the chat moves there once
+/// acpmux links it (ComposerContext `pickCloudMachine`); a resuming one stays greyed until then.
+/// Cloud machines are about to pause on their own when idle, and between tool calls (cmux-platform
+/// docs/agent-turn-sleep.md), so a pause has to read as an ordinary state.
+/// Whether the account's machine named `name` is paused or on its way up (a resume): a Cloud
+/// machine that sleeps, never one that is gone. Reads the page's copy of the app's list as it is.
+export function cloudMachineAsleep(name: string | undefined, list: readonly CloudMachine[] = machines): boolean {
+  if (!name) return false;
+  const machine = uniqueCloudMachine(list, name);
+  return machine !== undefined && (machine.stage === "paused" || STARTING_STAGES.has(machine.stage));
+}
+
+export function withCloudSleep<T extends Environment>(
+  listed: readonly T[],
+  machines: readonly CloudMachine[],
+  pickable: boolean,
+): (T | (T & CloudMachineRow))[] {
+  if (machines.length === 0) return [...listed];
+  return listed.map((environment) => {
+    if (environment.kind !== "cloud" || environmentReady(environment) || isCloudMachineRow(environment))
+      return environment;
+    const machine = uniqueCloudMachine(machines, environment.label);
+    if (machine?.stage === "paused")
+      return { ...environment, state: "paused", ...(pickable ? { cloudMachine: machine } : {}) };
+    if (machine && STARTING_STAGES.has(machine.stage)) return { ...environment, state: "resuming" };
+    return environment;
+  });
+}
+
 export function isCloudMachineRow(environment: Environment): environment is CloudMachineRow {
   return (environment as Partial<CloudMachineRow>).cloudMachine !== undefined;
 }
@@ -109,14 +162,31 @@ function publish(next: readonly CloudMachine[]): void {
   for (const listener of listeners) listener();
 }
 
-/// Reads the app's list again. Outside the app, or when the app refuses, the list is left as it was.
+function publishAccount(next: boolean | undefined): void {
+  if (next === accountSignedIn) return;
+  accountSignedIn = next;
+  for (const listener of listeners) listener();
+}
+
+/// Reads the app's list again. A read the app refused clears both snapshots: the previous
+/// account's machines and signed-in state cannot be trusted after it. With no app to ask (outside
+/// the app, or while its bridge reconnects: `native.not_connected`) the list is left as it was.
 export function refreshCloudMachines(call: Call = postNative): Promise<void> {
   const asked = generation;
   inFlight ??= call("cloudMachine.list", {})
     .then((reply) => {
-      if (asked === generation) publish(cloudMachinesFromReply(reply));
+      if (asked === generation) {
+        publishAccount(cloudSignedInFromReply(reply));
+        publish(cloudMachinesFromReply(reply));
+      }
     })
-    .catch(() => undefined)
+    .catch((error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code === "native.not_connected") return;
+      if (asked === generation) {
+        publishAccount(undefined);
+        publish([]);
+      }
+    })
     .finally(() => {
       if (asked === generation) inFlight = undefined;
     });
@@ -124,18 +194,66 @@ export function refreshCloudMachines(call: Call = postNative): Promise<void> {
 }
 
 /// Resumes or opens the machine (one click: the app checks the gesture and the machine), then
-/// reads the list again so its new stage shows.
+/// reads the list again so its new stage shows; a resume shows as starting at once.
 export function runCloudMachine(machine: CloudMachine, call: Call = postNative): Promise<void> {
   const method = cloudMachineAction(machine) === "resume" ? "cloudMachine.resume" : "cloudMachine.open";
-  // A list read already in flight was asked before the action: wait it out, then read again.
+  // A resume shows at once: the paused row reads Starting… while the app wakes the machine, not
+  // Paused · Resume until the next read (a second pick would ask again).
+  if (method === "cloudMachine.resume")
+    publish(machines.map((other) => (other.id === machine.id ? { ...other, stage: "requesting" } : other)));
+  // A list read already in flight was asked before the action: wait it out, then read again. A
+  // refused action shows as Couldn't start (the list would only say Paused again), so a pick that
+  // waits on the machine stops waiting instead of reading Starting… for ever.
+  let refused = false;
   return call(method, { id: machine.id })
-    .catch(() => undefined)
+    .catch(() => {
+      refused = true;
+    })
     .then(() => inFlight)
-    .then(() => refreshCloudMachines(call));
+    .then(() =>
+      refused
+        ? publish(machines.map((other) => (other.id === machine.id ? { ...other, stage: "failed" } : other)))
+        : refreshCloudMachines(call),
+    );
+}
+
+/// After a pause or resume the app runs the action in the background and its list catches up
+/// when the action's own list read lands (a resume may take as long as a machine's start, up to
+/// 16 minutes): the list is read at these waits (ms) after the pick, from every second to every
+/// minute, and the reads stop once the machine's stage moved on, or after the last one (16
+/// minutes in all).
+export const ACTION_READS_MS = [0, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000, ...Array<number>(15).fill(60_000)];
+
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/// Reads the list until `machine` (as it was when picked) shows another stage, or is gone.
+export async function readUntilMoved(
+  machine: CloudMachine,
+  call: Call = postNative,
+  wait: (ms: number) => Promise<void> = pause,
+): Promise<void> {
+  // A read already in flight was asked before the action.
+  await inFlight;
+  for (const ms of ACTION_READS_MS) {
+    if (ms > 0) await wait(ms);
+    await refreshCloudMachines(call);
+    const now = machines.find((candidate) => candidate.id === machine.id);
+    if (now?.stage !== machine.stage) return;
+  }
 }
 
 export function useCloudMachines(): readonly CloudMachine[] {
   return useSyncExternalStore(subscribe, snapshot, snapshot);
+}
+
+export function useCloudSignedIn(): boolean | undefined {
+  return useSyncExternalStore(subscribe, accountSnapshot, accountSnapshot);
+}
+
+/// The account state shown in capture diagnostics. This is deliberately read-only and mirrors the
+/// value consumed by EnvironmentPicker, including the fresh-home `undefined` state.
+export function cloudSignedInForDebug(): boolean | undefined {
+  return accountSignedIn;
 }
 
 function subscribe(listener: () => void): () => void {
@@ -148,5 +266,13 @@ const snapshot = () => machines;
 export function setCloudMachinesForTest(next: readonly CloudMachine[]): void {
   generation += 1;
   inFlight = undefined;
+  publishAccount(undefined);
   publish(next);
 }
+
+/// Tests may seed the account state independently of the machine rows.
+export function setCloudMachinesForTestAccount(next: boolean | undefined): void {
+  publishAccount(next);
+}
+
+const accountSnapshot = () => accountSignedIn;

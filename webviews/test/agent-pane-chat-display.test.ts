@@ -128,8 +128,10 @@ describe("chat display drawing", () => {
 
   test("the user's width replaces the column trial; Full Width fills the pane", () => {
     const wide = resolveChatDisplay({ "agentPane.display.width": 1200 });
-    expect(chatColumnOf("standard", wide).max).toBe(1200);
-    expect(chatDisplayVariables(wide)["--cv-column"]).toBe("clamp(720px, 100%, 1200px)");
+    expect(chatColumnOf("standard", wide, 1.25).max).toBe(960);
+    expect(chatDisplayVariables(wide)["--cv-column"]).toBe(
+      "clamp(calc(720px / var(--cmux-ui-scale, 1)), 100%, calc(1200px / var(--cmux-ui-scale, 1)))",
+    );
     const full = resolveChatDisplay({ "agentPane.display.fullWidth": true });
     expect(chatColumnOf("wide", full).max).toBe(Infinity);
     expect(chatDisplayVariables(full)["--cv-column"]).toBe("100%");

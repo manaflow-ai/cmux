@@ -1,11 +1,12 @@
 import AppKit
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// tab-switch-rewrite: a tab switch updates only the separator lines around the two tabs whose
 /// selection changed (O(1) at any tab count). After any sequence of switches, every line must be
 /// what the full pass over the row (`TabSeparatorVisibility.apply(to:)`) would draw.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct TabStripSwitchSeparatorTests {
     private func strip(tabs count: Int) -> (TabStripView, TabStripModel, NSWindow) {
         let items = (0..<count).map { TabItem(id: TabID("t\($0)"), title: "Tab \($0)") }

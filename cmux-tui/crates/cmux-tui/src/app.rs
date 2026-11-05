@@ -47,9 +47,12 @@ mod presentation;
 mod session_apply;
 
 mod config_status;
+mod dock_ops;
 mod graphics_emit;
 mod layout_sync;
 mod render;
+mod window_docks;
+mod window_frame;
 
 mod drag_resize;
 mod input_admission;
@@ -240,8 +243,9 @@ use self::selection::{
     StatusMessageSelection,
 };
 use self::session_mutation::{
-    MutationImpact, PendingSessionMutation, PendingSessionMutationState, SessionCompletion,
-    SessionCompletionAction, SessionMutationOutcome, layout_undo_error_completion,
+    MutationImpact, PendingCompletedSelection, PendingSessionMutation, PendingSessionMutationState,
+    SessionCompletion, SessionCompletionAction, SessionMutationOutcome,
+    layout_undo_error_completion,
 };
 pub(crate) use self::status_segments::StatusSegmentView;
 use self::status_segments::{ResolvedStatusSegments, StatusWorkerStop};
@@ -422,6 +426,8 @@ pub struct App {
     /// Durable identity for per-client focus memory on the mux
     /// (client-focus-v1); None when no config directory is available.
     client_focus_id: Option<String>,
+    /// Docked workspaces: this client's frame record and last placement.
+    pub(crate) docks: window_docks::DockFrameState,
     /// Terminal cells actually represented by the last rendered snapshot.
     /// Foreign-viewer padding outside these bounds is display-only.
     pub(crate) rendered_terminal_bounds: HashMap<SurfaceId, Rect>,
@@ -553,6 +559,7 @@ pub struct App {
     last_applied_refresh_sequence: u64,
     applied_destination_generation: u64,
     pending_session_completions: VecDeque<SessionCompletion>,
+    pending_completed_selection: Option<PendingCompletedSelection>,
     mux_titles: Arc<MuxTitleIngress>,
     pty_failures: Arc<PtyFailureIngress>,
     mux_recovery_generation: Arc<AtomicU64>,

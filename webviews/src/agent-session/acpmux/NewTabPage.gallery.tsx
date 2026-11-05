@@ -10,7 +10,8 @@ import type { AcpmuxSnapshot } from "./model";
 import { NewTabPage } from "./NewTabPage";
 import type { OmnibarContext } from "./omnibar";
 import type { Project } from "./ProjectChooser";
-import type { Play } from "../../gallery/play";
+import type { Play, PlayContext } from "../../gallery/play";
+import type { MarkdownFieldElement } from "./MarkdownField";
 
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 
@@ -130,6 +131,15 @@ function withReceipt(Component: typeof NewTabPage) {
   };
 }
 
+/// The page's field: the chat composer's prompt editor (MarkdownField), as on the New Tab screen.
+const FIELD = ".acpmux-newtab-field [contenteditable=true]";
+const fieldText = (ctx: PlayContext) =>
+  ctx.document.querySelector<MarkdownFieldElement>(".acpmux-newtab-field")?.acpmuxMarkdownField?.plainText() ?? "";
+async function typePrompt(ctx: PlayContext, text: string) {
+  await ctx.waitFor(() => ctx.document.querySelector(FIELD));
+  await ctx.type(text, { selector: FIELD });
+}
+
 const switchKinds: Play = async (ctx) => {
   await ctx.click({ role: "button", name: /Browser/ });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "browser");
@@ -138,28 +148,29 @@ const switchKinds: Play = async (ctx) => {
 };
 
 const prefixes: Play = async (ctx) => {
-  await ctx.type("!git status", { selector: ".acpmux-newtab-field" });
+  await typePrompt(ctx, "!git status");
   await ctx.waitFor(
     () =>
       ctx.document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "terminal" &&
-      ctx.document.querySelector<HTMLInputElement>(".acpmux-newtab-field")?.value === "git status",
+      fieldText(ctx) === "git status",
   );
   await ctx.press("Escape");
-  await ctx.type("?review the cache", { selector: ".acpmux-newtab-field" });
+  await typePrompt(ctx, "?review the cache");
   await ctx.waitFor(
     () =>
       ctx.document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "agent" &&
-      ctx.document.querySelector<HTMLInputElement>(".acpmux-newtab-field")?.value === "review the cache",
+      fieldText(ctx) === "review the cache",
   );
 };
 
 const keyboard: Play = async (ctx) => {
-  await ctx.focus({ selector: ".acpmux-newtab-field" });
+  await ctx.waitFor(() => ctx.document.querySelector(FIELD));
+  await ctx.focus({ selector: FIELD });
   await ctx.press("Tab");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "terminal");
   await ctx.press("Shift+Tab");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-newtab")?.getAttribute("data-kind") === "agent");
-  await ctx.type("release", { selector: ".acpmux-newtab-field" });
+  await typePrompt(ctx, "release");
   await ctx.press("ArrowDown");
   await ctx.press("Enter");
   await ctx.waitFor(
@@ -170,14 +181,15 @@ const keyboard: Play = async (ctx) => {
 };
 
 const openOmnibar: Play = async (ctx) => {
-  await ctx.type("release", { selector: ".acpmux-newtab-field" });
+  await typePrompt(ctx, "release");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-omni"));
 };
 
 const escapeClear: Play = async (ctx) => {
-  await ctx.focus({ selector: ".acpmux-newtab-field" });
+  await ctx.waitFor(() => ctx.document.querySelector(FIELD));
+  await ctx.focus({ selector: FIELD });
   await ctx.press("Escape");
-  await ctx.waitFor(() => ctx.document.querySelector<HTMLInputElement>(".acpmux-newtab-field")?.value === "");
+  await ctx.waitFor(() => fieldText(ctx) === "");
 };
 
 const folderChooser: Play = async (ctx) => {
@@ -197,7 +209,7 @@ const noDefaultToggle: Play = async (ctx) => {
 };
 
 const openSession: Play = async (ctx) => {
-  await ctx.type("retries", { selector: ".acpmux-newtab-field" });
+  await typePrompt(ctx, "retries");
   await ctx.press("ArrowUp");
   await ctx.press("Enter");
   await ctx.waitFor(
@@ -205,6 +217,19 @@ const openSession: Play = async (ctx) => {
       ctx.document.querySelector(".newtab-page-gallery")?.getAttribute("data-newtab-receipt") ===
       "open-session:gallery-session-0",
   );
+};
+
+// The field is the chat composer's prompt editor: a long prompt wraps and the box grows with it,
+// as in a chat, instead of scrolling sideways in a one-line input (Leo 2026-10-21: "I STILL DONT HAVE
+// THE GOOD COMPOSER EVERYWHERE").
+const LONG_PROMPT =
+  "Look at the retry loop in the sync worker and tell me why a dropped connection restarts the whole batch instead of the one request that failed";
+const longPrompt: Play = async (ctx) => {
+  await typePrompt(ctx, LONG_PROMPT);
+  await ctx.waitFor(() => {
+    const field = ctx.document.querySelector<HTMLElement>(".acpmux-newtab-field");
+    return fieldText(ctx) === LONG_PROMPT && (field?.getBoundingClientRect().height ?? 0) > 56;
+  });
 };
 
 const showAll: Play = async (ctx) => {
@@ -239,6 +264,22 @@ export default componentEntry<Props>({
   },
   load: () => import("./NewTabPage").then(({ NewTabPage: Component }) => withReceipt(Component)),
   variants: {
+    "omnibar-overflow": {
+      note: "Capped omnibar suggestions fade at the edge with more rows in a short pane.",
+      props: {
+        ...base,
+        omnibar: {
+          ...omnibar,
+          tabs: Array.from({ length: 20 }, (_, index) => ({
+            id: `tab-release-${index}`,
+            kind: "terminal" as const,
+            title: `Release build ${index}`,
+            detail: "~/src/release",
+          })),
+        },
+      },
+      play: openOmnibar,
+    },
     "omnibar-plain": {
       note: "Chosen default: the shared popup frost shows the fixture wallpaper through the suggestions and selected row.",
       props: { ...base, glassPreview: "plain" },
@@ -262,6 +303,20 @@ export default componentEntry<Props>({
     idle: {
       note: "The classic page opens on Agent with recent sessions, project context, model chips, and the three-kind switch.",
       props: base,
+    },
+    "long-project": {
+      note: "A long project name truncates inside its content-sized chip while the chevron stays visible.",
+      props: {
+        ...base,
+        cwd: "/Users/you/src/atlas-web-platform-integration-workspace",
+        projects: [
+          {
+            cwd: "/Users/you/src/atlas-web-platform-integration-workspace",
+            label: "atlas-web-platform-integration-workspace",
+          },
+          ...projects,
+        ],
+      },
     },
     "switch-kinds": {
       note: "The Terminal, Browser, and Agent buttons switch the page without losing the field.",
@@ -297,6 +352,11 @@ export default componentEntry<Props>({
       note: "An omnibar session match activates the host's existing chat instead of opening a duplicate.",
       props: base,
       play: openSession,
+    },
+    "composer-field": {
+      note: "The field is the chat composer's prompt editor (MarkdownField), not a plain input: a long prompt wraps and the box grows; the kind switch and Send stay in its row.",
+      props: base,
+      play: longPrompt,
     },
     "show-all": {
       note: "The All sessions action hands navigation back to the host.",

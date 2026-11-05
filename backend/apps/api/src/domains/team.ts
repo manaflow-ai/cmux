@@ -20,6 +20,7 @@ import { withAuditRows } from "./team-audit-rows.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 import { reduceHostNetworkBound } from "./team-host-network.ts"
 import { GROUP_OPS, reduceGroup } from "./team-groups.ts"
+import { memberAuthorityWrites } from "./team-authority.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, RunSyncState, DomainState, SsoState, TeamSshState, LegacyTeamMaps {
   /** A Stack team carries its Stack id, and `deleted_at` once Stack deleted it (team-stack.ts). */
@@ -109,7 +110,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         return {
           ok: true,
           state: { ...rest, member_count: (state.member_count ?? 0) + newMembers, host_count: (state.host_count ?? 0) + newHosts },
-          writes: [...members.map(memberUpsert), ...hosts.flatMap(hostUpsert)],
+          writes: [...members.map(memberUpsert), ...members.flatMap((m) => memberAuthorityWrites(m.user, ctx)), ...hosts.flatMap(hostUpsert)],
           ...(state.team ? { outbox: members.map((m) => teamIndexItem(state.team!, m.user, m.role, ctx.tx)) } : {}),
           value: { members: members.length, hosts: hosts.length }
         }
@@ -146,7 +147,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         return {
           ok: true,
           state: a?.state ?? removed,
-          writes: [{ table: TABLE_MEMBER, op: "delete", key: user }],
+          writes: [{ table: TABLE_MEMBER, op: "delete", key: user }, ...memberAuthorityWrites(user, ctx)],
           value: { user, removed: true, ...(member.role === "owner" ? { demoted_owner: true } : {}) },
           ...(state.team && a ? { outbox: [...memberLeftItems(state.team, user, ctx.tx, ctx.now), ...a.outbox] } : {})
         }
@@ -195,7 +196,7 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         return {
           ok: true,
           state: { ...state, team, member_count: (state.member_count ?? 0) + (prior ? 0 : 1) },
-          writes: [memberUpsert(member)],
+          writes: [memberUpsert(member), ...memberAuthorityWrites(member.user, ctx)],
           value: team,
           outbox: [
             { kind: "team.upsert", entity: team.id, payload: team },
