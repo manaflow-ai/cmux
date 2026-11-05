@@ -22,8 +22,6 @@ await requireBrowserLane("thread-rail-foot-card.test.ts", async () => {
   const ENTRY = "agent-pane.thread-minimap-foot";
   const WIDTH = 1040;
   const HEIGHT = 720;
-  /// The transcript's bottom fade (model.ts TRANSCRIPT_FADE_BOTTOM): no tick sits under it.
-  const FADE = 18;
   /// The card's margin from the view's edges (model.ts EDGE_MARGIN).
   const MARGIN = 8;
   setDefaultTimeout(180_000);
@@ -141,11 +139,8 @@ await requireBrowserLane("thread-rail-foot-card.test.ts", async () => {
       const grown = await read("composer-grows");
       if (out) await page.screenshot({ path: path.join(out, "rail-foot-shift-composer-grows.png") });
       expect(grown.dockTop).toBeLessThan(open.dockTop);
-      expect(grown.rail.top + grown.rail.height).toBeLessThanOrEqual(grown.dockTop - FADE + 0.5);
+      expect(grown.rail).toEqual(open.rail);
       expect({ x: grown.rail.x, top: grown.rail.top }).toEqual({ x: open.rail.x, top: open.rail.top });
-      // Shortened only where the grown stack reached past the rail's foot.
-      const room = Math.floor(grown.dockTop - FADE - 4 - open.rail.top);
-      expect(Math.round(grown.rail.height)).toBe(Math.round(Math.min(open.rail.height, room)));
     } finally {
       await page.close();
     }
@@ -160,8 +155,8 @@ await requireBrowserLane("thread-rail-foot-card.test.ts", async () => {
       try {
         const rest = await measure(page);
         if (out) await page.screenshot({ path: path.join(out, `rail-foot-${variant}-rest.png`) });
-        // The rail ends clear of the bottom fade above the stack.
-        expect(rest.rail.bottom).toBeLessThanOrEqual(rest.dockTop - FADE + 0.5);
+        // The fixed rail keeps its rest box; a growing stack may lay over its foot.
+        expect(rest.rail.bottom - rest.rail.top).toBeGreaterThanOrEqual(480 - 1);
         const drawn = rest.ticks.map((tick) => tick.index);
         expect(drawn.length).toBeGreaterThan(8);
         const last = Math.max(...drawn);
@@ -171,7 +166,6 @@ await requireBrowserLane("thread-rail-foot-card.test.ts", async () => {
           if (out && index === last)
             await page.screenshot({ path: path.join(out, `rail-foot-${variant}-card-last.png`) });
           expect({ index, off: Math.round(seen.center - seen.expected) }).toEqual({ index, off: 0 });
-          expect(seen.card.bottom).toBeLessThanOrEqual(seen.dockTop - MARGIN + 1);
         }
         await page.mouse.move(WIDTH / 2, HEIGHT / 3);
 
@@ -180,14 +174,12 @@ await requireBrowserLane("thread-rail-foot-card.test.ts", async () => {
         if (out) await page.screenshot({ path: path.join(out, `rail-foot-${variant}-draft.png`) });
         // The draft grew the stack over the view.
         expect(tall.dockTop).toBeLessThan(rest.dockTop - 60);
-        // The rail keeps its top and ends above the grown stack: it never runs under the composer.
-        expect(Math.round(tall.rail.top)).toBe(Math.round(rest.rail.top));
-        expect(tall.rail.bottom).toBeLessThanOrEqual(tall.dockTop - FADE + 0.5);
+        // The rail keeps its full rest box while the grown stack lays over its foot.
+        expect(tall.rail).toEqual(rest.rail);
         const lastTall = Math.max(...tall.ticks.map((tick) => tick.index));
         const seen = await hoverCard(page, lastTall);
         if (out) await page.screenshot({ path: path.join(out, `rail-foot-${variant}-draft-card.png`) });
         expect(Math.round(seen.center - seen.expected)).toBe(0);
-        expect(seen.card.bottom).toBeLessThanOrEqual(seen.dockTop - MARGIN + 1);
       } finally {
         await page.close();
       }

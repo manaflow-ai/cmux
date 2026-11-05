@@ -53,7 +53,7 @@ public actor DaemonConnection {
     private(set) var serial: UInt64 = 0
     /// The open `session.events` stream id (`DaemonConnection+SessionEvents`).
     var sessionStream: String?
-    private var reconnectTask: Task<Void, Never>?
+    private(set) var reconnectTask: Task<Void, Never>?
     /// The initial endpoint/handshake attempt, retained so teardown can join it too.
     private var connectTask: Task<DaemonIdentity, any Error>?
     private var pacer: RetryPacer
@@ -365,7 +365,7 @@ public actor DaemonConnection {
         }
     }
 
-    private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
+    func transportClosed(serial: UInt64, reason: TransportCloseReason) {
         guard serial == self.serial else { return }
         if case .closed = phase { return }
         if case .ready = phase {} else if case .connecting = phase {} else { return }

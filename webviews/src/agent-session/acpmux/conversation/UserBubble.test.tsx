@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
 import type { ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
+import { PresentationContext } from "./PresentationContext";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { UserBubble } from "./UserBubble";
 
@@ -53,14 +54,18 @@ afterEach(async () => {
   saved.clear();
 });
 
+// Rendered in the Messages view, where every sent prompt draws its own Retry; in the transcript the
+// chat's one Retry is the last turn's footer's (turns.ts retryPlacement, cmux#34779).
 async function render(row: AcpmuxRow, actions: TurnActions = {}): Promise<HTMLElement> {
   const container = installDom();
   await act(async () => {
     root = createRoot(container);
     root.render(
-      <TurnActionsContext.Provider value={actions}>
-        <UserBubble row={row} text="" />
-      </TurnActionsContext.Provider>,
+      <PresentationContext.Provider value="messages">
+        <TurnActionsContext.Provider value={actions}>
+          <UserBubble row={row} text="" />
+        </TurnActionsContext.Provider>
+      </PresentationContext.Provider>,
     );
   });
   return container;

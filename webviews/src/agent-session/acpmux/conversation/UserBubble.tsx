@@ -25,6 +25,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { PresentationContext } from "./PresentationContext";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -50,7 +51,9 @@ import {
   PromptRetry,
   ROW_ICON,
 } from "./MessageActions";
-import { TurnActionsContext, type QueuedActions } from "./turnActions";
+import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
+import { NO_RETRY_TARGET, retryPlacement } from "./turns";
+import { useTranscriptReadOnly } from "./readOnly";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
 import { SkillWordsContext } from "./skillWords";
 import { SentVideoTile } from "./SentVideoTile";
@@ -97,7 +100,22 @@ export function UserBubble({
     [givenText, given, skills],
   );
   const t = useT();
-  const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
+  const { edit, branches, fork, forkSeq, forkAny, promptTurns, retry: canResend } = useContext(TurnActionsContext);
+  // The Messages view draws no reply footer for a turn that ended well (messagesRows.ts), so its
+  // prompts keep their own Retry there; the transcript's is the last turn's footer (TurnFooter).
+  const messagesView = useContext(PresentationContext) === "messages";
+  const retryTarget = useContext(RetryTargetContext);
+  const readOnly = useTranscriptReadOnly();
+  // In the transcript, this prompt draws the chat's one Retry when turns.ts retryPlacement puts it
+  // under the prompt: its turn's footer does not draw it (a turn of tool calls alone, history with no
+  // turn result, a turn still running).
+  const promptRetry =
+    retryTarget?.promptId === row.id &&
+    retryPlacement(retryTarget ?? NO_RETRY_TARGET, {
+      canRetry: Boolean(canResend),
+      readOnly,
+      messages: messagesView,
+    }) === "prompt";
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   const through = edit?.seqs.get(row.id);
@@ -194,13 +212,17 @@ export function UserBubble({
       />
     );
   }
-  // The sent row's Retry and Fork; a waiting steer's queue row shows the same two (PendingSteer.tsx).
-  // Retry not while it is still on its way: a second send would duplicate it.
+  // Retry is the last turn's reply footer's (TurnRows.tsx TurnFooter; Leo, 2026-11-04: "Today Retry
+  // is on your prompt bubble ... Put it, with the model switch, in the last turn's footer."), so neither
+  // the sent row nor a waiting steer's queue row (PendingSteer.tsx) draws one, and the row keeps its
+  // buttons when the steer is delivered, except where that footer draws no Retry (`promptRetry`). The
+  // Messages view draws no footer for a turn that ended well (messagesRows.ts), so its prompts keep
+  // their Retry; not while one is on its way, as a second send would duplicate it.
   // An attachment-only prompt retries only when every attachment can go again: a Retry that sent
   // none of them would send an empty prompt.
   const retryAttachments = hasAttachment && canResendAttachments(row);
   const retry =
-    !row.pending && row.delivery?.state !== "sending" ? (
+    (messagesView || promptRetry) && !row.pending && row.delivery?.state !== "sending" ? (
       <PromptRetry rowId={row.id} prompt={resend} hasAttachment={retryAttachments} />
     ) : null;
   const forkButton =

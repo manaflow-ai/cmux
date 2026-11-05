@@ -369,6 +369,7 @@ impl Hub {
                     additional_directories: meta.additional_directories.clone(),
                     // The person's side chat, as its chat is.
                     person: session.person.load(Ordering::SeqCst),
+                    wait_start: false,
                 };
                 let side = match with_inline_creation(
                     self.clone(),

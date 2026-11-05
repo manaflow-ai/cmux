@@ -62,8 +62,9 @@ fn hold_settle(id: &str) {
 }
 
 /// One chat folder: its file id and birth time (0 where the file system has none). A folder
-/// renamed away and back keeps it; another folder made under the same path does not.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// renamed away and back keeps it; another folder made under the same path does not. A repair
+/// file keeps it too (`journal_store/repair.rs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub(super) struct FolderId {
     ino: u64,
     birth_ns: u64,
@@ -89,7 +90,7 @@ fn nanos(at: std::io::Result<std::time::SystemTime>) -> u64 {
 }
 
 /// The identity of the folder at `dir`; `None` when there is none.
-fn folder_id(dir: &Path) -> std::io::Result<Option<FolderId>> {
+pub(super) fn folder_id(dir: &Path) -> std::io::Result<Option<FolderId>> {
     match std::fs::symlink_metadata(dir) {
         Ok(meta) => Ok(Some(FolderId { ino: file_id(&meta), birth_ns: nanos(meta.created()) })),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -381,6 +382,7 @@ impl Inner {
         if full {
             self.want_checkpoint();
         }
+        self.touched();
         Ok(())
     }
 
@@ -471,19 +473,21 @@ impl Inner {
                 session_file(&dir, self.journal.journal_id()),
                 Ok(SessionFile::Journaled(lsn)) if lsn >= pending.lsn
             );
-            if !held
-                && let Err(error) =
+            if !held {
+                // Counted, the checkpoint's own write too: a failed sync freezes the store (F3),
+                // and a checkpoint under way never writes an LSN past it.
+                self.counted_sync("a chat's metadata failed to sync", || {
                     write_session_json(&dir, &pending.meta, pending.lsn, self.journal.journal_id())
-            {
-                let error = error.context(format!("write the metadata of {id}"));
-                if error.chain().any(|cause| cause.is::<SyncFailed>()) {
-                    self.freeze(format!("a chat's metadata failed to sync: {error:#}"));
-                }
-                return Err(error);
+                })
+                .with_context(|| format!("write the metadata of {id}"))?;
             }
         } else {
             let image = serde_json::to_vec(&pending.meta)?;
-            let kept = self.keep_aside_meta(id, pending.lsn, &image)?;
+            // Counted as the image's write is: a failed sync of the kept file or its folder
+            // freezes the store, so no checkpoint retires the image's record (#35905).
+            let kept = self.counted_sync("a kept-aside chat's metadata failed to sync", || {
+                self.keep_aside_meta(id, pending.lsn, &image)
+            })?;
             tracing::warn!(session = %id, kept = %kept.display(), "the chat's folder was removed or replaced outside the store: its metadata is kept aside");
         }
         let mut order = self.order.lock_or_recover();
@@ -541,29 +545,12 @@ impl Inner {
     }
 
     /// Keeps a chat's metadata image beside the logs:
-    /// `<home>/journal-unapplied/<id>.<lsn>.session.json`, owner-only, synced with its folder (an
-    /// error at any step is returned, as for kept lines).
+    /// `<home>/journal-unapplied/<id>.<lsn>.session.json`, owner-only, written whole under a
+    /// temporary name, synced, renamed into place, the folder synced (`Inner::write_kept`; an
+    /// error at any step is returned, as for kept lines). A new file each time, so a restart that
+    /// keeps the image aside again after a failed folder sync makes its entry again (review of
+    /// #35963, finding 1): the folder's next sync covers that new entry.
     fn keep_aside_meta(&self, id: &str, lsn: Lsn, image: &[u8]) -> Result<PathBuf> {
-        let dir = self.home.join(UNAPPLIED_DIR);
-        crate::config::refuse_lost_home(&dir)?;
-        crate::config::private_state_dir(&dir)?;
-        let name: String = id
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_') { c } else { '_' })
-            .collect();
-        let path = dir.join(format!("{name}.{lsn}.session.json"));
-        let mut options = OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-        }
-        let mut file = options.open(&path).with_context(|| format!("write {}", path.display()))?;
-        file.write_all(image)?;
-        file.sync_all()?;
-        drop(file);
-        sync_directory(&dir)?;
-        Ok(path)
+        self.write_kept(id, &format!("{lsn}.session.json"), None, &[image.to_vec()])
     }
 }

@@ -11,8 +11,9 @@ import Foundation
 /// every channel) the flow asks twice, as Sparkle's own UI does: a found update waits on the
 /// update-found step (``UpdateIndicatorPhase/available(version:)``) until Update
 /// (``UpdateFlowEvent/downloadRequested``), and the staged update waits on the Update Ready card
-/// until Restart to Update (``UpdateFlowEvent/installRequested``). Hide, or no answer, never
-/// relaunches; a quit installs it only with `updates.installOnQuit` on (off by default, the
+/// until Restart to Update (``UpdateFlowEvent/installRequested``). With `updates.oneClickInstall`
+/// (off by default) the first ask is the only one: Update downloads, then installs and relaunches
+/// once staged. Hide, or no answer, never relaunches; a quit installs it only with `updates.installOnQuit` on (off by default, the
 /// nightly restart policy).
 nonisolated public struct UpdateFlow: Equatable, Sendable {
     public private(set) var phase: UpdateIndicatorPhase = .hidden
@@ -64,8 +65,12 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         case .downloadRequested:
             // The answer to the update-found step: download, show its progress, then ask again
             // before the relaunch (the staged update card). A held install click keeps its install.
+            // With `updates.oneClickInstall` this click is the relaunch's ask too: it installs once
+            // staged (Leo 2026-11-04, after the Codex app's Update available button: "me clicking it
+            // enabling it to auto install and restart is... interesting").
             guard case .available = phase else { return [] }
             userAsked = true
+            if preferences.oneClickInstall { installRequested = true }
             return [.download]
         case .quitRequested:
             guard case .ready = phase, !preferences.installOnQuit else { return [.quit(.proceed)] }

@@ -487,6 +487,12 @@ export type AcpmuxRow = {
   /// A turn summary of the chat's last turn, which a failed turn's Retry asks acpmux to retry
   /// (turns.ts), even when its prompt is an attempt acpmux sent and draws nothing.
   retryable?: boolean;
+  /// A turn summary whose footer offers Retry with `prompt` (turns.ts retryTargetAt): the chat's last
+  /// turn, or the last one a prompt opened when only notices and reminders came after it.
+  retryTarget?: true;
+  /// The turn's completed edit diff proves it changed files. Retry keeps this hint in its tooltip;
+  /// missing or incomplete checkpoint data stays neutral (conversation/turns.ts).
+  changedFiles?: true;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
   answerId?: string;
   /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each
@@ -672,6 +678,11 @@ export type AcpmuxRow = {
   shell?: ShellRun;
   /// A subagent group's subagents (subagents/subagentFold.ts).
   subagents?: Subagent[];
+  /// On a background turn's line: the subagent whose report started the turn, which the line names
+  /// (subagents/runningTray.ts `withSubagentLines`; conversation/BackgroundTurnLine.tsx).
+  subagentReport?: Subagent;
+  /// That report is the subagent's first, drawn right under its "Subagent finished" line.
+  subagentReportFirst?: true;
 };
 
 export type AcpmuxActivity = {
@@ -940,6 +951,15 @@ export type AcpmuxSnapshot = {
   autoResume?: AutoResumeStatus;
   protocolVersion: number;
   rows: AcpmuxRow[];
+  /// The chat's latest TodoWrite/update_plan checklist (liveProgress.ts), beside the rows so Session
+  /// Info's Progress updates without rescanning the transcript on every streamed token. `ended` once
+  /// its turn stopped or a later prompt came in.
+  progress?: {
+    plan: AcpmuxPlanEntry[];
+    completed?: number;
+    total?: number;
+    ended?: boolean;
+  };
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;

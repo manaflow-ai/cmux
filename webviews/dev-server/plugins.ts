@@ -210,8 +210,16 @@ const indexPage = `<!doctype html>
 </ul>
 </body></html>`;
 
-// The gallery pages too: its registry globs every *.gallery file, so a stage (and the browser tests
-// that load one first, text-field-focus) never waits on a late re-optimize (cx-c332z).
+// The gallery's pages: its registry globs every *.gallery file, so a stage (and the browser tests
+// that load one first, text-field-focus) never waits on a late re-optimize (cx-c332z). The gallery's
+// own server (vite.config.gallery-dev.ts) scans these too.
+// Monaco stays unbundled: its language configurations (pages/editor/view.ts) import its API by
+// relative path, and a pre-bundled copy beside the raw files would be a second Monaco.
+export const galleryOptimizeDeps = {
+  entries: ["src/gallery/index.html", "src/gallery/frame.html", "src/gallery/mock-app.html"],
+  exclude: ["monaco-editor"],
+};
+
 const devEntries = [
   "src/diff/dev.ts",
   "src/diff-worker.ts",
@@ -223,8 +231,7 @@ const devEntries = [
   "src/pages/editor/devBridge.ts",
   "src/pages/editor/main.tsx",
   "src/pages/editor/view.ts",
-  "src/gallery/index.html",
-  "src/gallery/frame.html",
+  ...galleryOptimizeDeps.entries,
 ];
 
 /// The index page, dev React and the dependency cache.
@@ -245,9 +252,7 @@ function devServerShell(): Plugin {
         cacheDir: viteCacheDir ?? `node_modules/${dependencyCacheName(config.server?.port ?? DEV_SERVER_PORT)}`,
         // Every surface's entry, so the first scan finds all dependencies instead of a page
         // discovering one late and triggering an optimizer reload.
-        // Monaco stays unbundled: its language configurations (pages/editor/view.ts) import its API
-        // by relative path, and a pre-bundled copy beside the raw files would be a second Monaco.
-        optimizeDeps: { entries: devEntries, exclude: ["monaco-editor"] },
+        optimizeDeps: { entries: devEntries, exclude: galleryOptimizeDeps.exclude },
       };
     },
     configureServer(server) {

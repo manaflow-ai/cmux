@@ -1108,6 +1108,8 @@ impl SegmentWriter {
     /// writes them back loses them, as it would any append since the last `flush`.
     fn close(self, id: &str, failed: &std::sync::atomic::AtomicBool) {
         if let Err(e) = log_sync::sync_segment(&self.file, false) {
+            #[cfg(test)]
+            log_sync::hold(&log_sync::HOLD_BEFORE_CLOSE_NOTE);
             failed.store(true, std::sync::atomic::Ordering::SeqCst);
             tracing::warn!(session = %id, "sync event log on close: {e}");
         }
@@ -2135,6 +2137,8 @@ mod head_tests;
 mod journal_meta_tests;
 #[cfg(all(test, unix))]
 mod journal_store_tests;
+#[cfg(all(test, unix))]
+mod journal_sync_tests;
 
 impl LocalStore {
     /// `Store::scan`, and with `strict` `Store::scan_strict`.

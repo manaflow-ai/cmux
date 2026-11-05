@@ -1,9 +1,15 @@
 //! Runtime NEXT Cloud environment selection.
 //!
 //! This crate is deliberately independent of the app shell.  It owns the one
-//! endpoint table used by the CLI, daemon and Swift bridge, and persists only
+//! backend allowlist and client-config cache used by the CLI, daemon and Swift bridge. It persists only
 //! the selected environment name and sign-in revision. Secrets (Stack tokens) remain in the
 //! environment-specific Keychain namespace owned by the app.
+
+mod client_config;
+
+pub use client_config::{
+    ADVANCED_CREATE_FIELDS, ClientConfig, ConfigSource, check_create_capabilities,
+};
 
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
@@ -23,6 +29,8 @@ const NIGHTLY_BUNDLE: &str = "com.cmuxterm.app.nightly.cmux-next";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Environment {
     Local,
+    /// An explicit loopback API origin; the backend supplies the other origins.
+    LocalOrigin(String),
     Dev,
     Preview(u32),
     Staging,
@@ -32,13 +40,17 @@ pub enum Environment {
 impl Environment {
     pub fn parse(value: &str) -> Result<Self, String> {
         let value = value.trim();
-        match value.to_ascii_lowercase().as_str() {
+        if value.contains("://") {
+            return Self::from_origin(value);
+        }
+        let normalized = value.to_ascii_lowercase();
+        match normalized.as_str() {
             "local" => Ok(Self::Local),
             "dev" | "development" => Ok(Self::Dev),
             "staging" => Ok(Self::Staging),
             "prod" | "production" => Ok(Self::Prod),
             _ => {
-                let Some(number) = value.strip_prefix("preview-") else {
+                let Some(number) = normalized.strip_prefix("preview-") else {
                     return Err(format!("unknown cloud environment: {value}"));
                 };
                 if number.is_empty() || !number.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -55,9 +67,38 @@ impl Environment {
         }
     }
 
+    /// Accept only declared API deployments or explicit HTTP loopback.
+    fn from_origin(value: &str) -> Result<Self, String> {
+        let origin = client_config::bare_origin(value)?;
+        match origin.as_str() {
+            DEVELOPMENT_API => Ok(Self::Dev),
+            STAGING_API => Ok(Self::Staging),
+            PRODUCTION_API => Ok(Self::Prod),
+            "http://localhost:8787" => Ok(Self::Local),
+            _ if client_config::is_loopback_origin(&origin) => Ok(Self::LocalOrigin(origin)),
+            _ => {
+                let host = url::Url::parse(&origin)
+                    .map_err(|error| error.to_string())?
+                    .host_str()
+                    .unwrap_or("")
+                    .to_owned();
+                let number = host
+                    .strip_prefix("cmux-api-preview-")
+                    .and_then(|tail| tail.strip_suffix(".debussy.workers.dev"));
+                match number {
+                    Some(number) if origin == format!("https://{host}") => {
+                        Self::parse(&format!("preview-{number}"))
+                    }
+                    _ => Err(format!("cloud backend origin is not allowlisted: {value}")),
+                }
+            }
+        }
+    }
+
     pub fn name(&self) -> String {
         match self {
             Self::Local => "local".into(),
+            Self::LocalOrigin(origin) => origin.clone(),
             Self::Dev => "dev".into(),
             Self::Preview(number) => format!("preview-{number}"),
             Self::Staging => "staging".into(),
@@ -67,12 +108,13 @@ impl Environment {
 
     pub fn configuration(&self) -> Configuration {
         let deployment = match self {
-            Self::Local => LOCAL_DEPLOYMENT,
+            Self::Local | Self::LocalOrigin(_) => LOCAL_DEPLOYMENT,
             Self::Dev | Self::Preview(_) => DEVELOPMENT_DEPLOYMENT,
             Self::Staging => STAGING_DEPLOYMENT,
             Self::Prod => PRODUCTION_DEPLOYMENT,
         };
         let api_origin = match self {
+            Self::LocalOrigin(origin) => origin.clone(),
             Self::Preview(number) => {
                 format!("https://cmux-api-preview-{number}.debussy.workers.dev")
             }
@@ -184,7 +226,20 @@ pub struct Selection {
     pub bundle_id: String,
     pub mutable: bool,
     pub auth_namespace: String,
+    /// Rust's complete auth token/defaults storage suffix. None preserves the
+    /// original production service; signed DEV retains its old Stack suffix.
+    pub auth_storage_namespace: Option<String>,
+    /// Untouched default: keep existing sign-in and pairing storage on update.
+    pub legacy_storage: bool,
     pub state_path: String,
+    #[serde(default)]
+    pub config_source: ConfigSource,
+    #[serde(default)]
+    pub client_config_version: Option<u32>,
+    #[serde(default)]
+    pub capabilities: serde_json::Value,
+    #[serde(default)]
+    pub image_channel: Option<String>,
 }
 
 impl Deref for Selection {
@@ -211,8 +266,24 @@ impl Resolver {
     }
 
     pub fn resolve(&self, seed: Option<&str>) -> Result<Selection, String> {
-        // Release/RC bundles are permanently production. Do not let a stale,
-        // malformed, or hand-written state file redirect credentials.
+        // Launch overrides are authoritative for this launch only. Never
+        // overwrite a persisted picker choice. Release accepts only the same
+        // origin allowlist enforced by Environment::parse.
+        if let Some(seed) = seed.filter(|value| !value.trim().is_empty()) {
+            let environment = Environment::parse(seed)?;
+            if !self.mutable() && matches!(environment, Environment::LocalOrigin(_)) {
+                return Err(format!(
+                    "cloud environment origin is not allowlisted for bundle {}",
+                    self.bundle_id
+                ));
+            }
+            let mut selection = self.selection(environment, 0)?;
+            // An explicit override must never adopt a previous default's
+            // credentials or pairing, even when it spells the default backend.
+            selection.legacy_storage = false;
+            selection.auth_storage_namespace = Some(selection.auth_namespace.clone());
+            return Ok(selection);
+        }
         if !self.mutable() {
             return self.selection(Environment::Prod, 0);
         }
@@ -225,12 +296,20 @@ impl Resolver {
             Err(error) => return Err(format!("read {}: {error}", path.display())),
         };
         if let Some(persisted) = persisted {
-            return self
-                .selection(Environment::parse(&persisted.name)?, persisted.revision.unwrap_or(0));
+            let environment = Environment::parse(&persisted.name)?;
+            // #35133 wrote the first default state with a generated revision
+            // and no marker. Preserve that user's existing credentials. New
+            // explicit sets carry `explicit: true`, so switching back to a
+            // default never silently adopts legacy storage.
+            let legacy_seed = persisted.explicit != Some(true);
+            return self.selection_with_legacy(
+                environment,
+                persisted.revision.unwrap_or(0),
+                Some(legacy_seed),
+            );
         }
-        let environment =
-            seed.map(Environment::parse).transpose()?.unwrap_or_else(|| self.default_environment());
-        let revision = next_revision();
+        let environment = self.default_environment();
+        let revision = if environment == self.default_environment() { 0 } else { next_revision() };
         match self.persist_new(&environment, revision) {
             Ok(()) => self.selection(environment, revision),
             Err(error) if error.starts_with("state already exists:") => {
@@ -241,13 +320,20 @@ impl Resolver {
                 let winner: Persisted = serde_json::from_str(&text).map_err(|parse| {
                     format!("invalid cloud environment state {}: {parse}", path.display())
                 })?;
-                self.selection(Environment::parse(&winner.name)?, winner.revision.unwrap_or(0))
+                let environment = Environment::parse(&winner.name)?;
+                self.selection_with_legacy(
+                    environment,
+                    winner.revision.unwrap_or(0),
+                    Some(winner.explicit != Some(true)),
+                )
             }
             Err(error) => Err(error),
         }
     }
 
     pub fn set(&self, environment: Environment) -> Result<Selection, String> {
+        // Validate even enum values constructed directly by another crate.
+        Environment::parse(&environment.configuration().api_origin)?;
         if !self.mutable() {
             return Err(format!(
                 "cloud environment is fixed to prod for bundle {}",
@@ -262,7 +348,11 @@ impl Resolver {
                 if let Ok(current) = serde_json::from_str::<Persisted>(&text)
                     && Environment::parse(&current.name).ok().as_ref() == Some(&environment)
                 {
-                    return self.selection(environment, current.revision.unwrap_or(0));
+                    return self.selection_with_legacy(
+                        environment,
+                        current.revision.unwrap_or(0),
+                        Some(current.explicit != Some(true)),
+                    );
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -271,6 +361,18 @@ impl Resolver {
         let revision = next_revision();
         self.persist_replace(&environment, revision)?;
         self.selection(environment, revision)
+    }
+
+    /// Fetch and validate the backend's client configuration, falling back
+    /// to a validated per-backend cache on transport/server errors.
+    pub async fn client_config(&self, selection: Selection) -> Result<Selection, String> {
+        client_config::resolve(self, selection).await
+    }
+
+    /// Applies a previously fetched, validated client-config cache without
+    /// performing network I/O. Daemon consumers use this after CLI bootstrap.
+    pub fn cached_client_config(&self, selection: Selection) -> Result<Option<Selection>, String> {
+        client_config::cached(self, selection)
     }
 
     pub fn state_path(&self) -> PathBuf {
@@ -285,22 +387,64 @@ impl Resolver {
     }
 
     fn default_environment(&self) -> Environment {
-        if self.bundle_id == NIGHTLY_BUNDLE { Environment::Prod } else { Environment::Dev }
+        if self.mutable() && self.bundle_id != NIGHTLY_BUNDLE {
+            Environment::Dev
+        } else {
+            Environment::Prod
+        }
     }
 
     fn selection(&self, environment: Environment, revision: u64) -> Result<Selection, String> {
-        if !self.mutable() && environment != Environment::Prod {
-            return Err(format!(
-                "non-production environment is not allowed for bundle {}",
-                self.bundle_id
-            ));
-        }
+        self.selection_with_legacy(environment, revision, None)
+    }
+
+    fn selection_with_legacy(
+        &self,
+        environment: Environment,
+        revision: u64,
+        legacy_hint: Option<bool>,
+    ) -> Result<Selection, String> {
+        let configuration = environment.configuration();
+        Environment::parse(&configuration.api_origin)?;
+        // These are the only historical defaults with known credential and
+        // pairing destinations. Debug/tagged bundles allowed arbitrary old
+        // overrides, so they cannot safely adopt unscoped previous state.
+        let legacy_storage = legacy_hint.unwrap_or(revision == 0)
+            && match self.bundle_id.as_str() {
+                "com.cmuxterm.app.debug.next" => environment == Environment::Dev,
+                "com.cmuxterm.app" | "com.cmuxterm.app.rc" | NIGHTLY_BUNDLE => {
+                    environment == Environment::Prod
+                }
+                bundle if bundle.starts_with("com.cmuxterm.app.rc.") => {
+                    environment == Environment::Prod
+                }
+                _ => false,
+            };
+        let auth_namespace = format!("{}-{revision}", namespace(&configuration.api_origin));
+        let auth_storage_namespace = if legacy_storage {
+            (self.bundle_id == "com.cmuxterm.app.debug.next")
+                .then(|| configuration.stack_project_id.clone())
+        } else {
+            Some(auth_namespace.clone())
+        };
         Ok(Selection {
-            auth_namespace: format!("{}-{revision}", environment.name()),
-            configuration: environment.configuration(),
+            legacy_storage,
+            auth_namespace,
+            auth_storage_namespace,
+            configuration,
             bundle_id: self.bundle_id.clone(),
             mutable: self.mutable(),
             state_path: self.state_path().display().to_string(),
+            config_source: ConfigSource::KnownOriginFallback,
+            client_config_version: None,
+            // Compatibility fallback has no capability declaration. Any
+            // advanced create field therefore fails closed until the backend
+            // publishes its current support through `/v1/client-config`.
+            // The compatibility table supplies origins only. Until the backend
+            // publishes `/v1/client-config`, every capability-dependent create
+            // option fails closed rather than being silently discarded.
+            capabilities: serde_json::json!({"machine_create": {"size": true, "name": true}}),
+            image_channel: None,
         })
     }
 
@@ -311,9 +455,12 @@ impl Resolver {
         fs::create_dir_all(parent)
             .map_err(|error| format!("create {}: {error}", parent.display()))?;
         let tmp = temp_path(parent);
-        let body =
-            serde_json::to_vec(&Persisted { name: environment.name(), revision: Some(revision) })
-                .map_err(|error| error.to_string())?;
+        let body = serde_json::to_vec(&Persisted {
+            name: environment.name(),
+            revision: Some(revision),
+            explicit: Some(false),
+        })
+        .map_err(|error| error.to_string())?;
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -344,9 +491,12 @@ impl Resolver {
         fs::create_dir_all(parent)
             .map_err(|error| format!("create {}: {error}", parent.display()))?;
         let tmp = temp_path(parent);
-        let body =
-            serde_json::to_vec(&Persisted { name: environment.name(), revision: Some(revision) })
-                .map_err(|error| error.to_string())?;
+        let body = serde_json::to_vec(&Persisted {
+            name: environment.name(),
+            revision: Some(revision),
+            explicit: Some(true),
+        })
+        .map_err(|error| error.to_string())?;
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -366,6 +516,11 @@ impl Resolver {
     }
 }
 
+/// Deterministic, path-safe and collision-free for canonical origins.
+fn namespace(origin: &str) -> String {
+    origin.bytes().map(|byte| format!("{byte:02x}")).collect()
+}
+
 fn sync_directory(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     fs::File::open(path)
@@ -381,13 +536,19 @@ struct Persisted {
     name: String,
     #[serde(default)]
     revision: Option<u64>,
+    /// Missing means the pre-marker state format from #35133. Such a state
+    /// may be the first-launch default and is retained for continuity.
+    #[serde(default)]
+    explicit: Option<bool>,
 }
 
 static REVISION: AtomicU64 = AtomicU64::new(1);
 
 fn next_revision() -> u64 {
-    let clock =
-        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(0);
+    let clock = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+        .unwrap_or(0);
     clock.wrapping_add(REVISION.fetch_add(1, Ordering::Relaxed))
 }
 
@@ -419,9 +580,9 @@ mod tests {
     use super::*;
     use std::fs;
 
-    struct Home(PathBuf);
+    pub(super) struct Home(pub(super) PathBuf);
     impl Home {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             let path = std::env::temp_dir().join(format!(
                 "cmux-cloud-env-test-{}-{}",
                 std::process::id(),
@@ -447,18 +608,23 @@ mod tests {
     }
 
     #[test]
-    fn mutable_resolver_seeds_once_and_reads_back() {
+    fn launch_override_wins_without_overwriting_persisted_choice() {
         let home = Home::new();
         let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
-        assert_eq!(resolver.resolve(Some("staging")).unwrap().name, "staging");
-        assert_eq!(resolver.resolve(Some("prod")).unwrap().name, "staging");
+        resolver.set(Environment::Staging).unwrap();
+        assert_eq!(resolver.resolve(Some("prod")).unwrap().name, "prod");
+        assert_eq!(resolver.resolve(None).unwrap().name, "staging");
     }
 
     #[test]
-    fn release_cannot_be_redirected() {
+    fn release_accepts_allowlisted_launch_override_and_keeps_legacy_default() {
         let home = Home::new();
         let resolver = Resolver::new("com.cmuxterm.app", &home.0).unwrap();
-        assert_eq!(resolver.resolve(Some("dev")).unwrap().name, "prod");
+        let default = resolver.resolve(None).unwrap();
+        assert_eq!(default.name, "prod");
+        assert!(default.legacy_storage);
+        assert_eq!(resolver.resolve(Some("dev")).unwrap().name, "dev");
+        assert!(resolver.resolve(Some("https://untrusted.example")).is_err());
         assert!(resolver.set(Environment::Dev).is_err());
     }
 
@@ -468,8 +634,10 @@ mod tests {
         let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
         let initial = resolver.resolve(None).unwrap();
         assert_eq!(initial.name, "dev");
+        assert!(!initial.legacy_storage);
         assert_eq!(resolver.set(Environment::Dev).unwrap().auth_namespace, initial.auth_namespace);
         let staging = resolver.set(Environment::Staging).unwrap();
+        assert!(!staging.legacy_storage);
         assert_ne!(staging.auth_namespace, initial.auth_namespace);
         assert_eq!(resolver.resolve(None).unwrap().auth_namespace, staging.auth_namespace);
         assert_ne!(resolver.set(Environment::Dev).unwrap().auth_namespace, initial.auth_namespace);
@@ -482,9 +650,70 @@ mod tests {
         let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
         resolver.resolve(None).unwrap();
         fs::write(resolver.state_path(), "{bad").unwrap();
-        assert!(resolver.resolve(Some("prod")).is_err());
+        assert!(resolver.resolve(None).is_err());
+        assert_eq!(resolver.resolve(Some("prod")).unwrap().name, "prod");
         assert_eq!(resolver.set(Environment::Prod).unwrap().name, "prod");
         assert_eq!(resolver.resolve(None).unwrap().name, "prod");
+    }
+
+    #[test]
+    fn safe_untouched_defaults_preserve_historical_storage_only() {
+        let home = Home::new();
+        for bundle in
+            ["com.cmuxterm.app", "com.cmuxterm.app.rc", "com.cmuxterm.app.rc.test", NIGHTLY_BUNDLE]
+        {
+            let resolver = Resolver::new(bundle, &home.0).unwrap();
+            let selected = resolver.resolve(None).unwrap();
+            assert!(selected.legacy_storage, "{bundle}");
+            assert_eq!(selected.auth_storage_namespace, None);
+            let explicit = resolver.resolve(Some("prod")).unwrap();
+            assert!(!explicit.legacy_storage);
+            assert_eq!(explicit.auth_storage_namespace, Some(explicit.auth_namespace));
+        }
+        let resolver = Resolver::new("com.cmuxterm.app.debug.next", &home.0).unwrap();
+        let selected = resolver.resolve(None).unwrap();
+        assert!(selected.legacy_storage);
+        assert_eq!(selected.auth_storage_namespace.as_deref(), Some(DEVELOPMENT_STACK_PROJECT));
+        let switched = resolver.set(Environment::Staging).unwrap();
+        assert!(!switched.legacy_storage);
+        assert_eq!(switched.auth_storage_namespace, Some(switched.auth_namespace.clone()));
+        let returned = resolver.set(Environment::Dev).unwrap();
+        assert!(!returned.legacy_storage);
+        assert_eq!(returned.auth_storage_namespace, Some(returned.auth_namespace.clone()));
+        assert_ne!(returned.auth_storage_namespace, selected.auth_storage_namespace);
+    }
+
+    #[test]
+    fn unknown_debug_history_never_restores_unscoped_credentials() {
+        let home = Home::new();
+        for bundle in [DEV_BUNDLE, "com.cmuxterm.app.debug.tagged", "com.cmuxterm.app.debug.nextx"]
+        {
+            let selected = Resolver::new(bundle, &home.0).unwrap().resolve(None).unwrap();
+            assert!(!selected.legacy_storage, "{bundle}");
+            assert_eq!(selected.auth_storage_namespace, Some(selected.auth_namespace));
+        }
+    }
+
+    #[test]
+    fn backend_origin_aliases_remain_within_the_declared_allowlist() {
+        for (origin, expected) in [
+            (PRODUCTION_API, Environment::Prod),
+            (STAGING_API, Environment::Staging),
+            (DEVELOPMENT_API, Environment::Dev),
+            ("https://cmux-api-preview-123.debussy.workers.dev", Environment::Preview(123)),
+        ] {
+            assert_eq!(Environment::parse(origin).unwrap(), expected);
+        }
+        for origin in [
+            "https://cloud-api.cmux.dev.attacker.example",
+            "https://user@cloud-api.cmux.dev",
+            "https://cloud-api.cmux.dev/extra",
+            "https://cloud-api.cmux.dev?query=x",
+            "http://cloud-api.cmux.dev",
+            "https://cmux-api-preview-0.debussy.workers.dev",
+        ] {
+            assert!(Environment::parse(origin).is_err(), "{origin}");
+        }
     }
 
     #[cfg(unix)]
