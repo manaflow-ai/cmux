@@ -3,7 +3,7 @@
  "launch_args": [
   "--showcase"
  ],
- "frameInterval": 0.1,
+ "frameInterval": 0.25,
  "steps": [
   {
    "title": "Launch",
