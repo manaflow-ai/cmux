@@ -35,7 +35,9 @@ runner='app="$CMUX_EMBEDDER_TEST_DIR/App.app/Contents/Frameworks"; mkdir -p "$ap
 cp -R "$1/Chromium Embedded Framework.framework" "$app/"
 touch "$app/Chromium Embedded Framework.framework/_CodeSignature" 2>/dev/null || exit 1
 shift; for c in "$@"; do echo "==> case $c"; echo "    PASS ($c, exit 0, 1s)"; done'
-run() { CMUX_CI_CEF_DIR="$work/seed" CI_JOB_DIR="$work/job" CMUX_EMBEDDER_INPUT_DIR="$work/in" \
+# The worker sets TMPDIR to the step's own tmp folder (steps/<id>/tmp); JOB is the step folder.
+run() { local job="${JOB:-$work/job}"; mkdir -p "$job/tmp"
+  CMUX_CI_CEF_DIR="$work/seed" CI_JOB_DIR="$job" TMPDIR="$job/tmp" CMUX_EMBEDDER_INPUT_DIR="$work/in" \
   bash "$script" "$@" >"$work/out" 2>&1; }
 
 SRC="sha256:$(mk_sources "$runner")"
@@ -43,6 +45,16 @@ run "$SRC" "$REF" parent-dealloc-hidden signals || { cat "$work/out"; fail "a ru
 grep -qx 'cmux-embedder: 2/2 passed' "$work/out" || { cat "$work/out"; fail "no 2/2 summary"; }
 [ -w "$dist/$FW" ] && fail "the seeded dist was made writable (it must stay as the worker seeded it)"
 rm -rf "$work/job" 2>/dev/null || fail "the step's files cannot be removed (the worker cleanup failed this way)"
+
+# A lent worker: the step folder belongs to root (0711) and the build user owns only its home, tmp, cache,
+# src and state folders (hq build-fleet/cmd/worker/lend.go stepWorkDirs). The work folder must go under
+# TMPDIR: under CI_JOB_DIR every case stopped at "mkdir: .../cef-embedder: Permission denied" (fleet jobs
+# 2c4045267904e17800609bad and e06a3bfb20342d87a7a8fabf, cmux-austin-mini-1, 2026-11-05).
+mkdir -p "$work/lent/tmp" && chmod 0555 "$work/lent"
+SRC="sha256:$(mk_sources "$runner")"
+JOB="$work/lent" run "$SRC" "$REF" signals || { cat "$work/out"; fail "a run on a lent worker ran no case"; }
+grep -qx 'cmux-embedder: 1/1 passed' "$work/out" || { cat "$work/out"; fail "no 1/1 summary on a lent worker"; }
+chmod 0755 "$work/lent"
 
 # A runner that stops before its first case says so, not only "0/N passed".
 SRC="sha256:$(mk_sources 'echo "codesign: some error" >&2; exit 1')"
