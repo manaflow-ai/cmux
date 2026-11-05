@@ -162,6 +162,13 @@ def tests_naming(root: Path, paths: list[str]) -> tuple[dict[str, list[str]], li
     return {k: sorted(v) for k, v in swift.items()}, sorted(web), sorted(python)
 
 
+def workflow_run_bare(root: Path) -> set[str]:
+    """Python files a workflow runs as `python3 PATH` with no arguments: an unregistered test there
+    needs no built app, socket or argument, so a fast check can run it the same way."""
+    text = "".join(p.read_text(encoding="utf-8", errors="replace") for p in sorted((root / ".github").rglob("*.y*ml")))
+    return set(re.findall(r"python3?(?: -\S+)* ((?:[\w.-]+/)*test_[\w-]+\.py)[ \t]*$", text, re.M))
+
+
 def unregistered_python_tests(root: Path) -> list[str]:
     """test_*.py files the lane registry does not list (scripts/tests, scripts/cmux-next/tests,
     cmux-tui/scripts, ...): their own workflows run them, so the lane runner cannot."""
@@ -366,7 +373,12 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         p.swift({pkg: swift_test_targets(root, pkg) for pkg in swift_packages(root)}, "every Swift package test target")
         p.web(None)
         p.python(None)
-        p.python_extra(unregistered_python_tests(root), "every Python test outside the lane registry")
+        unregistered = unregistered_python_tests(root)
+        bare = workflow_run_bare(root)
+        p.python_extra([t for t in unregistered if t in bare], "every Python test outside the lane registry a workflow runs bare")
+        if len(unregistered) > len(bare & set(unregistered)):
+            p.not_run.append({"what": f"{len(unregistered) - len(bare & set(unregistered))} other Python tests outside the lane registry",
+                              "why": "no workflow runs them bare (they take arguments, a built app or a socket)"})
         p.native(sorted({focused_tests.native_manifest(root, m.as_posix()) or "" for m in root.glob("Native/**/Cargo.lock")} - {""}))
     else:
         if focused["cargo"]["changed"] or rust_may_read(root, files):
@@ -400,6 +412,10 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         p.python(lane_paths)
         extra = extra_python(root, files)
         extra += [t for t in web_python + (lane_paths or []) if t not in lanes and t not in extra]
+        bare = workflow_run_bare(root)
+        for test in [t for t in extra if t not in bare]:
+            p.not_run.append({"what": test, "why": "outside the lane registry and no workflow runs it bare"})
+        extra = [t for t in extra if t in bare]
         if extra:
             p.python_extra(extra, f"{len(extra)} Python tests outside the lane registry")
         p.native([item["manifest"] for item in focused["native"]])

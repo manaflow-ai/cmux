@@ -241,6 +241,20 @@ class AffectedTests(unittest.TestCase):
     def test_the_guard_runner_is_a_selection_input(self):
         self.assertTrue(plan(["scripts/ci/guards-local.sh"])["all"])
 
+    def test_the_everything_plan_runs_no_unregistered_test_that_needs_an_app(self):
+        # tests_v2 tests need a built CLI and a live socket; a fast check can only list them.
+        result = plan([], everything=True)
+        extra = [a for u in result["units"] if u["name"].startswith("python-extra") for a in u["argv"]]
+        self.assertTrue(extra)
+        self.assertFalse([a for a in extra if a.startswith(("tests_v2/", "scripts/journeys/"))])
+        self.assertIn(".github/scripts/test_rust_workspaces.py", extra)
+        self.assertTrue(any("outside the lane registry" in n["what"] for n in result["not_run"]), result["not_run"])
+
+    def test_a_changed_test_that_needs_an_app_is_listed_not_run(self):
+        result = plan(["tests_v2/test_browser_api_p0.py"])
+        self.assertIn("tests_v2/test_browser_api_p0.py", [n["what"] for n in result["not_run"]])
+        self.assertFalse([u for u in result["units"] if "tests_v2/test_browser_api_p0.py" in u["argv"]])
+
     def test_swift_shards_split_targets_without_loss(self):
         targets = affected_tests.swift_test_targets(ROOT, "Packages/macOS/CmuxNext")
         parts = affected_tests.split(targets, 4)
