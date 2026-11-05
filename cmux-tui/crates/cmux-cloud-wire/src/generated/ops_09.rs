@@ -4,6 +4,50 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Read one kept run with the body of the automation version that fired it.
+    RunGetOp {
+        name: "run.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:SchedulerDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: RunGetParams,
+        result: RunWithBody,
+        error: RunGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunGetParams {
+    pub run: RunId,
+}
+
+wire_errors! {
+    /// The error codes run.get declares.
+    RunGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Page the kept runs newest first (every active run and the last 200 finished ones), optionally of one automation and one state (keyset: pass next_cursor as cursor; new runs never shift later pages).
+    RunListOp {
+        name: "run.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:SchedulerDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: RunListParams,
+        result: RunListResult,
+        error: RunListError,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RunListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -853,50 +897,4 @@ pub struct TeamEnrollmentTokenCreateParams {
     pub allowed_domains: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
-}
-
-wire_errors! {
-    /// The error codes team.enrollment_token.create declares.
-    TeamEnrollmentTokenCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List enrollment tokens and managed devices (owners and admins).
-    TeamEnrollmentTokenListOp {
-        name: "team.enrollment_token.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session],
-        params: TeamEnrollmentTokenListParams,
-        result: TeamEnrollmentTokenListResult,
-        error: TeamEnrollmentTokenListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamEnrollmentTokenListParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamEnrollmentTokenListResult {
-    pub team: TeamId,
-    pub tokens: Vec<EnrollmentToken>,
-    pub devices: Vec<ManagedDevice>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.enrollment_token.list declares.
-    TeamEnrollmentTokenListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
 }

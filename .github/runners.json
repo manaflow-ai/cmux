@@ -336,6 +336,10 @@
       "class": "apple-gui",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
+    "cu-driver-eval.yml#eval": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the measurement to the controller with cmux-ci run"
+    },
     "screen-stream-eval.yml#eval": {
       "class": "apple-gui",
       "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the measurement to the controller with cmux-ci run"

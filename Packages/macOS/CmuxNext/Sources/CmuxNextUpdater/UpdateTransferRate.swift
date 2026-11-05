@@ -43,12 +43,16 @@ nonisolated struct UpdateTransferRate: Equatable, Sendable {
     }
 
     /// Seconds until `expected` bytes are in at the current speed, rounded up to 5 s under a minute and to
-    /// whole minutes above; nil without a speed or a size.
+    /// whole minutes above; nil without a speed or a size, or when the time left is more seconds than `Int`
+    /// holds (a size near `UInt64.max` at a byte a second).
     func secondsLeft(expected: UInt64?) -> Int? {
         guard let rate = bytesPerSecond, rate > 0, let expected, let last = samples.last, expected > last.bytes else { return nil }
         let seconds = Double(expected - last.bytes) / rate
         let step: Double = seconds < 60 ? 5 : 60
-        return Int((seconds / step).rounded(.up) * step)
+        let rounded = (seconds / step).rounded(.up) * step
+        // `Double(Int.max)` is 2^63, one past `Int.max`: only values below it convert.
+        guard rounded < Double(Int.max) else { return nil }
+        return Int(rounded)
     }
 
     /// The card's second line, "About 15 s left", or nil while unmeasured. The time left alone: the

@@ -1958,13 +1958,13 @@ def main_actor_scope():
 
 def ui_targets() -> set[str]:
     """The targets HEAD's manifest builds with `uiSwiftSettings` (main-actor by default), as check-concurrency.sh
-    reads them."""
+    reads them (swift_scope.package_targets: each target from its own call, so a target with no swiftSettings
+    never takes the next target's); test targets are left out."""
     context = run_context()
     if "ui_targets" not in context:
         manifest = context.get("manifest")
-        found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)',
-                           manifest if isinstance(manifest, str) else "", re.S)
-        context["ui_targets"] = {name for name, settings in found if settings == "uiSwiftSettings"}
+        targets = swift_scope.package_targets(manifest if isinstance(manifest, str) else "")
+        context["ui_targets"] = {target.name for target in targets if target.main and target.path.startswith("Sources/")}
     return context["ui_targets"]
 
 
