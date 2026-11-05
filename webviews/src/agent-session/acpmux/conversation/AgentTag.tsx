@@ -22,7 +22,7 @@ export function AgentTag({
   ariaLabel?: string;
   className?: string;
   /// More attributes on the button (`openSessionAttributes`).
-  attributes?: Record<string, string>;
+  attributes?: Record<string, string | undefined>;
   /// The hover card of the chat it opens (``useSessionHover``).
   hover?: SessionHoverTrigger;
 }) {
