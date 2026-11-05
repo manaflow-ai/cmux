@@ -137,6 +137,9 @@ default-off setting first). Flip it on once a week of dogfood shows no lost stat
    its newest finished command in memory only (never the history store). `park-tabs` writes it into the kept tab's
    row (`kept_tabs.last_command_json`, one row, about 100 bytes plus the 1 KiB-capped line; none for an incognito
    terminal), and the respawn marker reads it: "session restored · last: `npm test` · exit 1" (en, ja in the
-   daemon catalog). Still to do (4b): Run Last Command Again (palette and tab menu, typed without Return),
-   `runningCommands: relaunch`, and freeing idle agent TUIs with their resume.
+   daemon catalog). 4b, done: the restored shell's prompt gets that command typed without Return (one line only,
+   on a marked, empty prompt with the shell in the foreground; a person's own resume command and an agent resume
+   win), so the person runs it again with Return (`Prefilled::LastCommand` in the respawn log). Still to do (4b):
+   a palette/tab-menu "Run Last Command Again" for live shells, `runningCommands: relaunch`, and freeing idle agent
+   TUIs with their resume.
 5. Hover card "Freed 2d ago · restores on open", `debug.surfaces` counts, docs.
