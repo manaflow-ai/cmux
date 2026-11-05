@@ -264,3 +264,41 @@ test("a call with input and no output yet still opens to its fields", async () =
   expect(heads(container)).toEqual(["Input"]);
   expect(keys(container)).toEqual(["title", "prompt", "options", "priority"]);
 });
+
+test("an input holding a number a double would round shows as it came, never as rounded fields", async () => {
+  const exact = '{"issue": 9007199254740993, "team": "WEB"}';
+  expect(inputFields(exact)).toBeUndefined();
+  expect(inputFields({ issue: 9007199254740992 }, exact)).toBeUndefined();
+  expect(inputFields('{"issue": 42}')).toEqual([{ key: "issue", text: "42", look: "value" }]);
+  const { activityText } = await import("./chatFind");
+  const item: AcpmuxActivity = {
+    kind: "tool",
+    text: "Close issue",
+    tool: {
+      id: "t7",
+      title: "Close issue",
+      kind: "other",
+      status: "completed",
+      inputSummary: exact,
+      output: "Closed.",
+    },
+  };
+  expect(activityText(item)).not.toContain("9007199254740992");
+});
+
+test("Find reads no input fields of a message card, which draws none", async () => {
+  const { activityText } = await import("./chatFind");
+  const item: AcpmuxActivity = {
+    kind: "tool",
+    text: "tell",
+    tool: {
+      id: "t8",
+      title: "tell",
+      kind: "other",
+      status: "completed",
+      inputSummary: JSON.stringify({ id: "landing-hydration", message: "The fixture is ready." }),
+      output: "Sent.",
+    },
+  };
+  expect(activityText(item)).not.toContain("landing-hydration");
+});
