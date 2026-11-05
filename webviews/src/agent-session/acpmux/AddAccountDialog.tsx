@@ -96,6 +96,8 @@ export function AddAccountDialog({
       name: name.trim() || defaultName,
     };
     if (way === "new") account.accountHome = folder;
+    // A second ChatGPT login shares the CLI's conversations, so routing can move a chat onto it.
+    if (way === "new" && family === "codex") account.shadow = true;
     if (way === "key") account.secret = secret.trim();
     sending.current = true;
     setPending(true);
@@ -140,9 +142,16 @@ export function AddAccountDialog({
             }}
           >
             {choices.map((choice) => (
-              <label key={choice.way} className="acpmux-add-account-way" htmlFor={`${group}-${choice.way}`}>
+              <label
+                key={choice.way}
+                className="acpmux-add-account-way"
+                htmlFor={`${group}-${choice.way}`}
+                aria-label={choice.title}
+              >
                 <input
                   id={`${group}-${choice.way}`}
+                  aria-label={choice.title}
+                  aria-describedby={`${group}-${choice.way}-detail`}
                   type="radio"
                   name={group}
                   value={choice.way}
@@ -152,7 +161,7 @@ export function AddAccountDialog({
                 />
                 <span>
                   <strong>{choice.title}</strong>
-                  <small>{choice.detail}</small>
+                  <small id={`${group}-${choice.way}-detail`}>{choice.detail}</small>
                 </span>
               </label>
             ))}
@@ -207,9 +216,10 @@ export function AddAccountDialog({
         <footer>
           <DialogButton
             dialogKey="escape"
-            className="ui-btn"
+            className="ui-button ui-btn"
             data-variant="subtle"
             data-size="md"
+            data-disabled={pending ? "" : undefined}
             disabled={pending}
             onClick={onClose}
           >
@@ -218,9 +228,10 @@ export function AddAccountDialog({
           <DialogButton
             dialogKey="return"
             type="submit"
-            className="ui-btn"
+            className="ui-button ui-btn"
             data-variant="solid"
             data-size="md"
+            data-disabled={pending || !ready ? "" : undefined}
             disabled={pending || !ready}
           >
             {t("picker.addAccount")}

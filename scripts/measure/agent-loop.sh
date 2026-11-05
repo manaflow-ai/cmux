@@ -50,8 +50,15 @@ plist="$(ls -d "$mount"/*.app/Contents/Info.plist 2>/dev/null | head -n 1)"
 commit="$(/usr/libexec/PlistBuddy -c 'Print CMUXCommit' "$plist" 2>/dev/null || true)"
 hdiutil detach "$mount" >/dev/null 2>&1 || hdiutil detach -force "$mount" >/dev/null 2>&1 || true
 rmdir "$mount" 2>/dev/null || true
-[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "AGENT-LOOP the app carries no CMUXCommit"; exit 3; }
-echo "AGENT-LOOP app commit $commit"
+# Nightlies stamp the commit's first 7 hex: this checkout resolves it, else GitHub's commit API.
+[[ "$commit" =~ ^[0-9a-f]{7,40}$ ]] || { echo "AGENT-LOOP the app carries no CMUXCommit (read '${commit}')"; exit 3; }
+short="$commit"
+if [[ ${#commit} -lt 40 ]]; then
+  commit="$(git -C "$root" rev-parse -q --verify "$short^{commit}" 2>/dev/null \
+    || curl -fsSL --retry 3 -H 'Accept: application/vnd.github.sha' "https://api.github.com/repos/manaflow-ai/cmux/commits/$short" 2>/dev/null || true)"
+fi
+[[ "$commit" =~ ^[0-9a-f]{40}$ && "$commit" == "$short"* ]] || { echo "AGENT-LOOP could not resolve CMUXCommit $short"; exit 3; }
+echo "AGENT-LOOP app commit $short ($commit)"
 
 # Setup, not part of the loop's time: the app's tree and its webviews dependencies.
 t0=$SECONDS

@@ -809,6 +809,8 @@ impl Hub {
         Self::starting(session, stops);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
+        // The name its Claude Code was started under (`--name`), before the claim is taken.
+        let pooled_name = self.pool_claimed_name(&session.id);
         if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, off) {
             #[cfg(debug_assertions)]
             self.take_off_seam();
@@ -836,6 +838,10 @@ impl Hub {
                 // start, under the same budget. Its `session/set_mode` would otherwise wait
                 // forever on a harness that stays alive but never answers, holding `spawn_lock`.
                 Ok((child, _)) => {
+                    // Taken under another name than it started with: its Claude Code takes it.
+                    if pooled_name.is_some_and(|n| n != session.meta().name) {
+                        self.rename_live_claude(session);
+                    }
                     let budget = self.config.read().await.agent_start_timeout();
                     return match tokio::time::timeout(
                         budget,

@@ -185,8 +185,11 @@ class Loop:
         self.result["app"] = {"bundle_id": info.get("CFBundleIdentifier"), "version": info.get("CFBundleShortVersionString"),
                               "build": info.get("CFBundleVersion"), "commit": self.commit, "pid": process.pid}
         tree_head = subprocess.run(["git", "-C", str(self.tree), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
-        if not self.step("tree", bool(self.commit) and tree_head == self.commit, tree=tree_head, app_commit=self.commit):
+        # A nightly stamps the commit's first 7 hex; the tree holds the full one, which live-apply.py gets.
+        if not self.step("tree", len(self.commit) >= 7 and tree_head.startswith(self.commit), tree=tree_head,
+                         app_commit=self.commit):
             return self.result["failures"]
+        self.commit = tree_head
         before = self.identity()
         opened = rpc(self.sock, "settings.open", {}, timeout=30)
         time.sleep(3)  # harness: the Settings page loads

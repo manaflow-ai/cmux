@@ -18,7 +18,7 @@ nonisolated private let flickerLogger = Logger(subsystem: "com.cmuxterm.app.next
 ///
 /// The file is a two-file ring under the app's state root:
 /// `<Application Support>/<bundle id>/diagnostics/agent-page-flicker.ndjson`, which becomes
-/// `agent-page-flicker.1.ndjson` once it passes ``maximumBytes``. Nothing in a line is the
+/// `agent-page-flicker.1.ndjson` when a write would take it past ``maximumBytes``. Nothing in a line is the
 /// person's text: a page name (`chat:<session>` or `new-tab`), a pid, numbers and short words.
 /// Writes run on a utility queue, never the main thread.
 nonisolated final class AgentPageFlickerLog: Sendable {
@@ -107,16 +107,19 @@ nonisolated final class AgentPageFlickerLog: Sendable {
                 if !FileManager.checked.fileExists(atPath: url.path) {
                     _ = FileManager.checked.createFile(atPath: url.path, contents: nil)
                 }
+                // The bound holds after the write: lines that would take the file past it start a
+                // new one, and the full one becomes the older half of the ring.
+                let added = lines.reduce(Data(), +)
                 let handle = try FileHandle(forWritingTo: url)
                 let size = try handle.seekToEnd()
-                if size > UInt64(Self.maximumBytes) {
+                if size > 0, size + UInt64(added.count) > UInt64(Self.maximumBytes) {
                     try handle.close()
                     try? FileManager.checked.removeItem(at: older)
                     try FileManager.checked.moveItem(at: url, to: older)
-                    _ = FileManager.checked.createFile(atPath: url.path, contents: lines.reduce(Data(), +))
+                    _ = FileManager.checked.createFile(atPath: url.path, contents: added)
                     return
                 }
-                for line in lines { try handle.write(contentsOf: line) }
+                try handle.write(contentsOf: added)
                 try handle.close()
             } catch {
                 flickerLogger.error("agent page flicker log write failed: \(String(describing: error), privacy: .public)")
