@@ -7,7 +7,7 @@ import CmuxMobileDesign
 /// soon as ``length`` characters are in.
 struct EmailCodeEntry: Equatable, Sendable {
     /// The accepted characters; they also pick the keyboard.
-    let characters: CodeEntryCharacters = .digits
+    let characters: CodeEntryCharacters = .alphanumeric
     /// The number of characters in an emailed code.
     let length = 6
 
