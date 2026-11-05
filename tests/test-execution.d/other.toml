@@ -596,6 +596,11 @@ lane = "manual"
 reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_remake_clears_old_identity.py; needs only bash and python3."
 
 [[test]]
+path = "tests/test_sidebar_row_oracle.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Synthetic films for scripts/cmux-next/sidebar_row_oracle.py, the independent judge of sidebar row insert and remove (cmux-ad m23); run python3 -I tests/test_sidebar_row_oracle.py yourself after changing the oracle (under 2 s, no app, no build)."
+
+[[test]]
 path = "tests/test_signer_parity_compare.py"
 lane = "linux-guard"
 
