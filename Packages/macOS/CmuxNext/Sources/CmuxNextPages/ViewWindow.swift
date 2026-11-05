@@ -132,4 +132,3 @@ import WebKit
         return lookQuery(config: config, dark: dark)
     }
 }
-
