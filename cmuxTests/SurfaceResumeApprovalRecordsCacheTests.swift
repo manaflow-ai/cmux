@@ -86,7 +86,9 @@ import Testing
             inode: 1,
             size: 1,
             modifiedSeconds: 1,
-            modifiedNanoseconds: 1
+            modifiedNanoseconds: 1,
+            changedSeconds: 1,
+            changedNanoseconds: 1
         )
         let cache = SurfaceResumeApprovalRecordsCache(stamp: { _ in frozen })
         let lookup = {

@@ -8,8 +8,8 @@ import Foundation
 /// the whole JSONC `cmux.json` and re-verified every record's HMAC, so a
 /// checkpoint pass over a few hundred terminals stalled the main thread for
 /// seconds (issue #35930). A lookup now costs one `stat` per backing file;
-/// records are reloaded only when a file's identity, size or modification time
-/// changes, or when the store reports a write.
+/// records are reloaded only when a file's identity, size, modification or
+/// status-change time changes, or when the store reports a write.
 ///
 /// `@unchecked Sendable` is safe because all mutable state is guarded by `lock`.
 final class SurfaceResumeApprovalRecordsCache: @unchecked Sendable {
@@ -20,6 +20,10 @@ final class SurfaceResumeApprovalRecordsCache: @unchecked Sendable {
         var size: Int64
         var modifiedSeconds: Int
         var modifiedNanoseconds: Int
+        /// Status-change time: unlike mtime, no tool can set it back, so an
+        /// in-place rewrite that restores the old mtime still counts as a change.
+        var changedSeconds: Int
+        var changedNanoseconds: Int
     }
 
     private struct Key: Hashable {
@@ -112,7 +116,9 @@ final class SurfaceResumeApprovalRecordsCache: @unchecked Sendable {
             inode: UInt64(info.st_ino),
             size: Int64(info.st_size),
             modifiedSeconds: Int(info.st_mtimespec.tv_sec),
-            modifiedNanoseconds: Int(info.st_mtimespec.tv_nsec)
+            modifiedNanoseconds: Int(info.st_mtimespec.tv_nsec),
+            changedSeconds: Int(info.st_ctimespec.tv_sec),
+            changedNanoseconds: Int(info.st_ctimespec.tv_nsec)
         )
     }
 }
