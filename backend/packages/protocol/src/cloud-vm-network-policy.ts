@@ -9,7 +9,7 @@ const Point = Schema.String.check(isPattern(/^B[A-Za-z0-9+/]{86}=$/))
 export const NativeVmId = Schema.String.check(isPattern(/^vm_[0-9a-hjkmnp-tv-z]{26}$/))
 export const CloudVmReceiverPeer = Schema.Struct({
   host: HostId, user: UserId, install: InstallId, device: NativeDeviceId, wg_public_key: WgPublicKey, install_public_key: Point,
-  authority_version: Version, services: Schema.Array(Schema.Literals(["daemon", "ssh"])).check(Schema.isMinLength(1), Schema.isMaxLength(2))
+  authority_version: Version, services: Schema.Array(Schema.Literals(["daemon", "ssh", "desktop"])).check(Schema.isMinLength(1), Schema.isMaxLength(3))
 }).annotate({ identifier: "CloudVmReceiverPeer" })
 export const CloudVmNetworkPolicyView = Schema.Struct({
   schema_version: Schema.Literal(2), machine: MachineId, host: HostId, epoch: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),

@@ -126,16 +126,6 @@ struct CloudBrowserActionTests {
 
     // MARK: Failures name the machine and the port, and give the next command
 
-    @Test(arguments: ["cloudPortList", "cloudPortForward", "cloudPortClose"])
-    func aClassicLinkMachineSaysWhatToRunInstead(id: String) throws {
-        let f = Self.fixture()
-        let refusal = try #require(try Self.refusal(f.services, ActionID(rawValue: id), Self.invocation(f.session, ["port": .int(3000)])))
-        let port = id == "cloudPortList" ? nil : 3000
-        #expect(refusal == CloudPortStrings.classicLink(CloudPortNames(f.session, port: port)))
-        #expect(refusal.contains(f.session.machine.title))
-        #expect(refusal.contains("cmux cloud open-browser --target machine:\(f.session.machineID) --port \(port.map(String.init) ?? "<port>")"))
-    }
-
     @Test(arguments: [("cloudOpenBrowser", "open-browser"), ("cloudPortForward", "port-forward"), ("cloudPortClose", "port-close"), ("cloudMachineLink", "machine-link")])
     func aPortOutOfRangeIsRefusedWithTheMachineAndTheCommand(id: String, verb: String) throws {
         let f = Self.fixture()
@@ -174,7 +164,7 @@ struct CloudBrowserActionTests {
     @Test func everyHintNamesAVerbTheCLIOffers() throws {
         let services = Self.fixture().services
         let names = CloudPortNames(name: "devbox-3", id: "vm-devbox3", port: 8080)
-        let messages = [CloudPortStrings.classicLink(names), CloudPortStrings.noForward(names), CloudPortStrings.limit(names),
+        let messages = [CloudPortStrings.noForward(names), CloudPortStrings.limit(names),
                         CloudPortStrings.failed(names, detail: "x"), CloudPortStrings.browserFailed(names, detail: "x"),
                         CloudPortStrings.noWindow(names), CloudPortStrings.updateMachine(names), CloudPortStrings.localhostOff(names),
                         CloudPortStrings.noLink(names), CloudPortStrings.pathInvalid(names), CloudPortStrings.invalidPort(names, verb: "port-forward")]

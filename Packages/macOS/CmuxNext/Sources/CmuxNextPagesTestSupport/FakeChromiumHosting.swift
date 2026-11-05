@@ -20,6 +20,13 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     /// A stand-in for the app's focus model (``PageChromiumHosting/focusViewChanged(_:)``); nil: none.
     public var focusModel: ((PageWebView) -> Bool)?
 
+    /// Whether this Chromium serves the live web loop (``PageChromiumHosting/setLivePages(_:)``); off
+    /// by default, like a shim without live mode.
+    public var servesLivePages = false
+
+    /// Answers ``servesLivePages``.
+    public func setLivePages(_ live: Bool) -> Bool { servesLivePages }
+
     /// Asks ``focusModel``.
     public func focusViewChanged(_ page: PageWebView) -> Bool { focusModel?(page) ?? false }
 
