@@ -20,6 +20,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -140,8 +141,72 @@ def toolchain_bin(toolchain: str) -> str:
 ZIG_PACKAGES: Path | None = None
 
 
-def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[float, int, int]:
+def clean_env(target: Path) -> dict:
+    """The environment every variant builds in: no inherited profile, wrapper or flags (a worker's
+    global config.toml may set a wrapper or rustflags; empty values here override it), and zig
+    caches of this target's own, linked to the packages fetched before timing."""
     env = dict(os.environ)
+    for name in list(env):
+        if name.startswith(("CARGO_PROFILE_", "CARGO_BUILD_", "CARGO_TARGET_")) or name in (
+                "RUSTFLAGS", "CARGO_INCREMENTAL", "RUSTC_WORKSPACE_WRAPPER", "RUSTUP_TOOLCHAIN", "RUSTC"):
+            del env[name]
+    env["CARGO_TARGET_DIR"] = str(target)
+    env["RUSTC_WRAPPER"] = ""
+    env["CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER"] = ""
+    env["CARGO_ENCODED_RUSTFLAGS"] = ""
+    # ghostty-vt-sys runs `zig build`; its caches live in the variant's target, so a clean build
+    # of every variant compiles libghostty-vt from nothing, not only the first.
+    env["ZIG_LOCAL_CACHE_DIR"] = str(target / "zig-local-cache")
+    env["ZIG_GLOBAL_CACHE_DIR"] = str(target / "zig-global-cache")
+    if ZIG_PACKAGES and ZIG_PACKAGES.is_dir():
+        (target / "zig-global-cache").mkdir(parents=True, exist_ok=True)
+        link = target / "zig-global-cache" / "p"
+        if not link.exists():
+            link.symlink_to(ZIG_PACKAGES)
+    return env
+
+
+class PeakRss:
+    """Peak resident memory of the host's blaze processes (the daemon and what it runs under a
+    blaze name), sampled every 200 ms while a build runs. On an exclusive worker these are this
+    run's own."""
+
+    def __init__(self) -> None:
+        self.peak_mb = 0.0
+        self._stop = threading.Event()
+        self._t = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self.peak_mb = max(self.peak_mb, blaze_rss_mb())
+            self._stop.wait(0.2)
+
+    def __enter__(self) -> "PeakRss":
+        self._t.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._stop.set()
+        self._t.join()
+        self.peak_mb = max(self.peak_mb, blaze_rss_mb())
+
+
+def blaze_reset(log) -> None:
+    """Stop the daemon and remove blaze's build state, keeping its downloaded toolchain, so the
+    next blaze build is cold."""
+    subprocess.run(["blaze", "stop"], capture_output=True, text=True)
+    home = Path(os.environ.get("BLAZE_HOME", Path.home() / ".blaze"))
+    for child in home.iterdir() if home.is_dir() else []:
+        if child.name not in ("toolchains", "native"):
+            shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink(missing_ok=True)
+    log(f"DEVLOOP-BLAZE-RESET {home} (kept toolchains, native)")
+
+
+LAST_PEAK: dict[str, float] = {}
+
+
+def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[float, int, int]:
+    env = clean_env(target)
     if spec.get("blaze"):
         # blaze takes cargo's flags but refuses --locked; its build directory is under BLAZE_HOME.
         cmd = ["blaze", *[x for x in args if x != "--locked"]]
@@ -149,33 +214,16 @@ def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[fl
         with open(log_path, "a") as f:
             f.write(f"\n$ {' '.join(cmd)}\n")
             f.flush()
-            r = subprocess.run(cmd, env=env, stdout=f, stderr=subprocess.PIPE, text=True)
+            with PeakRss() as peak:
+                r = subprocess.run(cmd, env=env, stdout=f, stderr=subprocess.PIPE, text=True)
             f.write(r.stderr)
         dt = time.monotonic() - t0
+        LAST_PEAK["blaze"] = peak.peak_mb
         if r.returncode != 0:
             for line in r.stderr.strip().splitlines()[-15:]:
                 print(f"DEVLOOP-LOG {line}", flush=True)
         return dt, r.returncode, len(re.findall(r"^\s+Compiling ", r.stderr, re.M))
-    # Only this variant's settings: no inherited profile, wrapper or flags (a worker's global
-    # config.toml may set a wrapper or rustflags; empty values here override it for every variant).
-    for name in list(env):
-        if name.startswith(("CARGO_PROFILE_", "CARGO_BUILD_", "CARGO_TARGET_")) or name in (
-                "RUSTFLAGS", "CARGO_INCREMENTAL", "RUSTC_WORKSPACE_WRAPPER"):
-            del env[name]
-    env["CARGO_TARGET_DIR"] = str(target)
-    env["RUSTC_WRAPPER"] = ""
-    env["CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER"] = ""
     env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(spec.get("rustflags", []))
-    # ghostty-vt-sys runs `zig build`; its caches live in the variant's target, so a clean build
-    # of every variant compiles libghostty-vt from nothing, not only the first.
-    env["ZIG_LOCAL_CACHE_DIR"] = str(target / "zig-local-cache")
-    env["ZIG_GLOBAL_CACHE_DIR"] = str(target / "zig-global-cache")
-    # Packages were fetched before timing; only the compile cache starts cold.
-    if ZIG_PACKAGES and ZIG_PACKAGES.is_dir():
-        (target / "zig-global-cache").mkdir(parents=True, exist_ok=True)
-        link = target / "zig-global-cache" / "p"
-        if not link.exists():
-            link.symlink_to(ZIG_PACKAGES)
     cmd = ["cargo"]
     env.pop("RUSTUP_TOOLCHAIN", None)
     if spec.get("toolchain"):
@@ -284,20 +332,28 @@ def main() -> int:
                "compiled": compiled, "round": i}
         extra = ""
         if chosen.get(variant, {}).get("blaze"):
-            smp["rss_mb"] = blaze_rss_mb()
-            extra = f" rss_mb={smp['rss_mb']}"
+            smp["rss_peak_mb"] = LAST_PEAK.get("blaze", 0.0)
+            smp["rss_after_mb"] = blaze_rss_mb()
+            extra = f" rss_peak_mb={smp['rss_peak_mb']} rss_after_mb={smp['rss_after_mb']}"
         samples.append(smp)
         log(f"DEVLOOP-SAMPLE {variant} {scenario} round={i} {dt:.2f}s exit={rc} compiled={compiled}{extra}")
         (out / "samples.json").write_text(json.dumps({"host": host, "samples": samples}, indent=1))
 
+    if "blaze" in chosen:
+        # blaze fetches its own toolchain on its first build (v2 has no `blaze toolchain`): a tiny
+        # untimed build takes that download out of the timed clean build.
+        r = subprocess.run(["blaze", "build", "-p", "acpmux-build-id"], capture_output=True, text=True)
+        log(f"DEVLOOP-BLAZE-WARMUP exit {r.returncode} {r.stderr.strip().splitlines()[-1:]}")
+        v = subprocess.run(["blaze", "--version"], capture_output=True, text=True)
+        log(f"DEVLOOP-TOOLCHAIN blaze: {v.stdout.strip() or v.stderr.strip()} (its own pinned nightly)")
     troot = Path(a.target_root).resolve() if a.target_root else out / "target"
     # Crates come from the network once, before any clock starts.
     subprocess.run(["cargo", "fetch", "--locked"], check=False)
     targets = {k: troot / re.sub(r"[^A-Za-z0-9_.-]", "_", k) for k in chosen}
     for c in range(a.clean_n):
         for k, spec in chosen.items():
-            if spec.get("blaze") and c > 0:
-                continue  # blaze keeps its build in its daemon and BLAZE_HOME: only its first build is cold
+            if spec.get("blaze"):
+                blaze_reset(log)
             shutil.rmtree(targets[k], ignore_errors=True)
             for p in EDITS.values():
                 restore(ws / p)
@@ -332,7 +388,7 @@ def main() -> int:
     finally:
         for p in EDITS.values():
             restore(ws / p)
-        if any(s.get("blaze") for s in chosen.values()):
+        if "blaze" in names and shutil.which("blaze"):
             st = subprocess.run(["blaze", "status", "--json"], capture_output=True, text=True)
             log(f"DEVLOOP-BLAZE-STATUS {st.stdout.strip()[:2000]}")
             subprocess.run(["blaze", "stop"], capture_output=True, text=True)
@@ -361,7 +417,7 @@ def main() -> int:
         ok = [x["seconds"] for x in xs if x["exit"] == 0]
         fails = sum(1 for x in xs if x["exit"] != 0)
         comp = statistics.median([x["compiled"] for x in xs])
-        rss = [x["rss_mb"] for x in xs if "rss_mb" in x]
+        rss = [x["rss_peak_mb"] for x in xs if "rss_peak_mb" in x]
         log(f"DEVLOOP {v} {s} {len(ok)} {pct(ok, .5):.2f} {pct(ok, .95):.2f} "
             f"{min(ok, default=float('nan')):.2f} {max(ok, default=float('nan')):.2f} {comp:g} {fails}"
             + (f" rss_max_mb={max(rss)}" if rss else ""))
