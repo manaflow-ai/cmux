@@ -349,8 +349,9 @@ meant "after the whole group", so the gap leapt below every member; it sits righ
 drops before that member, first in the group (`SidebarDragGeometry.hit`, `firstMember`). A closed header's bottom
 quarter still drops after the group. And an into-group target closed the gap for one move, so the rows sprang up
 and the same still pointer read a row lower; a held drag over the header's middle now keeps the last gap, as over a
-row's middle (`displayLayout`). A drop into the group still settles into it. Regression:
-`SidebarDragGroupHeaderTargetTests`.
+row's middle (`displayLayout`). A drop into the group still settles into it. A group drawn as its one row has no
+header and keeps its no-gap drop fill (`drawsAsOneRow`, asked of the model with the dragged rows out). Regression:
+`SidebarDragGroupHeaderTargetTests`, `SidebarSingleMemberGroupKeysTests`.
 
 ## Link opener placement keeps pane-local relationships (2026-10-30)
 
