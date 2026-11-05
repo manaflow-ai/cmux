@@ -1919,6 +1919,31 @@ function fallbackRowHeight(
   // An agent a shell call started (subagents/AgentRunCard.tsx): one collapsed disclosure line; its
   // reply and Raw are measured once the reader opens it.
   if (isRunGroup(row)) return finish(cardHeight("working"));
+  // Image/file-only user prompts still draw their attachment strip before the action footer.
+  // Reserve the fixed thumbnail height so virtualization never places the next row over it.
+  if (
+    row.kind === "user" &&
+    !row.text?.trim() &&
+    (row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"))
+  ) {
+    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (192px) when
+    // estimating columns so a narrow pane never lets a second attachment row overlap the next row.
+    const inlineParts = row.inlineParts ?? [];
+    const imageCount = Math.max(
+      row.images?.length ?? 0,
+      inlineParts.filter((part) => part.kind === "image").length,
+      row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
+    );
+    const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 198));
+    const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
+    const otherAttachments = Math.max(
+      row.retryAttachments?.filter((part) => part.kind !== "image").length ?? 0,
+      inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
+    );
+    const attachmentHeight = imageRows * 128 + otherAttachments * 36;
+    const deliveryAnchor = row.delivery?.state === "sending" && !row.steer ? metrics().lineHeight : 0;
+    return finish(attachmentHeight + deliveryAnchor + messageBelow(beforeFooter) + chromeHeight(row, actions));
+  }
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.

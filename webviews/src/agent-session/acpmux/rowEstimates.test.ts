@@ -40,6 +40,39 @@ const footer = (id: string) => ({
 const prompt = (id: string) => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
 const heightsOf = (rows: unknown[]) => [...layoutConversation(rows as never, 720).heights];
 
+// An attachment-only prompt has no bubble; its action row is laid in the turn gap as a bubble's is
+// (conversation.css, model.ts userMetaHeight), so its height is its 128px thumbnail row.
+test("an attachment-only prompt reserves its attachment strip", () => {
+  const row = { id: "image", version: 1, at: 0, kind: "user", images: [{ id: "i", mimeType: "image/png" }] };
+  const [height] = heightsOf([row]);
+  expect(height).toBeGreaterThanOrEqual(128);
+});
+
+test("an inline attachment-only prompt reserves its attachment strip", () => {
+  const row = {
+    id: "inline-image",
+    version: 1,
+    at: 0,
+    kind: "user",
+    inlineParts: [{ kind: "image", id: "i", mimeType: "image/png" }],
+  };
+  const [height] = heightsOf([row]);
+  expect(height).toBeGreaterThanOrEqual(128);
+});
+
+test("an attachment-only send reserves its delivery anchor", () => {
+  const row = {
+    id: "sending-image",
+    version: 1,
+    at: 0,
+    kind: "user",
+    inlineParts: [{ kind: "image", id: "i", mimeType: "image/png" }],
+  };
+  const [sent] = heightsOf([row]);
+  const [sending] = heightsOf([{ ...row, delivery: { state: "sending", promptId: "p", sessionId: "s", sentAt: 0 } }]);
+  expect(sending!).toBeGreaterThan(sent!);
+});
+
 test("a reply over its footer is its text alone, with no 34px floor", () => {
   const long = "A longer answer that wraps. ".repeat(40);
   const [alone] = heightsOf([reply("a", long)]);

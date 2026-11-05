@@ -36,7 +36,7 @@ import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, isStripMedia, PromptFile, readsAsText } from "./InlinePromptContent";
-import { recordedPromptParts } from "../inlinePrompt";
+import { recordedPromptParts, resendsAttachments } from "../inlinePrompt";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -137,6 +137,14 @@ export function UserBubble({
             : [],
         )
   )?.filter((file) => !videos.some((video) => video.name === file.name && video.path === file.path));
+  // Every recorded non-text part is an attachment, including documents, audio and pasted blocks
+  // that do not become legacy file chips.
+  const hasAttachment = Boolean(
+    row.images?.length ||
+    row.retryAttachments?.length ||
+    files?.length ||
+    row.inlineParts?.some((part) => part.kind !== "text"),
+  );
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
@@ -158,7 +166,15 @@ export function UserBubble({
     (placed
       ? orderedParts!.some((part) => !isStripMedia(part))
       : orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text"));
-  const strip = useComposerSettings().attachmentView === "strip" && hasInterleaved;
+  // An attachment-only inline prompt has no text bubble to host its media. Keep its attachments
+  // in the same strip as the legacy `images` shape, otherwise the estimator reserves a thumbnail
+  // row while the DOM draws nothing and the next virtualized row jumps into that space.
+  const inlineAttachmentOnly = Boolean(orderedParts?.length && orderedParts.every((part) => !readsAsText(part)));
+  const strip = (useComposerSettings().attachmentView === "strip" && hasInterleaved) || inlineAttachmentOnly;
+  // The legacy bands draw a prompt's `images` and files only when its recorded parts do not: an
+  // attachment-only row carries both shapes (send and replay record each), and drawing both drew
+  // every attachment twice.
+  const legacyBands = !hasInterleaved && !inlineAttachmentOnly;
   // A placed prompt's attachments the composer left in the strip (unmarked) stay in the band.
   const banded = (part: PromptContentPart) =>
     isStripMedia(part) && (strip || (hasInterleaved && placed && part.placed !== true));
@@ -202,9 +218,12 @@ export function UserBubble({
   // buttons when the steer is delivered, except where that footer draws no Retry (`promptRetry`). The
   // Messages view draws no footer for a turn that ended well (messagesRows.ts), so its prompts keep
   // their Retry; not while one is on its way, as a second send would duplicate it.
+  // An attachment-only prompt retries only when every attachment can go again: a Retry that sent
+  // none of them would send an empty prompt.
+  const retryAttachments = resendsAttachments(row);
   const retry =
     (messagesView || promptRetry) && !row.pending && row.delivery?.state !== "sending" ? (
-      <PromptRetry rowId={row.id} prompt={resend} />
+      <PromptRetry rowId={row.id} prompt={resend} hasAttachment={retryAttachments} />
     ) : null;
   const forkButton =
     forkThrough !== undefined ? (
@@ -212,10 +231,10 @@ export function UserBubble({
     ) : null;
   return (
     <>
-      {!hasInterleaved && (Boolean(row.images?.length) || videos.length > 0) && (
+      {legacyBands && (Boolean(row.images?.length) || videos.length > 0) && (
         <SentImages images={row.images ?? []} leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null} />
       )}
-      {!hasInterleaved && Boolean(files?.length) && (
+      {legacyBands && Boolean(files?.length) && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
             <FileAttachment key={index} file={file} />
@@ -240,7 +259,7 @@ export function UserBubble({
       <div className="cv-user__body">
         {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
             bubble under them read as a lost message; Leo 2026-10-21). */}
-        {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) && (
+        {(strip ? shownParts!.some(readsAsText) : hasInterleaved || text.trim()) ? (
           <div className="ui-glass cv-user__bubble selectable">
             {hasInterleaved ? (
               <InlinePromptContent
@@ -256,17 +275,21 @@ export function UserBubble({
             {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
             {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
-        )}
+        ) : row.delivery?.state === "sending" && !row.steer ? (
+          <div className="cv-user__bubble-wrap is-empty">
+            <DeliveryMark delivery={row.delivery} />
+          </div>
+        ) : null}
         {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
-        {!row.failed && (text || pending) && (
+        {!row.failed && (text || hasAttachment || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
             pending={
               pending &&
               ((actions) =>
                 pending(actions, {
-                  retry: retry && <PromptRetry rowId={row.id} prompt={resend} held />,
+                  retry: retry && <PromptRetry rowId={row.id} prompt={resend} hasAttachment={retryAttachments} held />,
                   fork: forkButton,
                 }))
             }

@@ -195,6 +195,18 @@
 .cv-user__body {
   display: contents;
 }
+/* An attachment-only prompt has no text bubble. Keep a small positioned status anchor so its
+   delivery clock can sit beside the attachment row without inventing an empty glass surface. */
+.cv-user__bubble-wrap {
+  position: relative;
+}
+.cv-user__bubble-wrap.is-empty {
+  /* Attachment-only delivery has no bubble width to anchor against. Match the attachment band so
+     the clock sits beside its thumbnails instead of at the transcript edge. */
+  align-self: flex-end;
+  width: 70%;
+  min-height: var(--cv-line-height);
+}
 /* A prompt's bubble, as ChatGPT and Claude draw it (leo-workspace design/transcript-spacing.md
    "Prompt bubble"; transcriptSpacing.ts BUBBLE): one line is 44 tall (chatgpt.com 44, claude.ai 45),
    so the block padding is what the line leaves, (44 - line) / 2, at least the 4 base; 16 at the

@@ -402,18 +402,19 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     : offersRetry(row) && !isEmptyFooter(row)
       ? { promptId: row.retryRowId, footerId: row.id }
       : NO_RETRY_TARGET;
+  // An attachment-only prompt's `prompt` is empty (turns.ts offersRetry): its attachments go again.
   const lastRetry =
     !failed &&
     retryPlacement(footerTarget, { canRetry: Boolean(retry), readOnly, messages }) === "footer" &&
     retry &&
-    prompt &&
+    prompt !== undefined &&
     row.retryRowId
       ? () => retry(row.retryRowId!, prompt)
       : undefined;
   const footerRetry = failedRetry ?? lastRetry;
   const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
   const retryModels =
-    (failed || lastRetry) && retry && prompt && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
+    ((failed && prompt) || lastRetry) && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
@@ -485,7 +486,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                     <Retry size={ROW_ICON} />
                   </button>
                 )}
-                {retryModels && prompt && (
+                {retryModels && prompt !== undefined && (
                   <RetryModelMenu
                     retryWith={retryModels}
                     onPick={(model) => retryModels.retry(row.retryRowId ?? "", prompt, model)}

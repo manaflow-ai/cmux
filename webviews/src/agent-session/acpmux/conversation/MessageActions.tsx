@@ -286,14 +286,26 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 /// Retry, and Retry with another model when the harness has several: sends prompt row `rowId`
 /// (`prompt`, as the agent got it) again. Only the Messages view's prompts draw it, sent or queued;
 /// in the transcript the last turn's Retry is its reply footer's (TurnRows.tsx TurnFooter).
+/// `hasAttachment`: the prompt carries attachments that can all go again, so an attachment-only
+/// prompt (no text) still gets Retry.
 /// `held`: the prompt is a steer the agent has not read yet (PendingSteer.tsx's row). Its Retry
 /// stays in the row, as the sent row's does, but cannot be pressed and has no model menu: a resend
 /// while the steer still waits would reach the agent twice (cmux#34613, #34614).
-export function PromptRetry({ rowId, prompt, held = false }: { rowId: string; prompt: string; held?: boolean }) {
+export function PromptRetry({
+  rowId,
+  prompt,
+  hasAttachment = false,
+  held = false,
+}: {
+  rowId: string;
+  prompt: string;
+  hasAttachment?: boolean;
+  held?: boolean;
+}) {
   const t = useT();
   const { retry, retryWith } = useContext(TurnActionsContext);
   const readOnly = useTranscriptReadOnly();
-  if (!retry || !prompt || readOnly) return null;
+  if (!retry || (!prompt && !hasAttachment) || readOnly) return null;
   return (
     <span className="cv-message-retry">
       <button
