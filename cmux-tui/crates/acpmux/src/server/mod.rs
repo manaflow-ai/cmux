@@ -1025,15 +1025,22 @@ pub async fn serve_ws_until(
         let shutdown = shutdown.clone();
         connections.spawn(async move {
             let _handshake_slot = handshake_slot;
-            let mut head = [0u8; 4096];
-            let Some(n) = ws_peek::request(&stream, &mut head, peer).await else { return };
-            // The peek only routes the request. Each path checks the full head it parses:
-            // serve_http reads it, tungstenite parses the upgrade request for the callback.
-            let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
-            if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
-                serve_http(stream, &policy, peer).await;
+            let mut stream = stream;
+            // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
+            // as it reads, tungstenite as it parses it again for the callback.
+            let (head, read) = match ws_peek::request(&mut stream, peer).await {
+                ws_peek::Request::Head { head, read } => (head, read),
+                ws_peek::Request::TooLarge => {
+                    refuse_http(stream, Refusal::MissingHost).await;
+                    return;
+                }
+                ws_peek::Request::Gone => return,
+            };
+            if !head.to_ascii_lowercase().contains("upgrade: websocket") {
+                serve_http(stream, &head, &policy, peer).await;
                 return;
             }
+            let stream = ws_peek::Replayed::new(read, stream);
             let expected = token.clone();
             // The upgrade request's Origin headers, for the LocalApp check.
             let seen_origins: Arc<StdMutex<Vec<String>>> = Arc::default();
@@ -1324,45 +1331,17 @@ async fn refuse_http(mut stream: tokio::net::TcpStream, refusal: Refusal) {
     let _ = stream.shutdown().await;
 }
 
-/// The largest request head the dashboard reads.
-const MAX_HTTP_HEAD_BYTES: usize = 32 * 1024;
-
-/// Read a request head up to its blank line. None when it is larger than
-/// [`MAX_HTTP_HEAD_BYTES`] (room for large localhost cookies), the peer
-/// closes first, or it takes over 2 s.
-async fn read_http_head(stream: &mut tokio::net::TcpStream) -> Option<String> {
-    let read = async {
-        let mut head = Vec::with_capacity(1024);
-        let mut chunk = [0u8; 4096];
-        while !head.windows(4).any(|window| window == b"\r\n\r\n") {
-            if head.len() >= MAX_HTTP_HEAD_BYTES {
-                return None;
-            }
-            let n = stream.read(&mut chunk).await.ok()?;
-            if n == 0 {
-                return None;
-            }
-            head.extend_from_slice(chunk.get(..n).unwrap_or(&chunk));
-        }
-        Some(String::from_utf8_lossy(&head).into_owned())
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(2), read).await.ok().flatten()
-}
-
 /// Minimal HTTP for the dashboard. The whole head passes the listener rule
 /// first; then GET / serves the page, and anything else is 404. The page is
 /// static and holds no secret: it reads the token from its URL fragment,
 /// which never reaches a server, and its WebSocket presents it.
 async fn serve_http(
     mut stream: tokio::net::TcpStream,
+    head: &str,
     policy: &ListenerPolicy,
     peer: std::net::SocketAddr,
 ) {
-    let Some(head) = read_http_head(&mut stream).await else {
-        refuse_http(stream, Refusal::MissingHost).await;
-        return;
-    };
-    if let Err(refusal) = check_head(policy, &head) {
+    if let Err(refusal) = check_head(policy, head) {
         tracing::warn!("web request from {peer} refused: {refusal}");
         refuse_http(stream, refusal).await;
         return;
