@@ -72,8 +72,23 @@ impl Mux {
         &self,
         terminal_id: &str,
     ) -> Option<crate::state::kept_tab_store::LastCommand> {
-        let _ = terminal_id;
-        None
+        use crate::shell_history::Recording;
+        if self.shell_recording() == Recording::Off {
+            return None;
+        }
+        let (public_id, runtime) = {
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let public_id = registry.terminal_resource_id(terminal_id).ok()??;
+            let state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
+            let runtime = state.terminal_catalog.get(&public_id).cloned()?;
+            (public_id, runtime)
+        };
+        // The privacy read takes the registry lock itself: after the guards drop.
+        if self.output_store.is_private(self, &public_id) {
+            return None;
+        }
+        let finished = runtime.last_finished_command()?;
+        crate::state::kept_tab_store::LastCommand::from_finished(&finished)
     }
 
     pub(super) fn set_terminal_last_command(&self, enabled: bool) {
