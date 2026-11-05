@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// Swift live mode's quiet mark in the window's top row, after the toolbar band (and the badge and
 /// host pressure indicator while they show): "Live mode" in secondary caption text on the subtle
