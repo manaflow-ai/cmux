@@ -5,28 +5,41 @@
 # registered runs used), clones it for this run (an APFS clone: the base image is never changed),
 # sets 6 CPUs, 12 GB and a 1920x1080 display, boots it headless, and over SSH records the guest's
 # macOS, display, SIP, Xcode tools, Homebrew, Python, Node, git, and whether it reaches the model route.
-# Then it stops and deletes the clone. The bench run itself comes in the next stage. Run it alone on a
-# macOS 26 worker with room for the image (about 23 GB to pull, 160 GB sparse on disk):
+# Then it stops and deletes the clone. Run it alone on a macOS 26 worker with room for the image
+# (about 23 GB to pull, 160 GB sparse on disk):
 #   cmux-ci run --class exclusive --measurement --label measure --label macos-26 \
 #     --script scripts/measure/cu-driver-bench.sh --ref SHA --artifact artifacts/cu-driver-bench.tgz \
 #     [--target-worker aws-m4pro-8] [--arg=base_url=http://HOST:PORT] --timeout 7200
 # base_url= is the team subrouter's Claude route (as scripts/measure/team-eval.sh takes it); the
 # guest only checks that it answers. Output: CU-DRIVER-BENCH lines and artifacts/cu-driver-bench.tgz
 # (cu-driver-bench/vm.json and the Lume logs). Exit 0 when vm.json was written, else 4.
+#
+# suite=input-ab [reps=N] [drivers=a,b] then runs the input A/B (cu-driver-eval.sh) in the guest,
+# where SIP is off, so the A/B's own executables can be granted Accessibility, event posting and
+# screen capture (cu-driver-eval/tcc-grant.sh); no fleet worker's step holds those grants. It runs in
+# the guest user's login session, as a LaunchAgent, so its windows are real windows on the guest's
+# 1920x1080 display. Its artifact is then artifacts/cu-driver-eval.tgz, as on a console Mac, with
+# vm.json added; its exit status is the A/B's.
 set -uo pipefail
-base_url=""
+base_url="" suite=probe reps=3 drivers="cmux-cua,cua-driver-0.38.0"
 for arg in "$@"; do
   case "$arg" in
     base_url=*) base_url="${arg#base_url=}" ;;
+    suite=*) suite="${arg#suite=}" ;;
+    reps=*) reps="${arg#reps=}" ;;
+    drivers=*) drivers="${arg#drivers=}" ;;
     *) echo "cu-driver-bench.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
+[[ "$suite" == probe || "$suite" == input-ab ]] || { echo "cu-driver-bench.sh: suite= is probe or input-ab" >&2; exit 2; }
+[[ "$reps" =~ ^[1-9][0-9]?$ ]] || { echo "cu-driver-bench.sh: reps= is 1..99" >&2; exit 2; }
+[[ "$drivers" =~ ^[a-z0-9.,-]*$ ]] || { echo "cu-driver-bench.sh: drivers= is a comma list of names" >&2; exit 2; }
 [[ -z "$base_url" || "$base_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "cu-driver-bench.sh: base_url=http://HOST[:PORT]" >&2; exit 2; }
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 here="$root/scripts/measure/cu-driver-eval"
 out="$root/artifacts/cu-driver-bench"
-rm -rf "$out" "$root/artifacts/cu-driver-bench.tgz"
+rm -rf "$out" "$root/artifacts/cu-driver-bench.tgz" "$root/artifacts/cu-driver-eval" "$root/artifacts/cu-driver-eval.tgz"
 mkdir -p "$out"
 # Lume's own home (its image cache and VMs) persists across runs on this worker, so the image is
 # pulled once; only this run's clone is made and deleted. A step has its own HOME, so the cache lives
@@ -52,6 +65,12 @@ open(sys.argv[1], "w").write(json.dumps(facts, indent=2, sort_keys=True) + "\n")
 EOF
   cat "$out/vm.json"
   tar -czf "$root/artifacts/cu-driver-bench.tgz" -C "$root/artifacts" cu-driver-bench
+  # input-ab's artifact is cu-driver-eval.tgz; a run stopped before the A/B still leaves one.
+  if [[ "$suite" == input-ab && ! -d "$root/artifacts/cu-driver-eval" ]]; then
+    mkdir -p "$root/artifacts/cu-driver-eval"
+    cp "$out/vm.json" "$root/artifacts/cu-driver-eval/"
+    tar -czf "$root/artifacts/cu-driver-eval.tgz" -C "$root/artifacts" cu-driver-eval
+  fi
 }
 
 note "STAGE lume"
@@ -178,7 +197,8 @@ printf "free=%s\n" "$(df -h / | tail -1 | awk "{print \$4}")"
 printf "console_user=%s\n" "$(stat -f %Su /dev/console)"
 '
 [[ -n "$base_url" ]] && probe+="printf 'route=%s\n' \"\$(curl -s -m 10 -o /dev/null -w '%{http_code}' '$base_url/_subrouter/ready')\""$'\n'
-lume ssh "$vm" -t 120 "$probe" >"$out/guest.txt" 2>"$out/guest.err" || note "the guest probe exited $?"
+probe_status=0
+lume ssh "$vm" -t 120 "$probe" >"$out/guest.txt" 2>"$out/guest.err" || probe_status=$?
 cat "$out/guest.txt"
 facts=$(python3 -I - "$out/guest.txt" "$(sw_vers -productVersion)" "$(scutil --get ComputerName 2>/dev/null || hostname)" "$image_name:$image_tag" "$image_digest" "$lume_sum" "$(git rev-parse HEAD)" <<'EOF'
 import json, sys
@@ -193,4 +213,57 @@ print(json.dumps({"schema": "cmux.cu-driver-bench.vm/1", "host": sys.argv[3], "h
                   "vm": {"cpu": 6, "memory_gb": 12, "display": "1920x1080"}, "guest": guest}))
 EOF
 )
+if [[ $probe_status != 0 ]] || ! grep -q '^console_user=' "$out/guest.txt"; then
+  finish "the guest probe did not complete (exit $probe_status; guest.err)"
+  exit 4
+fi
+[[ "$suite" == probe ]] && { finish; exit 0; }
+
+note "STAGE input-ab"
+# lume ssh takes a password and no stdin, so it installs a key for this run once; plain ssh and its
+# pipes do the rest. The key lives in this run's scratch and is removed with the clone.
+keydir="$lume_home/tmp/key-$vm"
+mkdir -p "$keydir" && chmod 700 "$keydir"
+trap 'rm -rf "$keydir"; cleanup' EXIT
+ssh-keygen -q -t ed25519 -N "" -C "$vm" -f "$keydir/id" || { finish "ssh-keygen failed"; exit 4; }
+ip=$(lume get "$vm" -f json 2>/dev/null | python3 -I -c '
+import json, sys
+data = json.load(sys.stdin)
+row = data[0] if isinstance(data, list) else data
+print(row.get("ipAddress") or "")' 2>/dev/null)
+[[ "$ip" =~ ^[0-9.]+$ ]] || { finish "lume reported no guest IP"; exit 4; }
+# The image's user is lume, password lume, with sudo; this throwaway clone gets passwordless sudo.
+pubkey=$(cat "$keydir/id.pub")
+setup="mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$pubkey' >>~/.ssh/authorized_keys"
+setup+=" && echo lume | sudo -S sh -c 'echo \"lume ALL=(ALL) NOPASSWD: ALL\" >/etc/sudoers.d/cu-eval && chmod 440 /etc/sudoers.d/cu-eval'"
+lume ssh "$vm" -t 60 "$setup" >"$out/key.log" 2>&1 || { finish "could not install the run's key in the guest (key.log)"; exit 4; }
+guest() { ssh -i "$keydir/id" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=error "lume@$ip" "$@"; }
+guest true || { finish "ssh with the run's key failed"; exit 4; }
+rev=$(git rev-parse HEAD)
+git archive "$rev" scripts/measure/cu-driver-eval.sh scripts/measure/cu-driver-eval scripts/build-cmux-cua.sh |
+  guest 'rm -rf ~/cu-eval && mkdir -p ~/cu-eval && tar -x -C ~/cu-eval' || { finish "could not copy the A/B into the guest"; exit 4; }
+guest "bash ~/cu-eval/scripts/measure/cu-driver-eval/guest-start.sh $rev $reps '$drivers'" >"$out/start.log" 2>&1 ||
+  { cat "$out/start.log"; finish "could not start the A/B in the guest's session (start.log)"; exit 4; }
+cat "$out/start.log"
+note "the A/B is running in the guest"
+finished=0
+for _ in $(seq 1 360); do
+  guest 'test -f ~/cu-eval/eval.status' 2>/dev/null && { finished=1; break; }
+  sleep 10 # bounded wait for the A/B (one hour)
+done
+guest 'cat ~/cu-eval/eval.log' >"$out/eval.log" 2>/dev/null
+tail -40 "$out/eval.log"
+[[ $finished == 1 ]] || { finish "the A/B did not finish in the guest within an hour (eval.log)"; exit 4; }
+eval_status=$(guest 'cat ~/cu-eval/eval.status' 2>/dev/null | tr -dc '0-9')
+[[ -n "$eval_status" ]] || eval_status=4
+facts=$(python3 -I -c 'import json, sys; f = json.loads(sys.argv[1]); f["input_ab_exit"] = int(sys.argv[2]); print(json.dumps(f))' "$facts" "$eval_status")
 finish
+if guest 'cat ~/cu-eval/artifacts/cu-driver-eval.tgz' >"$out/guest-eval.tgz" 2>/dev/null && tar -xzf "$out/guest-eval.tgz" -C "$root/artifacts"; then
+  cp "$out/vm.json" "$out/eval.log" "$root/artifacts/cu-driver-eval/"
+  tar -czf "$root/artifacts/cu-driver-eval.tgz" -C "$root/artifacts" cu-driver-eval
+  cat "$root/artifacts/cu-driver-eval/summary.md" 2>/dev/null
+else
+  note "the guest wrote no cu-driver-eval.tgz"
+  eval_status=4
+fi
+exit "$eval_status"

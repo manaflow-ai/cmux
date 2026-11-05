@@ -2,8 +2,9 @@ name: cu driver eval
 
 # The Computer Use driver eval (HQ#7146 G3a; scripts/measure/cu-driver-eval/README.md): every input
 # route and Cua Driver build sends the same click, key and scroll to an AppKit, a WebKit and an
-# Electron window, behind the user's window and in front of it, on one console Mac, every day at the
-# feat-cmux-next tip. Report only, no gate: the run uploads results.json and a summary.md that
+# Electron window, behind the user's window and in front of it, every day at the feat-cmux-next tip.
+# It runs in a macOS 26 VM on a fleet Mac (cu-driver-bench.sh suite=input-ab), the one place its
+# executables can hold Accessibility and event posting; no fleet worker's step does. Report only, no gate: the run uploads results.json and a summary.md that
 # compares each rate with the last successful run. Scheduled workflows run only from the default
 # branch, so a dispatcher on main (cu-driver-eval-dispatch.yml) starts this one on feat-cmux-next
 # once a day; it has no cron of its own. It goes through the build-fleet
@@ -19,7 +20,7 @@ on:
         description: "trials per arm, target, gesture and condition"
         default: "3"
       worker:
-        description: "fleet worker (empty: vars.CU_DRIVER_EVAL_WORKER, else any idle console measure worker)"
+        description: "fleet worker (empty: vars.CU_DRIVER_EVAL_WORKER, else any idle macOS 26 measure worker)"
         default: ""
 
 permissions:
@@ -34,7 +35,7 @@ jobs:
   eval:
     if: github.repository_owner == 'manaflow-ai' && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != ''
     runs-on: ${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -81,13 +82,13 @@ jobs:
           sha="$(git rev-parse HEAD)"
           log="$RUNNER_TEMP/eval.log"
           status=0
-          # A console session worker (gui-session-v1): the step posts input and its windows draw.
+          # A macOS 26 worker boots the pinned VM image and runs the A/B in it (the VM's display is 1920x1080).
           target=()
           [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
-          "$client" run --class exclusive --measurement --label measure --label gui-session-v1 ${target[@]+"${target[@]}"} \
-            --script scripts/measure/cu-driver-eval.sh --ref "$sha" --timeout 3600 \
+          "$client" run --class exclusive --measurement --label measure --label macos-26 ${target[@]+"${target[@]}"} \
+            --script scripts/measure/cu-driver-bench.sh --ref "$sha" --timeout 7200 \
             --artifact artifacts/cu-driver-eval.tgz \
-            --arg="drivers=$DRIVERS" --arg="reps=$REPS" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
+            --arg=suite=input-ab --arg="drivers=$DRIVERS" --arg="reps=$REPS" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
           mkdir -p artifacts
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
           if [[ -n "$step" ]]; then
