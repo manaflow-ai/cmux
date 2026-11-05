@@ -822,6 +822,9 @@ export type AcpmuxPermission = {
   toolCallId?: string;
   /// Proposed changes from this ask only; these have not been applied to the workspace.
   diffs?: AcpmuxFileDiff[];
+  /// The plan a plan approval asks about, as Markdown (Claude Code's ExitPlanMode, Grok's
+  /// `x.ai/exit_plan_mode`, Cursor's `create_plan`; direct.ts `permissionPlan`).
+  plan?: string;
   pending: boolean;
   options: {
     id: string;
