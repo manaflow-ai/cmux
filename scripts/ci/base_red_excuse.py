@@ -1391,6 +1391,11 @@ WS_CHECK_COMMITS = 30  # base commits read for a verdict, newest first (most mai
 WS_CHECK_DESCRIPTION = re.compile(r"(\d+) of (\d+) steps failed: (.*)", re.S)
 UNITTEST_RED = re.compile(r"^(?:FAIL|ERROR): (\S.*)$")
 UNITTEST_SUMMARY = re.compile(r"^FAILED \(([^)]*)\)$")
+# A step that crashed (a signal, a fatal interpreter error) is never compared by its test names: a crash after a
+# complete unittest summary would otherwise hide behind a failure the base shares (cmux#36219 F1).
+WS_CHECK_CRASH = re.compile(r"Segmentation fault|core dumped|Fatal Python error|\bKilled\b|\bAborted\b|"
+                            r"MemoryError|died on signal|unexpected signal")
+WS_CHECK_STEP_EXIT = re.compile(r" \(exit (-?\d+), ran \d+, skipped \d+, gh calls \d+\)$")
 # The checkout root a ws-check run's paths start with: fast-checks.yml's workspace, or ws-check-heads.yml's clone.
 WS_CHECK_ROOT = re.compile(r"(?:/[\w.-]+)*/_work/(?:cmuxterm-hq/cmuxterm-hq|_temp/lw)/")
 
@@ -1407,6 +1412,13 @@ def ws_check_step(lines: list[str], end: int, step: str) -> dict:
     if start is None:
         raise Refused(f"no '##[group]{step}' line before its result")
     section = [text for text in lines[start + 1:end] if text and text not in ("##[endgroup]", "::endgroup::")]
+    code = WS_CHECK_STEP_EXIT.search(lines[end])
+    if code is None:
+        raise Refused(f"'{step}': its result line names no exit code")
+    if int(code[1]) < 0 or int(code[1]) > 128:
+        raise Refused(f"'{step}' exited {code[1]} (a signal): a crash is never a base red")
+    if crashed := next((text for text in section if WS_CHECK_CRASH.search(text)), None):
+        raise Refused(f"'{step}' crashed ({crashed[:200]}): a crash is never a base red")
     reds = [match[1] for text in section if (match := UNITTEST_RED.match(text))]
     counted = 0
     for text in section:
@@ -1460,8 +1472,9 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         raise Refused(f"{where}: run {link[1]} has {len(picked)} ws-check jobs for it, not one")
     job = picked[0]
     if job.get("status") != "completed" or job.get("conclusion") not in ("success", "failure"):
-        raise Refused(f"{where}: job '{job.get('name')}' in run {link[1]} is {job.get('status')}/"
-                      f"{job.get('conclusion')}: no result to read")
+        # No verdict (startup_failure, cancelled, still running): no result, skipped on the base (cmux#36219 F2).
+        return "none", dict(found, why=f"job '{job.get('name')}' in run {link[1]} is {job.get('status')}/"
+                                       f"{job.get('conclusion')}: no result to read")
     lines = lines_of(github.log(host, job))
     at = next((n for n in range(len(lines) - 1, -1, -1) if lines[n].startswith("WS_CHECK_RESULT=")), None)
     try:

@@ -2905,8 +2905,24 @@ class WsCheckPerTest(unittest.TestCase):
 
     def test_a_job_whose_last_attempt_never_ran_is_no_result(self):
         self.gh.jobs[1][1]["conclusion"] = "startup_failure"
-        with self.assertRaisesRegex(excuse.Refused, "is completed/startup_failure: no result to read"):
+        with self.assertRaisesRegex(excuse.Refused, "has no result .*is completed/startup_failure"):
             self.judge()
+
+    def test_a_crash_after_a_whole_test_summary_is_not_excused(self):
+        red = {self.DEPLOY: self.ws_deploy("test_a")}
+        self.gh.verdict(self.gh.TIP, 2, red)
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: self.ws_deploy("test_a") + ["Segmentation fault (core dumped)"]})
+        with self.assertRaisesRegex(excuse.Refused, "crashed .Segmentation fault"):
+            self.judge()
+        self.gh.verdict(HEAD, 1, red)
+        self.gh.logs[11] = self.gh.logs[11].replace("(exit 1, ran 4", "(exit 139, ran 4")
+        with self.assertRaisesRegex(excuse.Refused, "exited 139 .a signal."):
+            self.judge()
+
+    def test_a_main_job_with_no_verdict_is_skipped(self):
+        self.gh.jobs[2][1]["conclusion"] = "startup_failure"
+        self.gh.verdict(self.gh.OLDER, 3, {self.RELAY: self.relay_lint()})
+        self.assertIn(f"newest main verdict main {self.gh.OLDER[:12]}", self.judge()[0])
 
     def test_main_commits_with_no_result_are_skipped_and_an_older_red_verdict_counts(self):
         self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, state="pending", description="running")
