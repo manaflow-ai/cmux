@@ -23,11 +23,29 @@ if [[ "${BUILD_TRACK:-}" == nightly-next ]]; then
   source scripts/cmux-next/lib/nightly-swift-defines.sh
   swift_defines="${swift_defines:+$swift_defines }$CMUX_NIGHTLY_NEXT_SWIFT_DEFINES"
 fi
+# The live code variant (app-build-live-code.sh): every CmuxNext target unoptimized, testable and a
+# file at a time, linked with its symbols exported (and, on the relink, the listed ones interposable).
+# Its Swift defines join the nightly's in the one OTHER_SWIFT_FLAGS, so the -DCMUX_NO_* defines stay.
+live_code_args=()
+if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == 1 ]]; then
+  # shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
+  source scripts/live-code/lib/xcodebuild-args.sh
+  live_flags="$(live_code_swift_flags)"
+  swift_defines="${swift_defines:+$swift_defines }$live_flags"
+  while IFS= read -r setting; do
+    case "$setting" in
+      OTHER_SWIFT_FLAGS=*) ;;
+      ?*) live_code_args+=("$setting") ;;
+    esac
+  done < <(live_code_xcodebuild_args Release "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}")
+  echo "live code variant: ${#live_code_args[@]} xcodebuild settings${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
+fi
 if [[ -n "$swift_defines" ]]; then
   echo "OTHER_SWIFT_FLAGS defines: $swift_defines"
   # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
   notary_test_flags=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_defines" build)
 fi
+notary_test_flags=(${live_code_args[@]+"${live_code_args[@]}"} "${notary_test_flags[@]}")
 if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
   archs="arm64"
   only_active="YES"
@@ -59,6 +77,14 @@ while IFS= read -r setting; do
     *) local_cache_settings+=("$setting") ;;
   esac
 done < <(CMUX_CI_DISABLE_COMPILATION_CACHE="${DECIDE_COLD_CACHE_DISABLE}" bash scripts/ci/fleet-compilation-cache.sh)
+# Which cache the first build uses, for the job summary (release-build-summary.sh).
+if [[ "${DECIDE_COLD_CACHE_DISABLE:-}" == 1 ]]; then
+  build_cache=cold
+elif [[ " ${fleet_cache_settings[*]} " == *" COMPILATION_CACHE_REMOTE_SERVICE_PATH="* ]]; then
+  build_cache=fleet
+else
+  build_cache=unavailable
+fi
 # Keep retry classification identical to the other Release compile
 # paths: only compiler diagnostics that identify the CAS/cache as
 # failing may fall back to a local cache.
@@ -110,6 +136,11 @@ run_release_build() (
     CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
     "${notary_test_flags[@]}"
 )
+# The job summary's build lines (LOG CACHE). They never fail the build, and a tree without the helper (a test
+# harness that copies only the helpers it knows) skips them.
+summarize_release_build() {
+  [[ -f scripts/ci/nightly-steps/release-build-summary.sh ]] && bash scripts/ci/nightly-steps/release-build-summary.sh "$@" || true
+}
 # The host root's products go to this workspace while the lock is still held.
 finish_host_build() {
   [[ -z "$host_root" ]] || python3 scripts/ci/nightly_build_state.py finish-host "$host_root"
@@ -122,9 +153,11 @@ release_status=${PIPESTATUS[0]}
 set -e
 if [[ "$release_status" -ne 0 ]] && cmux_next_runtime_cas_failed "$RUNNER_TEMP/nightly-release-build.log"; then
   echo "::warning::managed fleet compilation cache failed; retrying the Release build with the local cache"
-  run_release_build 1
+  run_release_build 1 2>&1 | tee "$RUNNER_TEMP/nightly-release-build-retry.log"
+  summarize_release_build "$RUNNER_TEMP/nightly-release-build-retry.log" "$([[ $build_cache == fleet ]] && echo fallback || echo "$build_cache")"
   finish_host_build
 elif [[ "$release_status" -eq 0 ]]; then
+  summarize_release_build "$RUNNER_TEMP/nightly-release-build.log" "$build_cache"
   finish_host_build
 else
   exit "$release_status"

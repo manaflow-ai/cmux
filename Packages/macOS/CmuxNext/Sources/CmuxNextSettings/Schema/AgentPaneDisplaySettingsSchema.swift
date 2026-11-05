@@ -101,6 +101,27 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("mono", SettingsText.keyed("settings.choice.markdownFontMono", "Monospaced")),
                 ]),
                 .string("markdown"), ["font", "family", "serif", "monospace", "typeface"]),
+            // The face of the whole chat (webviews .../chatUiFont.ts; Leo, 2026-11-05: "I haven't tried
+            // switching fonts in my own app yet. So we could just try some stuff like that"). The
+            // default is today's: Inter with its calculated tracking.
+            row(["font", "ui"], SettingsText.keyed("settings.agentPane.display.uiFont", "Chat Interface Font"),
+                help: SettingsText.keyed("settings.agentPane.display.uiFont.help",
+                                         "The font of the whole chat: replies, the composer, cards and menus."),
+                .choice([
+                    SettingChoice("inter-tuned", SettingsText.keyed("settings.choice.agentChatUiFontInterTuned", "cmux Inter (default)")),
+                    SettingChoice("inter", SettingsText.keyed("settings.choice.agentChatUiFontInter", "Inter")),
+                    SettingChoice("verdana", SettingsText.keyed("settings.choice.agentChatUiFontVerdana", "Verdana")),
+                    SettingChoice("roboto", SettingsText.keyed("settings.choice.agentChatUiFontRoboto", "Roboto")),
+                    SettingChoice("plex", SettingsText.keyed("settings.choice.agentChatUiFontPlex", "IBM Plex Sans")),
+                    SettingChoice("source-sans", SettingsText.keyed("settings.choice.agentChatUiFontSourceSans", "Source Sans 3")),
+                    SettingChoice("geist", SettingsText.keyed("settings.choice.agentChatUiFontGeist", "Geist")),
+                    SettingChoice("cmux-sans", SettingsText.keyed("settings.choice.agentChatUiFontCmuxSans", "cmux Sans")),
+                    SettingChoice("hanken", SettingsText.keyed("settings.choice.agentChatUiFontHanken", "Hanken Grotesk")),
+                    SettingChoice("atkinson", SettingsText.keyed("settings.choice.agentChatUiFontAtkinson", "Atkinson Hyperlegible Next")),
+                    SettingChoice("system-ui", SettingsText.keyed("settings.choice.agentChatUiFontSystemUi", "System")),
+                    SettingChoice("system-ui-tight", SettingsText.keyed("settings.choice.agentChatUiFontSystemUiTight", "System, tight")),
+                ]),
+                .string("inter-tuned"), ["font", "interface", "ui", "typeface", "verdana", "roboto", "inter", "plex", "geist", "source sans", "cmux sans", "hanken", "atkinson"]),
             row(["font", "size"], SettingsText.keyed("settings.agentPane.display.fontSize", "Chat Font Size"),
                 .number(SettingsSchema.points(fontSizeRange, step: 1, placeholder: fontSizeFallback)), .number(fontSizeFallback),
                 ["font", "size", "text"]),
@@ -169,6 +190,21 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("messages", SettingsText.keyed("settings.choice.agentChatPresentationMessages", "Messages")),
                 ]),
                 .string("transcript"), ["presentation", "messages", "bubbles", "chat", "tools"]),
+            // The live line's short working verbs (webviews/.../statusVerbs.ts). Thinking is the
+            // default; Rotate opts into the per-turn -ing verbs and Custom reads the comma list.
+            row(["statusVerbs", "mode"], SettingsText.keyed("settings.agentPane.display.statusVerbs", "Working Status Verbs"),
+                help: SettingsText.keyed("settings.agentPane.display.statusVerbs.help",
+                                         "Choose whether the live status line rotates through verbs or stays on Thinking."),
+                .choice([
+                    SettingChoice("thinking", SettingsText.keyed("settings.choice.agentChatStatusVerbsThinking", "Thinking only")),
+                    SettingChoice("rotate", SettingsText.keyed("settings.choice.agentChatStatusVerbsRotate", "Rotate")),
+                    SettingChoice("custom", SettingsText.keyed("settings.choice.agentChatStatusVerbsCustom", "Custom")),
+                ]),
+                .string("thinking"), ["status", "working", "verbs", "thinking", "spinner", "rotate", "custom"]),
+            row(["statusVerbs", "custom"], SettingsText.keyed("settings.agentPane.display.statusVerbs.custom", "Custom Working Verbs"),
+                help: SettingsText.keyed("settings.agentPane.display.statusVerbs.custom.help",
+                                         "Comma-separated -ing verbs for the live status line."),
+                .text, nil, ["status", "working", "verbs", "custom", "comma", "thinking"]),
             row(["harnessPlacement"], SettingsText.keyed("settings.agentPane.display.harnessPlacement", "Model Picker Harness Placement"),
                 .choice([
                     SettingChoice("symbols", SettingsText.keyed("settings.choice.harnessSymbols", "Top Row of Symbols")),

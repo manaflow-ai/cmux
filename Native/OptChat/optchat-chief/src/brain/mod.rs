@@ -51,6 +51,8 @@ pub use outcome_ledger::{UNTOLD_TAG, UNTOLD_WAIT};
 pub use reply_ledger::{MAX_REPLY_TRIES, NO_REPLY_TAG, REPLY_RETRY_WAITS};
 mod send;
 mod side;
+mod spawn_text;
+pub use spawn_text::{NO_TEXT_TAG, no_text_note};
 mod spawns;
 mod steer;
 mod transcript;
@@ -834,6 +836,12 @@ pub struct Brain {
     owner_stopped: bool,
     /// This turn's send was refused for length once; its next send posts.
     length_refused: bool,
+    /// The subagents the running turn started (spawn_text.rs).
+    turn_spawned: Vec<String>,
+    /// The running turn posted words by `send` or `reply` (spawn_text.rs).
+    turn_said: bool,
+    /// The running turn was queued by a silent spawn turn's note: it is not nudged again.
+    spawn_text_nudged: bool,
     /// The running turn's interrupt (a new one per turn).
     interrupt: Arc<crate::turn::Interrupt>,
     /// The steer on its way into the running turn (`steer.rs`), and the
@@ -986,6 +994,10 @@ pub struct Brain {
     repeat_denials: u32,
     /// The rights table and the audit (rights_gate.rs); None: off.
     rights: Option<RightsCtx>,
+    /// The owner's change book for this Chief's memory (inspect/edit.rs): a
+    /// message the person deletes in the chat is written over with its
+    /// tombstone there, journaled and undoable like an inspector delete.
+    memory_editor: Option<Arc<crate::inspect::edit::Editor>>,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
     /// A user's reaction that may wake the Chief (reaction_wake.rs).
@@ -1037,6 +1049,10 @@ pub struct Brain {
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
+    /// One of the cut tries in a row reached a harness (`TurnOutcome::unstarted`
+    /// false): its work may have run, so the try that ends the row is never
+    /// treated as one that did not start.
+    cut_ran: bool,
     /// While set, an adopted turn session still runs and no turn starts; at
     /// this time it is folded and ended anyway (`children::adopt_orphans`).
     orphan_wait: Option<Instant>,
@@ -1109,6 +1125,9 @@ impl Brain {
             fatal: None,
             stop_wanted: false,
             length_refused: false,
+            turn_spawned: Vec::new(),
+            turn_said: false,
+            spawn_text_nudged: false,
             owner_stopped: false,
             interrupt: Arc::new(crate::turn::Interrupt::new()),
             steering: Vec::new(),
@@ -1196,6 +1215,7 @@ impl Brain {
             approval_told: HashSet::new(),
             previewer: None,
             cuts: 0,
+            cut_ran: false,
             resume_at: None,
             orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
@@ -1206,6 +1226,7 @@ impl Brain {
             steer_due: None,
             reply_waits: reply_ledger::REPLY_RETRY_WAITS.to_vec(),
             rights: None,
+            memory_editor: None,
         };
         // A host can exit after sub_done persists Done but before deliver
         // queues the report. Recover that durable outbox before accepting new
@@ -1238,6 +1259,22 @@ impl Brain {
     pub fn on_turn_end(mut self, hook: TurnHook) -> Brain {
         self.after_turn = Some(hook);
         self
+    }
+
+    /// The memory's change book (`inspect/edit.rs`): a deleted chat message
+    /// becomes its tombstone in the memory, so the Memory Inspector and the
+    /// next re-rendered view no longer hold its text.
+    pub fn with_memory_editor(
+        mut self,
+        editor: Option<Arc<crate::inspect::edit::Editor>>,
+    ) -> Brain {
+        self.set_memory_editor(editor);
+        self
+    }
+
+    /// `with_memory_editor` on a built brain.
+    pub fn set_memory_editor(&mut self, editor: Option<Arc<crate::inspect::edit::Editor>>) {
+        self.memory_editor = editor;
     }
 
     /// Writes the monitoring trace (`trace.rs`).
@@ -1570,6 +1607,9 @@ impl Brain {
                         }
                         plan
                     });
+                if let Ok(plan) = &plan {
+                    self.spawned_in_turn(&plan.ids);
+                }
                 let _ = reply.send(plan);
             }
             Input::SubagentQueued { id, launch } => self.sub_queued(&id, launch),
@@ -1642,7 +1682,11 @@ impl Brain {
                 let _ = reply.send(self.react(id, &reaction));
             }
             Input::Reply { id, text, reply } => {
-                let _ = reply.send(self.reply_now(id, &text));
+                let result = self.reply_now(id, &text);
+                if result.is_ok() {
+                    self.said_in_turn();
+                }
+                let _ = reply.send(result);
             }
             Input::Transcript { n, before, reply } => {
                 let _ = reply.send(self.transcript(n, before));
@@ -1653,7 +1697,16 @@ impl Brain {
                 message,
             } => self.tell_unsteered(&id, &session, &message),
             Input::Send { call, reply } => {
-                let _ = reply.send(self.send(call));
+                let words = call.text.as_deref().is_some_and(|t| !t.trim().is_empty());
+                let result = self.send(call);
+                if words
+                    && result
+                        .as_deref()
+                        .is_ok_and(|r| r.starts_with("outcome: done"))
+                {
+                    self.said_in_turn();
+                }
+                let _ = reply.send(result);
             }
             Input::StopTurn { reply } => {
                 let _ = reply.send(self.stop_turn());

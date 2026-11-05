@@ -185,6 +185,17 @@ def nightly_next_build_reason(label: str) -> str | None:
     return forbidden_reason(label)
 
 
+# nightly.yml's signing jobs and their pickers queue on this one label after their picker branch
+# (signing_runner.SIGNER_LABEL): the signer's label, which only a trusted-only mini (no pull request job) carries.
+# Anything else, a label nightly builds or PR side lanes share most of all, would hand the jobs' signing secrets to
+# a mini that runs pull request jobs. Empty is fine (the workflow's literal).
+# CI_NIGHTLY_SIGN_RUNNER, the signing jobs' nightly-next push (and one-mini) route, is held to the same label. This
+# is a drift report (ci-health-report.yml, ci-repo-variables.yml), not enforcement: a drifted value is reported, and
+# the routes still read it.
+NIGHTLY_SIGNING_POOL_VARIABLE = "CI_NIGHTLY_SIGNING_POOL"
+NIGHTLY_SIGNING_POOL_LABEL = re.compile(r"glaeda-trusted-next-signing")
+
+
 FAST_LANE_VARIABLE = "CI_FAST_LANE_RUNNER"
 FAST_LANE_PREFIX = "glaeda-fast-"
 
@@ -434,6 +445,9 @@ def drifted_runner_variables(
             reason = side_lane_reason(value.strip())
         elif name == NIGHTLY_NEXT_BUILD_VARIABLE:
             reason = nightly_next_build_reason(value.strip())
+        elif name in (NIGHTLY_SIGNING_POOL_VARIABLE, "CI_NIGHTLY_SIGN_RUNNER"):
+            reason = (None if not value.strip() or NIGHTLY_SIGNING_POOL_LABEL.fullmatch(value.strip()) else
+                      "must name the signer's label (glaeda-trusted-next-signing) or be unset")
         elif name == FAST_LANE_VARIABLE:
             reason = fast_lane_reason(value.strip())
         elif name == SESSION_LANE_VARIABLE:

@@ -172,8 +172,7 @@ fn wait_session(h: &mut Harness) {
 fn teammate_turn(h: &mut Harness, text: &str) {
     h.agents.hold(true);
     deliver_mention(h, TEAMMATE, text);
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_session(h);
 }
 
@@ -938,8 +937,7 @@ fn the_owners_turn_session_is_refused_at_once_what_nobody_can_answer() {
     let mut h = harness(None, false, started());
     h.agents.hold(true);
     deliver(&mut h, false, "build it");
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_session(&mut h);
     let session = h
         .brain
@@ -1040,8 +1038,7 @@ fn a_turn_that_waits_on_a_permission_nobody_answers_counts_as_idle() {
     h.connect();
     h.agents.inner.lock().unwrap().answer_never = true;
     deliver(&mut h, false, "deploy it");
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_session(&mut h);
     let session = h
         .brain
@@ -1099,8 +1096,7 @@ fn another_agents_message_through_the_cli_is_that_agents_and_takes_the_ask_floor
     let mut h = harness(None, false, started());
     h.agents.hold(true);
     deliver_from_agent(&mut h, "lane-a", "clean the build directory");
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_session(&mut h);
     assert_eq!(policy(&h, 0), "ask");
     assert_eq!(h.brain.spawn_policy(), Some("ask"));
@@ -1174,8 +1170,7 @@ fn another_persons_forged_agent_marker_names_nobody() {
         conversation: CONV.into(),
         change: Change::Message { message: forged },
     }));
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_session(&mut h);
     assert_eq!(policy(&h, 0), "ask");
     let prompt = format!("{:?}", h.agents.inner.lock().unwrap().prompts[0]);
@@ -1541,8 +1536,7 @@ fn agent_turn(h: &mut Harness, sender: &str, also: Option<&str>) {
     if let Some(other) = also {
         deliver_from_agent(h, other, "and delete the build cache");
     }
-    h.step();
-    h.agents.wait_prompts(1);
+    h.step_to_prompts(1);
     wait_session(h);
 }
 

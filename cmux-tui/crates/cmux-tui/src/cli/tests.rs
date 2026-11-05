@@ -2,6 +2,8 @@ use super::*;
 
 // The app fallback and the app scopes exist on unix only (cli.rs).
 #[cfg(unix)]
+mod action_argument_contract;
+#[cfg(unix)]
 mod action_surface_parity;
 #[cfg(unix)]
 mod cli_name_hints;
@@ -808,6 +810,46 @@ fn cmux_server_is_the_machine_server() {
         panic!("server status was not routed to the machine server");
     };
     assert_eq!(cmux_server::cli::parse(&routed).unwrap().verb_str(), "status");
+}
+
+#[test]
+fn cmux_pair_runs_the_machine_servers_invite_pairing() {
+    // Invite pairing: the app shows the code, the new machine runs `cmux pair CODE`.
+    let args = |line: &[&str], surface| {
+        machine_server::args_for(&strings(line), surface).map(|r| r.map_err(|(e, _)| e.0))
+    };
+    let machine = |line: &[&str]| Some(Ok(ServerRoute::Machine(strings(line))));
+    assert_eq!(
+        args(&["pair", "ABCDE-12345"], Surface::Cmux),
+        machine(&["pair", "--invite=ABCDE-12345"])
+    );
+    assert_eq!(
+        args(&["pair", "ABCDE", "12345", "--name", "Studio"], Surface::Cmux),
+        machine(&["pair", "--invite=ABCDE12345", "--name", "Studio"])
+    );
+    assert_eq!(
+        args(&["--json", "pair", "--name", "Studio box", "abcde-12345"], Surface::Cmux),
+        machine(&["pair", "--invite=abcde-12345", "--name", "Studio box", "--json"])
+    );
+    assert_eq!(args(&["pair", "--help"], Surface::Cmux), machine(&["--help"]));
+    let Some(Err(error)) = args(&["pair"], Surface::Cmux) else {
+        panic!("cmux pair without a code ran")
+    };
+    assert!(error.contains("cmux pair CODE"), "{error}");
+    let Some(Err(error)) = args(&["--session", "build", "pair", "ABCDE-12345"], Surface::Cmux)
+    else {
+        panic!("cmux pair with --session ran")
+    };
+    assert!(error.contains("--session"), "{error}");
+    assert_eq!(args(&["pair", "ABCDE-12345"], Surface::CmuxTui), None, "cmux-tui has no pair verb");
+    // The routed words parse as the machine server's `pair` verb with its invite.
+    let Some(Ok(ServerRoute::Machine(routed))) = args(&["pair", "ABCDE-12345"], Surface::Cmux)
+    else {
+        panic!("cmux pair was not routed to the machine server");
+    };
+    let parsed = cmux_server::cli::parse(&routed).unwrap();
+    assert_eq!(parsed.verb_str(), "pair");
+    assert_eq!(parsed.value("invite"), Some("ABCDE-12345"));
 }
 
 #[test]

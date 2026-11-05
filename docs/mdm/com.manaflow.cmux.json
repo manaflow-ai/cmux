@@ -81,6 +81,26 @@
       "title" : "Chat Font Size",
       "type" : "number"
     },
+    "agentPane.display.font.ui" : {
+      "default" : "inter-tuned",
+      "description" : "The font of the whole chat: replies, the composer, cards and menus.",
+      "enum" : [
+        "inter-tuned",
+        "inter",
+        "verdana",
+        "roboto",
+        "plex",
+        "source-sans",
+        "geist",
+        "cmux-sans",
+        "hanken",
+        "atkinson",
+        "system-ui",
+        "system-ui-tight"
+      ],
+      "title" : "Chat Interface Font",
+      "type" : "string"
+    },
     "agentPane.display.fullWidth" : {
       "default" : false,
       "description" : "The chat fills the whole pane instead of the text width.",
@@ -144,6 +164,22 @@
         "overlay"
       ],
       "title" : "Session Info",
+      "type" : "string"
+    },
+    "agentPane.display.statusVerbs.custom" : {
+      "description" : "Comma-separated -ing verbs for the live status line.",
+      "title" : "Custom Working Verbs",
+      "type" : "string"
+    },
+    "agentPane.display.statusVerbs.mode" : {
+      "default" : "thinking",
+      "description" : "Choose whether the live status line rotates through verbs or stays on Thinking.",
+      "enum" : [
+        "thinking",
+        "rotate",
+        "custom"
+      ],
+      "title" : "Working Status Verbs",
       "type" : "string"
     },
     "agentPane.display.transcriptView" : {
@@ -2002,6 +2038,12 @@
       "title" : "Use My Claude Login on My Own Cloud Machines",
       "type" : "boolean"
     },
+    "cloud.useMyCodexLoginOnMyCloudMachines" : {
+      "default" : false,
+      "description" : "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead.",
+      "title" : "Use My Codex Login on My Own Cloud Machines",
+      "type" : "boolean"
+    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -2784,10 +2826,10 @@
       "title" : "Connect iMessage",
       "type" : "boolean"
     },
-    "labs.classicHome" : {
+    "labs.liveCode" : {
       "default" : false,
-      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
-      "title" : "Classic Home",
+      "description" : "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts.",
+      "title" : "Live Code",
       "type" : "boolean"
     },
     "labs.machineJoin" : {
@@ -2976,7 +3018,7 @@
       "type" : "number"
     },
     "layout.paneCornerRadius" : {
-      "description" : "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
+      "description" : "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding.",
       "maximum" : 20,
       "minimum" : 0,
       "title" : "Corner Radius",
@@ -3771,6 +3813,18 @@
       },
       "title" : "Pinned Folders",
       "type" : "array"
+    },
+    "remote.enabled" : {
+      "default" : false,
+      "description" : "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
+      "title" : "Use cmux Remote",
+      "type" : "boolean"
+    },
+    "remote.endSharingOnQuit" : {
+      "default" : false,
+      "description" : "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit.",
+      "title" : "End Sharing When cmux Quits",
+      "type" : "boolean"
     },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
@@ -5211,6 +5265,12 @@
       "minimum" : 0,
       "title" : "Keep Previous Versions",
       "type" : "number"
+    },
+    "updates.liveWebReload" : {
+      "default" : true,
+      "description" : "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+      "title" : "Live Web Reload",
+      "type" : "boolean"
     },
     "updates.meteredNetwork" : {
       "default" : "defer-low-data",

@@ -243,7 +243,6 @@ extension SettingsSchema {
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
-        "labs.classicHome",
         // Which Home entries the sidebar shows (looks only; `cmux home enable-channels` runs as an agent writer).
         "home.channelsEnabled",
         // The floating Chief pet and its character: a display the person can hide again; its reply
@@ -279,6 +278,7 @@ extension SettingsSchema {
         "cloud.agentsStartWithoutAsking": .userOnly,
         // The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.
         "cloud.useMyClaudeLoginOnMyCloudMachines": .privacy,
+        "cloud.useMyCodexLoginOnMyCloudMachines": .privacy,
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,
@@ -362,6 +362,8 @@ extension SettingsSchema {
         // On, Add Device mints a line that joins any machine to the team's machines: only the person
         // turns that on.
         "labs.machineJoin": .network,
+        // On, a live code build loads Swift patches into the running app: only the person turns that on.
+        "labs.liveCode": .userOnly,
         // On, a key is taken from every other app system-wide.
         "app.globalHotKey": .userOnly,
         "app.startAgentGlobalHotKey": .userOnly,
@@ -411,6 +413,12 @@ extension SettingsSchema {
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxRunning": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
+        // What every agent is told, and which of the person's skills reach it, is the person's
+        // call: an agent must not switch off the guidance or the skills it was given.
+        "agents.guidance.claude": .userOnly,
+        "agents.guidance.codex": .userOnly,
+        "agents.guidance.otherAgents": .userOnly,
+        "agents.guidance.userSkills": .userOnly,
         // Whether and how often a failed turn is sent again spends the person's usage: their call,
         // as `sessions.resumeAgents` is.
         "agents.autoRetry.enabled": .userOnly,
@@ -437,7 +445,7 @@ extension SettingsSchema {
         "mobile.terminalSizing": .userOnly,
         "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on.
-        "macScreen.systemShortcuts": .userOnly,
+        "macScreen.systemShortcuts": .userOnly, "remote.enabled": .userOnly, "remote.endSharingOnQuit": .userOnly, // cmux Remote: the person's call
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.
@@ -445,6 +453,8 @@ extension SettingsSchema {
         "updates.installOnQuit": .destructive,
         // On, one click restarts cmux into an update: the person's call.
         "updates.oneClickInstall": .userOnly,
+        // On, pages load from a loopback server the person runs: the person's call.
+        "updates.liveWebReload": .userOnly,
         "updates.keepPreviousVersions": .destructive,
     ]
 

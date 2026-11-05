@@ -17,7 +17,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
@@ -193,6 +193,10 @@ pub struct Conn {
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
     peer: Option<cmux_link::app_caller::PeerToken>,
+    /// A unix socket peer that is root while this daemon is not (Linux, `daemon/provision.rs`):
+    /// the VM provisioning exec, the one caller besides the signed app that may give the person key.
+    /// Only a Cloud machine's daemon, not dumpable since its start, has one.
+    provisioner: bool,
     /// Requests seen so far (`hub/person.rs`: initialize first, the proof second).
     requests: std::sync::atomic::AtomicU64,
     /// Its first request was an `initialize` that got the person challenge.
@@ -784,7 +788,9 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                 use std::os::fd::AsRawFd;
                 cmux_link::app_caller::peer_token(stream.as_raw_fd())
             };
-            stream::serve_stream(hub, stream, peer).await;
+            // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
+            let provisioner = crate::daemon::provision::accept_provisioner(&stream);
+            stream::serve_stream(hub, stream, peer, provisioner).await;
         });
     }
 }
@@ -1025,15 +1031,22 @@ pub async fn serve_ws_until(
         let shutdown = shutdown.clone();
         connections.spawn(async move {
             let _handshake_slot = handshake_slot;
-            let mut head = [0u8; 4096];
-            let Some(n) = ws_peek::request(&stream, &mut head, peer).await else { return };
-            // The peek only routes the request. Each path checks the full head it parses:
-            // serve_http reads it, tungstenite parses the upgrade request for the callback.
-            let head_text = String::from_utf8_lossy(head.get(..n).unwrap_or(&head)).into_owned();
-            if !head_text.to_ascii_lowercase().contains("upgrade: websocket") {
-                serve_http(stream, &policy, peer).await;
+            let mut stream = stream;
+            // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
+            // as it reads, tungstenite as it parses it again for the callback.
+            let (head, read) = match ws_peek::request(&mut stream, peer).await {
+                ws_peek::Request::Head { head, read } => (head, read),
+                ws_peek::Request::TooLarge => {
+                    refuse_http(stream, Refusal::MissingHost).await;
+                    return;
+                }
+                ws_peek::Request::Gone => return,
+            };
+            if !head.to_ascii_lowercase().contains("upgrade: websocket") {
+                serve_http(stream, &head, &policy, peer).await;
                 return;
             }
+            let stream = ws_peek::Replayed::new(read, stream);
             let expected = token.clone();
             // The upgrade request's Origin headers, for the LocalApp check.
             let seen_origins: Arc<StdMutex<Vec<String>>> = Arc::default();
@@ -1250,7 +1263,7 @@ pub async fn serve_ws_until(
                 }
                 None => (origin, proof, None),
             };
-            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, device, Some(wire))
+            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, device, Some(wire))
                 .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
@@ -1324,45 +1337,17 @@ async fn refuse_http(mut stream: tokio::net::TcpStream, refusal: Refusal) {
     let _ = stream.shutdown().await;
 }
 
-/// The largest request head the dashboard reads.
-const MAX_HTTP_HEAD_BYTES: usize = 32 * 1024;
-
-/// Read a request head up to its blank line. None when it is larger than
-/// [`MAX_HTTP_HEAD_BYTES`] (room for large localhost cookies), the peer
-/// closes first, or it takes over 2 s.
-async fn read_http_head(stream: &mut tokio::net::TcpStream) -> Option<String> {
-    let read = async {
-        let mut head = Vec::with_capacity(1024);
-        let mut chunk = [0u8; 4096];
-        while !head.windows(4).any(|window| window == b"\r\n\r\n") {
-            if head.len() >= MAX_HTTP_HEAD_BYTES {
-                return None;
-            }
-            let n = stream.read(&mut chunk).await.ok()?;
-            if n == 0 {
-                return None;
-            }
-            head.extend_from_slice(chunk.get(..n).unwrap_or(&chunk));
-        }
-        Some(String::from_utf8_lossy(&head).into_owned())
-    };
-    tokio::time::timeout(std::time::Duration::from_secs(2), read).await.ok().flatten()
-}
-
 /// Minimal HTTP for the dashboard. The whole head passes the listener rule
 /// first; then GET / serves the page, and anything else is 404. The page is
 /// static and holds no secret: it reads the token from its URL fragment,
 /// which never reaches a server, and its WebSocket presents it.
 async fn serve_http(
     mut stream: tokio::net::TcpStream,
+    head: &str,
     policy: &ListenerPolicy,
     peer: std::net::SocketAddr,
 ) {
-    let Some(head) = read_http_head(&mut stream).await else {
-        refuse_http(stream, Refusal::MissingHost).await;
-        return;
-    };
-    if let Err(refusal) = check_head(policy, &head) {
+    if let Err(refusal) = check_head(policy, head) {
         tracing::warn!("web request from {peer} refused: {refusal}");
         refuse_http(stream, refusal).await;
         return;
@@ -1452,7 +1437,7 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None, None, None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, false, None, None).await
 }
 
 /// A paired machine's connection, served as its role says
@@ -1465,7 +1450,7 @@ pub async fn serve_connection_device(
     device: crate::pairing::DeviceAuth,
 ) {
     let (origin, auth) = pairing::origin_of(&device);
-    serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id), None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, false, Some(device.id), None).await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -1476,6 +1461,7 @@ async fn serve_connection_from(
     origin: Origin,
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
+    provisioner: bool,
     device: Option<String>,
     wire: Option<Arc<crate::frame_compress::Wire>>,
 ) {
@@ -1510,6 +1496,7 @@ async fn serve_connection_from(
         notices: Arc::new(AtomicU64::new(0)),
         watch_inventory: StdMutex::new(false),
         peer,
+        provisioner,
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),
@@ -1991,6 +1978,7 @@ mod lane_parent;
 mod list_reply;
 use lane_parent::lane_parent;
 mod bg_tasks;
+mod goal;
 pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
@@ -2023,6 +2011,7 @@ pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
+mod accounts;
 mod mcp_connect;
 mod routes;
 mod secrets;

@@ -218,7 +218,7 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "error": await view.debugSetFiles(selector: params["selector"]?.stringValue ?? ".acpmux-attach-input", paths: params["paths"]?.arrayValue?.compactMap(\.stringValue) ?? []).map(JSONValue.string) ?? .null]) }
         if action == "hover" { return await DebugAgentPaneClick.hover(params, pane: pane, view: view) }
         if action == "pacer" { return .object(["pane": .string(pane), "pacer": JSONValue(foundation: view.debugPacerState) ?? .null]) }
-        if action == "inspector" { return await view.debugToggleInspector(open: params["open"]?.boolValue, pane: pane) }
+        if action == "inspector" || action == "menu_item" { return action == "inspector" ? await view.debugToggleInspector(open: params["open"]?.boolValue, pane: pane) : view.debugRunMenuItem(title: params["title"]?.stringValue ?? "", pane: pane) }
         if action == "session_info_action" { return view.debugSessionInfoAction(params, pane: pane) }
         if action == "open_subagent" {
             return await DebugAgentPaneSubagent.open(params, pane: pane, model: view.model) {

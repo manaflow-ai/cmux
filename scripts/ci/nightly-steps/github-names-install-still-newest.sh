@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# nightly.yml publish-nightly-next-github-names: "Install the feed order check". Moved out of the workflow to keep
+# nightly.yml publish-nightly-next-github: "Install the feed order check". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the job's and step's env: still set every input.
 #
 # The step's notes, moved from nightly.yml:

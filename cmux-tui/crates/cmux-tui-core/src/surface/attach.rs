@@ -13,6 +13,19 @@ impl Surface {
         &self,
         lifecycle: AttachLifecycle,
     ) -> ghostty_vt::Result<AttachStream> {
+        self.attach_stream_with_history(lifecycle, None)
+    }
+
+    /// A byte attach whose replay keeps at most `max_history_rows` rows of
+    /// history above the active area (`replay_history_rows`,
+    /// `attach-replay-history-rows-v1`): the latest screen first, for a
+    /// viewer that fetches older rows only when it needs them. `None`: the
+    /// whole history, as before.
+    pub(crate) fn attach_stream_with_history(
+        &self,
+        lifecycle: AttachLifecycle,
+        max_history_rows: Option<u64>,
+    ) -> ghostty_vt::Result<AttachStream> {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
@@ -36,7 +49,16 @@ impl Surface {
         // A palette-including replay would pin every one of the 256 entries
         // (and the default fg/bg) to this process's colors; the sparse
         // `colors` sidecar below carries only what the PTY authored.
-        let replay = term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES)?;
+        let (replay, history_rows_omitted) = match max_history_rows {
+            Some(rows) => {
+                let tail =
+                    term.vt_replay_tail_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES, rows)?;
+                (tail.replay, Some(tail.history_rows_omitted))
+            }
+            None => {
+                (term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES)?, None)
+            }
+        };
         let (cols, rows) = (term.cols(), term.rows());
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
@@ -58,6 +80,7 @@ impl Surface {
             kitty_state: replay.kitty_state,
             colors,
             pending_sequence: replay.pending_sequence.into(),
+            history_rows_omitted,
             stream,
             lifecycle,
         })

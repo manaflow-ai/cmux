@@ -219,19 +219,17 @@ struct CloudStartChat {
             anchor = found
         } else {
             anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
-            if services.cloud.configuration.linkSource == .appServer {
-                guard let pane = anchor.pane.resourceID?.rawValue else {
-                    throw CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
-                }
-                _ = try Self.checked(await cli.startChatTargetPane(key: start.key, account: CloudStartCore().accountText(origin.account), machine: machine.machineID, pane: pane))
+            guard let pane = anchor.pane.resourceID?.rawValue else {
+                throw CloudMove.Failure(message: CloudMoveStrings.notConnected(machine.machine.title))
             }
+            _ = try Self.checked(await cli.startChatTargetPane(key: start.key, account: CloudStartCore().accountText(origin.account), machine: machine.machineID, pane: pane))
         }
         if let copy { services.cloud.movedChats.copied(copy) }
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd)),
                                                  idempotencyKey: tabKey)
         let opened = try await pending.value()
         await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(
-            appLink: machine.appLink, link: machine.link).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
+            appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
         services.agentTabs.pageChats.cloudStarted[opened.key] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace,

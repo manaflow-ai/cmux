@@ -140,6 +140,8 @@ export type WebThemePayload = {
   workingLook: string;
   motion: "full" | "reduced" | "off";
   glass: "plain" | "lens" | "spectrum";
+  /** The filled personality slots (ThemeDecorations.swift), sent only while one is filled. */
+  decorations?: Record<string, string>;
 };
 
 /** The pane's fade durations in seconds (MotionTunables.swift); under Reduce Motion each is at

@@ -259,18 +259,6 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("nightly_next_live_feed_check.py", script)
         self.assertIn('--build "$NIGHTLY_BUILD" --dev-ring "$DEV_RING" --before', script)
 
-    def test_the_old_feed_is_read_back_after_its_publish(self):
-        job = self.job("publish-nightly-identity-legacy", "nightly-identity-legacy-published")
-        publish = job.index("- name: Publish the cmux NIGHTLY DMG, release notes and the old feed")
-        readback = job.index("- name: Read the old feed back")
-        self.assertLess(publish, readback)
-        # After the attempt accounting, which reads steps.publish only.
-        self.assertLess(job.index("- name: Fail a failed attempt"), readback)
-        self.assertIn("if: always() && steps.publish.outcome == 'success'", job[readback:])
-        script = (ROOT / "scripts/ci/nightly-steps/legacy-identity-readback.sh").read_text()
-        self.assertIn('${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}', script)
-        self.assertIn("--before", script)
-
 
 if __name__ == "__main__":
     unittest.main()

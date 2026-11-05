@@ -1799,6 +1799,16 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   SWIFT_OTHER_FLAGS+=" $CMUX_BENCH_SWIFT_DEFINES"
   echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
 fi
+if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
+  # Live code: every CmuxNext target unoptimized, testable and a file at a time, linked so a patch
+  # can repoint it (scripts/live-code/lib/xcodebuild-args.sh, shared with the NIGHTLY variant).
+  # shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
+  source "$SCRIPT_DIR/live-code/lib/xcodebuild-args.sh"
+  while IFS= read -r arg; do XCODEBUILD_ARGS+=("$arg"); done < <(
+    live_code_xcodebuild_args "$BUILD_CONFIGURATION" "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}")
+  SWIFT_OTHER_FLAGS+=" $(live_code_swift_flags)"
+  echo "==> live code build: $(live_code_targets | wc -l | tr -d ' ') CmuxNext targets at -Onone, testable and a file at a time${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
+fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
   echo "==> Swift frontend workaround enabled for this reload"
@@ -1874,6 +1884,11 @@ if ! is_positive_integer "$XCODEBUILD_LOCK_WAIT_SECONDS"; then
   echo "error: xcodebuild lock wait timeout must be a positive integer" >&2
   exit 1
 fi
+# The commit and dirty state the build is made from, read before it starts: a checkout that moves
+# during the build must not stamp the app with a commit it was not built from (Info.plist below).
+build_commit="$(git rev-parse --verify -q HEAD 2>/dev/null || true)"
+build_dirty=false
+[[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]] && build_dirty=true
 # Xcode 26's SWBBuildService is a per-user singleton. Too many concurrent
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
@@ -2104,6 +2119,15 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$INFO_PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
+    # The commit the build was made from, as the nightly stamps it, plus whether tracked files had
+    # local changes then. try-pr sorts a PR against it (scripts/cmux-next/try-pr.sh), and crash
+    # reports name it (CrashReportIdentity).
+    /usr/libexec/PlistBuddy -c 'Delete :CMUXCommit' "$INFO_PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c 'Delete :CMUXCommitDirty' "$INFO_PLIST" 2>/dev/null || true
+    if [[ -n "$build_commit" ]]; then
+      /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $build_commit" "$INFO_PLIST"
+      /usr/libexec/PlistBuddy -c "Add :CMUXCommitDirty bool $build_dirty" "$INFO_PLIST"
+    fi
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"

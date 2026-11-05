@@ -588,7 +588,8 @@ class RecheckTests(unittest.TestCase):
         # signing/notarization while another run published build 49901. Builds run
         # side by side and publication is latest-wins, so that is a quiet no-op,
         # never a publication and never a failure (run 40825878411).
-        for feeds in (((49901,), (), ()), ((), (49901,), ())):
+        # The one feed (cmux NIGHTLY's, hq#7156); the retired NEXT-identity feed is not read.
+        for feeds in (((49901,), (), ()),):
             with self.subTest(feeds=feeds):
                 result = run_recheck(49801, *feeds, source="own")
                 self.assertEqual(result.returncode, 0, result.stderr)
@@ -652,7 +653,7 @@ class RecheckTests(unittest.TestCase):
         self.assertIn("already published", result.stdout)
 
     def test_a_nightly_next_build_below_a_feed_is_superseded_not_a_failure(self):
-        for feeds in (((49901,), (), ()), ((49801,), (49901,), (49601,)), ((49801, 49901), (), ())):
+        for feeds in (((49901,), (), ()), ((49901,), (), (49601,)), ((49801, 49901), (), ())):
             with self.subTest(feeds=feeds):
                 result = run_recheck(49801, *feeds)
                 self.assertEqual(result.returncode, 0, result.stderr)

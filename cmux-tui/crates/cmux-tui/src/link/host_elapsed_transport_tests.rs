@@ -60,6 +60,7 @@ async fn ssh(outgoing: bool) {
             epoch: 4,
             session_socket: &session,
             sshd: target,
+            desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
         };
         serve_host_inbound(inbound, [b'a'; 32], address(), &*verifier, &me).await
     });
@@ -119,6 +120,7 @@ async fn receiver_elapsed_transport_partial_hello_expires_before_parsing_ready_i
             epoch: 4,
             session_socket: &session,
             sshd: "127.0.0.1:1".parse().unwrap(),
+            desktop: Path::new("/nonexistent/cmux-rd/desktop.sock"),
         };
         serve_host_inbound(inbound, [b'a'; 32], address(), &*verifier, &me).await
     });
@@ -131,7 +133,10 @@ async fn receiver_elapsed_transport_partial_hello_expires_before_parsing_ready_i
         Err(HostRefused::Authority),
         "input was parsed after its pre-auth budget ended"
     );
-    let mut bytes = [0];
-    assert_eq!(caller.read(&mut bytes).await.unwrap(), 0);
+    // The dialer reads why, then EOF: never a byte of any service.
+    let mut bytes = Vec::new();
+    caller.read_to_end(&mut bytes).await.unwrap();
+    let refusal = super::super::refusal_watch::parse_refusal(bytes.trim_ascii_end());
+    assert_eq!(refusal.map(|r| r.reason).as_deref(), Some("Authority"), "{bytes:?}");
     drop(owner);
 }

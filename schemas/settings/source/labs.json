@@ -32,27 +32,6 @@
           ]
         },
         {
-          "key": "labs.classicHome",
-          "note": "Home as the classic top page (the Chief conversation full window) instead of the home workspace with the Chief's page in a left dock (hq-6d cx-ebm.59.5). Off by default; kept for one release. HomeDock.classic reads it through DesignSettings.classicHome.",
-          "title": {
-            "key": "settings.labs.classicHome",
-            "text": "Classic Home"
-          },
-          "help": {
-            "key": "settings.labs.classicHome.help",
-            "text": "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "home",
-            "chief",
-            "classic",
-            "dock",
-            "page"
-          ]
-        },
-        {
           "key": "labs.voiceRoom",
           "note": "Unofficial Labs feature (plans/cmux-next/voice-room-DESIGN.md): Open Voice Room transcribes the mic on device, reads the screen's text on device when it changes, and posts both to the room server at labs.voiceRoomURL, whose cheap model keeps the room's memory and sends asks spoken to Chief as tasks. Off by default; while off the Voice Room actions are unavailable everywhere. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).",
           "title": {
@@ -123,6 +102,31 @@
             "curl",
             "remote",
             "mesh"
+          ]
+        },
+        {
+          "key": "labs.liveCode",
+          "note": "Live code (docs/cmux-next/live-code.md): an opt-in, temporary switch. On, a live code build (CMUX_LIVE_CODE_BUILD=1 scripts/reload.sh: CmuxNextApp at -Onone, linked -interposable) watches ~/Library/Caches/cmux-next/live-code and applies Swift patches compiled from the person's checkout (scripts/live-code/patch.py) with no new build. Off, nothing is watched or loaded; Debug and bench builds only until a patch's signer is checked (cmux#13742). Read at launch. The person turns it on: agents may not (it loads code into the app).",
+          "title": {
+            "key": "settings.labs.liveCode",
+            "text": "Live Code"
+          },
+          "help": {
+            "key": "settings.labs.liveCode.help",
+            "text": "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "live",
+            "code",
+            "hot",
+            "reload",
+            "patch",
+            "inject",
+            "swift",
+            "develop"
           ]
         }
       ]

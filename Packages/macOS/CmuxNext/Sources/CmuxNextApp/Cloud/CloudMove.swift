@@ -56,9 +56,9 @@ struct CloudMove {
         guard let (tab, pane) = context.daemonTab(invocation) else { return }
         let retries = services.cloud.moveRetries
         var left = retries[tab.id]
-        // Kept across launches: a pin to a machine that no longer exists would refuse every move of
-        // this tab, so it goes, and so does a retry kept for a tab that is no chat.
-        if case .move(let machineID) = left, services.cloud.hasLoadedMachines, services.machines.session(machineID) == nil { left = nil }
+        // Kept across launches: any uncommitted rerun's pin (move, ask first, Update Machine) to a machine gone from
+        // the signed-in account's list would refuse every move of this tab, so it goes, as does a retry of a non-chat.
+        if let machineID = left?.machineID, services.cloud.hasLoadedCurrentMachines, services.machines.session(machineID) == nil { left = nil }
         if tab.agentSession == nil { left = nil }
         if left != retries[tab.id] { retries[tab.id] = left }
         if case .show(let shown) = left { return perform(tab: tab, invocation: invocation) { try await reshow(shown, tab: tab, invocation: invocation) } }
@@ -71,11 +71,36 @@ struct CloudMove {
         guard let session = tabs.sessions[tabs.resolve(tab.id)] ?? record.session else { throw ActionFailure(message: CloudMoveStrings.noSession) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         var invocation = invocation
+        // A person's Retry pinned to a machine since deleted drops the pin, as a kept pin does above.
+        if invocation.origin == .user, services.cloud.hasLoadedCurrentMachines, let pinned = invocation["machine"]?.stringValue,
+           services.machines.session(pinned) == nil {
+            invocation.arguments["machine"] = nil
+        }
         // An unresolved move finishes on the machine it started on.
         if let machineID = left?.machineID, invocation["machine"] == nil { invocation.arguments["machine"] = .string(machineID) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         perform(tab: tab, invocation: invocation) { [invocation] in
-            try await run(tab: tab, in: pane, record: record, session: session, cli: cli, invocation: invocation)
+            try await Self.updatingFirst(invocation) { invocation in
+                try await run(tab: tab, in: pane, record: record, session: session, cli: cli, invocation: invocation)
+            }
+        }
+    }
+
+    /// Runs `body` with `invocation`. When the person started it in this app and it stopped on a
+    /// machine whose cmux is too old (a stop whose Retry is "Update Machine"), it runs once more as
+    /// that button would: the machine is updated first (``CloudMachineUpdate``), then the chat moves,
+    /// with no stop for the person to clear. A run from the CLI, MCP, a script or an agent never
+    /// updates a machine: it stops with the button, as before.
+    static func updatingFirst(_ invocation: ActionInvocation, _ body: (ActionInvocation) async throws -> String) async throws -> String {
+        do {
+            return try await body(invocation)
+        } catch let failure as Failure {
+            guard invocation.origin == .user, !CloudMachineUpdate.requested(invocation),
+                  case .update(let machineID)? = failure.retry else { throw failure }
+            var again = invocation
+            again.arguments[CloudMachineUpdate.argument] = .bool(true)
+            again.arguments["machine"] = .string(machineID)
+            return try await body(again)
         }
     }
 
@@ -85,9 +110,13 @@ struct CloudMove {
         let toastID = "cloud-move-" + tab.id
         let tabID = tab.id
         let retries = services.cloud.moveRetries
-        toast(toastID, CloudMoveStrings.moving, duration: Self.working)
-        // An agent's ask in the chat shows the move too (``CloudMoveAsks``).
+        // An agent's ask in the chat shows the move on its card (``CloudMoveAsks``): then the card
+        // alone says its progress and failure, never a toast as well. Success still toasts, since
+        // the card goes when the chat moved.
         let asks = services.cloud.moveAsks
+        let carded = asks.hasCard(tabID)
+        // A failure toast an earlier move without a card left up (with its Retry) goes too.
+        if carded { CmuxToastCenter.shared.close(id: toastID) } else { toast(toastID, CloudMoveStrings.moving, duration: Self.working) }
         asks.moveStarted(tabID, services: services)
         let work: ActionWork = Task { @MainActor in
             do {
@@ -97,7 +126,7 @@ struct CloudMove {
                 asks.moveEnded(tabID, failure: nil, services: services)
                 return nil
             } catch {
-                let failure = stopped(error, tab: tabID, toast: toastID, invocation: invocation)
+                let failure = stopped(error, tab: tabID, toast: carded ? nil : toastID, invocation: invocation)
                 asks.moveEnded(tabID, failure: failure.message, services: services)
                 return failure
             }
@@ -105,8 +134,9 @@ struct CloudMove {
         services.registry.track(work)
     }
 
-    /// A stop: records what Retry does for tab `tabID` and offers it on the toast.
-    private func stopped(_ error: any Error, tab tabID: String, toast toastID: String, invocation: ActionInvocation) -> ActionWorkFailure {
+    /// A stop: records what Retry does for tab `tabID` and offers it on the toast (none when
+    /// `toastID` is nil: the chat's card says it, and any move toast still up closes).
+    private func stopped(_ error: any Error, tab tabID: String, toast toastID: String?, invocation: ActionInvocation) -> ActionWorkFailure {
         // Any other error keeps the Retry a stop saved before (a move pinned to its machine).
         let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error)),
                                                      retry: services.cloud.moveRetries[tabID])
@@ -124,7 +154,9 @@ struct CloudMove {
         }
         var title = CloudMoveStrings.retry
         if case .update = failure.retry { title = CloudMachineUpdateStrings.button }
-        Self.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title)
+        if let toastID { Self.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title) }
+        // The card says the failure: a toast the move's machine update left up goes.
+        else { CmuxToastCenter.shared.close(id: "cloud-move-" + tabID) }
         return ActionWorkFailure(failure.message)
     }
 
@@ -144,11 +176,16 @@ struct CloudMove {
               let localSocket = await services.daemon.connection?.endpoint?.socketPath else {
             throw Failure(message: CloudMoveStrings.notConnected(name), retry: again)
         }
-        // Only the person's "Update Machine" updates the machine first.
+        // Only the person's move updates the machine first: their "Update Machine", or their move that
+        // found the machine too old (``updatingFirst(_:_:)``).
         if CloudMachineUpdate.requested(invocation) {
-            try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: "cloud-move-" + tab.id,
+            // The chat's card says the move (``perform``): then no update toast, and any toast up goes.
+            let carded = services.cloud.moveAsks.hasCard(tab.id)
+            try await CloudMachineUpdate.run(services, name: name, socket: machineSocket, cli: cli, toast: carded ? nil : "cloud-move-" + tab.id,
                                              retry: .update(machineID: machine.machineID))
-            toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: Self.working)
+            if carded { CmuxToastCenter.shared.close(id: "cloud-move-" + tab.id) } else {
+                toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: Self.working)
+            }
         }
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again)
         let owner = await Self.ownerAnswer(machine)
@@ -185,6 +222,8 @@ struct CloudMove {
     private func reshow(_ shown: CloudMoveRetries.Shown, tab: TabModel, invocation: ActionInvocation) async throws -> String {
         let retry = CloudMoveRetries.Retry.show(shown)
         guard let session = services.machines.session(shown.machineID) else {
+            // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
+            if services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
             throw Failure(message: CloudMoveStrings.noSuchMachine(shown.machineID), retry: retry)
         }
         let machine: CloudMachineSession
@@ -272,11 +311,11 @@ struct CloudMove {
         return try await Self.connected(created, invocation)
     }
 
-    /// The Cloud API's answer on the link in use, read now and never kept: the machine takes the chat only on
-    /// `owner`. The legacy link's is bound to its link process (`toPID`); the app link's carrier has none.
+    /// The Cloud API's answer on the link, read now and never kept: the machine takes the chat only on
+    /// `owner`. The app link's carrier has no link process (`toPID`).
     static func ownerAnswer(_ session: CloudMachineSession) async -> (vmKind: String, toPID: Int32?) {
-        if let appLink = session.appLink { return (await appLink.ownerLink == nil ? "none" : "owner", nil) }
-        return await session.link?.ownerPID.map { ("owner", $0) } ?? ("none", nil)
+        guard let appLink = session.appLink else { return ("none", nil) }
+        return (await appLink.ownerLink == nil ? "none" : "owner", nil)
     }
 
     static func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {
@@ -298,11 +337,9 @@ struct CloudMove {
         return session
     }
 
-    /// Why `session` did not connect, in the person's words: the legacy link's step that failed and its
-    /// reason when one is known, else the plain "didn't connect".
+    /// Why `session` did not connect, in the person's words.
     static func notConnected(_ session: CloudMachineSession) -> String {
-        guard let failure = session.legacyLinkFailure else { return CloudMoveStrings.notConnected(session.machine.title) }
-        return CloudMoveStrings.notConnected(session.machine.title, step: failure.step, reason: failure.reason)
+        CloudMoveStrings.notConnected(session.machine.title)
     }
 
     /// Shows the moved chat on `machine`: a new Cloud workspace with a terminal

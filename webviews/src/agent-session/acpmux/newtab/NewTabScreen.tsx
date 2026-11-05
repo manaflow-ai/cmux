@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
 import type { CloudMachine } from "../cloudMachines";
-import type { DictationField } from "../dictation";
+import { isActive, type Dictation, type DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import { acpmuxPerf } from "../perf";
 import type { AcpmuxSnapshot } from "../model";
@@ -314,6 +314,10 @@ type Props = NewTabScreenActions & {
   dictationField?: React.MutableRefObject<DictationField | null>;
   /// A dictation session is waiting for words: the empty field reads "Listening…" in italic.
   dictating?: boolean;
+  /// The page's dictation: while a session runs, Send (or Return) ends it and sends once its last
+  /// words land, the one send while dictating (Leo 2026-11-05: "The dictate button has its own send
+  /// button. We don't need that.").
+  dictation?: Dictation;
   /// On this Mac: where the files of the person's drop or paste are, so a folder or a file no prompt
   /// block takes goes with the first prompt as a link to it (the page has no upload to save one).
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
@@ -380,6 +384,8 @@ export function NewTabScreen(props: Props) {
   const [selected, setSelected] = useState<string | undefined>(undefined);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
+  /// A dictation session runs: Send ends it and sends (submit).
+  const listening = !shell && props.dictation !== undefined && isActive(props.dictation.state);
   const [seeded, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
@@ -555,6 +561,8 @@ export function NewTabScreen(props: Props) {
   // The input card, which a file drag rings (composer/DropOverlay.tsx).
   const dropLandingTarget = useCallback(() => fieldElement()?.closest(".nt-box") ?? null, []);
   const submitNow = useRef(() => {});
+  /// Set while the send a finished dictation session waited for goes (submit, below).
+  const dictationEnded = useRef(false);
   const continueAfterSetup = useRef<(harness: string) => void>(() => {});
   const openSetup = () => {
     if (props.onSetup) props.onSetup((agent) => continueAfterSetup.current(agent));
@@ -1161,6 +1169,19 @@ export function NewTabScreen(props: Props) {
     );
   };
   const submit = () => {
+    // A dictation session still running ends first, keeping its words; this goes once they land.
+    if (listening && props.dictation && !dictationEnded.current) {
+      props.dictation.finish(() => {
+        // The session is over even if this render has not heard so yet.
+        dictationEnded.current = true;
+        try {
+          submitNow.current();
+        } finally {
+          dictationEnded.current = false;
+        }
+      });
+      return;
+    }
     const prompt = typed.trim();
     if (command.intercept(prompt, harness, attachments.length, true)) return;
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
@@ -1201,6 +1222,36 @@ export function NewTabScreen(props: Props) {
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
+  /// Cmd-Return: the typed text goes to the agent, whatever row leads (an address, a tab's name, a
+  /// command). The one key back to Ask when the page guessed wrong ("reddit", an exact tab name).
+  const askNow = useRef(() => {});
+  const askTyped = () => {
+    if (listening && props.dictation && !dictationEnded.current) {
+      props.dictation.finish(() => {
+        dictationEnded.current = true;
+        try {
+          askNow.current();
+        } finally {
+          dictationEnded.current = false;
+        }
+      });
+      return;
+    }
+    // Shell mode's field is a command: Cmd-Return runs it, as Return does.
+    if (shell) return send();
+    const prompt = typed.trim();
+    if (!prompt && attachments.length === 0) return;
+    if (command.intercept(prompt, harness, attachments.length, true)) return;
+    if (pairingLinkRefused(typed)) return props.onOpen(prompt);
+    if (holdForAttachments(() => askNow.current())) return;
+    if (command.intercept(prompt, harness, attachments.length)) return;
+    if (!harness) {
+      openSetup();
+      return;
+    }
+    askChat(harness, prompt, project, chipModel);
+  };
+  askNow.current = askTyped;
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
   const create = (kind: "terminal" | "browser") => {
@@ -1421,6 +1472,9 @@ export function NewTabScreen(props: Props) {
       setDismissed(undefined);
     } else if (event.key === "Enter" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
       // Shift-Return adds a line, as in the chat composer: the field keeps its own newline.
+    } else if (event.key === "Enter" && event.metaKey && !event.shiftKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      askTyped();
     } else if (event.key === "Enter") {
       event.preventDefault();
       submit();
@@ -1760,7 +1814,8 @@ export function NewTabScreen(props: Props) {
               }
               aria-label={t("composer.send")}
               title={t("composer.sendTooltip")}
-              disabled={!text.trim() && attachments.length === 0 && reading.length === 0}
+              // While dictating, Send ends the session and sends what it heard.
+              disabled={!listening && !text.trim() && attachments.length === 0 && reading.length === 0}
               data-starting={starting !== undefined ? "" : undefined}
               onClick={send}
             >
@@ -2288,7 +2343,9 @@ export function NewTabScreen(props: Props) {
                     <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
                     {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
                     <span className="nt-row-action" data-popup-skip>
-                      {rowAction(t, nt, row)}
+                      {/* An Ask row Return does not take shows Cmd-Return's keycap in its action's place
+                      (always asks), no wider than the word it replaces, so a narrow pane never overflows. */}
+                      {index === current || row.type !== "ask" ? rowAction(t, nt, row) : <kbd>⌘↵</kbd>}
                       {index === current && <kbd>↵</kbd>}
                     </span>
                   </div>

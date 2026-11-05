@@ -42,7 +42,12 @@ How it is enforced:
   `thread-doc` (a new thread, queue or `BlockingAllowance` whose literal label this page's "Registered threads
   and queues" does not list; a label that is a variable is not judged). A `.wait(` with `await` before it in its
   statement is an async wait and is not refused. Escape: `// blocking-allow: <why>` (to be counted by the arch
-  ratchet's `blocking_allow_escapes` row: to come, PL-arch).
+  ratchet's `blocking_allow_escapes` row: to come, PL-arch). It also refuses `main-hop` (cmux-ad m35): a new
+  direct hop onto the main actor (`Task { @MainActor in`, `MainActor.run {`) in a UI target, which runs outside
+  the main-thread scheduler; use `FrameBatchQueue.enqueue`, `MainDelivery().run`, `AfterFrameCommit().run` or an
+  `await` of an `@MainActor` function. Escape: `// main-hop-allow: <why no scheduler path fits and what bounds
+  the work>`. Old hops are not refused; the count only goes down. `guardrails.py --main-thread-counts [REV]`
+  prints the hop, scheduler-entry, raw-blocking and checked-seam counts.
 
 ## Threads and queues
 
@@ -180,7 +185,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   queue per wait: a dispatch source wakes it, nothing blocks it; it ends at readiness, the daemon's close or the
   caller's cancel),
   `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
-  `cua-helper-v2-reap`, `cua-helper-v2-stdout`
+  `cua-helper-v2-reap`, `cua-helper-v2-stdout`, `cmux-remote-device` (one per open channel to cmux Remote's Screen
+  Sharing worker: a blocking read(2) that ends at the channel's EOF; answers and hub pushes go to their waiters, pushes
+  bounded at 256, docs/cmux-remote.md)
 - Input: `com.cmuxterm.next.event-source-processes` (``EventSourceProcesses``: the executable path and start time of
   each process that posts key and mouse events, read once per process with `sysctl(KERN_PROC_PID)`/`proc_pidpath`, user-initiated,
   serial; it also runs that process's exit watch, which removes the entry. The key path only reads the table, never

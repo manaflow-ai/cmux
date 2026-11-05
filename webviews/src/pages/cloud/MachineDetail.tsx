@@ -82,7 +82,7 @@ export function MachineDetailView({
   const cost = costLine(machine, now, t, language);
   const memory = machine.size?.memory_mb ?? undefined;
   const choices = memoryChoices(plan);
-  const idle = machine.idle_policy?.idle_seconds ?? 0;
+  const idle = (row.idle !== undefined ? row.idle : machine.idle_policy?.idle_seconds) ?? 0;
   const idleChoices = IDLE_CHOICES.some((seconds) => (seconds ?? 0) === idle) ? IDLE_CHOICES : [...IDLE_CHOICES, idle];
   return (
     <section className="cloud-detail" aria-labelledby="cloud-detail-title">
@@ -171,8 +171,6 @@ export function MachineDetailView({
 
       <h3 className="cloud-subsection-title">{t(L.overview)}</h3>
       <dl className="cloud-fields">
-        <dt>{t(L.fieldId)}</dt>
-        <dd className="cloud-mono">{machine.id}</dd>
         <dt>{t(L.fieldSize)}</dt>
         <dd>
           {machine.size && <span className="cloud-size-spec">{sizeSpec(machine.size, t, language)}</span>}

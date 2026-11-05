@@ -1,22 +1,26 @@
 #!/usr/bin/env python3
-"""nightly-next ships as cmux NEXT, beside classic NIGHTLY (cx-x7hwx).
+"""nightly-next ships once, as cmux NIGHTLY (com.cmuxterm.app.nightly), on one feed.
 
-Both tracks shipped as cmux NIGHTLY (com.cmuxterm.app.nightly), so installing
-one replaced the other. nightly-next is now a tagged-nightly identity: its own
-app name, bundle id, socket, daemon session, sign-in scheme and feed, signed
-without a provisioning profile, still auto-updating.
+Leo, 2026-11-05: "THERE SHOULDN'T BE 2". The track built cmux NEXT
+(com.cmuxterm.app.nightly.cmux-next, its own feed in /nightly-next/next/) and then
+signed every build a second time as cmux NIGHTLY for the old feed, the app the team
+runs (hq#7156). Now each build is signed once, as cmux NIGHTLY with its Developer ID
+profile and keychain group, and published to the feed that app polls
+(/nightly-next/). The retired cmux NEXT-identity feed gets no builds, only a signed
+handover card in its notes.
 """
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import plistlib
-import itertools
 import re
 import sys
 from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = nightly_text()
+HOST = "https://files-next.cmux.com/"
 
 
 def identity_block() -> str:
@@ -37,58 +41,73 @@ def env_value(name: str) -> str:
     return match.group(1)
 
 
-def test_next_has_its_own_identity():
+def test_nightly_next_ships_as_cmux_nightly():
     block = identity_block()
-    assert field(block, "bundleId") == "com.cmuxterm.app.nightly.cmux-next"
-    assert field(block, "appName") == "cmux NEXT"
-    assert field(block, "urlScheme") == "cmux-next"
+    assert field(block, "bundleId") == "com.cmuxterm.app.nightly"
+    assert field(block, "appName") == "cmux NIGHTLY"
+    assert field(block, "urlScheme") == "cmux-nightly"
     assert field(block, "dmgPrefix") == "cmux-nightly-next-macos"
+    assert field(block, "releaseTag") == "nightly-next"
 
 
-def test_next_signs_without_a_provisioning_profile():
+def test_it_signs_with_the_nightly_profile_and_keychain_group():
     entitlements = field(identity_block(), "entitlements")
+    assert entitlements == "cmux.nightly.entitlements"
     with open(ROOT / entitlements, "rb") as handle:
         keys = plistlib.load(handle)
-    for restricted in ("com.apple.application-identifier", "keychain-access-groups",
-                       "com.apple.developer.web-browser.public-key-credential"):
-        assert restricted not in keys, f"{entitlements} requests {restricted}, which needs a profile"
-    assert "core.setOutput('profile_channel', nightlyProbe ? 'NIGHTLY' : notaryProbe ? 'RELEASE' : track === 'nightly-next' ? '' :" in WORKFLOW
-    assert "if: needs.decide.outputs.profile_channel != ''" in WORKFLOW
-    assert "core.setOutput('sign_channel', nightlyProbe ? 'nightly' : notaryProbe ? 'stable' : track === 'nightly-next' ? 'next' : channel);" in WORKFLOW
+    assert keys["com.apple.application-identifier"] == "7WLXT3NR37.com.cmuxterm.app.nightly"
+    assert keys["keychain-access-groups"] == ["7WLXT3NR37.com.cmuxterm.app.nightly"]
+    assert keys["com.apple.developer.web-browser.public-key-credential"] is True
+    assert ("core.setOutput('profile_channel', nightlyProbe ? 'NIGHTLY' : notaryProbe ? 'RELEASE' : "
+            "track === 'nightly-next' ? 'NIGHTLY' :") in WORKFLOW
+    assert ("core.setOutput('sign_channel', nightlyProbe ? 'nightly' : notaryProbe ? 'stable' : "
+            "track === 'nightly-next' ? 'nightly' : channel);") in WORKFLOW
+    # The profile step embeds APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 and refuses one for another App ID.
+    step = WORKFLOW[WORKFLOW.index("- name: Embed channel provisioning profile"):]
+    step = step[:step.index("\n      - ", 10)]
+    assert "if: needs.decide.outputs.profile_channel != ''" in step
+    assert "needs.decide.outputs.profile_channel == 'NIGHTLY' && secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64" in step
+    embed = (ROOT / "scripts/ci/nightly-steps/embed-provisioning-profile.sh").read_text()
+    assert 'if [ "$APP_ID" != "7WLXT3NR37.${CHANNEL_BUNDLE_ID}" ]; then' in embed
+    # The packaging scripts sign and check the nightly channel with these entitlements.
+    notarize = (ROOT / "scripts/ci/notarize-nightly-dmg.sh").read_text()
+    assert 'CHANNEL="${CMUX_CHANNEL:-nightly}"' in notarize
 
 
-def test_next_signs_in_through_its_own_scheme():
-    assert 'Add :LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME string ${CHANNEL_URL_SCHEME}' in WORKFLOW
+def test_it_signs_in_through_the_nightly_scheme():
+    # cmux NEXT set its own LSEnvironment sign-in scheme; cmux NIGHTLY takes the default one for its id.
+    assert "Add :LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME" not in WORKFLOW
 
 
-def test_next_feed_is_new_and_still_classified_as_nightly_next():
+def test_one_feed_and_the_retired_feed_only_keeps_its_metadata():
     base = env_value("NIGHTLY_NEXT_FEED_BASE")
-    legacy = env_value("NIGHTLY_NEXT_LEGACY_FEED_BASE")
     # UpdateFeedResolver classifies the track by "/nightly-next/" in the feed URL.
-    assert "/nightly-next/" in base + "/" and base != legacy
-    assert env_value("NIGHTLY_NEXT_R2_PREFIX") == "nightly-next/next/"
-    # Every build-number check keeps NEXT above the old feed and classic NIGHTLY,
-    # and tolerates the new feed before its first publication.
+    assert base == HOST + "nightly-next" and "/nightly-next/" in base + "/"
+    assert env_value("NIGHTLY_NEXT_R2_PREFIX") == "nightly-next/"
+    assert "NIGHTLY_NEXT_LEGACY_FEED_BASE" not in WORKFLOW
+    # The verdicts and pulled.json stay where the app reads them (UpdaterService.channelFolder).
+    assert env_value("NIGHTLY_NEXT_VERDICTS_BASE") == env_value("NIGHTLY_NEXT_RETIRED_FEED_BASE") == HOST + "nightly-next/next"
+    assert env_value("NIGHTLY_NEXT_RETIRED_R2_PREFIX") == "nightly-next/next/"
+    for ring in re.findall(r"--verdicts-base \S+", WORKFLOW):
+        assert "NIGHTLY_NEXT_VERDICTS_BASE" in ring, ring
+    # Every build-number check reads the one feed and classic NIGHTLY, never the retired feed.
     checks = re.findall(r'feeds\+=\(([^)]*)\)', WORKFLOW)
     next_checks = [c for c in checks if "NIGHTLY_NEXT_FEED_BASE" in c]
     assert next_checks
     for check in next_checks:
-        assert '--feed-if-present "${NIGHTLY_NEXT_FEED_BASE}/${appcast}"' in check, check
-        assert '--feed "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${appcast}"' in check, check
-        assert '--feed "https://files.cmux.com/nightly/${appcast}"' in check, check
+        assert check.strip() == ('--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" '
+                                 '--feed "https://files.cmux.com/nightly/${appcast}"'), check
 
 
 def test_packaging_scripts_know_the_next_channel():
     metadata = (ROOT / "scripts/verify-app-bundle-channel-metadata.sh").read_text()
-    assert re.search(r'next\)\n\s*EXPECTED_NAME="cmux NEXT"\n\s*EXPECTED_BUNDLE_ID="com.cmuxterm.app.nightly.cmux-next"', metadata)
-    notarize = (ROOT / "scripts/ci/notarize-nightly-dmg.sh").read_text()
-    assert 'next) ENTITLEMENTS_NAME="cmux.next-dev.entitlements"' in notarize
+    assert re.search(r'nightly\)\n\s*EXPECTED_NAME="cmux NIGHTLY"\n\s*EXPECTED_BUNDLE_ID="com.cmuxterm.app.nightly"\n', metadata)
 
 
 def test_a_pending_notarization_keeps_its_recovery_artifact():
-    # notarize-nightly-dmg.sh records CMUX_CHANNEL (sign_channel, `next`) in the
-    # state file; the recovery artifact must compare against that, not the
-    # release channel, or a submission past the wait is stranded.
+    # notarize-nightly-dmg.sh records CMUX_CHANNEL (sign_channel) in the state
+    # file; the recovery artifact must compare against that, not the release
+    # channel, or a submission past the wait is stranded.
     step = WORKFLOW[WORKFLOW.index("- name: Prepare pending notarization recovery artifact"):]
     step = step[:step.index("\n      - name:", 10)]
     assert "SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}" in step
@@ -96,8 +115,8 @@ def test_a_pending_notarization_keeps_its_recovery_artifact():
     assert 'state["channel"] != sign_channel' in step
 
 
-def test_release_notes_history_carries_over_from_the_old_feed():
-    assert 'for base in "${NIGHTLY_NEXT_FEED_BASE}" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}"; do' in WORKFLOW
+def test_release_notes_history_reads_the_feed_then_the_retired_one():
+    assert 'for base in "${NIGHTLY_NEXT_FEED_BASE}" "${NIGHTLY_NEXT_RETIRED_FEED_BASE}"; do' in WORKFLOW
 
 
 def job_block(name: str) -> str:
@@ -127,19 +146,16 @@ def job_env(block: str, name: str) -> str:
 
 
 def test_each_app_reads_the_feed_its_publisher_writes():
-    # Leo, 2026-10-25: "but where are the nightlies?" cmux NIGHTLY checks the old
-    # feed; an app whose SUFeedURL names a feed no job writes never updates.
-    host = "https://files-next.cmux.com/"
+    # Leo, 2026-10-25: "but where are the nightlies?" An app whose SUFeedURL names a
+    # feed no job writes never updates.
+    host = HOST
     next_base = env_value("NIGHTLY_NEXT_FEED_BASE")
-    legacy_base = env_value("NIGHTLY_NEXT_LEGACY_FEED_BASE")
-    # cmux NEXT: SUFeedURL is feedBase/appcast-<variant>.xml; the upload writes
+    # SUFeedURL is feedBase/appcast-<variant>.xml; the upload writes
     # NIGHTLY_NEXT_R2_PREFIX + each of the track's feeds, served from the same path.
     assert field(identity_block(), "feedBase") == "process.env.NIGHTLY_NEXT_FEED_BASE"
     # The signing job hands prepare_variant decide's feedBase, and prepare_variant
     # writes its third argument into SUFeedURL.
     builder = job_containing("          prepare_variant \\\n")
-    # The cmux NIGHTLY identity's steps at the end of the same job bake the old feed (checked below).
-    builder, folded = builder[:builder.index(FOLDED)], builder[builder.index(FOLDED):]
     assert job_env(builder, "CHANNEL_FEED_BASE") == "${{ needs.decide.outputs.feed_base }}"
     assert "\n      feed_base: ${{ steps.decide.outputs.feed_base }}\n" in job_block("decide")
     assert "core.setOutput('feed_base', channelIdentity.feedBase);" in WORKFLOW
@@ -175,158 +191,53 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     # files-next.cmux.com serves this bucket; both uploaders write to it.
     assert env_value("NIGHTLY_NEXT_R2_BUCKET") == "cmux-nightly-next"
     assert len(re.findall(r"\bNIGHTLY_NEXT_R2_BUCKET\s*[:=]", WORKFLOW)) == 1
-    # cmux NIGHTLY: the legacy sign job bakes LEGACY_BASE/LEGACY_APPCAST, and the
-    # legacy publish job uploads that same key.
-    sign = job_block("sign-nightly-identity-legacy")
-    publish = job_block("publish-nightly-identity-legacy")
-    assert job_env(sign, "LEGACY_APPCAST") == job_env(publish, "LEGACY_APPCAST") == "appcast-arm64.xml"
-    assert sign.count("LEGACY_FEED_URL=") == 2, "one assignment, one pass to the script"
-    assert 'LEGACY_FEED_URL="${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"' in sign
-    # The script is handed that variable (no other value), and writes it into SUFeedURL.
-    assert re.search(r'LEGACY_FEED_URL="\$LEGACY_FEED_URL" \\\n(?:\s+[A-Z_]+="[^"\n]*" \\\n)*\s+\./scripts/ci/nightly-next-legacy-identity\.sh ', sign)
-    script = (ROOT / "scripts/ci/nightly-next-legacy-identity.sh").read_text()
-    assert 'pb "Set :SUFeedURL $LEGACY_FEED_URL"' in script and script.count(":SUFeedURL") == 1
-    assert f'prefix="${{NIGHTLY_NEXT_LEGACY_FEED_BASE#{host}}}"' in publish
-    assert 'upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST"' in publish
-    # upload() puts its file at its second argument, the key checked above.
-    assert publish.count("--key ") == 1 and publish.count("--bucket ") == 1
-    assert '--bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$2"' in publish
-    assert len(re.findall(r"\bprefix=", publish)) == 1
-    for block in (sign, publish):
-        assert not re.search(r"\bLEGACY_APPCAST=|\bLEGACY_FEED_URL\s*=\s*[^\"$]", block)
-    # The same sign, folded into build-sign-notarize-nightly, bakes the same feed.
+
+
+LEGACY_JOBS = ("legacy-identity-target", "sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
+               "publish-nightly-identity-legacy", "nightly-identity-legacy-published")
+
+
+def test_each_build_is_signed_once():
+    jobs = re.findall(r"\n  ([a-z0-9-]+):\n", WORKFLOW)
+    for name in LEGACY_JOBS:
+        assert name not in jobs, f"the second signing's job {name} is back"
+        assert name not in WORKFLOW, name
     main = job_block("build-sign-notarize-nightly")
-    assert job_env(main, "LEGACY_APPCAST") == "appcast-arm64.xml"
-    assert folded.count("LEGACY_FEED_URL=") == 2 and 'LEGACY_FEED_URL="${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"' in folded
-    assert not re.search(r"\bLEGACY_APPCAST=|\bLEGACY_FEED_URL\s*=\s*[^\"$]", folded)
-    assert legacy_base.startswith(host) and legacy_base != next_base
-    # legacy-identity-target picks the candidate by comparing cmux NEXT's feed with this one.
-    target = job_block("legacy-identity-target")
-    assert '-o old-all.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"' in target
-    assert '-o next-all.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"' in target
-    assert re.findall(r"\n\s+LEGACY_APPCAST: (\S+)\n", target) == ["appcast-arm64.xml"]
+    assert "cmux NIGHTLY identity: " not in main and "LEGACY_" not in main and "legacy_" not in main
+    # The copy's 160 extra minutes are gone with it.
+    assert "    timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 235 || 160 }}\n" in main
+    assert "vars.NIGHTLY_NEXT_LEGACY_IDENTITY" not in WORKFLOW
 
 
-FOLDED = '      - name: "cmux NIGHTLY identity: '
+def test_the_rolling_name_and_release_push_follow_the_one_feed():
+    names = (ROOT / "scripts/ci/nightly-steps/github-names-publish-rolling-name.sh").read_text()
+    assert '--immutable "$dmg" --alias "$rolling"' in names
+    # ReleasePushListener subscribes the cmux NIGHTLY feed as nightly-next-legacy.
+    assert "RELEASE_POKE_URL: https://presence.cmux.dev/releases/v1/poke?feed=nightly-next-legacy\n" in WORKFLOW
+    assert "poke?feed=nightly-next\n" not in WORKFLOW
+    listener = (ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/ReleasePushListener.swift").read_text()
+    assert f'"{HOST}nightly-next/appcast-arm64.xml": "nightly-next-legacy"' in listener
 
 
-def job_if(name: str) -> str:
-    match = re.search(r'\n    if: "(.*)"\n', job_block(name))
-    assert match, f"no if on {name}"
-    return match.group(1)
-
-
-def evaluate(expression: str, values: dict[str, str]) -> bool:
-    """Evaluates a job `if` of ==/!= comparisons joined by &&, || and parentheses."""
-    def term(match: re.Match[str]) -> str:
-        left, op, right = match.group(1), match.group(2), match.group(3).strip("'")
-        assert left in values, f"no value for {left}"
-        return str((values[left] == right) == (op == "=="))
-    expression = expression.replace("!cancelled()", "True")
-    expression = re.sub(r"(needs\.publish-nightly\.outputs\.build) == (needs\.legacy-identity-target\.outputs\.build)",
-                        lambda _: str(values["same_build"] == "true"), expression)
-    expression = re.sub(r"([a-z][\w.-]*) (==|!=) ('[^']*')", term, expression)
-    return eval(expression.replace("&&", " and ").replace("||", " or "), {})  # noqa: S307 - only True/False remain
-
-
-def test_the_old_feed_signs_only_a_build_its_publisher_can_publish():
-    # Run 41931011216 yielded its sign to a newer build (publish-nightly skipped), yet its legacy sign held the
-    # only signing runner for a DMG publish-nightly-identity-legacy then refused, while two newer runs waited.
-    sign, publish = job_if("sign-nightly-identity-legacy"), job_if("publish-nightly-identity-legacy")
-    fixed = {
-        "github.repository": "manaflow-ai/cmux", "github.ref": "refs/heads/nightly-next",
-        "needs.decide.outputs.track": "nightly-next", "needs.decide.outputs.environment": "release-next",
-        "needs.decide.outputs.notary_paused": "false", "needs.legacy-identity-target.result": "success",
-        "needs.legacy-identity-target.outputs.build": "4193101121601", "vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "",
-        "needs.sign-nightly-identity-legacy.result": "success",
-    }
-    checked = 0
-    for result in ("success", "skipped", "failure", "cancelled"):
-        for refused in ("true", "false"):
-            for same in ("true", "false"):
-                for action in ("new", "continue"):
-                    for source_run, legacy_ran in itertools.product(("41931011216", ""), ("true", "")):
-                        values = dict(fixed, same_build=same, **{
-                            "needs.build-sign-notarize-nightly.outputs.legacy_ran": legacy_ran,
-                            "needs.publish-nightly.result": result, "needs.publish-nightly.outputs.refused": refused,
-                            "needs.legacy-identity-target.outputs.action": action,
-                            "needs.legacy-identity-target.outputs.source_run": source_run})
-                        case = (f"publish-nightly {result} refused={refused} same build={same} {action} "
-                                f"source={source_run!r} signed in the main job={legacy_ran!r}")
-                        # Signed once: by the main job (legacy_ran) or here, and only what the publish can publish.
-                        assert evaluate(sign, values) == (evaluate(publish, values) and legacy_ran != "true"), case
-                        checked += 1
-    yielded = dict(fixed, same_build="false", **{
-        "needs.publish-nightly.result": "skipped", "needs.publish-nightly.outputs.refused": "",
-        "needs.legacy-identity-target.outputs.action": "new",
-        "needs.legacy-identity-target.outputs.source_run": "41931011216",
-        "needs.build-sign-notarize-nightly.outputs.legacy_ran": ""})
-    assert not evaluate(sign, yielded), "a yielded run's legacy sign still takes the signing runner"
-    published = dict(yielded, same_build="true", **{"needs.publish-nightly.result": "success",
-                                                    "needs.publish-nightly.outputs.refused": "false"})
-    assert evaluate(sign, published), "the run cmux NEXT published no longer signs the old feed"
-    assert checked == 128
-    assert not evaluate(sign, dict(published, **{"needs.build-sign-notarize-nightly.outputs.legacy_ran": "true"})), \
-        "the old feed's build signed twice: in the main job and again here"
-
-
-def test_the_old_feed_is_signed_in_the_same_job_as_cmux_next():
-    # Leo, 2026-11-05: "JUST POINT ME TO THE ONE APP/THE ONE FEED", "THERE SHOULDN'T BE 2". Run 41900945757 published
-    # cmux NEXT at 00:2xZ while its cmux NIGHTLY sign queued behind three newer runs' signs on the one signing runner.
-    raw = (ROOT / ".github/workflows/nightly.yml").read_text()
-    main = re.search(r"\n  build-sign-notarize-nightly:\n(.*?)(?=\n  [a-z0-9-]+:\n)", raw, re.S).group(1)
-    assert FOLDED in main, "cmux NIGHTLY is signed only by a later, separately queued job"
-    steps = main[main.index(FOLDED):main.index("\n      - name: Cleanup keychain\n")]
-    assert main.index("        id: notarize-nightly\n") < main.index(FOLDED), "the copy runs after cmux NEXT's DMG is final"
-    blocks = steps.split("\n      - name: ")
-    assert len(blocks) == 16, len(blocks)
-    for block in blocks:
-        # A failed or slow copy never fails or times out cmux NEXT's job.
-        assert "\n        continue-on-error: true\n" in block, block[:80]
-        assert "\n        timeout-minutes: " in block or "uses: actions/upload-artifact@" in block, block[:80]
-    # The same scripts as the separate job for a new build of this run (no continue, no pending download).
-    separate = job_block("sign-nightly-identity-legacy")
-    raw_separate = re.search(r"\n  sign-nightly-identity-legacy:\n(.*?)(?=\n  [a-z0-9-]+:\n)", raw, re.S).group(1)
-    used = set(re.findall(r"scripts/ci/nightly-steps/(legacy-identity-[a-z-]+\.sh)", steps))
-    assert used == set(re.findall(r"scripts/ci/nightly-steps/(legacy-identity-[a-z-]+\.sh)", raw_separate)) - {
-        "legacy-identity-sign-download-pending.sh"}, used
-    assert separate
-    # Only this run's own new build, at this commit; everything else stays with the separate job.
-    here = re.search(r"\n      LEGACY_HERE: \$\{\{ (.*) && 'true' \|\| 'false' \}\}\n", main).group(1)
-    base = {
-        "needs.decide.outputs.track": "nightly-next", "matrix.variant": "arm64",
-        "needs.decide.outputs.environment": "release-next", "needs.legacy-identity-target.result": "success",
-        "needs.legacy-identity-target.outputs.action": "new", "vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "",
-    }
-    def run_here(**changes: str) -> bool:
-        values = dict(base, **changes)
-        expression = here.replace("needs.legacy-identity-target.outputs.source_run == format('{0}', github.run_id)",
-                                  str(values.pop("own_run", "true") == "true"))
-        expression = expression.replace("needs.legacy-identity-target.outputs.build == needs.build-nightly-app.outputs.daemon_build",
-                                         str(values.pop("own_build", "true") == "true"))
-        expression = expression.replace("needs.resolve-nightly-cmux-tui-client.outputs.build_sha == github.sha",
-                                        str(values.pop("own_commit", "true") == "true"))
-        return evaluate(expression, values)
-    assert run_here()
-    assert not run_here(own_run="false"), "another run's build (a recovered or source-less target)"
-    assert not run_here(own_build="false") and not run_here(own_commit="false")
-    assert not run_here(**{"needs.legacy-identity-target.outputs.action": "continue"})
-    assert not run_here(**{"needs.decide.outputs.track": "nightly"}) and not run_here(**{"matrix.variant": "x86_64"})
-    assert not run_here(**{"vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "off"})
-    # Whichever job signed, verify, publish and the report read its outputs.
-    outputs = set(re.findall(r"\n      (legacy_[a-z0-9_]+): ", main))
-    assert "legacy_ran" in outputs
-    for job in ("verify-nightly-identity-legacy", "publish-nightly-identity-legacy", "nightly-identity-legacy-published"):
-        block = job_block(job)
-        assert "build-sign-notarize-nightly" in re.search(r"(?:^|\n)    needs: \[(.*)\]\n", block).group(1), job
-        for field in re.findall(r"needs\.sign-nightly-identity-legacy\.outputs\.([a-z0-9_]+)", block):
-            folded = (f"(needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && "
-                      f"needs.build-sign-notarize-nightly.outputs.legacy_{field} || "
-                      f"needs.sign-nightly-identity-legacy.outputs.{field})")
-            assert block.count(folded) == block.count(f"needs.sign-nightly-identity-legacy.outputs.{field}"), (job, field)
-            assert f"legacy_{field}" in outputs, field
-    assert ("SIGN_RESULT: ${{ needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && 'success' || "
-            "needs.sign-nightly-identity-legacy.result }}") in job_block("publish-nightly-identity-legacy")
+def test_the_retired_feed_gets_a_signed_handover_card_and_no_build():
+    # Sparkle never installs another bundle id, and the app has no informational update (a higher item
+    # with no enclosure would take the install path), so a stray cmux NEXT install reads where its
+    # builds went from the one feed-side message it shows: <feed folder>/notes/announcements.json.
+    card = json.loads((ROOT / "release-notes/next/retired-feed-announcements.json").read_text())
+    assert card["version"] == 1 and len(card["items"]) == 1
+    item = card["items"][0]
+    assert set(item) <= {"id", "title", "detail", "action", "minBuild", "maxBuild", "startsAt", "expiresAt"}
+    assert "cmux NIGHTLY" in item["title"] and "cmux.com/next" in item["detail"]
+    assert "http" not in json.dumps(card), "an announcement carries no URL"
+    sign = (ROOT / "scripts/ci/nightly-steps/release-notes-sign.sh").read_text()
+    assert "cp release-notes/next/retired-feed-announcements.json notes/retired-feed-announcements.json" in sign
+    assert "signed+=(notes/retired-feed-announcements.json)" in sign
+    assert sign.index("signed+=(notes/retired-feed-announcements.json)") < sign.index('release-notes.py sign --key "$key"')
+    upload = (ROOT / "scripts/ci/nightly-steps/release-notes-upload-to-r2.sh").read_text()
+    assert "retired-feed-*) continue ;;" in upload
+    assert 'key="${NIGHTLY_NEXT_RETIRED_R2_PREFIX:?}notes/announcements.json$suffix"' in upload
+    # Nothing writes an appcast under the retired prefix.
+    assert not re.search(r"NIGHTLY_NEXT_RETIRED_R2_PREFIX[^\n]*appcast", WORKFLOW + upload)
 
 
 def main() -> int:

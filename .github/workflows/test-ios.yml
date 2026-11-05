@@ -966,6 +966,19 @@ jobs:
           xcodebuild "${XCODEBUILD_ARGS[@]}" -showBuildTimingSummary build \
             2>&1 | tee "$IOS_DERIVED_DATA/logs/build.log"
           status="${PIPESTATUS[0]}"
+          # The kept DerivedData holds explicit precompiled modules; a header the build
+          # copies again (ghostty.h after a GhosttyNextKit pin change) makes them stale
+          # and the build stops with "has been modified since the module file ... was
+          # built". Clear the module caches and build once more; any other failure stands.
+          if [ "$status" -ne 0 ] && grep -q "has been modified since the module file" "$IOS_DERIVED_DATA/logs/build.log"; then
+            echo "::warning::stale precompiled modules in $IOS_DERIVED_DATA; clearing them and building again"
+            rm -rf "$IOS_DERIVED_DATA/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules" \
+                   "$IOS_DERIVED_DATA/Build/Intermediates.noindex/ExplicitPrecompiledModules" \
+                   "$IOS_DERIVED_DATA/ModuleCache.noindex"
+            xcodebuild "${XCODEBUILD_ARGS[@]}" -showBuildTimingSummary build \
+              2>&1 | tee "$IOS_DERIVED_DATA/logs/build.log"
+            status="${PIPESTATUS[0]}"
+          fi
           set -e
           seconds="$(STARTED_NS="$started_ns" python3 - <<'PY'
           import os, time

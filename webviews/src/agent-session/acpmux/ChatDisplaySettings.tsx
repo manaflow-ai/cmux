@@ -6,7 +6,8 @@
 // removes every key.
 import { useEffect, useId, useRef, useState } from "react";
 import { Popover, type UiAnchor } from "../../ui/Popover";
-import { useT } from "./i18n";
+import { type StringKey, useT } from "./i18n";
+import { CHAT_UI_FONT_KEY, CHAT_UI_FONTS, type ChatUiFont, DEFAULT_CHAT_UI_FONT } from "./chatUiFont";
 import {
   CHAT_DISPLAY,
   changeChatDisplay,
@@ -44,6 +45,22 @@ export function ChatDisplaySettings({
     </Popover>
   );
 }
+
+/// Each interface font's name in the menu.
+const UI_FONT_LABEL: Record<ChatUiFont, StringKey> = {
+  "inter-tuned": "chatDisplay.uiFontInterTuned",
+  inter: "chatDisplay.uiFontInter",
+  verdana: "chatDisplay.uiFontVerdana",
+  roboto: "chatDisplay.uiFontRoboto",
+  plex: "chatDisplay.uiFontPlex",
+  "source-sans": "chatDisplay.uiFontSourceSans",
+  geist: "chatDisplay.uiFontGeist",
+  "cmux-sans": "chatDisplay.uiFontCmuxSans",
+  hanken: "chatDisplay.uiFontHanken",
+  atkinson: "chatDisplay.uiFontAtkinson",
+  "system-ui": "chatDisplay.uiFontSystemUi",
+  "system-ui-tight": "chatDisplay.uiFontSystemUiTight",
+};
 
 /// The popover's rows (the gallery draws them in place, without a popover).
 export function ChatDisplayRows() {
@@ -98,6 +115,25 @@ export function ChatDisplayRows() {
           <option value="system">{t("chatDisplay.fontSystem")}</option>
           <option value="serif">{t("chatDisplay.fontSerif")}</option>
           <option value="mono">{t("chatDisplay.fontMono")}</option>
+        </select>
+      </label>
+      <label className="acpmux-display-row">
+        <span>{t("chatDisplay.uiFont")}</span>
+        <select
+          aria-label={t("chatDisplay.uiFont")}
+          value={display.uiFont}
+          onChange={(event) =>
+            changeChatDisplay(
+              CHAT_UI_FONT_KEY,
+              event.currentTarget.value === DEFAULT_CHAT_UI_FONT ? null : event.currentTarget.value,
+            )
+          }
+        >
+          {CHAT_UI_FONTS.map((font) => (
+            <option key={font} value={font}>
+              {t(UI_FONT_LABEL[font])}
+            </option>
+          ))}
         </select>
       </label>
       <Slider
