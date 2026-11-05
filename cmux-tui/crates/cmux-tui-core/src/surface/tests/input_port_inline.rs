@@ -607,3 +607,300 @@ fn rds_cost_knote_daemon_shape_bench() {
     drop((files, sockets, filler, nulls, peer));
     panic!("{report}");
 }
+
+/// Never merge: the daemon-shape bench (above) under the daemon's own load. At its knote count, cold, poll() cost
+/// 4.75 us more than kevent64 at p50 (step 4a530efa4a2276db2caa564e), a third of the A/B's write-call difference.
+/// The live app daemon under the L6 load (cmux21, build e8291edc, proc_pidinfo over 2 s, s17hp-head-2 at 03:41Z) ran
+/// 390-560 threads, 365k-388k Unix calls and 142k-149k context switches a second, at about 180% CPU. poll() takes the
+/// process's fd lock (to add its knote, and for its whole fd knote walk) and the knote hash lock (for its whole hash
+/// walk); every fd call of the process takes the fd lock, and every EVFILT_USER wake (a runtime's waker) the hash
+/// lock. kevent64 on a queue registered once takes neither for long. Builds the daemon's shape, then runs socket
+/// ping-pong threads (fd calls and context switches) and EVFILT_USER wake threads paced to about the daemon's rates,
+/// and measures poll(POLLOUT, 0) and kevent64(IMMEDIATE) warm and cold, idle and under that load, with the process's
+/// own call and switch rates over each window. Fails on purpose so the step log shows the report.
+#[cfg(target_vendor = "apple")]
+#[test]
+fn rds_cost_knote_daemon_load_bench() {
+    use std::io::{Read as _, Write as _};
+    use std::os::fd::AsRawFd as _;
+    use std::os::unix::net::UnixStream;
+    use std::process::{Child, Command, Stdio};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    const N: usize = 1_000;
+    const SWEEP: usize = 96 << 20;
+    // 16 ping-pong pairs at 3.4k round trips a second each (4 fd calls and 2 switches per round trip) and 8 wakers at
+    // 5k EVFILT_USER wakes a second each (2 calls and 1 switch per wake): about 300k calls and 150k switches a second.
+    const PAIRS: usize = 16;
+    const PAIR_PERIOD: Duration = Duration::from_micros(290);
+    const WAKERS: usize = 8;
+    const WAKE_PERIOD: Duration = Duration::from_micros(200);
+    struct Children(Vec<Child>);
+    impl Drop for Children {
+        fn drop(&mut self) {
+            for child in &mut self.0 {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+    fn stats(ns: &mut [u128]) -> (String, u128) {
+        ns.sort_unstable();
+        let at = |p: usize| ns.get((ns.len() * p / 100).min(ns.len() - 1)).copied().unwrap_or(0);
+        let line = format!(
+            "p50 {} p95 {} p99 {} max {} ns",
+            at(50),
+            at(95),
+            at(99),
+            ns.last().copied().unwrap_or(0)
+        );
+        (line, at(50))
+    }
+    fn register(kq: i32, ident: u64, filter: i16, flags: u16, fflags: u32) {
+        let change =
+            libc::kevent64_s { ident, filter, flags, fflags, data: 0, udata: 0, ext: [0; 2] };
+        let added =
+            unsafe { libc::kevent64(kq, &change, 1, std::ptr::null_mut(), 0, 0, std::ptr::null()) };
+        assert_eq!(
+            added,
+            0,
+            "kevent64 EV_ADD filter {filter} ident {ident}: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+    fn task_info() -> libc::proc_taskinfo {
+        let mut info = unsafe { std::mem::zeroed::<libc::proc_taskinfo>() };
+        let size = std::mem::size_of::<libc::proc_taskinfo>() as i32;
+        let read = unsafe {
+            libc::proc_pidinfo(
+                std::process::id() as i32,
+                libc::PROC_PIDTASKINFO,
+                0,
+                (&mut info as *mut libc::proc_taskinfo).cast(),
+                size,
+            )
+        };
+        assert_eq!(read, size, "proc_pidinfo: {}", std::io::Error::last_os_error());
+        info
+    }
+    fn sweep(buffer: &[u8]) {
+        let mut sum = 0u64;
+        let mut i = 0;
+        while i < buffer.len() {
+            sum = sum.wrapping_add(u64::from(buffer[i]));
+            i += 64;
+        }
+        let _ = std::hint::black_box(sum);
+    }
+    fn poll_once(fd: i32) -> u128 {
+        let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+        let started = Instant::now();
+        let _ = unsafe { libc::poll(&mut ready, 1, 0) };
+        started.elapsed().as_nanos()
+    }
+    fn kevent_once(kq: i32) -> u128 {
+        let mut event = std::mem::MaybeUninit::<libc::kevent64_s>::uninit();
+        let started = Instant::now();
+        let _ = unsafe {
+            libc::kevent64(
+                kq,
+                std::ptr::null(),
+                0,
+                event.as_mut_ptr(),
+                1,
+                libc::KEVENT_FLAG_IMMEDIATE,
+                std::ptr::null(),
+            )
+        };
+        started.elapsed().as_nanos()
+    }
+    fn measure(label: &str, fd: i32, kq: i32, buffer: &[u8], report: &mut String) {
+        let before = task_info();
+        let started = Instant::now();
+        let mut warm_poll = Vec::with_capacity(N);
+        let mut warm_kevent = Vec::with_capacity(N);
+        for _ in 0..N {
+            warm_poll.push(poll_once(fd));
+            warm_kevent.push(kevent_once(kq));
+            // Keys are apart: give the load a turn between two checks.
+            std::thread::sleep(Duration::from_micros(200));
+        }
+        let mut cold_poll = Vec::with_capacity(N);
+        let mut cold_kevent = Vec::with_capacity(N);
+        for _ in 0..N {
+            sweep(buffer);
+            cold_poll.push(poll_once(fd));
+            sweep(buffer);
+            cold_kevent.push(kevent_once(kq));
+        }
+        let after = task_info();
+        let seconds = started.elapsed().as_secs_f64();
+        let rate = |a: i32, b: i32| f64::from(b.wrapping_sub(a)) / seconds / 1000.0;
+        let (warm_poll_line, warm_poll_p50) = stats(&mut warm_poll);
+        let (warm_kevent_line, warm_kevent_p50) = stats(&mut warm_kevent);
+        let (cold_poll_line, cold_poll_p50) = stats(&mut cold_poll);
+        let (cold_kevent_line, cold_kevent_p50) = stats(&mut cold_kevent);
+        report.push_str(&format!(
+            "  {label}: process {:.0}k Unix calls/s, {:.0}k context switches/s, {} threads (over {seconds:.1} s, \
+             the measuring thread's own calls and the cold sweeps included)\n    poll(POLLOUT, 0):    warm \
+             {warm_poll_line}; cold {cold_poll_line}\n    kevent64(IMMEDIATE): warm {warm_kevent_line}; cold \
+             {cold_kevent_line}\n    p50, poll - kevent64: warm {} ns, cold {} ns\n",
+            rate(before.pti_syscalls_unix, after.pti_syscalls_unix),
+            rate(before.pti_csw, after.pti_csw),
+            after.pti_threadnum,
+            warm_poll_p50 as i128 - warm_kevent_p50 as i128,
+            cold_poll_p50 as i128 - cold_kevent_p50 as i128,
+        ));
+    }
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) };
+    limit.rlim_cur = 4096.min(limit.rlim_max);
+    unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) };
+    let buffer = vec![1u8; SWEEP];
+    let mut report = String::from(
+        "\nrds-cost KNOTE bench at the live daemon's shape, idle and under its load (macOS; warm = 200 us apart, cold \
+         = the caches swept by a 96 MB read before each call; ns per call):\n",
+    );
+    // The daemon's shape, as in rds_cost_knote_daemon_shape_bench: the typed host's socket and its room-check queue,
+    // 9 EVFILT_VNODE and 4 EVFILT_READ knotes on low fds, 234 EVFILT_PROC and 16 EVFILT_USER knotes, 1041 fds.
+    let (host, peer) = UnixStream::pair().unwrap();
+    let fd = host.as_raw_fd();
+    let room = unsafe { libc::kqueue() };
+    register(room, fd as u64, libc::EVFILT_WRITE, libc::EV_ADD | libc::EV_ENABLE, 0);
+    let dir = std::env::temp_dir().join(format!("rds-knote-load-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let watched = unsafe { libc::kqueue() };
+    let mut files = Vec::new();
+    for i in 0..9 {
+        let path = dir.join(format!("watched-{i}"));
+        std::fs::write(&path, b"x").unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        register(
+            watched,
+            file.as_raw_fd() as u64,
+            libc::EVFILT_VNODE,
+            libc::EV_ADD | libc::EV_CLEAR,
+            libc::NOTE_WRITE | libc::NOTE_DELETE,
+        );
+        files.push(file);
+    }
+    let mut sockets = Vec::new();
+    for _ in 0..2 {
+        let (x, y) = UnixStream::pair().unwrap();
+        for sock in [x.as_raw_fd(), y.as_raw_fd()] {
+            register(watched, sock as u64, libc::EVFILT_READ, libc::EV_ADD | libc::EV_CLEAR, 0);
+        }
+        sockets.push((x, y));
+    }
+    let mut children = Children(Vec::new());
+    for _ in 0..234 {
+        let child = Command::new("/bin/sleep")
+            .arg("300")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        register(
+            watched,
+            u64::from(child.id()),
+            libc::EVFILT_PROC,
+            libc::EV_ADD | libc::EV_CLEAR,
+            libc::NOTE_EXIT,
+        );
+        children.0.push(child);
+    }
+    for ident in 1..=16u64 {
+        register(watched, ident, libc::EVFILT_USER, libc::EV_ADD | libc::EV_CLEAR, 0);
+    }
+    let mut nulls = Vec::new();
+    for _ in 0..260 {
+        nulls.push(std::fs::File::open("/dev/null").unwrap());
+    }
+    let mut filler = Vec::new();
+    for _ in 0..380 {
+        filler.push(UnixStream::pair().unwrap());
+    }
+    measure("the daemon's shape, idle", fd, room, &buffer, &mut report);
+    // The load.
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut threads = Vec::new();
+    for _ in 0..PAIRS {
+        let (mut a, mut b) = UnixStream::pair().unwrap();
+        let stop_a = Arc::clone(&stop);
+        threads.push(std::thread::spawn(move || {
+            let mut byte = [0u8; 1];
+            let mut next = Instant::now();
+            while !stop_a.load(Ordering::Relaxed) {
+                if a.write_all(&[1]).is_err() || a.read_exact(&mut byte).is_err() {
+                    break;
+                }
+                next += PAIR_PERIOD;
+                if let Some(wait) = next.checked_duration_since(Instant::now()) {
+                    std::thread::sleep(wait);
+                }
+            }
+        }));
+        threads.push(std::thread::spawn(move || {
+            let mut byte = [0u8; 1];
+            while b.read_exact(&mut byte).is_ok() {
+                if b.write_all(&byte).is_err() {
+                    break;
+                }
+            }
+        }));
+    }
+    let mut wake_queues = Vec::new();
+    for _ in 0..WAKERS {
+        let kq = unsafe { libc::kqueue() };
+        register(kq, 1, libc::EVFILT_USER, libc::EV_ADD | libc::EV_CLEAR, 0);
+        wake_queues.push(kq);
+        let stop_w = Arc::clone(&stop);
+        threads.push(std::thread::spawn(move || {
+            let mut event = std::mem::MaybeUninit::<libc::kevent64_s>::uninit();
+            let timeout = libc::timespec { tv_sec: 0, tv_nsec: 50_000_000 };
+            while !stop_w.load(Ordering::Relaxed) {
+                unsafe {
+                    libc::kevent64(kq, std::ptr::null(), 0, event.as_mut_ptr(), 1, 0, &timeout)
+                };
+            }
+        }));
+        let stop_t = Arc::clone(&stop);
+        threads.push(std::thread::spawn(move || {
+            let trigger = libc::kevent64_s {
+                ident: 1,
+                filter: libc::EVFILT_USER,
+                flags: 0,
+                fflags: libc::NOTE_TRIGGER,
+                data: 0,
+                udata: 0,
+                ext: [0; 2],
+            };
+            let mut next = Instant::now();
+            while !stop_t.load(Ordering::Relaxed) {
+                unsafe {
+                    libc::kevent64(kq, &trigger, 1, std::ptr::null_mut(), 0, 0, std::ptr::null())
+                };
+                next += WAKE_PERIOD;
+                if let Some(wait) = next.checked_duration_since(Instant::now()) {
+                    std::thread::sleep(wait);
+                }
+            }
+        }));
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    measure("the daemon's shape, under the load", fd, room, &buffer, &mut report);
+    stop.store(true, Ordering::Relaxed);
+    for thread in threads {
+        let _ = thread.join();
+    }
+    for kq in wake_queues {
+        unsafe { libc::close(kq) };
+    }
+    drop(children);
+    unsafe { libc::close(watched) };
+    unsafe { libc::close(room) };
+    let _ = std::fs::remove_dir_all(&dir);
+    drop((files, sockets, filler, nulls, peer));
+    panic!("{report}");
+}
