@@ -123,7 +123,7 @@ import Testing
         let drawn = list.subviews.contains { $0 === header && !$0.isHidden && $0.alphaValue > 0 }
         let fading = list.fadingRows.values.contains { $0 === header } || header.layer?.animation(forKey: "opacity") != nil
         // Under it means overlapping by more than an edge's 2 pt, the list's own rule (`isUnderCard`).
-        #expect(!(list.isUnderCard(header.frame, [card]) && (drawn || fading)),
+        #expect(!(header.frame.intersection(card).height > 2 && (drawn || fading)),
                 "the emptied group's header still draws under the landing card (frame \(header.frame), card \(card), hidden \(header.isHidden), fading \(fading))")
     }
 
