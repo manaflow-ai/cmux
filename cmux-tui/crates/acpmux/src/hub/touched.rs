@@ -57,7 +57,7 @@ pub(super) fn absorb(session: &Session, update: &Value, m: &mut SessionMeta, rep
         if edited {
             queued.push((repo.clone(), path.clone()));
         }
-        tf::merge(&mut m.touched_files, TouchedFile { repo, path, edited, at });
+        tf::merge(&mut m.touched_files, TouchedFile { repo, path, edited, at, edited_at: 0 });
     }
     if !queued.is_empty() {
         session.touch_queue.lock().unwrap_or_else(|e| e.into_inner()).extend(queued);
@@ -131,8 +131,7 @@ impl Hub {
                 let m = {
                     let m = s.meta.lock().unwrap_or_else(|e| e.into_inner());
                     let shares = m.touched_files.iter().any(|f| {
-                        f.edited
-                            && f.at >= since
+                        f.edited_since(since)
                             && edited.iter().any(|(r, p)| *r == f.repo && *p == f.path)
                     });
                     shares.then(|| m.clone())?
@@ -153,6 +152,7 @@ impl Hub {
                     path: path.clone(),
                     edited: true,
                     at: 0,
+                    edited_at: 0,
                 })
                 .collect(),
             since,
@@ -171,7 +171,7 @@ impl Hub {
             self.overlap_notice(session, &other.id, &row);
             // The other side hears about this session: its row against the other's files.
             let back = Query {
-                files: c.files.iter().filter(|f| f.edited).cloned().collect(),
+                files: c.files.iter().filter(|f| f.edited_since(query.since)).cloned().collect(),
                 since: query.since,
                 exclude_root: Some(c.root.clone()),
                 ..Query::default()
@@ -262,7 +262,7 @@ impl Hub {
         {
             if let Some(abs) = canonical_path(f, cwd.as_deref()) {
                 let (repo, path) = tf::key_of(&abs);
-                q.files.push(TouchedFile { repo, path, edited: false, at: 0 });
+                q.files.push(TouchedFile { repo, path, edited: false, at: 0, edited_at: 0 });
             }
         }
         // Keyed files any caller may name: `[{repo, path}]`.
@@ -278,8 +278,10 @@ impl Hub {
                 // Nothing named: what the asker itself edited (else read) lately.
                 let recent: Vec<&TouchedFile> =
                     a.files.iter().filter(|f| f.at >= q.since).collect();
-                let edited = recent.iter().any(|f| f.edited);
-                q.files = recent.into_iter().filter(|f| f.edited || !edited).cloned().collect();
+                let since = q.since;
+                let edit = |f: &&TouchedFile| f.edited_since(since);
+                let edited = recent.iter().any(edit);
+                q.files = recent.into_iter().filter(|f| edit(f) || !edited).cloned().collect();
             }
         }
         if !named {

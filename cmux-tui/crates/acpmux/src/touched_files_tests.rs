@@ -1,7 +1,8 @@
 use super::*;
 
 fn file(repo: &str, path: &str, edited: bool, at: u64) -> TouchedFile {
-    TouchedFile { repo: repo.to_owned(), path: path.to_owned(), edited, at }
+    let edited_at = if edited { at } else { 0 };
+    TouchedFile { repo: repo.to_owned(), path: path.to_owned(), edited, at, edited_at }
 }
 
 fn candidate(id: &str, files: Vec<TouchedFile>) -> Candidate {
@@ -65,7 +66,11 @@ fn merge_keeps_one_row_per_file_an_edit_stays_one_and_the_oldest_go_past_the_bou
     let mut files = vec![];
     merge(&mut files, file(REPO, "a", true, 5));
     merge(&mut files, file(REPO, "a", false, 9));
-    assert_eq!(files, vec![file(REPO, "a", true, 9)]);
+    assert_eq!(
+        files,
+        vec![TouchedFile { at: 9, ..file(REPO, "a", true, 5) }],
+        "the edit keeps its time"
+    );
     for i in 0..MAX_FILES as u64 {
         merge(&mut files, file(REPO, &format!("f{i}"), false, 100 + i));
     }

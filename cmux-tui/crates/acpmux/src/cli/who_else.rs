@@ -38,14 +38,16 @@ pub(crate) fn duration_ms(text: &str) -> Result<u64> {
     let (n, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len()));
     let n: u64 =
         n.parse().map_err(|_| anyhow::anyhow!("--since: {text:?} is not like 30m, 6h or 2d"))?;
-    let secs = match unit {
-        "" | "s" => n,
-        "m" => n * 60,
-        "h" => n * 3600,
-        "d" => n * 86_400,
+    let per_unit: u64 = match unit {
+        "" | "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86_400,
         _ => anyhow::bail!("--since: {text:?} is not like 30m, 6h or 2d"),
     };
-    Ok(secs * 1000)
+    n.checked_mul(per_unit)
+        .and_then(|secs| secs.checked_mul(1000))
+        .ok_or_else(|| anyhow::anyhow!("--since: {text:?} is too long"))
 }
 
 /// The request params for `args`, in folder `cwd`, from a shell whose session is `env_session`.
