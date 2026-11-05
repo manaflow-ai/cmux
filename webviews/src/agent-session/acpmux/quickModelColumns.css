@@ -8,8 +8,8 @@
   --acpmux-cols-rail-width: 3.6923em;
   --acpmux-cols-max-height: calc(259em / 13);
   /* Follow chrome type as well as interface scale. The model column gets most of the room. */
-  width: 35em;
-  max-width: var(--available-width, calc(100vw - 24px));
+  width: 30em;
+  max-width: min(30em, var(--available-width, calc(100vw - 24px)));
   padding: 0;
   /* The account card draws past the columns, never clipped by them. */
   overflow: visible;
@@ -160,8 +160,8 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 25%, transparent);
 }
 
-/* Stable proportions keep model changes from moving the menu. In a narrow window the text
-   columns can shrink and their names wrap, while each column keeps its own vertical scroll. */
+/* Stable proportions keep long names and model changes from widening the menu. Each column
+   keeps its own vertical scroll, and clipped names remain available in the row's tooltip. */
 .acpmux-cols-body {
   display: grid;
   grid-template-columns: var(--acpmux-cols-rail-width) minmax(0, 1.6fr) minmax(0, 1fr);
@@ -230,7 +230,7 @@
 }
 .acpmux-cols-row[aria-disabled="true"] { color: var(--agent-muted); }
 .acpmux-cols-tune .acpmux-cols-row { gap: var(--ds-space-3); }
-.acpmux-cols-name { flex: 1 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.acpmux-cols-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .acpmux-cols-detail { color: var(--agent-muted); font-size: var(--text-detail); }
 .acpmux-cols-tag { color: var(--agent-muted); font-size: var(--text-caption); }
 .acpmux-cols-check {

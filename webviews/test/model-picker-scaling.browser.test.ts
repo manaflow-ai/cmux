@@ -32,12 +32,10 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
     await vite?.close();
   });
 
-  async function open(engine: string, width = 1200) {
+  async function open(engine: string, width = 1200, variant = "reported-codex-menu") {
     const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 1000 } });
     const { port } = vite.httpServer!.address() as { port: number };
-    await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(entry, { variant: "reported-codex-menu", width, height: 1000 })}`,
-    );
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, width, height: 1000 })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-cols-body").waitFor();
     return page;
@@ -54,10 +52,39 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
     });
 
   for (const engine of ["chromium", "webkit"]) {
+    test(`${engine}: long model names truncate inside the scaled width cap`, async () => {
+      const page = await open(engine, 1200, "long-model-name");
+      try {
+        for (const scale of [1, 1.5]) {
+          await page.evaluate(
+            (value) => document.documentElement.style.setProperty("--cmux-interface-scale", String(value)),
+            scale,
+          );
+          const layout = await page.locator(".acpmux-cols").evaluate((menu) => {
+            const name = menu.querySelector<HTMLElement>("[role=listbox] [role=option] .acpmux-cols-name")!;
+            return {
+              width: menu.getBoundingClientRect().width,
+              rowTitle: name.closest<HTMLElement>("[role=option]")!.title,
+              name: name.textContent,
+              clipped: name.scrollWidth > name.clientWidth,
+              ellipsis: getComputedStyle(name).textOverflow,
+            };
+          });
+          expect(layout.width).toBeLessThanOrEqual(390 * scale + 0.5);
+          expect(layout.clipped).toBe(true);
+          expect(layout.ellipsis).toBe("ellipsis");
+          expect(layout.rowTitle).toContain(layout.name!);
+        }
+      } finally {
+        await page.close();
+      }
+    });
+
     test(`${engine}: default model names fit beside the star and check`, async () => {
       const page = await open(engine);
       try {
-        expect((await geometry(page)).model).toBeGreaterThanOrEqual(230);
+        expect((await geometry(page)).model).toBeGreaterThanOrEqual(200);
+        expect((await page.locator(".acpmux-cols").boundingBox())!.width).toBeLessThanOrEqual(390.5);
         const labels = await page
           .locator(".acpmux-cols-body > [role=listbox] [role=option] .acpmux-cols-name")
           .evaluateAll((nodes) => nodes.map((node) => ({ width: node.clientWidth, content: node.scrollWidth })));
@@ -73,7 +100,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
       try {
         const initial = await geometry(page);
         await page.evaluate(() => document.documentElement.style.setProperty("--cmux-interface-scale", "1.5"));
-        await page.waitForFunction(() => document.querySelector(".acpmux-cols")!.getBoundingClientRect().width > 600);
+        await page.waitForFunction(() => document.querySelector(".acpmux-cols")!.getBoundingClientRect().width > 550);
         const scaled = await geometry(page);
         expect(scaled.model).toBeGreaterThan(initial.model * 1.45);
         expect(scaled.rail).toBeGreaterThan(initial.rail * 1.45);
@@ -83,7 +110,7 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
           document.documentElement.style.setProperty("--text-body", "20px");
         });
         await page.waitForFunction(
-          () => document.querySelector(".acpmux-cols-body > [role=listbox]")!.getBoundingClientRect().width > 350,
+          () => document.querySelector(".acpmux-cols-body > [role=listbox]")!.getBoundingClientRect().width > 300,
         );
         expect((await geometry(page)).model).toBeGreaterThan(initial.model * 1.45);
       } finally {
@@ -105,18 +132,14 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
             names: names.map((name) => ({
               width: name.clientWidth,
               content: name.scrollWidth,
-              whiteSpace: getComputedStyle(name).whiteSpace,
+              ellipsis: getComputedStyle(name).textOverflow,
             })),
           };
         });
         expect(layout.width).toBeLessThanOrEqual(360);
         expect(layout.contentWidth).toBeLessThanOrEqual(layout.bodyWidth + 1);
         expect(layout.names.length).toBeGreaterThan(4);
-        expect(
-          layout.names.every(
-            (name) => name.width > 0 && name.content <= name.width + 1 && name.whiteSpace === "normal",
-          ),
-        ).toBe(true);
+        expect(layout.names.every((name) => name.width > 0 && name.ellipsis === "ellipsis")).toBe(true);
       } finally {
         await page.close();
       }

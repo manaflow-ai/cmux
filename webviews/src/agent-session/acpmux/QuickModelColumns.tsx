@@ -864,7 +864,7 @@ function Columns({
         aria-disabled={model.disabled ? true : undefined}
         className="acpmux-cols-row"
         data-hl={index === hl ? "" : undefined}
-        // tooltip-allow: includes the model's provider and harness alongside its name.
+        // tooltip-allow: shows a clipped name in full, alongside its provider and harness.
         title={[
           model.name,
           query ? model.harness : undefined,
