@@ -37,6 +37,8 @@ struct CloudCodexLocalAccessTests {
     @Test func readsTheAccountFromTheTokenWhenTheFileHasNone() throws {
         let access = Self.jwt(["exp": now.timeIntervalSince1970 + 3600, "https://api.openai.com/auth": ["chatgpt_account_id": "from-claim"]])
         #expect(CloudCodexLocalAccess.grant(authJSON: Self.auth(access: access, account: nil), now: now)?.chatgptAccountID == "from-claim")
+        let topLevel = Self.jwt(["exp": now.timeIntervalSince1970 + 3600, "chatgpt_account_id": "top"])
+        #expect(CloudCodexLocalAccess.grant(authJSON: Self.auth(access: topLevel, account: nil), now: now)?.chatgptAccountID == "top")
     }
 
     @Test func offersNothingNearItsEndForAnAPIKeyOrAnotherMode() {

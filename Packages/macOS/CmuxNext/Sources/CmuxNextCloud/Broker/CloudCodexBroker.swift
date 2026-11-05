@@ -158,11 +158,12 @@ public actor CloudCodexBroker {
     /// Sets where the Mac's own Codex access is read (``CloudCodexBrokerAdapter/localSignIn``).
     func setLocalSignIn(_ source: (@Sendable () async -> CloudCodexAccessGrant?)?) { localSignIn = source }
     /// Whether ``cached`` may still be delivered: a grant from the Mac's own Codex only while the person's
-    /// yes stands (``localSignIn`` answers nil once it is taken back or managed). Else it is dropped, so
-    /// nothing read from the Mac reaches another machine after the off switch.
+    /// yes stands (``localSignIn`` answers nil once it is taken back or managed) and the Mac still holds that
+    /// same token. Else it is dropped, so nothing stale or of another account reaches another machine.
     private func cachedStillAllowed() async -> Bool {
         guard cachedIsLocal else { return true }
-        if let localSignIn, await localSignIn() != nil { return true }
+        // Only the very token the Mac holds now: another account, or a newer token, drops the cache.
+        if let localSignIn, let current = await localSignIn(), current == cached { return true }
         cached = nil; cachedIsLocal = false
         return false
     }

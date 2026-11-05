@@ -200,6 +200,26 @@ done
         await adapter.shutdown()
     }
 
+    /// The Mac signed in to another Codex account: the cached token of the first is never delivered again.
+    @Test func anotherMacAccountDropsTheCachedToken() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        let switched = Flag(), expiry = Date().addingTimeInterval(3600)
+        adapter.localSignIn = {
+            await switched.value ? CloudCodexAccessGrant(accessToken: "mac-b", chatgptAccountID: "b", expiresAt: expiry)
+                                 : CloudCodexAccessGrant(accessToken: "mac-a", chatgptAccountID: "a", expiresAt: expiry)
+        }
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true, askLocalSignIn: { true }, presentDeviceCode: { _ in false })
+        await switched.set()
+        try await adapter.run(machineID: "vm2", scope: scope, confirmed: true, askLocalSignIn: { true }, presentDeviceCode: { _ in false })
+        let delivered = String(decoding: try #require(await files.read("vm2", CloudCodexBroker.accessPath)), as: UTF8.self)
+        #expect(delivered.contains("mac-b") && !delivered.contains("mac-a"))
+        await adapter.shutdown()
+    }
+
     /// A no (or no Mac sign-in) keeps the device code exactly as before.
     @Test func aDeclinedMacSignInFallsBackToTheDeviceCode() async throws {
         let (root, launch) = try fixture()

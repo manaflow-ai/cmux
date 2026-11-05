@@ -104,7 +104,8 @@ public nonisolated struct CloudCodexLocalAccess: Sendable {
 
     /// The ChatGPT account id in the access token's auth claim, for an `auth.json` without `account_id`.
     static func accountClaim(_ jwt: String) -> String? {
-        let auth = claims(jwt)?["https://api.openai.com/auth"] as? [String: Any]
-        return auth?["chatgpt_account_id"] as? String
+        let all = claims(jwt)
+        let auth = all?["https://api.openai.com/auth"] as? [String: Any]
+        return (auth?["chatgpt_account_id"] as? String) ?? (all?["chatgpt_account_id"] as? String)
     }
 }
