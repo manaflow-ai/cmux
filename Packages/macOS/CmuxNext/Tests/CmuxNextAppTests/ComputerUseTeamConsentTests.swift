@@ -89,7 +89,9 @@ struct ComputerUseTeamConsentTests {
         private(set) var teamRequests = 0
         func requestRemoteGrant(_ grant: ComputerUseRemoteGrant) {}
         func openRemoteGrantSettings(_ grant: ComputerUseRemoteGrant) {}
-        func requestTeamConsent() { teamRequests += 1 }
+        var team: ComputerUseTeamConsent {
+            ComputerUseTeamConsent(needed: { [unowned self] in teamConsentNeeded }, request: { [unowned self] in teamRequests += 1 })
+        }
     }
 
     @MainActor @Observable final class Cards: ComputerUseRemoteSetupPresenting {
@@ -109,7 +111,7 @@ struct ComputerUseTeamConsentTests {
     /// Turn On asks once per press and the card stays until the consent reads on, then ready.
     @Test func turnOnAsksAndTheCardClosesOnceTheConsentIsOn() async {
         let source = Source(), cards = Cards()
-        let flow = ComputerUseRemoteSetupFlow(source: source, presenter: cards)
+        let flow = ComputerUseRemoteSetupFlow(source: source, presenter: cards, team: source.team)
         flow.start()
         #expect(flow.step == .team)
         #expect(cards.shown == .teamConsent)
@@ -124,7 +126,7 @@ struct ComputerUseTeamConsentTests {
 
     @Test func notNowClosesTheTeamCardAndTurnsNothingOn() async {
         let source = Source(), cards = Cards()
-        let flow = ComputerUseRemoteSetupFlow(source: source, presenter: cards)
+        let flow = ComputerUseRemoteSetupFlow(source: source, presenter: cards, team: source.team)
         flow.start()
         cards.press(ComputerUseRemoteSetupCard.notNowButton)
         #expect(cards.shown == nil)
@@ -141,16 +143,17 @@ struct ComputerUseTeamConsentTests {
         #expect(spec.buttons.map(\.id) == [ComputerUseRemoteSetupCard.notNowButton, ComputerUseRemoteSetupCard.turnOnTeamButton])
     }
 
-    /// Outside the app the setup reports no team step; the app wires the join consent in.
-    @Test func theSetupFollowsTheTeamConsentItIsGiven() {
-        let setup = ComputerUseSetup(inputs: { ComputerUseSetup.Inputs(disabledByPolicy: false, enabled: true, helper: .off, driver: .upstream, remote: true) },
-                                     configuration: { nil }, read: { _ in .noAnswer }, resolveHelper: { _ in nil },
-                                     notifications: NotificationCenter(), distributed: NotificationCenter(), remoteHost: nil)
-        #expect(!setup.teamConsentNeeded)
-        var turnedOn = 0
-        setup.teamConsentOff = { true }
-        setup.turnOnTeamConsent = { turnedOn += 1 }
-        setup.requestTeamConsent()
-        #expect(turnedOn == 1)
+    /// The app's wiring: the flow follows the join consent model and its Turn On writes through it.
+    @Test func theAppsTeamConsentFollowsTheJoinConsentModel() async {
+        let fake = Fake()
+        let model = JoinConsentModel(services: fake.services())
+        let team = model.computerUseTeamConsent
+        #expect(!team.needed())
+        await model.refresh()
+        #expect(team.needed())
+        team.request()
+        for await blocked in ObservationStream({ model.computerUseBlocked }) where !blocked { break }
+        #expect(fake.writes == ["screen true", "control true"])
+        #expect(!team.needed())
     }
 }
