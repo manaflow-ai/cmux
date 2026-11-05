@@ -23,6 +23,7 @@ import type { Reveal } from "./RevealedMarkdown";
 import { ArxivMark, GitHubMark, Globe, ImageIcon } from "./icons";
 import { FileKindIcon } from "../chips/FileKindIcon";
 import { MathDisplay, MathInline } from "./Math";
+import { installSelectionCopy } from "./selectionCopy";
 import { fenceStep } from "./fenceRule";
 import { closesFence, codeSpans, fenceOpening } from "../slashCommands";
 import { normalizeMath } from "./mathDelimiters";
@@ -1323,6 +1324,8 @@ export function Markdown({
   skills,
   commonmark = false,
 }: MarkdownProps) {
+  // A selection copied out of a message keeps its formatting (selectionCopy.ts); once per page.
+  installSelectionCopy();
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
   // A sent prompt (`commonmark`) is whole, never streamed: it parses at once, its code read as send

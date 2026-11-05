@@ -9,7 +9,7 @@ extension NSView {
     public func applyDockedWorkspaceChrome(floating: Bool) {
         wantsLayer = true
         guard let layer else { return }
-        let radius: CGFloat = floating ? Metrics.space3 : 0
+        let radius: CGFloat = floating ? Metrics.surfaceCornerRadius : 0
         guard layer.cornerRadius != radius || (layer.shadowOpacity > 0) != floating else { return }
         layer.cornerRadius = radius
         layer.cornerCurve = .continuous

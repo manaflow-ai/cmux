@@ -901,7 +901,7 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None) 
                           f"{found.get('conclusion')}; nothing to compare with the base")
         return found
     if not match and base and state in ("failure", "error"):
-        return base_status(repo, base, name, state, status.get("description") or "", github)
+        return base_status(repo, base, name, state, status.get("description") or "", github, sha=sha)
     where = f"run {match[1]} (its target_url)" if match else f"any run that tested {sha}"
     raise Refused(f"'{name}': a status ({state}: {status.get('description') or 'no description'}) with no job "
                   f"'{job_name}' in {where} to compare with the base")
@@ -914,8 +914,56 @@ def status_job(repo: str, sha: str, name: str, github, base: str | None = None) 
 # with another description, stays the head's.
 BASE_STATUS_COMMITS = 10
 
+# Vercel's build quota (2026-11-05, cmuxterm-hq#7192): the head reads "Deployment rate limited — retry in 24 hours."
+# while the base's newest Vercel status is a build Vercel skipped ("Canceled by Ignored Build Step"), so the two never
+# match. A rate-limited deploy built nothing, so it is no result rather than a red, but only when the base did not
+# build either (an ignored or canceled build, never a real success) and the PR changes nothing under web/, the tree
+# Vercel deploys. Any other Vercel failure, or a PR that touches web/, still refuses.
+VERCEL_RATE_LIMITED = re.compile(r"Deployment rate limited\b")
+VERCEL_NOT_BUILT = re.compile(r"(?i)\bIgnored Build Step\b|\bcancel(?:l?ed)?\b")
+VERCEL_TREE = "web/"
+PR_FILES_QUERY = ("query($owner: String!, $name: String!, $oid: GitObjectID!) { repository(owner: $owner, name: $name) "
+                  "{ object(oid: $oid) { ... on Commit { associatedPullRequests(first: 10) { nodes { number "
+                  "baseRefName headRefOid changedFiles files(first: 100) { nodes { path } pageInfo { hasNextPage } } "
+                  "} } } } } }")
 
-def base_status(repo: str, base: str, name: str, state: str, description: str, github) -> str:
+
+def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
+    """The open PR into BASE whose head is SHA, and every path it changes, in one GraphQL read (no REST). Refused when
+    there is no such PR or GitHub lists fewer files than the PR changes."""
+    owner, _, name = repo.partition("/")
+    found = json.loads(github.run(["api", "graphql", "-f", f"query={PR_FILES_QUERY}", "-f", f"owner={owner}",
+                                   "-f", f"name={name}", "-f", f"oid={sha}"]))
+    commit = (((found.get("data") or {}).get("repository") or {}).get("object") or {}) if isinstance(found, dict) else {}
+    for pr in (commit.get("associatedPullRequests") or {}).get("nodes") or []:
+        if pr.get("headRefOid") != sha or pr.get("baseRefName") != base:
+            continue
+        files = pr.get("files") or {}
+        paths = [node.get("path") for node in files.get("nodes") or [] if isinstance(node.get("path"), str)]
+        if (files.get("pageInfo") or {}).get("hasNextPage") or len(paths) != pr.get("changedFiles"):
+            raise Refused(f"#{pr.get('number')}: GitHub listed {len(paths)} of its {pr.get('changedFiles')} changed "
+                          f"files, too few to show it stays out of {VERCEL_TREE}")
+        return pr.get("number"), paths
+    raise Refused(f"no PR into {base} has head {sha} to read its changed files from")
+
+
+def vercel_not_built(repo: str, base: str, sha: str | None, name: str, description: str, found: dict, github) -> str | None:
+    """The audit line for a rate-limited Vercel deploy on SHA when the base's own Vercel status is a skipped build and
+    the PR changes nothing under web/; None when the rule does not apply (the caller refuses as before)."""
+    if not (sha and name.startswith("Vercel") and VERCEL_RATE_LIMITED.match(description)):
+        return None
+    if not VERCEL_NOT_BUILT.search(found.get("description") or ""):
+        return None
+    number, paths = pr_paths(repo, base, sha, github)
+    if web := [path for path in paths if path.startswith(VERCEL_TREE)]:
+        raise Refused(f"'{name}': \"{description}\" and #{number} changes {VERCEL_TREE} ({'; '.join(web[:5])}), "
+                      "which Vercel deploys")
+    return (f"excused '{name}': no result: \"{description}\" (Vercel built nothing), base status "
+            f"{found.get('state')} \"{found.get('description')}\" (a skipped build), and #{number} changes no "
+            f"{VERCEL_TREE} files")
+
+
+def base_status(repo: str, base: str, name: str, state: str, description: str, github, *, sha: str | None = None) -> str:
     """The audit line excusing jobless status NAME (STATE, DESCRIPTION) when the base has the same, else Refused."""
     if not description:
         raise Refused(f"'{name}': a status ({state}) with no description and no job: nothing to compare with the base")
@@ -925,6 +973,8 @@ def base_status(repo: str, base: str, name: str, state: str, description: str, g
         if found is None:
             continue
         if (found.get("state"), found.get("description") or "") != (state, description):
+            if line := vercel_not_built(repo, base, sha, name, description, found, github):
+                return line
             raise Refused(f"'{name}': a status ({state}: {description}) with no job, and {base} {commit['sha']} has "
                           f"it {found.get('state')}: {found.get('description') or 'no description'}")
         return f"excused '{name}': base {commit['sha']} status {state} \"{description}\""

@@ -193,7 +193,7 @@ public final class AddDeviceView: NSView {
         field.setAccessibilityIdentifier("cmux.addDevice.setupLine")
         let box = NSView()
         box.wantsLayer = true
-        box.layer?.cornerRadius = 8
+        box.layer?.cornerRadius = Metrics.insetCornerRadius
         box.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.06).cgColor
         box.translatesAutoresizingMaskIntoConstraints = false
         field.translatesAutoresizingMaskIntoConstraints = false
