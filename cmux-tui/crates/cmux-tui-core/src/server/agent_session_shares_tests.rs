@@ -722,6 +722,41 @@ fn invitees_survive_a_restart_and_an_old_file_without_them_loads() {
     let _ = std::fs::remove_dir_all(&directory);
 }
 
+/// An invite and `-list` answer the link the owner hands out to invitees: the room's origin, then
+/// `/i/<share_id>` (no secret in it). A share with no room has none.
+#[test]
+fn an_invite_and_the_list_carry_the_invite_link() {
+    let directory = std::env::temp_dir().join(format!("cmux-invite-url-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let dir = Some(directory.as_path());
+    let registry = LinkShares::default();
+    let terms = ShareTerms { ttl_secs: 3600, uses: 1, create_id: None };
+    let created = registry.insert(dir, SESSION.into(), 1, terms, false).unwrap();
+    let share_id = created["share_id"].as_str().unwrap().to_owned();
+    let invite =
+        |account: &str| Invite { share_id: share_id.clone(), account: account.into(), role: None };
+    let shown = |registry: &LinkShares| {
+        registry.with(dir, |all, now| Ok((find(all, &share_id)?.shown(now), false))).unwrap()
+    };
+    let roomless = registry.invite(dir, &invite("ann@example.com")).unwrap();
+    assert!(roomless.get("invite_url").is_some_and(Value::is_null), "{roomless}");
+    assert!(shown(&registry)["invite_url"].is_null());
+    registry
+        .with(dir, |all, _| {
+            find(all, &share_id)?.room =
+                Some(json!({"url": "https://room.example", "host_token": "t"}));
+            Ok(((), true))
+        })
+        .unwrap();
+    let link = format!("https://room.example/i/{share_id}");
+    let invited = registry.invite(dir, &invite("bo@example.com")).unwrap();
+    assert_eq!(invited["invite_url"], link, "{invited}");
+    let again = registry.invite(dir, &invite("bo@example.com")).unwrap();
+    assert_eq!(again["invite_url"], link, "an invite asked again answers the link too");
+    assert_eq!(shown(&registry)["invite_url"], link);
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
 /// However many accounts and devices join, every change the daemon acknowledges is one a restart
 /// reads back: a change that would pass the state file's bound is refused (`share.limit`) instead
 /// of written, so a restart never finds an unreadable file and starts empty.
@@ -975,6 +1010,40 @@ fn an_unreadable_shares_file_is_kept_aside_and_never_overwritten() {
     assert_eq!(read(&LinkShares::default()).len(), 1);
     let _ = std::fs::remove_dir_all(&directory);
     let _ = std::fs::remove_dir_all(&blocked);
+}
+
+/// A move aside never replaces a copy already kept: when `.unreadable` and the `-<unix ms>` name
+/// the clock gives are both taken (two moves in one millisecond, or a clock that went back), the
+/// new copy goes to a free name beside them and every earlier copy survives (cmux#33921).
+#[test]
+fn a_move_aside_never_replaces_a_kept_copy_on_a_suffix_collision() {
+    let directory = scratch("shares-unreadable-collision");
+    let dir = Some(directory.as_path());
+    let first = directory.join(format!("{FILE}.unreadable"));
+    std::fs::write(&first, b"first").unwrap();
+    // Take every `-<ms>` name the move can pick in the next few seconds.
+    let now = wall_ms();
+    let taken: Vec<_> =
+        (now..now + 3_000).map(|ms| directory.join(format!("{FILE}.unreadable-{ms}"))).collect();
+    for path in &taken {
+        std::fs::write(path, b"earlier").unwrap();
+    }
+    std::fs::write(directory.join(FILE), b"not json").unwrap();
+    LinkShares::default().insert(dir, SESSION.into(), 1, terms(), false).unwrap();
+    assert!(wall_ms() < now + 3_000, "the move ran inside the taken window");
+    assert_eq!(std::fs::read(&first).unwrap(), b"first", "`.unreadable` is not replaced");
+    for path in &taken {
+        assert_eq!(std::fs::read(path).unwrap(), b"earlier", "{} was replaced", path.display());
+    }
+    let moved: Vec<_> = std::fs::read_dir(&directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| std::fs::read(path).is_ok_and(|bytes| bytes == b"not json"))
+        .collect();
+    assert_eq!(moved.len(), 1, "the new unreadable copy is kept once: {moved:?}");
+    let read = |s: &LinkShares| s.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    assert_eq!(read(&LinkShares::default()).len(), 1, "the new file reads back");
+    let _ = std::fs::remove_dir_all(&directory);
 }
 
 /// A redeem with the link's secret and an account that is not invited joins as a link guest (it

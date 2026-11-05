@@ -238,7 +238,7 @@ pub(super) fn remote_steps(
         Err(_) if plain_name(key) => key.to_owned(),
         Err(_) => "NAME".to_owned(),
     };
-    let on_it = format!("Run cmux machine doctor (or acpmux host doctor --here) on {name}");
+    let on_it = format!("Run cmux machine doctor (or acpmux machine doctor --here) on {name}");
     let machine = match found {
         Ok(machine) if !machine.revoked => machine,
         found => {

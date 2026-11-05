@@ -71,6 +71,10 @@ extension AgentPaneRequest {
             self = AgentPaneIMessageAction(rawValue: String(method.dropFirst("imessage.".count))).map(Self.imessage) ?? .unsupported(method)
             return
         }
+        if AgentPaneCloudReservationRequest.methods.contains(method) {
+            self = AgentPaneCloudReservationRequest(method: method, params: params).map(Self.cloudReservation) ?? .unsupported(method)
+            return
+        }
         if AgentPaneCloudEnvironmentRequest.methods.contains(method) {
             self = AgentPaneCloudEnvironmentRequest(method: method, params: params).map(Self.cloudEnvironment) ?? .unsupported(method)
             return
@@ -165,6 +169,13 @@ extension AgentPaneRequest {
             // The composer's Inline, Strip or Inline and Strip choice; the page writes only this key with it.
             if let view = (params?["view"] as? String).flatMap(AgentPaneAttachmentView.init(rawValue:)) {
                 self = .displaySetting(path: AgentPaneComposerSetting.attachmentViewPath, value: .string(view.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.setComposerRing":
+            // The composer ring's Context or Plan Usage choice; the page writes only this key with it.
+            if let ring = (params?["ring"] as? String).flatMap(AgentPaneComposerRing.init(rawValue:)) {
+                self = .displaySetting(path: AgentPaneComposerSetting.composerRingPath, value: .string(ring.rawValue))
             } else {
                 self = .unsupported(method)
             }
@@ -484,12 +495,12 @@ extension AgentPaneRequest {
         case "chat.subagentPane":
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 // `title`: the subagent's own name, which its pane's tab shows (SubagentTabTitles).
-                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String)
+                self = .subagentPane(id, focus: params?["focus"] as? Bool == true, title: params?["title"] as? String, tone: params?["tone"] as? Int)
             } else { self = .unsupported(method) }
         case "chat.subagentShown":
             let id = params?["subagent"] as? String
             if let id, id.isEmpty || id.count > 256 { self = .unsupported(method) } else {
-                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String)
+                self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int)
             }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }

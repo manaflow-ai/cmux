@@ -5,9 +5,13 @@ The signed arm64 artifact is the user-facing readiness boundary. The
 NIGHTLY-identity compatibility lane must not become a dependency of
 ``publish-nightly``. Its target and the release signer pool (hosted Linux and
 one secret-free Mac job) start from this run's prepared app beside cmux NEXT's
-own signers; the macOS signer, the only part that holds an owned signing Mac,
-runs after the NEXT publication (#25957), and the old feed publishes only the
-build ``publish-nightly`` published.
+own signers. This run's own new build is signed as cmux NIGHTLY at the end of
+build-sign-notarize-nightly, on the same runner (Leo, 2026-11-05: "THERE
+SHOULDN'T BE 2"; it takes back #25957's sign after publication for that build,
+each copy step bounded by its own timeout and continuing on error). The separate
+macOS signer, for a continued submission or another run's build, still runs
+after the NEXT publication, and the old feed publishes only the build
+``publish-nightly`` published.
 """
 
 import re
@@ -35,8 +39,7 @@ def needs(job_text: str) -> str:
 failures = []
 publish = job("publish-nightly")
 publish_needs = needs(publish)
-compatibility_jobs = ("legacy-identity-target", "legacy-signer-app", "legacy-signer-dmg-image", "legacy-signer-dmg",
-                      "verify-nightly-identity-legacy-pool", "sign-nightly-identity-legacy")
+compatibility_jobs = ("legacy-identity-target", "sign-nightly-identity-legacy")
 
 for post_job in compatibility_jobs:
     if post_job in publish_needs:
@@ -45,9 +48,6 @@ if "prepare-nightly-variant" not in needs(job("legacy-identity-target")):
     failures.append("legacy-identity-target must wait for the prepared NEXT artifact")
 if "publish-nightly" not in needs(job("sign-nightly-identity-legacy")):
     failures.append("the macOS legacy signer (an owned signing Mac) must run after the primary NEXT publication")
-for pool_job in ("legacy-signer-app", "legacy-signer-dmg"):
-    if "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted_slow == 'true') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}" not in job(pool_job):
-        failures.append(f"{pool_job} must sign on the signer route (hosted Linux), never an owned signing Mac")
 legacy = job("legacy-identity-target")
 if "build-nightly-app" not in needs(legacy):
     failures.append("legacy identity targeting must know the current build number")
@@ -103,20 +103,28 @@ for downstream in ("sign-nightly-identity-legacy", "verify-nightly-identity-lega
 if "publish-nightly" not in needs(job("publish-nightly-identity-legacy")):
     failures.append("legacy identity publication must wait for successful NEXT publication")
 legacy_publish = job("publish-nightly-identity-legacy")
+
+
+def target(field: str) -> str:
+    """The publish reads the decision of whichever job signed: the main job's copy (legacy_ran) or legacy-identity-target."""
+    return (f"(needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && "
+            f"needs.build-sign-notarize-nightly.outputs.legacy_target_{field} || needs.legacy-identity-target.outputs.{field})")
+
+
 pause_exemption = "needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue'"
 if pause_exemption not in job("sign-nightly-identity-legacy"):
     failures.append("parallel identity signing must honor the notary pause except for accepted continuations")
-if pause_exemption not in legacy_publish:
+if f"needs.decide.outputs.notary_paused != 'true' || {target('action')} == 'continue'" not in legacy_publish:
     failures.append("parallel identity publication must honor the notary pause except for accepted continuations")
 if "needs.publish-nightly.outputs.refused != 'true'" not in legacy_publish:
     failures.append("legacy identity publication must stop when NEXT publication was refused")
-if "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" not in legacy_publish:
+if f"needs.publish-nightly.outputs.build == {target('build')}" not in legacy_publish:
     failures.append("legacy identity publication must match the exact NEXT build selected for the compatibility feed")
-if "needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue'" not in legacy_publish:
+if f"needs.publish-nightly.result == 'skipped' && {target('action')} == 'continue'" not in legacy_publish:
     failures.append("legacy identity continuation must remain available when publish-nightly is intentionally skipped")
 # Run 41126559170 (2026-10-30): the rescue's full re-runs skipped publish-nightly (the build was already on the
 # NEXT feed), so a legacy sign there could never publish. A target from the live feed publishes from any run.
-if "|| needs.legacy-identity-target.outputs.source_run == '')" not in legacy_publish:
+if f"|| {target('source_run')} == '')" not in legacy_publish:
     failures.append("a legacy target from the live NEXT feed (source_run empty) must publish whatever this run's publish-nightly did")
 
 if failures:

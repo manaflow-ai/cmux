@@ -19885,6 +19885,138 @@
           }
         }
       }
+    },
+    "home.chief.stillStarting": {
+      "comment": "Home system notice in the Chief conversation while a Chief turn's session has taken long to start because the machine is loaded. The number is seconds waited so far.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine is busy. The Chief is still starting (%lld s)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجهاز مشغول. لا يزال Chief قيد البدء (%lld ث)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Računar je zauzet. Chief se još pokreće (%lld s)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen er optaget. Chief starter stadig (%lld s)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Computer ist ausgelastet. Der Chief startet noch (%lld s)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El equipo está ocupado. Chief aún se está iniciando (%lld s)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine est occupée. Chief est encore en cours de démarrage (%lld s)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il computer è occupato. Chief si sta ancora avviando (%lld s)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンがビジー状態です。Chief はまだ起動中です（%lld 秒）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនកំពុងរវល់។ Chief នៅតែកំពុងចាប់ផ្តើម (%lld វិនាទី)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컴퓨터가 사용 중입니다. Chief가 아직 시작하는 중입니다(%lld초)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Maskinen er opptatt. Chief starter fortsatt (%lld s)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Komputer jest zajęty. Chief nadal się uruchamia (%lld s)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A máquina está ocupada. O Chief ainda está iniciando (%lld s)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Компьютер занят. Chief всё ещё запускается (%lld с)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องไม่ว่าง Chief ยังคงเริ่มทำงานอยู่ (%lld วินาที)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Makine meşgul. Chief hâlâ başlatılıyor (%lld sn)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Комп'ютер зайнятий. Chief усе ще запускається (%lld с)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy đang bận. Chief vẫn đang khởi động (%lld giây)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器正忙。Chief 仍在启动（%lld 秒）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器忙碌中。Chief 仍在啟動（%lld 秒）。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -57,6 +57,20 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     private var measured: [String: RowHeights] = [:]
     private var dirtyFrom: Int? = 0
     private var width: CGFloat = 0
+    /// The collection view's width the column was laid out in (the column is `width`).
+    private var boundsWidth: CGFloat = 0
+    /// The widest the chat's column draws, with its 20 pt margins inside (Text and Width's
+    /// Standard width, as the Mac's chat column); nil fills the screen.
+    var columnCap: CGFloat? {
+        didSet { if columnCap != oldValue { invalidateLayout() } }
+    }
+    /// The column's width in a collection view `boundsWidth` wide.
+    func columnWidth(in boundsWidth: CGFloat) -> CGFloat {
+        guard let columnCap else { return boundsWidth }
+        return min(boundsWidth, columnCap + 40)
+    }
+    /// The column's width now (rows lay out at it less their margins).
+    var columnWidth: CGFloat { columnWidth(in: collectionView?.bounds.width ?? 0) }
     private(set) var contentHeight: CGFloat = 0
     /// Space under the last row.
     var trailingGap: CGFloat = 24 { didSet { if trailingGap != oldValue { markDirty(max(items.count - 1, 0)) } } }
@@ -91,11 +105,27 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
                 break
             }
         }
+        let old = items
         items = new
         if heights.count > new.count { heights.removeSubrange(new.count...) }
         heights.reserveCapacity(new.count)
         for row in first..<new.count {
-            let height = height(for: new[row])
+            var height = height(for: new[row])
+            // Only the row's disclosures changed: it keeps the height it is laid out at (its cell
+            // already draws the new state while it opens on the disclosure's spring) until its cell
+            // measures it. Its estimate (a 32 pt line) made the list's reload, a turn after the tap,
+            // snap the opening row shut and back. While a fold holds the heights it keeps it even
+            // when the new state was measured before, so a second open or close springs too
+            // (`layOut` moves it to the measured height inside the spring) instead of snapping.
+            if row < old.count, row < heights.count, old[row].id == new[row].id, old[row].revision == new[row].revision,
+               old[row].fold != new[row].fold, !new[row].exact,
+               holdsHeights || measured[new[row].id]?.height(fold: new[row].fold) == nil {
+                // Held although its new state has a height: `layOut` moves it there on the spring,
+                // or the hold's end does (a row the spring did not lay out: off screen, native, or
+                // changed by something other than a fold toggle while the spring ran).
+                if measured[new[row].id]?.height(fold: new[row].fold) != nil { heldStale.insert(new[row].id) }
+                height = heights[row]
+            }
             if row < heights.count { heights[row] = height } else { heights.append(height) }
         }
         if idsMoved {
@@ -118,6 +148,45 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     }
 
     func row(of id: String) -> Int? { index[id] }
+
+    /// While set, the rows keep the heights the layout gives them and cells do not size themselves
+    /// (`ChatTranscriptList.resizeForFold`: a disclosure change's rows are reloaded at their drawn
+    /// heights, then sprung to their measured new ones). A cell sized while its row's height was not
+    /// taken still got its new size: it drew at its full new height at once, over rows that stayed
+    /// where they were. Cleared when the spring ends; the cells then measure themselves once.
+    var holdsHeights = false {
+        didSet {
+            guard holdsHeights != oldValue else { return }
+            if !holdsHeights { releaseHeldStale() }
+            invalidateLayout()
+        }
+    }
+
+    /// Rows `setItems` kept at their laid-out height under the hold although their new state was
+    /// measured, and that `layOut` has not moved yet.
+    private var heldStale: Set<String> = []
+
+    private func releaseHeldStale() {
+        var first: Int?
+        for id in heldStale {
+            guard let row = index[id], row < items.count, row < heights.count else { continue }
+            heights[row] = height(for: items[row])
+            first = min(first ?? row, row)
+        }
+        heldStale = []
+        if let first { markDirty(first) }
+    }
+
+    /// Lays row `id` out at `height` (a disclosure's spring, `ChatTranscriptList.resizeForFold`,
+    /// measured its cell). Kept only as its laid-out height: its cell's next sizing pass records
+    /// the measurement for the row's state. Whether the height changed.
+    func layOut(_ id: String, at height: CGFloat) -> Bool {
+        heldStale.remove(id)
+        guard let row = index[id], row < heights.count, abs(heights[row] - height) > 0.25 else { return false }
+        heights[row] = height
+        markDirty(row)
+        return true
+    }
 
     /// Drops heights of rows no longer in the transcript.
     func retainMeasured(_ ids: Set<String>) {
@@ -159,7 +228,8 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     // MARK: Layout
 
     private func prepareIfNeeded() {
-        let width = collectionView?.bounds.width ?? 0
+        boundsWidth = collectionView?.bounds.width ?? 0
+        let width = columnWidth(in: boundsWidth)
         if width != self.width {
             self.width = width
             heights = items.map(height(for:))
@@ -191,10 +261,10 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         return .init(revision: items[row].revision, fold: items[row].fold)
     }
 
-    override var collectionViewContentSize: CGSize { CGSize(width: width, height: contentHeight) }
+    override var collectionViewContentSize: CGSize { CGSize(width: boundsWidth, height: contentHeight) }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
-        newBounds.width != width
+        newBounds.width != boundsWidth
     }
 
     private func firstIndex(bottomAfter y: CGFloat) -> Int {
@@ -217,6 +287,27 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         return out
     }
 
+    /// The rows' tops before a disclosure's spring (`ChatTranscriptList.resizeForFold`), around the
+    /// visible rect: where a row coming on screen as a body closes starts from.
+    var springFrom: [String: CGFloat] = [:]
+
+    /// A fold spring moves rows off and on screen without changing them. A row pushed off screen
+    /// goes to its new place (UIKit left it where it was drawn, fading out: a second copy of the rows
+    /// under an opening body), and a row pulled on screen comes from its old one, not faded in.
+    override func finalLayoutAttributesForDisappearingItem(at itemIndexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        guard holdsHeights, itemIndexPath.item < items.count else { return super.finalLayoutAttributesForDisappearingItem(at: itemIndexPath) }
+        prepareIfNeeded()
+        return attributes(itemIndexPath.item)
+    }
+
+    override func initialLayoutAttributesForAppearingItem(at itemIndexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        guard holdsHeights, itemIndexPath.item < items.count else { return super.initialLayoutAttributesForAppearingItem(at: itemIndexPath) }
+        prepareIfNeeded()
+        let start = attributes(itemIndexPath.item)
+        if let top = springFrom[items[itemIndexPath.item].id] { start.frame.origin.y = top }
+        return start
+    }
+
     override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
         prepareIfNeeded()
         guard indexPath.item < items.count else { return nil }
@@ -225,7 +316,9 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
 
     private func attributes(_ row: Int) -> UICollectionViewLayoutAttributes {
         let attributes = ChatRowAttributes(forCellWith: IndexPath(item: row, section: 0))
-        attributes.frame = CGRect(x: 0, y: tops[row], width: width, height: heights[row])
+        // A capped column sits in the middle of a wider screen.
+        attributes.frame = CGRect(x: ((boundsWidth - width) / 2).rounded(), y: tops[row], width: width, height: heights[row])
+        attributes.held = holdsHeights
         return attributes
     }
 
@@ -235,6 +328,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
                                          withOriginalAttributes original: UICollectionViewLayoutAttributes) -> Bool {
         let row = preferred.indexPath.item
         guard row < items.count else { return false }
+        guard !holdsHeights else { return false }
         let item = items[row]
         measurements += 1
         // Only a measurement of what the row shows now is kept as its height for that state. A
@@ -279,15 +373,19 @@ final class ChatRowAttributes: UICollectionViewLayoutAttributes {
     }
 
     var shown: Shown?
+    /// Laid out while a disclosure's spring runs (`ChatTranscriptLayout.holdsHeights`): the cell takes
+    /// this size and does not size itself.
+    var held = false
 
     override func copy(with zone: NSZone? = nil) -> Any {
         let copy = super.copy(with: zone)
         (copy as? ChatRowAttributes)?.shown = shown
+        (copy as? ChatRowAttributes)?.held = held
         return copy
     }
 
     override func isEqual(_ object: Any?) -> Bool {
-        guard let other = object as? ChatRowAttributes, other.shown == shown else { return false }
+        guard let other = object as? ChatRowAttributes, other.shown == shown, other.held == held else { return false }
         return super.isEqual(object)
     }
 }
@@ -346,6 +444,7 @@ final class ChatRowCell: UICollectionViewCell {
     #endif
 
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
+        if (attributes as? ChatRowAttributes)?.held == true { return attributes }
         if let known {
             self.known = nil
             if abs(known.width - attributes.size.width) < 0.5, abs(known.height - attributes.size.height) < 0.5 { return attributes }
@@ -566,8 +665,19 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         environmentChanged()
     }
 
+    /// Text and Width's width: the column's cap (nil: the whole screen).
+    func setColumnCap(_ cap: CGFloat?) {
+        guard layout.columnCap != cap else { return }
+        let width = layout.columnWidth
+        layout.columnCap = cap
+        // On a screen narrower than the cap the column keeps its width: nothing to measure again.
+        guard layout.columnWidth != width else { return }
+        layout.forgetHeights()
+        environmentChanged()
+    }
+
     private func environmentChanged() {
-        let width = collectionView.bounds.width - 40
+        let width = layout.columnWidth - 40
         guard width > 0 else { return }
         let environment = ChatNativeEnvironment(width: width, category: collectionView.traitCollection.preferredContentSizeCategory,
                                                 wrapCode: CmuxMobilePreferences.wrapCode())
@@ -657,7 +767,15 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         if disclosures != shownDisclosures {
             if shownDisclosures >= 0 {
                 shownTurns = [:]
-                forced.formUnion(lookup.shownNative.keys)
+                // Only the native rows the change redraws: one whose cell type changes (an open tool
+                // row is SwiftUI) or whose disclosures changed (`ChatRowLookup.fold`). Reconfiguring
+                // every native row on screen redrew the rows below a tapped line too, whose labels
+                // draw asynchronously: while the disclosure's spring moved them, each showed its old
+                // drawing at its old place for a frame, a doubled answer under an opening tool row.
+                for (id, native) in lookup.shownNative {
+                    guard let row = rows[id] else { continue }
+                    if lookup.eligible(row) != native || layout.shownState(of: id)?.fold != lookup.fold(row) { forced.insert(id) }
+                }
             }
             shownDisclosures = disclosures
         }
@@ -683,7 +801,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var items: [ChatTranscriptLayout.Item] = []
         ids.reserveCapacity(shownIDs.count + 4)
         items.reserveCapacity(shownIDs.count + 4)
-        let width = max(collectionView.bounds.width - 40, 100)
+        let width = max(layout.columnWidth - 40, 100)
         let wrap = CmuxMobilePreferences.wrapCode()
         if lookup.layouts.environment?.wrapCode != wrap, lookup.layouts.environment != nil {
             environmentChanged()
@@ -820,6 +938,83 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// A disclosure changed since the last reload.
     var disclosuresPending: Bool { surface.disclosures.revision != shownDisclosures }
 
+    /// `TranscriptFoldHold.swap`: a tapped disclosure's row shows its SwiftUI view now, in the state
+    /// it drew (a native row at rest is swapped for the same row in SwiftUI), with no animation.
+    func showSettlingRows() {
+        UIView.performWithoutAnimation {
+            reloadIfDisclosuresChanged()
+            collectionView.layoutIfNeeded()
+        }
+    }
+
+    /// `TranscriptFoldHold.resize`, right after the disclosure changed inside its SwiftUI animation:
+    /// the rows on screen move to their new heights on a UIKit spring of the same curve
+    /// (`cmuxMobileSmooth`). The opening row grows (clipped to its bounds, so its body shows from its
+    /// top edge down) and the rows below move with its edge.
+    ///
+    /// The list's reload (which reconfigures the changed row and every native row on screen) runs
+    /// first, with no animation and with the rows' heights held (`ChatTranscriptLayout.holdsHeights`),
+    /// so it changes what the cells draw but not where. Each row's new height is then measured from
+    /// its cell and given to the layout, and the spring lays the rows out at them. Left to the
+    /// observation's reload and the cells' self-sizing, both landed while the spring ran: the rows
+    /// below cross-faded between two places, and a body whose height resolves in a later SwiftUI pass
+    /// (a tool's code card) drew at full height over the rows below at once.
+    func resizeForFold() {
+        foldSprings += 1
+        layout.holdsHeights = true
+        UIView.performWithoutAnimation {
+            reloadIfDisclosuresChanged()
+            collectionView.layoutIfNeeded()
+        }
+        let cells = collectionView.visibleCells
+        // Where the rows around the screen are before the spring (two screens each way).
+        let around = collectionView.bounds.insetBy(dx: 0, dy: -2 * collectionView.bounds.height)
+        layout.springFrom = Dictionary((layout.layoutAttributesForElements(in: around) ?? []).compactMap { attributes in
+            dataSource.itemIdentifier(for: attributes.indexPath).map { ($0, attributes.frame.minY) }
+        }, uniquingKeysWith: { first, _ in first })
+        var resized = false
+        for case let cell as ChatRowCell in cells {
+            guard let id = rowID(of: cell) else { continue }
+            // The height its cell measured for this state before (a second open or close): the
+            // spring ends where the cell's own sizing will put it. A fresh fit can come up short
+            // while the body has not resolved yet, and the row would snap when the hold ends.
+            if let known = layout.knownHeight(of: id), abs(known.width - cell.bounds.width) < 0.5 {
+                if layout.layOut(id, at: known.height) { resized = true }
+                continue
+            }
+            cell.contentView.setNeedsLayout()
+            cell.contentView.layoutIfNeeded()
+            let size = cell.contentView.systemLayoutSizeFitting(
+                CGSize(width: cell.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel)
+            if layout.layOut(id, at: max(1, ceil(size.height))) { resized = true }
+        }
+        let clipped = resized ? cells.filter { !$0.clipsToBounds } : []
+        for cell in clipped { cell.clipsToBounds = true }
+        if resized { layout.invalidateLayout() }
+        // A batch update, not a layout pass: a row pushed below the visible rect gets no attributes in a
+        // layout pass, so its cell stayed where it was drawn and faded out there (a second copy of the
+        // rows under an opening body); a batch update moves every shown cell to its new place.
+        UIView.animate(springDuration: 0.35, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            self.collectionView.performBatchUpdates(nil)
+        } completion: { [weak self] _ in
+            for cell in clipped { cell.clipsToBounds = false }
+            guard let self else { return }
+            self.foldSprings -= 1
+            if self.foldSprings == 0 {
+                self.layout.springFrom = [:]
+                self.layout.holdsHeights = false
+            }
+        }
+    }
+
+    /// Disclosure springs running (`resizeForFold`); the layout holds its heights while any does.
+    private var foldSprings = 0
+
+    private func rowID(of cell: UICollectionViewCell) -> String? {
+        collectionView.indexPath(for: cell).flatMap { dataSource.itemIdentifier(for: $0) }
+    }
+
     /// Whether a measurement of `item`'s row is of the state its item records
     /// (`ChatTranscriptLayout.measuresSettle`): with no disclosure change pending, or one that
     /// leaves this row's disclosures (`ChatRowLookup.fold`) as its item has them.
@@ -886,7 +1081,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 let id = self.warmQueue.removeFirst()
                 if self.lookup.rows[id] != nil, self.lookup.isNative(id) {
                     let cell = self.warmCell
-                    let width = self.collectionView.bounds.width
+                    let width = self.layout.columnWidth
                     cell.frame = CGRect(x: 0, y: 0, width: width, height: max(self.layout.knownHeight(of: id)?.height ?? 120, 44))
                     cell.overrideUserInterfaceStyle = self.collectionView.traitCollection.userInterfaceStyle
                     self.lookup.configureNative(cell, id: id)
@@ -1019,9 +1214,8 @@ final class ChatRowLookup {
     func eligible(_ row: ChatRow) -> Bool {
         let disclosures = context.surface.disclosures
         return ChatNativeEligibility.drawsNatively(row, accessibilitySize: layouts.environment?.category.isAccessibilityCategory ?? false,
-                                                   wrapCode: layouts.environment?.wrapCode ?? false) {
-            disclosures.isOpen($0)
-        }
+                                                   wrapCode: layouts.environment?.wrapCode ?? false,
+                                                   isOpen: { disclosures.isOpen($0) }, isSettling: { disclosures.isSettling($0) })
     }
 
     /// A native row has a layout (made now if it has none; math stays SwiftUI).
@@ -1089,13 +1283,15 @@ final class ChatRowLookup {
         let keepsState = row.keepsViewState
         let marked = id == findMarked
         cell.contentConfiguration = UIHostingConfiguration {
-            ChatRowView(row: row, context: context)
+            ChatRowTop {
+                ChatRowView(row: row, context: context)
 
-                // VoiceOver hears which row holds Find in Chat's current match.
-                .accessibilityAddTraits(marked ? .isSelected : [])
-                // Rows whose views keep their own state (a question's answers, a code card shown in
-                // full) start fresh in a reused cell; the rest update in place.
-                .id(keepsState ? row.id : "reused")
+                    // VoiceOver hears which row holds Find in Chat's current match.
+                    .accessibilityAddTraits(marked ? .isSelected : [])
+                    // Rows whose views keep their own state (a question's answers, a code card shown in
+                    // full) start fresh in a reused cell; the rest update in place.
+                    .id(keepsState ? row.id : "reused")
+            }
         }
         .margins(.horizontal, 20)
         .margins(.vertical, 0)
@@ -1146,7 +1342,7 @@ extension ChatRow {
     }
 
     static let hostedReuseKeys = ["prompt", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
-                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "other"]
+                                  "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "other"]
 
     /// The SwiftUI reuse pool: one per kind, so a reused cell keeps its view structure.
     var hostedReuseKey: String {
@@ -1167,6 +1363,7 @@ extension ChatRow {
         case .stopped: "stopped"
         case .failed: "failed"
         case .actions: "actions"
+        case .nextStep: "nextStep"
         }
     }
 
@@ -1174,7 +1371,7 @@ extension ChatRow {
     /// failure's disclosure).
     var keepsViewState: Bool {
         switch kind {
-        case .question, .failed, .block: true
+        case .question, .failed, .block, .nextStep: true
         default: false
         }
     }
@@ -1227,7 +1424,27 @@ extension ChatRow {
         case .stopped: return 18
         case .failed: return 170
         case .actions: return 44
+        case .nextStep(let ask, let answer, _): return answer == nil ? 96 + CGFloat(ask.options.count) * 50 : 64
         }
+    }
+}
+/// A row's SwiftUI content, pinned to the top of its cell (2026-11-04, the user: "the row itself
+/// shouldn't move and it should only reveal whatever is under it"). The hosting view centered the
+/// content in the cell whenever their heights differed, and while a disclosure opens or closes they
+/// do: the cell takes its new height on the list's spring while the content's height animates on
+/// SwiftUI's. The tapped line slid down and back while it opened, and up out of the clipped cell
+/// while it closed. Pinned, the line stays where it is drawn and the cell's edge reveals the body.
+/// Sizing (no height proposed) still gets the content's own height.
+struct ChatRowTop: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let content = subviews.first?.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) ?? .zero
+        guard let height = proposal.height, height > 0, height.isFinite else { return content }
+        return CGSize(width: proposal.width ?? content.width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading,
+                              proposal: ProposedViewSize(width: bounds.width, height: nil))
     }
 }
 #endif

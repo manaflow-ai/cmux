@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  agentHomeTrust,
   readFolderTrust,
   readTrust,
   sessionTrust,
@@ -369,13 +370,17 @@ export function useFolderTrustAsk(
     } else {
       // The persisted path cache belongs to this page's initial local authority. Once its route
       // changes, read the new authority instead of projecting a previous host's answer by path.
+      // A no-project chat's agent-home folder on this computer has a known answer: drawn now, read after.
       const trust = cwd && remembers ? knownTrust().get(cwd) : undefined;
+      const seeded = trust ?? (cwd && local ? agentHomeTrust(cwd) : undefined);
       const shown =
-        trust && cwd ? shownTrust(trust, cwd, family, canAnswer) : { ask: undefined, trusted: false, scope: undefined };
+        seeded && cwd
+          ? shownTrust(seeded, cwd, family, canAnswer)
+          : { ask: undefined, trusted: false, scope: undefined };
       setAsk(shown.ask);
       setTrusted(shown.trusted);
       setScope(shown.scope);
-      setReading(Boolean(cwd) && !trust);
+      setReading(Boolean(cwd) && !seeded);
     }
   }
   useEffect(() => {
@@ -647,6 +652,21 @@ export function useFolderTrustAsk(
     /// Back to unknown: acpmux forgets its record where the answer was made (the repository, a
     /// parent folder, or the folder) and each agent's own level answers.
     undo: () => void save("unknown", ask?.via ?? (scope?.cwd === cwd ? scope?.via : undefined)),
+    /// The pending peer's own session/new succeeded. Retire only this visit's refusal and
+    /// refresh its answer from that peer; success never grants local trust by folder path.
+    started: useCallback(() => {
+      if (!mounted.current || !sameAuthority() || !sameVisit()) return;
+      const refused = refusedTrust.current.get(sessionId);
+      refusedTrust.current.delete(sessionId);
+      for (const key of retryKeys(sessionId, visitValue)) resend.current.delete(key);
+      askFromRefusal.current = undefined;
+      for (const folder of [refused?.cwd, cwd])
+        if (folder) answers.current.set(folder, (answers.current.get(folder) ?? 0) + 1);
+      lastRead.current = undefined;
+      setAsk(undefined);
+      setReading(Boolean(cwd));
+      setReads((count) => count + 1);
+    }, [sessionId, cwd, visitValue, sameAuthority, sameVisit]),
     /// Takes a refusal from acpmux: for its folder trust it reads the folder it named again (the
     /// question shows), keeps `again` to send after Trust, and is true; any other refusal is false.
     refused: useCallback(

@@ -396,7 +396,7 @@ export function BranchBasePicker({
         ? createPortal(
             <div
               ref={popoverRef}
-              className="base-picker-popover"
+              className="base-picker-popover ui-popup ui-glass"
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               role="dialog"
               aria-label={label("branchPickerOpen")}

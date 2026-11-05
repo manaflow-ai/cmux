@@ -1082,6 +1082,20 @@ class LayoutStack:
 
 
 @dataclass(frozen=True)
+class LayoutSizePaneWidth:
+    __cmux_schema_path__: ClassVar[str] = 'types/LayoutSizePaneWidth'
+    pane: Id
+    width: float
+
+
+@dataclass(frozen=True)
+class LayoutSizeSplitRatio:
+    __cmux_schema_path__: ClassVar[str] = 'types/LayoutSizeSplitRatio'
+    split: Id
+    ratio: float
+
+
+@dataclass(frozen=True)
 class LayoutUndoConfirmationRequired:
     __cmux_schema_path__: ClassVar[str] = 'types/LayoutUndoConfirmationRequired'
     screen: Id
@@ -1285,6 +1299,14 @@ class ReattachViewResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ReattachViewResult'
     participant: str
     state: SizeState
+
+
+@dataclass(frozen=True)
+class RemoteHostAppResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/RemoteHostAppResult'
+    host_pid: int
+    secret: str
+    socket: str
 
 
 @dataclass(frozen=True)
@@ -4320,6 +4342,33 @@ class ReloadConfigResult:
 
 
 @dataclass(frozen=True)
+class RemoteHostAppRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-app/request'
+    pass
+
+
+@dataclass(frozen=True)
+class RemoteHostCallRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-call/request'
+    method: str
+    params: Union[JsonValue, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class RemoteHostConfigRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-config/request'
+    computer_use: Union[bool, None, MissingType] = field(default=MISSING)
+    headless: Union[bool, None, MissingType] = field(default=MISSING)
+    screen_sharing: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class RemoteHostStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remote-host-status/request'
+    pass
+
+
+@dataclass(frozen=True)
 class RemoteTerminalSnapshotRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/remote-terminal-snapshot/request'
     surface: Id
@@ -4634,6 +4683,13 @@ class SetFrontendBrowserHistoryRequest:
 class SetHostSizePolicyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-host-size-policy/request'
     policy: HostSizePolicyRequest
+
+
+@dataclass(frozen=True)
+class SetLayoutSizesRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-layout-sizes/request'
+    transaction: int
+    values: List[LayoutSizeValue]
 
 
 @dataclass(frozen=True)
@@ -6117,6 +6173,7 @@ FrontendJournalEvent = Union[FrontendJournalEventFocus, FrontendJournalEventResi
 Id = int
 JsonValue = Any
 Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
+LayoutSizeValue = Union[LayoutSizeSplitRatio, LayoutSizePaneWidth]
 LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
 PaneRef = Any
@@ -6244,6 +6301,8 @@ __all__ = [
     'LayoutLeaf',
     'LayoutSplit',
     'LayoutStack',
+    'LayoutSizePaneWidth',
+    'LayoutSizeSplitRatio',
     'LayoutUndoConfirmationRequired',
     'LayoutUndoUndone',
     'ListAgentsResult',
@@ -6267,6 +6326,7 @@ __all__ = [
     'ReadScreenResult',
     'ReadScrollbackResult',
     'ReattachViewResult',
+    'RemoteHostAppResult',
     'RenderCursor',
     'RenderGraphicImage',
     'RenderGraphicPlacement',
@@ -6605,6 +6665,10 @@ __all__ = [
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
+    'RemoteHostAppRequest',
+    'RemoteHostCallRequest',
+    'RemoteHostConfigRequest',
+    'RemoteHostStatusRequest',
     'RemoteTerminalSnapshotRequest',
     'RemoveScreensFromScreenGroupRequest',
     'RemoveTabsFromTabGroupRequest',
@@ -6643,6 +6707,7 @@ __all__ = [
     'SetDefaultColorsRequest',
     'SetFrontendBrowserHistoryRequest',
     'SetHostSizePolicyRequest',
+    'SetLayoutSizesRequest',
     'SetPersonalTerminalRequest',
     'SetPersonalWorkspaceRequest',
     'SetProfileFollowsRequest',
@@ -6800,6 +6865,7 @@ __all__ = [
     'Id',
     'JsonValue',
     'Layout',
+    'LayoutSizeValue',
     'LayoutUndoResult',
     'Pane',
     'PaneRef',

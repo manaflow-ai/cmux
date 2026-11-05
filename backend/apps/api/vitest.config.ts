@@ -20,6 +20,10 @@ const githubApp = await generateKeyPair("RS256", { extractable: true })
 const pubsub = await generateKeyPair("RS256", { extractable: true })
 const pubsubPublic = { ...(await exportJWK(pubsub.publicKey)), kid: "google-test", alg: "RS256" }
 const pubsubPrivate = { ...(await exportJWK(pubsub.privateKey)), kid: "google-test" }
+// Test-only key that signs GitHub Actions OIDC tokens (replaces GitHub's JWKS when ENVIRONMENT=test).
+const githubActions = await generateKeyPair("RS256", { extractable: true })
+const githubActionsPublic = { ...(await exportJWK(githubActions.publicKey)), kid: "github-actions-test", alg: "RS256" }
+const githubActionsPrivate = { ...(await exportJWK(githubActions.privateKey)), kid: "github-actions-test" }
 // Test-only link-token signing keys (two kids, the second active); never a real key.
 const linkKeys: Record<string, unknown> = {}
 for (const kid of ["test-link-1", "test-link-2"]) {
@@ -144,7 +148,9 @@ export default defineConfig({
           GOOGLE_PUBSUB_AUDIENCE: "https://api.test/v1/hooks/google/pubsub",
           GOOGLE_PUBSUB_SERVICE_ACCOUNT: "gmail-push-invoker@cmux-integrations-dev.iam.gserviceaccount.com",
           GOOGLE_PUBSUB_TEST_JWKS: JSON.stringify({ keys: [pubsubPublic] }),
-          GOOGLE_PUBSUB_TEST_PRIVATE_JWK: JSON.stringify(pubsubPrivate)
+          GOOGLE_PUBSUB_TEST_PRIVATE_JWK: JSON.stringify(pubsubPrivate),
+          GITHUB_ACTIONS_TEST_JWKS: JSON.stringify({ keys: [githubActionsPublic] }),
+          GITHUB_ACTIONS_TEST_PRIVATE_JWK: JSON.stringify(githubActionsPrivate)
         }
       }
     })

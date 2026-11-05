@@ -6,13 +6,22 @@
 // top, then tool rows, then a separate "Thinking" far below, past his steers).
 import { expect, test } from "bun:test";
 import type { ReactElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/WorkingFor";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { shortCommand } from "../src/agent-session/acpmux/conversation/shortCommand";
+
+import type { ReactNode } from "react";
+import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// These assertions cover turn state and time, independently of decorative verb rotation.
+const renderToStaticMarkup = (node: ReactNode) =>
+  renderMarkup(
+    <StatusVerbContext.Provider value={{ mode: "thinking", verbs: ["Thinking"] }}>{node}</StatusVerbContext.Provider>,
+  );
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -205,9 +214,11 @@ test("the live line draws Running or Ran with the turn's time, or Thinking alone
   const thinking = renderToStaticMarkup(<Thinking since={start} untimed now={() => start + 9_000} />);
   expect(words(thinking)).toBe("Thinking");
   expect(thinking).toContain("is-shimmer");
-  // Behind streaming text it keeps its height but draws nothing (`cv-worked--live` sets its words on
-  // the status rows' text column, #33157).
-  expect(renderToStaticMarkup(<Thinking untimed quietKey="a:7" />)).toContain("cv-worked cv-worked--live is-quiet");
+  // Under streaming text it stays shown and reads "Writing" (Leo, 2026-11-04: "it appears and
+  // disappears????").
+  const writing = renderToStaticMarkup(<Thinking untimed quietKey="a:7" liveState="writing" />);
+  expect(writing).not.toContain("is-quiet");
+  expect(words(writing)).toBe("Writing");
 });
 
 test("shortCommand drops the setup a script starts with", () => {

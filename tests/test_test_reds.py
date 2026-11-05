@@ -288,6 +288,85 @@ class PerTest(unittest.TestCase):
         self.assertTrue(verdict.own)
         self.assertIn("pass or do not run on the base: c()", verdict.reasons[0])
 
+    def test_display_named_swift_testing_reds_are_compared_by_name(self):
+        # PR 35296's shard 2: `@Test("…")` names print quoted, with no `()`.
+        shared = '✘ Test "A capped plan shows used/limit" recorded an issue at X.swift:25:9: Expectation failed'
+        param = ('✘ Test "Hovering shows help" recorded an issue with 2 arguments activeCount → 1, help → "x" '
+                 'at X.swift:1:2: Expectation failed')
+        self.assertEqual(reds.read(log(shared, param, SUMMARY)).failed,
+                         {'"A capped plan shows used/limit"', '"Hovering shows help"'})
+        self.assertFalse(reds.classify(log(shared, SUMMARY), log(shared, SUMMARY)).own)
+        new = log(shared, '✘ Test "Another" recorded an issue at X.swift:3:4: Expectation failed', SUMMARY)
+        self.assertIn('"Another"', reds.classify(new, log(shared, SUMMARY)).reasons[0])
+
+    def test_two_suites_same_display_name_are_not_one_test(self):
+        # A `@Test("...")` name prints with no suite, and suites interleave (three were open at once in
+        # tests/fixtures/test_reds/26346-head-run-40620080851.log), so the suite cannot be read from the
+        # ✘ line. The issue's file can: a display name whose head and base failures record their issues in
+        # files that do not overlap is two tests, not one red (cmux#35902).
+        head = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation failed',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at HomePlanTests.swift:14:9: Expectation failed',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        verdict = reds.classify(head, base)
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn("CloudPlanTests.swift", verdict.reasons[0])
+        self.assertEqual(verdict.shared, [])
+
+    def test_the_same_display_named_test_is_still_a_base_red(self):
+        # The same test, failing at another line of its own file, or at a second expectation in it: the
+        # files overlap, so it stays the base's red. The classifier is per test, not per assertion.
+        head = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation failed',
+                   '✘ Test "shows the plan" recorded an issue at CloudPlanHelper.swift:3:1: Expectation failed',
+                   SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:31:9: Expectation failed',
+                   SUMMARY)
+        self.assertFalse(reds.classify(head, base).own, reds.classify(head, base).reasons)
+
+    def test_a_module_relative_issue_location_records_its_file(self):
+        # A location can be module-relative (`Package/CloudPlanTests.swift:25:9`). With no `/` in the file
+        # class, neither side recorded a file, both fell back to name-only comparison, and two distinct
+        # suites with one display name read as a single base red (cmux#35961 F1).
+        head = log('✘ Test "shows the plan" recorded an issue at Pkg/Cloud/CloudPlanTests.swift:25:9: '
+                   'Expectation failed', '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.',
+                   SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at Pkg/Home/HomePlanTests.swift:14:9: '
+                   'Expectation failed', '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.',
+                   SUMMARY)
+        self.assertEqual(reds.read(head).sites, {'"shows the plan"': {"Pkg/Cloud/CloudPlanTests.swift"}})
+        verdict = reds.classify(head, base)
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn("Pkg/Cloud/CloudPlanTests.swift", verdict.reasons[0])
+        self.assertEqual(verdict.shared, [])
+
+    def test_a_location_quoted_after_the_real_one_is_not_the_issue_site(self):
+        # The source location is not at end of line: the expectation text follows it and can quote another
+        # ` at <file>.swift:<line>:<col>`. Reading the last one recorded the wrong file, so a test that fails
+        # in the same file on both sides read as two tests and the shared base red became the head's own
+        # (cmux#35961 F2). The first location after the arguments clause is the one Swift Testing printed.
+        head = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation '
+                   'failed: (trace → "raised at HomePlanTests.swift:14:2")',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        base = log('✘ Test "shows the plan" recorded an issue at CloudPlanTests.swift:25:9: Expectation failed',
+                   '✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        self.assertEqual(reds.read(head).sites, {'"shows the plan"': {"CloudPlanTests.swift"}})
+        verdict = reds.classify(head, base)
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, ['"shows the plan"'])
+
+    def test_an_arguments_clause_still_yields_the_location_after_it(self):
+        # A parameterized test prints `with N arguments ...` before the location, and an argument value may
+        # itself hold a `.swift:` (cmux#35902); the clause is skipped, the location after it is recorded.
+        head = log('✘ Test "shows the plan" recorded an issue with 1 argument p → "A.swift:1:1" at '
+                   'Pkg/CloudPlanTests.swift:25:9: Expectation failed', SUMMARY)
+        self.assertEqual(reds.read(head).sites, {'"shows the plan"': {"Pkg/CloudPlanTests.swift"}})
+
+    def test_a_display_name_with_no_file_on_either_side_compares_by_name(self):
+        # Only the `failed after` line, as a rerun summary prints: nothing says which suite, so the name
+        # alone decides, exactly as before this comparison existed.
+        both = log('✘ Test "shows the plan" failed after 0.1 seconds with 1 issue.', SUMMARY)
+        self.assertFalse(reds.classify(both, both).own)
+
     def test_a_crash_on_both_sides_is_still_the_heads_own(self):
         both = log(failed("a()"), ABORT, "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException'")
         verdict = reds.classify(both, both)
@@ -334,6 +413,14 @@ class PerTest(unittest.TestCase):
                     "✔ Test f(_:) with 2 test cases passed after 0.1 seconds.", failed("a()"),
                     "✘ Test a() failed after 0.1 seconds with 1 issue.", SUMMARY)
         self.assertEqual(reds.read(whole).truncated, [])
+
+    def test_a_suite_end_after_a_zero_width_space_is_whole(self):
+        # PR 35296's app-host shard 2: Swift Testing printed "\u200b✔ Suite ... passed" after interleaved app logs.
+        whole = log('◇ Suite "Cloud sidebar recorded interaction" started.',
+                    '\u200b✔ Suite "Cloud sidebar recorded interaction" passed after 0.001 seconds.', SUMMARY)
+        self.assertEqual(reds.read(whole).truncated, [])
+        cut = log('\u200b◇ Suite "s" started.', SUMMARY)
+        self.assertIn('1 suite(s) started and never finished: "s"', reds.read(cut).truncated)
 
     def test_a_run_cut_off_between_tests_is_the_heads_own(self):
         cut = log("◇ Test run started.", "◇ Suite S started.", "◇ Test a() started.", failed("a()"),
@@ -1183,6 +1270,78 @@ class ClassifyAny(unittest.TestCase):
 LOST_JOB = FIXTURES / "lost-runner-job-126154996598.json"
 LOST_NOTES = FIXTURES / "lost-runner-annotations-126154996598.json"
 LOST_LOG = FIXTURES / "lost-runner-log-126154996598.txt"
+
+
+class VolatileTokens(unittest.TestCase):
+    """The same error on two runs names each run's own temp dir, checkout root and times (2026-11-04: the
+    release-notary red on #34660 and on feat-cmux-next printed /tmp/tmp.Pw5bL0wmeb and /tmp/tmp9j12s3ib-style
+    names); those tokens are masked before two errors are compared, and nothing else is."""
+
+    # Lines as the release-notary job printed them on cmux#34660's head run 41808383454 (job 126501169622).
+    HEAD = [
+        "check_bundle_notices: every Mach-O in /tmp/tmp.Pw5bL0wmeb/cmux.app has its notices",
+        "6 media DerivedData dir(s) in /tmp/tmp9j12s3ib outside this tour's and the 0 warm slots'; keeping at most 4",
+        '  File "/tmp/tmpckvlipun/workspace/scripts/ci/media_app_cache.py", line 294, in <module>',
+        "AssertionError: publish-nightly at /home/runner/work/cmux/cmux/tests/test_nightly_delivery_concurrency.py",
+    ]
+    BASE = [
+        "check_bundle_notices: every Mach-O in /tmp/tmp.Zq81xKcd0A/cmux.app has its notices",
+        "6 media DerivedData dir(s) in /tmp/tmpa_yfgwgq outside this tour's and the 0 warm slots'; keeping at most 4",
+        '  File "/tmp/tmp_n8aiuq4/workspace/scripts/ci/media_app_cache.py", line 294, in <module>',
+        "AssertionError: publish-nightly at /Users/ci/actions-runner/_work/cmux/cmux/tests/"
+        "test_nightly_delivery_concurrency.py",
+    ]
+
+    def test_each_runs_own_temp_dirs_and_checkout_root_compare_equal(self):
+        for head, base in zip(self.HEAD, self.BASE):
+            with self.subTest(head=head):
+                self.assertNotEqual(head, base)
+                self.assertTrue(reds.same_error(head, base), (reds.volatile(head), reds.volatile(base)))
+
+    def test_runner_temp_macos_temp_and_times_are_masked(self):
+        pairs = [
+            ("wrote /home/runner/work/_temp/4b1c0e2a-9f7d-4d3e-8a55-0c1f2e3d4b5a.sh", "wrote /home/runner/work/_temp/"
+             "8e2f1a3b-1c2d-4e5f-9a8b-7c6d5e4f3a2b.sh"),
+            ("no such file: /private/var/folders/x1/abc_123/T/cmux-AbC/f.json",
+             "no such file: /var/folders/q9/zz_987/T/cmux-AbC/f.json"),
+            ("stale since 2026-11-04T09:35:26.94Z", "stale since 2026-11-03T22:01:02Z"),
+        ]
+        for head, base in pairs:
+            with self.subTest(head=head):
+                self.assertTrue(reds.same_error(head, base), (reds.volatile(head), reds.volatile(base)))
+
+    def test_a_different_error_still_differs(self):
+        pairs = [
+            ("AssertionError: publish-nightly", "AssertionError: publish-nightly-next"),
+            ("no such file: /tmp/tmpab12cd34/a.json", "permission denied: /tmp/tmpzz99yy88/a.json"),
+            ("expected stable to be in Sources/App/Feature.swift", "expected stable to be in Sources/App/Other.swift"),
+            ("TypeError: undefined is not a function", "expect(received).toBe(expected)"),
+            # Only run-named temp dirs are masked: two plain files in /tmp or $RUNNER_TEMP stay two errors.
+            ("missing /tmp/release-notes.md", "missing /tmp/appcast.xml"),
+            ("missing /home/runner/work/_temp/notary-key.p8", "missing /home/runner/work/_temp/signing.keychain"),
+            ("no such file: /var/folders/x1/abc/T/a.json", "no such file: /var/folders/x1/abc/T/b.json"),
+            # A test's message keeps its numbers: a timing or count that changed is another failure.
+            ("render took 1200ms, budget 16ms", "render took 20ms, budget 16ms"),
+            ("expected 3m rows", "expected 5m rows"),
+            # Ids outside a temp dir are compared as they are.
+            ("session 0f3e2d1c-aaaa-4bbb-8ccc-1234567890ab expired", "session 9a8b7c6d-1111-4222-8333-abcdefabcdef expired"),
+            ("error: artifact deadbeef1 missing", "error: artifact abcdef12 missing"),
+        ]
+        for head, base in pairs:
+            with self.subTest(head=head):
+                self.assertFalse(reds.same_error(head, base))
+        self.assertFalse(reds.same_error("", ""))
+        self.assertFalse(reds.same_error("boom", None))
+
+    def test_a_bun_failure_with_another_temp_dir_fails_the_same_way(self):
+        head = bun_run(("test/a.test.ts", [("a > b", "ENOENT: no such file, open '/tmp/tmp.Pw5bL0wmeb/state.json'")]))
+        base = bun_run(("test/a.test.ts", [("a > b", "ENOENT: no such file, open '/tmp/tmp.Zq81xKcd0A/state.json'")]))
+        verdict = reds.classify(head, base, "react-apps-check (1)")
+        self.assertFalse(verdict.own, verdict.reasons)
+        other = bun_run(("test/a.test.ts", [("a > b", "EACCES: permission denied, open '/tmp/tmp.Zq81xKcd0A/state.json'")]))
+        verdict = reds.classify(head, other, "react-apps-check (1)")
+        self.assertTrue(verdict.own)
+        self.assertIn("fail differently", verdict.reasons[0])
 
 
 class LostRunner(unittest.TestCase):

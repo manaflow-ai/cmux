@@ -16,6 +16,9 @@
 //!   other command write then read. With no repo, or when the API refuses,
 //!   gh still runs, without a token, after one line on stderr.
 //!   `CMUX_GITHUB_GH_REAL` names the gh to run (the shim's real one).
+//!   With no auth of the person's own, `gh auth status` and `gh api user`
+//!   are answered from the account cmux has connected
+//!   (`github_cli_identity.rs`), never with a token.
 //! - `setup [--unset]`: opt-in wiring of the user's git config (the helper
 //!   for https://github.com, with `useHttpPath` so git names the repo).
 //!
@@ -81,7 +84,7 @@ impl std::fmt::Display for Refused {
     }
 }
 
-fn refused(code: &str, message: impl Into<String>) -> Refused {
+pub(crate) fn refused(code: &str, message: impl Into<String>) -> Refused {
     Refused { code: code.to_owned(), message: message.into(), retry_after: None }
 }
 
@@ -113,21 +116,7 @@ fn ask_retrying(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
 
 /// One ask over the agent socket: write the line, read the one reply.
 pub fn ask_agent(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
-    let mut stream = UnixStream::connect(socket).map_err(|e| {
-        refused(
-            "vm.agent_unreachable",
-            format!("{} ({e}); `cmux github` works on a cmux Cloud machine", socket.display()),
-        )
-    })?;
-    let io = |e: std::io::Error| refused("vm.agent_unreachable", e.to_string());
-    stream.set_read_timeout(Some(ASK_TIMEOUT)).map_err(io)?;
-    stream.set_write_timeout(Some(Duration::from_secs(5))).map_err(io)?;
-    stream.write_all(format!("{}\n", ask.to_line()).as_bytes()).map_err(io)?;
-    let mut line = String::new();
-    BufReader::new(stream.take(64 * 1024)).read_line(&mut line).map_err(io)?;
-    let reply: Value = serde_json::from_str(&line).map_err(|_| {
-        refused("vm.agent_bad_answer", "the Cloud agent's answer is not JSON (an older image?)")
-    })?;
+    let reply = agent_reply(socket, &ask.to_line(), ASK_TIMEOUT)?;
     if *reply.field("ok") == true {
         let token = reply.field("token").as_str().unwrap_or("");
         if token.is_empty() {
@@ -142,6 +131,25 @@ pub fn ask_agent(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
     );
     e.retry_after = reply.field("retry_after").as_u64();
     Err(e)
+}
+
+/// One line to the agent socket and its one JSON reply, read within `wait`.
+pub(crate) fn agent_reply(socket: &Path, line: &str, wait: Duration) -> Result<Value, Refused> {
+    let mut stream = UnixStream::connect(socket).map_err(|e| {
+        refused(
+            "vm.agent_unreachable",
+            format!("{} ({e}); `cmux github` works on a cmux Cloud machine", socket.display()),
+        )
+    })?;
+    let io = |e: std::io::Error| refused("vm.agent_unreachable", e.to_string());
+    stream.set_read_timeout(Some(wait)).map_err(io)?;
+    stream.set_write_timeout(Some(Duration::from_secs(5))).map_err(io)?;
+    stream.write_all(format!("{line}\n").as_bytes()).map_err(io)?;
+    let mut reply = String::new();
+    BufReader::new(stream.take(64 * 1024)).read_line(&mut reply).map_err(io)?;
+    serde_json::from_str(&reply).map_err(|_| {
+        refused("vm.agent_bad_answer", "the Cloud agent's answer is not JSON (an older image?)")
+    })
 }
 
 fn perms(pairs: &[(&str, &str)]) -> Map<String, Value> {
@@ -641,10 +649,62 @@ pub fn first_token(
     Err(last)
 }
 
-/// Whether gh's `hosts.yml` holds a github.com login (a top-level
-/// `github.com:` key), the person's own `gh auth login`.
+/// What gh's `hosts.yml` holds at its root: the host keys of its root
+/// mapping, or `unread` when the file is not YAML this can read or its root
+/// is not a mapping. The one reader behind both own-login checks
+/// (`hosts_has_github` here and `github_cli_identity::hosts_has_any_login`).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct GhHosts {
+    pub hosts: Vec<String>,
+    /// The file did not parse, or its root is not a mapping. Fail-safe: this
+    /// counts as the person's own login, so gh keeps its own answer and the
+    /// team's token is never routed when we can't read the person's config.
+    pub unread: bool,
+}
+
+impl GhHosts {
+    /// A login for any host may be there.
+    pub fn any_login(&self) -> bool {
+        self.unread || !self.hosts.is_empty()
+    }
+
+    /// A github.com login may be there.
+    pub fn github_login(&self) -> bool {
+        self.unread || self.hosts.iter().any(|h| h.eq_ignore_ascii_case("github.com"))
+    }
+}
+
+/// Parses gh's `hosts.yml` with a YAML parser and reads its root mapping's
+/// string keys (the hosts). A file of only blank lines, comments and document
+/// markers, or an empty document, holds no host. A file that does not parse,
+/// or whose root is anything but a mapping, is `unread` (see `GhHosts`).
+pub fn parse_gh_hosts(hosts_yml: &str) -> GhHosts {
+    let no_content = hosts_yml.lines().all(|line| {
+        let t = line.trim();
+        t.is_empty() || t.starts_with('#') || t == "---" || t == "..."
+    });
+    if no_content {
+        return GhHosts::default();
+    }
+    let unread = GhHosts { hosts: Vec::new(), unread: true };
+    let Ok(docs) = yaml_rust::YamlLoader::load_from_str(hosts_yml) else { return unread };
+    match docs.into_iter().next() {
+        None | Some(yaml_rust::Yaml::Null) => GhHosts::default(),
+        Some(yaml_rust::Yaml::Hash(root)) => GhHosts {
+            // Trimmed: yaml-rust keeps a tab of indentation in the key.
+            hosts: root.keys().filter_map(|k| k.as_str().map(|h| h.trim().to_owned())).collect(),
+            unread: false,
+        },
+        Some(_) => unread,
+    }
+}
+
+/// Whether gh's `hosts.yml` may hold a github.com login (a `github.com` key
+/// in its root mapping, in any form YAML writes it), the person's own
+/// `gh auth login`. A file that does not parse counts as one, so an unsure
+/// read keeps the person's own gh rather than the team's token.
 pub fn hosts_has_github(hosts_yml: &str) -> bool {
-    hosts_yml.lines().any(|line| line.trim_end() == "github.com:")
+    parse_gh_hosts(hosts_yml).github_login()
 }
 
 /// gh's `hosts.yml`: `$GH_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gh`, else
@@ -799,7 +859,8 @@ fn real_gh() -> std::ffi::OsString {
 const GH_TOKEN_VARS: [&str; 4] =
     ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 
-fn own_gh_login() -> bool {
+/// gh's `hosts.yml` text, when there is one.
+fn gh_hosts_text() -> Option<String> {
     let var = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     gh_hosts_path(
         var("GH_CONFIG_DIR").as_deref(),
@@ -807,7 +868,10 @@ fn own_gh_login() -> bool {
         var("HOME").as_deref(),
     )
     .and_then(|p| std::fs::read_to_string(p).ok())
-    .is_some_and(|text| hosts_has_github(&text))
+}
+
+fn own_gh_login() -> bool {
+    gh_hosts_text().is_some_and(|text| hosts_has_github(&text))
 }
 
 /// `gh --auto ARGS...`: plain gh on a Cloud machine (the image's shim).
@@ -823,6 +887,21 @@ fn gh_auto(args: &[String]) -> u8 {
         own_login: !token_env && own_gh_login(),
         gh_repo: gh_repo.as_deref(),
     };
+    let identity = crate::github_cli_identity::identity_applies(
+        token_env,
+        gh_hosts_text().as_deref(),
+        std::env::var("GH_HOST").ok().as_deref(),
+        std::env::var_os(crate::cloud::github_status::GH_OWN_LOGIN_ONLY_ENV)
+            .is_some_and(|v| !v.is_empty()),
+    );
+    if identity {
+        match crate::github_cli_identity::answer_from_agent(args, Path::new(AGENT_SOCKET)) {
+            Some(Ok(out)) => return out.emit(),
+            // No answer from cmux: gh runs as it would have.
+            Some(Err(note)) => eprintln!("cmux github gh: {note}"),
+            None => {}
+        }
+    }
     let mut command = std::process::Command::new(real_gh());
     match gh_auto_route(args, &cx, &origin_url) {
         GhRoute::Direct => {
@@ -1454,5 +1533,48 @@ mod tests {
             Some(PathBuf::from("/g/hosts.yml"))
         );
         assert_eq!(gh_hosts_path(None, None, None), None);
+    }
+
+    #[test]
+    fn own_gh_login_reads_an_indented_or_inline_github_com_entry() {
+        // cmux#35095: an indented root mapping, a tab-indented one, or an inline
+        // (flow) mapping is still a github.com login gh reads.
+        for hosts in [
+            "  github.com:\n      oauth_token: gho_x\n      user: me\n",
+            "\tgithub.com:\n\t\tuser: me\n",
+            "{github.com: {user: me, oauth_token: gho_x}}\n",
+            "{\"ghe.example.com\": {user: a}, github.com: {user: b}}\n",
+            "{ # comment\n  github.com: {user: me}\n}\n",
+            "{ghe.example.com: {user: a}, # work\n github.com: {user: b}} # end\n",
+            "github.com: {user: me, oauth_token: gho_x}\n",
+            "github.com: # personal\n    user: me\n",
+            "---\n\"github.com\":\n  user: me\n",
+            "'GitHub.com':\n  user: me\n",
+            // Escaped, tagged and anchored keys are decoded by the YAML parser.
+            "\"\\u0067ithub.com\":\n  user: me\n",
+            "{\"\\u0067ithub.com\": {user: me}}\n",
+            "!!str github.com:\n  user: me\n",
+            "{&a github.com: {user: me}}\n",
+            // Not valid YAML (`,#` is no comment): unread, so the person's own.
+            "{ghe.example.com: {oauth_token: x,# Alice's account\n user: a},\ngithub.com:\n {oauth_token: y, # Bob's account\n user: b}}\n",
+            "{ghe.example.com: {user: it's me}, github.com: {user: b}}\n",
+        ] {
+            assert!(hosts_has_github(hosts), "{hosts:?}");
+        }
+        // A login for another host only, or github.com as a nested key, is not one.
+        for hosts in [
+            "  ghe.example.com:\n      user: a\n",
+            "{ghe.example.com: {user: a, note: github.com}}\n",
+            "{ghe.example.com: {github.com: 1}}\n",
+            "{mygithub.com: {user: a}}\n",
+            "mygithub.com:\n  user: a\n",
+            "# a comment\n  # another\n---\n",
+            "{ghe.example.com: {user: a, note: \"github.com: x\"}}\n",
+            "  x:\n      github.com: 1\n",
+            "{}\n",
+            "# github.com:\n",
+        ] {
+            assert!(!hosts_has_github(hosts), "{hosts:?}");
+        }
     }
 }

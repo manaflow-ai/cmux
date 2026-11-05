@@ -1,8 +1,7 @@
-#if DEBUG
 import AppKit
 
-/// DEBUG ONLY: a rounded view filled with a dynamic color that follows the appearance (light and dark), for
-/// the Agent Messages Playground's bubbles, tabs and composer.
+/// A rounded view filled with a dynamic color that follows the appearance (light and dark), for the agent
+/// pane's bubbles, tabs and composer.
 final class HomeAgentFillView: NSView {
     var fill: NSColor { didSet { needsDisplay = true } }
     var radius: CGFloat { didSet { needsDisplay = true } }
@@ -26,4 +25,3 @@ final class HomeAgentFillView: NSView {
         layer?.cornerCurve = .continuous
     }
 }
-#endif

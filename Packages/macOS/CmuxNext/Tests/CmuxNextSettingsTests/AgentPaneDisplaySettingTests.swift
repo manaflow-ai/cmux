@@ -23,6 +23,13 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
         // The VS Code-style chat minimap: off unless turned on.
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // The running turn's task list pinned in the chat: off, the composer's hat shows it.
+        Row(key: "agentPane.display.pinnedPlan", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // The hat over the composer tucked away to its pull tab: off, it shows.
+        Row(key: "agentPane.display.trayTucked", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // Where the hat's tuck handle sits along the composer's top edge: the middle unless set.
+        Row(key: "agentPane.display.trayHandle", fallback: .string("middle"), accepted: [.string("left"), .string("right")],
+            refused: [.string("top"), .bool(true)]),
         Row(key: "agentPane.display.font.preset", fallback: .string("markdown"),
             accepted: [.string("system"), .string("serif"), .string("mono")], refused: [.string("comic")]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],
@@ -43,10 +50,27 @@ struct AgentPaneDisplaySettingTests {
             accepted: [.string("thinking"), .string("verbose")], refused: [.string("loud"), .bool(true)]),
         Row(key: "agentPane.display.presentation", fallback: .string("transcript"),
             accepted: [.string("messages")], refused: [.string("bubbles"), .bool(true)]),
+        Row(key: "agentPane.display.statusVerbs.mode", fallback: .string("thinking"),
+            accepted: [.string("thinking"), .string("custom")], refused: [.string("random"), .bool(true)]),
+        Row(key: "agentPane.display.statusVerbs.custom", fallback: nil,
+            accepted: [.string("Reading, Planning")], refused: [.number(3)]),
         Row(key: "agentPane.display.rail.side", fallback: .string("left"), accepted: [.string("right")],
             refused: [.string("top"), .bool(true)]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
+        // How the running tray names background commands: preset names and rules of one's own.
+        Row(key: "agentPane.display.commandLabels", fallback: .array([]),
+            accepted: [.array([.string("cmux-fleet"), .object(["program": .string("deploy"), "label": .string("Deploying")])]),
+                       .array([.object(["match": .string("^x"), "label": .string("X"), "icon": .string("cloud")])])],
+            refused: [.string("cmux-fleet"), .array([.object(["label": .string("x")])]), .array([.string(" ")])]),
     ]
+
+    @Test func thePageGetsAValidCommandLabelsListAndNotAnInvalidOne() {
+        let key = "agentPane.display.commandLabels"
+        let valid: JSONValue = ["agentPane": ["display": ["commandLabels": .array([.string("cmux-fleet")])]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: valid).values[key] == .array([.string("cmux-fleet")]))
+        let invalid: JSONValue = ["agentPane": ["display": ["commandLabels": .array([.number(1)])]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: invalid).values[key] == nil)
+    }
 
     @Test(arguments: rows)
     func eachRowHasThePageDefaultAndRange(_ row: Row) throws {
@@ -141,10 +165,20 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: bad) == .fallback)
     }
 
+    @Test func statusVerbsReachThePageThroughDisplaySettings() {
+        let root: JSONValue = ["agentPane": ["display": ["statusVerbs": [
+            "mode": "custom", "custom": "Reading, Planning",
+        ]]]]
+        let values = AgentPaneDisplaySetting(fileRoot: root).values
+        #expect(values["agentPane.display.statusVerbs.mode"] == .string("custom"))
+        #expect(values["agentPane.display.statusVerbs.custom"] == .string("Reading, Planning"))
+    }
+
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
         "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement",
         "agentPane.display.minimap", "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.rail.side",
+        "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
     ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))

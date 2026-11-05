@@ -18,7 +18,7 @@ use crate::dial::Service;
 use crate::keyset::Keyset;
 use crate::stamp::LinkPeer;
 use crate::stream_lease::StreamLease;
-use crate::token::{Expected, TokenRefused, TokenVerifier, VerifiedToken};
+use crate::token::{Expected, TokenRefusal, TokenRefused, TokenVerifier, VerifiedToken};
 
 #[path = "native_policy.rs"]
 mod policy;
@@ -41,6 +41,21 @@ const MAX_PEERS: usize = 128;
 const MAX_REPLAY: usize = 4096;
 const MAX_STREAMS: usize = 4096;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+/// The longest receiving-policy lease a VM accepts (`expires_at - checked_at`).
+/// Revocation does not wait for it: every renewal rechecks each stream against
+/// the new policy. It bounds only how long a receiver that cannot read policy
+/// keeps what it had. A read measured 5.5-8.3 s with no peers on the
+/// development backend (more with them), so a 30 s lease left too little room
+/// to renew before it ended.
+pub const MAX_POLICY_LEASE_MS: u64 = 120_000;
+
+/// The longest a VM keeps one authenticated policy (`admit_until - checked_at`)
+/// when its renewals fail: local admission (cmuxterm-hq
+/// plans/task-cmux-vm-cloud/receiver-local-admission.md). A [`NativePolicy`]'s
+/// `expires_at_ms` is this admission end; the shorter renewal lease only
+/// schedules reads. A successful read still rechecks every stream at once.
+pub const MAX_ADMIT_MS: u64 = 3_600_000;
 
 /// The nine signed fields defined by the backend's NativeLinkBinding schema.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,6 +95,9 @@ pub struct NativePolicy {
     pub authority_version: String,
     pub peers: Vec<NativePeer>,
     pub checked_at_ms: u64,
+    /// When this policy's authority ends: the control plane's `admit_until`
+    /// when it sent one, else its renewal lease end. At most
+    /// [`MAX_ADMIT_MS`] after `checked_at_ms`.
     pub expires_at_ms: u64,
     /// Start of the authenticated request, not the time its response arrived.
     pub request_started: Instant,
@@ -339,49 +357,71 @@ impl TokenVerifier for NativeTokenVerifier {
     }
 
     fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<VerifiedToken, TokenRefused> {
+        self.verify_explained(token, expected).map_err(|refusal| refusal.kind)
+    }
+
+    /// Every check names itself on refusal; the order and outcome of the
+    /// checks are those `verify` has always had.
+    fn verify_explained(
+        &self,
+        token: &str,
+        expected: &Expected<'_>,
+    ) -> Result<VerifiedToken, TokenRefusal> {
+        use TokenRefused::{Expired, Invalid};
+        let no = TokenRefusal::new;
         if token.is_empty() || token.len() > MAX_TOKEN_BYTES {
-            return Err(TokenRefused::Invalid);
+            return Err(no(Invalid, "token_size"));
         }
-        let (mut state, now) = self.current()?;
-        let policy = state.policy.as_ref().ok_or(TokenRefused::NoVerifier)?;
+        let (mut state, now) = self.current().map_err(|kind| no(kind, "receiver_clock"))?;
+        let policy = state.policy.as_ref().ok_or(no(TokenRefused::NoVerifier, "no_policy"))?;
         if !policy.valid(now) {
             state.policy = None;
             let wake = reconcile_streams(&mut state, None);
             drop(state);
             wake_streams(wake);
-            return Err(TokenRefused::Expired);
+            return Err(no(Expired, "policy_expired"));
         }
         if expected.host != policy.host || expected.epoch != policy.epoch {
-            return Err(TokenRefused::Invalid);
+            return Err(no(Invalid, "policy_host"));
         }
 
         let mut parts = token.split('.');
-        let h = parts.next().ok_or(TokenRefused::Invalid)?;
-        let p = parts.next().ok_or(TokenRefused::Invalid)?;
-        let s = parts.next().ok_or(TokenRefused::Invalid)?;
+        let shape = || no(Invalid, "token_shape");
+        let h = parts.next().ok_or_else(shape)?;
+        let p = parts.next().ok_or_else(shape)?;
+        let s = parts.next().ok_or_else(shape)?;
         if parts.next().is_some() {
-            return Err(TokenRefused::Invalid);
+            return Err(shape());
         }
         let header: Header =
-            serde_json::from_slice(&decode(h)?).map_err(|_| TokenRefused::Invalid)?;
+            serde_json::from_slice(&decode(h).map_err(|k| no(k, "header_encoding"))?)
+                .map_err(|_| no(Invalid, "header_malformed"))?;
         let typ = if self.receiver_generation.is_some() {
             "cmux-native-link-v2+jwt"
         } else {
             "cmux-link+jwt"
         };
-        if header.alg != "EdDSA" || header.typ != typ || !kid(&header.kid) {
-            return Err(TokenRefused::Invalid);
+        if header.alg != "EdDSA" {
+            return Err(no(Invalid, "header_alg"));
         }
-        let key = state.keys.keys.get(&header.kid).ok_or(TokenRefused::UnknownKey)?;
-        let sig = decode(s)?;
+        if header.typ != typ {
+            return Err(no(Invalid, "header_typ"));
+        }
+        if !kid(&header.kid) {
+            return Err(no(Invalid, "kid"));
+        }
+        let key =
+            state.keys.keys.get(&header.kid).ok_or(no(TokenRefused::UnknownKey, "unknown_kid"))?;
+        let sig = decode(s).map_err(|k| no(k, "signature"))?;
         if sig.len() != 64 {
-            return Err(TokenRefused::Invalid);
+            return Err(no(Invalid, "signature"));
         }
-        let signed = token.get(..h.len() + 1 + p.len()).ok_or(TokenRefused::Invalid)?;
+        let signed = token.get(..h.len() + 1 + p.len()).ok_or_else(shape)?;
         signature::UnparsedPublicKey::new(&signature::ED25519, key)
             .verify(signed.as_bytes(), &sig)
-            .map_err(|_| TokenRefused::Invalid)?;
-        let c: Claims = serde_json::from_slice(&decode(p)?).map_err(|_| TokenRefused::Invalid)?;
+            .map_err(|_| no(Invalid, "signature"))?;
+        let c: Claims = serde_json::from_slice(&decode(p).map_err(|k| no(k, "claims_encoding"))?)
+            .map_err(|_| no(Invalid, "claims_malformed"))?;
         let receiving = match (&self.receiver_generation, &c.receiver) {
             (None, None) => true,
             (Some(expected), Some(receiver)) => {
@@ -389,35 +429,49 @@ impl TokenVerifier for NativeTokenVerifier {
             }
             _ => false,
         };
-        if c.iss != policy.issuer
-            || !receiving
-            || c.aud != policy.host
-            || c.epoch != policy.epoch
-            || c.team != policy.team
-            || !id(&c.sub, "inst_")
-            || !c.network.valid()
-            || c.iat == 0
-            || c.iat > MAX_SAFE_INTEGER
-            || c.exp > MAX_SAFE_INTEGER
-            || c.iat > now.unix_ms / 1000
-            || c.exp <= c.iat
-            || c.exp - c.iat > 300
-            || URL_SAFE_NO_PAD
-                .decode(&c.jti)
-                .ok()
-                .is_none_or(|b| b.len() != 16 || URL_SAFE_NO_PAD.encode(b) != c.jti)
-        {
-            return Err(TokenRefused::Invalid);
+        if c.iss != policy.issuer {
+            // Issuers are public names, never secrets: both sides of a
+            // mismatch (prod vs production) belong in the reason.
+            return Err(TokenRefusal {
+                kind: Invalid,
+                reason: "issuer",
+                detail: Some(format!(
+                    "expected {:?}, received {:?}",
+                    policy.issuer,
+                    c.iss.chars().take(64).collect::<String>()
+                )),
+            });
+        }
+        let checks = [
+            (!receiving, "receiver_generation"),
+            (c.aud != policy.host, "audience"),
+            (c.epoch != policy.epoch, "epoch"),
+            (c.team != policy.team, "team"),
+            (!id(&c.sub, "inst_"), "subject"),
+            (!c.network.valid(), "network_binding_invalid"),
+            (c.iat == 0 || c.iat > MAX_SAFE_INTEGER || c.exp > MAX_SAFE_INTEGER, "claims_range"),
+            (c.iat > now.unix_ms / 1000, "iat_in_future"),
+            (c.exp <= c.iat || c.exp - c.iat > 300, "lifetime"),
+            (
+                URL_SAFE_NO_PAD
+                    .decode(&c.jti)
+                    .ok()
+                    .is_none_or(|b| b.len() != 16 || URL_SAFE_NO_PAD.encode(b) != c.jti),
+                "jti",
+            ),
+        ];
+        if let Some(reason) = checks.iter().find_map(|(failed, reason)| failed.then_some(*reason)) {
+            return Err(no(Invalid, reason));
         }
         if c.exp <= now.unix_ms / 1000 {
-            return Err(TokenRefused::Expired);
+            return Err(no(Expired, "token_expired"));
         }
         if c.svc.is_empty()
             || c.svc.len() > 2
             || c.svc.iter().any(|s| !matches!(s, Service::Daemon | Service::Ssh))
             || matches!(c.svc.as_slice(), [first, second] if first == second)
         {
-            return Err(TokenRefused::Invalid);
+            return Err(no(Invalid, "services"));
         }
         let peer = policy
             .peers
@@ -427,12 +481,12 @@ impl TokenVerifier for NativeTokenVerifier {
                     && p.binding == c.network
                     && p.binding.key().as_ref() == Some(expected.peer_key)
             })
-            .ok_or(TokenRefused::Invalid)?;
+            .ok_or(no(Invalid, "peer_not_in_policy"))?;
         if !c.svc.contains(&expected.service) || !peer.services.contains(&expected.service) {
-            return Err(TokenRefused::ServiceNotAllowed);
+            return Err(no(TokenRefused::ServiceNotAllowed, "service_not_allowed"));
         }
-        let deadline = stream_deadline(policy, now).ok_or(TokenRefused::Expired)?;
-        let elapsed = elapsed_deadline(&state, policy).ok_or(TokenRefused::Expired)?;
+        let deadline = stream_deadline(policy, now).ok_or(no(Expired, "policy_expired"))?;
+        let elapsed = elapsed_deadline(&state, policy).ok_or(no(Expired, "policy_expired"))?;
         let (lease, control) = StreamLease::with_budget(deadline, elapsed);
         let authority = StreamAuthority {
             issuer: policy.issuer.clone(),
@@ -451,19 +505,19 @@ impl TokenVerifier for NativeTokenVerifier {
         let verified = VerifiedToken {
             peer: LinkPeer { install: c.sub, user: c.network.user, team: c.team },
             vm_kind: c.vmk,
-            issued_at_ms: c.iat.checked_mul(1000).ok_or(TokenRefused::Invalid)?,
+            issued_at_ms: c.iat.checked_mul(1000).ok_or(no(Invalid, "claims_range"))?,
             lease: Some(lease),
         };
         state.spent.retain(|_, exp| *exp > now.unix_ms / 1000);
         if state.spent.contains_key(&c.jti) {
-            return Err(TokenRefused::Replayed);
+            return Err(TokenRefused::Replayed.into());
         }
         if state.spent.len() >= self.replay_capacity {
-            return Err(TokenRefused::ReplayCapacity);
+            return Err(TokenRefused::ReplayCapacity.into());
         }
         state.streams.retain(|stream| stream.lease.deadline().is_some());
         if state.streams.len() >= MAX_STREAMS {
-            return Err(TokenRefused::Invalid);
+            return Err(no(Invalid, "stream_cap"));
         }
         state.spent.insert(c.jti, c.exp);
         state.streams.push(authority);

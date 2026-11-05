@@ -15,7 +15,8 @@ import { NeedsYouButton } from "../needsYou/NeedsYou";
 
 type HeaderToolsProps = {
   /// `more`: the chat menu ⋮'s box width; the rest of the tool size stays at its trailing side.
-  treatment?: { size: number; gap: number; more?: number };
+  /// The tools' square and gap as CSS lengths (header.css --acpmux-header-tool-size and -gap).
+  treatment?: { size: string; gap: string };
   onTerminal: (mode: "toggle" | "open") => void;
   onSplitDown?: (mode: "toggle" | "open") => void;
   onBrowser: (mode: "toggle" | "open") => void;
@@ -88,7 +89,7 @@ const menuRows = (): ChatMenuItem[] => [
 ];
 
 // The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
-const panelToggle = (shown: boolean, icon = "view.list") =>
+const panelToggle = (shown: boolean, icon = "view.list.short") =>
   createElement(PanelToggle, {
     className: "acpmux-summary-button",
     label: "Chat summary",
@@ -119,41 +120,45 @@ const panelsOpen: Play = async (ctx) => {
 };
 
 // Claude Code desktop's top strip (Leo 2026-10-21): no separators, the right-side panel's toggle
-// first, every button a 24px square on one 26px pitch, every glyph the same size. The chat menu's ⋮
-// is the one exception (#33010, header.css `.acpmux-header-more`; Leo 2026-11-03: "i don't like how
-// this vertical ellipsis looks spaced next to everything else"): its box is its 16px glyph box, 24px
-// tall, so its centre sits 22px after the tool before it (more-optical).
+// first, every button a 24px square on one 26px pitch, every glyph the same size. The chat menu's ⋯ is
+// one of them: the horizontal ellipsis in the same square (Leo 2026-11-04: "i guess we ought to just make
+// this a horizontal ellipsis?" and "at least give our button square padding. so all those things are
+// proportional").
+const squareTools =
+  (size: number, gap: number): Play =>
+  async (ctx) => {
+    const buttons = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")];
+    if (buttons.length < 2) throw new Error("the header must show its tools");
+    for (const button of buttons) {
+      const box = button.getBoundingClientRect();
+      if (Math.round(box.width) !== size || Math.round(box.height) !== size)
+        throw new Error(
+          `header button ${button.getAttribute("aria-label")} is ${box.width}x${box.height}, not a ${size}px square`,
+        );
+      const glyph = button.querySelector("[data-icon]")?.getBoundingClientRect();
+      if (!glyph) throw new Error(`header button ${button.getAttribute("aria-label")} draws no glyph`);
+      const pads = [glyph.left - box.left, box.right - glyph.right, glyph.top - box.top, box.bottom - glyph.bottom];
+      if (Math.max(...pads) - Math.min(...pads) > 0.5)
+        throw new Error(
+          `header button ${button.getAttribute("aria-label")} pads its glyph unevenly: ${pads.join(", ")}`,
+        );
+    }
+    const lefts = buttons.map((button) => button.getBoundingClientRect().left);
+    if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== size + gap))
+      throw new Error(`header buttons are not on one ${size + gap}px pitch`);
+    const more = ctx.find({ role: "button", name: "Chat actions" });
+    if (more.querySelector("[data-icon]")?.getAttribute("data-icon") !== "action.more")
+      throw new Error("the chat menu's trigger must draw the horizontal ellipsis (action.more)");
+  };
+
 const groupedControls: Play = async (ctx) => {
   const first = ctx.document.querySelector(".acpmux-header-tools button");
   if (!first?.classList.contains("acpmux-summary-button"))
     throw new Error("the panel toggle must be the first of the header's icons");
   if (ctx.document.querySelector(".acpmux-header-tools hr, .acpmux-header-separator"))
     throw new Error("the header tools draw a separator");
+  await squareTools(24, 2)(ctx);
   const buttons = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")];
-  const tools = buttons.filter((button) => !button.classList.contains("acpmux-header-more"));
-  for (const button of tools) {
-    const box = button.getBoundingClientRect();
-    if (Math.round(box.width) !== 24 || Math.round(box.height) !== 24)
-      throw new Error(`header button ${button.getAttribute("aria-label")} is not a 24px square`);
-  }
-  const lefts = tools.map((button) => button.getBoundingClientRect().left);
-  if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== 26))
-    throw new Error("header buttons are not on one 26px pitch");
-  const more = ctx.document.querySelector<HTMLElement>(".acpmux-header-tools button.acpmux-header-more");
-  if (more) {
-    const box = more.getBoundingClientRect();
-    if (Math.round(box.width) !== 16 || Math.round(box.height) !== 24)
-      throw new Error(`the chat menu's ⋮ is ${box.width}x${box.height}, not its 16x24 glyph box`);
-    const before = buttons[buttons.indexOf(more) - 1];
-    if (before) {
-      const center = (element: Element) => {
-        const rect = element.getBoundingClientRect();
-        return rect.left + rect.width / 2;
-      };
-      const pitch = Math.round(center(more) - center(before));
-      if (pitch !== 22) throw new Error(`the chat menu's ⋮ sits ${pitch}px after the tool before it, not 22px`);
-    }
-  }
   const glyphs = new Set(buttons.map((button) => button.querySelector("[data-icon]")?.getBoundingClientRect().width));
   if (glyphs.size !== 1) throw new Error(`header glyphs come in several sizes: ${[...glyphs].join(", ")}`);
 };
@@ -166,30 +171,11 @@ const groupTreatment =
     const tools = ctx.document.querySelector<HTMLElement>(".acpmux-header-tools")!;
     if (ctx.document.defaultView!.getComputedStyle(tools).gap !== `${gap}px`)
       throw new Error("the group must render at its selected spacing");
-    for (const button of tools.querySelectorAll<HTMLElement>(".acpmux-header-tool:not(.acpmux-header-more)")) {
+    for (const button of tools.querySelectorAll<HTMLElement>(".acpmux-header-tool")) {
       const box = button.getBoundingClientRect();
       if (box.width !== size || box.height !== size) throw new Error("the buttons must render at their selected size");
     }
     await ctx.hover({ role: "button", name: "Terminal" });
-  };
-
-// The chat menu's ⋮ beside the other tools (Leo 2026-11-03: "i don't like how this vertical ellipsis looks spaced
-// next to everything else"). Its thin glyph in a full 24px box leaves much more empty space before it than the other
-// glyphs have. Each treatment narrows only its box and keeps the rest at its trailing side, so the row keeps its width;
-// the play checks the ⋮'s centre sits `pitch` px after the tool before it.
-const moreTreatment =
-  (pitch: number): Play =>
-  async (ctx) => {
-    const more = ctx.find({ role: "button", name: "Chat actions" });
-    const last = Array.from(ctx.document.querySelectorAll<HTMLElement>("[data-quick-action]")).at(-1);
-    if (!last) throw new Error("the chat menu must follow the other tools");
-    const center = (element: Element) => {
-      const box = element.getBoundingClientRect();
-      return box.left + box.width / 2;
-    };
-    const measured = Math.round(center(more) - center(last));
-    if (measured !== pitch) throw new Error(`the ⋮ must sit ${pitch}px after the last tool, not ${measured}px`);
-    await ctx.hover({ role: "button", name: "Chat actions" });
   };
 
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
@@ -505,10 +491,7 @@ export default componentEntry<HeaderToolsProps>({
               ? createElement(
                   "style",
                   null,
-                  `.acpmux-header-tools,.acpmux-header-tool-group{gap:${treatment.gap}px}.acpmux-header-tools .acpmux-header-tool:not(.acpmux-header-more){width:${treatment.size}px;height:${treatment.size}px}` +
-                    (treatment.more === undefined
-                      ? ""
-                      : `.acpmux-header-tools .acpmux-header-tool.acpmux-header-more{width:${treatment.more}px;height:${treatment.size}px;margin-inline-end:${treatment.size - treatment.more}px}`),
+                  `.acpmux-header-tools{--acpmux-header-tool-size:${treatment.size};--acpmux-header-tool-gap:${treatment.gap}}`,
                 )
               : null,
             createElement(module.ChatHeaderTools, props),
@@ -562,7 +545,7 @@ export default componentEntry<HeaderToolsProps>({
         hasChanges: true,
         onChanges: () => undefined,
         summary: panelToggle(true),
-        treatment: { size: 24, gap: 2 },
+        treatment: { size: "var(--grid-pill)", gap: "var(--grid-half-step)" },
       },
       play: groupTreatment(24, 2),
     },
@@ -573,7 +556,7 @@ export default componentEntry<HeaderToolsProps>({
         hasChanges: true,
         onChanges: () => undefined,
         summary: panelToggle(true),
-        treatment: { size: 28, gap: 4 },
+        treatment: { size: "28px", gap: "4px" },
       },
       play: groupTreatment(28, 4),
     },
@@ -584,29 +567,45 @@ export default componentEntry<HeaderToolsProps>({
         hasChanges: true,
         onChanges: () => undefined,
         summary: panelToggle(true),
-        treatment: { size: 24, gap: 0 },
+        treatment: { size: "24px", gap: "0px" },
       },
       play: groupTreatment(24, 0),
     },
-    "more-even-box": {
-      note: "Before: the ⋮ in the same 24px box as every tool, on the 26px pitch. Its thin glyph leaves about 18px of empty space before it where the others leave about 13px, so it reads as set apart and pushed to the edge (Leo 2026-11-03).",
-      props: { ...base, summary: panelToggle(false), treatment: { size: 24, gap: 2, more: 24 } },
-      play: moreTreatment(26),
+    "density-compact": {
+      note: "Compact density (shipped): every tool, the ⋯ included, is the layout grid's compact highlight square (--grid-pill, 24px) with its 16px glyph centred and equal padding on every side, on an even --grid-half-step gap; the hover pill is that square with the controls' radius.",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        summary: panelToggle(false),
+        treatment: { size: "var(--grid-pill)", gap: "var(--grid-half-step)" },
+      },
+      play: async (ctx) => {
+        await squareTools(24, 2)(ctx);
+        await ctx.hover({ role: "button", name: "Chat actions" });
+      },
     },
-    "more-optical": {
-      note: "Chosen (header.css): the ⋮'s box is its 16px glyph box, 24px tall, with the 8px it gives up at its trailing side. The space before its dots matches the space between the other glyphs, it sits 4px further from the edge, and the row keeps its width.",
+    "density-comfortable": {
+      note: "Comfortable density: the same squares at the grid's comfortable highlight (--grid-pill-comfortable, 28px) on a --grid-base gap, the glyph still centred with equal padding.",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        summary: panelToggle(false),
+        treatment: { size: "var(--grid-pill-comfortable)", gap: "var(--grid-base)" },
+      },
+      play: async (ctx) => {
+        await squareTools(28, 4)(ctx);
+        await ctx.hover({ role: "button", name: "Chat actions" });
+      },
+    },
+    "more-horizontal": {
+      note: "The chat menu's trigger is the app's horizontal ellipsis (action.more, SF Symbol ellipsis) in the same square as every tool, hovered (Leo 2026-11-04: \"i guess we ought to just make this a horizontal ellipsis?\").",
       props: { ...base, summary: panelToggle(false) },
-      play: moreTreatment(22),
-    },
-    "more-optical-20": {
-      note: "Alternative: a 20px box. Closer than before, but the dots still sit about 3px further from the globe than the globe from Terminal.",
-      props: { ...base, summary: panelToggle(false), treatment: { size: 24, gap: 2, more: 20 } },
-      play: moreTreatment(24),
-    },
-    "more-tight-12": {
-      note: "Alternative: a 12px box. The dots crowd the globe, and its hover and open fill is a sliver narrower than the glyph's own box.",
-      props: { ...base, summary: panelToggle(false), treatment: { size: 24, gap: 2, more: 12 } },
-      play: moreTreatment(20),
+      play: async (ctx) => {
+        await squareTools(24, 2)(ctx);
+        await ctx.hover({ role: "button", name: "Chat actions" });
+      },
     },
     idle: {
       note: "The complete tab header: Terminal, Browser, summary, and chat actions (New tab, Files and Split Down are in it).",
@@ -639,7 +638,11 @@ export default componentEntry<HeaderToolsProps>({
       play: sessionInfoOpen(true),
     },
     "panel-icon-list": {
-      note: "Panel icon option: three list rows with circular markers, matching ChatGPT's session rail control; this is the shipped choice.",
+      note: 'Panel icon option: two list rows with circular markers, centred on the icon grid; this is the shipped choice (Leo 2026-11-04: "make our session info button 2 rows too").',
+      props: { ...base, summary: panelToggle(false, "view.list.short") },
+    },
+    "panel-icon-list-three": {
+      note: "Panel icon option: the earlier three-row list (view.list), shown for comparison.",
       props: { ...base, summary: panelToggle(false, "view.list") },
     },
     "panel-icon-info": {

@@ -59,6 +59,17 @@ final class ViewerService {
         return opener.open(file, on: machine, in: pane, userChose: userChose, asText: asText)
     }
 
+    /// An action's file open on `pane` (`file.open`, `openMarkdownFile`, `cmux open`), of `machine` (nil: this Mac's): on
+    /// a pane that shows an agent chat it goes on the chat's right as the chat's own file links do (``LinkOpener``), never as
+    /// a tab beside the chat (Leo, 2026-11-04); elsewhere in `pane`. Returns why it did not open.
+    func openFile(_ file: URL, on machine: DaemonService?, from pane: PaneController, userChose: Bool, asText: Bool = false) -> String? {
+        guard AgentBesidePlacement.showsChat(pane), let opener = fileOpener as? FilePageOpener, let links = services?.linkOpener else {
+            if let machine { return openFile(file, on: machine, in: pane, userChose: userChose, asText: asText) }
+            return openFile(file, in: pane, userChose: userChose, asText: asText)
+        }
+        return links.openViewerFile(file, on: machine, from: pane, opener: opener, userChose: userChose, asText: asText) { [weak self] in self?.showRefusal($0) }
+    }
+
     /// A local Markdown file a new browser tab would show as text opens the markdown page instead
     /// (``LocalFileHandoff``). Returns whether it did.
     func openMarkdownHandoff(_ url: URL, in pane: PaneController, focus: Bool) -> Bool {
@@ -125,6 +136,8 @@ final class ViewerService {
                                              filter: markdown ? .markdown : nil)
         return picker.openPage(options) { [weak self, weak pane] urls in
             guard let self, let file = urls?.first else { return }
+            // Picked for a chat's pane: on the chat's right, as an Open Markdown File with a path is.
+            if let pane, AgentBesidePlacement.showsChat(pane) { _ = self.services?.linkOpener.openFile(file, from: pane, markdown: markdown, besideChat: true); return }
             self.openFile(file, in: pane, markdown: markdown)
         }
     }

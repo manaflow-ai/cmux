@@ -5,6 +5,12 @@ import Testing
 /// `Process.processIdentifier` raises on a process that has not launched, and a caller cancelled
 /// before `run` starts its child reaches `onCancel` first.
 @Suite struct ProcessRunnerCancellationTests {
+    @Test func aLiveChildCanCompleteWithoutADeadline() async throws {
+        let result = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/usr/bin/true"), arguments: [],
+                                                 environment: nil, timeout: nil, clock: ContinuousClock())
+        #expect(result.status == 0)
+    }
+
     private final class Sent: @unchecked Sendable {
         var pids: [pid_t] = []
     }

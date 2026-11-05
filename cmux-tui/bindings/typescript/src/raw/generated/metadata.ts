@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd. */
+/* cmux-tui mux protocol 12, IR 4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd" as const;
+export const SDK_IR_SHA256 = "4633d08bededb0f16f8bbc5de5cbbeb5f06e9d44a544162fa5efc76c6e47e3f7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2417,6 +2417,50 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "remote-host-app": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "remote-host-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+      "The verified app connection only; the secret admits only that app process and is never logged or journaled."
+    ]
+  },
+  "remote-host-call": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "remote-host-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+      "Any local Unix connection may read, refresh, request a grant, restart a worker and lower access; turning sharing on or raising a device's access is the verified app's only (origin.forbidden otherwise)."
+    ]
+  },
+  "remote-host-config": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "remote-host-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+      "The verified app connection only; the daemon saves the switches and starts or stops the host."
+    ]
+  },
+  "remote-host-status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "remote-host-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+      "Never starts the host. The device list under host.screen.devices is the verified app's only."
+    ]
+  },
   "remote-terminal-snapshot": {
     "authority": "control",
     "since": 12,
@@ -2888,6 +2932,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Writes mobile.terminalSizing and mobile.terminalSizingOrder in the host's settings file, then applies them."
+    ]
+  },
+  "set-layout-sizes": {
+    "authority": "control",
+    "since": 12,
+    "capability": "layout-sizes-batch-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "All values are on one screen; a refused value refuses them all, and nothing changes."
     ]
   },
   "set-personal-terminal": {
@@ -8136,6 +8190,75 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     }
   },
+  "LayoutSizePaneWidth": {
+    "additional_properties": false,
+    "fields": {
+      "pane": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "width": {
+        "constraints": [
+          {
+            "maximum": 1.0,
+            "minimum": 0.1
+          }
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LayoutSizeSplitRatio": {
+    "additional_properties": false,
+    "fields": {
+      "ratio": {
+        "constraints": [
+          {
+            "clamped_maximum": 0.95,
+            "clamped_minimum": 0.05
+          }
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float32"
+        }
+      },
+      "split": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LayoutSizeValue": {
+    "kind": "untagged_union",
+    "variants": [
+      {
+        "kind": "ref",
+        "name": "LayoutSizeSplitRatio"
+      },
+      {
+        "kind": "ref",
+        "name": "LayoutSizePaneWidth"
+      }
+    ]
+  },
   "LayoutUndoConfirmationRequired": {
     "additional_properties": false,
     "fields": {
@@ -9134,6 +9257,36 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "SizeState"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "RemoteHostAppResult": {
+    "additional_properties": false,
+    "fields": {
+      "host_pid": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "secret": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "socket": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -24261,6 +24414,92 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     }
   },
+  "remote-host-app": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "RemoteHostAppResult"
+    }
+  },
+  "remote-host-call": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "method": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "params": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "remote-host-config": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "computer_use": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "headless": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "screen_sharing": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "remote-host-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "remote-terminal-snapshot": {
     "request": {
       "additional_properties": false,
@@ -25984,6 +26223,39 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "SetHostSizePolicyResult"
+    }
+  },
+  "set-layout-sizes": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "transaction": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "values": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "LayoutSizeValue"
+            },
+            "kind": "array",
+            "max_items": 64,
+            "min_items": 1
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
     }
   },
   "set-personal-terminal": {

@@ -151,11 +151,11 @@ async fn process_list_shows_how_each_shell_ended() {
         list,
         vec![
             with(json!({"id": format!("{id}/b1"), "toolCallId": "toolu_bg1", "taskId": "b1",
-                        "command": "npm run dev", "state": "killed", "reason": "agent",
-                        "detail": "Stopped by the agent"})),
+                        "command": "npm run dev", "description": "Run npm run dev", "state": "killed",
+                        "reason": "agent", "detail": "Stopped by the agent"})),
             with(json!({"id": format!("{id}/b2"), "toolCallId": "toolu_bg2", "taskId": "b2",
-                        "command": "cargo test", "state": "exited", "reason": null,
-                        "detail": "Tests passed"})),
+                        "command": "cargo test", "description": "Run cargo test", "state": "exited",
+                        "reason": null, "detail": "Tests passed"})),
         ]
     );
     let moved = chat(&mut c, "bg-moved").await;

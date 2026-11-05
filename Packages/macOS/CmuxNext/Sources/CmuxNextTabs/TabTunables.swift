@@ -61,7 +61,11 @@ public nonisolated enum TabTunables {
     // wide and scrolls; 7/10 of the max width (140 compact, 168 comfortable) shows a whole short title.
     public static let scrollTabMinWidth = points("scrollTabMinWidth", "Scrolling tab width", help: "Narrowest an unpinned tab gets with Tab Overflow set to Scroll. Default: 7/10 of the max width.",
                                                  range: 40...400) { (Metrics.tabMaxWidth * 7 / 10).rounded() }
-    public static let pinnedGroupGap = points("pinnedGroupGap", "Pinned gap", help: "Extra space after the last pinned tab.") { Metrics.space2 }
+    // @intent Lawrence msg 20243: the pinned group ends in a divider with the gap between two tabs on
+    // each side of it, so the extra space is one tab gap plus the hairline.
+    public static let pinnedGroupGap = points("pinnedGroupGap", "Pinned gap", help: "Extra space after the last pinned tab, for its divider. Default: the gap between two tabs plus the line.") {
+        2 * Metrics.tabBackgroundInset + 1
+    }
     public static let contentTrailingInset = points("contentTrailingInset", "Tab trailing inset", help: "Inset of the close button from a tab's trailing edge.") { Metrics.space2 }
     public static let closeButtonSize = points("closeButtonSize", "Close button size", help: "Side of a tab's close button.") { Metrics.space6 }
     public static let closeGlyphSize = points("closeGlyphSize", "Close glyph size", help: "Side of the x inside the close button.") { Metrics.space4 - Metrics.space1 / 2 }
@@ -85,6 +89,10 @@ public nonisolated enum TabTunables {
         "tabs.separators", .tabs, "Tab separators",
         help: "A short line between tabs, hidden beside the selected and the hovered tab.",
         default: false, code: "TabTunables.separators")
+    public static let pinnedDivider = Tunable<Bool>.toggle(
+        "tabs.pinnedDivider", .tabs, "Pinned group divider",
+        help: "A short line between the pinned tabs and the other tabs.",
+        default: true, code: "TabTunables.pinnedDivider")
     public static let separatorOpacity = Tunable<CGFloat>.number(
         "tabs.separatorOpacity", .tabs, "Separator strength", help: "Opacity of the theme's separator tone in the line between tabs.",
         default: 0.2, range: 0...1, step: 0.02, unit: .fraction, code: "TabTunables.separatorOpacity")
@@ -148,7 +156,7 @@ public nonisolated enum TabTunables {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
-            + [separators.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
+            + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
                hoverPreviews.descriptor, loadingAnimation.descriptor] + VerticalTabTunables.all
     }

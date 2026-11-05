@@ -452,6 +452,7 @@ async fn move_chat(src: &mut Client, dst: &mut Client, id: &str) {
         src.call("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true})).await;
     let received = dst.call("_acpmux/transfer_receive", json!({"manifest": begin})).await;
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    let epoch = begin["epoch"].as_u64().unwrap_or(0);
     for file in begin["files"].as_array().unwrap() {
         let path = file["path"].as_str().unwrap();
         let mut offset = 0u64;
@@ -459,10 +460,10 @@ async fn move_chat(src: &mut Client, dst: &mut Client, id: &str) {
             let part = src
                 .call(
                     "_acpmux/transfer_read",
-                    json!({"transferId": begin["transferId"], "path": path, "offset": offset, "limit": 65536}),
+                    json!({"transferId": begin["transferId"], "path": path, "offset": offset, "limit": 65536, "epoch": epoch}),
                 )
                 .await;
-            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"]});
+            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"], "epoch": epoch});
             dst.call("_acpmux/transfer_write", write).await;
             offset = part["next"].as_u64().unwrap();
             if part["eof"] == true {
@@ -470,10 +471,10 @@ async fn move_chat(src: &mut Client, dst: &mut Client, id: &str) {
             }
         }
     }
-    let moved = dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await;
+    let moved =
+        dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id, "epoch": epoch})).await;
     assert_eq!(moved["sessionId"], id, "{moved}");
-    let commit =
-        json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}});
+    let commit = json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}, "epoch": epoch});
     src.call("_acpmux/transfer_commit", commit).await;
 }
 

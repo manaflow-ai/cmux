@@ -114,6 +114,13 @@ fn backend_errors_map_to_dial_errors() {
     assert_eq!(map("auth.forbidden"), DialError::NotAuthorized);
     assert_eq!(map("cloud.machine.not_bound"), DialError::Unreachable);
     assert_eq!(map("internal"), DialError::Unreachable);
+    // The detail names what failed, where the code is only `unreachable`.
+    assert_eq!(
+        ConnectInfoError::from_code("cloud.machine.not_bound", "m").detail(),
+        "cloud.machine.not_bound: the machine is not bound yet"
+    );
+    assert_eq!(ConnectInfoError::from_code("internal", "m").detail(), "internal: m");
+    assert!(ConnectInfoError::Invalid(InvalidInfo::BadKey).detail().contains("BadKey"));
     assert!(is_cloud_host(HOST));
     assert!(!is_cloud_host("inst_1"));
     assert!(info(1).allows(Service::Ssh));

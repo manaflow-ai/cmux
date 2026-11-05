@@ -1,0 +1,147 @@
+/* The composer ring's plan usage popover (PlanUsageCard.tsx). It sits in the context card's glass
+   (.acpmux-context-card, contextCard.css), on the same text inset, so the two read as one family:
+   the title in detail type and the muted color, names in body type, numbers on tabular figures, and
+   bars as the context card's (the accent over a faint text-color track), a little thicker so a
+   window's share reads at a glance, as Claude desktop's. */
+.acpmux-plan-pop.ui-card {
+  width: 300px;
+  max-width: min(300px, calc(100vw - 24px));
+  text-align: start;
+}
+
+.acpmux-plan-usage {
+  padding: var(--ds-space-2);
+}
+
+.acpmux-plan-usage-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+}
+
+.acpmux-plan-usage-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.acpmux-plan-usage-none {
+  margin-top: var(--ds-space-1);
+  color: var(--agent-text);
+}
+
+/* See all / Manage usage: a text link in the text color; only its own box takes the hover. */
+.acpmux-plan-usage-link {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.acpmux-plan-usage-link:hover {
+  background: var(--acpmux-pill-hover);
+}
+.acpmux-plan-usage-link:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
+.acpmux-plan-usage-link svg:dir(rtl) {
+  transform: scaleX(-1);
+}
+
+.acpmux-plan-usage-rows {
+  display: grid;
+  gap: var(--ds-space-2);
+  margin: var(--ds-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acpmux-plan-usage-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.acpmux-plan-usage-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acpmux-plan-usage-reset {
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.acpmux-plan-usage-value {
+  flex: none;
+  color: var(--agent-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.acpmux-plan-usage-bar {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: var(--ds-space-1);
+  margin-top: var(--ds-space-1);
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  overflow: hidden;
+}
+.acpmux-plan-usage-bar::-webkit-progress-bar {
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+.acpmux-plan-usage-bar::-webkit-progress-value {
+  border-radius: inherit;
+  background: var(--agent-accent);
+}
+.acpmux-plan-usage-bar::-moz-progress-bar {
+  border-radius: inherit;
+  background: var(--agent-accent);
+}
+
+/* Codex's layout: rows with the share left, a hairline over Manage usage, no bars. */
+.acpmux-plan-usage[data-look="codex-rows"] .acpmux-plan-usage-title {
+  padding-bottom: var(--ds-space-2);
+  box-shadow: inset 0 calc(-1 * var(--cmux-hairline)) 0 0 color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
+.acpmux-plan-usage[data-look="codex-rows"] .acpmux-plan-usage-value {
+  color: var(--agent-text);
+}
+.acpmux-plan-usage-foot {
+  margin-top: var(--ds-space-2);
+}
+
+/* Compact: the bar sits inline between the name and the percent; the reset time under it. */
+.acpmux-plan-usage[data-look="compact"] .acpmux-plan-usage-rows {
+  gap: var(--ds-space-1);
+}
+.acpmux-plan-usage[data-look="compact"] .acpmux-plan-usage-row .acpmux-plan-usage-bar {
+  flex: none;
+  width: 72px;
+  margin-top: 0;
+}
+.acpmux-plan-usage[data-look="compact"] .acpmux-plan-usage-name {
+  flex: 1;
+}

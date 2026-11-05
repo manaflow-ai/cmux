@@ -184,9 +184,9 @@ final class HomeHostView: NSView {
         let fileActions = HomeFileActions(services: services)
         self.fileActions = fileActions
         transcript.fileHost = fileActions
-        transcript.onAppLink = { [weak services, weak fileActions] url in
+        transcript.onAppLink = { [weak self, weak services, weak fileActions] url in
             if url.isFileURL, url.path.hasPrefix("/") { fileActions?.open(URL(fileURLWithPath: url.path)); return }
-            if let services { CmuxAppLinks.open(url, services: services) }
+            if let services { CmuxAppLinks.open(url, services: services, click: .init(source: self.flatMap(LinkRouter.shared.sourceTab))) }
         }
         // A link chip's hover card: the app's one coordinator, the target's live facts.
         transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))

@@ -546,25 +546,38 @@
       if (!pathName.startsWith("/")) {
         throw new Error(`previewProof: path must start with '/', got ${JSON.stringify(pathName)}`);
       }
+      for (const name of ["settleMs", "timeout"]) {
+        if (options[name] !== undefined && (!Number.isFinite(options[name]) || options[name] < 0)) {
+          throw new Error(`previewProof: ${name} must be a finite nonnegative number`);
+        }
+      }
       const url = `http://127.0.0.1:${port}${pathName}`;
-      // Register the page before navigation so startup console events are captured.
-      const preview = await tabs.open();
-      await preview.goto(url, { waitUntil: "load" });
-      const image = await screenshot(preview, options.screenshot || {});
-      const consoleErrors = (await preview.consoleMessages({ level: "error" })).map((message) => ({
-        type: message.type(),
-        text: message.text(),
-      }));
-      const pageErrors = (await preview.errors()).map((error) => ({
-        message: String(error && error.message ? error.message : error),
-        ...(error && error.stack ? { stack: String(error.stack) } : {}),
-      }));
-      return {
-        url: preview.url(),
-        screenshot: imageLine(image),
-        consoleErrors,
-        pageErrors,
-      };
+      // Capture startup events in our own background tab, leaving both the
+      // user's active tab and the REPL's current page alone.
+      const preview = await session.newPage(undefined, { background: true });
+      try {
+        await preview.goto(url, { waitUntil: "load", timeout: options.timeout });
+        // Capture the rendered load state, then keep listening for late
+        // diagnostics without delaying the screenshot.
+        const image = await screenshot(preview, options.screenshot || {});
+        if (options.settleMs > 0) await session.sleep(options.settleMs);
+        const consoleErrors = (await preview.consoleMessages({ level: "error" })).map((message) => ({
+          type: message.type(),
+          text: message.text(),
+        }));
+        const pageErrors = (await preview.errors()).map((error) => ({
+          message: String(error && error.message ? error.message : error),
+          ...(error && error.stack ? { stack: String(error.stack) } : {}),
+        }));
+        return {
+          url: preview.url(),
+          screenshot: imageLine(image),
+          consoleErrors,
+          pageErrors,
+        };
+      } finally {
+        await preview.close();
+      }
     }
 
     class Headers {

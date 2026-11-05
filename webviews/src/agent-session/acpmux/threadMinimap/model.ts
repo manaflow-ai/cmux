@@ -79,16 +79,34 @@ export function railPlacement(
 }
 /// Height choices for the compact rail. The initial height keeps a short thread from looking like a
 /// transcript slice; the share and row cap let a long thread grow toward the pane's full height before
-/// its own list scrolls. The gallery compares these arms; the selected default is the middle ground.
-export type RailHeightConfig = { initial: number; maxRows: number; maxShare: number };
+/// its own list scrolls. The `fixed-*` arms are one height for every chat, the Codex rail's size: the
+/// prompt count, the window and the pane leave it alone, and past it the list scrolls (Leo,
+/// 2026-11-04: "the left side session rail should just be having a nicer max height instead of going
+/// all the way up and down. make it look like codex's size." and "the height of the left scroll rail
+/// should never be affected by anything"). Only a view too short to hold it still clips it
+/// (railRoom). `fixed-480` ships at twice the original height and pitch; the gallery compares the arms.
+/// A `fixed` arm is one height whatever the chat, window or bottom stack (Leo, 2026-11-04: "the height
+/// of the left scroll rail should never be affected by anything"): only a view too short for it clips it.
+export type RailHeightConfig = {
+  initial: number;
+  maxRows: number;
+  maxShare: number;
+  fixed?: boolean;
+  pitch?: number;
+};
 export const RAIL_HEIGHTS = {
+  "fixed-200": { initial: 200, maxRows: 20, maxShare: 1, fixed: true },
+  "fixed-240": { initial: 240, maxRows: 24, maxShare: 1, fixed: true },
+  "fixed-360": { initial: 360, maxRows: 24, maxShare: 1, fixed: true, pitch: ROW_PITCH * 1.5 },
+  "fixed-480": { initial: 480, maxRows: 24, maxShare: 1, fixed: true, pitch: ROW_PITCH * 2 },
+  "fixed-280": { initial: 280, maxRows: 28, maxShare: 1, fixed: true },
   "initial-240-max-80": { initial: 240, maxRows: 96, maxShare: 0.8 },
   "initial-320-max-92": { initial: 320, maxRows: 128, maxShare: 0.92 },
   "initial-400-max-96": { initial: 400, maxRows: 160, maxShare: 0.96 },
   "initial-480-max-full": { initial: 480, maxRows: 200, maxShare: 1 },
 } as const satisfies Record<string, RailHeightConfig>;
 export type RailHeightArm = keyof typeof RAIL_HEIGHTS;
-export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "initial-320-max-92";
+export const DEFAULT_RAIL_HEIGHT: RailHeightArm = "fixed-480";
 /// The fisheye by row distance from the hovered (or scrubbed) row: 26, 20, 14, 10, then 6 px.
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
@@ -196,11 +214,14 @@ export function waveFollow(focus: number, target: number, elapsed: number): numb
 /// ease to its new length when the hovered row changes, so a sweep zips down the rail tick by tick.
 /// A tick heading somewhere new starts from where it is, never from rest.
 export type ZipMotion = { from: number; to: number; start: number; ms: number };
-/// A tick that is not the hovered one easing to its new length.
+/// A tick shrinking to its new length as the hovered row moves away: the zipper's trailing tail.
 export const ZIP_MS = MOTION_MS.standard;
-/// The hovered tick growing as the pointer arrives from off the rail. On a move between rows the
-/// hovered tick is already longer than its old neighbours would allow it to wait, so it takes its
-/// full length at once (`zipStep`).
+/// A tick growing: the hovered tick as the pointer arrives from off the rail, and every tick the bump
+/// moves onto. Growing over the quick step keeps the bump's leading side up with the pointer: over
+/// ZIP_MS a sweep left the hovered tick long and the rows ahead of it short, holes in the wave (Leo,
+/// 2026-11-04: "hovering across the session rail gets a bit laggy and the missing chunks of the wave
+/// bother me :( it needs to get faster"). On a move between rows the hovered tick is already longer
+/// than its old neighbours would allow it to wait, so it takes its full length at once (`zipStep`).
 export const ZIP_HOVER_MS = MOTION_MS.quick;
 /// The pointer leaving: every tick shrinks back to rest over the scale's ceiling (Leo, 2026-11-03:
 /// "chatgpt has an animation for when it shrinks").
@@ -242,7 +263,7 @@ export function zipRetarget(
       motions.delete(index);
       continue;
     }
-    const ms = hovered === undefined ? ZIP_RELEASE_MS : index === hovered ? ZIP_HOVER_MS : ZIP_MS;
+    const ms = hovered === undefined ? ZIP_RELEASE_MS : index === hovered || to > value ? ZIP_HOVER_MS : ZIP_MS;
     motions.set(index, { from: value, to, start: now, ms });
   }
 }
@@ -293,8 +314,9 @@ export function railRoom(viewportHeight: number, foot = viewportHeight): { top: 
 /// 70% of the window, after which the rows scroll. It fits the room the transcript gives it
 /// (railRoom: its viewport less the mask's bands), so a short pane's rows all scroll into view and no
 /// tick sits under the transcript's fades (Leo 2026-10-22: "it wouldn't show the highlighted bottom
-/// ... it just didn't go to the bottom"). It is never shorter than the band, the `band` prompts on
-/// screen: in a pane too short for both, the mask's clearance gives way first, up to the whole view.
+/// ... it just didn't go to the bottom"). A `fixed` arm is its one height, clipped only by that room.
+/// The others are never shorter than the band, the `band` prompts on screen: in a pane too short for
+/// both, the mask's clearance gives way first, up to the whole view.
 export function railHeight(
   count: number,
   windowHeight: number,
@@ -305,6 +327,11 @@ export function railHeight(
 ): number {
   if (count <= 0) return 0;
   const room = railRoom(viewportHeight, foot);
+  // A fixed rail does not grow for the band: its list scrolls to keep the band in view (railScrollTop).
+  if (config.fixed)
+    return viewportHeight > 0
+      ? Math.max(0, Math.min(config.initial, Math.floor(room.bottom - room.top)))
+      : config.initial;
   const height = Math.min(
     Math.max(count * ROW_PITCH, config.initial),
     config.maxRows * ROW_PITCH,
@@ -362,11 +389,12 @@ export function railFades(
   count: number,
   height: number,
   top: number,
+  pitch = ROW_PITCH,
 ): { top: boolean; bottom: boolean } {
   const fade = railFade(height);
   return {
-    top: top > 0 && band.first * ROW_PITCH - top >= fade,
-    bottom: count * ROW_PITCH - top - height > 1 && (band.last + 1) * ROW_PITCH - top <= height - fade,
+    top: top > 0 && band.first * pitch - top >= fade,
+    bottom: count * pitch - top - height > 1 && (band.last + 1) * pitch - top <= height - fade,
   };
 }
 
@@ -383,14 +411,15 @@ export function railScrollTop(
   count: number,
   height: number,
   current: number,
+  pitch = ROW_PITCH,
 ): number {
-  const room = Math.max(0, count * ROW_PITCH - height);
+  const room = Math.max(0, count * pitch - height);
   if (room === 0) return 0;
   const clamp = (value: number) => Math.max(0, Math.min(room, value));
   // The offsets that show the band whole: with the fades clear of it (the inner pair), or at all.
   // An edge row of the list needs no clearance: the list at that end draws no fade there.
-  const highest = band.first * ROW_PITCH;
-  const lowest = (band.last + 1) * ROW_PITCH - height;
+  const highest = band.first * pitch;
+  const lowest = (band.last + 1) * pitch - height;
   if (lowest > highest) return clamp(band.last >= count - 1 ? room : highest);
   if (band.last >= count - 1) return room;
   const fade = railFade(height);
@@ -398,7 +427,7 @@ export function railScrollTop(
   const clearLowest = lowest + fade;
   const [low, high] = clearLowest <= clearHighest ? [clearLowest, clearHighest] : [lowest, highest];
   if (current >= low && current <= high) return clamp(current);
-  return clamp(Math.min(high, Math.max(low, band.first * ROW_PITCH - height / 3)));
+  return clamp(Math.min(high, Math.max(low, band.first * pitch - height / 3)));
 }
 
 /// The card's top for a row centered at `center`: centered on it, kept inside the viewport.

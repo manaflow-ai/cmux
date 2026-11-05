@@ -106,6 +106,8 @@ impl Hub {
                 retained,
             )
         };
+        // Every row, closed ones too, reads the new usage warning thresholds.
+        self.events.changed();
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
         self.idle_wake.notify_one();
         // Pooled sessions started under the old catalog are never served.

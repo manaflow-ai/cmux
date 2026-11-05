@@ -242,6 +242,14 @@
       "reads no picker output and so waits on one fixed label (scripts/ci/runner_routing_table.py). All three",
       "lists only shrink."
     ],
+    "pr-red-checks-comment.yml#comment": "portable-checks",
+    "ci-guards.yml#guard-status": "portable-checks",
+    "pr-checks.yml#size": "portable-checks",
+    "pr-checks.yml#ui-review": "portable-checks",
+    "pr-checks.yml#split": "portable-checks",
+    "cmux-next-fast-gates.yml#resolve": "portable-checks",
+    "cmux-next-fast-gates.yml#post": "portable-checks",
+    "web-validation.yml#web-validation": "portable-checks",
     "agent-brands.yml#swift-test": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -286,6 +294,7 @@
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
+    "cloud-chat-proof.yml#proof": {"class": "apple-app-build", "picker_followup": "builds and runs the tagged app while holding the dev stack pair: an ephemeral Blacksmith Mac from the declared macos_26 pool only, never a persistent owned Mac; an owned route needs the per-job secret isolation the signing pickers use"},
     "cmux-mobile-ffi.yml#apple": {
       "class": "apple-swift-tests",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
@@ -327,6 +336,10 @@
       "class": "apple-gui",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
+    "screen-stream-eval.yml#eval": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the measurement to the controller with cmux-ci run"
+    },
     "cmux-next-perf-budgets.yml#blacksmith-mac": {
       "class": "apple-gui",
       "picker_followup": "runs-on compares inputs.runner_class but always names a Blacksmith label; a measurement pinned to one hardware class needs a picker over that class's pools"
@@ -361,6 +374,7 @@
     },
     "cmux-next.yml#app-compile-fleet": "apple-app-build",
     "cmux-next.yml#checks": "portable-checks",
+    "cmux-next.yml#path_route": "portable-checks",
     "cmux-next.yml#cmux-scheme-compile": "apple-app-build",
     "cmux-next.yml#daemon-test": "apple-swift-tests",
     "cmux-next.yml#dev-landing-compile": "apple-app-build",
@@ -446,6 +460,11 @@
     "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks"},
     "nightly.yml#nightly-identity-legacy-published": {"class": "portable-checks"},
     "nightly.yml#report-nightly-failure": {"class": "portable-checks"},
+    "nightly.yml#republish-nightly-next": {"class": "portable-checks"},
+    "nightly.yml#decide": {"class": "portable-checks"},
+    "nightly.yml#await-release-surface-ack": {"class": "portable-checks"},
+    "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
+    "nightly.yml#published-in": {"class": "portable-checks"},
     "nightly.yml#close-nightly-failure-issue": {"class": "portable-checks"},
     "nightly.yml#resolve-nightly-cmux-tui-client": {"class": "portable-checks"},
     "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks"},
@@ -463,21 +482,21 @@
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
     "nightly.yml#generate-nightly-deltas": "apple-signing-release",
     "nightly.yml#recover-nightly-next-notarization": "apple-signing-release",
-    "nightly.yml#refresh-compilation-cache": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
+    "nightly.yml#promote-nightly-next": {
+      "class": "apple-signing-release",
+      "picker_followup": "a main dispatch with no job before it to pick a runner; it takes the owned nightly slot, which admits the exclusive claim the release App key needs (the nightly-only minis refuse a signing-class job)"
     },
+    "nightly.yml#publish-nightly": "apple-signing-release",
+    "nightly.yml#publish-nightly-next-github": "apple-signing-release",
+    "nightly.yml#publish-nightly-next-github-names": "apple-signing-release",
+    "nightly.yml#refresh-compilation-cache": "apple-app-build",
     "nightly.yml#refresh-test-compilation-cache": {
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "nightly.yml#sign-nightly-identity-legacy": "apple-signing-release",
-    "nightly.yml#signer-dmg-image": "apple-signing-release",
     "nightly.yml#verify-final-dmg-nightly": "apple-signing-release",
-    "nightly.yml#launch-smoke-nightly": "apple-signing-release",
     "nightly.yml#verify-nightly-identity-legacy": "apple-signing-release",
-    "nightly.yml#legacy-signer-dmg-image": "apple-signing-release",
-    "nightly.yml#verify-nightly-identity-legacy-pool": "apple-signing-release",
     "nightly.yml#verify-recovered-nightly-next": "apple-signing-release",
     "nightly.yml#verify-signed-nightly": "apple-signing-release",
     "nightly.yml#visual-gate-nightly": "apple-gui",
@@ -558,19 +577,9 @@
   "hosted_light_jobs": {
     "$comment": [
       "allowed_secrets names every secret each job may reference, including inherited workflow env; omitted means none.",
-      "Same-repository nightly jobs may use GitHub-hosted Ubuntu only during their declared bootstrap route.",
+      "Nightly jobs never use GitHub-hosted runners: they run only on our own Mac minis (tests/test_nightly_owned_minis_only.py).",
       "The route still prefers a verified fleet reservation and measured Blacksmith overflow; this table never permits release/signing operations, credentialed visual-gate routing or artifact publication on hosted Ubuntu."
     ],
-    "nightly.yml#decide": {"class": "portable-checks", "reason": "routing bootstrap", "allowed_secrets": ["GLAEDA_ROUTE_APP_KEY"]},
-    "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks", "reason": "runner picker", "allowed_secrets": ["GLAEDA_ROUTE_APP_KEY"]},
-    "nightly.yml#resolve-nightly-cmux-tui-client": {"class": "portable-checks", "reason": "client reuse lookup"},
-    "nightly.yml#resolve-nightly-ghostty-cli-helper": {"class": "portable-checks", "reason": "helper reuse lookup"},
-    "nightly.yml#find-nightly-next-recovery": {"class": "portable-checks", "reason": "recovery lookup"},
-    "nightly.yml#visual-gate-nightly-verdict": {"class": "portable-checks", "reason": "visual verdict bookkeeping"},
-    "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks", "reason": "visual report bookkeeping"},
-    "nightly.yml#nightly-identity-legacy-published": {"class": "portable-checks", "reason": "publication state bookkeeping"},
-    "nightly.yml#report-nightly-failure": {"class": "portable-checks", "reason": "failure report bookkeeping"},
-    "nightly.yml#close-nightly-failure-issue": {"class": "portable-checks", "reason": "failure issue bookkeeping"},
     "cmux-next-fast-gates.yml#resolve": {"class": "portable-checks", "reason": "resolver: names the head and base, 10 s of work (run 41389051872)"},
     "cmux-next-fast-gates.yml#post": {"class": "portable-checks", "reason": "report step: posts the cmux-next/fast-gates status"},
     "ci.yml#changes": {"class": "portable-checks", "reason": "CI router: change classification and runner picks, 11 s of work (run 41385632466)", "allowed_secrets": ["GLAEDA_ROUTE_APP_KEY"]},
@@ -578,7 +587,24 @@
     "ci-guards.yml#guard-status": {"class": "portable-checks", "reason": "report step: rolls up the guard job results, 2 s of work (runs 41393826242, 41393801145)"},
     "pr-checks.yml#size": {"class": "portable-checks", "reason": "report step: one GraphQL read and a size warning, 4 s of work (runs 41394557472, 41394554327)"},
     "pr-checks.yml#ui-review": {"class": "portable-checks", "reason": "report step: one file-list read and an advisory warning, 4 s of work (run 41394554327)"},
-    "cmux-next.yml#path_route": {"class": "portable-checks", "reason": "router: classifies the PR's paths and probes the published tree, 32-51 s of work (runs 41394344151, 41393817927)"}
+    "web-validation.yml#web-validation": {"class": "portable-checks", "reason": "status rollup: accepts selected web results"},
+    "cmux-next.yml#path_route": {"class": "portable-checks", "reason": "router: classifies the PR's paths and probes the published tree, 32-51 s of work (runs 41394344151, 41393817927)"},
+    "cmux-next.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap: starts independently of the labels it validates"},
+    "ci-web.yml#web-subarea-scope": {"class": "portable-checks", "reason": "router: classifies the webview subareas and hands the shards their duration manifest, 29 s of work (run 41762274751)"},
+    "ci-web.yml#webviews-test-durations": {"class": "portable-checks", "reason": "bookkeeping: merges and saves the shard duration manifest beside web-subarea-scope's restore, 5 s of work (run 41761413284)"},
+    "resolve-runners.yml#resolve": {"class": "portable-checks", "reason": "resolver: prints the runner capability map, 5 s of work (run 41762274751)"}
+  },
+  "portable_light_jobs": {
+    "$comment": [
+      "Secretless placement bootstraps are admitted as light jobs so their short runner-state read cannot queue behind the paid overflow.",
+      "They fail open to the workflow's existing hosted or Blacksmith fallback when CI_RUNNER_STATE is stale or unavailable."
+    ],
+    "pr-red-checks-comment.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
+    "ci-guards.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap after guard completion"},
+    "pr-checks.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
+    "cmux-next-fast-gates.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
+    "web-validation.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
+    "ci.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"}
   },
   "linux_sizes": {
     "$comment": [
@@ -683,45 +709,6 @@
       "nightly-next-launch-smoke.yml#crashed": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class); no runs in the window"},
       "nightly-next-launch-smoke.yml#pick": {"size": 4, "failover": 8, "measured": {"16": [110.0, 0.4, 0.48]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "nightly-next-launch-smoke.yml#record": {"size": 4, "failover": 8, "measured": {"16": [36.0, 0.08, 0.08]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
-      "nightly.yml#attest-nightly-remote-daemon": {"routes": [16, 32], "target": 4, "measured": {"32": [72.5, 0.71, 0.35], "4": [6.5, 0.19, 0.23]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#await-nightly-tree-marker": {"size": 4, "measured": {"32": [32.5, 0.21, 0.18]}, "why": "about one core on 32 vCPU (measured); the publication path never needed 32 (Leo, 2026-11-03: \"the signing/publishing don't require 30 cores\")"},
-      "nightly.yml#await-release-surface-ack": {"routes": [16, 32], "target": 4, "measured": {}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#build-nightly-app": {"routes": [32], "target": 4, "measured": {}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#build-nightly-ghostty-cli-helper": {"routes": [16, 32], "target": 4, "measured": {"32": [135.0, 0.49, 0.62]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#build-nightly-inputs": {"routes": [16, 32], "target": 4, "measured": {"32": [116.5, 1.46, 1.98]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#build-nightly-remote-daemon": {"routes": [16, 32], "target": 4, "measured": {"32": [71.0, 0.45, 0.6], "4": [6.0, 0.41, 0.55]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#close-nightly-failure-issue": {"routes": [16, 32], "target": 4, "measured": {"32": [16.5, 0.07, 0.07]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#decide": {"routes": [16, 32], "target": 4, "measured": {"32": [191.0, 0.34, 0.52], "2": [30.5, 0.35, 0.35]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#check-nightly-webviews": {"size": 16, "failover": 32, "measured": {}, "why_32": "route-visual-gate-nightly's route (the all-nightly reservation, then the Linux pool's 16 or 32 vCPU member, else 32, 16 on a re-run); ci-web's react-apps-check (1) ran the same checks in 35 s on 16 vCPU (job 125255514601), so either size ends well inside the app build"},
-      "nightly.yml#find-nightly-next-recovery": {"routes": [16, 32], "target": 4, "measured": {"32": [197.0, 1.43, 1.42]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#keep-published-dsyms": {"routes": [32], "target": 4, "measured": {"32": [61.0, 0.6, 0.72]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#sentry-dsyms-nightly": {"size": 4, "measured": {}, "why": "network-bound Sentry dSYM upload (under 1 min in build-nightly-app before Sentry slowed, 10.8 and 19.7 min in runs 41471126151, 41466468306); the signer route: GitHub-hosted Ubuntu first, Blacksmith 4 vCPU on a re-run"},
-      "nightly.yml#legacy-identity-target": {"size": 4, "measured": {"32": [176.5, 0.39, 0.57]}, "why": "14-20 second feed compare (runs 41279553524, 41416268105); the signer route: GitHub-hosted Ubuntu first, Blacksmith 4 vCPU on a re-run"},
-      "nightly.yml#nightly-identity-legacy-published": {"routes": [16, 32], "target": 4, "measured": {"32": [67.5, 0.04, 0.05]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#pick-nightly-build-runner": {"routes": [16, 32], "target": 4, "measured": {"32": [222.0, 0.74, 0.73]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#pick-nightly-sign-runner": {"routes": [4, 16, 32], "target": 4, "measured": {"32": [109.5, 0.33, 0.4]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#prepare-nightly-variant": {"size": 4, "failover": 16, "measured": {"32": [89.0, 0.06, 0.05]}, "why": "about one core on 32 vCPU (measured); the publication path never needed 32 (Leo, 2026-11-03: \"the signing/publishing don't require 30 cores\")"},
-      "nightly.yml#prepare-nightly-variant-primary": {"size": 4, "measured": {"32": [87.5, 0.96, 1.08]}, "why": "about one core on 32 vCPU (measured); the publication path never needed 32 (Leo, 2026-11-03: \"the signing/publishing don't require 30 cores\")"},
-      "nightly.yml#promote-nightly-next": {"routes": [16, 32], "target": 4, "measured": {"2": [106.0, 0.25, 0.22]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#promote-nightly-next-acked": {"routes": [16, 32], "target": 4, "measured": {}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#publish-nightly": {"size": 4, "measured": {"32": [64.0, 1.39, 1.7]}, "why": "about one core on 32 vCPU (measured); the publication path never needed 32 (Leo, 2026-11-03: \"the signing/publishing don't require 30 cores\")"},
-      "nightly.yml#publish-nightly-identity-legacy": {"routes": [32], "target": 4, "measured": {"32": [39.0, 0.41, 0.62]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#publish-nightly-next-github": {"size": 4, "measured": {"32": [53.0, 0.89, 1.08]}, "why": "about one core on 32 vCPU (measured); the publication path never needed 32 (Leo, 2026-11-03: \"the signing/publishing don't require 30 cores\")"},
-      "nightly.yml#publish-nightly-next-github-names": {"size": 4, "measured": {"32": [53.0, 0.96, 1.15]}, "why": "about one core on 32 vCPU (measured); the publication path never needed 32 (Leo, 2026-11-03: \"the signing/publishing don't require 30 cores\")"},
-      "nightly.yml#publish-nightly-reel": {"routes": [32], "target": 8, "measured": {"32": [51.5, 2.48, 7.4]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#publish-release-notes": {"routes": [32], "target": 4, "measured": {"32": [52.5, 0.27, 0.32]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#published-in": {"routes": [16, 32], "target": 8, "measured": {"32": [52.0, 5.64, 12.87]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#report-nightly-failure": {"routes": [16, 32], "target": 4, "measured": {"32": [69.0, 0.13, 0.1], "2": [13.0, 0.38, 0.2]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#report-visual-gate-nightly": {"routes": [16, 32], "target": 4, "measured": {"32": [14.5, 0.05, 0.07]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#republish-nightly-deltas": {"routes": [32], "target": 4, "measured": {"32": [16.0, 0.33, 0.5]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#resolve-nightly-cmux-tui-client": {"routes": [16, 32], "target": 4, "measured": {"32": [201.5, 0.58, 0.58], "16": [1.0, 0.51, 0.5], "2": [31.5, 1.86, 2.43]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#resolve-nightly-ghostty-cli-helper": {"routes": [16, 32], "target": 4, "measured": {"32": [118.0, 0.27, 0.18]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#route-visual-gate-nightly": {"routes": [16, 32], "target": 4, "measured": {"32": [18.5, 0.16, 0.12]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#sign-release-notes": {"routes": [32], "target": 4, "measured": {"32": [56.5, 0.62, 0.87]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#signer-app": {"routes": [4, 16, 32], "target": 8, "measured": {"32": [87.0, 2.99, 4.58]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#signer-build": {"routes": [4, 16, 32], "target": 4, "measured": {"32": [189.0, 0.17, 0.13], "16": [0.5, 0.1, 0.1]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#signer-dmg": {"routes": [4, 16, 32], "target": 8, "measured": {"32": [72.5, 3.35, 4.0]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
-      "nightly.yml#visual-gate-nightly-verdict": {"routes": [16, 32], "target": 16, "measured": {"32": [12.5, 21.85, 34.33]}, "pending": "#30098, #30116, #30113, #30278 and #30283 change nightly.yml's runs-on"},
       "presence.yml#test": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class); no runs in the window"},
       "release.yml#pick-sign-runner": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class); no runs in the window"},
       "remote-daemon.yml#remote-daemon-tests": {"size": 4, "failover": 8, "measured": {"32": [1.5, 0.38, 0.37], "16": [1.0, 0.78, 0.53], "4": [3.0, 0.4, 0.43]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},

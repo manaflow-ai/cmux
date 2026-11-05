@@ -21,7 +21,7 @@ import { activity, assistant, chat, CONTEXT_BREAKDOWN, CWD, tool } from "../../.
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { createWorkflowAdapter } from "../summary/foldWorkflows";
-import { sessionSummary } from "../summary/sessionSummary";
+import { sessionSummary, type SummaryWakeup } from "../summary/sessionSummary";
 import { workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
 import { SessionInfo, SessionInfoPanel, type SessionInfoPlacement } from "./SessionInfo";
 import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
@@ -448,18 +448,17 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
   const after = title.getBoundingClientRect();
   if (after.left !== before.left || after.width !== before.width)
     throw new Error("The title moved when the grip showed");
-  if (handle.getBoundingClientRect().right > after.left + 0.5) throw new Error("The grip is not left of the title");
-  const icon = head.querySelector(".acpmux-session-info-section__icon");
-  if (icon && handle.getBoundingClientRect().right > icon.getBoundingClientRect().left + 0.5)
-    throw new Error("The grip overlaps the head's icon");
   // Leo, 2026-11-03: "just align the draggable. in fact, make it a more horizontally wide symbol". The
-  // dots are wider than tall, centred on the head's left edge (where its hover pill starts) and on its
-  // middle line.
+  // dots are wider than tall and on the head's middle line. Leo, 2026-11-04: "this is off", of the dots
+  // centred on the pill's left edge: they sit wholly inside the pill, left of its icon or title.
   const dots = handle.querySelector("svg")!.getBoundingClientRect();
   const pill = head.getBoundingClientRect();
+  if (dots.right > after.left + 0.5) throw new Error("The grip is not left of the title");
+  const icon = head.querySelector(".acpmux-session-info-section__icon");
+  if (icon && dots.right > icon.getBoundingClientRect().left + 0.5)
+    throw new Error("The grip overlaps the head's icon");
   if (!(dots.width > dots.height)) throw new Error(`The grip is ${dots.width}x${dots.height}, not wider than tall`);
-  if (Math.abs(dots.left + dots.width / 2 - pill.left) > 0.5)
-    throw new Error("The grip is not centred on its head's left edge");
+  if (dots.left < pill.left + 0.5) throw new Error("The grip is not wholly inside its head's pill");
   if (Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) > 0.5)
     throw new Error("The grip is not on its head's middle line");
 };
@@ -481,7 +480,8 @@ const gripLeftOfEveryTitle: Play = async (ctx) => {
   for (const section of sections()) {
     const handle = section.querySelector(":scope > .acpmux-session-info-section__handle");
     if (!handle || handle.getClientRects().length === 0) continue;
-    const grip = handle.getBoundingClientRect();
+    // The dots: the handle's hit box reaches over the icon box's empty margin.
+    const grip = handle.querySelector("svg")!.getBoundingClientRect();
     const first = section.querySelector(
       ":scope > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger, :scope > .acpmux-session-info-section__head",
     );
@@ -726,6 +726,84 @@ const full: Props = {
   // Every section in view: the variants below compare the sections themselves. The default view
   // (Show more closed) is `compact-more`.
   more: true,
+};
+
+/// Wakeups and cron jobs as a coordinator schedules them (Leo, 2026-11-03: "expired waits like 'Wake
+/// at ~03:37Z' stay listed forever ... one shows a raw cron string '17 * * * *'"): two waits still
+/// ahead, three whose time has passed, an hourly pass, a five-minute poll a CronDelete removed, a
+/// recurring job past its 7 days and a failed call. Times are relative to the gallery's load.
+const MINUTE = 60_000;
+const scheduledMix: SummaryWakeup[] = [
+  {
+    id: "w-ahead",
+    kind: "wakeup",
+    text: "Wake when the nightly finishes",
+    startedAt: started - 2 * MINUTE,
+    dueAt: started + 25 * MINUTE,
+  },
+  {
+    id: "w-merge",
+    kind: "wakeup",
+    text: "Waiting on the merge retries, then re-check",
+    startedAt: started - MINUTE,
+    dueAt: started + 40 * MINUTE,
+  },
+  {
+    id: "w-done-1",
+    kind: "wakeup",
+    text: "Wake at ~03:37Z when cmux#32865's checks land",
+    startedAt: started - 64 * MINUTE,
+    dueAt: started - 60 * MINUTE,
+  },
+  {
+    id: "w-done-2",
+    kind: "wakeup",
+    text: "Production promote: check the run",
+    startedAt: started - 30 * MINUTE,
+    dueAt: started - 18 * MINUTE,
+  },
+  {
+    id: "w-done-3",
+    kind: "wakeup",
+    text: "Waiting on the three stuck merges",
+    startedAt: started - 9 * MINUTE,
+    dueAt: started - 4 * MINUTE,
+  },
+  {
+    id: "c-hourly",
+    kind: "cron",
+    cron: "17 * * * *",
+    text: "Hourly coordinator pass",
+    startedAt: started - 90 * MINUTE,
+  },
+  {
+    id: "c-poll",
+    kind: "cron",
+    cron: "*/5 * * * *",
+    text: "Poll the webview verdicts",
+    startedAt: started - 50 * MINUTE,
+    cancelledAt: started - 12 * MINUTE,
+  },
+  {
+    id: "c-old",
+    kind: "cron",
+    cron: "0 9 * * 1-5",
+    text: "Morning stand-up summary",
+    startedAt: started - 8 * 24 * 60 * MINUTE,
+  },
+  {
+    id: "w-failed",
+    kind: "wakeup",
+    text: "Fallback heartbeat while pinned merges run",
+    startedAt: started - 3 * MINUTE,
+    failed: true,
+  },
+];
+const scheduledProps: Props = {
+  ...full,
+  processes: processes.filter((process) => process.state === "running" && !/vite|dev/.test(process.command)),
+  transcriptTasks: [],
+  made: { ...full.made!, scheduled: scheduledMix },
 };
 
 /// A busy coordinator, as in Leo's 2026-10-21 screenshot: twelve subagents and five chats it started
@@ -1327,7 +1405,7 @@ export default componentEntry<Props>({
       },
     },
     "reorder-dragging": {
-      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Usage and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
+      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (the head hover tint over the glass and a shadow, only while held, never a near-opaque slab) and follows the pointer; a neighbour makes way once its leading edge passes the middle of that neighbour; Usage and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
       props: full,
       play: dragOutputsOverContext,
     },
@@ -1592,6 +1670,14 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => /cargo build/.test(text(ctx)));
       },
     },
+    "tasks-scheduled": {
+      note: "Background tasks with mixed kinds: the running command (terminal), the two waits still ahead (clock, with the time each wakes) and the hourly pass (repeat, 'hourly at :17', not '17 * * * *'). The waits whose time passed, the removed poll, the job past its 7 days and the failed call fold into 6 finished, latest first: Failed, Done · 5m, Cancelled, Done · 12m, Done · 4m, Expired.",
+      props: scheduledProps,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /6 finished/ });
+        await ctx.waitFor(() => /Expired/.test(text(ctx)));
+      },
+    },
     "cloud-empty": {
       note: "A Cloud chat before the agent reports usage or edits anything: Context and Outputs have no sections yet.",
       props: {
@@ -1662,13 +1748,13 @@ export default componentEntry<Props>({
       play: chevronOnHoverAfterTitle,
     },
     "header-grip-hover": {
-      note: "A section head under the pointer: the six-dot grip shows left of the title, in the head's leading padding (Leo, 2026-11-03: \"why dont we have the drag grabber to the left of the title\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
+      note: 'A section head under the pointer: the six-dot grip shows left of the title, wholly inside the head\'s pill in its leading padding and on its middle line (Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title"; 2026-11-04, of the grip centred on the pill\'s edge: "this is off"). The title does not move. At rest no grip draws, and a pointer over the section\'s other rows shows none.',
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
     },
-    "header-grip-inside": {
-      note: "Compared, not chosen: the wide grip inside the head's pill, in its leading padding. It crowds the icon or title it ends at.",
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:var(--grid-base)" },
+    "header-grip-edge": {
+      note: 'Before, for comparison: the grip centred on the head\'s left edge, half on and half off its pill, as cmux#34269 drew it (Leo, 2026-11-04: "this is off").',
+      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:0px" },
       play: hoverFirstHead,
     },
     "header-grip-gutter": {
@@ -1677,7 +1763,7 @@ export default componentEntry<Props>({
       play: hoverFirstHead,
     },
     "header-grip-tall": {
-      note: "Before, for comparison: the grip turned upright (two across, three down), as cmux#32930 drew it, half on the pill's edge.",
+      note: "Before, for comparison: the grip turned upright (two across, three down), as cmux#32930 drew it.",
       props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-turn:rotate(90deg)" },
       play: hoverFirstHead,
     },

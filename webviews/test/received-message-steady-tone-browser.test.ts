@@ -127,7 +127,10 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
     before.replace(`color ${lift[0]}`, `color ${lift[1]}`) === after && before.startsWith(`color ${lift[0]} `);
   const differences = (before: Record<string, string>, after: Record<string, string>, what: string) =>
     Object.keys(before)
-      .filter((key) => after[key] !== before[key] && !(!key.includes("cv-disclosure__panel") && lifted(before[key], after[key])))
+      .filter(
+        (key) =>
+          after[key] !== before[key] && !(!key.includes("cv-disclosure__panel") && lifted(before[key], after[key])),
+      )
       .map((key) => `${what}: ${key}\n    rest  ${before[key]}\n    now   ${after[key]}`);
 
   const SCENES: [string, string][] = [

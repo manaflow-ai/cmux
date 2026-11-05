@@ -14961,127 +14961,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to cmux in the cmux app first."
+            "value": "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Melde dich zuerst in der cmux-App bei cmux an."
+            "state": "translated",
+            "value": "Melde dich zuerst bei cmux an: Führe `cmux cloud sign-in` aus oder wähle „Anmelden“ in der cmux-App."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Connectez-vous d’abord à cmux dans l’app cmux."
+            "state": "translated",
+            "value": "Connectez-vous d’abord à cmux : exécutez `cmux cloud sign-in` ou choisissez Se connecter dans l’app cmux."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "سجّل الدخول إلى cmux في تطبيق cmux أولًا."
+            "state": "translated",
+            "value": "سجّل الدخول إلى cmux أولاً: شغّل `cmux cloud sign-in`، أو اختر تسجيل الدخول في تطبيق cmux."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Primero inicia sesión en cmux en la app de cmux."
+            "state": "translated",
+            "value": "Primero inicia sesión en cmux: ejecuta `cmux cloud sign-in` o elige Iniciar sesión en la app cmux."
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "請先在 cmux App 中登入 cmux。"
+            "state": "translated",
+            "value": "請先登入 cmux：執行 `cmux cloud sign-in`，或在 cmux 應用程式中選擇「登入」。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "请先在 cmux App 中登录 cmux。"
+            "state": "translated",
+            "value": "请先登录 cmux：运行 `cmux cloud sign-in`，或在 cmux 应用中选择“登录”。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "먼저 cmux 앱에서 cmux에 로그인하세요."
+            "state": "translated",
+            "value": "먼저 cmux에 로그인하세요. `cmux cloud sign-in`을 실행하거나 cmux 앱에서 로그인을 선택하세요."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "先に cmux アプリで cmux にサインインしてください。"
+            "state": "translated",
+            "value": "先に cmux にサインインしてください。`cmux cloud sign-in` を実行するか、cmux アプリで「サインイン」を選びます。"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Prvo se prijavi u cmux u aplikaciji cmux."
+            "state": "translated",
+            "value": "Prvo se prijavite u cmux: pokrenite `cmux cloud sign-in` ili odaberite Prijava u aplikaciji cmux."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Log først ind på cmux i cmux-appen."
+            "state": "translated",
+            "value": "Log ind på cmux først: kør `cmux cloud sign-in`, eller vælg Log ind i cmux-appen."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Accedi prima a cmux nell’app cmux."
+            "state": "translated",
+            "value": "Accedi prima a cmux: esegui `cmux cloud sign-in` oppure scegli Accedi nell’app cmux."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "សូមចូល cmux ក្នុងកម្មវិធី cmux ជាមុនសិន។"
+            "state": "translated",
+            "value": "ចូល cmux ជាមុនសិន៖ ដំណើរការ `cmux cloud sign-in` ឬជ្រើស ចូល ក្នុងកម្មវិធី cmux។"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Logg først på cmux i cmux-appen."
+            "state": "translated",
+            "value": "Logg inn på cmux først: kjør `cmux cloud sign-in`, eller velg Logg inn i cmux-appen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Najpierw zaloguj się do cmux w aplikacji cmux."
+            "state": "translated",
+            "value": "Najpierw zaloguj się do cmux: uruchom `cmux cloud sign-in` lub wybierz Zaloguj się w aplikacji cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Primeiro entre no cmux pelo app cmux."
+            "state": "translated",
+            "value": "Entre no cmux primeiro: execute `cmux cloud sign-in` ou escolha Entrar no app cmux."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Сначала войдите в cmux в приложении cmux."
+            "state": "translated",
+            "value": "Сначала войдите в cmux: выполните `cmux cloud sign-in` или выберите «Войти» в приложении cmux."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ลงชื่อเข้าใช้ cmux ในแอป cmux ก่อน"
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้ cmux ก่อน: เรียกใช้ `cmux cloud sign-in` หรือเลือก ลงชื่อเข้าใช้ ในแอป cmux"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Önce cmux uygulamasında cmux'a giriş yapın."
+            "state": "translated",
+            "value": "Önce cmux'a giriş yapın: `cmux cloud sign-in` komutunu çalıştırın veya cmux uygulamasında Giriş yap'ı seçin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Спершу увійдіть у cmux у застосунку cmux."
+            "state": "translated",
+            "value": "Спочатку увійдіть у cmux: виконайте `cmux cloud sign-in` або виберіть «Увійти» в застосунку cmux."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hãy đăng nhập cmux trong ứng dụng cmux trước."
+            "state": "translated",
+            "value": "Hãy đăng nhập cmux trước: chạy `cmux cloud sign-in` hoặc chọn Đăng nhập trong ứng dụng cmux."
           }
         }
       }

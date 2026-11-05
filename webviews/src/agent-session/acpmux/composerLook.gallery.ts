@@ -42,16 +42,28 @@ const startedChat = () => {
 /// A new chat before its first send: the folder and computer strip heads the composer.
 const newChat = () => noChat(manySessions(4), { summary: { sessionId: "", cwd: CWD, harness: "codex" } });
 
-const goalChat = (status: "active" | "paused") => {
+const goalChat = (status: "running" | "stalled" | "paused" | "done", provider: "codex" | "claude" = "codex") => {
   const snapshot = chat(startedChat().rows, { harness: "codex", model: "gpt-6-astra" });
   return {
     ...snapshot,
     summary: {
       ...snapshot.summary!,
-      harness: "codex",
+      harness: provider,
       goal: {
         objective: "Finish the timeout fix and verify the retry behavior",
         status,
+        provider,
+        startedAt: 1_700_000_000_000,
+        updatedAt: status === "done" ? 1_700_000_012_000 : 1_700_000_006_000,
+        ...(status === "done" ? { endedAt: 1_700_000_012_000 } : {}),
+        detail: provider === "claude" ? "Loop: check, test, and refine until the goal is met" : undefined,
+        steps:
+          provider === "claude"
+            ? [
+                { label: "Inspect the failing request", status: "done" },
+                { label: "Add the retry and run tests", status: status === "done" ? "done" : "running" },
+              ]
+            : undefined,
         tokenBudget: 50000,
         tokensUsed: 12400,
       },
@@ -229,14 +241,32 @@ export default agentPaneEntry({
   ],
   variants: {
     "goal-active": {
-      note: "A persisted Codex goal between turns; Pause and Clear use the same /goal command path.",
-      snapshot: goalChat("active"),
+      note: "A running Codex goal is pinned directly above the composer; its elapsed time and pause, delete and disclosure controls stay in one row.",
+      snapshot: goalChat("running"),
       play: (ctx) => look(ctx, "claude"),
     },
     "goal-paused": {
       note: "A paused goal remains visible when the conversation reopens.",
       snapshot: goalChat("paused"),
       play: (ctx) => look(ctx, "codex"),
+    },
+    "goal-stalled": {
+      note: "A stalled Codex goal keeps its objective and elapsed time visible so the user can resume it without losing context.",
+      snapshot: goalChat("stalled"),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "goal-done": {
+      note: "A completed goal keeps a short-lived receipt with its elapsed duration and no misleading resume control.",
+      snapshot: goalChat("done"),
+      play: (ctx) => look(ctx, "claude"),
+    },
+    "claude-loop-steps": {
+      note: "Claude's /loop is projected into the same goal row, with an expandable checklist for step-by-step plans.",
+      snapshot: goalChat("running", "claude"),
+      play: async (ctx) => {
+        await look(ctx, "claude");
+        await ctx.click({ selector: ".acpmux-goal-action[aria-expanded]" });
+      },
     },
     "loop-wakeup": {
       note: "A self-paced Claude Code /loop (ScheduleWakeup): its prompt, Looping, and when it next runs. No controls: Claude stops a loop only from its own turn.",

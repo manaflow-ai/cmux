@@ -66,6 +66,21 @@ export function realignSpinners(doc: Document = document): number {
   return moved;
 }
 
+/** Puts the shared loops on `element` and under it on the shared phase now, before the frame paints:
+ * a loop that mounts again (a running line the transcript brings back into view as the reader scrolls)
+ * otherwise paints its first frame at phase 0, and `animationstart` moves it a frame later, a blink
+ * (Leo, 2026-11-03: "not flicker EVER when im scrolling"). `getAnimations` flushes style, so a loop
+ * that mounted with the element is there to align. */
+export function alignLoopsIn(element: Element): void {
+  const doc = element.ownerDocument;
+  if (doc.documentElement.hasAttribute(PAGE_HIDDEN_ATTRIBUTE)) return;
+  const now = doc.timeline?.currentTime;
+  const origin = doc.defaultView?.performance.timeOrigin;
+  if (typeof now !== "number" || typeof origin !== "number" || typeof element.getAnimations !== "function") return;
+  for (const animation of element.getAnimations({ subtree: true }))
+    alignSpinner(animation as unknown as SpinnerAnimation, now, origin);
+}
+
 const installed = new WeakSet<Document>();
 
 /** Aligns every spinner that starts in `doc` from now on, and every one already running when the

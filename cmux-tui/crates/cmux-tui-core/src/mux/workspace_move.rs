@@ -96,7 +96,7 @@ impl Mux {
                     "changed": changed,
                 }),
             )?;
-            let resource_revision = registry.snapshot()?.resource_revision;
+            let resource_revision = registry.resource_revision()?;
             let active_id = state.workspaces.get(state.active_workspace).map(|ws| ws.id);
             state.move_workspace(old_idx, new_idx);
             state.active_workspace = active_id

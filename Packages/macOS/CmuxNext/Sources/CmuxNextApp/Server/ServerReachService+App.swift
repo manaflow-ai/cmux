@@ -10,8 +10,8 @@ extension ServerReachService {
     static func app(services: AppServices) -> ServerReachService {
         let feed = services.feed, auth = services.cloud.auth
         let binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
-        // The bundle's own CLI, never one found on PATH.
-        let bundled: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
+        // The bundle's own CLI (or the source-built one `CMUX_NEXT_TUI_BIN` names), never one found on PATH.
+        let bundled: URL? = services.bundledCLI.candidate
         let cli = bundled.flatMap { FileManager.default.isExecutableFile(atPath: $0.path) ? $0 : nil }
         return ServerReachService(
             machines: services.machines,

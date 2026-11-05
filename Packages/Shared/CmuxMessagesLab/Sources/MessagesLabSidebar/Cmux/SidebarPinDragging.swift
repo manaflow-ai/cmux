@@ -65,8 +65,9 @@ extension SidebarController {
             frame = CGRect(x: p.x - toAvatar.x - tileSize.width / 2, y: p.y - toAvatar.y - tileSize.height / 2,
                            width: tileSize.width, height: tileSize.height)
             state.drag = SidebarPinDrag(id: c.id, source: .row, pinned: pinnedIDs)
-            let scale = SidebarMetrics.avatar / max(1, ar.width)
-            let rowAvatar = CGPoint(x: metrics.rowAvatarX + SidebarMetrics.avatar / 2, y: rowRect(r).midY)
+            let row = rowRect(r), own = metrics.rowAvatar(rowHeight: row.height)
+            let scale = own.width / max(1, ar.width)
+            let rowAvatar = CGPoint(x: own.midX, y: row.minY + own.midY)
             start = (CGPoint(x: rowAvatar.x - toAvatar.x * scale, y: rowAvatar.y - toAvatar.y * scale), scale)
         }
         state.grab = CGSize(width: p.x - frame.midX, height: p.y - frame.midY)
@@ -143,7 +144,7 @@ extension SidebarController {
         avatar.contentsScale = renderContext.scale
         avatar.minificationFilter = .trilinear
         ghost.addSublayer(avatar)
-        if !metrics.compact, let name = SidebarDraw.tileNameImage(c, emphasized: false, keyWidth: SidebarDraw.tileNameKeyWidth(
+        if let name = SidebarDraw.tileNameImage(c, emphasized: false, keyWidth: SidebarDraw.tileNameKeyWidth(
             natural: SidebarDraw.tileNatural(c).name, tileWidth: tileSize.width), ctx: renderContext) {
             let label = CALayer()
             let w = CGFloat(name.width) / renderContext.scale
@@ -330,11 +331,13 @@ extension SidebarController {
         if landedAsTile { ghost.removeFromSuperlayer(); return }
         // Unpinned, or a row that stayed a row: the ghost's avatar shrinks onto the row's avatar and fades.
         let ar = SidebarDraw.tileAvatar(metrics)
-        let scale = SidebarMetrics.avatar / max(1, ar.width)
+        var scale = SidebarMetrics.avatar / max(1, ar.width)
         var to = ghost.position
         if let id = landingID, case let .row(r)? = position(of: id) {
+            let row = rowRect(r), own = metrics.rowAvatar(rowHeight: row.height)
+            scale = own.width / max(1, ar.width)
             let offset = CGPoint(x: ar.midX - tileSize.width / 2, y: ar.midY - tileSize.height / 2)
-            to = CGPoint(x: metrics.rowAvatarX + SidebarMetrics.avatar / 2 - offset.x * scale, y: rowRect(r).midY - offset.y * scale)
+            to = CGPoint(x: own.midX - offset.x * scale, y: row.minY + own.midY - offset.y * scale)
         }
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.22)

@@ -37,6 +37,21 @@ struct BundledCLIMainThreadTests {
         #expect(BundledExecutable(resources: nil, name: "cmux", work: BackgroundWork()).known == nil)
     }
 
+    /// `CMUX_NEXT_TUI_BIN` (a cmux-tui built from source) runs in place of the bundled `cmux`, so a CLI change is
+    /// tried in the installed app with no app build; unset or empty keeps the bundle's.
+    @MainActor @Test func theSourceBuiltCLIOverrideRunsInPlaceOfTheBundledOne() async {
+        let resources = Self.resources(withCLI: true), built = Self.resources(withCLI: true)
+        defer { for folder in [resources, built] { try? FileManager.default.removeItem(at: folder) } }
+        let source = built.appendingPathComponent("bin/cmux").path
+        let overridden = BundledExecutable.cli(resources: resources, work: BackgroundWork(),
+                                               environment: [DaemonLauncher.binaryOverrideKey: source])
+        #expect(await overridden.resolve()?.path == source)
+        for environment in [[:], [DaemonLauncher.binaryOverrideKey: ""]] {
+            let bundled = BundledExecutable.cli(resources: resources, work: BackgroundWork(), environment: environment)
+            #expect(await bundled.resolve()?.path == resources.appendingPathComponent("bin/cmux").path)
+        }
+    }
+
     private static func resources(withCLI: Bool) -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("bundled-cli-\(UUID().uuidString)", isDirectory: true)
         let bin = root.appendingPathComponent("bin", isDirectory: true)
