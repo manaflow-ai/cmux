@@ -719,6 +719,33 @@ mod tests {
             );
         }
     }
+    /// Codex refuses a config with `[permissions]` profiles and no `default_permissions`
+    /// when it loads a thread's config again before each model request on a ChatGPT
+    /// login (workspace routing): every turn of a new chat failed with "failed to load
+    /// workspace requirements: invalid input parameter" (Lucas, 2026-11-05).
+    #[test]
+    fn a_new_threads_permission_profile_comes_with_its_default() {
+        let tr = translator();
+        let out = tr.inner.from_client(
+            &json!({"id":1,"method":"session/new","params":{"cwd":"/tmp","mcpServers":[]}}),
+        );
+        let start = out
+            .iter()
+            .find_map(|o| match o {
+                Out::Server(v) if v["method"] == "thread/start" => Some(v),
+                _ => None,
+            })
+            .expect("thread/start");
+        let config = start["params"]["config"].as_object().expect("the thread's config");
+        let profiles: Vec<&String> =
+            config.keys().filter(|k| k.starts_with("permissions.")).collect();
+        assert!(!profiles.is_empty(), "no permission profile: {start}");
+        for key in profiles {
+            let id = key.trim_start_matches("permissions.");
+            assert_eq!(config.get("default_permissions"), Some(&json!(id)), "{start}");
+        }
+    }
+
     #[cfg(unix)]
     fn running_translator() -> Arc<Translator> {
         let tr = translator();
