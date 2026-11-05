@@ -53,21 +53,36 @@ struct AgentIncomingCard: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
-            Text(incoming.messages.count == 1 ? incoming.senders : "\(incoming.messages.count) messages")
+            Group {
+                if incoming.messages.count != 1 {
+                    Text("\(incoming.messages.count) messages")
+                } else if incoming.unverified, incoming.senders.isEmpty {
+                    Text("Unverified sender")
+                } else {
+                    Text(incoming.senders)
+                }
+            }
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Text("agent")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .background(.quaternary, in: .capsule)
+            // acpmux could not verify who sent it (Leo, 2026-11-05: "why is it sending it as if it
+            // were me?"): never the person's.
+            tag(incoming.unverified ? "unverified" : "agent")
+            if incoming.edited { tag("edited") }
             Spacer(minLength: 4)
             Text(at, style: .time)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
+    }
+
+    private func tag(_ label: LocalizedStringKey) -> some View {
+        Text(label)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(.quaternary, in: .capsule)
     }
 
     private func stacked(_ message: AgentIncoming.Message, index: Int) -> some View {

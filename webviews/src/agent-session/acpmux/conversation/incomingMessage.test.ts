@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { cliHost, incomingPrompt, messagePreview, unsigned } from "./incomingMessage";
+import { cliHost, incomingPrompt, messagePreview, unattributed, unsigned } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -977,4 +977,39 @@ test("a plain send from a Codex or Claude Code shell is that agent's message, wi
     kind: "message",
     message: { name: "codex@workstation", harness: "codex", text, raw: text },
   });
+});
+
+test("a prompt acpmux could not attribute is an unverified sender's card, never the person's", () => {
+  const unverified = { kind: "unverified", to: "s-1", transport: "unix", verified: false };
+  const text = "Merged the fix";
+  expect(incomingPrompt(text, { _meta: { provenance: unverified }, client: "acpmux-cli#01a2f3@workstation" })).toEqual({
+    kind: "message",
+    message: { name: "", unverified: true, text, raw: text },
+  });
+  // A name it puts first is only its claim: the card names it, still marked unverified.
+  const named = "[coord-deputy] Merged the fix";
+  expect(incomingPrompt(named, { _meta: { provenance: unverified } })).toEqual({
+    kind: "message",
+    message: { name: "coord-deputy", unverified: true, text: "Merged the fix", raw: named },
+  });
+});
+
+test("an edited agent's message stays the agent's and says it was edited", () => {
+  const sent = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "lane-a",
+    to: "s-1",
+    editedBy: { actor: "owner" },
+  };
+  const incoming = incomingPrompt("rebase first", { _meta: { provenance: sent } });
+  expect(incoming?.kind === "message" && incoming.message.name).toBe("lane-a");
+  expect(incoming?.kind === "message" && incoming.message.edited).toBe(true);
+});
+
+test("a record with no provenance and no origin names no one; the person's proven prompt does", () => {
+  expect(unattributed({})).toBe(true);
+  expect(unattributed(undefined)).toBe(true);
+  expect(unattributed({ _meta: { origin: { actor: "person", verified: true } } })).toBe(false);
+  expect(unattributed({ _meta: { provenance: { kind: "unverified" } } })).toBe(false);
 });

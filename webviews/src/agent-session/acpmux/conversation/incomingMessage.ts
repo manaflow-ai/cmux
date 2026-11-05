@@ -24,6 +24,11 @@
 // acpmux TUI, so it is a message only when its sender is a listed chat, or its receiver is this
 // chat and its sender reads as an agent's name (`IncomingContext`). A watched chat (`client: "watch"`, hub/watch.rs) records its
 // prompts from the transcript as an adopted one does, Claude Code's envelopes in them.
+// A prompt acpmux could not attribute (kind `unverified`, prompt_provenance.rs: a plain `acpmux
+// send` at a shell, a script, an agent outside acpmux) is no one's for sure and never the person's:
+// a card from the name it puts first, else from an unverified sender, marked unverified either way.
+// A record with no provenance and no `_meta.origin` (acpmux's mark of the proven person's prompt)
+// predates both: it keeps its bubble, marked unverified (`unattributed`).
 // acpmux's inbox notice (hub/inbox.rs, kind `inbox_notice`) is no prompt to draw as written: its
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
@@ -74,6 +79,11 @@ export type IncomingMessage = {
   /// `fromEffort`), for its line's hover; a listed chat's own come first.
   model?: string;
   effort?: string;
+  /// acpmux could not verify who sent it (provenance kind `unverified`): the line says so, and
+  /// names an unverified sender when the message names no one.
+  unverified?: true;
+  /// A person edited it while it waited (acpmux `editedBy`): still the sender's message.
+  edited?: true;
   /// What the sender wrote.
   text: string;
   /// The prompt as the agent got it.
@@ -279,6 +289,7 @@ export function cliHost(client: unknown): string | undefined {
 
 /// Provenance kinds acpmux gives only another agent's message (or a tool's notice).
 const AGENT_KINDS = new Set([
+  "unverified",
   "agent_message",
   "session_message",
   "subsession_message",
@@ -296,6 +307,13 @@ function fromAgent(msg: Parameters<typeof promptOf>[1]): boolean {
 }
 
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
+/// Whether a recorded `user_message` or `queued` record names no one: no provenance and no
+/// `_meta.origin`, acpmux's mark of the proven person's own prompt. An acpmux from before that mark
+/// recorded every person's prompt so, and an agent's plain send too: its row is marked unverified.
+export function unattributed(msg: { _meta?: { provenance?: unknown; origin?: unknown } } | undefined): boolean {
+  return !msg?._meta?.provenance && !msg?._meta?.origin;
+}
+
 export function incomingPrompt(
   text: string,
   msg: Parameters<typeof promptOf>[1],
@@ -333,7 +351,9 @@ function promptOf(
   const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(msg?.fromHarness);
   const fromModel = trimmed(provenance?.fromModel) ?? trimmed(msg?.fromModel);
   const fromEffort = trimmed(provenance?.fromEffort) ?? trimmed(msg?.fromEffort);
+  const edited = provenance?.editedBy ? { edited: true as const } : {};
   const harness = {
+    ...edited,
     ...(fromHarness && { harness: fromHarness }),
     ...(fromModel && { model: fromModel }),
     ...(fromEffort && { effort: fromEffort }),
@@ -475,6 +495,20 @@ function promptOf(
     const name = trimmed(provenance.fromName);
     if (name) return { kind: "message", message: { name, ...remote, ...harness, text: text.trim(), raw: text } };
   }
+  // No proof names its sender: the name it puts first is a claim, and it is never the person's.
+  if (provenance?.kind === "unverified") {
+    const named = namedFirst(text.trim()) ?? fromFirst(text.trim()) ?? addressedFirst(text.trim(), context);
+    return {
+      kind: "message",
+      message: {
+        ...(named ?? { name: "", text: text.trim() }),
+        unverified: true,
+        ...remote,
+        ...harness,
+        raw: text,
+      },
+    };
+  }
   if (!provenance && typeof msg?.client === "string" && OUTBOX_CLIENT.test(msg.client)) {
     const named = fromFirst(text.trim());
     if (named) return { kind: "message", message: { ...named, ...remote, ...harness, raw: text } };
@@ -545,6 +579,7 @@ const NAMED_SENDER = "fromAgent";
 /// The provenance kinds this page reads on its own; any other from an agent is its message (so is
 /// a `notice` whose notice does not read).
 const KNOWN_KINDS = new Set([
+  "unverified",
   "agent_message",
   "agent_digest",
   "session_message",

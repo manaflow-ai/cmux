@@ -178,6 +178,7 @@ export const MessageRow = memo(
           )}
           <DeliveryFailure row={row} />
           {row.viaCli && <div className="cv-user__status">{t("transcript.viaCli", { host: row.viaCli })}</div>}
+          {row.unverifiedOrigin && <div className="cv-user__status">{t("message.unverified")}</div>}
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>

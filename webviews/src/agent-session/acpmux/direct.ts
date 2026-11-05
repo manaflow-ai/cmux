@@ -99,7 +99,13 @@ import { acpmuxPerf } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
-import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
+import {
+  cliHost,
+  incomingPrompt,
+  unattributed,
+  type IncomingContext,
+  type IncomingMessage,
+} from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
@@ -5499,8 +5505,9 @@ export class AcpmuxDirectClient {
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
     if (event.kind === "queue_updated") {
-      // An edit keeps the prompt's place, and makes it the person's: acpmux drops an agent's
-      // provenance and sender (hub/queue.rs), so its row loses the sender too. A teammate's own
+      // An edit keeps the prompt's place and its sender: acpmux keeps an agent's provenance and
+      // names the editor beside it (hub/queue_edit.rs `editedBy`), so its row stays the agent's.
+      // One with no provenance (an older acpmux dropped it) is the person's. A teammate's own
       // edit keeps their `person_message` provenance, so the row keeps its author.
       const id = String(msg.promptId ?? "");
       // Kept also when the row is not in yet: an attach's page may begin after its `queued` record.
@@ -5522,7 +5529,7 @@ export class AcpmuxDirectClient {
                 entry.next === true,
                 false,
                 recordImages(msg),
-                undefined,
+                queuedMessage(msg, this.incomingContext()),
                 promptAuthor(msg),
                 // A held prompt's parts are this record's alone (THE RULE, Hold).
                 msg.awaitingOwner === true
@@ -6529,6 +6536,7 @@ export class AcpmuxDirectClient {
           ...(sentByChief(msg) ? { from: "chief" as const } : {}),
           ...(!untyped && promptAuthor(msg) ? { author: promptAuthor(msg) } : {}),
           ...(!untyped && cliHost(msg.client) ? { viaCli: cliHost(msg.client) } : {}),
+          ...(!untyped && unattributed(msg) ? { unverifiedOrigin: true as const } : {}),
           ...(received ? { received } : {}),
           ...(steer ? { steer } : {}),
           ...(continues ? { continues } : {}),

@@ -56,6 +56,26 @@ import Testing
         #expect(incoming?.harness == "codex")
     }
 
+    @Test func aPromptAcpmuxCouldNotAttributeIsAnUnverifiedCardNeverThePersons() throws {
+        // acpmux prompt_provenance.rs `unverified`: a plain `acpmux send` that proves no one.
+        let provenance = try json(#"{"kind":"unverified","to":"s-1","transport":"unix","verified":false}"#)
+        let unnamed = AgentIncoming.parse(text: "Merged the fix", provenance: provenance)
+        #expect(unnamed?.unverified == true)
+        #expect(unnamed?.messages == [.init(sender: "", text: "Merged the fix")])
+        // A name it signs first is only its claim: the card names it, still unverified.
+        let named = AgentIncoming.parse(text: "[coord-deputy] Merged the fix", provenance: provenance)
+        #expect(named?.unverified == true)
+        #expect(named?.messages == [.init(sender: "coord-deputy", text: "Merged the fix")])
+    }
+
+    @Test func anEditedAgentsMessageStaysTheAgentsAndSaysItWasEdited() throws {
+        let provenance = try json(#"{"kind":"agent_message","from":"fromAgent","fromName":"lane-a","to":"s-1","editedBy":{"actor":"owner"}}"#)
+        let incoming = AgentIncoming.parse(text: "rebase first", provenance: provenance)
+        #expect(incoming?.messages == [.init(sender: "lane-a", text: "rebase first")])
+        #expect(incoming?.edited == true)
+        #expect(incoming?.unverified == false)
+    }
+
     @Test func labelNamesTheSenderWhenNothingElseDoes() {
         let text = relayed(body)
         // An older acpmux's `acpmux send` at a shell, with no provenance.

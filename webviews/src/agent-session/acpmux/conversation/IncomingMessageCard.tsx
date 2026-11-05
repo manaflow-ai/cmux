@@ -173,7 +173,11 @@ export function SenderName({
   // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
   const chief = useChiefFace(message.chief);
   const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
-  const name = (message.chief && chief?.name) || senderLabel(message.name, sender.host);
+  const name =
+    (message.chief && chief?.name) ||
+    (message.unverified && !message.name.trim()
+      ? t("message.unverifiedSender")
+      : senderLabel(message.name, sender.host));
   // Read only (a guest): the sender's chat is not this reader's to open.
   const readOnly = useTranscriptReadOnly();
   const listed = message.chief || readOnly ? undefined : sender.sessionId;
@@ -254,6 +258,10 @@ export function SenderName({
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
       {host &&
         (readOnly ? <span className="cv-received__host">{host}</span> : <MachineMenu host={host} onOpen={onOpen} />)}
+      {/* acpmux could not verify who sent it (Leo, 2026-11-05: "why is it sending it as if it were
+          me?"): never the person's, and the name it gives is only a claim. */}
+      {message.unverified && <span className="cv-received__host">{t("message.unverified")}</span>}
+      {message.edited && <span className="cv-received__host">{t("message.edited")}</span>}
     </span>
   );
 }
