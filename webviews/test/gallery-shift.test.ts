@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
+import { Window } from "happy-dom";
 import { judgeStep } from "../src/gallery/play";
-import { REST_FRAMES, scoreBoxFrames, type BoxFrame, type BoxSample } from "../src/gallery/shift";
+import { REST_FRAMES, sampleBoxes, scoreBoxFrames, type BoxFrame, type BoxSample } from "../src/gallery/shift";
 
 const viewport = { width: 800, height: 600 };
 const row = (y: number, extra: Partial<BoxSample> = {}): BoxSample => ({
@@ -52,6 +53,31 @@ test("rows before a line opening at the transcript's very bottom may rise straig
   expect(scoreBoxFrames(frames(...rested(1, 100, before), [[1, row(110, before)]]), viewport).score).toBeGreaterThan(0);
   const sideways = { ...row(93, before), box: { x: 8, y: 93, width: 800, height: 40 } };
   expect(scoreBoxFrames(frames(...rested(1, 100, before), [[1, sideways]]), viewport).score).toBeGreaterThan(0);
+});
+
+test("rows inside a row opening at the very bottom move with it, as its toggle does", () => {
+  // "Received N messages" at the transcript's end: its batch row opens and the rows it holds rise
+  // with the text above. They are the opening row's own body, never a shift of their own.
+  const window = new Window({ width: 800, height: 600 });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = `
+    <div data-row-id="above">above</div>
+    <div data-row-id="batch" data-bottom-stack-fold>
+      <button class="toggle">Received 3 messages</button>
+      <div data-row-id="inner">a message</div>
+    </div>`;
+  for (const element of doc.querySelectorAll("[data-row-id]"))
+    (element as HTMLElement).getBoundingClientRect = () => ({ x: 0, y: 100, width: 800, height: 40, top: 100, left: 0, right: 800, bottom: 140, toJSON: () => ({}) }) as DOMRect;
+  const frame = sampleBoxes(doc, doc.querySelector(".toggle"));
+  const byLabel = (id: string) => [...frame.values()].find((sample) => sample.label.includes(`[row ${id}]`))!;
+  expect(byLabel("inner").targeted).toBe(true);
+  expect(byLabel("batch").targeted).toBe(true);
+  expect(byLabel("above")).toMatchObject({ targeted: false, before: true });
+  // Away from the bottom, only the target's own line is exempt.
+  doc.querySelector("[data-bottom-stack-fold]")!.removeAttribute("data-bottom-stack-fold");
+  const plain = sampleBoxes(doc, doc.querySelector(".toggle"));
+  expect([...plain.values()].find((sample) => sample.label.includes("[row inner]"))!.targeted).toBe(false);
+  window.close();
 });
 
 test("a resize lets each box move once; a second move is a bounce", () => {
