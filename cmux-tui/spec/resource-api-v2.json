@@ -54,6 +54,7 @@
         "agent.message.release",
         "agent.message.send",
         "agent.message.unsend",
+        "agent.message.wait",
         "agent.report",
         "browser.activate",
         "browser.attach",
@@ -365,6 +366,7 @@
         "read": [
           "agent.list",
           "agent.message.list",
+          "agent.message.wait",
           "browser.devices.list",
           "browser.get",
           "browser.list",

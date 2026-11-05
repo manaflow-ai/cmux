@@ -281,6 +281,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         // the window (OWNERSHIP-PRINCIPLES); the CLI reads app
                         // windows through `cmux window list`.
                         | "window_record.list"
+                        // The hook helper's blocking claim for its own
+                        // terminal's agent (`cmux-tui-hook/inbox.rs`); people
+                        // read messages with `cmux agent inbox`.
+                        | "agent.message.wait"
                         | "window_record.put"
                         | "window_record.delete"
                         // The Mac app edits the sidebar layout through its

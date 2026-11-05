@@ -92,7 +92,11 @@ impl Mux {
                 Ok(StateChanges::new(value, Vec::new()))
             },
         )
-        .inspect(|_| self.wake_agent_message_pump())
+        .inspect(|_| {
+            self.wake_agent_message_pump();
+            // A reply without recipients goes to its parent's sender: wake all.
+            self.notify_agent_message_waits(&message.recipients);
+        })
     }
 
     /// The workspace keys of the acpmux sessions a send involves: the
@@ -167,6 +171,8 @@ impl Mux {
                 Ok(StateChanges::new(Value::Array(values), Vec::new()))
             },
         )
+        // A marked delivery leaves the queue: its claim (agent_message_wait.rs) is over.
+        .inspect(|_| self.agent_message_waits().release(recipient, ids))
     }
 
     /// `agent.message.release`: the person, in the verified cmux app,
@@ -217,7 +223,10 @@ impl Mux {
                 Ok(StateChanges::new(value, Vec::new()))
             },
         )
-        .inspect(|_| self.wake_agent_message_pump())
+        .inspect(|_| {
+            self.wake_agent_message_pump();
+            self.agent_message_waits().notify(recipient);
+        })
     }
 
     /// `agent.message.unsend` (agent_message_unsend.rs): the verified sender,

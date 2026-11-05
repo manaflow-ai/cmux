@@ -69,6 +69,15 @@ pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
         println!("Usage: cmux-tui-hook <agent> <native-event>");
         return ExitCode::SUCCESS;
     }
+    // Claude's idle wake (`asyncRewake`): no journal event; it exits 2 only
+    // to hand Claude its messages, and 0 on every other path.
+    if let [source, mode] = arguments.as_slice()
+        && source == "claude"
+        && mode == inbox::WAKE_MODE
+    {
+        let payload = read_native_payload(io::stdin().lock()).unwrap_or_else(|_| json!({}));
+        return inbox::wake(&payload);
+    }
     // Muse Code runs this command directly (no `||:` wrapper reads in every
     // shell it may use), so a failure stays quiet there instead of showing on
     // every hook; the agent never waits on cmux.

@@ -9,6 +9,7 @@
     "agent.message.release",
     "agent.message.send",
     "agent.message.unsend",
+    "agent.message.wait",
     "agent.report",
     "browser.activate",
     "browser.attach",

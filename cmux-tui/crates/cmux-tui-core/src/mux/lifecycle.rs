@@ -65,6 +65,9 @@ impl Mux {
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.agent_presence.lock().unwrap().remove(terminal_id);
         self.agent_prompts.lock().unwrap().forget(terminal_id);
+        // Its wake hooks answer `gone`; its claims end with it.
+        self.agent_message_waits.forget_recipient(terminal_id.as_str());
+        self.agent_message_waits.notify(terminal_id.as_str());
         self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
         // yet, so a closed terminal retires its roster entry explicitly, and

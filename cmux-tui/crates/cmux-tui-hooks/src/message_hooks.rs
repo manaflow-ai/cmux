@@ -3,7 +3,55 @@
 //! claude's `SessionStart`, which carries cmux's startup line (how the
 //! session compacts). Every other event keeps the journal-only shape.
 
-use super::{COMMAND_MARKER, shell_quote, sync_barrier_event};
+use serde_json::{Map, Value, json};
+
+use super::{COMMAND_MARKER, HOOK_MODE_ARG, shell_quote, sync_barrier_event};
+
+/// The events after which an idle Claude waits for its messages: a start
+/// and every end of a turn (`StopFailure` ends one on an API error).
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(super) const CLAUDE_WAKE_EVENTS: &[&str] = &["SessionStart", "Stop", "StopFailure"];
+
+/// Claude Code does not enforce a background hook's timeout; this bounds the
+/// wait hook anyway if a later version does. The helper ends itself sooner.
+#[cfg_attr(not(unix), allow(dead_code))]
+const CLAUDE_WAKE_TIMEOUT_SECONDS: u64 = 86_400;
+
+/// Adds Claude's idle wake to a wrapped session's hooks (issue 36496): after
+/// each event in [`CLAUDE_WAKE_EVENTS`] a background `asyncRewake` hook waits
+/// in the daemon for this terminal's messages and exits 2 with them on
+/// stderr, which Claude Code shows the model as a system reminder, waking an
+/// idle session. `async` keeps a Claude Code without `asyncRewake` from
+/// waiting on it. Only the wrapper's `--settings` carry it, never an
+/// installed settings file: the helper checks that it runs under the
+/// wrapper's Claude (`CMUX_TUI_CLAUDE_PID`), which only the wrapper sets.
+/// `quoted_binary` is the cmux-tui binary for hosts without the helper.
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(super) fn add_claude_wake(
+    hooks: &mut Map<String, Value>,
+    quoted_binary: Option<&str>,
+) -> anyhow::Result<()> {
+    let command = match quoted_binary {
+        Some(binary) => format!("{binary} {HOOK_MODE_ARG} claude inbox-wait;#{COMMAND_MARKER}"),
+        None => format!(
+            "h=${{CMUX_TUI_HOOK:-${{TMUX:+${{XDG_DATA_HOME:-$HOME/.local/share}}/cmux-tui/bin/cmux-tui-hook}}}};\"${{h:-:}}\" claude inbox-wait;#{COMMAND_MARKER}"
+        ),
+    };
+    for event in CLAUDE_WAKE_EVENTS {
+        let groups = hooks.entry(*event).or_insert_with(|| json!([]));
+        let groups = groups
+            .as_array_mut()
+            .ok_or_else(|| anyhow::anyhow!("hook event {event:?} must be an array"))?;
+        groups.push(json!({"hooks": [{
+            "type": "command",
+            "command": command,
+            "timeout": CLAUDE_WAKE_TIMEOUT_SECONDS,
+            "async": true,
+            "asyncRewake": true,
+        }]}));
+    }
+    Ok(())
+}
 
 /// Events whose hook output carries the agent's pending messages
 /// (`cmux agent message`): the helper prints the provider's JSON itself, so

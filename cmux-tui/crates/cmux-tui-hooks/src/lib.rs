@@ -2007,24 +2007,26 @@ pub fn claude_session_hook_settings(
     };
     let mut root = Map::new();
     rewrite_json_hooks(&mut root, provider, true, timeout, true)?;
-    let Some(binary) = emit_binary else {
-        return Ok(root);
-    };
-    let binary = shell_quote(binary.to_str().context("the cmux-tui path is not UTF-8")?);
+    let quoted = emit_binary
+        .map(|binary| binary.to_str().map(shell_quote).context("the cmux-tui path is not UTF-8"))
+        .transpose()?;
     let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
-    for (event, groups) in hooks.iter_mut() {
-        let command = emit_hook_command(&binary, provider.id, event);
-        for group in groups.as_array_mut().into_iter().flatten() {
-            let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
-            for handler in handlers.into_iter().flatten() {
-                if let Some(handler) = handler.as_object_mut() {
-                    handler.insert("command".into(), Value::String(command.clone()));
-                    // The pre-tool helper is synchronous; journal-only events are asynchronous.
-                    handler.insert("async".into(), Value::Bool(!sync_barrier_event(event)));
+    if let Some(binary) = &quoted {
+        for (event, groups) in hooks.iter_mut() {
+            let command = emit_hook_command(binary, provider.id, event);
+            for group in groups.as_array_mut().into_iter().flatten() {
+                let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
+                for handler in handlers.into_iter().flatten() {
+                    if let Some(handler) = handler.as_object_mut() {
+                        handler.insert("command".into(), Value::String(command.clone()));
+                        // The pre-tool helper is synchronous; journal-only events are asynchronous.
+                        handler.insert("async".into(), Value::Bool(!sync_barrier_event(event)));
+                    }
                 }
             }
         }
     }
+    message_hooks::add_claude_wake(hooks, quoted.as_deref())?;
     Ok(root)
 }
 

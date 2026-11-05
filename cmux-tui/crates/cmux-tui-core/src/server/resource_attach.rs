@@ -171,6 +171,20 @@ pub(super) fn resource_wait_install_error(
             RESOURCE_WAITS_SERVER_CAPACITY,
         ),
     };
+    // Agent message waits have their own budget (server.rs).
+    let (reason, reason_code, limit) = match (operation, error) {
+        ("agent.message.wait", ResourceWaitInstallError::ClientCapacity) => (
+            "agent message wait capacity exceeded for this connection",
+            "agent_message_wait_capacity",
+            super::AGENT_MESSAGE_WAITS_PER_CLIENT_CAPACITY,
+        ),
+        ("agent.message.wait", ResourceWaitInstallError::ServerCapacity) => (
+            "agent message wait capacity exceeded for this server",
+            "agent_message_wait_capacity",
+            super::AGENT_MESSAGE_WAITS_SERVER_CAPACITY,
+        ),
+        _ => (reason, reason_code, limit),
+    };
     ResourceError::operation_failed(
         operation,
         reason,

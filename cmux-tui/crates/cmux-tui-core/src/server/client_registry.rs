@@ -38,6 +38,7 @@ use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
 use super::agent_session_attach;
 use super::sanitize_window_title;
 use super::size_state_event_json;
+use super::{AGENT_MESSAGE_WAITS_PER_CLIENT_CAPACITY, AGENT_MESSAGE_WAITS_SERVER_CAPACITY};
 use super::{
     app_trust, clipboard_read, conversation_tabs_wire, loopback_forward, terminal_snapshot,
     url_open,
@@ -366,6 +367,8 @@ pub(crate) struct ClientRegistry {
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
+    /// `agent.message.wait` workers: one per idle terminal agent's wake hook.
+    pub(super) agent_message_wait_admission: Arc<ResourceWorkerAdmission>,
     /// Every connection's record. A change publishes the [`ClientFacts`] projection, which a connection's
     /// own line and key paths read without this lock (R-DAEMON-STATE stage S1).
     pub(super) state: crate::published::Published<ClientRegistryState, ClientFacts>,
@@ -443,6 +446,10 @@ impl ClientRegistry {
             resource_wait_admission: ResourceWorkerAdmission::new(
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
+            ),
+            agent_message_wait_admission: ResourceWorkerAdmission::new(
+                AGENT_MESSAGE_WAITS_PER_CLIENT_CAPACITY,
+                AGENT_MESSAGE_WAITS_SERVER_CAPACITY,
             ),
             state: crate::published::Published::new(
                 ClientRegistryState::default(),
@@ -612,13 +619,24 @@ impl ClientRegistry {
         request_id: &ResourceRequestId,
     ) -> Result<(Arc<ResourceWaitCancellation>, ResourceWorkerPermit), ResourceWaitInstallError>
     {
+        self.install_resource_wait_in(client, request_id, &self.resource_wait_admission)
+    }
+
+    /// [`Self::install_resource_wait`] with the permit taken from `admission`.
+    pub(super) fn install_resource_wait_in(
+        &self,
+        client: u64,
+        request_id: &ResourceRequestId,
+        admission: &Arc<ResourceWorkerAdmission>,
+    ) -> Result<(Arc<ResourceWaitCancellation>, ResourceWorkerPermit), ResourceWaitInstallError>
+    {
         let mut state = self.state.lock().recover_poison();
         let record =
             state.clients.get_mut(&client).ok_or(ResourceWaitInstallError::UnknownClient)?;
         if record.resource_waits.contains_key(request_id) {
             return Err(ResourceWaitInstallError::Duplicate);
         }
-        let worker_permit = self.resource_wait_admission.try_reserve(client)?;
+        let worker_permit = admission.try_reserve(client)?;
         let canceled = Arc::new(ResourceWaitCancellation::default());
         record.resource_waits.insert(
             request_id.clone(),

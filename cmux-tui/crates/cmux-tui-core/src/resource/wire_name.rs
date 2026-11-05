@@ -189,6 +189,7 @@ impl ResourceOperation {
             Self::AgentMessageMark => "agent.message.mark",
             Self::AgentMessageRelease => "agent.message.release",
             Self::AgentMessageUnsend => "agent.message.unsend",
+            Self::AgentMessageWait => "agent.message.wait",
             Self::SidebarViewGet => "sidebar_view.get",
             Self::SidebarViewEnsure => "sidebar_view.ensure",
             Self::SidebarViewAttach => "sidebar_view.attach",

@@ -3845,6 +3845,73 @@
       },
       "extra": false
     },
+    "AgentMessageWaitResult": {
+      "kind": "object",
+      "fields": {
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "claimed",
+              "timeout",
+              "superseded",
+              "stale",
+              "gone"
+            ]
+          },
+          "description": "claimed: messages leased to the caller; timeout: nothing to claim before the deadline; superseded: a newer poller took the recipient; stale: the agent's process is gone; gone: the terminal is not in this session."
+        },
+        "lease_id": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        },
+        "lease_ms": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "messages": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "AgentMessageSnapshot"
+            }
+          },
+          "description": "With claimed: the leased messages, oldest first."
+        },
+        "held": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "waiting_on_person",
+              "session_ended"
+            ]
+          },
+          "description": "With timeout: why queued messages were not claimed."
+        },
+        "reason": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          }
+        }
+      },
+      "extra": false
+    },
     "AgentSnapshot": {
       "kind": "object",
       "fields": {
@@ -14994,6 +15061,102 @@
         "operation.failed",
         "resource.not_found",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "agent.message.wait": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "recipient": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 37,
+              "max_length": 37
+            },
+            "description": "The terminal agent (term_...) whose queued messages the caller claims. acpmux sessions receive theirs from the daemon's delivery pump."
+          },
+          "poller": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "A wake hook's key. Only the recipient's current poller claims; a newer one supersedes it. A one-shot claim (a prompt hook) leaves it out."
+          },
+          "register": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Make poller the recipient's current poller (a hook's first wait). Without it the poller only takes a vacant place, as after a daemon restart."
+          },
+          "agent_session_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The agent session the caller runs in. While the terminal's agent hooks report that session ended, nothing is claimed."
+          },
+          "agent_pid": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "The agent's process; once it is gone the wait answers stale."
+          },
+          "respect_hold": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Claim nothing while the agent waits on the person (its state is blocked). Defaults to true."
+          },
+          "timeout_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "How long to wait for a claim, at most 900000; absent or 0 claims once without waiting."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A claim leases the oldest queued deliveries that fit one prompt batch for 30 seconds; another claim of the same recipient skips them. The claimer shows them, then marks them delivered (agent.message.mark), which ends the lease. A lease that lapses, a lost response or a daemon restart leaves them queued to be offered again: delivery is at least once, and delivered means the text was handed to the agent's process, not that the model read or acted on it.",
+          "A wait blocks without polling: a send, a release, the agent's state change, the terminal's close, a newer poller or a lease's end wakes it. It blocks only on a cmux.protocol/2 socket connection, whose close or request.cancel ends it.",
+          "A wait claims nothing while the agent waits on the person (with respect_hold), while agent_session_id has ended on the terminal, or once agent_pid is gone."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "AgentMessageWaitResult"
+      },
+      "errors": [
+        "operation.failed",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

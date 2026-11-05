@@ -192,6 +192,26 @@ fn run_terminal_resource_wait_exit(
     mux.terminal_exit_state(&terminal_id).map(Some).map_err(resource_wait_runtime_error)
 }
 
+/// `agent.message.wait` on a wait worker: the connection's close and the
+/// request's cancellation end its sleep, as they end a terminal wait's.
+fn run_agent_message_wait(
+    mux: &Arc<Mux>,
+    writer: &MessageWriter,
+    request: &crate::resource_router::ParsedResourceRequest,
+    canceled: &ResourceWaitCancellation,
+) -> Result<Option<Value>, ResourceError> {
+    let wait = crate::mux::agent_message_wait::AgentMessageWait::from_fields(&request.fields)?;
+    mux.agent_message_wait(
+        &request.selectors,
+        &wait,
+        &|| resource_wait_stopped(canceled, writer),
+        &|wake: &Arc<crate::mux::ResourceWaitWake>| {
+            canceled.register(wake);
+            writer.register_wait_wakeup(wake);
+        },
+    )
+}
+
 fn run_resource_wait(
     mux: &Arc<Mux>,
     writer: &MessageWriter,
@@ -207,6 +227,9 @@ fn run_resource_wait(
         }
         ResourceOperation::TerminalWaitExit => {
             run_terminal_resource_wait_exit(mux, writer, &request, canceled)
+        }
+        ResourceOperation::AgentMessageWait => {
+            run_agent_message_wait(mux, writer, &request, canceled)
         }
         operation => Err(super::wire_values::unrouted_operation("terminal wait", operation)),
     };
@@ -227,6 +250,7 @@ pub(super) fn start_resource_wait(
     let name = match operation {
         ResourceOperation::TerminalWait => "terminal.wait",
         ResourceOperation::TerminalWaitExit => "terminal.wait_exit",
+        ResourceOperation::AgentMessageWait => "agent.message.wait",
         operation => {
             return send_resource_response(
                 &writer,
@@ -236,7 +260,15 @@ pub(super) fn start_resource_wait(
             );
         }
     };
-    let (canceled, worker_permit) = match mux.control_clients.install_resource_wait(client, &id) {
+    // Agent message waits are long-lived (one per idle terminal agent), so
+    // they take their own budget and never crowd out terminal waits.
+    let admission = if operation == ResourceOperation::AgentMessageWait {
+        &mux.control_clients.agent_message_wait_admission
+    } else {
+        &mux.control_clients.resource_wait_admission
+    };
+    let installed = mux.control_clients.install_resource_wait_in(client, &id, admission);
+    let (canceled, worker_permit) = match installed {
         Ok(installed) => installed,
         Err(error) => {
             return send_resource_response(

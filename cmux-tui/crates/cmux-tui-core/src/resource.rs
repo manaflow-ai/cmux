@@ -404,6 +404,8 @@ pub enum ResourceOperation {
     AgentMessageRelease,
     #[serde(rename = "agent.message.unsend")]
     AgentMessageUnsend,
+    #[serde(rename = "agent.message.wait")]
+    AgentMessageWait,
     #[serde(rename = "sidebar_view.get")]
     SidebarViewGet,
     #[serde(rename = "sidebar_view.ensure")]
