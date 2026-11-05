@@ -86,5 +86,14 @@ class NightlyOneMini(unittest.TestCase):
             self.assertEqual(value, MINI, source)
 
 
+    def test_the_variables_hold_only_the_mini_labels(self) -> None:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
+        import runner_label_policy as policy  # noqa: E402
+        for name, good in (("CI_NIGHTLY_MINI", MINI), ("CI_NIGHTLY_MINI_BUILDER", BUILDER)):
+            for value in ("", good):
+                self.assertEqual(policy.drifted_runner_variables({name: value}), [], (name, value))
+            for value in ("glaeda-nightly-only-m4pro", "blacksmith-6vcpu-macos-26", "macos-15", "ubuntu-24.04"):
+                self.assertTrue(policy.drifted_runner_variables({name: value}), (name, value))
+
 if __name__ == "__main__":
     unittest.main()
