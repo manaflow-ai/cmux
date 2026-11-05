@@ -133,7 +133,10 @@ def target(name: str, folder: Path, out: Path) -> None:
     # repeat's); the image names, which have no median, are the median-CER repeat's.
     result["ocr"] = dict.fromkeys(OCR_FIELDS)
     if ocrs:
-        middle = sorted(ocrs, key=lambda o: o.get("cer") if isinstance(o.get("cer"), (int, float)) else 1e9)[(len(ocrs) - 1) // 2]
+        # Among the repeats that measured a CER (any repeat when none did), so the images never
+        # come from a repeat with no measurement while others have one.
+        measured = [o for o in ocrs if isinstance(o.get("cer"), (int, float))] or ocrs
+        middle = sorted(measured, key=lambda o: o.get("cer") if isinstance(o.get("cer"), (int, float)) else 0)[(len(measured) - 1) // 2]
         for k in OCR_FIELDS:
             if any(isinstance(o.get(k), (int, float)) for o in ocrs):
                 result["ocr"][k] = median_of(o.get(k) for o in ocrs)
