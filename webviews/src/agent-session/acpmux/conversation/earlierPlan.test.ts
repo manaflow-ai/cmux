@@ -36,7 +36,9 @@ test("the running turn's own list ends the carry-over", () => {
 });
 
 test("a cleared list ends the carry-over", () => {
-  expect(earlierTurnPlan([row("user"), stopped(), row("user"), row("plan", { turnEnded: true, plan: [] })])).toBeUndefined();
+  expect(
+    earlierTurnPlan([row("user"), stopped(), row("user"), row("plan", { turnEnded: true, plan: [] })]),
+  ).toBeUndefined();
 });
 
 test("another session's message is not the person's", () => {
