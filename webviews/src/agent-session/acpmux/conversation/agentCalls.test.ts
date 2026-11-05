@@ -69,6 +69,12 @@ test("other calls are not subagents: no prompt, a shell, an MCP-ish kind, no Age
   expect(agentCall(call({ inputSummary: "not json" }))).toBeUndefined();
 });
 
+test("a report line that names an agentId before the trailer stays in the report", () => {
+  expect(
+    splitReport("agentId: x7 is the stuck one.\nIt never answered.\nagentId: a1\n<usage>tool_uses: 1</usage>").report,
+  ).toBe("agentId: x7 is the stuck one.\nIt never answered.");
+});
+
 test("the result's trailer is never the report, and a result with only a trailer has none", () => {
   expect(splitReport("agentId: abc\n<usage>tool_uses: 2</usage>")).toEqual({ usage: { toolUses: 2 } });
   expect(splitReport("Done.\nworktreePath: /repo/.claude/worktrees/x\nworktreeBranch: worktree-x").report).toBe(

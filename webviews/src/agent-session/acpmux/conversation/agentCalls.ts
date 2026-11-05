@@ -71,14 +71,14 @@ export function splitReport(output: string): {
     if (toolUses !== undefined) usage.toolUses = toolUses;
     if (tokens !== undefined) usage.tokens = tokens;
   }
-  const report = output
-    .replace(/<usage>[\s\S]*?<\/usage>/gu, "")
-    .split("\n")
-    .filter((line) => !/^\s*(?:agentId|worktreePath|worktreeBranch):\s/u.test(line))
-    .join("\n")
-    .trim();
+  // Only the trailing lines are the trailer: a report that itself says `agentId: …` keeps it.
+  const lines = output.replace(/<usage>[\s\S]*?<\/usage>\s*$/u, "").split("\n");
+  while (lines.length && (!lines.at(-1)!.trim() || TRAILER.test(lines.at(-1)!))) lines.pop();
+  const report = lines.join("\n").trim();
   return { ...(report ? { report } : {}), usage };
 }
+
+const TRAILER = /^\s*(?:agentId|worktreePath|worktreeBranch):\s/u;
 
 function parse(summary: string | undefined): Record<string, unknown> | undefined {
   if (!summary) return undefined;
