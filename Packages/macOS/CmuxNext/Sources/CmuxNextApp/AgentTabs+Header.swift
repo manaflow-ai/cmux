@@ -9,15 +9,15 @@ import CmuxNextDaemon
 extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String, machine: String? = nil) {
         let scoped = tabKey(provisional, machine: machine)
-        let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
+        let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional, machine: scoped.machine) ?? provisional },
                                           registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) }, hidden: { [weak self] in CloudMove.hiddenMenuItems(self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.record) }, local: { [weak self] in self?.gitLinkScoped?(self?.resolvedKey(scoped))?.isLocal == true }, openTool: { [weak self] kind, cwd in guard let self else { return false }; return self.openToolScoped?(self.resolvedKey(scoped), kind, cwd) ?? false })
         let toggles = AgentChatSplitToggles(), pullRequest = AgentChatPullRequest()
         let watch = AgentChatHeaderWatch(state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
-            let chat = resolve(provisional)
+            let chat = resolve(provisional, machine: scoped.machine)
             return toggles.headerState(chat: chat, store: record(for: resolvedKey(scoped))?.store, pullRequest: gitLinkScoped?(resolvedKey(scoped))?.isLocal == true ? pullRequest : nil)
         }, push: { [weak self] state in
-            guard let view = self?.existingView(provisional) else { return }
+            guard let view = self?.existingView(provisional, machine: scoped.machine) else { return }
             AgentPaneHeaderState.push(state, to: view)
         })
         // Watching from the wiring on: a tab rekeyed after the page's first read is wired again,
@@ -26,18 +26,18 @@ extension AgentTabStore {
         // The page names the chat's folder once its session summary came; until then (and for a
         // split beside another split) the chat's exact folder from here (terminalFolder).
         model.header = AgentPaneHeaderHooks(run: { [weak self] id, cwd in
-            let chat = self?.resolve(provisional) ?? provisional
-            toggles.open(id, cwd: cwd ?? self?.terminalFolder(of: chat), chat: chat, store: self?.lookup(chat)?.store, actions: actions)
+            let chat = self?.resolve(provisional, machine: scoped.machine) ?? provisional
+            toggles.open(id, cwd: cwd ?? self?.terminalFolder(of: chat), chat: chat, store: self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.store, actions: actions)
         }, toggle: { [weak self] id, cwd in
-            let chat = self?.resolve(provisional) ?? provisional
-            toggles.toggle(id, cwd: cwd ?? self?.terminalFolder(of: chat), chat: chat, store: self?.lookup(chat)?.store, actions: actions)
+            let chat = self?.resolve(provisional, machine: scoped.machine) ?? provisional
+            toggles.toggle(id, cwd: cwd ?? self?.terminalFolder(of: chat), chat: chat, store: self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.store, actions: actions)
         }, tabState: {
             // The page reads the state when a chat opens; its changes are pushed.
             watch.read()
         }, openSide: { [weak self] chat, fork in // the tracker (AgentSidePanes) asks RightColumnPlacement; the app opens there
             guard let self else { return }; AgentSidePanes.chat(chat).open(fork, chat: resolve(provisional), hooks: .init(pane: { [weak self] in self?.locate(self?.resolve($0) ?? $0).map { "\(ObjectIdentifier($0.daemon).hashValue):\($0.pane.rawValue)" } }, column: { [weak self] in self?.rightColumn(self?.resolve($0) ?? $0) ?? .init() }) { [weak self] _, _, created, finished in // openOnRight decides again in its turn (RightColumnTurns)
                 self?.openOnRight(of: provisional, open: { [weak self] pane, daemon, split in guard let self else { throw CancellationError() }; return try open(in: pane, of: daemon, session: fork, split: split) }, created: { key, _ in created(key) }, finished: { _ in finished() }) ?? false })
-        }, openRight: { [weak self] session in guard let self else { return false }; return openRight?(resolve(provisional), session, nil) ?? false
+        }, openRight: { [weak self] session in guard let self else { return false }; return self.openRightScoped?(self.resolvedKey(scoped), session, nil) ?? false
         }, openTab: { [weak self] session, destination in self?.openFork(session, at: destination, beside: provisional) ?? false }, openSubagent: { [weak self] in self?.openSubagent($1, of: $0, focus: $2, beside: provisional) ?? false }, showsSubagent: { [weak self] title, tone, keepingTitle in guard let self else { return }; SubagentTabTitles.shared.show(title, inTab: resolve(provisional), tone: tone, keepingTitle: keepingTitle) }, openProcess: { [weak self] viewer in guard let self else { return false }; return openProcess?(resolve(provisional), viewer) ?? false }, newChat: { [weak self] in self?.openNewTabColumn(beside: provisional, cwd: $0, split: false) ?? false }, sideTabs: { [weak self] in
             guard let self else { return nil }
             let chat = resolve(provisional)

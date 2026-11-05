@@ -106,7 +106,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
 
     // MARK: HiddenChatPagesHost
 
-    func hibernationPages() -> [String: AgentPaneView]? { store()?.views }
+    func hibernationPages() -> [String: AgentPaneView]? { store()?.views.bare }
     func hibernationPage(_ key: String) -> AgentPaneView? { store()?.existingView(key) }
     func pageDraws(_ key: String) -> Bool { isRendering(key) }
     func pageClock() -> ContinuousClock.Instant { now() }

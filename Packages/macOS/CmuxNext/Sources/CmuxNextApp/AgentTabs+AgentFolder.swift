@@ -8,15 +8,18 @@ import Foundation
 extension AgentTabStore {
     /// Tab `key`'s roots, agent-home and Choose Folder… on its page's model. Each resolves the
     /// tab's current id when it runs.
-    func wireAgentFolder(_ model: AgentPaneModel, key provisional: String) {
-        model.workspaceRoots = { [weak self] in self.map { $0.workspaceRoots(of: $0.resolve(provisional)) } ?? [] }
-        model.workspaceAgentHome = { [weak self] in self.flatMap { $0.agentHome(of: $0.resolve(provisional)) } }
-        model.transport.workspaceID = { [weak self] in self.flatMap { $0.localWorkspaceKey(of: $0.resolve(provisional)) } }
+    func wireAgentFolder(_ model: AgentPaneModel, key provisional: String, machine: String? = nil) {
+        model.workspaceRoots = { [weak self] in self.map { $0.workspaceRoots(of: $0.resolve(provisional, machine: machine ?? "")) } ?? [] }
+        model.workspaceAgentHome = { [weak self] in self.flatMap { $0.agentHome(of: $0.resolve(provisional, machine: machine ?? "")) } }
+        model.transport.workspaceID = { [weak self] in self.flatMap { $0.localWorkspaceKey(of: $0.resolve(provisional, machine: machine ?? "")) } }
         // Stage and Commit (cx-tcwj) run git on this Mac: never in a Cloud or SSH chat's same-named folder here.
-        model.gitWritesHere = { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == true }
+        model.gitWritesHere = { [weak self] in
+            guard let self else { return false }
+            return self.gitLinkScoped?(self.resolvedKey(AgentTabKey(machine: machine ?? "", key: provisional)))?.isLocal == true
+        }
         model.startFolders.resolve = { [weak self] proposed in
-            guard let self, let workspace = workspace(holding: resolve(provisional)), let resource = workspace.resourceID else { return nil }
-            guard var answer = await daemonForTab(resolve(provisional))?.agentStart(proposed, workspace: resource) else { return nil }
+            guard let self, let workspace = workspace(holding: resolve(provisional, machine: machine ?? "")), let resource = workspace.resourceID else { return nil }
+            guard var answer = await daemonForTabScoped(resolvedKey(AgentTabKey(machine: machine ?? "", key: provisional)))?.agentStart(proposed, workspace: resource) else { return nil }
             // The relay roots and makes agent-home: only this app's own agent-home folders, the
             // workspace's, or the one a chat opened here already ran in (cx-djoj7: the store names
             // it, so the adopt resumes there). Never a folder outside the base or deeper in it.
@@ -28,7 +31,7 @@ extension AgentTabStore {
         }
         model.onChooseFolder = { [weak self] in
             guard let self else { return .cancelled }
-            return await chooseAgentFolder(for: resolve(provisional))
+            return await chooseAgentFolder(for: resolve(provisional, machine: machine ?? ""))
         }
     }
 

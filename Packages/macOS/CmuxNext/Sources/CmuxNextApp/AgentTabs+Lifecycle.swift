@@ -292,7 +292,7 @@ extension AgentTabStore {
         }
         // The record holds every pending bind: the next expects it. A new harness (acpmux's, cx-w4bbw) alone binds too.
         let (expected, harness) = (record.session, views[scoped]?.model.transport.sessions.harness(of: session))
-        guard expected != session || (harness != nil && harness != record.harness), let store = record(for: scoped)?.store, let surface = store.tab(id: key)?.surface else { return }
+        guard expected != session || (harness != nil && harness != record.harness), let store = self.record(for: scoped)?.store, let surface = store.tab(id: key)?.surface else { return }
         let transaction = ClientTransactionID.generate()
         store.intend(.bindAgentSession(surface: surface, session: session, harness: harness), transaction: transaction)
         // task-owner: one compare-and-swap; its answer settles or rejects the intent
@@ -336,6 +336,16 @@ extension AgentTabStore {
         let notice = AgentTabElsewhereView(machine: record.hostName)
         notices[key] = notice
         track(key, in: store)
+        return notice
+    }
+
+    func notice(for key: String, machine: String) -> AgentTabElsewhereView? {
+        let scoped = resolvedKey(AgentTabKey(machine: machine, key: key))
+        if let notice = notices[scoped] { return notice }
+        guard let localHost, let (record, store) = record(for: scoped), record.host != localHost else { return nil }
+        let notice = AgentTabElsewhereView(machine: record.hostName)
+        notices[scoped] = notice
+        track(scoped.key, in: store, machine: scoped.machine)
         return notice
     }
 

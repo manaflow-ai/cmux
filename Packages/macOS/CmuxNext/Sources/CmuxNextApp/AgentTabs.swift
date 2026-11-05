@@ -498,7 +498,6 @@ final class AgentTabStore {
     /// pane then shows the "runs on" notice).
     func view(for key: String, machine: String? = nil) -> AgentPaneView? {
         let tabKey = tabKey(key, machine: machine)
-        let key = tabKey.key
         if let view = views[tabKey] { return view }
         let key = tabKey.key
         guard let (record, store) = record(for: tabKey) else { return nil }
@@ -691,7 +690,7 @@ final class AgentTabStore {
         }
         model.onAppAction = { [weak self] id in
             guard let self else { return }
-            newTabPages[resolve(provisional)]?.handler.action(id)
+            newTabPages[resolvedKey(scoped)]?.handler.action(id)
         }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         model.onGit = { [weak self] request in
@@ -703,19 +702,19 @@ final class AgentTabStore {
             guard let self, let link = self.gitLinkScoped?(self.resolvedKey(scoped)) else { throw AgentPaneGitFailure.notConnected }
             return try await link.write(request, in: cwd)
         }
-        wireAgentFolder(model, key: provisional)
-        wireAgentReply(model, key: provisional)
+        wireAgentFolder(model, key: provisional, machine: scoped.machine)
+        wireAgentReply(model, key: provisional, machine: scoped.machine)
         model.onUpload = { [weak self] in
             guard let self else { return nil }
-            return uploader?(resolve(provisional))
+            return uploader?(resolve(provisional, machine: scoped.machine))
         }
         model.onUploadStage = { [weak self] in
             guard let self else { return nil }
-            return uploadStager?(resolve(provisional))
+            return uploadStager?(resolve(provisional, machine: scoped.machine))
         }
         model.onLocalPaths = { [weak self] in
             guard let self else { return false }
-            return localPaths?(resolve(provisional)) ?? false
+            return localPaths?(resolve(provisional, machine: scoped.machine)) ?? false
         }
     }
 
