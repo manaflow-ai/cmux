@@ -15,7 +15,7 @@ enum CLIInstallHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("palette.installCLI", run: { invocation in
             let window = context.activeWindow?.window
-            let name: CLIPathInstaller.Name = invocation["cmux_next"]?.boolValue == true ? .cmuxNext : .cmux
+            let name: CLIPathInstaller.Name = invocation["cmuxNext"]?.boolValue == true ? .cmuxNext : .cmux
             let replacing = invocation["replace"]?.boolValue == true
             Task { @MainActor in // task-owner: one install, ended by its toast
                 await install(name, replacing: replacing, in: window)

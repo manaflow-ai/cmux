@@ -19,6 +19,8 @@ final class MainActorWorkItem: Sendable {
     let owner: MainTaskOwner?
     /// Its main-thread priority class: ``MainWorkClass/input`` for injected input, else automation.
     let workClass: MainWorkClass
+    /// Whether the frame that runs it marks the control snapshot stale (``ControlMethod/leavingSnapshotFresh()``: no).
+    let marksSnapshotStale: Bool
     let deadline: ContinuousClock.Instant
     let enqueuedAt: ContinuousClock.Instant
     private let body: @MainActor @Sendable () -> Void
@@ -41,6 +43,7 @@ final class MainActorWorkItem: Sendable {
         method: String = "",
         owner: MainTaskOwner? = nil,
         workClass: MainWorkClass = .automation,
+        marksSnapshotStale: Bool = true,
         deadline: ContinuousClock.Instant,
         enqueuedAt: ContinuousClock.Instant,
         body: @escaping @MainActor @Sendable () -> Void,
@@ -50,6 +53,7 @@ final class MainActorWorkItem: Sendable {
         self.method = method
         self.owner = owner
         self.workClass = workClass
+        self.marksSnapshotStale = marksSnapshotStale
         self.deadline = deadline
         self.enqueuedAt = enqueuedAt
         self.body = body

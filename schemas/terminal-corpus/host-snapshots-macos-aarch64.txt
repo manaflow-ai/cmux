@@ -42,12 +42,12 @@ wide-combining complete 5 4 1338686dc5b84f87
 wide-combining complete 6 6 1eb834944db9e4cb
 hyperlinks ready 0 1 9a84c4a0e45b99fa
 hyperlinks ready 1 2 845b408592d77725
-hyperlinks ready 2 3 cdfd4dd3c5dbe096
+hyperlinks ready 2 3 6b587579be3a54d1
 hyperlinks ready 3 7 4221d0615fc81e92
 hyperlinks ready 4 5 88f507fb83e49220
 hyperlinks complete 0 1 9a84c4a0e45b99fa
 hyperlinks complete 1 2 845b408592d77725
-hyperlinks complete 2 3 cdfd4dd3c5dbe096
+hyperlinks complete 2 3 6b587579be3a54d1
 hyperlinks complete 3 7 4221d0615fc81e92
 hyperlinks complete 4 5 88f507fb83e49220
 hyperlinks complete 5 4 1338686dc5b84f87
@@ -65,6 +65,19 @@ styles complete 4 5 88f507fb83e49220
 styles complete 5 4 1338686dc5b84f87
 styles complete 6 6 1eb834944db9e4cb
 scrollback ready 0 1 db22f7c81eb50d6e
+
+---- terminal_corpus_snapshots_encode_ready_and_complete stdout ----
+
+thread 'terminal_corpus_snapshots_encode_ready_and_complete' (37036915) panicked at crates/ghostty-vt/tests/terminal_corpus.rs:211:9:
+host snapshots differ from /Users/cmux/actions-runner-glaeda-4/_work/cmux/cmux/cmux-tui/crates/ghostty-vt/../../../schemas/terminal-corpus/host-snapshots-macos-aarch64.txt
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    terminal_corpus_snapshots_encode_ready_and_complete
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
 scrollback ready 1 2 7abc3b8f11a1f6b9
 scrollback ready 2 3 1fd2327ecf701fc8
 scrollback ready 3 7 4221d0615fc81e92
@@ -91,12 +104,15 @@ scrollback complete 18 6 1eb834944db9e4cb
 kitty-graphics ready 0 1 782e52dd7d2d13cd
 kitty-graphics ready 1 2 5d62a249800897d3
 kitty-graphics ready 2 3 ce2a2a69ec85dd7b
-kitty-graphics ready 3 7 4221d0615fc81e92
-kitty-graphics ready 4 5 88f507fb83e49220
+kitty-graphics ready 3 8 75c8a0ca512e0736
+kitty-graphics ready 4 7 4221d0615fc81e92
+kitty-graphics ready 5 5 88f507fb83e49220
 kitty-graphics complete 0 1 782e52dd7d2d13cd
 kitty-graphics complete 1 2 5d62a249800897d3
 kitty-graphics complete 2 3 ce2a2a69ec85dd7b
-kitty-graphics complete 3 7 4221d0615fc81e92
-kitty-graphics complete 4 5 88f507fb83e49220
-kitty-graphics complete 5 4 1338686dc5b84f87
-kitty-graphics complete 6 6 1eb834944db9e4cb
+kitty-graphics complete 3 8 75c8a0ca512e0736
+kitty-graphics complete 4 7 4221d0615fc81e92
+kitty-graphics complete 5 5 88f507fb83e49220
+kitty-graphics complete 6 9 794ca29ddb44e680
+kitty-graphics complete 7 4 1338686dc5b84f87
+kitty-graphics complete 8 6 1eb834944db9e4cb

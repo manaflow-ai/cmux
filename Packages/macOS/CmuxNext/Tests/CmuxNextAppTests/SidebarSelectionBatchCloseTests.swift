@@ -39,10 +39,10 @@ struct SidebarSelectionBatchCloseTests {
         return ids
     }
 
-    /// Whether a close of `ids` keeps its rows until the question is answered (`WorkspaceBulkClose.mayAsk`),
+    /// Whether a close of `ids` keeps its rows until the question is answered (`WorkspaceClose.mayAsk`),
     /// read from the store as the press reads it.
     private static func keepsRows(_ ids: [String], _ services: AppServices) -> Bool {
-        WorkspaceBulkClose.mayAsk(ids.compactMap { services.machines.workspace(id: $0) }, warn: true)
+        WorkspaceClose.mayAsk(ids.compactMap { services.machines.workspace(id: $0) }, warn: true)
     }
 
     /// Whether `id`'s row is listed in `sidebar` and not closing (it has not started to animate out).

@@ -150,6 +150,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         )],
     ),
     (
+        "machine leave",
+        &[
+            ("Revoke this joined machine and remove its join state", "acpmux machine leave"),
+            (
+                "Remove the join state after revoking the machine from your Mac",
+                "acpmux machine leave --local-only --json",
+            ),
+        ],
+    ),
+    (
         "machine vault",
         &[
             ("Pull this machine's vault now", "acpmux machine vault pull"),

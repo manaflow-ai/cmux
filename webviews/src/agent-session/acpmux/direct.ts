@@ -101,7 +101,7 @@ import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
-import { inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
+import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
@@ -8630,21 +8630,7 @@ export class AcpmuxDirectClient {
     const reply = (await this.request("_acpmux/inbox_thread", { sessionId, threadId }, 15_000)) as {
       messages?: unknown;
     } | null;
-    const messages = Array.isArray(reply?.messages) ? reply.messages : [];
-    return messages
-      .flatMap((m): InboxMessage[] => {
-        const r = m as Record<string, unknown> | null;
-        if (!r || typeof r.text !== "string") return [];
-        return [
-          {
-            from: typeof r.from === "string" ? r.from : "",
-            text: r.text,
-            ...(typeof r.promptId === "string" && { promptId: r.promptId }),
-            ...(typeof r.at === "number" && { at: r.at }),
-          },
-        ];
-      })
-      .reverse();
+    return inboxMessages(Array.isArray(reply?.messages) ? reply.messages : []).reverse();
   }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {
