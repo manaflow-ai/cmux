@@ -104,11 +104,21 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
       for var in PATH HOME TMPDIR USER LANG DEVELOPER_DIR CARGO_HOME RUSTUP_HOME $(compgen -e | grep -E '^CMUX_' || true); do
         [[ -n "${!var:-}" ]] && env_args+=(--env "$var=${!var}")
       done
+      # The app ends the run when this process is gone (a killed step), and the step log follows its output.
+      : >"$launch/out.log"
+      tail -n +1 -f "$launch/out.log" &
+      follow=$!
       open -W -n -g -a "$app" --stdout "$launch/out.log" --stderr "$launch/err.log" ${env_args[@]+"${env_args[@]}"} \
-        --args "$root/scripts/measure/screen-stream-eval.sh" "$launch/status" "$@" || true
-      cat "$launch/out.log" 2>/dev/null
+        --env "CMUX_SCREEN_EVAL_PARENT=$$" --args "$root/scripts/measure/screen-stream-eval.sh" "$launch/status" "$@" || true
+      sleep 1 # the last lines reach the follower
+      kill "$follow" 2>/dev/null || true
       tail -n 80 "$launch/err.log" 2>/dev/null >&2
       status=$(cat "$launch/status" 2>/dev/null || echo 4)
+      if [[ ! -s "$out/results.json" ]]; then
+        mkdir -p "$out"
+        finish "the run inside $app ended (status $status) without results ($(tail -1 "$launch/err.log" 2>/dev/null))"
+        [[ "$status" == 0 ]] && status=4
+      fi
       exit "$status"
     fi
     finish "this worker's step processes lack Screen Recording or Accessibility, and so does $app; grant both to it once at the console (System Settings > Privacy & Security, where it is listed) ($grants)"

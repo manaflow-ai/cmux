@@ -12,8 +12,12 @@
 //                                          STATUS_FILE
 //
 // Started through `open -W -n -g -a CmuxScreenEvalLauncher --args ...` (so LaunchServices makes it
-// the responsible app). SCRIPT must be a scripts/measure/screen-stream-eval.sh owned by this user:
-// the app runs that harness and nothing else.
+// the responsible app). SCRIPT must be a scripts/measure/screen-stream-eval.sh owned by this user,
+// run by a clean bash (no profile, rc file or BASH_ENV). That is a guard against a wrong path, not a
+// boundary against this user's own processes; the README's "Trust" says why that is the right line.
+// LaunchServices, not the step, is the app's parent, so a step that is killed would leave the run
+// going: CMUX_SCREEN_EVAL_PARENT names the step's process, and the app ends the run's process group
+// when that process is gone or the app gets SIGTERM.
 
 import ApplicationServices
 import CoreGraphics
@@ -60,13 +64,40 @@ guard script.lastPathComponent == "screen-stream-eval.sh",
 else { fail("refusing \(script.path): only this user's scripts/measure/screen-stream-eval.sh runs here") }
 
 var environment = ProcessInfo.processInfo.environment
+for name in ["BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "CDPATH"] { environment[name] = nil }
 environment["CMUX_SCREEN_EVAL_IN_LAUNCHER"] = "1"
-let argv = ["/bin/bash", script.path] + args.dropFirst(2)
+let parent = environment["CMUX_SCREEN_EVAL_PARENT"].flatMap { pid_t($0) }
+let argv = ["/bin/bash", "--noprofile", "--norc", script.path] + args.dropFirst(2)
 let cArgs = argv.map { strdup($0) } + [nil]
 let cEnv = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
+var spawnAttributes: posix_spawnattr_t?
+posix_spawnattr_init(&spawnAttributes)
+posix_spawnattr_setflags(&spawnAttributes, Int16(POSIX_SPAWN_SETPGROUP)) // the run gets a process group of its own
+posix_spawnattr_setpgroup(&spawnAttributes, 0)
 var pid: pid_t = 0
-let spawned = posix_spawn(&pid, "/bin/bash", nil, nil, cArgs, cEnv)
+let spawned = posix_spawn(&pid, "/bin/bash", nil, &spawnAttributes, cArgs, cEnv)
 guard spawned == 0 else { fail("posix_spawn: \(String(cString: strerror(spawned)))") }
+
+/// Ends the run's process group: SIGTERM, then SIGKILL after 10 s.
+func endRun() {
+    kill(-pid, SIGTERM)
+    DispatchQueue.global().asyncAfter(deadline: .now() + 10) { kill(-pid, SIGKILL) }
+}
+signal(SIGTERM, SIG_IGN)
+let terminated = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
+terminated.setEventHandler(handler: endRun)
+terminated.resume()
+let watch = DispatchSource.makeTimerSource(queue: .global())
+if let parent {
+    watch.schedule(deadline: .now() + 2, repeating: 2) // the step's process, every 2 s
+    watch.setEventHandler {
+        if kill(parent, 0) == -1, errno == ESRCH {
+            watch.cancel()
+            endRun()
+        }
+    }
+    watch.resume()
+}
 var status: Int32 = 0
 while waitpid(pid, &status, 0) == -1 && errno == EINTR {}
 let code = (status & 0x7F) == 0 ? (status >> 8) & 0xFF : 128 + (status & 0x7F)

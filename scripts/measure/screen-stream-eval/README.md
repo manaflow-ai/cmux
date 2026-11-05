@@ -76,3 +76,11 @@ since the grant is keyed to that exact binary) and runs the whole eval again ins
 The one manual step per mini: grant Screen Recording and Accessibility to
 CmuxScreenEvalLauncher in System Settings > Privacy & Security. The first run lists it there
 (`launcher --request`). Until then the run writes `run.blocked`, naming the app, and exits 3.
+macOS 15 and later may ask again, after some weeks, to keep allowing screen capture. A run blocked
+again on a mini that ran before is that prompt waiting at its console.
+
+**Trust.** The app holds both grants and runs the harness for any process of its user that asks:
+the path check only guards against a wrong path, since that user can edit its own checkout anyway.
+That matches the boundary a measure mini already has: a dedicated console user with no personal
+data or secrets on screen, running only reviewed feat-cmux-next measurement steps, which run their
+own checkout's code. Do not install the launcher on a Mac where that is not true.
