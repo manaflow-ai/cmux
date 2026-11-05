@@ -145,6 +145,24 @@ struct ParkedPageIdleSizingTests {
         }
     }
 
+    /// A resize outside a live resize (a full screen transition sets its final size at once and ends no live resize; a
+    /// one-frame resize): the parked page waits for the run loop's idle point, then takes its pane's size.
+    @Test func aResizeOutsideALiveResizeSizesTheParkedPageAtTheIdlePoint() async throws {
+        try await Self.withSwitch {
+            let rig = Self.rig()
+            defer { rig.close() }
+            let page = rig.pages[0], parked = page.frame
+            var frame = rig.window.frame
+            frame.size.width -= 80
+            frame.size.height -= 40
+            rig.window.setFrame(frame, display: true)
+            rig.pane.layoutSubtreeIfNeeded()
+            #expect(page.frame == parked, "the parked page followed the resize in its turn: \(parked) -> \(page.frame)")
+            await Self.nextIdlePoint()
+            #expect(page.frame.size == rig.showSize(page), "after the resize and an idle point the parked page is \(page.frame.size), not \(rig.showSize(page))")
+        }
+    }
+
     @Test func aShowBeforeTheIdlePointSizesThePageOnce() async throws {
         try await Self.withSwitch {
             let rig = Self.rig()

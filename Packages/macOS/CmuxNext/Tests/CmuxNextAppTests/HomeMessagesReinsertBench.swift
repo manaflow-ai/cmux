@@ -136,7 +136,6 @@ struct HomeMessagesReinsertBench {
         }()
 
         var shows: [Park: [Show]] = [:], steps: [Park: [Step]] = [:]
-        var resizeCount = 0
         let warmUp = 3, rounds = 20
         for round in 0..<(warmUp + rounds) {
             for park in Park.allCases {
@@ -155,12 +154,12 @@ struct HomeMessagesReinsertBench {
                 window.displayIfNeeded()
                 CATransaction.flush()
 
-                // One step of the window's resize while it is parked.
+                // One step of the window's resize while it is parked: the same step for every way in a round (smaller in
+                // even rounds, larger in odd ones), from the same frame (each way's step is undone after its show).
                 var step = Step()
                 let calls = LayoutPassGuard.shared.viewLayoutCalls
                 let stepStart = CACurrentMediaTime()
-                Self.resize(window, step: resizeCount)
-                resizeCount += 1
+                Self.resize(window, step: round)
                 root.layoutSubtreeIfNeeded()
                 window.displayIfNeeded()
                 CATransaction.flush()
@@ -214,6 +213,11 @@ struct HomeMessagesReinsertBench {
 
                 #expect(page.window === window && page.frame.size == holder.bounds.size,
                         "\(park.rawValue): the page is not shown at its holder's size (\(page.frame.size) in \(holder.bounds.size))")
+                // Back to the round's starting frame, the page shown (it follows), not measured.
+                Self.resize(window, step: round + 1)
+                root.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                CATransaction.flush()
                 guard round >= warmUp else { continue }
                 shows[park, default: []].append(show)
                 steps[park, default: []].append(step)
