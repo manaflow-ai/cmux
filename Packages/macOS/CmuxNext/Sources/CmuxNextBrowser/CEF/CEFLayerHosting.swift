@@ -89,6 +89,8 @@ final class CEFLayerHosting {
     private(set) var browser: Int32?
     private var fork: Fork?
     private var pending = Pending.none
+    /// The runtime's switch observation this page window follows (``CEFHostingSwitch``); nil in tests that pass none.
+    private weak var hostingSwitch: CEFHostingSwitch?
     private let isEnabled: () -> Bool
     private let schedule: Scheduler
     private let makePage: (CGRect) -> CEFHostedPageView
@@ -117,7 +119,7 @@ final class CEFLayerHosting {
     ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; the tunable by default.
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
-    init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value || BrowserResizeTunables.framesOwnedByCommit.value },
+    init(isEnabled: @escaping () -> Bool = { CEFHostingSwitch.hostingWanted },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
          resizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.syncDeadline) },
@@ -146,7 +148,7 @@ final class CEFLayerHosting {
     /// A new page window over the view (a pane's Chromium window, or a docked
     /// DevTools): the old window's context went with it. Called inside
     /// Chromium's creation stack, so the request waits for the end of the turn.
-    func pageWindowCreated(browser: Int32, fork: Fork?) {
+    func pageWindowCreated(browser: Int32, fork: Fork?, follows hostingSwitch: CEFHostingSwitch? = nil) {
         dropPage()
         self.browser = browser
         self.fork = fork
@@ -155,6 +157,9 @@ final class CEFLayerHosting {
         pending = .none
         // The window may be in a live resize already.
         syncDeadline()
+        // A switch flipped while the page shows reaches it at once (CEFLayerHosting+Switch).
+        self.hostingSwitch = hostingSwitch
+        hostingSwitch?.follow(self)
         guard fork != nil, isEnabled() else { return }
         request(retry: false)
     }
@@ -261,6 +266,7 @@ final class CEFLayerHosting {
     /// hosting off for the browser and drops the hosted view.
     func stop() {
         pending = .none
+        hostingSwitch?.unfollow(self)
         // The page window closed: a drag's wait does not pass to the next one (an end that comes later is ignored).
         paneDragHolders = 0
         if page != nil, let fork, let browser {

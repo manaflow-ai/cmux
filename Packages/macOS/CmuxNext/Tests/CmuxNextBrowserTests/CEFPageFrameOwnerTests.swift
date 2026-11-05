@@ -209,8 +209,9 @@ import Testing
         window.contentView?.addSubview(hidden)
         let (hosting, fork, turn) = Self.hosting(over: view, intervals: [1.0 / 120])
         let (parked, parkedFork, parkedTurn) = Self.hosting(over: hidden, intervals: [1.0 / 120])
-        hosting.pageWindowCreated(browser: 3, fork: fork.fork)
-        parked.pageWindowCreated(browser: 4, fork: parkedFork.fork)
+        let hostingSwitch = CEFHostingSwitch()  // the runtime's (`CEFRuntime.hostingSwitch`)
+        hosting.pageWindowCreated(browser: 3, fork: fork.fork, follows: hostingSwitch)
+        parked.pageWindowCreated(browser: 4, fork: parkedFork.fork, follows: hostingSwitch)
         turn.end()
         parkedTurn.end()
         try #require(hosting.page == nil && fork.calls.isEmpty, "SETUP: the page is hosted with the switch off")
@@ -225,7 +226,7 @@ import Testing
         for _ in 0..<20 where hosting.page != nil { await Task.yield() }
         #expect(hosting.page == nil, "the page kept its hosting after the switch went off")
         #expect(fork.calls.map(\.enabled) == [true, false])
-        withExtendedLifetime(hidden) {}
+        withExtendedLifetime((hidden, hostingSwitch)) {}
         hosting.stop()
         parked.stop()
     }
