@@ -4906,18 +4906,20 @@ a.cv-sha:focus-visible {
   outline-offset: 2px;
 }
 
-/* The image viewer: one image over the whole pane, a bar with its name, position, copy and close,
-   and arrows through the chat's images at the sides. */
+/* The image viewer: one image over the pane below its tab row (ImageViewer.tsx), a bar with its name,
+   position, copy and close, and arrows through the chat's images at the sides. */
 .acpmux-image-viewer {
   position: fixed;
-  inset: 0;
+  inset: var(--acpmux-image-viewer-top, 0px) 0 0;
   z-index: var(--layer-modal);
   width: auto;
   margin-inline: 0;
   display: flex;
   flex-direction: column;
-  /* Mixed from the opaque surface: the page color is clear in a translucent window. */
-  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) 94%, transparent);
+  /* Mixed from the opaque surface (the page color is clear in a translucent window), light enough that
+     the pane reads behind it as a backdrop under the blur (Leo, 2026-11-05: "this screenshot preview has
+     too much opacity"). */
+  background: color-mix(in srgb, var(--cmux-surface-solid, var(--agent-page-bg)) 72%, transparent);
   -webkit-backdrop-filter: blur(24px);
   backdrop-filter: blur(24px);
   color: var(--agent-text);
@@ -4926,6 +4928,19 @@ a.cv-sha:focus-visible {
    * stage immediately. The dialog's close transition still uses its own token. */
   --ui-popup-open: 0s;
   --ui-dialog-open: 0s;
+}
+/* Reduce Transparency: the opaque surface with no blur, never the lighter mix above. */
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-image-viewer {
+    background: var(--cmux-surface-solid, var(--agent-page-bg));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-image-viewer {
+  background: var(--cmux-surface-solid, var(--agent-page-bg));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .acpmux-image-viewer-backdrop {
   position: fixed;
