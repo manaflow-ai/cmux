@@ -4,7 +4,7 @@ import CmuxNextOnboarding
 import Foundation
 
 /// The jobs a card's button runs, each saved after every step: a browser's
-/// profiles, iTerm2's theme and cmux Classic's import.
+/// profiles, iTerm2's theme, and cmux Classic's and Conductor's imports.
 extension ImportSuggestionsCenter {
     /// Waits until card `id`'s import is no longer running.
     func settled(_ id: String) async { await running[id]?.value }
@@ -100,11 +100,22 @@ extension ImportSuggestionsCenter {
     /// preview removes the job, so the card is as it was before the press. A quit mid-run leaves
     /// the job saved as running, which the next launch pauses for Resume.
     func runClassic(_ id: String) {
-        guard running[id] == nil, let host else { return }
+        guard let host else { return }
+        runWorkspaces(id, through: host.importClassic)
+    }
+
+    /// Runs Import from Conductor as card `id`'s job, as ``runClassic(_:)`` runs Classic's.
+    func runConductor(_ id: String) {
+        guard let host else { return }
+        runWorkspaces(id, through: host.importConductor)
+    }
+
+    private func runWorkspaces(_ id: String, through run: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?) {
+        guard running[id] == nil else { return }
         running[id] = Task { [weak self] in
             let outcome: Result<Int?, any Error>
             do {
-                outcome = try await .success(host.importClassic { [weak self] fraction in
+                outcome = try await .success(run { [weak self] fraction in
                     guard let self else { return }
                     ledger.update(id) { $0.progressed(fraction, now: self.now()) }
                 })
@@ -120,7 +131,7 @@ extension ImportSuggestionsCenter {
             }
             saveLedger()
             running[id] = nil
-            // What classic has left to bring, now that this run is in.
+            // What is left to bring, now that this run is in.
             scan()
         }
     }

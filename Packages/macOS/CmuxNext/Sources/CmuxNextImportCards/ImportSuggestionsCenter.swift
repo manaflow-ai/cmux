@@ -180,6 +180,7 @@ public final class ImportSuggestionsCenter {
     static let agentApps = [
         "agents.claudeCode": "com.anthropic.claudefordesktop", "agents.codex": "com.openai.codex",
         "terminal.iterm2": "com.googlecode.iterm2", "terminal.ghostty": "com.mitchellh.ghostty", "cmux.classic": "com.cmuxterm.app",
+        "agents.conductor": "com.conductor.app",
     ]
 
     /// The cards Settings › Import lists now; empty while the cards are off.
@@ -227,6 +228,9 @@ public final class ImportSuggestionsCenter {
                 // Runs the import again; the migration ledger skips what already came over.
                 put(job)
                 runClassic(id)
+            case .conductor:
+                put(job)
+                runConductor(id)
             case .claudeCode, .codex, .ghostty: finish(job)
             }
         case .dismiss:
@@ -355,6 +359,9 @@ public final class ImportSuggestionsCenter {
             // The action's own import, tracked: its preview asks before anything opens.
             put(ImportJob(finding: finding, now: now()))
             runClassic(id)
+        case .conductor:
+            put(ImportJob(finding: finding, now: now()))
+            runConductor(id)
         case .iterm2:
             run(id, writingTheme: ImportJob(finding: finding, now: now()))
         case .ghostty:
@@ -373,7 +380,7 @@ public final class ImportSuggestionsCenter {
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
                 NSWorkspace.shared.openInBackground(url)
             }
-        case .cmuxClassic, nil: break
+        case .cmuxClassic, .conductor, nil: break
         }
     }
 

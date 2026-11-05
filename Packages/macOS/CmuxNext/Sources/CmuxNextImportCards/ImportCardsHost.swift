@@ -19,14 +19,21 @@ public struct ImportCardsHost {
     /// twice) and its toast. Reports the share of classic workspaces handled, 0...1, on the main
     /// actor. Returns how many workspaces this run opened, nil when the person declined the preview.
     public var importClassic: (@escaping @MainActor (Double) -> Void) async throws -> Int?
+    /// Runs Import from Conductor: the daemon's dry run (`conductor_import.plan`), its preview and
+    /// confirmation, then each live workspace adopted in place,
+    /// recorded in the import's ledger (so nothing comes over twice). Reports progress and
+    /// returns as `importClassic` does.
+    public var importConductor: (@escaping @MainActor (Double) -> Void) async throws -> Int?
 
     public init(runImport: @escaping (ImportPlan, any SafeStorageKeyProviding, @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary,
                 importedProfiles: @escaping () async -> Set<String>,
                 openSettings: @escaping (String) -> Void,
-                importClassic: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?) {
+                importClassic: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?,
+                importConductor: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?) {
         self.runImport = runImport
         self.importedProfiles = importedProfiles
         self.openSettings = openSettings
         self.importClassic = importClassic
+        self.importConductor = importConductor
     }
 }

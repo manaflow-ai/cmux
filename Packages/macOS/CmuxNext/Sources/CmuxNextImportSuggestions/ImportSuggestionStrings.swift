@@ -68,6 +68,11 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
         String(localized: "importSuggestions.benefit.classic", defaultValue: "Your Classic workspaces open here, with their tabs, folders and agent chats.",
                table: "ImportSuggestions", bundle: .module)
     }
+    static var conductor: String {
+        String(localized: "importSuggestions.benefit.conductor",
+               defaultValue: "Your Conductor workspaces open here in place, on their branches, with their chats. Conductor Cloud shuts down on November 20.",
+               table: "ImportSuggestions", bundle: .module)
+    }
     static var classicAgain: String {
         String(localized: "importSuggestions.benefit.classicAgain",
                defaultValue: "Import again to reopen Classic workspaces you closed here. Ones still open aren't duplicated.",
@@ -131,6 +136,7 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static var doneTheme: String { String(localized: "importSuggestions.status.doneTheme", defaultValue: "Your colors are a theme now.", table: "ImportSuggestions", bundle: .module) }
     static var doneClassic: String { String(localized: "importSuggestions.status.doneClassic", defaultValue: "Your Classic workspaces are open.", table: "ImportSuggestions", bundle: .module) }
 
+    static var doneConductor: String { String(localized: "importSuggestions.status.doneConductor", defaultValue: "Your Conductor workspaces are open.", table: "ImportSuggestions", bundle: .module) }
     /// A cmux Classic import's end: the workspaces this run opened.
     static func importedSessions(_ count: Int) -> String {
         String(localized: "importSuggestions.status.importedSessions", defaultValue: "Imported \(count) sessions", table: "ImportSuggestions", bundle: .module)

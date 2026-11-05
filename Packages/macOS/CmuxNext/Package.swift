@@ -533,7 +533,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Settings › Import (no Home or New Tab suggestion). The App supplies `ImportCardsHost`.
         .target(
             name: "CmuxNextImportCards",
-            dependencies: ["CmuxNextActions", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDesign",
+            dependencies: ["CmuxNextActions", "CmuxNextBrowserImport", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign",
                            "CmuxNextImportSuggestions", "CmuxNextOnboarding", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),

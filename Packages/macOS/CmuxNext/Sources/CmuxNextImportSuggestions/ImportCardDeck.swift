@@ -62,6 +62,7 @@ public nonisolated struct ImportCardDeck: Sendable {
         case .codex: return ImportSuggestionStrings.threads(finding.count)
         case .cmuxClassic:
             return finding.offersNothingNew ? ImportSuggestionStrings.classicAllHere : ImportSuggestionStrings.workspaces(finding.count)
+        case .conductor: return ImportSuggestionStrings.workspaces(finding.count)
         case .iterm2: return ImportSuggestionStrings.profiles(finding.count)
         case .ghostty: return ImportSuggestionStrings.inUse
         }
@@ -76,6 +77,7 @@ public nonisolated struct ImportCardDeck: Sendable {
         case .claudeCode: return ImportSuggestionStrings.claudeCode
         case .codex: return ImportSuggestionStrings.codex
         case .cmuxClassic: return finding.offersNothingNew ? ImportSuggestionStrings.classicAgain : ImportSuggestionStrings.classic
+        case .conductor: return ImportSuggestionStrings.conductor
         case .iterm2: return ImportSuggestionStrings.iterm2
         case .ghostty: return ImportSuggestionStrings.ghostty
         }
@@ -86,7 +88,7 @@ public nonisolated struct ImportCardDeck: Sendable {
         switch kind {
         case .browser: .init(.start, ImportSuggestionStrings.importButton)
         case .claudeCode, .codex: .init(.start, ImportSuggestionStrings.showChats)
-        case .cmuxClassic: .init(.start, ImportSuggestionStrings.importWorkspaces)
+        case .cmuxClassic, .conductor: .init(.start, ImportSuggestionStrings.importWorkspaces)
         case .iterm2: .init(.start, ImportSuggestionStrings.importColors)
         case .ghostty: .init(.open, ImportSuggestionStrings.openConfig)
         }
@@ -155,6 +157,8 @@ public nonisolated struct ImportCardDeck: Sendable {
             case .iterm2: card.primary = .init(.open, ImportSuggestionStrings.openAppearance)
             // Settings › Import runs it again while Classic has a saved session; the ledger brings nothing twice.
             case .cmuxClassic: card.primary = finding != nil ? .init(.start, ImportSuggestionStrings.importAgain) : nil
+            // Again while Conductor's data is here; its ledger adopts nothing twice.
+            case .conductor: card.primary = finding != nil ? .init(.start, ImportSuggestionStrings.importAgain) : nil
             case .browser, .ghostty: card.primary = nil
             }
             card.secondary = [.init(.hide, ImportSuggestionStrings.done)]
@@ -167,6 +171,7 @@ public nonisolated struct ImportCardDeck: Sendable {
         case .claudeCode, .codex: return ImportSuggestionStrings.doneChats
         case .iterm2: return ImportSuggestionStrings.doneTheme
         case .cmuxClassic: return job.opened.map(ImportSuggestionStrings.importedSessions) ?? ImportSuggestionStrings.doneClassic
+        case .conductor: return ImportSuggestionStrings.doneConductor
         case .ghostty: return ImportSuggestionStrings.doneNothing
         case .browser:
             var parts: [String] = []
@@ -188,6 +193,7 @@ extension ImportSourceKind {
         case .ghostty: "Ghostty"
         case .iterm2: "iTerm2"
         case .cmuxClassic: "cmux Classic"
+        case .conductor: "Conductor"
         }
     }
 }
