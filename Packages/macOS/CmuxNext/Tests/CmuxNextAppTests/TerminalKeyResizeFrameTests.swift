@@ -275,7 +275,8 @@ struct TerminalKeyResizeFrameTests {
     /// the frame it shows have one pixel size.
     static func showsItsOwnFrame(_ session: TerminalSession) -> Bool {
         let view = session.surfaceView
-        guard view.frameOwnership.inFlight == nil, let layer = view.layer, let frame = view.presentedFrame else { return false }
+        if let window = view.window, TerminalFramePresenter.forWindow(window).isWaiting(view) { return false }
+        guard let layer = view.layer, let frame = view.presentedFrame else { return false }
         let scale = layer.contentsScale
         return Int((layer.bounds.width * scale).rounded()) == frame.width && Int((layer.bounds.height * scale).rounded()) == frame.height
     }

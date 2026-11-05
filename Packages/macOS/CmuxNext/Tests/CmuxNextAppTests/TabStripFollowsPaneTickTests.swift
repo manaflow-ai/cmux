@@ -259,9 +259,10 @@ struct TabStripFollowsPaneTickTests {
     /// and its surface the size the host shows it at (the text follows the pane); each terminal asks its PTY for one
     /// grid, the final one (the program's size per press). These windows draw nothing, so each size shows at once; with
     /// the window on screen, a size not drawn yet keeps the last frame, top-left (TerminalKeyResizeFrameTests).
-    /// Both states of `motion.frameOwner.terminals` (review of #35470, T5): the surface follows its pane with it on, and
-    /// with it off (the default) it takes at most one new size in the press; the strips, the hosts and the grids are the
-    /// same in both.
+    /// Both states of `motion.frameOwner.terminals` (review of #35470, T5): cmux-ad m18 deleted the key hold, so the
+    /// surface follows its pane in every frame in both (with it off it took at most one new size per press before); the
+    /// switch says only who presents each size's frame. The grid: each PTY ends at its final grid (m18 coalesces the
+    /// view's grid, about 25 ms; a synchronous run of frames is one window, so one grid).
     @Test(arguments: [LayoutDirection.left, .right, .up, .down], [false, true])
     func aKeyResizeKeepsEachStripAndTerminalOnItsPaneInEveryFrame(direction: LayoutDirection, switchOn: Bool) async throws {
         typealias Ground = PaneGroundCoversPaneTests
@@ -271,9 +272,7 @@ struct TabStripFollowsPaneTickTests {
         defer { PaneGroundCoversPaneTests.releaseFrames() }
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await PaneContentPolicyTests.grids(pane, rig) }
-        var sizes: [PaneID: [CGSize]] = [:]
-        /// `atRest`: the surface has its host's size (at rest and after the landing in both states, and in each frame
-        /// with the switch on); else (the switch off, in the press) its new sizes are counted.
+        /// The strips, and with `terminals` each terminal host and surface, against their pane (both states, every frame).
         func off(_ label: String, terminals: Bool, atRest: Bool = false) throws -> [String] {
             var found: [String] = []
             for pane in panes {
@@ -290,17 +289,12 @@ struct TabStripFollowsPaneTickTests {
                     found.append("\(label): \(pane)'s terminal host \(terminal.frame.size) in \(area.bounds.size)")
                 }
                 let shown = terminal.surfaceSize(forHostSize: terminal.bounds.size), size = session.surfaceView.frame.size
-                if switchOn || atRest {
-                    if size != shown { found.append("\(label): \(pane)'s surface \(size) in a \(shown) area") }
-                } else if size != sizes[pane]?.last {
-                    sizes[pane, default: []].append(size)
-                }
+                if size != shown { found.append("\(label): \(pane)'s surface \(size) in a \(shown) area") }
             }
             return found
         }
         let atRest = try off("at rest", terminals: true, atRest: true)
         try #require(atRest.isEmpty, "\(atRest)")
-        for pane in panes { sizes[pane] = try [PaneContentPolicyTests.surface(pane, in: rig).frame.size] }
         let before = try panes.map { try #require(rig.root.context.hosts[$0]).frame }
         try #require(PaneGroundCoversPaneTests.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
@@ -318,12 +312,6 @@ struct TabStripFollowsPaneTickTests {
         try #require(frames > 3, "the press did not spring (\(frames) frames)")
         #expect(try panes.map { try #require(rig.root.context.hosts[$0]).frame } != before, "the press moved nothing")
         #expect(found.isEmpty, "\(found.count) frames showed a strip or a terminal off its pane: \(found.prefix(6))")
-        if !switchOn {
-            for pane in panes {
-                let taken = (sizes[pane] ?? []).dropFirst()
-                #expect(taken.count <= 1, "\(pane)'s surface took \(taken.count) sizes in one press with the switch off: \(Array(taken))")
-            }
-        }
         for pane in panes {
             let grids = try await PaneContentPolicyTests.grids(pane, rig)
             let final = try #require(try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid)
