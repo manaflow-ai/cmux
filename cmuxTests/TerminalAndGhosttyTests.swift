@@ -5342,7 +5342,13 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         // Runtime creation is asynchronous in the app host. Until it exists the
         // attach is not a re-attach and must keep running the geometry pass.
-        guard waitUntil(timeout: 8, description: "live runtime surface", { surface.surface != nil }) else {
+        // This test is async, so it runs as a main-queue job; a nested run loop
+        // cannot drain that queue, so the wait has to suspend instead.
+        let hasRuntimeSurface = await AppKitTestEventPump().waitUntil(timeout: .seconds(8)) {
+            surface.surface != nil
+        }
+        guard hasRuntimeSurface else {
+            XCTFail("Timed out waiting for live runtime surface")
             return
         }
 
