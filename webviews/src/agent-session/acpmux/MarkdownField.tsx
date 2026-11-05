@@ -25,6 +25,9 @@ import {
 import { followActionsWidth } from "./composerScrollLane";
 import { caretInView } from "./composer/caretInView";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
+import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
+import { composerDeeplinkLook } from "./composer/deeplinkLook.experiment";
+import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
 import { MINIMAL_SCROLLER_ATTRIBUTE } from "../../scrollers";
 import {
@@ -1131,6 +1134,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         .use(clipboard)
         .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current)] : [])
         .use($prose(() => slashTokensPlugin(() => slashNamesNow.current ?? NO_SLASH_NAMES)))
+        // A cmux deeplink draws as a link, its text kept (composer/deeplinkTokens.ts).
+        .use($prose(() => deeplinkTokensPlugin(experimentArm(composerDeeplinkLook))))
         .create()
         .then((made) => {
           if (disposed) {
