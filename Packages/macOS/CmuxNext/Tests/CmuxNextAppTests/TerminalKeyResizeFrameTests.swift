@@ -10,6 +10,7 @@ import CmuxNextSignposts
 import CmuxNextTerminalGeometry
 import CmuxNextTestSupport
 import Foundation
+import IOSurface
 import GhosttyNextKit
 import Testing
 
@@ -189,11 +190,41 @@ struct TerminalKeyResizeFrameTests {
         let resizesBefore = screen.ios.map { $0.resizes.count }
         let pressed = ContinuousClock.now
 
+        // The drawn grid is read in the presenter's pass, tied to the PRESENTED frame (resize owner, B4 option (ii)): right
+        // after the pass hands a frame to the layer and before this turn's size drawn ahead goes to Ghostty, the hook reads
+        // the grid of Ghostty's last draw and the IOSurface now in the layer, and checks in the same pass that the IOSurface
+        // is the one the presenter handed over (the layer's contents). Read later, Ghostty's last draw is the frame drawn
+        // ahead for the next refresh, not the one on screen (diag bf2b674a: frame 3 read 16 rows, frame 4's grid). A frame
+        // sampled with no new present in its turn reads the record of the frame already on screen; a frame on screen that
+        // no pass presented (Ghostty presents off the main thread only at the layer's own pixel size) reads the record of
+        // the last pass's frame when it has that frame's pixel size, else counts as unread.
+        let presenter = TerminalFramePresenter.forWindow(screen.window)
+        var presentedGrids: [ObjectIdentifier: PresentedGrid] = [:]
+        var handOffs: [String] = []
+        presenter.presentedHook = { view in
+            guard let frame = view.presentedFrame else {
+                handOffs.append("a pass presented no IOSurface for \(ObjectIdentifier(view))")
+                return
+            }
+            // The IOSurface read is the layer's contents (``TerminalSurfaceView/presentedFrame``), the one the presenter
+            // just handed over: the pass gave the layer its bounds in the same lock span, so the two have one pixel size.
+            if let layer = view.layer {
+                let scale = layer.contentsScale
+                let width = Int((layer.bounds.width * scale).rounded()), height = Int((layer.bounds.height * scale).rounded())
+                if width != frame.width || height != frame.height {
+                    handOffs.append("the frame read is \(frame.width)x\(frame.height), the layer the pass sized \(width)x\(height)")
+                }
+            }
+            var columns: UInt16 = 0, rows: UInt16 = 0
+            let drawn = view.surface.flatMap { ghostty_surface_drawn_grid($0, &columns, &rows) ? TerminalGridSize(columns: Int(columns), rows: Int(rows)) : nil }
+            presentedGrids[ObjectIdentifier(view)] = PresentedGrid(frame: frame, width: frame.width, height: frame.height, drawn: drawn)
+        }
+        defer { presenter.presentedHook = nil }
         var frames: [[GridSample]] = []
         /// This frame's sizes land with their own frames (at most 2 s), then each terminal is sampled.
         func sampleFrame() async {
             _ = await Self.commits(screen, seconds: 2) { $0.sessions.allSatisfy(Self.showsItsOwnFrame) }
-            frames.append(screen.sessions.map(GridSample.init))
+            frames.append(screen.sessions.map { GridSample($0, presented: presentedGrids[ObjectIdentifier($0.surfaceView)]) })
         }
         var steps = 0
         for (index, direction) in presses.enumerated() {
@@ -243,6 +274,7 @@ struct TerminalKeyResizeFrameTests {
         let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
         print("m14 low prompt, presses \(presses): \(steps) spring frames; off their area \(off.count), drawn grid off \(undrawn.count), " +
               "frame not shown \(unshown.count); PTY grids per terminal \(resizes)")
+        #expect(handOffs.isEmpty, "a pass's read was not of the frame it handed to the layer: \(handOffs.prefix(6))")
         #expect(off.isEmpty, "\(off.count) frames showed a terminal off its area (a hold): \(off.prefix(6))")
         #expect(undrawn.isEmpty, "\(undrawn.count) frames drew a grid other than the one the terminal's size fits (its prompt cut or padded): \(undrawn.prefix(6))")
         #expect(unshown.isEmpty, "\(unshown.count) frames' sizes never showed their own frames: \(unshown.prefix(6))")
@@ -254,6 +286,14 @@ struct TerminalKeyResizeFrameTests {
     /// One terminal after a frame's sizes landed: its surface's frame and its area (host points: the host's area under
     /// its top edge, less a legacy scroller's strip), whether it shows the frame drawn at its size, the grid Ghostty drew
     /// and the grid the shown frame's pixel size fits.
+    /// The grid Ghostty drew for a frame a pass presented, read in that pass (``TerminalFramePresenter/presentedHook``).
+    struct PresentedGrid {
+        let frame: IOSurface
+        let width: Int
+        let height: Int
+        let drawn: TerminalGridSize?
+    }
+
     struct GridSample {
         var surface: CGRect
         var area: CGRect
@@ -262,14 +302,22 @@ struct TerminalKeyResizeFrameTests {
         var drawn: TerminalGridSize?
         var fits: TerminalGridSize?
 
-        @MainActor init(_ session: TerminalSession) {
+        /// `presented`: the last frame a pass presented for it and its grid read then; nil reads Ghostty's last draw now (at
+        /// rest, nothing drawn ahead).
+        @MainActor init(_ session: TerminalSession, presented: PresentedGrid? = nil) {
             let view = session.surfaceView, host = session.view
             let size = host.surfaceSize(forHostSize: host.bounds.size)
             surface = view.frame
             area = CGRect(x: host.bounds.minX, y: host.bounds.maxY - size.height, width: size.width, height: size.height)
             scale = view.layer?.contentsScale ?? 2
             showsItsOwnFrame = TerminalKeyResizeFrameTests.showsItsOwnFrame(session)
-            drawn = session.drawnAndOwnerGrid.drawn
+            if let presented {
+                let onScreen = view.presentedFrame
+                drawn = onScreen === presented.frame || (onScreen?.width == presented.width && onScreen?.height == presented.height)
+                    ? presented.drawn : nil
+            } else {
+                drawn = session.drawnAndOwnerGrid.drawn
+            }
             var columns: UInt16 = 0, rows: UInt16 = 0
             if let ghostty = view.surface, let frame = view.presentedFrame,
                ghostty_surface_fit_grid(ghostty, UInt32(frame.width), UInt32(frame.height), &columns, &rows) {

@@ -146,6 +146,10 @@ final class TerminalFramePresenter {
     func isWaiting(_ view: TerminalSurfaceView) -> Bool { requests[ObjectIdentifier(view)] != nil }
 
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// Tests: called in the pass right after a request's frame became the layer's contents (under nothing: after the lock
+    /// span), before this turn's sizes drawn ahead go to Ghostty. What Ghostty drew last is the frame just presented then.
+    var presentedHook: ((TerminalSurfaceView) -> Void)?
+
     /// What this presenter holds for `view` (`debug.motion` trace): "request" (a size waits for its frame), "watch"
     /// (its shown size changed outside a present), "commit" (its commit is reported at the next refresh), or "-".
     func debugState(of view: TerminalSurfaceView) -> String {
@@ -243,6 +247,9 @@ final class TerminalFramePresenter {
             CATransaction.unlock()
             if presented {
                 stats.presented += 1
+                #if DEBUG || CMUX_BENCH_HOOKS
+                presentedHook?(view)
+                #endif
                 landed(view, id: id, watch: false, followUp: followUp)
                 continue
             }

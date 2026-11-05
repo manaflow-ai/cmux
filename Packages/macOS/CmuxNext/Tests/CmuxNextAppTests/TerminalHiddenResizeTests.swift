@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextTerminal
 import CmuxNextTerminalGeometry
 import CmuxNextTestSupport
@@ -49,5 +50,64 @@ import Testing
         let fit = try #require(session.diagnostics.fitGrid)
         #expect(fit != shownFit, "showing it did not apply the size it took while hidden")
         #expect(shownReports == [fit], "showing it sent \(shownReports), not its grid \(fit) once")
+    }
+
+    /// T-KEYS (frame-owner-s4): a hide drops the grid that waits in the coalescer's 25 ms window
+    /// (`cancelGridReport`). Shown again at the same size, the view sends its grid once, the newest, as a grid at rest
+    /// (the coalescer skips one the PTY has). A hide and show with no change sends nothing: no PTY resize per tab switch.
+    @Test func aHideDuringAGridWindowSendsTheNewestGridOnceWhenShownAndAHideWithNoChangeSendsNothing() async throws {
+        _ = NSApplication.shared
+        _ = GhosttyRuntime.shared
+        let io = GridRecordingTerminalIO()
+        let session = TerminalSession(io: io)
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
+        window.contentView = workspace
+        session.view.frame = workspace.bounds
+        workspace.addSubview(session.view)
+        defer {
+            io.finish()
+            window.close()
+        }
+        workspace.layoutSubtreeIfNeeded()
+        func grids() async -> [TerminalGridSize] {
+            session.surfaceView.bridge.takeUnretainedValue().input.focusGained()
+            return await io.gridsUntilMarker()
+        }
+        _ = await grids()
+
+        // No change: hide, show, nothing goes.
+        workspace.isHidden = true
+        workspace.isHidden = false
+        workspace.layoutSubtreeIfNeeded()
+        let unchanged = await grids()
+        #expect(unchanged.isEmpty, "a hide and show with no change sent the PTY \(unchanged)")
+
+        // A key resize the host follows: each size is live, its grid waits in the coalescer's window. Two sizes in one
+        // turn, then the hide in the same turn (no await: the 25 ms window cannot end in between).
+        session.view.followPaneMotion(PaneMotionHold(trailing: false, bottom: false), heldSize: session.view.bounds.size)
+        session.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        workspace.layoutSubtreeIfNeeded()
+        session.view.frame = NSRect(x: 0, y: 0, width: 700, height: 480)
+        workspace.layoutSubtreeIfNeeded()
+        let coalescer = session.surfaceView.gridReportCoalescer
+        let newest = try #require(session.surfaceView.fittedGrid)
+        try #require(coalescer.pending == newest,
+                     "the followed resize did not leave its newest grid \(newest) waiting (pending \(String(describing: coalescer.pending)))")
+        workspace.isHidden = true
+        #expect(!coalescer.isWaiting, "the hide left the grid waiting")
+        session.view.followPaneMotion(nil, heldSize: nil)
+        workspace.layoutSubtreeIfNeeded()
+        let hidden = await grids()
+        #expect(hidden.isEmpty, "the dropped window or the hidden view sent \(hidden)")
+
+        // Shown again at the same size: the newest grid goes, once.
+        workspace.isHidden = false
+        workspace.layoutSubtreeIfNeeded()
+        let shown = await grids()
+        #expect(shown == [newest], "shown again it sent \(shown), not the newest grid \(newest) once")
     }
 }

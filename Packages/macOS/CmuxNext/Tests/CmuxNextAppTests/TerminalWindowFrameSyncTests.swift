@@ -304,7 +304,7 @@ struct TerminalWindowFrameSyncTests {
                 awake.append(awakeMs)
                 blocked.append(blockedMs)
                 if awakeMs > Self.awakeLimitMs || blockedMs > Self.blockedLimitMs {
-                    violations.append("\(name) turn \(turn.index) (+\(Self.text(turn.at)) ms): awake \(Self.text(awakeMs)) ms, blocked \(Self.text(blockedMs)) ms")
+                    violations.append("\(name) turn \(turn.index) (+\(Self.text(turn.at)) ms): awake \(Self.text(awakeMs)) ms, blocked \(Self.text(blockedMs)) ms; \(turn.split)")
                 }
             }
         }
@@ -504,13 +504,33 @@ struct TerminalWindowFrameSyncTests {
             var terminals: [Terminal]
             var awakeMs: Double?
             var blockedMs: Double?
+            /// B2 (frame-owner-s4): where an awake turn's time went, so a blocked turn names its part. Before the commit:
+            /// from the wake to just before the presenter's pass (the turn's events, timers, layout). The commit: the
+            /// presenter's pass and Core Animation's commit (wall, and off the CPU: wall less the thread's CPU time).
+            var beforeCommitMs: Double?
+            var beforeCommitOffCpuMs: Double?
+            var commitMs: Double?
+            var commitOffCpuMs: Double?
+            /// The task's context switches across the turn (macOS has no per-thread count; a rise beside a blocked turn
+            /// with little work says the thread was preempted or waited).
+            var taskContextSwitches: Int?
+
+            /// The split for a message.
+            var split: String {
+                func t(_ value: Double?) -> String { value.map { TerminalWindowFrameSyncTests.text($0) } ?? "?" }
+                return "before commit \(t(beforeCommitMs)) ms (off CPU \(t(beforeCommitOffCpuMs))), commit \(t(commitMs)) ms "
+                    + "(off CPU \(t(commitOffCpuMs))), task context switches \(taskContextSwitches.map(String.init) ?? "?")"
+            }
         }
 
         private let screen: Screen
         private var wake: MainRunLoopObserver?
+        private var beforePass: MainRunLoopObserver?
         private var commit: MainRunLoopObserver?
-        /// When the main run loop last woke: wall clock and the main thread's CPU time.
-        private var woke: (at: ContinuousClock.Instant, cpu: UInt64)?
+        /// When the main run loop last woke: wall clock, the main thread's CPU time and the task's context switches.
+        private var woke: (at: ContinuousClock.Instant, cpu: UInt64, switches: Int?)?
+        /// Just before this turn's presenter pass and commit: wall clock and the main thread's CPU time.
+        private var passStart: (at: ContinuousClock.Instant, cpu: UInt64)?
         private var started: ContinuousClock.Instant?
         private var turns: [Turn] = []
 
@@ -518,7 +538,12 @@ struct TerminalWindowFrameSyncTests {
             self.screen = screen
             // The earliest observer of the wake: each turn's awake time starts here.
             wake = MainRunLoopObserver(activities: .afterWaiting, order: CFIndex.min) { [weak self] _ in
-                self?.woke = (.now, clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID))
+                self?.woke = (.now, clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), Self.taskContextSwitches())
+            }
+            // Just before the presenter's pass (``TerminalFramePresenter/passOrder``), which runs just before Core
+            // Animation's commit: the turn's commit span starts here.
+            beforePass = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: TerminalFramePresenter.passOrder - 1) { [weak self] _ in
+                self?.passStart = (.now, clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID))
             }
             // Right after Core Animation's commit: what this turn committed.
             commit = MainRunLoopObserver(activities: [.beforeWaiting, .exit], order: CommitBoundary.order,
@@ -527,6 +552,7 @@ struct TerminalWindowFrameSyncTests {
 
         func stop() {
             wake = nil
+            beforePass = nil
             commit = nil
         }
 
@@ -576,16 +602,29 @@ struct TerminalWindowFrameSyncTests {
         @MainActor private func sample() {
             guard let started else { return }
             let end = ContinuousClock.now
+            let endCpu = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
             var awakeMs: Double?, blockedMs: Double?
+            var split = (before: Double?.none, beforeOff: Double?.none, commit: Double?.none, commitOff: Double?.none)
+            var switches: Int?
             if let woke, woke.at >= started || turns.isEmpty {
                 let wall = Self.ms(woke.at.duration(to: end))
-                let cpu = Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) &- woke.cpu) / 1e6
+                let cpu = Double(endCpu &- woke.cpu) / 1e6
                 awakeMs = wall
                 blockedMs = max(0, wall - cpu)
+                if let passStart, passStart.at >= woke.at {
+                    let beforeWall = Self.ms(woke.at.duration(to: passStart.at))
+                    let commitWall = Self.ms(passStart.at.duration(to: end))
+                    split = (beforeWall, max(0, beforeWall - Double(passStart.cpu &- woke.cpu) / 1e6),
+                             commitWall, max(0, commitWall - Double(endCpu &- passStart.cpu) / 1e6))
+                }
+                if let now = Self.taskContextSwitches(), let then = woke.switches { switches = now - then }
             }
             woke = nil
+            passStart = nil
             turns.append(Turn(index: turns.count + 1, at: Self.ms(started.duration(to: end)), terminals: terminals(),
-                              awakeMs: awakeMs, blockedMs: blockedMs))
+                              awakeMs: awakeMs, blockedMs: blockedMs, beforeCommitMs: split.before,
+                              beforeCommitOffCpuMs: split.beforeOff, commitMs: split.commit, commitOffCpuMs: split.commitOff,
+                              taskContextSwitches: switches))
         }
 
         /// The grid a view of `pixels` fits, with `view`'s surface's cell size and padding.
@@ -595,6 +634,17 @@ struct TerminalWindowFrameSyncTests {
                   ghostty_surface_fit_grid(surface, UInt32(pixels.width.rounded()), UInt32(pixels.height.rounded()), &columns, &rows)
             else { return nil }
             return TerminalGridSize(columns: Int(columns), rows: Int(rows))
+        }
+
+        /// The task's context switches so far (`TASK_EVENTS_INFO`): a rise across a blocked turn with little work says the
+        /// thread was preempted or waited, not that it worked.
+        static func taskContextSwitches() -> Int? {
+            var info = task_events_info()
+            var count = mach_msg_type_number_t(MemoryLayout<task_events_info>.size / MemoryLayout<natural_t>.size)
+            let result = withUnsafeMutablePointer(to: &info) {
+                $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_EVENTS_INFO), $0, &count) }
+            }
+            return result == KERN_SUCCESS ? Int(info.csw) : nil
         }
 
         static func ms(_ duration: Duration) -> Double {

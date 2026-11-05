@@ -75,13 +75,18 @@ public final class TerminalSurfaceView: NSView {
         gridReportCoalescer.flush()
     }
 
-    /// Hidden, closed or detached from its session: the grid that waits in the coalescer's window goes nowhere. Shown
-    /// again, the view reports its grid then (forced): the PTY never keeps a grid only the dropped window had.
+    /// Hidden, closed or detached from its session: the grid that waits in the coalescer's window goes nowhere. Only if
+    /// that grid is not the PTY's (`lastSent`), the view sends its grid when shown again, as any grid at rest (the
+    /// coalescer skips one equal to the PTY's): a hide and show with nothing dropped sends nothing, so a tab switch never
+    /// resizes the PTY for nothing (``resendsShownGrid``).
     func cancelGridReport() {
-        guard gridReportCoalescer.isWaiting else { return }
+        guard let dropped = gridReportCoalescer.pending else { return }
         gridReportCoalescer.cancel()
-        pendingForcedReport = true
+        if dropped != gridReportCoalescer.lastSent { resendsShownGrid = true }
     }
+
+    /// A grid the PTY does not have was dropped with a hide (``cancelGridReport()``): shown again, the view's grid goes.
+    private var resendsShownGrid = false
 
     /// Who presents this view's new sizes and a held display scale (``place(_:)``).
     var frameOwnership = TerminalFrameOwnership()
@@ -333,6 +338,14 @@ public final class TerminalSurfaceView: NSView {
             let joined = isInPaneMotion && joinPaneMotion()
             updateSurfaceSize(forceReport: pendingForcedReport && !joined)
             pendingForcedReport = false
+            if resendsShownGrid {
+                resendsShownGrid = false
+                // The grid the view fits now, at rest: once, unless the PTY has it (a report just now, or the same grid).
+                if ownsGeometry, !joined, !isInPaneMotion, !isFollowingResizeGesture, let grid = fittedGrid {
+                    gridReportCoalescer.viewSized(grid)
+                    gridReportCoalescer.flush()
+                }
+            }
             requestPresentIfNeeded()
         }
         updateOcclusion()
