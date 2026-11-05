@@ -236,6 +236,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [kindsArm] = useState(() => experimentArm(trayHeadKindsLook));
   const [kindLine] = useState(() => experimentArm(trayKindLineLook));
   const [latestAt] = useState(() => experimentArm(trayLatestLook));
+  const showLatest = latestAt !== "tooltip";
   const latestPlacement = latestAt === "tooltip" ? undefined : latestAt;
   const agentsById = useMemo(
     () =>
@@ -696,7 +697,7 @@ export const SubagentTray = memo(function SubagentTray({
           // A narrow tray's workflow progress wraps under the title, above its time and controls.
           progressAt={row === "below" || narrow ? "below" : "meta"}
           // What it did last, on its own quiet line (Leo, 2026-11-03: "Tray only, richer").
-          latest={latestLine(t, item.agent, awaitsOwnWork(item.agent))}
+          latest={showLatest ? latestLine(t, item.agent, awaitsOwnWork(item.agent)) : undefined}
           latestAt={latestPlacement}
           via={parent ? subagentTaskLabel(t, parent) : undefined}
           onOpen={() => onOpen(item.agent.id)}
@@ -742,7 +743,7 @@ export const SubagentTray = memo(function SubagentTray({
           {menu(
             <AgentLine
               name={item.owner ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named}
-              latest={trimRawCommand(item.command.command, 56)}
+              latest={showLatest ? trimRawCommand(item.command.command, 56) : undefined}
               latestAt={latestPlacement}
               latestCode
               via={ownerParent ? subagentTaskLabel(t, ownerParent) : undefined}
