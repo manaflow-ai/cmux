@@ -17,6 +17,8 @@ pub(super) enum Why {
     EnvFile,
     /// A private key or certificate store (`id_rsa*`, `*.pem`, `*.key`, ...).
     KeyFile,
+    /// A credentials file (`.netrc`, an `.npmrc` or `.pypirc` with a token).
+    CredentialsFile,
     SymlinkInside,
     SymlinkOutside,
     /// A symlink to nothing.
@@ -44,7 +46,7 @@ impl Why {
     /// The category, a stable code the App may group by.
     pub(super) fn kind(self) -> &'static str {
         match self {
-            Self::EnvFile | Self::KeyFile => "secret",
+            Self::EnvFile | Self::KeyFile | Self::CredentialsFile => "secret",
             Self::SymlinkInside
             | Self::SymlinkOutside
             | Self::SymlinkBroken
@@ -63,6 +65,7 @@ impl Why {
         match self {
             Self::EnvFile => "secret: .env files are shared only on purpose",
             Self::KeyFile => "secret: key files are shared only on purpose",
+            Self::CredentialsFile => "secret: credentials files are shared only on purpose",
             Self::SymlinkInside => "a symlink (to a place inside the folder)",
             Self::SymlinkOutside => "a symlink (to a place outside the folder)",
             Self::SymlinkBroken => "a symlink (to nothing)",
@@ -170,6 +173,19 @@ pub(super) fn secret(name: &str) -> Option<Why> {
         .any(|prefix| lower.starts_with(prefix))
         || [".pem", ".p12", ".pfx", ".key"].iter().any(|suffix| lower.ends_with(suffix));
     key.then_some(Why::KeyFile)
+}
+
+/// Why the untracked file at `relative` (under `top`) stays on this Mac
+/// because it may hold a secret: [`secret`]'s names, plus everything the git
+/// seed leaves out (`git_seed::secrets::reason`: `.netrc`, a registry file
+/// with a token). One rule for a chat's copy and its seed, so a folder never
+/// sends a secret on one path that the other keeps here.
+pub(super) fn secret_at(top: &Path, relative: &str) -> Option<Why> {
+    let name = relative.rsplit('/').next().unwrap_or(relative);
+    if let Some(why) = secret(name) {
+        return Some(why);
+    }
+    cmux_tui_core::git_seed::secrets::reason(top, relative.as_bytes()).map(|_| Why::CredentialsFile)
 }
 
 /// Whether the folder `name` in `dir` is a dependency or build folder its
