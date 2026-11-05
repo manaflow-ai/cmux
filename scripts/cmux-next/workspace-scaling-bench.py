@@ -152,7 +152,7 @@ def collect(reports):
         if count == 1 and "sidebar" not in invalid:
             # A single workspace cannot scroll a list or switch to another workspace. Keep both
             # rows explicit while excluding them from ratio warnings.
-            merged.setdefault("sidebar_scroll", {"p50": None, "p95": None, "p99": None, "n": 0, "status": "undefined"})
+            merged["sidebar_scroll"] = {"p50": None, "p95": None, "p99": None, "n": 0, "status": "undefined"}
             merged["switch"] = {"p50": None, "p95": None, "p99": None, "n": 0, "status": "undefined"}
         for interaction, values in merged.items():
             rows.append({"name": f"workspace_scaling.{interaction}.{count}", "interaction": interaction,

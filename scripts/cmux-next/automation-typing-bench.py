@@ -394,7 +394,9 @@ def main():
     pid = APP.process.pid
     summary = {}
     try:
-        reset = reset_restored_workspaces()
+        # Existing typing benches preserve their normal startup semantics. Scaling runs opt in
+        # with --workspace-count and need a deterministic empty topology before seeding.
+        reset = reset_restored_workspaces() if opts.workspace_count else {"existing": 0, "closed": 0, "failures": []}
         results["reset_restored_workspaces"] = reset
         if reset["failures"]:
             results["invalid"] = {"restored_workspaces": reset}
