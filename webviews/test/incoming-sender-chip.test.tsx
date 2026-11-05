@@ -275,8 +275,7 @@ test("a sender nothing describes keeps no tooltip", async () => {
   expect(host.querySelector(".cv-received__mark")?.getAttribute("title")).toBeNull();
 });
 
-// Leo, 2026-11-05, on received lines from `fleet-mesh-3` and `try-pr-side-instance` (a lane on a
-// GCP VM): "i can't click to go to these for some reason". A sender the page's list cannot name was
+// Leo, 2026-11-05, on two lanes' received lines: "i can't click to go to these for some reason". A sender the page's list cannot name was
 // a plain pill a click did nothing on. Where acpmux resolves sessions (`_acpmux/resolve`, the
 // `HOST/NAME` refs' resolver, sessionRefs.ts), its chip is the session link: a click opens the
 // session acpmux names, on whatever machine, and a name acpmux has no chat for says so.
@@ -313,22 +312,22 @@ async function asked(name: string, answers: Record<string, { sessionId: string; 
 test("an unlisted sender on another machine opens the session acpmux resolves, by its id", async () => {
   try {
     const remote = {
-      sessionId: "01a1a7ca-78a0-70d1-95f0-bc17ea7f7973",
-      name: "try-pr-side-instance",
+      sessionId: "mock-remote-lane",
+      name: "side-lane",
       host: "gcp-agent-lane-1",
     };
-    const { open, opened, queries } = await asked("gcp-agent-lane-1/try-pr-side-instance", {
-      "gcp-agent-lane-1/try-pr-side-instance": remote,
+    const { open, opened, queries } = await asked("gcp-agent-lane-1/side-lane", {
+      "gcp-agent-lane-1/side-lane": remote,
     });
     expect(open).not.toBeNull();
     await act(async () => open!.click());
-    expect(queries).toEqual(["gcp-agent-lane-1/try-pr-side-instance"]);
+    expect(queries).toEqual(["gcp-agent-lane-1/side-lane"]);
     expect(opened).toEqual([remote.sessionId]);
     // Resolved, the chip names the session and its machine, and carries it for the right-click menu.
     const chip = host.querySelector<HTMLButtonElement>("button.cv-received__from--open")!;
     expect(chip.getAttribute("data-open-session")).toBe(remote.sessionId);
     expect(chip.getAttribute("aria-label")).toBe(
-      t("subagents.openOnHost", { name: "gcp-agent-lane-1/try-pr-side-instance", host: "gcp-agent-lane-1" }),
+      t("subagents.openOnHost", { name: "gcp-agent-lane-1/side-lane", host: "gcp-agent-lane-1" }),
     );
   } finally {
     refs.setSessionRefResolver(undefined);
@@ -337,11 +336,11 @@ test("an unlisted sender on another machine opens the session acpmux resolves, b
 
 test("a sender acpmux has no chat for says so on the click, never a silent no-op", async () => {
   try {
-    const { open, opened, missing } = await asked("fleet-mesh-3", {});
+    const { open, opened, missing } = await asked("gone-mesh", {});
     expect(open).not.toBeNull();
     await act(async () => open!.click());
     expect(opened).toEqual([]);
-    expect(missing).toEqual(["fleet-mesh-3"]);
+    expect(missing).toEqual(["gone-mesh"]);
   } finally {
     refs.setSessionRefResolver(undefined);
   }

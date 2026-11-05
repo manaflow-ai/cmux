@@ -897,7 +897,7 @@ export const mockSessions: MockSession[] = [
       // Two lanes' messages sent from a shell (`from: "cli"`), which name their sender only (Leo,
       // 2026-11-05: "i can't click to go to these for some reason"): the daemon resolves the first
       // (its chip opens that chat) and has no chat for the second (its click says so).
-      ...[SESSION_LINK_REFS.name, "fleet-mesh-3"].map((fromName, index) => ({
+      ...[SESSION_LINK_REFS.name, "mesh-relay"].map((fromName, index) => ({
         ago: at + 2_000 - index * 1_000,
         mux: "user_message",
         msg: {
