@@ -3506,10 +3506,10 @@ jobs:
     # best-effort lane, so it cannot delay the first update users can install.
     # A cx-f58x notary test waits up to 160 minutes for Apple (52c6c12d took
     # over 90) because it has no recovery hand-off.
-    # nightly-next adds the cmux NIGHTLY identity's steps (their own step timeouts, 155 min at most: the feed
+    # nightly-next adds the cmux NIGHTLY identity's steps (their own step timeouts, 160 min at most: the feed
     # comparison's 10, then Apple's two 20 min waits then pending inside the notarize step's 50) to the 160: a slow copy
     # fails its step, never cmux NEXT's job.
-    timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 235 || needs.decide.outputs.track == 'nightly-next' && 315 || 160 }}
+    timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 235 || needs.decide.outputs.track == 'nightly-next' && 320 || 160 }}
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
     strategy:

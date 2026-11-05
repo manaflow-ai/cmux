@@ -33,6 +33,7 @@ export type SessionInfoSectionId =
   | "changes"
   | "sources"
   | "servers"
+  | "progress"
   | "subagents"
   | "tasks"
   | "outputs"
@@ -55,6 +56,7 @@ export const DEFAULT_SECTIONS: SessionInfoSections = {
   changes: true,
   sources: true,
   servers: true,
+  progress: true,
   subagents: true,
   tasks: true,
   outputs: true,

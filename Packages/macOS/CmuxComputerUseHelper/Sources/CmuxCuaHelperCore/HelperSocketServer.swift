@@ -23,7 +23,8 @@ private let socketLogger = Logger(subsystem: "com.cmuxterm.cua", category: "sock
 /// ignored. A call refused for consent also carries
 /// `"code":"consent_required","surface":S` (plus `"reason":"host_unverified"`
 /// when the helper could not verify the cmux app that started it, never for
-/// a person's refusal), and the connection stays open.
+/// a person's refusal), and the connection stays open. A call refused
+/// because the person is using the Mac carries `"code":"person_in_control"`.
 public final class HelperSocketServer: Sendable {
     public let path: String
     private let admission: AdmissionState
@@ -207,6 +208,9 @@ public final class HelperSocketServer: Sendable {
                                              "code": ConsentRefusal.code, "surface": refusal.surface.rawValue]
                 if let reason = refusal.reason { fields["reason"] = reason.rawValue }
                 connection.write(HelperWire.line(fields, raw: ["id": id]))
+            } catch let refusal as TakeoverRefusal {
+                connection.write(HelperWire.line(["ok": false, "error": refusal.description,
+                                                  "code": TakeoverRefusal.code], raw: ["id": id]))
             } catch {
                 connection.write(HelperWire.line(["ok": false, "error": String(describing: error)],
                                                  raw: ["id": id]))

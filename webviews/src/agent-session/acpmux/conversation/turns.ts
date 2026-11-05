@@ -693,7 +693,15 @@ function shapedTurn(
     const body = supersededFooters(foldBackgroundRuns(messaged, expanded), turn, endedByPerson);
     // A running turn's line drawn below stays its last row, under the prompts it holds (a steer
     // waiting for the agent, a prompt that failed to send).
-    const line = held.length && body.at(-1)?.below ? body.splice(-1) : [];
+    const liveLine = held.length && body.at(-1)?.below ? body.splice(-1) : [];
+    // A prompt sent after the latest turn ended that acpmux has not written yet (its record and the
+    // turn it opens come over the event stream, seconds later on a busy daemon) draws the Thinking
+    // line under it already, as the chat's first prompt does (`waiting`): from the send on the chat
+    // reads as working, never as a finished turn with a bubble under it (Leo, 2026-11-04: "WHY DOES
+    // IT LOOK KLIKE YOU'RE NOT RESPONDING HERE???", "this is bad. it looks like you're not working.").
+    // The line is the first prompt's (`waiting` above), by id, so the turn that opens goes on with it.
+    const sent = last && liveLine.length === 0 ? sentAfterTurn(held) : undefined;
+    const line = sent ? [sentLine(sent)] : liveLine;
     const emptyCompleted =
       isVisiblyEmptyMessage(user) &&
       body.length === 0 &&
@@ -732,6 +740,24 @@ function shapedTurn(
       rows: shaped,
     });
   return shaped;
+}
+
+/// The person's latest prompt held after a turn that ended, still sending or taken but not yet
+/// written by acpmux (`pending`), or none: a failed one waits for Retry, and another session's
+/// message draws in the group of waiting messages.
+function sentAfterTurn(held: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  const sent = held.at(-1);
+  return sent?.pending && !sent.failed && !sent.incoming && !sent.received ? sent : undefined;
+}
+
+/// The Thinking line under `sent` (``sentAfterTurn``), drawn as the chat's first prompt's is
+/// (`waiting` in ``shapedTurn``): the same id, so the turn that opens goes on with it, and one held
+/// behind its agent's start draws the start look with no time yet (agentStart.experiment.ts,
+/// cmux#30642).
+function sentLine(sent: AcpmuxRow): AcpmuxRow {
+  const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at: sent.at, kind: THINKING, verbKey: sent.id };
+  if (sent.queued) Object.assign(line, { queued: sent.queued, untimed: true });
+  return line;
 }
 
 const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";
