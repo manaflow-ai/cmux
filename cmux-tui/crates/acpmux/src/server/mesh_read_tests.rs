@@ -196,7 +196,7 @@ async fn the_same_persons_machine_reads_a_reply_through_the_hub_and_no_one_else_
             _ => None,
         })
         .collect();
-    assert_eq!(replies, ["pong from b"]);
+    assert_eq!(replies, ["echo: pong from b"]);
 
     // The app's open of the chat: a hidden attach there, answered with its detail and newest page.
     let attach = json!({"sessionId": format!("machine-b/{session}"), "limit": 200, "maxBytes": 1 << 20});
