@@ -40,19 +40,21 @@
 }
 
 /* "you're on nightly 3845050!" and its check: one line over the title, clear of the host's x. */
+/* One line in a usual sidebar; in a narrow one the words wrap (the version is the point of the note),
+   still clear of the host's x. In a narrow card the handwriting face (loading from the card's mount,
+   before the page reports its height) can change where the line breaks; the host never shrinks a
+   held height, so at worst the card keeps a little room. */
 .wn-doodle-headline {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 4px;
-  height: var(--wn-doodle-line);
   padding-right: calc(var(--wn-close) + var(--wn-gap));
-  overflow: hidden;
   transform: rotate(-1.2deg);
   transform-origin: left center;
 }
 .wn-doodle-headline .wn-doodle-words {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+  white-space: normal;
 }
 .wn-doodle-check {
   flex: none;
