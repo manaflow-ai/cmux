@@ -124,6 +124,9 @@ def toolchain_bin(toolchain: str) -> str:
     return str(Path(r.stdout.strip()).parent)
 
 
+ZIG_PACKAGES: Path | None = None
+
+
 def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[float, int, int]:
     env = dict(os.environ)
     # Only this variant's settings: no inherited profile, wrapper or flags (a worker's global
@@ -140,6 +143,12 @@ def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[fl
     # of every variant compiles libghostty-vt from nothing, not only the first.
     env["ZIG_LOCAL_CACHE_DIR"] = str(target / "zig-local-cache")
     env["ZIG_GLOBAL_CACHE_DIR"] = str(target / "zig-global-cache")
+    # Packages were fetched before timing; only the compile cache starts cold.
+    if ZIG_PACKAGES and ZIG_PACKAGES.is_dir():
+        (target / "zig-global-cache").mkdir(parents=True, exist_ok=True)
+        link = target / "zig-global-cache" / "p"
+        if not link.exists():
+            link.symlink_to(ZIG_PACKAGES)
     cmd = ["cargo"]
     env.pop("RUSTUP_TOOLCHAIN", None)
     if spec.get("toolchain"):
@@ -193,8 +202,11 @@ def main() -> int:
     ap.add_argument("--clean-n", type=int, default=1, help="clean builds per variant (the first warms it)")
     ap.add_argument("--scenarios", default="core,tui,acpmux,switch")
     ap.add_argument("--tests", default="", help="packages to time cargo test vs cargo nextest on (base variant)")
+    ap.add_argument("--zig-packages", default="", help="a zig global cache p/ already holding Ghostty's packages")
     ap.add_argument("--target-root", default="", help="where the per-variant target directories go (default OUT/target)")
     a = ap.parse_args()
+    global ZIG_PACKAGES
+    ZIG_PACKAGES = Path(a.zig_packages).resolve() if a.zig_packages else None
 
     ws = Path(a.workspace).resolve()
     out = Path(a.out).resolve()

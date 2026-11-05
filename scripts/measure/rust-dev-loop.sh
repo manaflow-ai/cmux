@@ -33,9 +33,14 @@ done
 if [[ ! -f "$root/ghostty-next/build.zig" ]]; then
   git -C "$root" submodule update --init --depth 1 ghostty-next
 fi
+# Ghostty's zig packages download once, with retries, before any clock starts; every variant's
+# cold zig cache links to them (rust-dev-loop.py --zig-packages).
+zig_packages="$root/.build/rust-dev-loop-zig"
+mkdir -p "$zig_packages"
+ZIG_GLOBAL_CACHE_DIR="$zig_packages" "$root/scripts/ci/fetch-ghostty-zig-packages.sh" "$root/ghostty-next"
 cd "$root/cmux-tui"
-rustup show active-toolchain
+rustup show active-toolchain || true
 out="${out:-$root/.build/rust-dev-loop}"
 mkdir -p "$out"
 exec python3 "$root/scripts/measure/rust-dev-loop.py" --workspace "$root/cmux-tui" --out "$out" \
-  --target-root "$root/.build/rust-dev-loop-target" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests"
+  --target-root "$root/.build/rust-dev-loop-target" --zig-packages "$zig_packages/p" --variants "$variants" --n "$n" --clean-n "$clean_n" --scenarios "$scenarios" --tests "$tests"
