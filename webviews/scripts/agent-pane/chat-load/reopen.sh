@@ -40,8 +40,9 @@ if [[ -z "$bin" ]]; then
   chmod +x "$work/acpmux"; bin="$work/acpmux"
 fi
 # The bench runs from webviews/ and resolves --acpmux there: pass it an absolute path (a bare name is
-# looked up on PATH, a relative one taken from here).
-if [[ "$bin" == */* ]]; then bin="$(cd "$(dirname "$bin")" && pwd)/$(basename "$bin")"; else bin="$(command -v "$bin")"; fi
+# looked up on PATH, whose entries may be relative too, and a relative path is taken from here).
+[[ "$bin" == */* ]] || bin="$(command -v "$bin")"
+bin="$(cd "$(dirname "$bin")" && pwd)/$(basename "$bin")"
 "$bin" --version
 
 (cd "$root/webviews" && bun install --frozen-lockfile >/dev/null)
