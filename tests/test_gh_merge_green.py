@@ -1433,7 +1433,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
     def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
-                 raw_content=None, app_workflow_body=None, graphql_workflows=None, extra_args=()):
+                 raw_content=None, app_workflow_body=None, graphql_workflows=None, extra_args=(), rest_checks_fail=False):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -1442,7 +1442,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
                        "checks": checks if checks is not None else [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"}],
                        "statuses": statuses or [], "app_workflow": app_workflow, "files": files or [],
                        "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body,
-                       "graphql_workflows": graphql_workflows or {}}
+                       "graphql_workflows": graphql_workflows or {}, "rest_checks_fail": rest_checks_fail}
             fixture = directory / "fixture.json"
             fixture.write_text(__import__("json").dumps(payload))
             gh = directory / "gh"
@@ -1458,6 +1458,17 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     pass
                 elif a[:2] == ['pr', 'merge']:
                     Path(os.environ['MERGE_MARKER']).touch()
+                elif a[:2] == ['api', 'graphql'] and any('checkRuns' in arg for arg in a):
+                    # The check-run fallback: GitHub's default lists each suite's newest attempt only.
+                    query = next(arg for arg in a if arg.startswith('query='))
+                    every = 'checkType:ALL' in query.replace(' ', '')
+                    runs = [{'databaseId': c['id'], 'name': c['name'], 'status': c['status'].upper(),
+                             'conclusion': (c.get('conclusion') or '').upper() or None}
+                            for c in x['checks'] if every or not c.get('hidden_by_latest')]
+                    print(json.dumps({'data': {'repository': {'object': {'checkSuites': {
+                        'pageInfo': {'hasNextPage': False},
+                        'nodes': [{'id': 'S1', 'app': {'slug': 'github-actions'},
+                                   'checkRuns': {'nodes': runs, 'pageInfo': {'hasNextPage': False}}}]}}}}}))
                 elif a[:2] == ['api', 'graphql']:
                     expr = next((arg.removeprefix('expr=') for arg in a if arg.startswith('expr=')), '')
                     if expr not in x['graphql_workflows']: sys.exit(2)
@@ -1480,7 +1491,13 @@ class WorkflowPresenceRegression(unittest.TestCase):
                         print('{}')
                     sys.exit(0 if code == 200 else 1)
                 elif a[0] == 'api' and any('/check-runs' in arg for arg in a):
-                    print(json.dumps([{'check_runs': x['checks']}]))
+                    if x.get('rest_checks_fail'):
+                        sys.exit(1)
+                    # GitHub's default lists each suite's newest attempt only; filter=all lists every attempt.
+                    every = any('filter=all' in arg for arg in a)
+                    shown = [{k: v for k, v in c.items() if k != 'hidden_by_latest'} for c in x['checks']
+                             if every or not c.get('hidden_by_latest')]
+                    print(json.dumps([{'check_runs': shown}]))
                 elif a[0] == 'api' and any('/statuses' in arg for arg in a):
                     print(json.dumps([x['statuses']]))
                 elif a[0] == 'api' and any('/files' in arg for arg in a):
@@ -1499,6 +1516,32 @@ class WorkflowPresenceRegression(unittest.TestCase):
         self.assertTrue(merged)
         self.assertIn('ref=main', queries)
         self.assertIn('/commits/' + HEAD + '/check-runs', queries)
+
+    # cmux#35906 merged with its 'publish tree-addressed cmux-tui' red unexcused: two reruns ended in
+    # startup_failure with no jobs, and GitHub's default check-runs list (each suite's newest attempt only) dropped
+    # the red. A check reads as its last real attempt left it, over REST (filter=all) and the GraphQL fallback
+    # (checkType:ALL) alike, as on feat-cmux-next (#35949).
+    PUBLISH = "publish tree-addressed cmux-tui"
+
+    def test_a_red_under_startup_failure_reruns_still_refuses(self):
+        checks = [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                  {"id": 2, "name": self.PUBLISH, "status": "completed", "conclusion": "failure", "hidden_by_latest": True}]
+        for rest_checks_fail in (False, True):
+            with self.subTest(graphql=rest_checks_fail):
+                result, merged, _ = self.run_case(checks=checks, rest_checks_fail=rest_checks_fail)
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(merged)
+                self.assertIn(self.PUBLISH, result.stderr)
+
+    def test_a_red_then_a_real_green_rerun_merges(self):
+        checks = [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"},
+                  {"id": 2, "name": self.PUBLISH, "status": "completed", "conclusion": "failure", "hidden_by_latest": True},
+                  {"id": 3, "name": self.PUBLISH, "status": "completed", "conclusion": "success"}]
+        for rest_checks_fail in (False, True):
+            with self.subTest(graphql=rest_checks_fail):
+                result, merged, _ = self.run_case(checks=checks, rest_checks_fail=rest_checks_fail)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(merged)
 
     def test_no_ci_workflow_accepts_neutral_and_skipped_checks(self):
         for conclusion in ("neutral", "skipped"):
