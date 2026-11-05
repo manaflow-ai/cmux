@@ -7,6 +7,7 @@ only). It must not import driver.py: install() gets the driver module instead.
 
 Steps (`do`):
   base_terminal                       a shown, focused terminal to press Cmd-N from (Ctrl-`, else a script's newTab)
+  focused_terminal {timeout?}         the focused terminal's ids again (no key): the close loops end on a new terminal
   latency_runs  {bench, command, runs, label, gap, runs_option?, hangs?, cpu?, counters?}
                                       timed presses measured by the app (key_ms, visible_ms, confirmed_ms, spans)
   sample_presses {runs, seconds, min_count, label}
@@ -194,6 +195,20 @@ def base_terminal(j, step):
             time.sleep(0.2)
         tried.append(how)
     raise StepError(f"no focused terminal after {tried}")
+
+
+def focused_terminal(j, step):
+    """No key: read the focused terminal again. The presses close their workspaces, so the focus ends on a terminal
+    whose pane and terminal ids differ from base_terminal's; a later type/expect must check that terminal."""
+    end = now() + float(step.get("timeout", 15))
+    while now() < end:
+        pane = focused_pane(j)
+        if pane.get("kind") == "terminal" and pane.get("terminal_id"):
+            j.term, j.host_pid = pane.get("terminal_id"), pane.get("host_pid") or j.host_pid
+            j.pane = pane.get("pane") or pane.get("id") or j.pane
+            return {"terminal": j.term, "pane": j.pane}
+        time.sleep(0.2)
+    raise StepError("no focused terminal after the presses")
 
 
 def focused_pane(j):
@@ -446,5 +461,5 @@ def daemon_terminal(j, workspace_name, pane_key):
     return sorted(found, reverse=True)[0][2]
 
 
-STEPS = {"base_terminal": base_terminal, "latency_runs": latency_runs, "sample_presses": sample_presses,
+STEPS = {"base_terminal": base_terminal, "focused_terminal": focused_terminal, "latency_runs": latency_runs, "sample_presses": sample_presses,
          "xctrace_presses": xctrace_presses, "grow_workspaces": grow_workspaces}

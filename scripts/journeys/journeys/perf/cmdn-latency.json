@@ -75,6 +75,7 @@
    },
    "title": "action budget after STRESS-lite"
   },
+  {"do": "focused_terminal"},
   {
    "do": "type",
    "text": "echo cmdnlat-${nonce}",

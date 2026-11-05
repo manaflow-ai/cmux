@@ -30,6 +30,7 @@
    "gap": 0.8,
    "runs_option": "presses"
   },
+  {"do": "focused_terminal"},
   {
    "do": "type",
    "text": "echo cmdntrace-${nonce}",
