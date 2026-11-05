@@ -242,3 +242,120 @@ fn keys_keep_their_order_between_the_inline_write_and_the_ports_writer() {
         "the keys and the write reached the host in another order, more than once, or \"3\" did not go inline"
     );
 }
+
+/// Never merge: does a poll() room check cost more in a process with many kernel event registrations, as the
+/// daemon has (every tokio socket is a knote)? XNU's kqueue_dealloc walks every fd's knote list of the process under
+/// proc_fdlock, and poll() makes and frees a kqueue per call. Measures poll(POLLOUT, 0) and kevent64(IMMEDIATE) on a
+/// queue registered once, with 0, 256 and 1024 other sockets registered in another kqueue (as tokio registers them).
+/// Fails on purpose so the step log shows the report.
+#[cfg(target_vendor = "apple")]
+#[test]
+fn rds_cost_knote_scaling_bench() {
+    use std::os::fd::AsRawFd as _;
+    const N: usize = 20_000;
+    fn percentiles(mut ns: Vec<u128>) -> String {
+        ns.sort_unstable();
+        let at = |p: usize| ns.get((ns.len() * p / 100).min(ns.len() - 1)).copied().unwrap_or(0);
+        format!(
+            "p50 {} p95 {} p99 {} max {} ns",
+            at(50),
+            at(95),
+            at(99),
+            ns.last().copied().unwrap_or(0)
+        )
+    }
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) };
+    let want = 4096.min(limit.rlim_max);
+    limit.rlim_cur = want;
+    unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &limit) };
+    let mut report =
+        format!("\nrds-cost KNOTE scaling bench (macOS, RLIMIT_NOFILE {want}, ns per call):\n");
+    let (a, b) = std::os::unix::net::UnixStream::pair().unwrap();
+    let fd = a.as_raw_fd();
+    let other_queue = unsafe { libc::kqueue() };
+    let mut others: Vec<(std::os::unix::net::UnixStream, std::os::unix::net::UnixStream)> =
+        Vec::new();
+    for registered in [0usize, 256, 1024] {
+        while others.len() < registered {
+            let (x, y) = std::os::unix::net::UnixStream::pair().unwrap();
+            for sock in [x.as_raw_fd(), y.as_raw_fd()] {
+                for filter in [libc::EVFILT_READ, libc::EVFILT_WRITE] {
+                    let change = libc::kevent64_s {
+                        ident: sock as u64,
+                        filter,
+                        flags: libc::EV_ADD | libc::EV_CLEAR,
+                        fflags: 0,
+                        data: 0,
+                        udata: 0,
+                        ext: [0; 2],
+                    };
+                    unsafe {
+                        libc::kevent64(
+                            other_queue,
+                            &change,
+                            1,
+                            std::ptr::null_mut(),
+                            0,
+                            0,
+                            std::ptr::null(),
+                        )
+                    };
+                }
+            }
+            others.push((x, y));
+        }
+        let mut ns = Vec::with_capacity(N);
+        for _ in 0..N {
+            let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+            let started = Instant::now();
+            let _ = unsafe { libc::poll(&mut ready, 1, 0) };
+            ns.push(started.elapsed().as_nanos());
+        }
+        report.push_str(&format!(
+            "  {} other sockets ({} knotes): poll(POLLOUT, 0): {}\n",
+            registered * 2,
+            registered * 4,
+            percentiles(ns)
+        ));
+        let kq = unsafe { libc::kqueue() };
+        let change = libc::kevent64_s {
+            ident: fd as u64,
+            filter: libc::EVFILT_WRITE,
+            flags: libc::EV_ADD | libc::EV_ENABLE,
+            fflags: 0,
+            data: 0,
+            udata: 0,
+            ext: [0; 2],
+        };
+        let _ =
+            unsafe { libc::kevent64(kq, &change, 1, std::ptr::null_mut(), 0, 0, std::ptr::null()) };
+        let mut ns = Vec::with_capacity(N);
+        for _ in 0..N {
+            let mut event = std::mem::MaybeUninit::<libc::kevent64_s>::uninit();
+            let started = Instant::now();
+            let _ = unsafe {
+                libc::kevent64(
+                    kq,
+                    std::ptr::null(),
+                    0,
+                    event.as_mut_ptr(),
+                    1,
+                    libc::KEVENT_FLAG_IMMEDIATE,
+                    std::ptr::null(),
+                )
+            };
+            ns.push(started.elapsed().as_nanos());
+        }
+        report.push_str(&format!(
+            "  {} other sockets ({} knotes): kevent64 IMMEDIATE on a queue registered once: {}\n",
+            registered * 2,
+            registered * 4,
+            percentiles(ns)
+        ));
+        unsafe { libc::close(kq) };
+    }
+    unsafe { libc::close(other_queue) };
+    drop(b);
+    panic!("{report}");
+}
