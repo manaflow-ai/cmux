@@ -219,9 +219,17 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
       };
       const stop = await focusFill("send-one-slot-codex-running");
       expect(stop.focusVisible).toBe(true);
+      expect(stop.rest).toBe("rgba(0, 0, 0, 0)");
       expect(stop.fill).not.toBe(stop.rest);
+      const ready = await focusFill("send-one-slot-codex-typed");
+      expect(ready.focusVisible).toBe(true);
+      // The shipped ready Send remains a transparent glyph; the focus wash must not turn it into
+      // the gallery-only filled-disc alternate.
+      expect(ready.rest).toBe("rgba(0, 0, 0, 0)");
+      expect(ready.fill).not.toBe(ready.rest);
       const send = await focusFill("send-alt-filled-disc");
       expect(send.focusVisible).toBe(true);
+      expect(send.rest).not.toBe("rgba(0, 0, 0, 0)");
       expect(send.fill).not.toBe(send.rest);
     } finally {
       await page.close();
