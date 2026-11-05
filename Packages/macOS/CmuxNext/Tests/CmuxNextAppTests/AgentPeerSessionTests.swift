@@ -153,7 +153,7 @@ struct AgentSessionOpenTargetTests {
 
     /// A host this Mac mirrors no chat of keeps its host: the tab's host check refuses it with its own reason.
     @Test func aHostThatIsNoPeerStaysAsGiven() throws {
-        let target = try Self.store().tabSession("anything", host: "big-red", localHost: "this-mac")
-        #expect(target.session == "anything" && target.host == "big-red")
+        let target = try Self.store().tabSession("anything", host: "session-host-a", localHost: "this-mac")
+        #expect(target.session == "anything" && target.host == "session-host-a")
     }
 }
