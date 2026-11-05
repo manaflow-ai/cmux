@@ -16,7 +16,7 @@ use cmux_link::native_token::{
     receiver::{Owner, Refresh},
 };
 
-use super::receiver::{REQUEST_BUDGET, ReceiverBinding, ReceiverSnapshot};
+use super::receiver::{REFUSED, REQUEST_BUDGET, ReceiverBinding, ReceiverSnapshot, is_refusal};
 use super::wire::AGENT_SOCKET;
 
 const UNAVAILABLE: &str = "VM receiver authority unavailable";
@@ -99,6 +99,10 @@ impl AgentReceiver {
         self.refresh_at_prepared(path, uid, system, budget, refresh)
     }
 
+    /// A read that got no answer in time leaves current authority as it is
+    /// (its owner decides whether local admission keeps it, see
+    /// `cmux-tui link::native_process`). A refusal, a malformed answer or a
+    /// changed generation closes it here, as every failure did before.
     fn refresh_at_prepared(
         &self,
         path: &Path,
@@ -107,32 +111,63 @@ impl AgentReceiver {
         budget: Duration,
         refresh: Refresh,
     ) -> Result<ReceiverSnapshot, String> {
+        let snapshot = match self.read_prepared(path, uid, system, budget, &refresh) {
+            Ok(snapshot) => snapshot,
+            Err(error) if is_refusal(&error) => return Err(error),
+            Err(error) => {
+                self.owner.keep(refresh);
+                return Err(error);
+            }
+        };
+        if self.generation.as_ref().is_some_and(|generation| {
+            snapshot.policy().receiver_generation.as_ref() != Some(generation)
+        }) {
+            self.owner.retire(refresh);
+            return Err(REFUSED.into());
+        }
+        // An answer that used up its own lease on the way is late, not a refusal.
+        if snapshot.time(Instant::now()).is_none() {
+            self.owner.keep(refresh);
+            return Err(UNAVAILABLE.into());
+        }
+        snapshot.install(&self.owner, refresh, Instant::now())?;
+        Ok(snapshot)
+    }
+
+    fn read_prepared(
+        &self,
+        path: &Path,
+        uid: u32,
+        system: bool,
+        budget: Duration,
+        refresh: &Refresh,
+    ) -> Result<ReceiverSnapshot, String> {
         let started = refresh.started();
         let budget = budget.min(REQUEST_BUDGET);
         let deadline = started + budget;
         if refresh.elapsed(Instant::now()).ok_or(UNAVAILABLE)? >= budget {
             return Err(UNAVAILABLE.into());
         }
-        check_path(path, uid, system).map_err(|_| UNAVAILABLE)?;
+        // A missing socket is the agent restarting (no answer); one that is
+        // not the root agent's is tampering, not an outage.
+        check_path(path, uid, system).map_err(|error| {
+            if error.kind() == io::ErrorKind::NotFound { UNAVAILABLE } else { REFUSED }
+        })?;
         let mut stream = connect(path, deadline).map_err(|_| UNAVAILABLE)?;
-        check_peer(&stream, uid).map_err(|_| UNAVAILABLE)?;
-        let bytes = exchange(&mut stream, deadline).map_err(|_| UNAVAILABLE)?;
+        check_peer(&stream, uid).map_err(|_| REFUSED)?;
+        // A reply that is too large or not one line is malformed, not late.
+        let bytes = exchange(&mut stream, deadline).map_err(|error| {
+            if error.kind() == io::ErrorKind::InvalidData { REFUSED } else { UNAVAILABLE }
+        })?;
         let snapshot = ReceiverSnapshot::from_public_reply_for_refresh(
             &bytes,
             &self.binding,
-            &refresh,
+            refresh,
             Instant::now(),
         )?;
         if refresh.elapsed(Instant::now()).ok_or(UNAVAILABLE)? >= budget {
             return Err(UNAVAILABLE.into());
         }
-        if self.generation.as_ref().is_some_and(|generation| {
-            snapshot.policy().receiver_generation.as_ref() != Some(generation)
-        }) {
-            self.owner.retire(refresh);
-            return Err(UNAVAILABLE.into());
-        }
-        snapshot.install(&self.owner, refresh, Instant::now())?;
         Ok(snapshot)
     }
 }

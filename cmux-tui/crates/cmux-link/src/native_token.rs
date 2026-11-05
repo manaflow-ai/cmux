@@ -50,6 +50,13 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 /// to renew before it ended.
 pub const MAX_POLICY_LEASE_MS: u64 = 120_000;
 
+/// The longest a VM keeps one authenticated policy (`admit_until - checked_at`)
+/// when its renewals fail: local admission (cmuxterm-hq
+/// plans/task-cmux-vm-cloud/receiver-local-admission.md). A [`NativePolicy`]'s
+/// `expires_at_ms` is this admission end; the shorter renewal lease only
+/// schedules reads. A successful read still rechecks every stream at once.
+pub const MAX_ADMIT_MS: u64 = 3_600_000;
+
 /// The nine signed fields defined by the backend's NativeLinkBinding schema.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -88,6 +95,9 @@ pub struct NativePolicy {
     pub authority_version: String,
     pub peers: Vec<NativePeer>,
     pub checked_at_ms: u64,
+    /// When this policy's authority ends: the control plane's `admit_until`
+    /// when it sent one, else its renewal lease end. At most
+    /// [`MAX_ADMIT_MS`] after `checked_at_ms`.
     pub expires_at_ms: u64,
     /// Start of the authenticated request, not the time its response arrived.
     pub request_started: Instant,

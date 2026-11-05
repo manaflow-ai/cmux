@@ -1904,6 +1904,13 @@
             "name": "int64"
           }
         },
+        "admit_until": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
         "acl_version": {
           "required": true,
           "type": {
@@ -32149,7 +32156,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).",
+      "docs": "Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -32346,6 +32353,11 @@
                 "maximum": 9007199254740991
               },
               "expires_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "admit_until": {
                 "type": "integer",
                 "minimum": -9007199254740991,
                 "maximum": 9007199254740991
