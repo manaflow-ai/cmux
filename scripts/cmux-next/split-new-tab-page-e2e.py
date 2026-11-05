@@ -2,10 +2,11 @@
 """Live check of splits that open the New Tab page (cmuxterm-hq#1829, cx-jfo7) on a running tagged cmux-next build.
 
 A person's Split Right or Down (Cmd-D) from a browser tab, the New Tab page, an agent chat or Home's
-Chief pane (cmux#36300: NEXT is GUI-first) opens the New Tab page in the new pane. The user's default
-decides: with `tabs.newTabTemplate` set to Terminal, the Chief's split opens a terminal instead. Launch
-the app on a scratch config file (`--args --config-file PATH`): the script sets that key and restores it., with an Open Tabs list of the workspace's tabs; picking one moves
-that tab into the new pane in the page's place. A terminal's split keeps the terminal.
+Chief pane (cmux#36300: NEXT is GUI-first) opens the New Tab page in the new pane, with an Open Tabs
+list of the workspace's tabs; picking one moves that tab into the new pane in the page's place. A
+terminal's split keeps the terminal. The user's default decides: with `tabs.newTabTemplate` set to
+Terminal, a person's split opens a terminal instead. Launch the app on a scratch config file
+(`--args --config-file PATH`): the script sets that key and restores it.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
 tagged build) through its debug socket. It opens workspaces and tabs with `action.run`, presses
@@ -184,10 +185,11 @@ def chief_splits():
         before = sum(len(labels(s)) for s in strips())
         print(name + ":", key("d", *modifiers), flush=True)
         shown = wait(page, 15)
+        after = sum(len(labels(s)) for s in strips())
         row(f"{name} on the Chief pane opens the New Tab page (GUI chat), not a terminal",
-            "Home's Chief focused; then the focused tab is the New Tab page",
-            f"home {bool(home)}; tabs {before} -> {sum(len(labels(s)) for s in strips())}; New Tab page {shown}",
-            bool(home) and shown is not None)
+            "Home's Chief focused; one more tab; the focused tab is the New Tab page",
+            f"home {bool(home)}; tabs {before} -> {after}; New Tab page {shown}",
+            bool(home) and after == before + 1 and shown is not None)
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"chief-split-{name.lower()}.png")})
     chief_split_follows_terminal_default()
 
@@ -195,7 +197,8 @@ def chief_splits():
 def chief_split_follows_terminal_default():
     """With the user's default set to Terminal (`tabs.newTabTemplate`), the Chief's Cmd-D opens a terminal, not the page."""
     path = "tabs.newTabTemplate"
-    previous = (rpc("settings.get", {"path": path}) or {}).get("value")
+    got = rpc("settings.get", {"path": path}) or {}
+    previous = got.get("value") if got.get("exists") else None
     print("settings.set terminal:", rpc("settings.set", {"path": path, "value": "terminal"}), flush=True)
     try:
         home = chief_on_screen()
