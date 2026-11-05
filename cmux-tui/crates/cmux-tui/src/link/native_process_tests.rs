@@ -76,10 +76,10 @@ fn an_answered_read_says_whether_admit_until_is_present_and_how_long_it_took() {
 fn the_admission_line_is_written_on_the_first_read_and_on_each_change_only() {
     let mut log = RenewalLog { last_slow: None, last_admits: None };
     let ms = Duration::from_millis;
-    log.admission(ms(10), None);
-    assert_eq!(log.last_admits, Some(false));
-    log.admission(ms(10), None);
-    assert_eq!(log.last_admits, Some(false));
-    log.admission(ms(10), Some(Duration::from_secs(60)));
-    assert_eq!(log.last_admits, Some(true));
+    let admitted = Some(Duration::from_secs(60));
+    assert!(log.admission_change(ms(10), None).is_some(), "the first read is logged");
+    assert_eq!(log.admission_change(ms(10), None), None, "the same admission again is not");
+    assert!(log.admission_change(ms(10), admitted).is_some(), "admission appearing is logged");
+    assert_eq!(log.admission_change(ms(10), admitted), None);
+    assert!(log.admission_change(ms(10), None).is_some(), "admission ending is logged");
 }
