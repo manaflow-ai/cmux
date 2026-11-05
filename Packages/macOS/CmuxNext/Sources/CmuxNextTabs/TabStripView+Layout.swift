@@ -273,6 +273,7 @@ extension TabStripView {
     /// Shows the cells and chips of `places` there at once, at `mapping`'s scroll (where a new tab
     /// opens from, or a new chip first shows); `placed` is unchanged.
     func place(_ places: [TabID: TabPlace], mapping: TabScrollMapping) {
+        framedCells = nil
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for (id, place) in places {
@@ -359,6 +360,7 @@ extension TabStripView {
             trailing = max(trailing, place.maxX)
         }
         applyGroupFrames(offset: offset, tabY: tabY, tabHeight: tabHeight, pixel: pixel, move: move, scroll: scrollPart(isPinned: false))
+        framedCells = FramedCells(basis: cellFrameBasis(mapping: mapping), trailing: trailing, count: cells.count)
         let buttonWidth = metrics.newTabButtonWidth
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
         // Square, centered on the tabs: it keeps its size when the tabs are shorter.
