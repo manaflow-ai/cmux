@@ -8,11 +8,15 @@ empty stdout and stderr. This runs the proof against a fake app CLI and a fake `
 checks that the evidence keeps the error's code and message and the app's link log, and never
 the prompt.
 """
+import base64
+import hashlib
+import http.server
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -86,7 +90,8 @@ class CloudChatProofFailureEvidenceTests(unittest.TestCase):
             log_tool.write_text(FAKE_LOG)
             log_tool.chmod(0o755)
             evidence = tmp_path / "evidence.json"
-            env = {**os.environ, "FAKE_STATE": str(tmp_path / "calls"), "CMUX_PROOF_LOG_TOOL": str(log_tool)}
+            env = {**os.environ, "FAKE_STATE": str(tmp_path / "calls"), "CMUX_PROOF_LOG_TOOL": str(log_tool),
+                   "CMUX_PROOF_RESERVATION": "skip"}
             done = subprocess.run(
                 [sys.executable, "-I", str(PROOF), "--app", str(app), "--tag", "ccp-test", "--prompt", CONTEXT,
                  "--agent", "claude", "--evidence", str(evidence)],
@@ -227,6 +232,191 @@ class CloudChatProofCleanupTests(unittest.TestCase):
             done = self.run_proof(Path(tmp), "--cleanup-machine", "vm_x; rm -rf /")
             self.assertEqual(done.returncode, 2)
             self.assertFalse((Path(tmp) / "calls").exists())
+
+
+FAKE_RESERVE_CMUX = r'''#!/usr/bin/env python3
+import json, sys
+verb = " ".join(sys.argv[1:3])
+if verb == "cloud list-machines":
+    print(json.dumps({"account": {"signed_in": True}, "owner": "personal", "machines": [
+        {"title": "ccp-41820867139", "machine_id": "vm_leaked0000000000000", "status": "running", "created_at": 1},
+        {"title": "ccp-test", "machine_id": "vm_mine00000000000000", "status": "running"},
+        {"title": "my laptop", "machine_id": "vm_other0000000000000"}]}))
+elif verb == "vm token":
+    print(json.dumps({"ok": True}))
+elif verb == "cloud start-chat":
+    sys.stderr.write(json.dumps({"code": "cloud.start_failed", "message": "no machine"}) + "\n")
+    sys.exit(1)
+elif verb == "app call":
+    print(json.dumps({"machines": []}))
+else:
+    sys.exit(2)
+'''
+
+PROJECT = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+SUB = "stack-user-1"
+
+
+def jwt(sub: str) -> str:
+    part = lambda value: base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+    return f"{part({'alg': 'none'})}.{part({'sub': sub})}.signaturesignature"
+
+
+FRESH = jwt(SUB)
+
+
+class FakePlatform(http.server.BaseHTTPRequestHandler):
+    """Stack's refresh and the platform's health, reservation, release, machine read and destroy."""
+    calls: list = []
+    destroyed = False
+    mode = "ok"  # "release_fails": the release answers 500; "lost": the reserve answers 503 but makes a machine
+    reserved = False
+
+    def log_message(self, *args) -> None:
+        pass
+
+    def answer(self, status: int, body: dict) -> None:
+        data = json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def record(self) -> dict:
+        length = int(self.headers.get("content-length") or 0)
+        body = json.loads(self.rfile.read(length)) if length else None
+        call = {"method": self.command, "path": self.path, "body": body,
+                "authorization": self.headers.get("authorization"), "team": self.headers.get("x-cmux-team"),
+                "refresh": self.headers.get("x-stack-refresh-token")}
+        FakePlatform.calls.append(call)
+        return call
+
+    def do_GET(self) -> None:
+        self.record()
+        if self.path == "/v1/health":
+            return self.answer(200, {"status": "ok", "commit": "c0ffee"})
+        if self.path == "/v1/machines":
+            rows = [{"id": "vm_someoneelse00000000"}]
+            if FakePlatform.reserved and not FakePlatform.destroyed:
+                rows.append({"id": "vm_reserved00000000000"})
+            return self.answer(200, rows)
+        if self.path == "/v1/machines/vm_reserved00000000000":
+            if FakePlatform.destroyed:
+                return self.answer(404, {"code": "machine.not_found", "message": "gone"})
+            return self.answer(200, {"id": "vm_reserved00000000000", "status": "starting", "address": "10.0.0.9"})
+        self.answer(404, {})
+
+    def do_POST(self) -> None:
+        call = self.record()
+        if self.path == "/api/v1/auth/sessions/current/refresh":
+            return self.answer(200, {"access_token": FRESH})
+        if self.path == "/v1/machines/reservations":
+            FakePlatform.reserved = True
+            if FakePlatform.mode == "lost":
+                return self.answer(503, {"code": "upstream"})
+            return self.answer(200, {"leaseId": "lease-1", "machine": "vm_reserved00000000000",
+                                     "expiresAt": 120000, "note": "token=abcdef123456", "token": "opaque-secret"})
+        self.answer(404, {})
+
+    def do_DELETE(self) -> None:
+        self.record()
+        if self.path.startswith("/v1/machines/reservations/"):
+            if FakePlatform.mode == "release_fails":
+                return self.answer(500, {"code": "reservation.unavailable"})
+            return self.answer(200, {"released": True})
+        if self.path == "/v1/machines/vm_reserved00000000000":
+            FakePlatform.destroyed = True
+            return self.answer(200, {"ok": True})
+        self.answer(404, {})
+
+
+class CloudChatProofReservationTests(unittest.TestCase):
+    def run_proof(self, mode: str) -> tuple[subprocess.CompletedProcess, str]:
+        FakePlatform.calls, FakePlatform.destroyed, FakePlatform.reserved, FakePlatform.mode = [], False, False, mode
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakePlatform)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        origin = f"http://127.0.0.1:{server.server_address[1]}"
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                store = (tmp_path / "Library/Application Support/cmux/com.cmuxterm.app.debug.next" / PROJECT
+                         / "credentials.json")
+                store.parent.mkdir(parents=True)
+                store.write_text(json.dumps({"accessToken": "stale-access-0123456789", "refreshToken": "refresh-0123456789"}))
+                app = tmp_path / "cmux NEXT DEV.app"
+                cli = app / "Contents/Resources/bin/cmux"
+                cli.parent.mkdir(parents=True)
+                cli.write_text(FAKE_RESERVE_CMUX)
+                cli.chmod(0o755)
+                log_tool = tmp_path / "log"
+                log_tool.write_text("#!/bin/sh\nexit 0\n")
+                log_tool.chmod(0o755)
+                evidence = tmp_path / "evidence.json"
+                env = {**os.environ, "HOME": str(tmp_path), "CMUX_PROOF_LOG_TOOL": str(log_tool),
+                       "CMUX_PROOF_STACK_API": origin, "CMUX_PROOF_RESERVATION_PLATFORM": origin}
+                env.pop("CMUX_PROOF_RESERVATION", None)
+                done = subprocess.run(
+                    [sys.executable, "-I", str(PROOF), "--app", str(app), "--tag", "ccp-test", "--prompt", "x",
+                     "--agent", "codex", "--evidence", str(evidence)],
+                    env=env, capture_output=True, text=True, timeout=120,
+                )
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                text = evidence.read_text()
+        finally:
+            server.shutdown()
+            server.server_close()
+        for secret in (FRESH, "stale-access", "refresh-0123456789", "abcdef123456", "10.0.0.9", "opaque-secret"):
+            self.assertNotIn(secret, text)
+            self.assertNotIn(secret, done.stdout)
+        return done, text
+
+    def test_a_failed_release_is_not_clean(self) -> None:
+        _, text = self.run_proof("release_fails")
+        reservation = json.loads(text)["reservation"]
+        self.assertEqual(reservation["release"]["http_status"], 500)
+        self.assertEqual(reservation["destroy"]["http_status"], 200)
+        self.assertFalse(reservation["cleaned"])
+
+    def test_a_lost_answer_is_retried_and_a_new_machine_is_named(self) -> None:
+        _, text = self.run_proof("lost")
+        reservation = json.loads(text)["reservation"]
+        self.assertEqual(reservation["reserve"]["http_status"], 503)
+        self.assertEqual(reservation["reserve_retry"]["http_status"], 503)
+        self.assertFalse(reservation["ok"])
+        self.assertEqual(reservation["machines_appeared_without_answer"], ["vm_reserved00000000000"])
+        self.assertFalse(reservation["cleaned"])
+
+    def test_reservation_posts_with_the_session_and_team_then_cleans_up(self) -> None:
+        done, text = self.run_proof("ok")
+        result = json.loads(text)
+        hex20 = lambda value: hashlib.sha256(value.encode()).hexdigest()[:20]
+        team = "team_" + hex20("personal:user_" + hex20(f"stack:{PROJECT}:{SUB}"))
+        reservation = result["reservation"]
+        self.assertEqual(reservation["health_commit"], "c0ffee")
+        self.assertEqual(reservation["session"], "seeded session, refreshed at Stack")
+        self.assertEqual(reservation["x_cmux_team"], team)
+        self.assertEqual(reservation["reserve"]["http_status"], 200)
+        self.assertEqual(reservation["reserve"]["body"]["machine"], "vm_reserved00000000000")
+        self.assertEqual(reservation["reserve"]["body"]["note"], "[left out]")
+        self.assertEqual(reservation["reserve"]["body"]["token"], "[left out]")
+        self.assertTrue(reservation["ok"])
+        self.assertEqual(reservation["release"]["http_status"], 200)
+        self.assertEqual(reservation["destroy"]["http_status"], 200)
+        self.assertEqual(reservation["machine_after_cleanup"]["http_status"], 404)
+        self.assertTrue(reservation["cleaned"])
+        self.assertNotIn("app_kill_machine", reservation)
+        self.assertEqual([row["machine_id"] for row in result["leftover_proof_machines"]], ["vm_leaked0000000000000"])
+        calls = FakePlatform.calls
+        refresh = next(call for call in calls if call["path"].endswith("/refresh"))
+        self.assertEqual(refresh["refresh"], "refresh-0123456789")
+        reserve = next(call for call in calls if call["method"] == "POST" and call["path"] == "/v1/machines/reservations")
+        self.assertEqual(reserve["authorization"], f"Bearer {FRESH}")
+        self.assertEqual(reserve["team"], team)
+        key = reserve["body"]["composeKey"]
+        self.assertEqual(reservation["compose_key"], key)
+        self.assertIn({"method": "DELETE", "path": f"/v1/machines/reservations/{key}", "body": None,
+                       "authorization": f"Bearer {FRESH}", "team": team, "refresh": None}, calls)
 
 
 if __name__ == "__main__":
