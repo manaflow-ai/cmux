@@ -11,7 +11,10 @@ public final class PaneModel: Identifiable {
     /// Daemon default tab; the window keeps its own selection.
     public internal(set) var defaultTabIndex: Int
     public internal(set) var focusedAt: UInt64
-    public internal(set) var tabs: [TabModel] { didSet { adoptUnread() } }
+    public internal(set) var tabs: [TabModel] { didSet { adoptUnread(); noteFirstTab() } }
+    /// The first tab, set only when it is another tab (``tabs`` didSet): an observer of the first tab (a window's
+    /// Home, `WorkspaceModel.isWindowHome`) does not wake for a tab added after it in the pane.
+    public private(set) var firstTab: TabModel?
     public internal(set) var tabGroups: [TabGroupModel]
     /// Group spans over `tabs`, recomputed only when tabs or groups change.
     public private(set) var groupSpans: [TabGroupSpan] = []
@@ -27,6 +30,12 @@ public final class PaneModel: Identifiable {
         tabGroups = s.tabGroups.map(TabGroupModel.init)
         recomputeSpans()
         adoptUnread()
+        noteFirstTab()
+    }
+
+    /// Keeps ``firstTab`` (a write only when the first tab is another one).
+    private func noteFirstTab() {
+        if tabs.first !== firstTab { firstTab = tabs.first }
     }
 
     /// Its tabs' unread count (``UnreadTally``), kept by ``recountUnread()``.

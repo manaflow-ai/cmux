@@ -34,10 +34,12 @@ import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
+import { pairInvite } from "./pair-invite-routes.ts"
 import { avatarGetRoute, avatarSetRoute, conversationMutate, conversationRead } from "./home-routes.ts"
 import { linkVerifiedAddress } from "./home-requests.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
 import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
+import { CLOUD_UNBOUND, platformCloud } from "./platform-cloud.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
 import { answerPrincipal, approvalRoute } from "./integrations/approval-route.ts"
 import { isMachineInstallKind, machineRefused } from "./machine-installs.ts"
@@ -79,21 +81,21 @@ interface OwnerStub {
 const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: string; stream: string } => {
   switch (owner) {
     case "cloud:UserDO":
-      return { stub: userStub(p.user!) as unknown as OwnerStub, entity: p.user!, stream: `user:${p.user}` }
+      return { stub: userStub(p.user!), entity: p.user!, stream: `user:${p.user}` }
     case "cloud:TeamDO":
-      return { stub: env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `team:${p.team}` }
+      return { stub: env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)), entity: p.team!, stream: `team:${p.team}` }
     case "cloud:SchedulerDO":
-      return { stub: env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `scheduler:${p.team}` }
+      return { stub: env.SCHEDULER_DO.get(env.SCHEDULER_DO.idFromName(p.team!)), entity: p.team!, stream: `scheduler:${p.team}` }
     case "cloud:FeedDO":
-      return { stub: env.FEED_DO.get(env.FEED_DO.idFromName(p.user!)) as unknown as OwnerStub, entity: p.user!, stream: `feed:${p.user}` }
+      return { stub: env.FEED_DO.get(env.FEED_DO.idFromName(p.user!)), entity: p.user!, stream: `feed:${p.user}` }
     case "cloud:UsageMeterDO":
-      return { stub: env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `usage:${p.team}` }
+      return { stub: env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(p.team!)), entity: p.team!, stream: `usage:${p.team}` }
     case "cloud:TeamVmDO":
-      return { stub: env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `team_vm:${p.team}` }
+      return { stub: env.TEAM_VM_DO.get(env.TEAM_VM_DO.idFromName(p.team!)), entity: p.team!, stream: `team_vm:${p.team}` }
     case "cloud:CloudDO":
-      return { stub: env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `cloud:${p.team}` }
+      return { stub: platformCloud(env.CLOUD_DO, p.team!) as unknown as OwnerStub, entity: p.team!, stream: `cloud:${p.team}` }
     case "cloud:ConnectionDO":
-      return { stub: env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)) as unknown as OwnerStub, entity: p.team!, stream: `connections:${p.team}` }
+      return { stub: env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)), entity: p.team!, stream: `connections:${p.team}` }
     default:
       throw new Error(`no route for owner ${owner}`)
   }
@@ -106,7 +108,13 @@ const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
 /** The CloudDO ops that answer today (skeleton); every other cloud:CloudDO op answers owner.unreachable until it lands. */
 const CLOUD_LIVE_OPS: ReadonlySet<string> = new Set(["cloud.machine.list", "cloud.machine.get", "cloud.machine.create", "cloud.machine.rename", "cloud.machine.delete", "cloud.machine.idle_policy.set", "cloud.plan.get", "cloud.machine.connect_info", "cloud.machine.link_token", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize", "cloud.snapshot.list", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore", "cloud.vm.self.get", "cloud.vm.status.report", "cloud.vm.event.emit"])
 const cloudNotLive = (owner: string, op: string) =>
-  owner === "cloud:CloudDO" && !CLOUD_LIVE_OPS.has(op) ? new OwnerUnreachable({ code: "owner.unreachable", message: `${op} is not available yet`, retryable: true }) : undefined
+  owner !== "cloud:CloudDO"
+    ? undefined
+    : !CLOUD_LIVE_OPS.has(op)
+      ? new OwnerUnreachable({ code: "owner.unreachable", message: `${op} is not available yet`, retryable: true })
+      : !env.CLOUD_DO
+        ? new OwnerUnreachable({ code: "owner.unreachable", message: CLOUD_UNBOUND, retryable: true })
+        : undefined
 
 const unreachable = (e: unknown) => new OwnerUnreachable({ code: "owner.unreachable", message: String(e), retryable: true })
 
@@ -219,8 +227,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           if (payload.idempotency_key) return yield* new BadRequest({ code: "validation.invalid", message: `${payload.op} takes no idempotency_key` })
           const p = yield* principalFor(def.owner, principal)
           const request = crypto.randomUUID()
-          type Reply = Promise<{ ok: boolean; value?: unknown; code?: string; message?: string; details?: unknown }>
-          const stub = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { mintLinkToken(e: string, q: Principal, params: unknown, request: string): Reply; vmOp(e: string, q: Principal, op: string, params: unknown): Reply }
+          const stub = platformCloud(env.CLOUD_DO, p.team!)
           // The VM daemon's own-machine ops (cloud-vm.ts) share this no-key path with link_token.
           const call = () => (payload.op.startsWith("cloud.vm.") ? stub.vmOp(p.team!, p, payload.op, payload.params ?? {}) : stub.mintLinkToken(p.team!, p, payload.params ?? {}, request))
           const r = yield* Effect.tryPromise({ try: call, catch: unreachable })
@@ -272,6 +279,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const found = yield* Effect.tryPromise({ try: () => withAnySsoSession(env, { ...bare, stack_session: stackSession }), catch: gateUnreachable })
           submitter = found.sso_team ? { ...bare, sso_team: found.sso_team } : bare
         }
+        // Invite-code pairing: a person's invite for a new machine to type (pair-invite-routes.ts).
+        if (payload.op === "server.pair.invite") return yield* Effect.tryPromise({ try: () => pairInvite(env, principal, frame), catch: unreachable })
         // cmux server pairing: several owners in order (UserDO install, TeamDO host, PairingDO), each keyed by the code.
         if (payload.op === "server.pair.approve") {
           // Authorization already verified this exact request's Stack session. It is never an op param,
@@ -337,8 +346,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         // F3 / P17-6: the old integration policy op is an alias of team.policy.update (TeamPolicy is the single writer).
         if (payload.op === "integration.policy.set") {
           const p = yield* principalFor("cloud:TeamDO", principal)
-          const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as Parameters<typeof forwardIntegrationPolicy>[0]
-          const connections = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!)) as unknown as Parameters<typeof forwardIntegrationPolicy>[1]
+          const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!))
+          const connections = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(p.team!))
           const res = yield* Effect.tryPromise({ try: () => forwardIntegrationPolicy(team, connections, p.team!, p, (payload.params ?? {}) as PolicyFields, frame.idempotency_key), catch: unreachable })
           return toResponse(payload.op, res.frames as unknown as ReadonlyArray<OwnerFrame>)
         }
@@ -352,7 +361,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const p = yield* principalFor(def.owner, principal)
           const agent = (payload.params as { agent?: unknown } | null)?.agent
           if (typeof agent !== "string") return yield* new BadRequest({ code: "validation.invalid", message: `${payload.op} needs an agent` })
-          const stub = env.MUX_DO.get(env.MUX_DO.idFromName(agent)) as unknown as OwnerStub
+          const stub = env.MUX_DO.get(env.MUX_DO.idFromName(agent))
           const mux = yield* Effect.tryPromise({ try: () => rpc<SubmitResult>(stub.submit(agent, p, { t: "op", ...frame })), catch: unreachable })
           return toResponse(payload.op, mux.frames)
         }

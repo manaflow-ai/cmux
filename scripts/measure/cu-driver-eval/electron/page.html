@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>cu-eval electron</title></head>
+<body style="margin:0;height:100vh;overflow:scroll;background:#9cd">
+<div style="height:4000px"><input id="f" autofocus style="margin:20px"></div>
+<script>
+// The WebKit target's listeners (apps.swift pageScript), reported through the console.
+const send = (type, e) => console.log("CUEV " + JSON.stringify({ type, x: e.clientX ?? 0, y: e.clientY ?? 0, chars: e.key ?? "" }));
+addEventListener("mousedown", (e) => send("down", e), true);
+addEventListener("mouseup", (e) => send("up", e), true);
+addEventListener("keydown", (e) => send("key", e), true);
+addEventListener("wheel", (e) => send("wheel", e), { capture: true, passive: true });
+</script>
+</body>
+</html>

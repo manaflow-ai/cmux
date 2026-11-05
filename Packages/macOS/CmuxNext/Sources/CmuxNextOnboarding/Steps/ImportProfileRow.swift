@@ -51,7 +51,7 @@ final class ImportProfileRow: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         icon.imageScaling = .scaleProportionallyUpOrDown
         avatar.wantsLayer = true
-        avatar.layer?.cornerRadius = 8
+        avatar.layer?.cornerRadius = Metrics.controlCornerRadius
         avatar.layer?.masksToBounds = true
         avatar.imageScaling = .scaleProportionallyUpOrDown
         names.addArrangedSubview(name)
