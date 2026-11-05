@@ -1171,6 +1171,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-conductor-import"
+version = "0.1.0"
+dependencies = [
+ "cmux-git",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "cmux-config"
 version = "0.1.0"
 dependencies = [

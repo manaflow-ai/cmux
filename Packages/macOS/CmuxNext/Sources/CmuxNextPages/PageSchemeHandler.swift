@@ -64,7 +64,12 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     private func served(_ url: URL) -> Served? {
         guard url.scheme?.lowercased() == PageDescriptor.scheme,
               let host = url.host?.lowercased() else { return nil }
-        return resolve(host)
+        if let served = resolve(host) { return served }
+        // The Artifacts pane reuses the exact agent bootstrap. No other cross-origin
+        // path (including query/fragment variants) is resolved through its bundle.
+        guard PageArtifactFrame.isFrame(url), let served = resolve("cmux.artifacts"),
+              served.page.id.lowercased() == "cmux.artifacts" else { return nil }
+        return served
     }
 
     /// The page's directory inside this module's resource bundle (`Resources/pages/<resource>`).
@@ -113,7 +118,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// the update that page loaded with (``WebBundleServedViews``), any other the active one.
     func reply(to url: URL, range: String? = nil, webView: WKWebView? = nil) async -> Reply? {
         guard let served = served(url) else { return nil }
-        if served.page.id.lowercased() == PageArtifactFrame.pageID, PageArtifactFrame.isFrame(url) {
+        if PageArtifactFrame.parentIDs.contains(served.page.id.lowercased()), PageArtifactFrame.isFrame(url) {
             return Self.artifactReply(url: url)
         }
         var live = liveOverride()
@@ -265,10 +270,10 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// for another scheme or page, a path with `.` or `..` components, or a path that leaves
     /// `root`. An empty path is the page's ``PageDescriptor/entry``.
     nonisolated static func route(for url: URL, page: PageDescriptor, root: URL) -> Route? {
-        guard page.owns(url) else { return nil }
-        if page.id.lowercased() == PageArtifactFrame.pageID, PageArtifactFrame.isArtifactURL(url) {
-            return PageArtifactFrame.isFrame(url) ? .artifact : nil
+        if PageArtifactFrame.isArtifactURL(url) {
+            return PageArtifactFrame.parentIDs.contains(page.id.lowercased()) && PageArtifactFrame.isFrame(url) ? .artifact : nil
         }
+        guard page.owns(url) else { return nil }
         var components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         if components.isEmpty { components = [page.entry] }
         guard !components.contains(where: { $0 == ".." || $0 == "." }) else { return nil }
