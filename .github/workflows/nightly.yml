@@ -5723,19 +5723,39 @@ jobs:
 
       # The mutable state, only for the live feed's newest build. A failed write here leaves the immutable
       # assets above published and the job green (continue-on-error); the next build's run writes them.
-      - name: Take the published feed
+      # One names writer at a time across runs, push or dispatch (the names job's group did this): its own
+      # R2 lease (publish-lease.sh), which never cancels a waiter. Each write runs still-newest inside it.
+      - name: Take the release names lease
+        id: names_lease
         if: steps.order.outputs.newest == 'true'
+        continue-on-error: true
+        env: &github-names-lease
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          LEASE_KEY: nightly-next/locks/github-names.json
+          LEASE_OWNER: ${{ github.run_id }}-${{ github.run_attempt }}
+          LEASE_TTL: 900
+          LEASE_RENEW: 60
+          # The names writes may wait out an hour of rate limits, as the job's timeout allows.
+          LEASE_MAX_HOLD: 10800
+          LEASE_WAIT: 3600
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh lock
+
+      - name: Take the published feed
+        if: steps.names_lease.outcome == 'success'
         continue-on-error: true
         run: bash .publish-tooling/scripts/ci/nightly-steps/github-names-take-feed.sh
 
       - name: Install the feed order check
-        if: steps.order.outputs.newest == 'true'
+        if: steps.names_lease.outcome == 'success'
         continue-on-error: true
         run: bash .publish-tooling/scripts/ci/nightly-steps/github-names-install-still-newest.sh
 
       - name: Publish the rolling DMG name and the feed copy
         id: publish_names
-        if: steps.order.outputs.newest == 'true'
+        if: steps.names_lease.outcome == 'success'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -5781,6 +5801,12 @@ jobs:
           GITHUB_TOKEN: ''
           BUILD_SHA: ${{ needs.publish-nightly.outputs.build_sha }}
         run: bash .publish-tooling/scripts/ci/nightly-steps/github-names-move-tag.sh
+
+      - name: Release the release names lease
+        if: always() && steps.names_lease.outcome != 'skipped'
+        continue-on-error: true
+        env: *github-names-lease
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh unlock
 
       - *wipe-owned-credentials
 

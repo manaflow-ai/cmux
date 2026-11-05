@@ -309,6 +309,8 @@
         "Publish nightly-next release assets": {"nightly_only": "uploads assets to GitHub release (publish-release-assets.py tested by tests/test_github_release_publication.py)"},
         "Take the recovered build's source archive": {"plumbing": true},
         "Publish the cmux-next source archive": {"nightly_only": "uploads source archive to release"},
+        "Take the release names lease": {"nightly_only": "takes the R2 lease that keeps one release-names writer at a time (publish-lease.sh, r2_cas.py tested by tests/test_r2_cas.py)"},
+        "Release the release names lease": {"nightly_only": "releases the release-names R2 lease (publish-lease.sh, r2_cas.py tested by tests/test_r2_cas.py)"},
         "Take the published feed": {"plumbing": true},
         "Install the feed order check": {"plumbing": true},
         "Publish the rolling DMG name and the feed copy": {"nightly_only": "replaces the rolling DMG and feed assets on the GitHub release"},

@@ -163,8 +163,9 @@ if "-f nightly_next_post_publish=" not in dispatch or "actions: write" not in di
 
 # The release's mutable names (rolling DMG, feed copy, body, tag) are steps of the upload job, not a job of their
 # own: a second whole-Mac claim cost run 42018687632 a second set-up, token and variant download, and let the
-# 12-min deltas job take cmux15 first, so the names moved 40 min after the feed. The push group runs one push run
-# at a time, and each write first runs still-newest, so no older build writes over a newer one's names.
+# 12-min deltas job take cmux15 first, so the names moved 40 min after the feed. The writes keep what the names
+# job's group gave: one writer at a time across runs, push or dispatch (an R2 lease of their own, which never
+# cancels a waiter), and each write first runs still-newest, so no older build writes over a newer one's names.
 def publish_steps() -> list[dict]:
     import yaml
 
@@ -182,9 +183,10 @@ else:
 
     upload, order = at("Publish nightly-next release assets"), at("Check this build is still the feed's newest")
     writes = {
-        "Take the published feed": "steps.order.outputs.newest == 'true'",
-        "Install the feed order check": "steps.order.outputs.newest == 'true'",
-        "Publish the rolling DMG name and the feed copy": "steps.order.outputs.newest == 'true'",
+        "Take the release names lease": "steps.order.outputs.newest == 'true'",
+        "Take the published feed": "steps.names_lease.outcome == 'success'",
+        "Install the feed order check": "steps.names_lease.outcome == 'success'",
+        "Publish the rolling DMG name and the feed copy": "steps.names_lease.outcome == 'success'",
         "Record the published build in the release body": "steps.publish_names.outputs.newest == 'true'",
         "Move the nightly-next tag to the published build": "steps.publish_names.outputs.newest == 'true'",
     }
@@ -199,6 +201,17 @@ else:
         # A failed names write never turns the immutable publication red.
         if step.get("continue-on-error") is not True:
             failures.append(f"{name!r} must continue on error: the immutable assets are already published")
+    lock, unlock = at("Take the release names lease"), at("Release the release names lease")
+    lease_runs = [str(steps[i].get("run", "")) if i >= 0 else "" for i in (lock, unlock)]
+    if not (0 <= lock < at("Take the published feed") and at("Move the nightly-next tag to the published build") < unlock
+            and lease_runs[0].endswith("publish-lease.sh lock") and lease_runs[1].endswith("publish-lease.sh unlock")):
+        failures.append("the names writes must run inside their own R2 lease (publish-lease.sh lock ... unlock)")
+    else:
+        key = steps[lock].get("env", {}).get("LEASE_KEY")
+        if key != "nightly-next/locks/github-names.json" or steps[unlock].get("env") != steps[lock].get("env"):
+            failures.append(f"the names lease must take and release nightly-next/locks/github-names.json, not {key}")
+        if steps[unlock].get("if") != "always() && steps.names_lease.outcome != 'skipped'":
+            failures.append("the names lease must be released whatever the writes did")
     for script in ("github-names-publish-rolling-name", "github-names-record-release-body", "github-names-move-tag"):
         body = (ROOT / "scripts" / "ci" / "nightly-steps" / f"{script}.sh").read_text()
         check_at = body.find('"$RUNNER_TEMP/still-newest"')
