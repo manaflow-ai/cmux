@@ -322,3 +322,103 @@ test("without a hover store a chip draws no card", async () => {
   );
   expect(html).not.toContain("acpmux-session-hover");
 });
+
+// A sender's name opens its chat as a sender (App.tsx `openSenderChat`); its card opens it the same
+// way, not as the page's started chats do (review of #36360 at b9c69d0c). A chat the list does not
+// have draws no card, so its name keeps its tooltip.
+test("a sender's card opens its chat as the name does; an unlisted chat's name keeps its tooltip", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { SessionHoverContext, useSessionHover } = await import("../src/agent-session/acpmux/started/SessionHoverCard");
+  const { AgentTag } = await import("../src/agent-session/acpmux/conversation/AgentTag");
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const store = new SessionHoverStore();
+  store.set([entry({ indicator: "done", updatedAt: Date.now() })]);
+  const opened: string[] = [];
+  const asSender: string[] = [];
+  function Name({ sessionId }: { sessionId: string }) {
+    const { trigger, card } = useSessionHover(sessionId, (id) => void asSender.push(id));
+    return (
+      <>
+        <AgentTag name={sessionId} title={`Open ${sessionId}`} hover={trigger} onClick={() => undefined} />
+        {card}
+      </>
+    );
+  }
+  await act(async () => {
+    root.render(
+      <UiProvider container={rootElement}>
+        <SessionHoverContext.Provider value={{ store, open: (id) => void opened.push(id) }}>
+          <Name sessionId={ID} />
+          <Name sessionId="unlisted" />
+        </SessionHoverContext.Provider>
+      </UiProvider>,
+    );
+  });
+  const [listed, unlisted] = [...rootElement.querySelectorAll<HTMLButtonElement>("button.cv-agent-tag")];
+  expect(listed!.getAttribute("title")).toBeNull();
+  expect(unlisted!.getAttribute("title")).toBe("Open unlisted");
+  await act(async () => unlisted!.focus());
+  expect(unlisted!.hasAttribute("aria-describedby")).toBe(false);
+  await act(async () => listed!.focus());
+  await act(async () => rootElement.querySelector<HTMLButtonElement>(".acpmux-session-hover")!.click());
+  expect(asSender).toEqual([ID]);
+  expect(opened).toEqual([]);
+  await act(async () => root.unmount());
+});
+
+// An agent link (`cmux.com/deeplink/agent?session=...`) that names one of the reader's listed chats
+// shows that chat's card in place of the site's, and the card opens it as the link does.
+test("an agent link to a listed chat shows that chat's card, opening it as the link does", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { SessionHoverContext } = await import("../src/agent-session/acpmux/started/SessionHoverCard");
+  const { UrlChip } = await import("../src/agent-session/acpmux/chips/LinkChips");
+  const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
+  const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
+  refs.setSessionRefResolver(async () => ({ session: { sessionId: ID } }));
+  await refs.resolveSessionRef(ID);
+  const rootElement = dom.window.document.getElementById("root")!;
+  const root = createRoot(rootElement);
+  const store = new SessionHoverStore();
+  store.set([entry({ indicator: "done", updatedAt: Date.now() })]);
+  const opened: string[] = [];
+  const asSender: string[] = [];
+  const href = `https://cmux.com/deeplink/agent?session=${ID}`;
+  try {
+    await act(async () => {
+      root.render(
+        <UiProvider container={rootElement}>
+          <SubsessionContext.Provider
+            value={{
+              store: new SubsessionStore(),
+              open: (id) => void opened.push(id),
+              openSender: (id) => void asSender.push(id),
+            }}
+          >
+            <SessionHoverContext.Provider value={{ store, open: (id) => void opened.push(id) }}>
+              <p>
+                See <UrlChip href={href}>{href}</UrlChip>.
+              </p>
+            </SessionHoverContext.Provider>
+          </SubsessionContext.Provider>
+        </UiProvider>,
+      );
+    });
+    const link = rootElement.querySelector<HTMLAnchorElement>("a.cv-chip")!;
+    expect(link.getAttribute("data-open-session")).toBe(ID);
+    await act(async () => link.focus());
+    const card = rootElement.querySelector<HTMLElement>(".acpmux-session-hover-card");
+    expect(card?.getAttribute("aria-label")).toBe("Switch gh-merge-green to merge-freeze issues");
+    await act(async () => card!.querySelector<HTMLButtonElement>(".acpmux-session-hover")!.click());
+    expect(asSender).toEqual([ID]);
+    expect(opened).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+    refs.setSessionRefResolver(undefined);
+    refs.resetSessionRefs();
+  }
+});
