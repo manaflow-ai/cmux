@@ -56,7 +56,7 @@ RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std
 RECOVERY_JOBS = {"recover-nightly-next-notarization", "verify-recovered-nightly-next"}
 # The secret-bearing jobs end on the signer's label alone (a trusted-only mini that runs no pull request job), never a
 # label they share with nightly builds or PR side lanes.
-SIGNING_FALLBACK = "|| vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-trusted-next-signing' }}"
+SIGNING_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"
 SECRET_JOBS = {"sign-nightly-identity-legacy", "generate-nightly-deltas", "build-sign-notarize-nightly",
                "recover-nightly-next-notarization"}
 

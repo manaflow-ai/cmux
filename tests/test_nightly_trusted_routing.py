@@ -41,7 +41,7 @@ TAIL_CONTROL_JOBS = (
 NIGHTLY_ONLY = 'glaeda-nightly-only-m4pro'
 NIGHTLY_SLOT = 'glaeda-nightly-std-xcode-26.6'
 # The signer's label: only a trusted-only mini that runs no pull request job carries it, and the secret-bearing
-# jobs end on it (vars.CI_NIGHTLY_SIGNING_POOL), never on a label nightly builds or PR side lanes share.
+# jobs end on it as a literal, never on a label nightly builds or PR side lanes share.
 SIGNING_SLOT = 'glaeda-trusted-next-signing'
 HOSTED = 'ubuntu-24.04'
 OUR_LABELS = {NIGHTLY_ONLY, NIGHTLY_SLOT, SIGNING_SLOT, HOSTED}
@@ -276,8 +276,11 @@ class NightlyTrustedRouting(unittest.TestCase):
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's; its
         # signing pick and the recovery's (find-nightly-next-recovery) offer only the signing label.
         self.assertEqual(steps, ['pick-nightly-build-runner', 'pick-nightly-sign-runner'])
-        signing = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_SIGNING_POOL' in str(job.get('steps', '')))
+        # Their OWNED_LABELS is the signer's label as a literal: no variable chooses it.
+        signing = sorted(name for name, job in DOC['jobs'].items()
+                         if any((step.get('env') or {}).get('OWNED_LABELS') == SIGNING_SLOT for step in job.get('steps', [])))
         self.assertEqual(signing, ['find-nightly-next-recovery', 'pick-nightly-sign-runner'])
+        self.assertNotIn('CI_NIGHTLY_SIGNING_POOL', str(DOC['jobs']))
 
     def test_ghostty_helper_takes_owned_macos_26_then_the_nightly_slot(self):
         # Leo: "bro WHAT THE FUCK IS THE POINT OF 15???????? WHY". The helper builds with

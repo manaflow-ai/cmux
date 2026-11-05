@@ -720,7 +720,7 @@ OWNED_ONLY_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_S
 # The secret-bearing ones end on the signer's label alone (signing_runner.SIGNER_LABEL).
 SIGNING_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "generate-nightly-deltas", "build-sign-notarize-nightly",
                                   "recover-nightly-next-notarization"})
-SIGNING_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-trusted-next-signing' }}"
+SIGNING_NIGHTLY_FALLBACK = "|| 'glaeda-trusted-next-signing' }}"
 
 
 TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|\.|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")

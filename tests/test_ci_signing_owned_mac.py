@@ -851,7 +851,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         for label in ("glaeda-trusted-next-signing-2", "glaeda-nightly-std-xcode-26.6", SIDE, "glaeda-std-xcode-26.6"):
             self.assertFalse(signing_runner.signing_route_label(label), label)
         jobs = workflows()["nightly.yml"]["jobs"]
-        route = "${{ vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-trusted-next-signing' }}"
+        route = "glaeda-trusted-next-signing"  # a literal: no variable chooses the label
         for job, step_id in (("pick-nightly-sign-runner", "sign-owned"), ("find-nightly-next-recovery", "sign-owned")):
             with self.subTest(job=job):
                 step = next(s for s in jobs[job]["steps"] if s.get("id") == step_id)
@@ -859,9 +859,10 @@ class SigningOwnedMacTests(unittest.TestCase):
         for name in signing_runner.SIGNING_JOBS["nightly.yml"]:
             with self.subTest(job=name):
                 runs_on = str(jobs[name]["runs-on"])
-                self.assertTrue(runs_on.rstrip(" }").endswith("vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-trusted-next-signing'"),
+                self.assertTrue(runs_on.rstrip(" }").endswith("'glaeda-trusted-next-signing'"),
                                 runs_on)
-                for shared in ("CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER", "glaeda-nightly-std",
+                for shared in ("CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER", "CI_NIGHTLY_SIGNING_POOL",
+                               "CI_NIGHTLY_SIGN_RUNNER", "glaeda-nightly-std",
                                "glaeda-std-xcode", "glaeda-side-"):
                     self.assertNotIn(shared, runs_on)
 

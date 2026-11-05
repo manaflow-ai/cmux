@@ -172,7 +172,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                 self.assertNotIn("glaeda-nightly-only-m4pro", route)
                 if name != "promote-nightly-next":
                     self.assertTrue(route.rstrip(" }").endswith(
-                        "vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-trusted-next-signing'"))
+                        "'glaeda-trusted-next-signing'"))
 
     def test_claim_gate_first_then_claim_and_clean_workdir_before_any_secret(self) -> None:
         for name in EXCLUSIVE_PUBLISHERS:

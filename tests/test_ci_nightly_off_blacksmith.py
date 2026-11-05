@@ -199,7 +199,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
     def test_secret_bearing_nightlies_use_the_trusted_owned_pool(self) -> None:
         text = nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         # After their owned pick, only the signer's label: a trusted-only mini that runs no pull request job.
-        owned = "|| vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-trusted-next-signing' }}"
+        owned = "|| 'glaeda-trusted-next-signing' }}"
         for name in ("sign-nightly-identity-legacy", "build-sign-notarize-nightly", "recover-nightly-next-notarization"):
             runs_on = re.search(r"^    runs-on: (.+)$", text[text.index(f"\n  {name}:"):], re.MULTILINE).group(1)
             with self.subTest(job=name):
