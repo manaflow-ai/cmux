@@ -17,16 +17,32 @@ public final class ObservationWakes: Sendable {
     /// The counter of the task that makes the change; nil counts nothing.
     @TaskLocal public static var current: ObservationWakes?
 
-    private let wakes = Mutex(0)
+    private let wakes = Mutex<[String: Int]>([:])
 
     /// A counter at zero.
     public init() {}
 
     /// The wakes counted so far.
-    public var count: Int { wakes.withLock { $0 } }
+    public var count: Int { wakes.withLock { $0.values.reduce(0, +) } }
 
-    /// One tracking woke: counted when a counter is set for the current task.
-    package static func record() {
-        current?.wakes.withLock { $0 += 1 }
+    /// The wakes counted so far, by the `#fileID:#line` where each woken stream, tracking or loop was made.
+    public var bySite: [String: Int] { wakes.withLock { $0 } }
+
+    /// One tracking made at `site` woke: counted when a counter is set for the current task.
+    package static func record(site: ObservationSite) {
+        guard let current else { return }
+        let key = "\(site.fileID):\(site.line)"
+        current.wakes.withLock { $0[key, default: 0] += 1 }
+    }
+}
+
+/// Where an observation was made (`#fileID`, `#line`), kept as static text so making one costs no allocation.
+public struct ObservationSite: Sendable {
+    let fileID: StaticString
+    let line: UInt
+
+    package init(fileID: StaticString, line: UInt) {
+        self.fileID = fileID
+        self.line = line
     }
 }

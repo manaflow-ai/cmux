@@ -40,8 +40,9 @@ struct NewTabWakesDoNotGrowWithSessionTests {
         for _ in 0..<80 { await Task.yield() }
     }
 
-    /// The wakes of one New Terminal Tab in the first pane of a window showing `panes` panes of `tabs` tabs.
-    private static func wakesOfNewTab(panes: Int, tabs: Int) async throws -> Int {
+    /// The wakes of one New Terminal Tab on the first pane of a window showing `panes` panes of `tabs` tabs, by the
+    /// `#fileID:#line` of each woken observer.
+    private static func wakesOfNewTab(panes: Int, tabs: Int) async throws -> [String: Int] {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -59,7 +60,9 @@ struct NewTabWakesDoNotGrowWithSessionTests {
         content.contentView.layoutSubtreeIfNeeded()
         await drainMain()
         let pane = try #require(content.panes.values.first { $0.pane.handle == PaneID(rawValue: 1) })
-        let before = pane.pane.tabs.count
+        let workspace = try #require(store.workspaces.first)
+        func tabCount() -> Int { workspace.screens.flatMap(\.panes).reduce(0) { $0 + $1.tabs.count } }
+        let before = tabCount()
 
         let wakes = ObservationWakes()
         let refused = ObservationWakes.$current.withValue(wakes) {
@@ -68,15 +71,21 @@ struct NewTabWakesDoNotGrowWithSessionTests {
             }
         }
         try #require(refused == nil, "newSurface was refused: \(refused ?? "")")
-        try #require(pane.pane.tabs.count == before + 1, "fixture: New Terminal Tab made no tab in the first pane")
-        return wakes.count
+        try #require(tabCount() == before + 1, "fixture: New Terminal Tab made \(tabCount() - before) tabs, not 1")
+        return wakes.bySite
     }
 
     @Test(.timeLimit(.minutes(2)))
     func oneNewTabWakesAsManyObserversInAStressSessionAsInASmallOne() async throws {
         let small = try await Self.wakesOfNewTab(panes: 2, tabs: 1)
         let stress = try await Self.wakesOfNewTab(panes: 14, tabs: 6)
-        #expect(small > 0, "fixture: the new tab woke no observer (the counter is not wired)")
-        #expect(stress == small, "one New Terminal Tab woke \(small) observers with 2 panes x 1 tab and \(stress) with 14 panes x 6 tabs")
+        let (smallCount, stressCount) = (small.values.reduce(0, +), stress.values.reduce(0, +))
+        // The observers that woke more often in the larger session: they read something every pane or tab shares.
+        let grew = stress.filter { $0.value > small[$0.key, default: 0] }
+            .sorted { $0.value - small[$0.key, default: 0] > $1.value - small[$1.key, default: 0] }
+            .map { "\($0.key) \(small[$0.key, default: 0]) -> \($0.value)" }
+        #expect(smallCount > 0, "fixture: the new tab woke no observer (the counter is not wired)")
+        #expect(stressCount == smallCount,
+                "one New Terminal Tab woke \(smallCount) observers with 2 panes x 1 tab and \(stressCount) with 14 panes x 6 tabs; grew: \(grew)")
     }
 }

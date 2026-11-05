@@ -21,13 +21,14 @@ public final class SingleArmedTracking {
 
     /// `apply`, tracked unless the armed registration covers it; `onChange` runs once when a value the armed
     /// registration read is about to change (synchronously inside the mutation, like `withObservationTracking`'s).
-    public func track<T>(shape: [ObjectIdentifier], _ apply: () -> T, onChange: @escaping @Sendable () -> Void) -> T {
+    public func track<T>(shape: [ObjectIdentifier], _ apply: () -> T, onChange: @escaping @Sendable () -> Void,
+                         fileID: StaticString = #fileID, line: UInt = #line) -> T {
         if armed.load(ordering: .acquiring), shape == self.shape { return apply() }
         armed.store(true, ordering: .releasing)
         self.shape = shape
         armings += 1
         return withObservationTracking(apply) { [weak self] in
-            ObservationWakes.record()
+            ObservationWakes.record(site: ObservationSite(fileID: fileID, line: line))
             self?.armed.store(false, ordering: .releasing)
             onChange()
         }

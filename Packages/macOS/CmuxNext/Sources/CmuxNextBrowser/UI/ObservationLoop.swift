@@ -8,9 +8,11 @@ import Observation
 final class ObservationLoop {
     private let render: () -> Void
     private var isActive = true
+    private let site: ObservationSite
 
-    init(_ render: @escaping () -> Void) {
+    init(_ render: @escaping () -> Void, fileID: StaticString = #fileID, line: UInt = #line) {
         self.render = render
+        site = ObservationSite(fileID: fileID, line: line)
         arm()
     }
 
@@ -23,7 +25,7 @@ final class ObservationLoop {
         withObservationTracking {
             render()
         } onChange: { [weak self] in
-            ObservationWakes.record()
+            ObservationWakes.record(site: site)
             Task { @MainActor in self?.arm() }
         }
     }
