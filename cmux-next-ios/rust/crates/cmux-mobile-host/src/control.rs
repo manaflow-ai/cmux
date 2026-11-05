@@ -596,6 +596,10 @@ pub fn path_name(path: cmux_mobile_link::dial::LinkPath) -> &'static str {
     }
 }
 
+fn is_phone(kind: &crate::peer::PeerKind) -> bool {
+    *kind == crate::peer::PeerKind::Phone
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -850,8 +854,4 @@ mod tests {
             r#"{"type":"waiting","reason":"x","retry_in_seconds":2}"#
         );
     }
-}
-
-fn is_phone(kind: &crate::peer::PeerKind) -> bool {
-    *kind == crate::peer::PeerKind::Phone
 }

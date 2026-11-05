@@ -55,32 +55,8 @@ pub struct Dialer {
     pub signaling: watch::Receiver<Option<SignalingClient>>,
     pub identity: watch::Receiver<Option<MacIdentity>>,
     pub activity: Arc<crate::activity::Activity>,
-    links: Mutex<HashMap<String, Arc<Link>>>,
-}
-
-impl Dialer {
-    pub fn new(
-        device_id: String,
-        device_name: String,
-        base_url: String,
-        tokens: Arc<Tokens>,
-        ice: IceSource,
-        signaling: watch::Receiver<Option<SignalingClient>>,
-        identity: watch::Receiver<Option<MacIdentity>>,
-        activity: Arc<crate::activity::Activity>,
-    ) -> Self {
-        Self {
-            device_id,
-            device_name,
-            base_url,
-            tokens,
-            ice,
-            signaling,
-            identity,
-            activity,
-            links: Mutex::default(),
-        }
-    }
+    /// Live links by peer device id (one per peer, reused by every request).
+    pub links: Mutex<HashMap<String, Arc<Link>>>,
 }
 
 /// `<dir>/<session>.link.sock` for the daemon socket `<dir>/<session>.sock`.

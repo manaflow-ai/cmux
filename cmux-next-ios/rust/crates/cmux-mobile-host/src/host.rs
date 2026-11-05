@@ -165,16 +165,17 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
     // socket (`link_socket.rs`); only with the app, which holds the identity key.
     let (signaling_now, signaling_watch) = tokio::sync::watch::channel(None::<SignalingClient>);
     let _machine_link = services.pairing.as_ref().map(|pairing| {
-        let dialer = Arc::new(crate::link_socket::Dialer::new(
-            config.device_id.clone(),
-            config.device_name.clone(),
-            config.base_url.clone(),
-            Arc::clone(&tokens),
-            ice.clone(),
-            signaling_watch.clone(),
-            pairing.identity.clone(),
-            Arc::clone(&pairing.activity),
-        ));
+        let dialer = Arc::new(crate::link_socket::Dialer {
+            device_id: config.device_id.clone(),
+            device_name: config.device_name.clone(),
+            base_url: config.base_url.clone(),
+            tokens: Arc::clone(&tokens),
+            ice: ice.clone(),
+            signaling: signaling_watch.clone(),
+            identity: pairing.identity.clone(),
+            activity: Arc::clone(&pairing.activity),
+            links: Default::default(),
+        });
         let path = crate::link_socket::socket_path(&services.daemon_socket());
         AbortTask(tokio::spawn(async move {
             if let Err(error) = crate::link_socket::serve(path, dialer).await {
