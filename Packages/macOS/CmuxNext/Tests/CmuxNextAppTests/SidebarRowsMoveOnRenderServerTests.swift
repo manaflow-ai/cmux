@@ -408,16 +408,19 @@ struct SidebarRowsMoveOnRenderServerTests {
         }
         model.noteUserIntent()
         model.setGroupCollapsed(GroupID("g-work"), true)
+        let start = CACurrentMediaTime()
         let moveDuration = Motion.sidebar.springAnimation(.move, "position", from: 0, to: 0).duration
         let fadeOut = Motion.sidebar.duration(.fadeOut)
-        #expect(fadeOut < moveDuration, "the fade-out token (\(fadeOut) s) is not shorter than the slot's spring (\(moveDuration) s)")
+        // Look a little after the fade-out token ends, while the slot's spring still has well over a third to go.
+        let look = fadeOut + 0.05
+        #expect(look < moveDuration * 0.6, "the fade-out token (\(fadeOut) s) is not well short of the slot's spring (\(moveDuration) s)")
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: max(0, start + look - CACurrentMediaTime())))
         for (name, view) in members {
-            #expect(view.alphaValue == 0, "\(name) is not fading out")
-            let layer = try #require(view.layer)
-            let fades = (layer.animationKeys() ?? []).compactMap { layer.animation(forKey: $0) as? CAPropertyAnimation }
-                .filter { $0.keyPath == "opacity" }
-            let fade = try #require(fades.first, "\(name) has no opacity animation")
-            #expect(fade.duration <= fadeOut + 0.001, "\(name) fades over \(fade.duration) s, the slot's spring, not .fadeOut (\(fadeOut) s)")
+            // Still on the list (its slot is closing), but its words are already gone.
+            #expect(list.rowViews[.workspace(CmuxNextSidebar.WorkspaceID(name))] === view, "\(name) was recycled before its slot closed")
+            // What is on screen: the presentation layer when the fade runs on the render server, else the view's alpha.
+            let shown = Double(view.layer?.presentation()?.opacity ?? Float(view.alphaValue))
+            #expect(shown < 0.02, "\(name) still shows at opacity \(shown) after \(look) s, past .fadeOut (\(fadeOut) s)")
         }
     }
 
