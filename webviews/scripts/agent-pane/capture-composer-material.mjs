@@ -37,7 +37,8 @@ const shots = [
   ["reduce-transparency", "composer-material-reduce-transparency"],
 ];
 try {
-  const browser = await chromium.launch({ channel: "chrome" });
+  // Chrome where the runner has it (as the other capture scripts), else Playwright's own Chromium.
+  const browser = await chromium.launch({ channel: "chrome" }).catch(() => chromium.launch());
   try {
     for (const scheme of ["dark", "light"]) {
       const context = await browser.newContext({
