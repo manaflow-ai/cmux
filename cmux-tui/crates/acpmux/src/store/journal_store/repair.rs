@@ -140,7 +140,7 @@ impl Inner {
     ///
     /// A log that already holds every merged line in order, with nothing torn, keeps its bytes:
     /// the bytes read are written back over themselves ([`Inner::write_back`]), and the next
-    /// checkpoint syncs them through the same handles before it retires their records.
+    /// checkpoint syncs its segments before it retires their records.
     ///
     /// Otherwise every merged line is written again from the repair start; also when the
     /// previous run froze (a failed sync: the kernel may have dropped pages it still shows and
@@ -243,15 +243,18 @@ impl Inner {
     }
 
     /// Writes each segment's verified range of `id`'s log (the pieces of a whole read) back over
-    /// itself, and returns each segment with the handle it wrote through, for the next checkpoint
-    /// to sync (`Order::read_segments`). The bytes are the ones the read checked against the
-    /// journal, never read again: a page the kernel dropped after a previous run's failed sync
-    /// may read back stale. The write marks the range dirty again, so the checkpoint's sync puts
-    /// these bytes on the disk even when an earlier sync failed and left no note of it (delta
-    /// review 2 of #35866, D2). It runs here, before any other thread uses the logs; the
-    /// checkpoint only syncs the handle, so it never writes into another file that a delete, a
-    /// folder replace or a retention rewrite put at the path since (delta review 3, D3).
-    fn write_back(&self, id: &str, pieces: &[Piece]) -> Result<Vec<(PathBuf, Arc<File>)>> {
+    /// itself, and returns the segments written, for the next checkpoint to sync
+    /// (`Order::read_segments`). The bytes are the ones the read checked against the journal,
+    /// never read again: a page the kernel dropped after a previous run's failed sync may read
+    /// back stale. The write marks the range dirty again, so the checkpoint's sync puts these
+    /// bytes on the disk even when an earlier sync failed and left no note of it (delta review 2
+    /// of #35866, D2). It runs here, before any other thread uses the logs, so it writes the file
+    /// it read; the checkpoint only syncs, by path, so it never writes into another file that a
+    /// delete, a folder replace or a retention rewrite put at the path since, whose sync is
+    /// harmless (delta review 3, D3). No handle is kept: a held one per replayed segment could
+    /// use up the daemon's descriptors, and on Windows it would block the folder's rename or
+    /// removal.
+    fn write_back(&self, id: &str, pieces: &[Piece]) -> Result<Vec<PathBuf>> {
         let mut written = Vec::new();
         for (index, path) in self.local.segments(id)? {
             // The segment's verified range: from its first piece to its last piece's end, the
@@ -266,12 +269,12 @@ impl Inner {
             if FAIL_NEXT_WRITE_BACK.with(|fail| fail.replace(false)) {
                 anyhow::bail!("a failed write-back of {} (a test)", path.display());
             }
-            let file = open_to_write_back(&path)?;
+            let file = open_segment_to_write(&path)?;
             write_at(&file, &bytes, offset)
                 .with_context(|| format!("write back {}", path.display()))?;
             #[cfg(all(test, unix))]
             sync_model::rewritten(&file, offset);
-            written.push((path, Arc::new(file)));
+            written.push(path);
         }
         Ok(written)
     }
@@ -669,24 +672,25 @@ fn truncate_private(path: &Path, len: u64) -> Result<()> {
     Ok(())
 }
 
-/// The log segment at `path` opened to write in place: never made, never through a final link,
-/// never under a lost home, and only an owner-only file of this user (the checks of
+/// The log segment at `path` opened to write in place (the open's write-back) or to sync (the
+/// checkpoint's: Windows flushes only a handle that may write): never made, never through a final
+/// link, never under a lost home, and only an owner-only file of this user (the checks of
 /// `config::private_state_file`, which every read of a segment makes).
 #[cfg(unix)]
-fn open_to_write_back(path: &Path) -> Result<File> {
+pub(super) fn open_segment_to_write(path: &Path) -> Result<File> {
     use std::os::unix::fs::OpenOptionsExt;
     crate::config::refuse_lost_home(path)?;
     let file = OpenOptions::new()
         .write(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
-        .with_context(|| format!("open {} to write back", path.display()))?;
+        .with_context(|| format!("open {} to write", path.display()))?;
     crate::config::validate_private_state_file(&file, path)?;
     Ok(file)
 }
 
 #[cfg(windows)]
-fn open_to_write_back(path: &Path) -> Result<File> {
+pub(super) fn open_segment_to_write(path: &Path) -> Result<File> {
     crate::config::refuse_lost_home(path)?;
     Ok(crate::owner_only::open_rw_existing(path)?)
 }

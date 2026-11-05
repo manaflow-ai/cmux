@@ -152,18 +152,18 @@ impl Inner {
             return Err(error);
         }
         // The segments whose verified bytes the open's repair wrote back over themselves: synced
-        // through the open's handles before their records are retired. A killed daemon's writes
-        // may be in the page cache only (review 3 of #34901, finding 1a), and a previous run's
-        // failed sync may have dropped pages that still read back, which no durable note of it
-        // may say (delta review 2 of #35866, D2): the open's write marked the range dirty again,
-        // so this sync puts those bytes on the disk either way.
+        // before their records are retired. A killed daemon's writes may be in the page cache
+        // only (review 3 of #34901, finding 1a), and a previous run's failed sync may have dropped
+        // pages that still read back, which no durable note of it may say (delta review 2 of
+        // #35866, D2): the open's write marked the range dirty again, so this sync puts those
+        // bytes on the disk either way.
         if let Err(error) = self.sync_read_segments(&read) {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
         }
         // Synced: no later checkpoint needs to sync them again (the list only shrinks after the
         // open, so these are exactly the ones the sync covered).
-        self.order.lock_or_recover().read_segments.retain(|path, _| !read.contains_key(path));
+        self.order.lock_or_recover().read_segments.retain(|path| !read.contains(path));
         if let Err(error) = self.sync_logs(&dirty) {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
@@ -208,15 +208,21 @@ impl Inner {
         }
     }
 
-    /// Syncs, in write order, each segment the open wrote its verified bytes back into, through
-    /// the handle it wrote with (`Order::read_segments`): the very file the open read, wherever a
-    /// delete, a folder replace or a retention rewrite has moved it since. The checkpoint writes
-    /// nothing here, so a file put at the path since is never changed (delta review 3 of #35866,
-    /// D3), and the sync of a file that no chat holds any more is harmless. A failed sync
-    /// freezes the store, as a failed log sync does.
-    fn sync_read_segments(&self, read: &BTreeMap<PathBuf, Arc<File>>) -> Result<()> {
-        for (path, file) in read {
-            if let Err(error) = log_sync::sync_segment_ordered(file) {
+    /// Syncs, in write order, each segment the open wrote its verified bytes back into
+    /// (`Order::read_segments`), by path. The checkpoint writes nothing here, so a file that a
+    /// delete, a folder replace or a retention rewrite put at the path since is never changed
+    /// (delta review 3 of #35866, D3), and its sync is harmless; a segment that is gone is
+    /// passed. (A retention rewrite of a replayed chat checkpoints first: `Order::log_lsn`.) A
+    /// failed sync freezes the store, as a failed log sync does; a segment that does not open
+    /// fails only this checkpoint, and the next one tries again.
+    fn sync_read_segments(&self, read: &BTreeSet<PathBuf>) -> Result<()> {
+        for path in read {
+            let file = match repair::open_segment_to_write(path) {
+                Ok(file) => file,
+                Err(error) if is_not_found(&error) => continue,
+                Err(error) => return Err(error.context(format!("sync {}", path.display()))),
+            };
+            if let Err(error) = log_sync::sync_segment_ordered(&file) {
                 self.freeze(format!("an event log failed to sync: {error}"));
                 return Err(anyhow::Error::from(SyncFailed(error))
                     .context(format!("sync {}", path.display())));

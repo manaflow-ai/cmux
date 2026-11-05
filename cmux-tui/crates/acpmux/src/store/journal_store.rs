@@ -311,15 +311,14 @@ struct Order {
     /// Each chat's newest metadata image that its `session.json` does not hold yet (S3a,
     /// `journal_store/meta.rs`): reads see it first, the checkpoint writes it.
     metas: BTreeMap<String, meta::Pending>,
-    /// The log segments whose verified bytes the open's repair wrote back over themselves, each
-    /// with the handle it wrote through: the next checkpoint syncs that handle before it retires
-    /// their records. A killed daemon's writes may be in the page cache only, and a previous
-    /// run's failed sync may have dropped pages that still read back; the write marked the range
-    /// dirty again, so the sync puts the bytes on the disk whatever happened before (delta review
-    /// 2 of #35866, D2). The checkpoint never writes: the handle is the file the open read, and a
-    /// file put at its path since is never changed (delta review 3, D3). A delete drops its
-    /// chat's.
-    read_segments: BTreeMap<PathBuf, Arc<File>>,
+    /// The log segments whose verified bytes the open's repair wrote back over themselves: the
+    /// next checkpoint syncs them before it retires their records. A killed daemon's writes may
+    /// be in the page cache only, and a previous run's failed sync may have dropped pages that
+    /// still read back; the write marked the range dirty again, so the sync puts the bytes on the
+    /// disk whatever happened before (delta review 2 of #35866, D2). The checkpoint only syncs,
+    /// by path: a file put at the path since is never written (delta review 3, D3). A delete
+    /// drops its chat's.
+    read_segments: BTreeSet<PathBuf>,
     /// The open replayed a `frozen` record (a previous run's failed sync) or found the freeze
     /// marker: its repair writes every replayed chat's lines again.
     rewrite_all: bool,
@@ -810,10 +809,9 @@ impl Store for JournalStore {
             }
             Store::delete(&inner.local, id)?;
         }
-        // Its folder is gone: the segments the open wrote back need no sync, and their handles
-        // would keep the removed files' space in use until a checkpoint.
+        // Its folder is gone: the segments the open wrote back need no sync.
         let dir = inner.local.dir(id);
-        inner.order.lock_or_recover().read_segments.retain(|path, _| !path.starts_with(&dir));
+        inner.order.lock_or_recover().read_segments.retain(|path| !path.starts_with(&dir));
         if let Some(path) = repair {
             inner.remove_repair(&path)?;
             inner.order.lock_or_recover().repairs.remove(id);
