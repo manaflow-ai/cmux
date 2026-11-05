@@ -4,15 +4,15 @@
 //! today (`cmux-tui-core/src/server/render_messages.rs`: `styled_run_json`,
 //! `render_rows_json`, `render_cursor_json`, `RenderDeltaMessage`): the dirty rows
 //! ghostty-vt reports, each as styled runs with resolved colours. The bench builds
-//! the same rows, runs and cursor JSON; of the optional fields it leaves out
-//! `scrollback_rows` and `history_epoch` (a few dozen bytes when they change) and
-//! sends `size` and the default colours on every full message.
+//! the same messages: `render-state` on attach, then `render-delta`s with the same
+//! full-frame rule and optional fields (`RenderClientState::delta_message`); kitty
+//! graphics are left out (no workload here draws images).
 //!
 //! `rowdiff` is a candidate: rows compared against what the viewer already holds,
 //! and a scroll op when the screen moved up, so a flood sends only the new lines.
 
 use flate2::{Compress, Compression, FlushCompress};
-use ghostty_vt::{CursorShape, RenderFrame, Rgb, StyledRun, UnderlineStyle};
+use ghostty_vt::{CursorShape, Dirty, RenderFrame, Rgb, StyledRun, UnderlineStyle};
 use serde_json::{Value, json};
 
 use crate::raster::Run;
@@ -64,25 +64,90 @@ fn cursor_json(frame: &RenderFrame) -> Value {
            "color": frame.cursor_color.map(rgb_hex)})
 }
 
-/// One `render-delta` (`RenderDeltaMessage`) for `rows`, newline-terminated as on the socket.
-pub fn render_delta(frame: &RenderFrame, rows: &[u16], full: bool) -> Vec<u8> {
-    let rows: Vec<Value> = rows
-        .iter()
+fn rows_json(frame: &RenderFrame, rows: &[u16]) -> Vec<Value> {
+    rows.iter()
         .filter_map(|&row| {
             frame.row_runs(row).map(
                 |runs| json!({"row": row, "runs": runs.iter().map(run_json).collect::<Vec<_>>()}),
             )
         })
-        .collect();
-    let mut m = json!({"event": "render-delta", "surface": 1, "cursor": cursor_json(frame), "full": full, "rows": rows});
-    if full && let Some(o) = m.as_object_mut() {
-        o.insert("size".into(), json!({"cols": frame.size.0, "rows": frame.size.1}));
-        o.insert("default_fg".into(), json!(rgb_hex(frame.default_colors.1)));
-        o.insert("default_bg".into(), json!(rgb_hex(frame.default_colors.0)));
-    }
-    let mut out = serde_json::to_vec(&m).unwrap_or_default();
+        .collect()
+}
+
+fn line(m: &Value) -> Vec<u8> {
+    let mut out = serde_json::to_vec(m).unwrap_or_default();
     out.push(b'\n');
     out
+}
+
+/// The terminal state a render frame goes with (`SurfaceRenderFrame`'s extra fields).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Meta {
+    pub scrollback_rows: u32,
+    pub history_epoch: u64,
+}
+
+/// `render-state` (`render_state_message`): the whole viewport and every field,
+/// what a client gets when it attaches.
+pub fn render_state(frame: &RenderFrame, meta: Meta) -> Vec<u8> {
+    let all: Vec<u16> = (0..frame.size.1).collect();
+    line(&json!({
+        "event": "render-state", "surface": 1,
+        "size": {"cols": frame.size.0, "rows": frame.size.1},
+        "cursor": cursor_json(frame),
+        "default_fg": rgb_hex(frame.default_colors.1),
+        "default_bg": rgb_hex(frame.default_colors.0),
+        "scrollback_rows": meta.scrollback_rows,
+        "history_epoch": meta.history_epoch,
+        "rows": rows_json(frame, &all),
+    }))
+}
+
+/// One attach client's render stream (`RenderClientState`): a `render-state`
+/// first, then `render-delta`s that are full on a size or default-colour change
+/// or a full repaint, and carry the optional fields only when they changed.
+#[derive(Default)]
+pub struct RenderStream {
+    /// Size, default colours and meta of the last message.
+    last: Option<Sent>,
+}
+
+type Sent = ((u16, u16), (Rgb, Rgb), Meta);
+
+impl RenderStream {
+    /// The message for `frame` and the rows it carries.
+    pub fn message(&mut self, frame: &RenderFrame, meta: Meta) -> (Vec<u8>, Vec<u16>) {
+        let now = (frame.size, frame.default_colors, meta);
+        let Some((size, colors, last_meta)) = self.last.replace(now) else {
+            return (render_state(frame, meta), (0..frame.size.1).collect());
+        };
+        let size_changed = size != frame.size;
+        let fg_changed = colors.1 != frame.default_colors.1;
+        let bg_changed = colors.0 != frame.default_colors.0;
+        let full = size_changed || fg_changed || bg_changed || frame.dirty == Dirty::Full;
+        let rows: Vec<u16> =
+            if full { (0..frame.size.1).collect() } else { frame.dirty_rows.clone() };
+        let mut m = json!({"event": "render-delta", "surface": 1, "cursor": cursor_json(frame),
+                           "full": full, "rows": rows_json(frame, &rows)});
+        if let Some(o) = m.as_object_mut() {
+            if size_changed {
+                o.insert("size".into(), json!({"cols": frame.size.0, "rows": frame.size.1}));
+            }
+            if fg_changed {
+                o.insert("default_fg".into(), json!(rgb_hex(frame.default_colors.1)));
+            }
+            if bg_changed {
+                o.insert("default_bg".into(), json!(rgb_hex(frame.default_colors.0)));
+            }
+            if meta.scrollback_rows != last_meta.scrollback_rows {
+                o.insert("scrollback_rows".into(), json!(meta.scrollback_rows));
+            }
+            if meta.history_epoch != last_meta.history_epoch {
+                o.insert("history_epoch".into(), json!(meta.history_epoch));
+            }
+        }
+        (line(&m), rows)
+    }
 }
 
 /// What a viewer holds after applying cell messages.
@@ -117,8 +182,12 @@ impl CellViewer {
     pub fn apply(&mut self, msg: &[u8]) -> Vec<usize> {
         let Ok(m) = serde_json::from_slice::<Value>(msg) else { return Vec::new() };
         let mut touched = Vec::new();
-        if let (Some(fg), Some(bg)) = (parse_hex(&m["default_fg"]), parse_hex(&m["default_bg"])) {
-            self.defaults = Some((fg, bg));
+        let (fg, bg) = (parse_hex(&m["default_fg"]), parse_hex(&m["default_bg"]));
+        match (self.defaults, fg, bg) {
+            (_, Some(fg), Some(bg)) => self.defaults = Some((fg, bg)),
+            (Some((_, b)), Some(fg), None) => self.defaults = Some((fg, b)),
+            (Some((f, _)), None, Some(bg)) => self.defaults = Some((f, bg)),
+            _ => {}
         }
         let n = self.rows.len();
         if let Some(k) = m["scroll"].as_u64().map(|k| k as usize).filter(|&k| k > 0 && k < n) {

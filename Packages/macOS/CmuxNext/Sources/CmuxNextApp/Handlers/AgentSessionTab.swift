@@ -21,34 +21,15 @@ enum AgentSessionTab {
         registry.bind("agent.openSessionTab", run: { try open($0, context: context) })
     }
 
-    /// acpmux's id of the chat `session` names on this Mac (``AgentLocalSession``), so a tab never
-    /// records a chat's name or its harness's session id, which the chat pane cannot find
-    /// ("Reconnecting…" forever, Leo 2026-11-05). Only for this Mac's own chats (`host` absent or
-    /// this Mac's) and only once the lane watch has every session; otherwise `session` as given.
-    static func localSession(_ session: String, host: String?, services: AppServices) throws -> String {
-        guard host == nil || services.agentTabs.isLocalHost(host), AgentLaneStore.shared.live else { return session }
-        switch AgentLaneStore.shared.lanes.values.localSession(session) {
-        case .session(let id): return id
-        case .asGiven: return session
-        case .ambiguous: throw ActionFailure(message: MiscHandlerStrings.ambiguousLocalSession(session))
-        }
-    }
-
     private static func open(_ invocation: ActionInvocation, context: AppActionContext) throws {
         var session = (invocation["session"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !session.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.sessionRequired) }
         var host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let services = context.services
-        session = try localSession(session, host: host, services: services)
-        // A peer's chat opens as the session this Mac's acpmux mirrors (the tab binds here, never there).
-        if let peer = host, !peer.hasPrefix(ChiefHomeAcpmux.hostPrefix), !services.agentTabs.isLocalHost(peer) {
-            switch AgentLaneStore.shared.lanes.values.peerSession(session, on: peer) {
-            case .session(let mirrored): (session, host) = (mirrored, nil)
-            case .unknownSession: throw ActionFailure(message: MiscHandlerStrings.noPeerSession(session, peer))
-            case .ambiguous: throw ActionFailure(message: MiscHandlerStrings.ambiguousPeerSession(session, peer))
-            case .notAPeer: break // the tab's host check refuses it with its own reason
-            }
-        }
+        // This Mac's chat by acpmux's id, a peer's as the session this Mac mirrors (AgentLaneStore.tabSession).
+        // A host this Mac had under an earlier Cloud backend is still this Mac's (isLocalHost, #36015).
+        let localHost = services.agentTabs.isLocalHost(host) ? host : services.agentTabs.localHost
+        do { (session, host) = try AgentLaneStore.shared.tabSession(session, host: host, localHost: localHost) } catch { throw ActionFailure(message: error.description) }
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let shows = invocation.allowsViewChange
         if let shown = services.agentTabs.tab(showing: session, host: host) {
