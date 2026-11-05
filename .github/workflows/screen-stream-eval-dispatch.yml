@@ -5,7 +5,8 @@ name: screen stream eval dispatcher
 # workflow's own daily cron never fires: scheduled workflows run only from the default branch, and it
 # lives only on feat-cmux-next. Once a day this file on main starts it on feat-cmux-next, unless a run
 # is already pending. The run reports only (results.json and a summary with each number's change
-# against the previous daily run); nothing reads its result and it never fails a check.
+# against the previous daily run); nothing reads its result and it never fails a check. GitHub only
+# dispatches a workflow name the default branch registers: screen-stream-eval.yml here is that (inert).
 on:
   schedule:
     - cron: "41 10 * * *"

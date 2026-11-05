@@ -1,0 +1,31 @@
+name: screen stream eval
+
+# Registration only. The screen stream eval lives on feat-cmux-next (its screen-stream-eval.yml, HQ#7146
+# G0), and screen-stream-eval-dispatch.yml starts it there every day. GitHub dispatches a workflow by
+# file name only when the repository knows that name, which needs the file on the default branch: this
+# copy is that name. A dispatch with ref feat-cmux-next runs feat-cmux-next's file, not this one; run
+# here on main, it does nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "targets (feat-cmux-next's scripts/measure/screen-stream-eval/targets/NAME.sh)"
+        default: "rd,webrtc"
+      samples:
+        description: "inputs per latency row"
+        default: "200"
+      repeats:
+        description: "window and OCR repeats (each number is their median)"
+        default: "3"
+      worker:
+        description: "fleet worker (empty: vars.SCREEN_STREAM_EVAL_WORKER)"
+        default: ""
+
+permissions: {}
+
+jobs:
+  eval:
+    if: false
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "The screen stream eval runs from feat-cmux-next."
