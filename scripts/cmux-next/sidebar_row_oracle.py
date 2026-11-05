@@ -17,17 +17,21 @@ motion}), film-*.json of scripts/journeys/ext_sidebar_film.py ({presses: [{kind,
 film per press), a motion report ({frames}) or a list of frames. A folder is searched for these files.
 
 The expected place of every row in every frame:
-  - A motion is a run of frames where the set of rows or a row's y or height changes. Its start frame s is the last
-    still frame before it, its end frame e the first frame of the settled layout; y0 and y1 are a row's y in s and e.
+  - A motion is a run of frames where the set of rows or a row's y or height changes; runs of other changes before or
+    after the run where a row opens or closes join it (up to the next such run), so rows that move before the new row
+    shows or after the closing row is gone are judged on its curve. Its start frame s is the last still frame before
+    it, its end frame e the first frame of the settled layout; y0 and y1 are a row's y in s and e. Positions are in
+    list coordinates: a scroll during the motion is not judged (the films keep the scroll fixed).
   - Rows that moved (|y1 - y0| x scale >= 0.5 device px) share one progress p per frame, fitted by least squares:
     p = sum(D (y - y0)) / sum(D^2) with D = y1 - y0. A row's error = |y - (y0 + p D)| x scale in device px. Rows that
     did not move must stay at y0.
   - The new row (not in s, in e) has height p x its final height; the closing row (in s, not in e) has height
-    (1 - p) x its start height; a frame that does not show the row counts as height 0. Their edge away from the rows
+    (1 - p) x its start height; a frame that does not show the row counts as height 0 (also for p when no other row
+    moves). Rows the row lists name as new or closed that never open or close in the film FAIL. Their edge away from the rows
     that move stays where it ends (new row) or starts (closing row).
   - A curve shows each refresh: p may not cover more than half the motion in one refresh, nor go from start (<= 0.05)
     to end (>= 0.95) with no frame between (a jump: nothing grows).
-  - Missed refreshes: frame intervals over 1.5 display periods inside a motion; an interval misses
+  - Missed refreshes: frame intervals over 1.5 display periods inside a motion across which a row moves; an interval misses
     round(gap / period) - 1 refreshes. Period: --period-ms, else the probe's `refresh`, else the median interval,
     else 8.333 ms. Clock: `target`, else `link`, else `t` (`t` is when the main thread read the frame: its jitter can
     add or hide a miss).
@@ -194,6 +198,24 @@ def motions(frames):
     return [(first - 1, last) for first, last in runs]
 
 
+def windows(frames, hints):
+    """[(s, e)]: the motions, each run where a row opens or closes joined with the runs of other changes around it (up
+    to the next such run), so rows that move before or after the new or closing row, more than MERGE_FRAMES still
+    frames apart, are judged on its curve (a row that pops in after the rows opened the gap, rows that slide after the
+    row is gone). With no such run, the runs as they are."""
+    runs = motions(frames)
+    events = [any(pick_events(frames, s, e, hints)[:2]) for s, e in runs]
+    if not any(events):
+        return runs
+    groups = []
+    for (s, e), event in zip(runs, events):
+        if groups and not (event and groups[-1][2]):
+            groups[-1] = [groups[-1][0], e, groups[-1][2] or event]
+        else:
+            groups.append([s, e, event])
+    return [(s, e) for s, e, _ in groups]
+
+
 def between(frame_views, key):
     """Whether rows show on both sides of KEY in this frame (it opened or closed inside the list, not at a list edge)."""
     y = frame_views[key][1]
@@ -295,9 +317,9 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
         if den > 0:
             progress[i] = num / den
             continue
-        for k, (_, h0, h1, _, _) in event_spec.items():
-            if h1 != h0 and k in views:
-                progress[i] = (views[k][3] - h0) / (h1 - h0)
+        for k, (role, h0, h1, _, _) in event_spec.items():
+            if h1 != h0 and (k in views or role != "resized"):
+                progress[i] = ((views[k][3] if k in views else 0.0) - h0) / (h1 - h0)
                 break
 
     # A curve shows each refresh: more than half the motion inside one refresh, or from its start to its end with no
@@ -373,10 +395,13 @@ def judge_motion(frames, s, e, times, period, opts, scale, identity, hints):
     common = min(started.values()) if started else None
     late = sorted(({"key": k, "frame": f} for k, f in started.items() if f > common), key=lambda x: (x["frame"], x["key"]))
 
-    # Missed refreshes: intervals inside the motion over 1.5 periods.
+    # Missed refreshes: intervals inside the motion over 1.5 periods, across which a row moves (still frames between two
+    # changes are part of the window, but a hitch there drops no frame of the motion).
     gaps, missed = [], 0
     if times is not None:
         for i in range(s + 1, e + 1):
+            if not changed(frames[i - 1]["views"], frames[i]["views"]):
+                continue
             gap = times[i] - times[i - 1]
             if gap > MISS_FACTOR * period:
                 count = max(1, int(round(gap / period)) - 1)
@@ -534,9 +559,13 @@ def judge_film(name, raw_frames, hints, opts):
         "tolerance_px": opts.tolerance_px, "identity": identity or NO_IDENTITY,
         "selection": "recorded" if any("selected" in r or "selection" in r for r in raws) else "not recorded",
     }
-    judged = [judge_motion(frames, s, e, times, period, opts, scale, identity, hints) for s, e in motions(frames)]
+    judged = [judge_motion(frames, s, e, times, period, opts, scale, identity, hints) for s, e in windows(frames, hints)]
     contract = [m for m in judged if m["kind"] != "other"]
     invalid = []
+    # 4. Rows the row lists name as new or closed must open or close in the film.
+    opened = {k for m in contract for k in m["inserted"]}
+    shut = {k for m in contract for k in m["closed"]}
+    missing = sorted(set(hints.get("inserted") or ()) - opened) + sorted(set(hints.get("closed") or ()) - shut)
     if len(frames) < 2:
         invalid.append("fewer than 2 frames")
     if times is None:
@@ -545,8 +574,11 @@ def judge_film(name, raw_frames, hints, opts):
         invalid.append(f"the film runs at {result['hz']:.1f} Hz ({period_source}), not {opts.expect_hz:g} Hz "
                        f"(--period-ms or --expect-hz 0 to judge it anyway)")
     fails = [f"frames {m['start_frame']}-{m['end_frame']}: {f}" for m in contract for f in m["fails"]]
+    fails += [f"{k} (new or closed in the row lists) never opens or closes in the film" for k in missing]
     if invalid:
         verdict = "INVALID"
+    elif missing:
+        verdict = "FAIL"
     elif not contract:
         verdict = "NO MOTION"
     else:
