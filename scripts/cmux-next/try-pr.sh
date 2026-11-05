@@ -115,12 +115,13 @@ for reason, paths in sorted(json.load(sys.stdin)["reasons"].items()):
 if [[ "$verdict" == web-live && -f "$from/Contents/Info.plist" ]]; then
   recorded="$("$buddy" -c 'Print :CMUXCommit' "$from/Contents/Info.plist" 2>/dev/null || true)"
   app_commit="$(git -C "$ROOT" rev-parse --verify -q "${recorded:-none}^{commit}" 2>/dev/null || true)"
-  # A reload build stamps CMUXCommitDirty when it had local edits: those are not in the commit, so
-  # the sort below from that commit may miss Swift they added (it refuses rather than loads then).
-  if [[ -n "$app_commit" && "$("$buddy" -c 'Print :CMUXCommitDirty' "$from/Contents/Info.plist" 2>/dev/null || true)" == true ]]; then
-    echo "note: $from was built at ${app_commit:0:12} with local edits; sorting from that commit"
-  fi
-  if [[ -z "$app_commit" ]]; then
+  # A reload build stamps CMUXCommitDirty when tracked files had local edits. Those are not in the
+  # commit and may change or remove Swift the PR leans on, so no sort from the commit vouches for it.
+  dirty="$("$buddy" -c 'Print :CMUXCommitDirty' "$from/Contents/Info.plist" 2>/dev/null || true)"
+  if [[ -n "$app_commit" && "$dirty" == true ]]; then
+    echo "web-live, but $from was built at ${app_commit:0:12} with local edits, so whether it has the PR's Swift side is unknown: the dev build instead (rebuild it from a clean checkout to apply web PRs live)"
+    verdict=rebuild
+  elif [[ -z "$app_commit" ]]; then
     echo "web-live, but $from's commit '${recorded}' is not in this checkout, so whether it has the PR's Swift side is unknown: the dev build instead (git fetch first, or --from another app)"
     verdict=rebuild
   elif git -C "$ROOT" merge-base --is-ancestor "$base" "$app_commit"; then

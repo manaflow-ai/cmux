@@ -264,13 +264,21 @@ class TryPrWebAgainstTheAppTests(TryPrLiveCodeTests):
         self.assertIn("is not in this checkout, so whether it has the PR's Swift side is unknown", out.stdout)
         self.assertNotIn("web only: no build", out.stdout)
 
-    def test_a_reload_build_with_local_edits_says_so_and_sorts_from_its_commit(self):
-        # reload.sh stamps the full commit and CMUXCommitDirty.
+    def test_a_build_with_local_edits_refuses_the_live_apply(self):
+        # reload.sh stamps the full commit and CMUXCommitDirty; the edits may have removed Swift the
+        # PR leans on, even with the app at the PR's base.
         self.push_web_pr(self.base)
         self.set_app_commit(self.base, CMUXCommit=self.base, CMUXCommitDirty=True)
         out = self.try_pr("--dry-run")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-        self.assertIn(f"built at {self.base[:12]} with local edits; sorting from that commit", out.stdout)
+        self.assertIn(f"built at {self.base[:12]} with local edits, so whether it has the PR's Swift side is unknown", out.stdout)
+        self.assertNotIn("web only: no build", out.stdout)
+
+    def test_a_clean_reload_build_at_the_base_stays_live(self):
+        self.push_web_pr(self.base)
+        self.set_app_commit(self.base, CMUXCommit=self.base, CMUXCommitDirty=False)
+        out = self.try_pr("--dry-run")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertIn("web only: no build", out.stdout)
 
     def checkout_fetch(self):
