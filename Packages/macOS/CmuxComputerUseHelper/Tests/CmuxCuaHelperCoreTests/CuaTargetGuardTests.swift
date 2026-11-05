@@ -118,6 +118,31 @@ import Testing
         }
     }
 
+    // v0.38's visual-region parser runs the AGPL cua-perception worker.
+    @Test(arguments: [
+        ("parse_visual_regions", #"{"capture_id":"c1"}"#),
+        ("run_steps", #"{"pid":100,"steps":[{"tool":"parse_visual_regions","args":{}}]}"#),
+        ("run_steps", #"{"pid":100,"steps":[{"parse_visual_regions":{}}]}"#),
+    ])
+    func perceptionToolIsRefused(name: String, arguments: String) async {
+        do {
+            _ = try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                .check(name: name, arguments: Data(arguments.utf8))
+            Issue.record("The helper must refuse parse_visual_regions")
+        } catch let error as ToolError {
+            #expect(error.description.contains("does not offer parse_visual_regions"))
+        } catch {
+            Issue.record("Expected a tool refusal: \(error)")
+        }
+    }
+
+    @Test func perceptionToolIsDroppedFromTheToolList() throws {
+        let list = Data(#"{"tools":[{"name":"click"},{"name":"parse_visual_regions"}]}"#.utf8)
+        let object = try JSONSerialization.jsonObject(with: CuaDriverRuntime.withoutExcludedTools(list))
+        let names = ((object as? [String: Any])?["tools"] as? [[String: Any]])?.compactMap { $0["name"] as? String }
+        #expect(names == ["click"])
+    }
+
     @Test(arguments: [
         // batch default, step {tool,args}, shorthand step, observe, nested refused selectors
         #"{"pid":100,"steps":[{"tool":"click","args":{"x":1,"y":1}}]}"#,

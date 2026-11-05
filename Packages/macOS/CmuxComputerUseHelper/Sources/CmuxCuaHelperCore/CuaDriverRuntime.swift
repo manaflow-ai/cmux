@@ -90,7 +90,17 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
         var error = CuaDriverBuffer()
         guard list(handle, &json, &error) == 0 else { throw ToolError(Self.take(&error, free)) }
         _ = Self.take(&error, free)
-        return Data(Self.take(&json, free).utf8)
+        return try Self.withoutExcludedTools(Data(Self.take(&json, free).utf8))
+    }
+
+    /// Drops the tools CuaTargetGuard refuses, so agents are never offered them.
+    static func withoutExcludedTools(_ list: Data) throws -> Data {
+        guard var object = try JSONSerialization.jsonObject(with: list) as? [String: Any],
+              let tools = object["tools"] as? [[String: Any]] else { return list }
+        let kept = tools.filter { !CuaTargetGuard.excludedTools.contains($0["name"] as? String ?? "") }
+        if kept.count == tools.count { return list }
+        object["tools"] = kept
+        return try JSONSerialization.data(withJSONObject: object)
     }
 
     public func invoke(name: String, arguments: Data) async throws -> Data {
