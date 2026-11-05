@@ -209,10 +209,9 @@ describe("Stripe subscription reconciliation", () => {
   test("claims each row as it starts and stops starting rows once its time budget is spent", async () => {
     let clock = 0;
     const claimed: string[] = [];
-    const result = await reconcileStripeSubscriptions({}, {
+    const result = await reconcileStripeSubscriptions({ budgetMs: 1_000 }, {
       list: async () => ["sub_a", "sub_b", "sub_c"].map(snapshot),
       concurrency: 1,
-      budgetMs: 1_000,
       now: () => clock,
       claim: async (row: { readonly id: string }) => {
         claimed.push(row.id);

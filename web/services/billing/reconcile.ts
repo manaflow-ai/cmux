@@ -10,16 +10,18 @@ import {
   revokeRouteTokensForUser,
 } from "../coderouter/repository";
 import { applySubscriptionUpdate } from "./purchase";
-import { STRIPE_CALL_TIMEOUT_MS, stripe } from "./stripe";
+import { STRIPE_CRON_REQUEST_OPTIONS, stripe } from "./stripe";
 import { planItem } from "./subscriptionItems";
 
 const DEFAULT_LIMIT = 1_000;
 // Each worker can hold a pool connection inside `apply`; the pool is shared
 // with request traffic on the same instance (CMUX_DB_POOL_MAX, default 5).
 const DEFAULT_CONCURRENCY = 3;
-// The cron function is killed at 60 s. Stop starting rows well before that so
-// the run answers, and the rows left over lead the next run.
-const DEFAULT_BUDGET_MS = 35_000;
+// The cron function is killed at 60 s. A row started just before the budget
+// takes one 8 s Stripe attempt plus `apply` (a principal lock, a 10 s Stack
+// deadline, route revocation), so stop starting rows at 30 s. Rows left over
+// keep the oldest `last_reconciled_at` and lead the next run.
+const DEFAULT_BUDGET_MS = 30_000;
 
 type SubscriptionSnapshot = {
   readonly id: string;
@@ -51,7 +53,6 @@ type BillingReconcileDependencies = {
     context: Record<string, string | number | boolean>,
   ) => void;
   readonly concurrency?: number;
-  readonly budgetMs?: number;
   readonly now?: () => number;
 };
 
@@ -72,18 +73,20 @@ export async function reconcileStripeSubscriptions(
   options: {
     readonly limit?: number;
     readonly dryRun?: boolean;
+    /** Stop starting rows after this long; the operator command passes Infinity. */
+    readonly budgetMs?: number;
   } = {},
   dependencies: BillingReconcileDependencies = {},
 ): Promise<BillingReconcileResult> {
   const limit = clampInteger(options.limit ?? DEFAULT_LIMIT, 1, DEFAULT_LIMIT);
   const list = dependencies.list ?? listSubscriptionSnapshots;
   const retrieve = dependencies.retrieve ??
-    ((id) => stripe().subscriptions.retrieve(id, {}, { timeout: STRIPE_CALL_TIMEOUT_MS }));
+    ((id) => stripe().subscriptions.retrieve(id, {}, STRIPE_CRON_REQUEST_OPTIONS));
   const apply = dependencies.apply ?? applySubscriptionUpdateAndRevokeRoutes;
   const claim = dependencies.claim ?? claimSubscriptionCheck;
   const captureError = dependencies.captureError ?? captureCoderouterError;
   const now = dependencies.now ?? Date.now;
-  const deadline = now() + (dependencies.budgetMs ?? DEFAULT_BUDGET_MS);
+  const deadline = now() + (options.budgetMs ?? DEFAULT_BUDGET_MS);
   const rows = await list(limit + 1);
   const snapshots = rows.slice(0, limit);
 

@@ -6,7 +6,7 @@ import { captureCoderouterError } from "../errors";
 import { defaultTeamStackApp, withStackDeadline, type TeamStackApp } from "../teams/stack";
 import { ACTIVE_STRIPE_PRO_STATUSES, MAX_PLAN_ID, PRO_PLAN_ID, TEAM_PLAN_ID } from "./pro";
 import { applySubscriptionUpdate } from "./purchase";
-import { STRIPE_CALL_TIMEOUT_MS, stripe } from "./stripe";
+import { STRIPE_CRON_REQUEST_OPTIONS, stripe } from "./stripe";
 import { databaseTeamSeatQueue, TEAM_SEATS_BUSY, type TeamSeatQueue } from "./teamSeatQueue";
 import { billingPlanIdFromMetadata } from "./teamResolution";
 import { planItem } from "./subscriptionItems";
@@ -76,9 +76,10 @@ export type TeamSeatReconcileResult = {
 export type TeamSeatOutcomeKind = "updated" | "noop" | "skipped" | "failed" | "busy";
 
 const DEFAULT_LIMIT = 200;
-// The cron function is killed at 60 s; a team takes up to two 10 s Stack
-// calls and two Stripe calls, so stop starting teams with room to finish one.
-const DEFAULT_BUDGET_MS = 25_000;
+// The cron function is killed at 60 s. A team started just before the budget
+// can take two 10 s Stack deadlines, two 8 s Stripe attempts and `apply`
+// (another 10 s Stack deadline), so stop starting teams at 12 s.
+const DEFAULT_BUDGET_MS = 12_000;
 
 /**
  * Bring every dirty team's Stripe quantity to its member count. Safe to run
@@ -124,7 +125,7 @@ async function reconcileTeam(
     // An unsubscribed team needs no Stack calls and no lock: nothing to bill.
     const subscription = await (dependencies.activeSubscription ?? activeTeamSubscriptionRow)(stackTeamId);
     const locked = subscription === null
-      ? NO_SUBSCRIPTION
+      ? NOTHING_TO_BILL
       : await queue.withTeamLock(stackTeamId, () => reconcileTeamUnlocked(stackTeamId, subscription, dependencies));
     if (locked === TEAM_SEATS_BUSY) return "busy";
     await queue.recordOutcome(stackTeamId, dirtyAt, locked.outcome);
@@ -147,7 +148,7 @@ type Reconciled = {
   readonly outcome: { memberCount: number | null; stripeQuantity: number | null; error: null };
 };
 
-const NO_SUBSCRIPTION: Reconciled = {
+const NOTHING_TO_BILL: Reconciled = {
   kind: "skipped",
   outcome: { memberCount: null, stripeQuantity: null, error: null },
 };
@@ -159,7 +160,7 @@ async function reconcileTeamUnlocked(
 ): Promise<Reconciled> {
   const stack = dependencies.stack ?? defaultTeamStackApp();
   const team = await withStackDeadline(() => stack.getTeam(stackTeamId));
-  if (!team) return NO_SUBSCRIPTION;
+  if (!team) return NOTHING_TO_BILL;
   const members = await withStackDeadline(() => team.listUsers());
   const memberCount = members.length;
   const decision = seatDecision({
@@ -214,12 +215,12 @@ async function activeTeamSubscriptionRow(stackTeamId: string): Promise<ActiveTea
 function defaultTeamSeatStripeClient(): TeamSeatStripeClient {
   return {
     retrieve: (subscriptionId) =>
-      stripe().subscriptions.retrieve(subscriptionId, {}, { timeout: STRIPE_CALL_TIMEOUT_MS }),
+      stripe().subscriptions.retrieve(subscriptionId, {}, STRIPE_CRON_REQUEST_OPTIONS),
     updateQuantity: (subscriptionId, itemId, quantity) =>
       stripe().subscriptions.update(subscriptionId, {
         items: [{ id: itemId, quantity }],
         proration_behavior: "create_prorations",
-      }, { timeout: STRIPE_CALL_TIMEOUT_MS }),
+      }, STRIPE_CRON_REQUEST_OPTIONS),
   };
 }
 

@@ -262,6 +262,7 @@ describe("team seat reconciler", () => {
     await queue.markDirty(TEAM_ID);
     expect(await reconcileTeamSeats({}, deps)).toMatchObject({ skipped: 1, failed: 0 });
     expect(stack.calls).toEqual([]);
+    expect(queue.events.filter((event) => event.startsWith("lock:"))).toEqual([]);
     expect(stripe.updates).toEqual([]);
     expect(queue.rows.get(TEAM_ID)!.dirtyAt).toBeNull();
   });
