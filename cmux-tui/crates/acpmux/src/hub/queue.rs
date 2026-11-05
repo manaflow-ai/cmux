@@ -912,8 +912,15 @@ impl Hub {
     /// went well. They go in again by themselves after the hold's wait (`digest.rs`
     /// `retry_held_agent_messages`), or sooner when a client resumes them (`resume_queue`) or sends
     /// one now (`put_next`); a prompt sent meanwhile runs ahead of them. The person's wait for
-    /// Resume only once failed turns let them go [`PERSON_RETRIES`] times.
+    /// Resume only once failed turns let them go [`PERSON_RETRIES`] times, or at once while the
+    /// person's Retry After Errors is off.
     pub(super) fn pause_queue(self: &Arc<Self>, session: &Arc<Session>, turn_id: &str) {
+        // Retry After Errors off (`autoResumeDelaysMs: []`, or `agents.autoRetry.enabled` false):
+        // the person's prompts wait for their Resume at once. Read before the queue's lock.
+        let retry_off = {
+            let configured = self.config.try_read().ok().and_then(|c| c.auto_resume_delays_ms.clone());
+            super::auto_resume::effective_delays(configured).is_empty()
+        };
         let (held, retrying): (Vec<String>, Vec<String>) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let stop_held = session.stop_hold.load(Ordering::SeqCst) != 0;
@@ -923,6 +930,9 @@ impl Hub {
                 .filter(|q| !q.held && !q.sent_now)
                 .map(|q| {
                     q.held = true;
+                    if retry_off && !q.goes_in_by_itself() {
+                        q.retries = q.retries.max(PERSON_RETRIES);
+                    }
                     if !q.waits_for_resume(stop_held) {
                         retrying.push(q.prompt_id.clone());
                     }
