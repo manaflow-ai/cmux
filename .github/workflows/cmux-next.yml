@@ -21,7 +21,9 @@ name: cmux-next
 # A same-repository pull request runs every tier the router picks on its own
 # branch, with no label (#22303), except the two heavy app compiles (native and
 # scheme), which need full-ci again (2026-10-21: the Mac queue was ~350 jobs
-# deep); a MEMBER or OWNER dev-build PR keeps its scheme compile, and the
+# deep), and the swift tier, which needs full-ci too (2026-11-05: of 78 PR
+# swift-test check runs, 37 were cancelled by a merge, a newer push or a re-run
+# and none passed; the tip suite dispatch gives the base its verdict); a MEMBER or OWNER dev-build PR keeps its scheme compile, and the
 # native tier compiles the PR's head on the build fleet instead
 # (app-compile-fleet; the Mac Release compile only when it gives no verdict, and only for a PR
 # that changes an input only that xcodebuild sees: path_route's mac_release,
@@ -846,12 +848,12 @@ jobs:
       tree_reason: ${{ steps.marker-upload.outcome == 'failure' && 'the tree wait marker was not uploaded, so no publish would start the tree jobs; re-run this run' || steps.tree-final.outputs.tree_reason || steps.tree.outputs.tree_reason }}
       # The one job that checks the generated files on its own package build (HQ#4724: skip compiles
       # that add no signal). daemon-test on a push it runs on (a ready tree), else swift-test where it
-      # runs and builds (its targets), else daemon-test where it runs, else the generated-files job's
-      # own build. swift-test and daemon-test then never compete with a third
+      # runs and builds (its targets; on a pull request only with full-ci), else daemon-test where it
+      # runs, else the generated-files job's own build. swift-test and daemon-test then never compete with a third
       # `swift build --build-tests`; generated-verdict gives the folded verdict its own check.
       # A base tier run (inputs.base_tier) checks them on the generated-files job itself: its standalone
       # `cmux-next generated files` verdict is the base verdict a pull request's is compared with.
-      generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || inputs.base_tier == true && 'generated-files' || github.event_name == 'push' && steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || 'generated-files' }}
+      generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || inputs.base_tier == true && 'generated-files' || github.event_name == 'push' && steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || 'generated-files' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1474,7 +1476,7 @@ jobs:
             needs.path_route.outputs.swift_canary == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'swift-canary' || '',
             (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme') || needs.path_route.outputs.scheme == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build'))) && 'cmux-scheme-compile' || '',
             needs.path_route.outputs.native == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'release-compile' || '',
-            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.swift == 'true' && 'swift-test' || '',
+            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.swift == 'true' && 'swift-test' || '',
             github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready' && 'daemon-test' || '',
             github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.generated == 'true' && needs.path_route.outputs.generated_host == 'generated-files' && 'generated-files' || '') }}
           CASCADE_JOBS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'swift-test daemon-test generated-files' || '' }}
@@ -3668,11 +3670,15 @@ jobs:
   # Keep the existing owned-pool switch: when disabled, retain its small overflow.
   swift-test:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles]
-    # A same-repository PR runs the targets its change reaches; a fork PR
-    # only with full-ci. A feat-cmux-next push skips this job (push CI is the
-    # app build only, see the jobs comment), so the PR or a dispatch is where
-    # a change's Swift suites run.
-    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
+    # A pull request (same-repository or fork) runs it only with full-ci. On
+    # every PR push it gave no signal: of 78 PR check runs (2026-11-02 to 11-05)
+    # 37 were cancelled (17 by the PR merging first, 10 by a newer push, 10 by a
+    # re-run at the same head), 37 skipped, 4 failed and none passed. A
+    # feat-cmux-next push skips it too (push CI is the app build only, see the
+    # jobs comment), so a dispatch is where the Swift suites run: main's
+    # cmux-next-tip-swift-suite-dispatch.yml runs them on the tip when Swift
+    # changed (the base verdict), and gh workflow run runs them on any ref.
+    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     name: cmux-next swift test
     continue-on-error: false
     # A push's Mac job waits for the same job of the running push run and is
