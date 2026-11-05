@@ -10,6 +10,7 @@ count are allowed, so normal expectation updates do not create a false alarm.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -28,7 +29,7 @@ TEST_FILE = re.compile(
     re.IGNORECASE,
 )
 ASSERTION = re.compile(
-    r"(?:\bassert\w*|expect|check|XCTAssert\w*|"
+    r"(?:#(?:expect|require)|\b\w*assert\w*!|\bassert\w*|expect|check|XCTAssert\w*|XCTFail|Issue\.record|"
     r"assert_(?:eq|ne|same|is|in|false|true)|pytest\.(?:raises|fail)|self\.fail)\s*\(|"
     r"\bassert\b(?!\w)",
     re.IGNORECASE,
@@ -38,7 +39,11 @@ SKIP = re.compile(
     r"test\.skip|describe\.skip|it\.skip|#\[ignore\]|@Disabled|@Ignore)",
     re.IGNORECASE,
 )
-TEST_DEF = re.compile(r"^\s*(?:def\s+test\w*|async\s+def\s+test\w*|(?:it|test)\s*\()", re.IGNORECASE)
+TEST_DEF = re.compile(
+    r"^\s*(?:def\s+test\w*|async\s+def\s+test\w*|(?:it|test)\s*\(|"
+    r"#\[(?:test|rstest)\]|@Test\b|(?:func|fn)\s+test\w*)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -60,7 +65,7 @@ def _assertion_count(lines: list[str]) -> int:
     count = 0
     for line in lines:
         stripped = line.lstrip()
-        if stripped.startswith(("#", "//", "/*", "*", "--")):
+        if stripped.startswith(("#", "//", "/*", "*", "--")) and not stripped.startswith(("#expect", "#require")):
             continue
         count += len(ASSERTION.findall(line))
     return count
@@ -82,8 +87,15 @@ def _sections(diff: str) -> list[tuple[str, list[str], list[str]]]:
             in_hunk = False
         elif line.startswith("@@"):
             in_hunk = True
-        elif not in_hunk and line.startswith("+++ b/"):
-            path = line[6:]
+        elif not in_hunk and line.startswith("+++ "):
+            header = line[4:]
+            if header.startswith('"'):
+                try:
+                    header = ast.literal_eval(header)
+                except (SyntaxError, ValueError):
+                    header = ""
+            if header.startswith("b/"):
+                path = header[2:]
         elif not in_hunk and (line.startswith("--- ") or line.startswith("index ")):
             continue
         elif line.startswith("-"):

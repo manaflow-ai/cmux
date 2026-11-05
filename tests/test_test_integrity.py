@@ -96,6 +96,45 @@ class TestIntegrity(unittest.TestCase):
         findings = module.analyze("M\ttests/test_x.py\n", diff)
         self.assertFalse(any(f.kind == "weakened-assertions" for f in findings))
 
+    def test_swift_and_rust_assertions_are_counted(self):
+        diff = """diff --git a/tests/test_x.swift b/tests/test_x.swift
+--- a/tests/test_x.swift
++++ b/tests/test_x.swift
+@@ -1,2 +1,1 @@
+-#expect(value == 1)
+-XCTAssertEqual(value, 1)
++#expect(value == 2)
+"""
+        findings = module.analyze("M\ttests/test_x.swift\n", diff)
+        self.assertTrue(any(f.kind == "weakened-assertions" for f in findings))
+
+        rust = """diff --git a/tests/x_test.rs b/tests/x_test.rs
+--- a/tests/x_test.rs
++++ b/tests/x_test.rs
+@@ -1,2 +1,1 @@
+-assert_eq!(value, 1);
+-assert_ne!(value, 2);
++assert_eq!(value, 2);
+"""
+        findings = module.analyze("M\ttests/x_test.rs\n", rust)
+        self.assertTrue(any(f.kind == "weakened-assertions" for f in findings))
+
+    def test_swift_and_rust_test_definitions_are_counted(self):
+        diff = """diff --git a/tests/x_test.rs b/tests/x_test.rs
+--- a/tests/x_test.rs
++++ b/tests/x_test.rs
+@@ -1,2 +1 @@
+-#[test] fn test_value() { assert_eq!(1, 1); }
++fn helper() {}
+"""
+        findings = module.analyze("M\ttests/x_test.rs\n", diff)
+        self.assertTrue(any(f.kind == "deleted-test-case" for f in findings))
+
+    def test_quoted_diff_header_keeps_content_checks(self):
+        diff = 'diff --git "a/tests/test_\\t.py" "b/tests/test_\\t.py"\n--- "a/tests/test_\\t.py"\n+++ "b/tests/test_\\t.py"\n@@ -1,2 +1,1 @@\n-assert value\n-assert other\n+pass\n'
+        findings = module.analyze("M\ttests/test_\t.py\n", diff)
+        self.assertTrue(any(f.kind == "weakened-assertions" for f in findings))
+
     def test_hunk_content_cannot_fake_a_new_file_header(self):
         diff = """diff --git a/tests/test_x.py b/tests/test_x.py
 --- a/tests/test_x.py
