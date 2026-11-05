@@ -239,13 +239,12 @@ final class Agent {
         let after = state(pid, win)
         checks["type"] = find(after) { "\($0["value"] ?? "")".contains(typed) } != nil
         // Drag across the typed line: the text starts near the document's top-left, below the title
-        // bar and ruler (window points). The drag takes screenshot pixels: scale by the screenshot's
-        // width over the window's (2 on a Retina guest).
+        // bar and ruler (window points). The drag takes screenshot pixels: scale by the helper's
+        // screenshot_scale (2 on a Retina guest), else the screenshot's width over the window's.
         let shot = after as? [String: Any]
         let width = shot?["screenshot_width"] as? Double ?? 800
-        let frame = shot?["window_frame"]
-        let points = (frame as? [Double])?[safe: 2] ?? ((frame as? [String: Any])?["width"] as? Double) ?? width
-        let scale = points > 0 ? width / points : 1
+        let points = (shot?["window_bounds"] as? [String: Any])?["width"] as? Double ?? width
+        let scale = shot?["screenshot_scale"] as? Double ?? (points > 0 ? width / points : 1)
         let (x0, y0, x1) = (Int(24 * scale), Int(96 * scale), Int(min(points - 24, 420) * scale))
         let have = props("drag")
         var drag: [String: Any] = ["pid": pid, "window_id": win]
@@ -345,8 +344,4 @@ while let line = readLine() {
     default:
         if let id { emit(["jsonrpc": "2.0", "id": id, "error": ["code": -32601, "message": "no such method \(method)"]]) }
     }
-}
-
-extension Array {
-    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
