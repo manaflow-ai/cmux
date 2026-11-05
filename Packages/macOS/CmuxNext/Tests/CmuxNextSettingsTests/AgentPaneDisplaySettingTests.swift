@@ -32,6 +32,11 @@ struct AgentPaneDisplaySettingTests {
             refused: [.string("top"), .bool(true)]),
         Row(key: "agentPane.display.font.preset", fallback: .string("markdown"),
             accepted: [.string("system"), .string("serif"), .string("mono")], refused: [.string("comic")]),
+        // The whole chat's face: today's tuned Inter unless one of the candidates is picked.
+        Row(key: "agentPane.display.font.ui", fallback: .string("inter-tuned"),
+            accepted: [.string("verdana"), .string("roboto"), .string("plex"), .string("source-sans"), .string("geist"),
+                       .string("inter"), .string("system-ui"), .string("system-ui-tight")],
+            refused: [.string("comic"), .string("system"), .bool(true)]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],
             refused: [.number(4), .number(40)]),
         Row(key: "agentPane.display.font.lineHeight", fallback: .number(1.625), accepted: [.number(1.2), .number(2.4)],

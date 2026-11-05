@@ -1,0 +1,24 @@
+// The interface font choices' bundled faces (chatUiFont.ts, FONTS.md), loaded only behind a dynamic
+// import, so a chat on the default font never parses them. Imported, not `new URL(..., import.meta.url)`:
+// the shipped pane inlines each as a data URL (scripts/agent-pane/bundle.mjs), since its CSP takes
+// fonts only from data:.
+import geist from "./Geist-latin-wght.woff2";
+import plex from "./IBMPlexSans-latin-wght.woff2";
+import roboto from "./Roboto-latin-wght.woff2";
+import sourceSans from "./SourceSans3-latin-wght.woff2";
+import { BUNDLED_FAMILY, type BundledChatFont } from "../chatUiFont";
+
+const FILES: Record<BundledChatFont, string> = { roboto, plex, "source-sans": sourceSans, geist };
+
+/** Declares `font`'s face (the Latin subset of its weight axis) in this document, once. */
+export function installChatFontFace(font: BundledChatFont): void {
+  const id = `cmux-chat-font-${font}`;
+  if (document.getElementById(id)) return;
+  const style = document.createElement("style");
+  style.id = id;
+  style.textContent =
+    `@font-face{font-family:"${BUNDLED_FAMILY[font]}";src:url(${FILES[font]}) format("woff2");` +
+    "font-weight:100 900;font-style:normal;font-display:block}";
+  document.head.append(style);
+  void document.fonts?.load(`400 1em "${BUNDLED_FAMILY[font]}"`).catch(() => undefined);
+}
