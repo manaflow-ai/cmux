@@ -24,9 +24,8 @@ struct ClickedLinkFocusTests {
 
     /// The link's tab opens in the source's own pane (Open Links and Files set to Same Pane): the source
     /// pane keeps the focus with the new tab selected, and its close selects the source tab again,
-    /// not the tab after it. `native`: the pull request link opens the GitHub page (``WebPageTab/openGitHub(_:from:services:)``)
-    /// instead of its web tab, with the same opener.
-    @Test(arguments: [false, true]) func aLinksTabInItsPaneTakesTheFocusAndItsCloseSelectsTheSourceAgain(native: Bool) async throws {
+    /// not the tab after it.
+    @Test func aLinksTabInItsPaneTakesTheFocusAndItsCloseSelectsTheSourceAgain() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
@@ -42,7 +41,7 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.focusedPane === pane && pane.stripModel.selectedID?.rawValue == source })
 
             services.linkOpener.placement = { .samePane }
-            let opened = try await Self.click(services, from: pane, native: native)
+            let opened = try await Self.click(services, from: pane)
             try await PinnedPageTests.until({ pane.stripModel.selectedID?.rawValue == opened && content.focusedPane === pane },
                                             report: { Self.describe(content, opened) })
 
@@ -91,10 +90,11 @@ struct ClickedLinkFocusTests {
         }
     }
 
-    /// A pull request link's GitHub page (``WebPageTab/openGitHub(_:from:services:)``) opened in the browser pane right
-    /// of the source (``splitRightHoldingABrowser(_:_:_:)``; made in the source, then moved there): its close, emptying
-    /// that pane, gives the focus back to the source, as the web tab's does.
-    @Test func theGitHubPageInAnotherPaneGivesTheFocusBackToTheSource() async throws {
+    /// Leo 2026-11-05, of cmux's own pull request page: "let's undo this opening github with this kind of
+    /// rendering". A pull request link clicked in a chat (``AgentTabContent/openPreview(_:from:)``, the chat's
+    /// click and its card's Open) opens its github.com page in a browser tab of the pane on the right, never a
+    /// cmux page tab.
+    @Test func aPullRequestLinkClickedInAChatOpensItsGitHubPageInTheBrowserPane() async throws {
         try await PinnedPageTests.withApp { services, connection in
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
@@ -105,13 +105,15 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.focusedPane === pane })
             services.linkOpener.placement = { .splitRight }
 
-            let opened = try await Self.click(services, from: pane, native: true)
-            try await PinnedPageTests.until({ content.focusedPane === right && right.pane.tabs.contains { $0.id == opened } },
-                                            report: { "the GitHub page is not in the focused pane on the right: " + Self.describe(content, opened) })
-            // A close that empties its pane goes back to the chat's pane, not a neighbour: the record that close reads.
-            let shown = try #require(content.focusedPane)
-            #expect(services.linkOpener.returnPane(closing: TabID(opened), in: shown, emptiesPane: true) === pane,
-                    "the GitHub tab's close does not give the focus back to the chat's pane")
+            let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+            #expect(AgentTabContent.openPreview(Self.link, from: pane))
+            @MainActor func opened() -> String? {
+                right.pane.tabs.first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }?.id
+            }
+            try await PinnedPageTests.until({ opened() != nil }, report: { "the link opened no tab in the pane on the right: " + Self.describe(content, "none") })
+            let tab = try #require(opened())
+            #expect(Self.shownURL(services, tab) == Self.link, "the pull request link's tab does not show its github.com page")
+            #expect(services.pages.tabIDs(in: right.paneKey).isEmpty, "the pull request link opened a cmux page tab")
         }
     }
 
@@ -375,14 +377,10 @@ struct ClickedLinkFocusTests {
     }
 
     /// Opens the link from `pane` as a click does and returns the new tab's id once the store has it.
-    private static func click(_ services: AppServices, from pane: PaneController, native: Bool = false) async throws -> String {
+    private static func click(_ services: AppServices, from pane: PaneController) async throws -> String {
         let store = services.daemon.store
         let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
-        if native {
-            #expect(WebPageTab.openGitHub(link, from: pane, services: services) == true)
-        } else {
-            services.linkOpener.openWeb(link, from: pane, background: false)
-        }
+        services.linkOpener.openWeb(link, from: pane, background: false)
         @MainActor func opened() -> String? {
             // The daemon's tab: a person's link shows a stand-in first (PaneBrowserTabOpener.openStandIn), which it replaces.
             store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { !before.contains($0.id) && !ProvisionalTab.isProvisional($0.id) }?.id

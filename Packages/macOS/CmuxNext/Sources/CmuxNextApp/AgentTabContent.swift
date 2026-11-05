@@ -44,10 +44,7 @@ struct AgentTabContent {
         }
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }
-            // A clicked link's tab, the hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
-            if let opened = WebPageTab.openGitHub(url, from: pane, services: pane.services) { return opened }
-            if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false, reusesTab: true) }
-            return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: pane.daemon.machineID)
+            return Self.openPreview(url, from: pane)
         }
         // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine.
         view.model.onOpenSignInOnMachine = { [weak pane] url in
@@ -119,6 +116,13 @@ struct AgentTabContent {
             BenchSpans.mark("newTab.cover.cleared")
             if let imageView { paneView?.clearLaunchImage(ifShowing: imageView) }
         }
+    }
+
+    /// A link clicked in the chat, or its hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
+    static func openPreview(_ url: URL, from pane: PaneController) -> Bool {
+        if let opened = WebPageTab.openGitHub(url, from: pane, services: pane.services) { return opened }
+        if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false, reusesTab: true) }
+        return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: pane.daemon.machineID)
     }
 
     private static func appearance(of view: NSView) -> NSAppearance.Name? {
