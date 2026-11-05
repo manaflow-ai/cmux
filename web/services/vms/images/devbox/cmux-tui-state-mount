@@ -116,7 +116,7 @@ PY
 record_remote_instance() {
   [ -s "$REMOTE_INSTANCE_FILE" ] || return 0
   cmp -s "$REMOTE_INSTANCE_FILE" "$reserved/.instance-id" && return 0
-  cp "$REMOTE_INSTANCE_FILE" "$reserved/.instance-id.new" && mv -f "$reserved/.instance-id.new" "$reserved/.instance-id" || {
+  cp "$REMOTE_INSTANCE_FILE" "$reserved/.instance-id.new" && chown "$user:$user" "$reserved/.instance-id.new" && mv -f "$reserved/.instance-id.new" "$reserved/.instance-id" || {
     rm -f "$reserved/.instance-id.new"
     echo "cmux-tui-state-mount: could not record the remote state's machine" >&2
   }
