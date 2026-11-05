@@ -636,6 +636,23 @@ async fn leave_after_the_hub_already_revoked_it_still_cleans_up() {
 }
 
 #[tokio::test]
+async fn a_locally_revoked_record_still_asks_the_hub() {
+    let home = tempfile::tempdir().unwrap();
+    let not_found = (404, json!({"_tag":"JoinNotFound","code":"machine.not_found","message":"no"}));
+    let (origin, server) = revoke_hub(vec![not_found]);
+    joined_home(home.path(), &origin);
+    // A relay 401 or a cut-short `--local-only` set the bit; the hub may still list it.
+    let path = home.path().join(FINAL);
+    let mut record = read_json(&path);
+    record["revoked"] = json!(true);
+    std::fs::write(&path, record.to_string()).unwrap();
+    let output = leave(home.path(), &[]).await;
+    assert_exit(&output, 3);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cmux machine revoke test"));
+    server.join().unwrap();
+}
+
+#[tokio::test]
 async fn leave_with_the_hub_down_changes_nothing_unless_local_only() {
     let home = tempfile::tempdir().unwrap();
     let (origin, server) = revoke_hub(vec![(503, json!({})), (503, json!({}))]);

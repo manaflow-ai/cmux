@@ -52,10 +52,8 @@ pub(super) fn classify(error: &cmux_cloud_client::ApiError) -> HubAnswer {
 }
 
 async fn revoke_at_hub(record: &MachineCredential) -> HubAnswer {
-    if record.revoked {
-        // `host join --status` or the relay already saw the hub refuse it.
-        return HubAnswer::AlreadyGone;
-    }
+    // Always the hub's word: the local revoked bit is set on any 401 from a mesh call, and by
+    // a `--local-only` leave cut short, neither of which proves the hub revoked it.
     let Ok(hub) = origin(Some(record.hub_origin.clone())) else {
         return HubAnswer::Unavailable("the stored hub origin is malformed".to_owned());
     };
@@ -169,6 +167,8 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     });
     if running {
         out["relay"] = json!("stops at its next hub call: its credential is gone");
+        out["nodeKeyNote"] =
+            json!("the running daemon makes a new, unjoined node key at its next use");
     }
     if !answer.revoked() {
         out["hint"] =
