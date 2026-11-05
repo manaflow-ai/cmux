@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""scripts/ci/nightly_next_stuck_run.py cancels a nightly run stuck on a runner label that stopped serving."""
+"""scripts/ci/nightly_next_stuck_run.py reports a nightly run stuck on a runner label that stopped serving, never
+cancels it, and re-runs the jobs that never got a runner once the run ends."""
 from __future__ import annotations
 
 import datetime as dt
 import importlib.util
 import json
+import re
 import sys
 import unittest
 import zlib
@@ -42,6 +44,15 @@ def done(name: str) -> dict:
     return job(name, status="completed", conclusion="success", runner="r")
 
 
+def lost(name: str, label: str = "blacksmith-4vcpu-ubuntu-2404", conclusion: str = "failure") -> dict:
+    """A job that ended without ever getting a runner (GitHub ends one queued 24 hours)."""
+    return job(name, label=label, status="completed", conclusion=conclusion)
+
+
+def ended(run_id: int, conclusion: str = "failure", **kwargs) -> dict:
+    return dict(run(run_id, status="completed", **kwargs), conclusion=conclusion)
+
+
 def run(run_id: int, status: str = "queued", event: str = "push", sha: str = TIP, attempt: int = 1,
         title: str = "Nightly", branch: str = "nightly-next") -> dict:
     return {"id": run_id, "event": event, "status": status, "conclusion": None, "run_attempt": attempt,
@@ -77,7 +88,8 @@ class FakeGh:
         if write:
             if any(part in path for part in self.refuse):
                 raise stuck.Unreadable("refused")
-            self.cancelled[int(path.split("/")[-2])] = 0
+            if path.endswith("cancel"):
+                self.cancelled[int(path.split("/")[-2])] = 0
             return ""
         if any(part in path for part in self.fail):
             raise stuck.Unreadable("read failed")
@@ -92,9 +104,10 @@ class FakeGh:
             return json.dumps({"object": {"sha": tip, "type": "commit"}})
         if rel.startswith("actions/workflows/nightly.yml/runs?"):
             query = dict(part.split("=", 1) for part in rel.split("?", 1)[1].split("&"))
-            chosen = [item for item in self.runs.values() if item["status"] == query["status"]
+            chosen = [item for item in self.runs.values() if item["status"] == query.get("status", item["status"])
                       and (item["display_title"].startswith("Promote") == (query["branch"] == "main"))
-                      and item["event"] == query.get("event", item["event"])]
+                      and item["event"] == query.get("event", item["event"])
+                      and item["head_sha"] == query.get("head_sha", item["head_sha"])]
             page = int(query["page"])
             size = min(int(query["per_page"]), self.page)
             return json.dumps({"total_count": len(chosen), "workflow_runs": chosen[(page - 1) * size:page * size]})
@@ -127,21 +140,24 @@ class FakeGh:
 
 def tick(gh: FakeGh) -> list[str]:
     lines: list[str] = []
-    stuck.tick(stuck.Api("o/r", gh), log=lines.append, sleep=lambda _s: None, now=lambda: NOW)
+    stuck.tick(stuck.Api("o/r", gh), log=lines.append, now=lambda: NOW)
     return lines
 
 
 class StuckRun(unittest.TestCase):
-    def cancels(self, gh: FakeGh) -> list[int]:
-        return [int(path.split("/")[-2]) for path in gh.writes() if path.endswith("/cancel")]
+    def stuck(self, gh: FakeGh) -> list[int]:
+        """The runs the tick warned stuck. It never writes for them."""
+        out = "\n".join(tick(gh))
+        self.assertEqual(gh.writes(), [], "a stuck nightly is never cancelled")
+        return [int(n) for n in re.findall(r"run (\d+) is stuck", out)]
 
-    def test_the_tips_run_stuck_on_a_dead_label_is_cancelled_for_the_next_step_to_re_run(self):
+    def test_the_tips_run_stuck_on_a_dead_label_is_reported_and_left_waiting(self):
         # Run 40771197361: decide waited 34 min on blacksmith-4vcpu-ubuntu-2404, a job queued beside it.
         gh = FakeGh(runs=[run(40771197361)], jobs={40771197361: STUCK})
         out = "\n".join(tick(gh))
-        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/40771197361/cancel"])
+        self.assertEqual(gh.writes(), [])
         self.assertIn("decide was created 34 min ago and is queued with no runner on blacksmith-4vcpu-ubuntu-2404", out)
-        self.assertIn("(nightly_next_cancelled_tip.sh) re-runs the tip", out)
+        self.assertIn("a nightly run is never cancelled", out)
 
     def test_started_work_protects_a_run_with_a_later_queued_job(self):
         started = job("build-nightly-app", status="completed", conclusion="success", runner="mini",
@@ -155,9 +171,7 @@ class StuckRun(unittest.TestCase):
     def test_an_in_progress_job_with_started_at_also_protects_the_run(self):
         started = job("build-nightly-app", status="in_progress", runner="mini", started_at=ago(40))
         queued = job("signer-build", minutes=40)
-        gh = FakeGh(runs=[run(7)], jobs={7: [started, queued]})
-        tick(gh)
-        self.assertEqual(gh.writes(), [])
+        self.assertEqual(self.stuck(FakeGh(runs=[run(7)], jobs={7: [started, queued]})), [])
 
     def test_a_healthy_started_job_keeps_the_generic_running_message(self):
         started = job("build-nightly-app", status="in_progress", runner="mini", started_at=ago(2))
@@ -167,22 +181,15 @@ class StuckRun(unittest.TestCase):
         self.assertIn("running or waiting, no job stuck without a runner", out)
         self.assertNotIn("started, waiting on a runner", out)
 
-    def test_a_skipped_job_does_not_count_as_started_work(self):
+    def test_a_skipped_or_timed_out_job_does_not_hide_a_stuck_run(self):
         skipped = job("build-nightly-app", status="completed", conclusion="skipped", started_at=ago(40))
-        queued = job("signer-build", minutes=40)
-        gh = FakeGh(runs=[run(7)], jobs={7: [skipped, queued]})
-        tick(gh)
-        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"])
-
-    def test_a_timed_out_started_job_is_still_cancellable(self):
         timed_out = job("build-nightly-app", status="completed", conclusion="timed_out", runner="mini",
                         started_at=ago(80))
-        queued = job("signer-build", minutes=40)
-        gh = FakeGh(runs=[run(7)], jobs={7: [timed_out, queued]})
-        tick(gh)
-        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"])
+        for first in (skipped, timed_out):
+            with self.subTest(first["conclusion"]):
+                self.assertEqual(self.stuck(FakeGh(runs=[run(7)], jobs={7: [first, job("signer-build", minutes=40)]})), [7])
 
-    def test_a_run_that_is_running_waiting_or_briefly_queued_is_never_cancelled(self):
+    def test_a_run_that_is_running_waiting_or_briefly_queued_is_not_stuck(self):
         cases = {
             "briefly queued": [job("decide", 2)],
             "another job running": [job("decide"), job("build", 5, status="in_progress", runner="r")],
@@ -190,70 +197,22 @@ class StuckRun(unittest.TestCase):
             "a job pending on a concurrency group": [job("decide"), job("publish", status="pending")],
             "an owned label": [job("build-nightly-app", label="glaeda-trusted-next-nightly")],
             "taken by a runner": [job("decide", runner="bs-1")],
+            "a queued owned build beside it": [job("build-nightly-app", label="glaeda-trusted-next-nightly"), job("signer")],
         }
         for case, jobs in cases.items():
             with self.subTest(case):
-                gh = FakeGh(runs=[run(7, "in_progress")], jobs={7: jobs})
-                tick(gh)
-                self.assertEqual(gh.writes(), [])
+                self.assertEqual(self.stuck(FakeGh(runs=[run(7, "in_progress")], jobs={7: jobs})), [])
 
     def test_a_newly_unblocked_job_does_not_inherit_its_dependency_build_time(self):
-        for minutes, cancel in ((1, False), (2, False), (3, True), (10, True)):
+        for minutes, stuck_now in ((1, False), (2, False), (3, True), (10, True)):
             with self.subTest(minutes_since_build=minutes):
                 build = dict(done("build-nightly-app"), created_at=ago(70), completed_at=ago(minutes))
-                gh = FakeGh(runs=[run(7)], jobs={7: [job("sign", minutes=70), build]})
-                tick(gh)
-                self.assertEqual(bool(gh.writes()), cancel)
+                self.assertEqual(bool(self.stuck(FakeGh(runs=[run(7)], jobs={7: [job("sign", minutes=70), build]}))),
+                                 stuck_now)
         gh = FakeGh(runs=[run(7)], jobs={7: [job("sign"), dict(done("build"), completed_at=None)]})
-        tick(gh)
-        self.assertEqual(gh.writes(), [], "an unknown dependency completion time is not proof of a stall")
+        self.assertEqual(self.stuck(gh), [], "an unknown dependency completion time is not proof of a stall")
 
-    def test_a_queued_owned_build_protects_its_downstream_jobs_before_each_cancel(self):
-        mixed = [job("build-nightly-app", label="glaeda-trusted-next-nightly"), job("signer")]
-        for case, reads, expected in (
-            ("discovery", [mixed], []),
-            ("before cancel", [STUCK, mixed], []),
-            ("before force-cancel", [STUCK, STUCK, mixed], ["repos/o/r/actions/runs/7/cancel"]),
-        ):
-            with self.subTest(case):
-                gh = FakeGh(runs=[run(7)], jobs={7: reads}, after_cancel={7: [run(7)]})
-                tick(gh)
-                self.assertEqual(gh.writes(), expected,
-                                 "a queued owned build must stay under owned-pool recovery")
-
-    def test_a_new_tip_revalidates_dispatch_and_attempt_cap_before_cancel(self):
-        for current in (run(7, attempt=3), run(7, event="workflow_dispatch")):
-            with self.subTest(run=current):
-                gh = FakeGh(runs=[current], jobs={7: STUCK}, tip=[OLD, TIP])
-                tick(gh)
-                self.assertEqual(gh.writes(), [])
-        gh = FakeGh(runs=[run(7, attempt=3)], jobs={7: STUCK}, tip=[OLD, OLD, TIP],
-                    after_cancel={7: [run(7, attempt=3)]})
-        tick(gh)
-        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"],
-                         "a newly current tip with no recovery path must not be force-cancelled")
-
-    def test_a_runner_starting_during_the_final_tip_read_blocks_cancel(self):
-        started = [job("decide", runner="bs-1")]
-        class StartsOnTip(FakeGh):
-            def __call__(self, args, write):
-                if not write and args[-1].endswith("git/ref/heads/nightly-next"):
-                    self.jobs[7] = [started]
-                return super().__call__(args, write)
-
-        gh = StartsOnTip(runs=[run(7)], jobs={7: [STUCK, STUCK]})
-        tick(gh)
-        self.assertEqual(gh.writes(), [], "a runner assigned during final validation must be observed")
-
-    def test_only_a_main_promotion_with_an_active_replacement_path_is_cancelled(self):
-        title = f"Promote nightly-next to tick:{TIP}"
-        for train, branch in (("on", "main"), ("off", "nightly-next")):
-            with self.subTest(train=train, branch=branch), mock.patch.dict(stuck.os.environ, {"NIGHTLY_NEXT_TRAIN": train}):
-                gh = FakeGh(runs=[run(7, event="workflow_dispatch", title=title, branch=branch)], jobs={7: STUCK})
-                tick(gh)
-                self.assertEqual(gh.writes(), [])
-
-    def test_a_gated_run_is_never_cancelled_whatever_its_jobs_show(self):
+    def test_a_gated_run_is_not_stuck_whatever_its_jobs_show(self):
         for case, extra in {
             "the run is waiting (an environment)": dict(run_reads={7: [run(7, "waiting")]}),
             "the run is pending (a concurrency group)": dict(run_reads={7: [run(7, "pending")]}),
@@ -261,38 +220,9 @@ class StuckRun(unittest.TestCase):
             "a deployment waits for approval": dict(pending={7: [{"environment": {"name": "release"}}]}),
         }.items():
             with self.subTest(case):
-                gh = FakeGh(runs=[run(7)], jobs={7: STUCK}, **extra)
-                tick(gh)
-                self.assertEqual(gh.writes(), [])
+                self.assertEqual(self.stuck(FakeGh(runs=[run(7)], jobs={7: STUCK}, **extra)), [])
 
-    def test_a_run_that_changes_between_the_reads_and_the_cancel_is_left_alone(self):
-        for case, second in {
-            "a runner took the job": [job("decide", runner="bs-1")],
-            "a gate job appeared": [job("decide"), job("sign", status="waiting")],
-        }.items():
-            with self.subTest(case):
-                gh = FakeGh(runs=[run(7)], jobs={7: [STUCK, second]})
-                out = "\n".join(tick(gh))
-                self.assertEqual(gh.writes(), [])
-                self.assertIn("changed since it was read", out)
-        gh = FakeGh(runs=[run(7)], jobs={7: STUCK}, run_reads={7: [run(7), run(7, attempt=2)]})
-        tick(gh)
-        self.assertEqual(gh.writes(), [], "a new attempt between the reads")
-
-    def test_only_a_run_an_existing_path_builds_again_is_cancelled(self):
-        gh = FakeGh(runs=[run(1), run(2, sha=OLD), run(3, event="workflow_dispatch", sha=OLD),
-                          run(4, event="workflow_dispatch", sha=OLD, title=f"Promote nightly-next to tick:{TIP}", branch="main"),
-                          run(5, event="workflow_dispatch"), run(6, attempt=3)],
-                    jobs={i: STUCK for i in range(1, 7)})
-        out = "\n".join(tick(gh))
-        self.assertEqual(self.cancels(gh), [1, 2, 3, 4])
-        self.assertIn("an older commit's run; the tip builds", out)
-        self.assertIn("the tick's promotion request asks again", out)
-        # The tip's dispatch and the tip's push run at the cap: nothing here builds them again.
-        self.assertRegex(out, r"run 5 is stuck .* the tip's workflow_dispatch run on attempt 1")
-        self.assertRegex(out, r"run 6 is stuck .* the tip's push run on attempt 3")
-
-    def test_a_failed_read_cancels_nothing(self):
+    def test_a_failed_read_writes_nothing(self):
         for part in ("git/ref/heads/nightly-next", "workflows/nightly.yml/runs", "pending_deployments", "/jobs"):
             with self.subTest(part):
                 gh = FakeGh(runs=[run(7)], jobs={7: STUCK}, fail=(part,))
@@ -335,7 +265,7 @@ class StuckRun(unittest.TestCase):
             stuck.Job.parse(dict(good_job, labels=[]))  # a queued job is judged by its label
         stuck.Job.parse(dict(good_job, status="completed", conclusion="skipped", labels=[]))  # a skipped job
 
-    def test_a_malformed_answer_in_the_tick_cancels_nothing(self):
+    def test_a_malformed_answer_in_the_tick_writes_nothing(self):
         for case, extra in {
             "a completed job with no conclusion": dict(jobs={7: [job("decide"), dict(done("probe"), conclusion=None)]}),
             "a job without runner_name": dict(jobs={7: [{k: v for k, v in job("decide").items() if k != "runner_name"}]}),
@@ -359,8 +289,7 @@ class StuckRun(unittest.TestCase):
         jobs = {100 + i: [job("build", 3, status="in_progress", runner="r")] for i in range(130)}
         jobs[7] = STUCK
         gh = FakeGh(runs=runs, jobs=jobs, page=50)
-        tick(gh)
-        self.assertEqual(self.cancels(gh), [7])
+        self.assertEqual(self.stuck(gh), [7])
         listed = [path for path, _ in gh.calls if "workflows/nightly.yml/runs" in path]
         self.assertTrue(any("page=3" in path for path in listed), listed)
         # A total_count the pages do not reach, or reach only by serving a run twice (the list moved
@@ -370,63 +299,13 @@ class StuckRun(unittest.TestCase):
         tick(gh)
         self.assertEqual(gh.writes(), [])
 
-    def test_the_cancel_goes_out_once_with_no_wrapper_retries(self):
-        seen = {}
-
-        def fake_run(command, **kwargs):
-            seen[" ".join(command)] = kwargs["env"].get("GH_BUDGET_WAIT_ATTEMPTS")
-            return mock.Mock(returncode=0, stdout="{}", stderr="")
-
-        with mock.patch.object(stuck.subprocess, "run", fake_run), mock.patch.dict(stuck.os.environ, {}, clear=False):
-            stuck.os.environ.pop("GH_BUDGET_WAIT_ATTEMPTS", None)
-            stuck.gh_cli(["api", "-X", "POST", "repos/o/r/actions/runs/7/cancel"], True)
-            stuck.gh_cli(["api", "repos/o/r/actions/runs/7"], False)
-        self.assertEqual(seen["gh api -X POST repos/o/r/actions/runs/7/cancel"], "1")
-        self.assertIsNone(seen["gh api repos/o/r/actions/runs/7"])
-        # A refused cancel leaves the run for the next tick, with no settle reads and no force-cancel.
-        gh = FakeGh(runs=[run(7)], jobs={7: STUCK}, refuse=("/cancel",))
-        out = "\n".join(tick(gh))
-        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"])
-        self.assertIn("the cancel was refused", out)
-
-    def test_a_force_cancel_follows_only_a_run_still_stuck_on_the_same_attempt(self):
-        still = run(7, "in_progress")
-        gh = FakeGh(runs=[run(7)], jobs={7: STUCK}, after_cancel={7: [still]})
-        tick(gh)
-        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel", "repos/o/r/actions/runs/7/force-cancel"])
-        reads = [path for path, write in gh.calls if path == "repos/o/r/actions/runs/7" and not write]
-        self.assertLessEqual(len(reads), 2 + 2 * (stuck.FORCE_AFTER + 1) + 1, "the settle wait is bounded")
-        # Moved to a gate state after the cancel (round 9 of #27095), a new attempt, or unreadable:
-        # no force-cancel.
-        for case, states in {
-            "waiting": [run(7, "waiting")], "pending": [run(7, "pending")], "requested": [run(7, "requested")],
-            "a new attempt": [run(7, attempt=2)], "unreadable": [None],
-        }.items():
-            with self.subTest(case):
-                gh = FakeGh(runs=[run(7)], jobs={7: STUCK}, after_cancel={7: states})
-                out = "\n".join(tick(gh))
-                self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"], case)
-                self.assertIn("has not been seen finished", out)
-        # Still running after the reads, but a fresh stuck read no longer says stuck: no force-cancel.
-        gh = FakeGh(runs=[run(7)], jobs={7: [STUCK, STUCK, [job("decide", runner="bs-1")]]},
-                    after_cancel={7: [still]})
-        tick(gh)
-        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"])
-
-    def test_a_run_that_finished_on_its_own_is_reported_as_such(self):
-        gh = FakeGh(runs=[run(7)], jobs={7: STUCK},
-                    after_cancel={7: [dict(run(7), status="completed", conclusion="success")]})
-        out = "\n".join(tick(gh))
-        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"])
-        self.assertIn("finished on its own", out)
-
     def test_no_unfinished_run_reads_no_jobs(self):
         gh = FakeGh()
         out = "\n".join(tick(gh))
         self.assertFalse(any("/jobs" in path for path, _ in gh.calls))
         self.assertIn("no unfinished", out)
 
-    def test_the_tick_cancels_before_it_re_runs_a_cancelled_tip_in_its_serialized_group(self):
+    def test_the_tick_reports_before_it_re_runs_a_cancelled_tip_in_its_serialized_group(self):
         # Its own job with one fixed group (cmuxterm-hq#6671): in the request job the 3-minute rule fired
         # 10 minutes in (run 41706574247), behind that job's hosted runner and its 150-commit checkout.
         tick = yaml.safe_load(TICK.read_text())
@@ -435,10 +314,8 @@ class StuckRun(unittest.TestCase):
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
         self.assertIn("scripts/ci/nightly_next_stuck_run.py", tooling["with"]["sparse-checkout"].split())
         names = [step.get("name") for step in steps]
-        step = steps[names.index("Cancel a nightly-next run stuck without a runner")]
+        step = steps[names.index("Report a stuck nightly-next run and re-run its lost jobs once it ends")]
         self.assertTrue(step["continue-on-error"])
-        self.assertGreater(step["timeout-minutes"], 5)
-        self.assertEqual(step["env"]["NIGHTLY_NEXT_TRAIN"], "${{ vars.NIGHTLY_NEXT_TRAIN }}")
         self.assertEqual(step["run"], 'python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"')
         # Never for a dispatch with a sha; one fixed group, which runs one rescue at a time.
         self.assertIn("inputs.sha == ''", job_spec["if"])
@@ -447,13 +324,101 @@ class StuckRun(unittest.TestCase):
         self.assertNotIn("needs", job_spec)
         self.assertNotIn("CI_CONTROL_RUNNER", job_spec["runs-on"])
         self.assertIn("fromJSON(vars.RUNNER_POOLS || '{}').linux_2", job_spec["runs-on"])
-        self.assertNotIn("Cancel a nightly-next run stuck without a runner",
+        self.assertNotIn("Report a stuck nightly-next run and re-run its lost jobs once it ends",
                          [s.get("name") for s in tick["jobs"]["request"]["steps"]])
         self.assertLess(names.index("Wait through GitHub API rate limits in this job's gh calls"),
-                        names.index("Cancel a nightly-next run stuck without a runner"))
-        self.assertLess(names.index("Cancel a nightly-next run stuck without a runner"),
+                        names.index("Report a stuck nightly-next run and re-run its lost jobs once it ends"))
+        self.assertLess(names.index("Report a stuck nightly-next run and re-run its lost jobs once it ends"),
                         names.index("Re-run a cancelled nightly-next tip"))
         self.assertIn("python3 tests/test_nightly_next_stuck_run.py", CI_GUARDS.read_text())
+
+
+class NeverCancelled(unittest.TestCase):
+    """Lawrence, 2026-11-04: nobody cancels nightlies. A stuck nightly waits; once it ends, the jobs
+    that never got a runner are re-run, the way the owned-pool rescue's follow() re-runs after a run ends."""
+
+    def test_a_stuck_nightly_run_is_never_cancelled(self):
+        # Every run the tick used to cancel: the tip's push run (run 40771197361), an older commit's
+        # push and dispatch, and a promotion on main.
+        runs = [run(1), run(2, sha=OLD), run(3, event="workflow_dispatch", sha=OLD),
+                run(4, event="workflow_dispatch", sha=OLD, title=f"Promote nightly-next to tick:{TIP}", branch="main")]
+        gh = FakeGh(runs=runs, jobs={i: STUCK for i in range(1, 5)})
+        out = "\n".join(tick(gh))
+        self.assertEqual(gh.writes(), [])
+        for run_id in range(1, 5):
+            self.assertRegex(out, rf"run {run_id} is stuck .*a nightly run is never cancelled")
+
+    def test_an_ended_tip_run_has_its_jobs_that_never_got_a_runner_re_run(self):
+        for conclusion in ("failure", "cancelled"):
+            with self.subTest(job_conclusion=conclusion):
+                gh = FakeGh(runs=[ended(7)], jobs={7: [done("decide"), lost("signer-build", conclusion=conclusion),
+                                                       job("publish", status="completed", conclusion="skipped")]})
+                out = "\n".join(tick(gh))
+                self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/rerun-failed-jobs"])
+                self.assertIn("signer-build never got a runner", out)
+
+    def test_a_tip_that_moves_before_the_re_run_keeps_the_old_tips_jobs(self):
+        # A push landing while the tick reads must not have the old tip's jobs re-run over the newer
+        # nightly (review F1 on #36244): the tip is read again right before the write.
+        newer = "f" * 40
+        gh = FakeGh(runs=[ended(7)], jobs={7: [lost("signer")]}, tip=[TIP, newer])
+        out = "\n".join(tick(gh))
+        self.assertEqual(gh.writes(), [])
+        self.assertIn("moved", out)
+        gh = FakeGh(runs=[ended(7)], jobs={7: [lost("signer")]}, tip=[TIP, TIP])
+        tick(gh)
+        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/rerun-failed-jobs"])
+
+        class TipFailsSecond(FakeGh):
+            def __call__(self, args, write):
+                if not write and args[-1].endswith("git/ref/heads/nightly-next") and self.reads.get("tip", 0) >= 1:
+                    raise stuck.Unreadable("read failed")
+                return super().__call__(args, write)
+        gh = TipFailsSecond(runs=[ended(7)], jobs={7: [lost("signer")]})
+        tick(gh)
+        self.assertEqual(gh.writes(), [], "an unreadable tip before the write re-runs nothing")
+
+    def test_an_ended_run_is_re_run_only_when_its_only_failures_never_got_a_runner(self):
+        real_failure = job("build-nightly-app", status="completed", conclusion="failure", runner="mini",
+                           started_at=ago(40))
+        cases = {
+            "a job failed on a runner": dict(runs=[ended(7)], jobs={7: [real_failure, lost("signer")]}),
+            "an owned label's job (the owned-pool rescue's)": dict(
+                runs=[ended(7)], jobs={7: [lost("build-nightly-app", label="glaeda-trusted-next-nightly")]}),
+            "the run succeeded": dict(runs=[ended(7, "success")], jobs={7: [done("decide")]}),
+            "the run ended cancelled (nightly_next_cancelled_tip.sh re-runs it)": dict(
+                runs=[ended(7, "cancelled")], jobs={7: [lost("signer", conclusion="cancelled")]}),
+            "the attempt cap": dict(runs=[ended(7, attempt=3)], jobs={7: [lost("signer")]}),
+            "an older commit's run": dict(runs=[ended(7, sha=OLD)], jobs={7: [lost("signer")]}),
+            "a newer run of the tip is building": dict(runs=[ended(7), run(8, "in_progress")],
+                                                       jobs={7: [lost("signer")], 8: [done("decide")]}),
+            "a newer run of the tip ended green": dict(runs=[ended(7), ended(8, "success")],
+                                                       jobs={7: [lost("signer")], 8: [done("decide")]}),
+            "the jobs cannot be read": dict(runs=[ended(7)], jobs={7: [lost("signer")]}, fail=("/jobs",)),
+        }
+        for case, kwargs in cases.items():
+            with self.subTest(case):
+                gh = FakeGh(**kwargs)
+                tick(gh)
+                self.assertEqual(gh.writes(), [], case)
+
+    def test_the_re_run_goes_out_once_with_no_wrapper_retries(self):
+        seen = {}
+
+        def fake_run(command, **kwargs):
+            seen[" ".join(command)] = kwargs["env"].get("GH_BUDGET_WAIT_ATTEMPTS")
+            return mock.Mock(returncode=0, stdout="{}", stderr="")
+
+        with mock.patch.object(stuck.subprocess, "run", fake_run), mock.patch.dict(stuck.os.environ, {}, clear=False):
+            stuck.os.environ.pop("GH_BUDGET_WAIT_ATTEMPTS", None)
+            stuck.gh_cli(["api", "-X", "POST", "repos/o/r/actions/runs/7/rerun-failed-jobs"], True)
+            stuck.gh_cli(["api", "repos/o/r/actions/runs/7"], False)
+        self.assertEqual(seen["gh api -X POST repos/o/r/actions/runs/7/rerun-failed-jobs"], "1")
+        self.assertIsNone(seen["gh api repos/o/r/actions/runs/7"])
+        gh = FakeGh(runs=[ended(7)], jobs={7: [lost("signer")]}, refuse=("rerun-failed-jobs",))
+        out = "\n".join(tick(gh))
+        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/rerun-failed-jobs"])
+        self.assertIn("was refused", out)
 
 
 class TipRead(unittest.TestCase):
