@@ -178,10 +178,11 @@ final class ScreenContentView: NSView {
         reconcileAndScroll()
     }
 
-    /// A window resize: frames snap (or, `keepsMotion`, a running spring retargets), and the scroll keeps the
-    /// focused column in place on screen, then fits it (L7).
+    /// A window resize: frames snap (or, `keepsMotion`, a running spring is carried into the new size: each frame and
+    /// its target move together, `AnimatedFrame.rebase`, so the panes follow the resize in this frame and only what
+    /// the spring had left still springs), and the scroll keeps the focused column in place on screen, then fits it (L7).
     fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
-        reconcile(animated: keepsMotion, presents: false)
+        reconcile(animated: keepsMotion, rebasing: keepsMotion, presents: false)
         syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
     }
 
@@ -232,7 +233,11 @@ final class ScreenContentView: NSView {
     }
 
     @discardableResult
-    func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false, presents: Bool = true) -> Bool {
+    /// `rebasing`: the change is the viewport's, not the layout's (the sidebar's slide resizing the screen under a
+    /// running split): a frame on a spring moves with its target (`AnimatedFrame.rebase`) instead of chasing it, so
+    /// the panes ride the moving edge in its frame (Leo 2026-11-05: "the main pane waits for the right pane").
+    func reconcile(animated: Bool, rebasing: Bool = false, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false,
+                   presents: Bool = true) -> Bool {
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
         // One style read per pass: it is resolved from the settings.
@@ -294,6 +299,7 @@ final class ScreenContentView: NSView {
                     carriedShown[pane] = existing.x.value + shift(before, pane)
                     existing.x.value += shift(before, pane) - shift(baseGeometry, pane)
                 }
+                if rebasing, !structural, existing.rect != existing.targetRect { existing.rebase(onto: target) }
                 if let handoff, handoff.pane == pane {
                     // At its new size past the screen edge, from where it slides in.
                     existing = AnimatedFrame(handoff.slide.offsetBy(dx: -shift(baseGeometry, pane), dy: 0))
@@ -376,6 +382,7 @@ final class ScreenContentView: NSView {
                     if carried { carriedDividers[kind] = frame.x.value + before.viewShift(offset: offset) }
                     frame.x.value += drift
                 }
+                if rebasing, !structural, frame.rect != frame.targetRect { frame.rebase(onto: target.rect) }
                 place(&frame, at: target.rect, animated: animateFrames)
                 dividerFrames[kind] = frame
             } else if case .columnEdge = kind,
