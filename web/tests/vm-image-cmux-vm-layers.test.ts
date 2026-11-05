@@ -155,8 +155,10 @@ describe("layer snapshot GC", () => {
 
   test("a layer made inside the window stays even without lastUsedAt", async () => {
     const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
-    const fresh = { ...sys("9", 0), createdAt: new Date(now - 60_000).toISOString() };
-    const all = [sys("1", 1), sys("2", 2), fresh];
+    // The newest is kept as newest; the second newest stays only because it was made inside the window.
+    const fresh = { ...sys("9", 0), createdAt: new Date(now - 120_000).toISOString() };
+    const newest = { ...sys("2", 0), createdAt: new Date(now - 60_000).toISOString() };
+    const all = [sys("1", 1), fresh, newest];
     expect(planLayerGc(all, new Set(), { keep: 1, recentMs: 3600_000, now }).remove.map((s) => s.id)).toEqual(["sh-sys1"]);
   });
 

@@ -913,7 +913,8 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const name = imageResourceName({ promotion: options.promotion, prodCopy: options.prodCopy, tag: options.tag, date: new Date().toISOString().slice(0, 10).replace(/-/g, ""), sha });
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
   const L = new StepLog(path.join(options.outDir, `bake-${name}.log`));
-  const result: BakeResult = { name, lockSha256: lockDigest(lockText), base: lock.base.snapshot };
+  // lockPath: inventory.ts reads the same lock (its Syft pin) after a deferred snapshot.
+  const result: BakeResult = { name, lockSha256: lockDigest(lockText), base: lock.base.snapshot, lockPath: options.lockPath };
   const fs = freestyleClient();
   const t0 = Date.now();
   const ctxFor = (vm: Vm, as: string): Ctx => ({ vm, L, lock, lockText, options, result, name: as });

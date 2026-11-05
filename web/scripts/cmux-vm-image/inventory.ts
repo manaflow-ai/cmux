@@ -18,13 +18,14 @@ export async function main(argv = process.argv): Promise<number> {
   const bakeJson = readdirSync(outDir).find((f) => /^bake-.*\.json$/.test(f));
   if (!bakeJson) throw new Error(`no bake-*.json in ${outDir}`);
   const file = path.join(outDir, bakeJson);
-  const record = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown> & { name: string; inventoryVmId?: string };
+  const record = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown> & { name: string; inventoryVmId?: string; lockPath?: string };
   const vmId = record.inventoryVmId;
   if (!vmId) {
     console.log("INVENTORY none: the bake recorded its SBOM and manifest before the snapshot");
     return 0;
   }
-  const lock = readInputsLock(path.resolve(argValue("--lock", argv) ?? DEFAULT_LOCK_PATH));
+  // The bake's own lock (recorded in its json), so a bake from another lock gets its own Syft pin.
+  const lock = readInputsLock(path.resolve(argValue("--lock", argv) ?? record.lockPath ?? DEFAULT_LOCK_PATH));
   const ledger = new Ledger(path.join(outDir, "resources.tsv"));
   const L = new StepLog(path.join(outDir, `inventory-${record.name}.log`));
   const vm = freestyleClient().vms.ref(vmId) as unknown as Vm;
