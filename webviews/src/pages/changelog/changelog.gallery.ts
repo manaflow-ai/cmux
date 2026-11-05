@@ -99,7 +99,8 @@ export default changelogPageEntry({
       checks: {
         layoutShiftMax: {
           value: 0.3,
-          reason: "Versions is a disclosure: opening it adds the day's build rows, and the areas below move down with it.",
+          reason:
+            "Versions is a disclosure: opening it adds the day's build rows, and the areas below move down with it.",
         },
       },
       notes: nightlyNext50 as unknown as ReleaseNotes[],
@@ -113,7 +114,8 @@ export default changelogPageEntry({
       checks: {
         layoutShiftMax: {
           value: 0.3,
-          reason: "Versions is a disclosure: opening it adds the day's build rows, and the areas below move down with it.",
+          reason:
+            "Versions is a disclosure: opening it adds the day's build rows, and the areas below move down with it.",
         },
       },
       notes: nightlyNext50 as unknown as ReleaseNotes[],
