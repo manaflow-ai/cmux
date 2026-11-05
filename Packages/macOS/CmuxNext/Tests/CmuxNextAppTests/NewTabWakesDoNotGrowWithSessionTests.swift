@@ -41,7 +41,7 @@ struct NewTabWakesDoNotGrowWithSessionTests {
 
     /// Runs `body` on a whole window showing `panes` panes of `tabs` tabs (its store and its content), then closes it.
     private static func withWindow<T>(panes: Int, tabs: Int,
-                                      _ body: (DaemonStore, WorkspaceContentController) async throws -> T) async throws -> T {
+                                      _ body: @MainActor (DaemonStore, WorkspaceContentController) async throws -> T) async throws -> T {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
