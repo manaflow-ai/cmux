@@ -219,3 +219,123 @@ fn keys_keep_their_order_between_the_inline_write_and_the_ports_writer() {
         "the keys and the write reached the host in another order, more than once, or \"3\" did not go inline"
     );
 }
+
+/// Never merge: where the lane's write call spends its time on macOS (#35413 s17ga, STATUS 13254). The same key on
+/// the same kind of host connection, through the old path (lane off) and the inline write (lane on), and each part
+/// of the inline write alone. Fails on purpose so the step log shows the report.
+#[cfg(target_vendor = "apple")]
+#[test]
+fn rds_cost_microbench_write_call() {
+    use std::os::fd::AsRawFd as _;
+    const N: usize = 20_000;
+    fn percentiles(mut ns: Vec<u128>) -> String {
+        ns.sort_unstable();
+        let at = |p: usize| ns.get((ns.len() * p / 100).min(ns.len() - 1)).copied().unwrap_or(0);
+        format!(
+            "p50 {} p95 {} p99 {} max {} ns",
+            at(50),
+            at(95),
+            at(99),
+            ns.last().copied().unwrap_or(0)
+        )
+    }
+    let mut report = String::from("\nrds-cost microbench (macOS, ns per call):\n");
+    // A host that reads everything, so the socket always has room.
+    fn reader(mut host: std::os::unix::net::UnixStream) -> std::thread::JoinHandle<()> {
+        std::thread::spawn(move || {
+            use std::io::Read as _;
+            let mut sink = [0u8; 65536];
+            host.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            while matches!(host.read(&mut sink), Ok(n) if n > 0) {}
+        })
+    }
+    for (name, lane) in [
+        ("old path write_bytes_replying (lane off)", false),
+        ("inline write_bytes_replying (lane on)", true),
+    ] {
+        let (_mux, surface, host) = hosted_typing_surface(&format!("rds-cost-bench-{lane}"), lane);
+        let drain = reader(host);
+        let mut ns = Vec::with_capacity(N);
+        for _ in 0..N {
+            let started = Instant::now();
+            surface.write_bytes_replying(b"k", InputReply::Accepted).unwrap();
+            ns.push(started.elapsed().as_nanos());
+        }
+        report.push_str(&format!("  {name}: {}\n", percentiles(ns)));
+        drop(surface);
+        drop(_mux);
+        let _ = drain.join();
+    }
+    let (a, b) = std::os::unix::net::UnixStream::pair().unwrap();
+    let drain = reader(b);
+    let fd = a.as_raw_fd();
+    let mut ns = Vec::with_capacity(N);
+    for _ in 0..N {
+        let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+        let started = Instant::now();
+        let _ = unsafe { libc::poll(&mut ready, 1, 0) };
+        ns.push(started.elapsed().as_nanos());
+    }
+    report.push_str(&format!("  poll(POLLOUT, 0): {}\n", percentiles(ns)));
+    let kq = unsafe { libc::kqueue() };
+    let change = libc::kevent64_s {
+        ident: fd as u64,
+        filter: libc::EVFILT_WRITE,
+        flags: libc::EV_ADD | libc::EV_ENABLE,
+        fflags: 0,
+        data: 0,
+        udata: 0,
+        ext: [0; 2],
+    };
+    let added =
+        unsafe { libc::kevent64(kq, &change, 1, std::ptr::null_mut(), 0, 0, std::ptr::null()) };
+    let mut ns = Vec::with_capacity(N);
+    let mut seen = 0usize;
+    for _ in 0..N {
+        let mut event = std::mem::MaybeUninit::<libc::kevent64_s>::uninit();
+        let started = Instant::now();
+        let n = unsafe {
+            libc::kevent64(
+                kq,
+                std::ptr::null(),
+                0,
+                event.as_mut_ptr(),
+                1,
+                libc::KEVENT_FLAG_IMMEDIATE,
+                std::ptr::null(),
+            )
+        };
+        ns.push(started.elapsed().as_nanos());
+        if n == 1 {
+            seen += 1;
+        }
+    }
+    report.push_str(&format!(
+        "  kevent64 IMMEDIATE (registered once, add={added}, ready {seen}/{N}): {}\n",
+        percentiles(ns)
+    ));
+    let mut ns = Vec::with_capacity(N);
+    for _ in 0..N {
+        let started = Instant::now();
+        let mut frame = Frame::new(MessageKind::Input, b"k".to_vec());
+        frame.version = crate::terminal_host_protocol::PROTOCOL_VERSION;
+        let bytes = crate::terminal_host_protocol::encode_frame(&frame).unwrap();
+        std::hint::black_box(&bytes);
+        ns.push(started.elapsed().as_nanos());
+    }
+    report.push_str(&format!("  Frame::new(to_vec) + encode_frame: {}\n", percentiles(ns)));
+    let frame =
+        crate::terminal_host_protocol::encode_frame(&Frame::new(MessageKind::Input, b"k".to_vec()))
+            .unwrap();
+    let mut ns = Vec::with_capacity(N);
+    for _ in 0..N {
+        let started = Instant::now();
+        let _ = unsafe { libc::send(fd, frame.as_ptr().cast(), frame.len(), libc::MSG_DONTWAIT) };
+        ns.push(started.elapsed().as_nanos());
+    }
+    report.push_str(&format!("  send 33 bytes: {}\n", percentiles(ns)));
+    unsafe { libc::close(kq) };
+    drop(a);
+    let _ = drain.join();
+    panic!("{report}");
+}
