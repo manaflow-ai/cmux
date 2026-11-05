@@ -78,6 +78,14 @@ public nonisolated enum MotionTunables {
         help: "On: a drag that starts while panes spring takes over where the edge shows and moves only the edges it changes, which keep springing, so two panes that share an edge show it at one place in every frame. Off: a drag snaps every pane it touches to its rest place.",
         default: true, code: "MotionTunables.frameOwnerSharedEdges")
 
+    /// A page parked in a pane (its tab does not show) keeps its frame while the window or the pane resizes, and is sized
+    /// at the run loop's idle points once the motion ends, or at its show (FRAME OWNER REFACTOR S7b, `ParkedViewSizing`).
+    /// Off (the default): it follows its pane on every frame of the resize.
+    public static let frameOwnerParkedPages = Tunable<Bool>.toggle(
+        "motion.frameOwner.parkedPages", .springs, "Parked pages wait out resizes (frame owner S7b)",
+        help: "On: a chat or page tab that does not show keeps its size while the window or its pane resizes, and takes the new size when the resize ends, while nothing else runs, or when it shows. Off: it follows the pane on every frame of the resize.",
+        default: false, code: "MotionTunables.frameOwnerParkedPages")
+
     // MARK: Fades and loops
 
     /// Every timed fade is a `MotionScale` step (or 0, instant), so nothing reads slow (Leo
@@ -209,7 +217,8 @@ public nonisolated enum MotionTunables {
 
     /// Every Motion tunable, for the catalog.
     public static var all: [TunableDescriptor] {
-        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, frameOwnerSharedEdges.descriptor]
+        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, frameOwnerSharedEdges.descriptor,
+                                                                           frameOwnerParkedPages.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,

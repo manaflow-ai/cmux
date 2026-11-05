@@ -18,7 +18,7 @@ extension BrowserChromeView: PaneParkableContent {}
 extension TerminalHostView: PaneParkableContent {}
 /// An agent page (a chat or New Tab page) too: putting a WKWebView back into a window waits
 /// synchronously for its web process (170-215 ms on Cmd-W back to a New Tab page, #20516).
-extension AgentPaneView: PaneParkableContent, PaneTabRowSharing {}
+extension AgentPaneView: PaneParkableContent, PaneTabRowSharing, ParkedFrameKeeping {}
 /// An internal page (Markdown, a file viewer, Settings) is a WKWebView too: taking it out of the window
 /// and back on every switch re-attached its web process the same way (tab-switch-fast). Its view
 /// lives as long as its tab (`InternalPageTabStore.close` removes it), so parking costs no memory. Its
@@ -40,7 +40,7 @@ struct ParkedContent {
 /// (`TabContentCache.evict`), a hibernated page keeps only its picture. A count cap (8) made a pane with
 /// more tabs than that pay a window move on every switch of a cycle: held Ctrl-Tab over 10 or 30 tabs
 /// evicted each view 8 switches before its turn came back (pane-tab-switch-fast).
-extension PaneContentView {
+extension PaneContentView: ParkedFrameSource {
 
     /// Puts `view` on screen as the pane's content: unhides it when it is parked here, else adds it (also from another
     /// pane, a moved tab). `leaving`, retired right after, does not count as content above it.
@@ -60,8 +60,8 @@ extension PaneContentView {
         }
         parked.removeAll { $0.view == nil || $0.view === view }
         if let frame = parkedFrame(of: view), held ? topHeld : view.frame == frame && frame != contentHost.bounds {
-            // A chat at the frame it shows at (`show`) keeps it: the pane's next layout moves the host under the tab
-            // row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed).
+            // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout moves the host under the
+            // tab row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed).
             view.autoresizingMask = []
             needsLayout = true
         } else {
@@ -95,9 +95,9 @@ extension PaneContentView {
         view.handKeyboardToWindow()
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         view.isHidden = true
-        // Parked content keeps its frame and lays nothing out while hidden (S7b): it is sized as it shows (`install`,
-        // `show`), and an agent page's paint hold waits for its redraw there (`AgentPageRedraw.awaits`).
-        view.autoresizingMask = []
+        // A hidden agent or internal page follows the pane (`layoutParked` sizes a row-sharing one), so it shows with no redraw
+        // at a new size; with `ParkedViewSizing` on it keeps its frame. Terminals and browsers: `install` sets their frame.
+        if ParkedViewSizing.isOn || !(view is AgentPaneView || view is InternalPageView) || parkedFrame(of: view) != nil { view.autoresizingMask = [] }
         parked.removeAll { $0.view == nil || $0.view === view }
         parked.append(ParkedContent(view: view))
         prunePark()
@@ -127,9 +127,11 @@ extension PaneContentView {
         }
     }
 
-    /// The frame, in the content host, a parked page that shares the tab row (a chat) shows at: the whole pane when its
-    /// tools fit the row, as `layout()` places it, else the area under the strip; nil for any other view. The host is the
-    /// area under the strip while a terminal or browser shows: a chat sized with it laid out twice per switch (#23743).
+    /// The frame, in the content host, a parked page that shares the tab row (a chat) shows at:
+    /// the whole pane when its tools fit the row, as `layout()` places it, else the area under the
+    /// strip. Nil for any other view. The host itself is the area under the strip while a terminal
+    /// or browser shows, so a chat sized with it shrank by the strip's height on every switch away
+    /// and grew back on the switch to it: its page laid out twice and the transcript jumped.
     func parkedFrame(of view: NSView) -> NSRect? {
         guard view is PaneParkableContent, let row = view as? PaneTabRowSharing else { return nil }
         let strip = stripHeight
@@ -140,13 +142,13 @@ extension PaneContentView {
         return contentHost.convert(shown, from: self)
     }
 
-    /// Keeps a hidden internal page that shows a web page at its show frame (`parkedFrame`), from `layout()`: shown at
-    /// another size it would show its last frame until it laid out, with no hold.
+    /// Sizes the hidden pages that share the tab row to their show frame (`parkedFrame`), from `layout()`; with `ParkedViewSizing` on, only those that follow the pane.
     func layoutParked() {
         for entry in parked {
-            guard let page = entry.view as? InternalPageView, page.superview === contentHost, page !== content, page.isHidden,
-                  page.showsWebPage, let frame = parkedFrame(of: page) else { continue }
-            if page.frame != frame { page.frame = frame }
+            guard let view = entry.view, view.superview === contentHost, view !== content, view.isHidden, let frame = parkedFrame(of: view),
+                  !ParkedViewSizing.isOn || (view as? any ParkedFrameKeeping)?.keepsFrameWhileParked == false else { continue }
+            view.autoresizingMask = []
+            if view.frame != frame { view.frame = frame }
         }
     }
 
