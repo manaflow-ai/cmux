@@ -28,6 +28,8 @@ import ScreenCaptureKit
 ///   2026-11-02, probe rounds on cmux24 and cmux22) a window filter on cmux's main window gave frames only when a
 ///   page child window changed, none for terminal output, a split or a workspace switch.
 /// - `stop`: ends the capture; the files are written on the recording's queue: `read` says `written` once they are.
+///   The movie is fragmented (one fragment each 0.5 s): a recording that is never stopped, or a copy taken before
+///   `written`, plays up to its last fragment.
 ///   Beside the movie: `PATH.frames.json` (every frame ScreenCaptureKit gave as `[t, status, in movie]`: `t` its
 ///   display time in host seconds, CACurrentMediaTime's clock; `status` ScreenCaptureKit's frame status, `idle`
 ///   when nothing changed on screen; `in movie` false when the encoder was not ready) and `PATH.scan` (a JSON
@@ -382,6 +384,11 @@ nonisolated final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDeleg
         do { writer = try AVAssetWriter(outputURL: url, fileType: .mov) } catch {
             throw Failure(description: "movie writer: \(error)")
         }
+        // A fragmented movie: the header first, then a fragment each half second, so a movie that is never stopped
+        // (a kit that fetched it mid-film, a quit, a crash) plays up to its last fragment. Unfragmented, its index is
+        // written only by finishWriting, and a cut-off movie has none: no moov atom, no frame a reader can open (20
+        // gallery films, cmux-ad m29 item 3).
+        writer.movieFragmentInterval = CMTime(value: 1, timescale: 2)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
         guard writer.canAdd(input) else { throw Failure(description: "movie writer refused the input (\(width)x\(height))") }
