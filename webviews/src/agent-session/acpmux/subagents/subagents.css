@@ -1826,10 +1826,9 @@ button.cv-subagent > :last-child {
   display: grid;
   gap: var(--ds-space-2);
   padding: var(--ds-space-3) var(--ds-space-4);
-  border-bottom: var(--cmux-hairline) solid var(--cv-divider);
+  border-bottom: 1px solid var(--cv-divider);
   /* Size to the report until the transcript needs room; long reports yield at the cap. */
-  flex: 0 1 auto;
-  max-height: 35%;
+  flex: 0 1 35%;
   min-height: 0;
   overflow: hidden;
 }
