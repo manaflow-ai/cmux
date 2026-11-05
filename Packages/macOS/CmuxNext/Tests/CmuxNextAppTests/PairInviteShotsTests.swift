@@ -7,7 +7,8 @@ import Testing
 /// arriving, its facts and words with Confirm, paired, voided, expired, lost, signed out) into one
 /// contact sheet, over the mock invite and the mock server's preview, so a fleet run returns the
 /// card's look as an artifact: `Packages/macOS/CmuxNext/.build/pair-invite-shots.png`. It also
-/// checks that every state draws something at a sane size, with no SwiftUI host.
+/// checks that every state draws something at a sane size, with no SwiftUI host. The data is fake
+/// only (code ABCDE-12345, the machine `build-box`, no account), so the sheet may go in a public PR.
 @MainActor @Suite(.serialized) struct PairInviteShotsTests {
     enum Shot: String, CaseIterable {
         case showing = "1 the code"
@@ -48,12 +49,23 @@ import Testing
         }
     }
 
+    /// The arriving machine's name in every shot.
+    static let machineName = "build-box"
+
+    /// Whether some label or field under `view` shows `text`.
+    static func showsText(_ view: NSView, _ text: String) -> Bool {
+        if let field = view as? NSTextField, field.stringValue.contains(text) { return true }
+        if let scroll = view as? NSScrollView, let doc = scroll.documentView, showsText(doc, text) { return true }
+        return view.subviews.contains { showsText($0, text) }
+    }
+
     @Test func everyStateRendersToTheContactSheet() async throws {
         _ = NSApplication.shared
         var shots: [(String, NSImage)] = []
         for shot in Shot.allCases {
             let fake = PairInviteFlowTests.Fake()
             let source = MockServerSource()
+            source.candidate.name = Self.machineName
             let model = await shot.drive(fake, source)
             let view = PairInviteView(model: model)
             #expect(!AddDeviceShotsTests.hostsSwiftUI(view), "\(shot) hosts SwiftUI")
@@ -66,6 +78,9 @@ import Testing
                            "cmux.pairInvite.countdown", "cmux.pairInvite.button.copyCode", "cmux.pairInvite.button.line"] {
                     #expect(AddDeviceShotsTests.find(view, id: id) != nil, "the code card shows \(id)")
                 }
+            }
+            if shot == .review || shot == .paired {
+                #expect(Self.showsText(view, Self.machineName), "\(shot) names \(Self.machineName)")
             }
             if shot == .review {
                 for id in ["cmux.pairInvite.facts", "cmux.pairInvite.words", "cmux.pairInvite.name", "cmux.pairInvite.button.confirm"] {
