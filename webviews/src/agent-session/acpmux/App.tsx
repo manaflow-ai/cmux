@@ -457,7 +457,7 @@ import {
 import { resendToOwner, retryFailedTurn } from "./conversation/turnRetry";
 import {
   RetryTargetContext,
-  ResolvedBeforeContext,
+  ResolvedFailuresContext,
   TurnActionsContext,
   chatLoginCommand,
   compactThrough,
@@ -519,7 +519,7 @@ import {
   liveTurnPlan,
   samePlanEntries as sameEntries,
   retryTargetIn,
-  lastCompletedAt,
+  resolvedFailures,
 } from "./conversation/turns";
 import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
@@ -5841,9 +5841,9 @@ export function VirtualTranscript({
     [scannedRetry.promptId, scannedRetry.footerId],
   );
   const finalFooter = useMemo(() => finalFooterId(rows), [rows]);
-  // A failed turn the chat has since gone on from (a later turn ended well) clears its card
-  // (TurnRows.tsx TurnFooter, cmux#36329); a number, so a streamed token redraws no footer.
-  const resolvedBefore = useMemo(() => lastCompletedAt(rows), [rows]);
+  // The failed turns the chat has since gone on from (a later turn ended well) clear their cards
+  // (TurnRows.tsx TurnFooter, cmux#36329); one set per such turn, so a streamed token redraws no footer.
+  const resolvedFailed = useMemo(() => resolvedFailures(rows), [rows]);
   const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? [])
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
@@ -5972,7 +5972,7 @@ export function VirtualTranscript({
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
       <RetryTargetContext.Provider value={retryTarget}>
-        <ResolvedBeforeContext.Provider value={resolvedBefore}>
+        <ResolvedFailuresContext.Provider value={resolvedFailed}>
           <div
             ref={ref}
             className="acpmux-scroll"
@@ -6164,7 +6164,7 @@ export function VirtualTranscript({
               needsYou={needsYou}
             />
           )}
-        </ResolvedBeforeContext.Provider>
+        </ResolvedFailuresContext.Provider>
       </RetryTargetContext.Provider>
     </ReadOnlyBoundary>
   );

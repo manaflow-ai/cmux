@@ -9,9 +9,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
 import { resetTranscriptDisclosure, TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptViews, setTranscriptView } from "./transcriptView";
 import { TurnFooter } from "./TurnRows";
-import { lastCompletedAt, turnView } from "./turns";
-import { ResolvedBeforeContext, TurnActionsContext, type TurnActions } from "./turnActions";
+import { BACKGROUND_END, resolvedFailures, turnView } from "./turns";
+import { ResolvedFailuresContext, TurnActionsContext, type TurnActions } from "./turnActions";
 
 const P = (id: string, at: number, text: string): AcpmuxRow => ({ id, version: 1, at, kind: "user", text });
 const A = (id: string, at: number, text: string): AcpmuxRow => ({ id, version: 1, at, kind: "assistant", text });
@@ -30,15 +31,15 @@ const actions: TurnActions = { retry: () => undefined };
 /// Each drawn footer's id, and whether it draws the failure card.
 function cards(source: AcpmuxRow[]): Record<string, boolean> {
   const rows = turnView(source, new Set(), { now: 1_000 });
-  const resolvedBefore = lastCompletedAt(rows);
+  const resolved = resolvedFailures(rows);
   const out: Record<string, boolean> = {};
   for (const row of rows) {
     if (row.kind !== "turnSummary") continue;
     const markup = renderToStaticMarkup(
       <TurnActionsContext.Provider value={actions}>
-        <ResolvedBeforeContext.Provider value={resolvedBefore}>
+        <ResolvedFailuresContext.Provider value={resolved}>
           <TurnFooter row={row} />
-        </ResolvedBeforeContext.Provider>
+        </ResolvedFailuresContext.Provider>
       </TurnActionsContext.Provider>,
     );
     out[row.id] = markup.includes("cv-turn-error");
@@ -71,6 +72,21 @@ test("a failed turn's card clears once a later turn ends well", () => {
   });
 });
 
+test("a footer that ends no turn resolves nothing: a stretch the person came in on, a background reply", () => {
+  const rows: AcpmuxRow[] = [
+    P("p1", 10, "Fix the grid"),
+    failed("s1", 20),
+    { ...done("superseded-a2", 30), superseded: true },
+    { ...done(`${BACKGROUND_END}-task-1`, 40) },
+  ];
+  expect([...resolvedFailures(rows)]).toEqual([]);
+  // Order, not time: a turn that ended well before the failure, with a later time, resolves nothing.
+  expect([...resolvedFailures([P("p0", 0, "Hi"), done("s0", 50), P("p1", 0, "Fix"), failed("s1", 0)])]).toEqual([]);
+  expect([...resolvedFailures([P("p1", 0, "Fix"), failed("s1", 0), P("p2", 0, "Again"), done("s2", 0)])]).toEqual([
+    "s1",
+  ]);
+});
+
 let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
@@ -87,6 +103,7 @@ afterEach(async () => {
   }
   saved.clear();
   resetTranscriptDisclosure();
+  resetTranscriptViews();
 });
 
 test("a failed turn's × puts its card away, and it stays away when the row is drawn again", async () => {
@@ -127,6 +144,10 @@ test("a failed turn's × puts its card away, and it stays away when the row is d
   expect(container.querySelector('[aria-label="Retry"]')).not.toBeNull();
   // Scrolled out and back (the transcript is virtualized): still put away.
   await draw(false);
+  await draw(true);
+  expect(container.querySelector(".cv-turn-error")).toBeNull();
+  // In the chat's Verbose view too: the reader put the card away, not one view's copy of it.
+  await act(async () => setTranscriptView("chat-36329", "verbose"));
   await draw(true);
   expect(container.querySelector(".cv-turn-error")).toBeNull();
 });

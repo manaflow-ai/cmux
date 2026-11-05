@@ -142,6 +142,21 @@ export function useRowDisclosure(key: string | undefined): [boolean, (open: bool
   return [persists ? kept : mounted, setOpen];
 }
 
+/**
+ * Whether the reader put away a failed turn's card with its × (TurnRows.tsx TurnFailure, cmux#36329),
+ * and the setter. Kept per chat, never per view: a card put away in Normal stays away in Thinking and
+ * Verbose. Its own entry (`<chat>#dismissed`) holds only these, so the chat's disclosure toggles never
+ * evict them.
+ */
+export function useDismissedCard(rowId: string): [boolean, () => void] {
+  const chat = useContext(DisclosureSession);
+  const sessionId = `${chat}#dismissed`;
+  const getSnapshot = useCallback(() => read(sessionId, rowId) ?? false, [sessionId, rowId]);
+  const dismissed = useSyncExternalStore(subscribe, getSnapshot, () => false);
+  const dismiss = useCallback(() => save(sessionId, rowId, true), [sessionId, rowId]);
+  return [dismissed, dismiss];
+}
+
 /** Test/gallery reset; production callers keep each session's choices. */
 export function resetTranscriptDisclosure(sessionId?: string): void {
   if (sessionId) {

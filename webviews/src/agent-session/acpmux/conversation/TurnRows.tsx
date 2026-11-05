@@ -18,7 +18,7 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
-import { ResolvedBeforeContext, RetryTargetContext, TurnActionsContext } from "./turnActions";
+import { ResolvedFailuresContext, RetryTargetContext, TurnActionsContext } from "./turnActions";
 import { NoticeDismiss } from "../NoticeDismiss";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import {
@@ -61,7 +61,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
-import { TranscriptDisclosureProvider, useTranscriptDisclosure } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider, useDismissedCard } from "./transcriptDisclosure";
 import { PresentationContext } from "./PresentationContext";
 import { useTranscriptReadOnly } from "./readOnly";
 
@@ -324,12 +324,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const prompt = row.prompt;
   const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
-  // A failed turn's card clears once the chat went on and a later turn ended well (`resolvedBefore`),
-  // and the reader can put it away with its × (cmux#36329). Kept per chat with the transcript's
-  // disclosures, since rows are virtualized; the turn's footer stays, with its Retry while it is last.
-  const resolvedBefore = useContext(ResolvedBeforeContext);
-  const resolved = failed && resolvedBefore !== undefined && row.at < resolvedBefore;
-  const [dismissed, setDismissed] = useTranscriptDisclosure(`failure-dismissed:${row.id}`);
+  // A failed turn's card clears once the chat went on and a later turn ended well (turns.ts
+  // `resolvedFailures`), and the reader can put it away with its × (cmux#36329), kept per chat since
+  // rows are virtualized. The turn's footer stays, with its Retry while it is the last turn.
+  const resolvedFailed = useContext(ResolvedFailuresContext);
+  const resolved = failed && resolvedFailed?.has(row.id) === true;
+  const [dismissed, dismiss] = useDismissedCard(row.id);
   const failureCard = failed && !resolved && !dismissed;
   const kind = failed ? failureKind(row.error, route, row.errorCode) : undefined;
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a);
@@ -446,7 +446,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     <>
       {failureCard && (
         <TurnFailure
-          onDismiss={() => setDismissed(true)}
+          onDismiss={dismiss}
           message={row.error}
           code={row.errorCode}
           route={route}

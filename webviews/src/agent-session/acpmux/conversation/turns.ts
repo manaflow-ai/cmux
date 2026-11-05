@@ -115,15 +115,34 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
 export const isFailed = (row: AcpmuxRow) =>
   row.kind === "turnSummary" && (row.status === "failed" || row.status === "error");
 
-/// When the chat's last turn that ended well ended, or undefined: a failed turn before it is resolved
-/// (TurnRows.tsx TurnFooter, cmux#36329). It walks back from the end only to that turn, so a streamed
-/// token costs the running turn's rows, never the chat's.
-export function lastCompletedAt(rows: readonly AcpmuxRow[]): number | undefined {
-  for (let at = rows.length - 1; at >= 0; at -= 1) {
-    const row = rows[at]!;
-    if (row.kind === "turnSummary" && row.status === "completed") return row.at;
-  }
-  return undefined;
+/// A turn acpmux itself ended well: not a footer the transcript draws for a stretch the person came
+/// in on (`supersededFooters`) or a background turn's reply (`backgroundFooters`), which end nothing.
+const endedWell = (row: AcpmuxRow) =>
+  row.kind === "turnSummary" &&
+  row.status === "completed" &&
+  !row.superseded &&
+  !row.id.startsWith(`${BACKGROUND_END}-`) &&
+  row.inBackground === undefined;
+
+const NO_RESOLVED: ReadonlySet<string> = new Set();
+const resolvedCache = new WeakMap<AcpmuxRow, { through: number; ids: ReadonlySet<string> }>();
+
+/// The failed turns the chat has since gone on from: each failed summary drawn before the last turn
+/// acpmux ended well (TurnRows.tsx TurnFooter clears their cards, cmux#36329). By row order, never by
+/// time. It walks back only to that turn, so a streamed token costs the running turn's rows; the set
+/// is kept per that turn's row, so the context holds one object until another turn ends well.
+export function resolvedFailures(rows: readonly AcpmuxRow[]): ReadonlySet<string> {
+  let through = rows.length - 1;
+  while (through >= 0 && !endedWell(rows[through]!)) through -= 1;
+  if (through < 0) return NO_RESOLVED;
+  const last = rows[through]!;
+  const cached = resolvedCache.get(last);
+  if (cached?.through === through) return cached.ids;
+  const ids = new Set<string>();
+  for (let at = 0; at < through; at += 1) if (isFailed(rows[at]!)) ids.add(rows[at]!.id);
+  const found = ids.size ? ids : NO_RESOLVED;
+  resolvedCache.set(last, { through, ids: found });
+  return found;
 }
 
 export const isStopped = (row: AcpmuxRow) =>
