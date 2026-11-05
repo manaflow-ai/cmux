@@ -88,11 +88,13 @@ extension CloudStartChat {
             return true
         } catch {
             // The message is the transfer's fixed text, never provider output.
-            decision.outcome = "failed: " + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
+            decision.outcome = Self.loginFailed + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
             return false
         }
     }
 
     /// The start record's outcome when no cached login exists and the chat's own sign-in card takes over.
     static let signInInChat = "no cached login: the chat's Sign in to Claude card"
+    /// The start record's outcome when the copy failed, before its fixed text.
+    static let loginFailed = "failed: "
 }

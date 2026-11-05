@@ -973,6 +973,60 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Tác tử bắt đầu trò chuyện Cloud bằng `cmux cloud start-session`, lệnh này sẽ hỏi người dùng trước."}}
       }
     },
+    "cloud.relayChat.loginMissing": {
+      "comment": "Relay chat refusal: Claude on the machine has no login and this Mac holds none to pass. %1$@ machine, %2$@ agent, %3$@ the cmux command (keep in English; keep the Sign in to Claude button name as the app shows it).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%2$@ on %1$@ isn't signed in, and this Mac holds no login of yours to give it, so the prompt wasn't sent. Run `%3$@` and use Sign in to Claude in its chat, then send the prompt again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%1$@ の %2$@ はサインインしておらず、この Mac には渡せるあなたのログインもないため、プロンプトは送信されませんでした。`%3$@` を実行し、そのチャットの「Claude にサインイン」を使ってから、もう一度プロンプトを送ってください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "%2$@ auf %1$@ ist nicht angemeldet, und dieser Mac hat keine Anmeldung von dir, die er weitergeben kann, daher wurde der Prompt nicht gesendet. Führe `%3$@` aus, nutze im Chat „Bei Claude anmelden“ und sende den Prompt dann erneut."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "%2$@ sur %1$@ n'est pas connecté, et ce Mac ne détient aucune de vos connexions à lui donner, donc le prompt n'a pas été envoyé. Exécutez `%3$@`, utilisez Se connecter à Claude dans son chat, puis renvoyez le prompt."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "%2$@ en %1$@ no ha iniciado sesión y este Mac no tiene ningún inicio de sesión tuyo para darle, así que el prompt no se envió. Ejecuta `%3$@`, usa Iniciar sesión en Claude en su chat y vuelve a enviar el prompt."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لم يسجّل %2$@ على %1$@ الدخول، ولا يحمل هذا الـ Mac أي تسجيل دخول لك ليعطيه إياه، لذلك لم تُرسل المطالبة. شغّل `%3$@` واستخدم تسجيل الدخول إلى Claude في محادثته، ثم أرسل المطالبة مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@의 %2$@은(는) 로그인되어 있지 않고, 이 Mac에도 넘겨줄 내 로그인이 없어 프롬프트를 보내지 않았습니다. `%3$@`을(를) 실행하고 채팅의 Claude에 로그인을 사용한 다음 프롬프트를 다시 보내세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 未登录，这台 Mac 也没有你的登录可以给它，所以提示没有发送。运行 `%3$@`，在其聊天中使用“登录 Claude”，然后再次发送提示。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 尚未登入，這台 Mac 也沒有你的登入可以給它，所以提示沒有送出。執行 `%3$@`，在其聊天中使用「登入 Claude」，然後再次送出提示。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "%2$@ na %1$@ nije prijavljen, a ovaj Mac nema tvoju prijavu da mu je da, pa prompt nije poslan. Pokreni `%3$@`, u njegovom chatu koristi Prijava na Claude, pa ponovo pošalji prompt."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "%2$@ på %1$@ er ikke logget ind, og denne Mac har intet login fra dig at give den, så prompten blev ikke sendt. Kør `%3$@`, brug Log ind på Claude i dens chat, og send prompten igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "%2$@ su %1$@ non ha effettuato l'accesso e questo Mac non ha alcun tuo accesso da dargli, quindi il prompt non è stato inviato. Esegui `%3$@`, usa Accedi a Claude nella sua chat, poi invia di nuovo il prompt."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "%2$@ នៅលើ %1$@ មិនទាន់បានចូលទេ ហើយ Mac នេះគ្មានការចូលរបស់អ្នកដើម្បីផ្តល់ឱ្យវាទេ ដូច្នេះប្រអប់បញ្ចូលមិនត្រូវបានផ្ញើទេ។ ដំណើរការ `%3$@` ហើយប្រើ ចូល Claude នៅក្នុងការជជែករបស់វា រួចផ្ញើប្រអប់បញ្ចូលម្តងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "%2$@ på %1$@ er ikke logget på, og denne Macen har ingen pålogging fra deg å gi den, så ledeteksten ble ikke sendt. Kjør `%3$@`, bruk Logg på Claude i chatten, og send ledeteksten på nytt."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "%2$@ na %1$@ nie jest zalogowany, a ten Mac nie ma twojego logowania, które mógłby mu przekazać, więc prompt nie został wysłany. Uruchom `%3$@`, użyj Zaloguj się do Claude w jego czacie, a potem wyślij prompt ponownie."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "%2$@ em %1$@ não está conectado, e este Mac não tem nenhum login seu para dar a ele, então o prompt não foi enviado. Execute `%3$@`, use Entrar no Claude no chat dele e envie o prompt de novo."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "%2$@ на %1$@ не выполнил вход, а на этом Mac нет вашего входа, который можно ему передать, поэтому запрос не отправлен. Запустите `%3$@`, нажмите «Войти в Claude» в его чате, затем отправьте запрос снова."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "%2$@ บน %1$@ ยังไม่ได้ลงชื่อเข้าใช้ และ Mac เครื่องนี้ไม่มีการลงชื่อเข้าใช้ของคุณที่จะให้ได้ จึงไม่ได้ส่งพรอมต์ เรียกใช้ `%3$@` แล้วใช้ ลงชื่อเข้าใช้ Claude ในแชทของมัน จากนั้นส่งพรอมต์อีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%1$@ üzerindeki %2$@ oturum açmamış ve bu Mac'te ona verilecek bir oturumunuz yok, bu yüzden istem gönderilmedi. `%3$@` komutunu çalıştırın, sohbetindeki Claude'da Oturum Aç'ı kullanın, sonra istemi yeniden gönderin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "%2$@ на %1$@ не виконав вхід, а на цьому Mac немає вашого входу, який можна йому передати, тому запит не надіслано. Запустіть `%3$@`, скористайтеся «Увійти в Claude» в його чаті, потім надішліть запит знову."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "%2$@ trên %1$@ chưa đăng nhập, và máy Mac này không có đăng nhập nào của bạn để đưa cho nó, nên lời nhắc chưa được gửi. Chạy `%3$@`, dùng Đăng nhập Claude trong cuộc trò chuyện của nó, rồi gửi lại lời nhắc."}}
+      }
+    },
+    "cloud.relayChat.loginFailed": {
+      "comment": "Relay chat refusal: copying the person's login to the machine failed. %1$@ machine, %2$@ agent, %3$@ the cmux command (keep in English), %4$@ the fixed failure text.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't give %2$@ on %1$@ your login (%4$@), so the prompt wasn't sent. Run `%3$@` to try again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%1$@ の %2$@ にあなたのログインを渡せなかったため（%4$@）、プロンプトは送信されませんでした。もう一度試すには `%3$@` を実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "%2$@ auf %1$@ konnte deine Anmeldung nicht erhalten (%4$@), daher wurde der Prompt nicht gesendet. Führe `%3$@` aus, um es erneut zu versuchen."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible de donner votre connexion à %2$@ sur %1$@ (%4$@), donc le prompt n'a pas été envoyé. Exécutez `%3$@` pour réessayer."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se pudo dar tu inicio de sesión a %2$@ en %1$@ (%4$@), así que el prompt no se envió. Ejecuta `%3$@` para intentarlo de nuevo."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر إعطاء %2$@ على %1$@ تسجيل دخولك (%4$@)، لذلك لم تُرسل المطالبة. شغّل `%3$@` للمحاولة مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@의 %2$@에 내 로그인을 넘겨주지 못해(%4$@) 프롬프트를 보내지 않았습니다. 다시 시도하려면 `%3$@`을(를) 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法把你的登录给 %1$@ 上的 %2$@（%4$@），所以提示没有发送。运行 `%3$@` 再试一次。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法把你的登入給 %1$@ 上的 %2$@（%4$@），所以提示沒有送出。執行 `%3$@` 再試一次。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nije moguće dati tvoju prijavu za %2$@ na %1$@ (%4$@), pa prompt nije poslan. Pokreni `%3$@` da pokušaš ponovo."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke give %2$@ på %1$@ dit login (%4$@), så prompten blev ikke sendt. Kør `%3$@` for at prøve igen."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile dare il tuo accesso a %2$@ su %1$@ (%4$@), quindi il prompt non è stato inviato. Esegui `%3$@` per riprovare."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនអាចផ្តល់ការចូលរបស់អ្នកឱ្យ %2$@ នៅលើ %1$@ បានទេ (%4$@) ដូច្នេះប្រអប់បញ្ចូលមិនត្រូវបានផ្ញើទេ។ ដំណើរការ `%3$@` ដើម្បីសាកល្បងម្តងទៀត។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke gi %2$@ på %1$@ påloggingen din (%4$@), så ledeteksten ble ikke sendt. Kjør `%3$@` for å prøve igjen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie udało się przekazać twojego logowania do %2$@ na %1$@ (%4$@), więc prompt nie został wysłany. Uruchom `%3$@`, aby spróbować ponownie."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não foi possível dar seu login a %2$@ em %1$@ (%4$@), então o prompt não foi enviado. Execute `%3$@` para tentar de novo."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не удалось передать ваш вход %2$@ на %1$@ (%4$@), поэтому запрос не отправлен. Запустите `%3$@`, чтобы попробовать снова."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ไม่สามารถให้การลงชื่อเข้าใช้ของคุณแก่ %2$@ บน %1$@ ได้ (%4$@) จึงไม่ได้ส่งพรอมต์ เรียกใช้ `%3$@` เพื่อลองอีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%1$@ üzerindeki %2$@ için oturumunuz verilemedi (%4$@), bu yüzden istem gönderilmedi. Yeniden denemek için `%3$@` komutunu çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося передати ваш вхід %2$@ на %1$@ (%4$@), тому запит не надіслано. Запустіть `%3$@`, щоб спробувати знову."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể đưa đăng nhập của bạn cho %2$@ trên %1$@ (%4$@), nên lời nhắc chưa được gửi. Chạy `%3$@` để thử lại."}}
+      }
+    },
     "cloud.relayChat.replyTitle": {
       "comment": "Title of the sheet that shows a relay chat's reply to the person who ran it.",
       "extractionState": "manual",

@@ -17,6 +17,12 @@ enum CloudStartSessionStrings {
     static var relayAgentRun: String { String(localized: "cloud.relayChat.agentRun", defaultValue: "An agent starts a Cloud chat with `cmux cloud start-session`, which asks the person first.", table: "CloudSessions", bundle: .module) }
     static var relayUnavailable: String { String(localized: "cloud.relayChat.unavailable", defaultValue: "This Cloud sign-in has no relay chat. Use `cmux cloud start-session` instead.", table: "CloudSessions", bundle: .module) }
     static var relayReplyTitle: String { String(localized: "cloud.relayChat.replyTitle", defaultValue: "Cloud Chat Reply", table: "CloudSessions", bundle: .module) }
+    static func relayLoginMissing(_ asked: Asked) -> String {
+        String(format: String(localized: "cloud.relayChat.loginMissing", defaultValue: "%2$@ on %1$@ isn't signed in, and this Mac holds no login of yours to give it, so the prompt wasn't sent. Run `%3$@` and use Sign in to Claude in its chat, then send the prompt again.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
+    }
+    static func relayLoginFailed(_ asked: Asked, reason: String) -> String {
+        String(format: String(localized: "cloud.relayChat.loginFailed", defaultValue: "Couldn't give %2$@ on %1$@ your login (%4$@), so the prompt wasn't sent. Run `%3$@` to try again.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command, reason)
+    }
 
     static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .module) }
     static var openChat: String { String(localized: "cloud.startSession.openChat", defaultValue: "Open Chat", table: "CloudSessions", bundle: .module) }
