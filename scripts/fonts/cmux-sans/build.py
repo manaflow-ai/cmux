@@ -24,7 +24,8 @@ as before.
 Needs fontTools and brotli. Usage:
     build.py --preset b --out DIR          one preset, writes cmuxSans-PRESET[wght].ttf and .woff2
     build.py --all --out DIR               every preset
-    build.py --all --out DIR --subset latin  the gallery's Latin subset (study files)
+    build.py --all --out DIR --subset latin  Fontsource's Latin subset (the gallery's and the chat's files)
+    build.py --preset c --subset latin --release --out DIR   the chat's cmux Sans (family "cmux Sans")
 The source zip is fetched once into ~/.cache/cmux-sans and checked against its sha256.
 """
 
@@ -70,6 +71,12 @@ PRESETS: dict[str, dict] = {
     "c-g": {"scale": 1.0, "xheight": 516, "sets": ["ss04"]},
     "c-lg": {"scale": 1.0, "xheight": 516, "sets": ["ss05", "ss04"]},
 }
+
+# Fontsource's "latin" subset, the range every other bundled chat face is cut to (chatFonts/FONTS.md).
+LATIN = [
+    *range(0x00, 0x100), 0x131, 0x152, 0x153, 0x2BB, 0x2BC, 0x2C6, 0x2DA, 0x2DC, 0x304, 0x308, 0x329,
+    *range(0x2000, 0x2070), 0x20AC, 0x2122, 0x2191, 0x2193, 0x2212, 0x2215, 0xFEFF, 0xFFFD,
+]
 
 # Glyph-name suffixes of lowercase forms that do not sit on the x-height.
 NOT_ON_X_HEIGHT = (".sc", ".sups", ".subs", ".sinf", ".numr", ".dnom", "superior", "inferior")
@@ -271,13 +278,12 @@ def build(preset: str, subset: str | None, out: Path, release: bool) -> list[Pat
         from fontTools import subset as fsubset
 
         options = fsubset.Options()
-        options.layout_features = ["*"]
+        # fontTools' default features (kern, liga, marks, fractions, ...), as Fontsource keeps; the stylistic
+        # sets a preset wants are already the default forms (make_default).
         options.name_IDs = ["*"]
         options.notdef_outline = True
         subsetter = fsubset.Subsetter(options)
-        subsetter.populate(
-            unicodes=list(range(0x20, 0x250)) + list(range(0x2000, 0x2070)) + [0x20AC, 0x2122, 0x2190, 0x2192, 0x2212]
-        )
+        subsetter.populate(unicodes=LATIN)
         subsetter.subset(font)
     stem = f"{PS_FAMILY}{'' if release else '-' + preset}[wght]"
     out.mkdir(parents=True, exist_ok=True)
