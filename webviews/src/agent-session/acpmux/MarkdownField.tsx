@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { PASTE_FILE_CHARS } from "./pastedText";
 import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
 import { pasteIsOnlyFileNames } from "./attachments";
+import { isPasteAsPlainTextKey } from "./composer/pastedChips";
+import { htmlHasBlocks, htmlMarkdown, looksLikeMarkdown } from "./richClipboard";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
@@ -86,6 +88,9 @@ export type MarkdownFieldHandle = {
   insertTyped(text: string): void;
   /// Pastes `text` as the clipboard would: through `onBeforeInput` first.
   pasteText(text: string): void;
+  /// Paste as Plain Text is starting (the prompt's menu; ⌘⇧V the field hears itself): its paste goes
+  /// in as plain lines, never as the rich blocks a list or heading would make.
+  plainPaste(): void;
   /// Replaces the prompt without reporting it as the user's edit (a new tab adopted, a chat sent).
   reset(markdown?: string): void;
   /// `markdown` (the field's value) as the agent gets it: the characters the user typed, with
@@ -328,6 +333,37 @@ function insertPlain(view: EditorView, text: string) {
   view.dispatch(tr.scrollIntoView());
 }
 
+/** Each newline in `fragment`'s text, outside code, as a line break: a pasted paragraph keeps its
+ * lines, as a plain paste does (`plainFragment`), where Markdown would join them. */
+function withLineBreaks(fragment: Fragment, view: EditorView): Fragment {
+  const { schema } = view.state;
+  const hardbreak = schema.nodes.hardbreak;
+  if (!hardbreak) return fragment;
+  const nodes: ProseNode[] = [];
+  fragment.forEach((node) => {
+    if (node.isText && node.text?.includes("\n"))
+      node.text.split("\n").forEach((line, index) => {
+        if (index > 0) nodes.push(hardbreak.create());
+        if (line) nodes.push(schema.text(line, node.marks));
+      });
+    else if (node.isLeaf || node.type.spec.code) nodes.push(node);
+    else nodes.push(node.copy(withLineBreaks(node.content, view)));
+  });
+  return Fragment.from(nodes);
+}
+
+/** A paste as Markdown when it has blocks to draw (Leo, 2026-11-05: "we don't even render bullet
+ * points properly in our thing when we're pasting that stuff in"): HTML with lists, headings,
+ * quotes or tables (a web page, Notes, Docs, Slack, a reply copied from the transcript) read as
+ * Markdown, else plain text that is Markdown with a list or fenced code (Claude's and ChatGPT's
+ * Copy). Anything else is undefined and goes in as its plain lines. */
+function richPasteMarkdown(data: DataTransfer): string | undefined {
+  const html = data.getData("text/html");
+  if (html && htmlHasBlocks(html)) return htmlMarkdown(html, { escape: true }) || undefined;
+  const text = withoutBreakPlaceholders(data.getData("text/plain"));
+  return looksLikeMarkdown(text) ? text : undefined;
+}
+
 /** The copy's text/plain: the lines as the field shows them (a block or line break a newline, an
  * empty paragraph a blank line), with no markdown escapes or `<br />` placeholders. */
 const copiedText = (slice: Slice) => slice.content.textBetween(0, slice.content.size, "\n");
@@ -335,6 +371,8 @@ const copiedText = (slice: Slice) => slice.content.textBetween(0, slice.content.
 /// How long after a focus with no click the browser's own caret placement is overruled. Its caret
 /// at the field's very start is overruled for as long as no key, click or edit came (see `keepCaret`).
 const KEEP_CARET_MS = 100;
+/// How long after ⌘⇧V (or the menu's Paste as Plain Text) its paste may arrive.
+const PLAIN_PASTE_MS = 1000;
 /// How soon after `compositionend` a keyCode-229 Return is the key that committed the composition
 /// (WebKit sends it after the event). ProseMirror's own Safari guard uses the same window.
 const COMMIT_RETURN_MS = 500;
@@ -494,6 +532,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const view = useRef<EditorView | undefined>(undefined);
   const remark = useRef<RemarkParser | undefined>(undefined);
   const literalNow = useRef(literal);
+  // When Paste as Plain Text last started (⌘⇧V or `plainPaste`): the next paste goes in plain.
+  const plainPasteAt = useRef(-Infinity);
   literalNow.current = literal;
   const plainInputNow = useRef(plainInput || literal);
   plainInputNow.current = plainInput || literal;
@@ -706,6 +746,23 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           if (!disposed && field) field.scrollTop = field.scrollHeight;
         });
       };
+      // A paste read as Markdown (`richPasteMarkdown`) goes in as the blocks typing it would make, open
+      // at both ends so its first and last lines join the text around the caret. False when the
+      // editor is not made yet or the Markdown does not parse: the paste goes in as plain lines.
+      const insertMarkdown = (editorView: EditorView, markdown: string) => {
+        const made = editor.current;
+        if (!made) return false;
+        let parsed: ProseNode | undefined;
+        try {
+          parsed = made.action((ctx) => ctx.get(parserCtx)(markdown));
+        } catch {
+          return false;
+        }
+        if (!parsed?.content.size) return false;
+        const slice = Slice.maxOpen(withLineBreaks(parsed.content, editorView));
+        editorView.dispatch(editorView.state.tr.replaceSelection(slice).scrollIntoView());
+        return true;
+      };
       // Keys reach the composer first, as a textarea's keydown would.
       const composerKeys = $prose(
         () =>
@@ -721,6 +778,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   // was selected. Its own keydown flushes only pending DOM mutations, so read the
                   // selection here, before the surface's keys and ProseMirror's see it.
                   if (!event.isComposing && event.keyCode !== 229 && !_view.composing) readDomSelection(_view);
+                  if (!event.isComposing && isPasteAsPlainTextKey(event)) plainPasteAt.current = performance.now();
                   latest.current.onKeyDown?.(event);
                   if (event.defaultPrevented) return true;
                   // Browser editing shortcuts must remain reliable in literal New Tab input.
@@ -920,6 +978,24 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 // an HTML one as rich nodes (Leo 2026-10-21: "line breaks ... as <br />").
                 // VS Code's paste is Milkdown's (a code block in its language).
                 const data = event.clipboardData;
+                // Paste as Plain Text covers the one paste that follows it.
+                const plainOnly = performance.now() - plainPasteAt.current < PLAIN_PASTE_MS;
+                plainPasteAt.current = -Infinity;
+                const markdown =
+                  data &&
+                  !plainOnly &&
+                  !data.getData("vscode-editor-data") &&
+                  !editorView.state.selection.$from.parent.type.spec.code
+                    ? richPasteMarkdown(data)
+                    : undefined;
+                if (markdown !== undefined) {
+                  // The surface sees the text as copied first (a huge paste is the composer's chip).
+                  if (beforeInput(editorView, data?.getData("text/plain") || markdown, true)) return true;
+                  if (insertMarkdown(editorView, markdown)) {
+                    showPastedEnd(editorView.state);
+                    return true;
+                  }
+                }
                 if (data && !data.getData("vscode-editor-data")) {
                   const html = data.getData("text/html");
                   const text = data.getData("text/plain");
@@ -1355,6 +1431,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         },
         removeInline: (id, caret) => {
           if (view.current) removeInline(view.current, id, caret);
+        },
+        plainPaste: () => {
+          plainPasteAt.current = performance.now();
         },
         insertCommand: (name) => {
           const current = view.current;

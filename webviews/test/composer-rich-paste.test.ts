@@ -62,6 +62,11 @@ await requireBrowserLane("composer-rich-paste.test.ts", async () => {
           writeText: async (text: string) => {
             copied.push(text);
           },
+          // A message's Copy writes its Markdown and HTML together (richClipboard.ts).
+          write: async (items: ClipboardItem[]) => {
+            copied.push(await (await items[0]!.getType("text/plain")).text());
+            Object.assign(window, { __copiedHtml: await (await items[0]!.getType("text/html")).text() });
+          },
           readText: async () => copied.at(-1) ?? "",
         },
       });
@@ -178,6 +183,30 @@ await requireBrowserLane("composer-rich-paste.test.ts", async () => {
       await paste(page, { "text/plain": "\n- three\n- four" });
       await settled(page, "four");
       expect(await page.locator(`${FIELD} li`).count()).toBe(2);
+      await page.close();
+    });
+
+    test(`${engine}: a message's Copy writes its Markdown and HTML, and that paste comes back as a list`, async () => {
+      const page = await newChat(engine);
+      await paste(page, { "text/plain": "- one\n- two" });
+      await settled(page, "two");
+      await page.keyboard.press("Enter");
+      const bubble = page.locator(".cv-user__bubble", { hasText: "one" });
+      await bubble.waitFor({ timeout: 15_000 });
+      const row = page.locator(".acpmux-row", { has: bubble });
+      await row.hover();
+      await row.locator('.cv-user__actions button[aria-label="Copy"]').click();
+      await page.waitForFunction(() => ((window as unknown as { __copied: string[] }).__copied ?? []).length > 0);
+      const copied = await page.evaluate(() => ({
+        plain: (window as unknown as { __copied: string[] }).__copied.at(-1)!,
+        html: (window as unknown as { __copiedHtml: string }).__copiedHtml,
+      }));
+      expect(copied.plain).toBe("- one\n- two");
+      expect(copied.html).toMatch(/<ul>\s*<li>one<\/li>\s*<li>two<\/li>\s*<\/ul>/);
+      await page.locator(FIELD).click();
+      await paste(page, { "text/plain": copied.plain, "text/html": copied.html });
+      await settled(page, "two");
+      expect(await blocks(page)).toEqual(["LI:one", "LI:two"]);
       await page.close();
     });
 
