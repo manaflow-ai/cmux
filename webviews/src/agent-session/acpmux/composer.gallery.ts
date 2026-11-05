@@ -248,6 +248,50 @@ const pictured = {
   ],
 };
 
+// Leo's message (2026-11-05): two screenshots and three screen recordings, sent to steer and
+// queued behind another agent's turn. acpmux lists each video's frames as images; the card draws
+// one tile per attachment, a video at its first frame with its length, in one row ("uh this was a
+// weird preview idk i guess i accidentally queued?").
+const recording = (name: string, seconds: number) => ({
+  frames: Array.from({ length: 7 }, (_, at) => ({
+    id: `${name}-${at}`.padEnd(64, "0"),
+    mimeType: "image/jpeg",
+    name: `${name} frame at 0:${String(at * 2).padStart(2, "0")}.0`,
+    src: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
+  })),
+  part: {
+    kind: "file" as const,
+    name,
+    mimeType: "video/quicktime",
+    video: {
+      durationMs: seconds * 1000,
+      width: 320,
+      height: 180,
+      poster: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
+      frames: [],
+    },
+  },
+});
+const recordings = [
+  recording("Screen Recording 2026-11-04 at 16.01.10.mov", 16),
+  recording("Screen Recording 2026-11-04 at 16.02.41.mov", 23),
+  recording("Screen Recording 2026-11-04 at 16.03.55.mov", 9),
+];
+const withVideos = {
+  id: "q1",
+  prompt: "uh this was a weird preview idk i guess i accidentally queued?",
+  steerQueued: true as const,
+  images: [
+    pictured.images[0]!,
+    ...recordings.flatMap((video) => video.frames),
+    pictured.images[1]!,
+  ],
+  inlineParts: [
+    { kind: "text" as const, text: "uh this was a weird preview idk i guess i accidentally queued?" },
+    ...recordings.map((video) => video.part),
+  ],
+};
+
 // A turn that took two steers, one the agent read and one it has not yet, and a prompt sent now
 // to an agent that cannot steer (it goes on with the turn).
 const steerMarks = () =>
@@ -1760,6 +1804,10 @@ export default agentPaneEntry({
     "queued-images": {
       note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
+    },
+    "queued-videos": {
+      note: 'Leo\'s message with two screenshots and three screen recordings, sent to steer and queued behind another agent\'s turn: five tiles in one row (each video one tile at its first frame, with its length), "Queued until the agent\'s turn ends" before its text, and Steer in view (Leo, 2026-11-05: "uh this was a weird preview idk i guess i accidentally queued?").',
+      snapshot: chat(working, { isWorking: true, queue: [withVideos, { id: "q2", prompt: "And update the README" }] }),
     },
     "queued-images-edit": {
       note: "Play: Edit message (the ⋯ menu) on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",
