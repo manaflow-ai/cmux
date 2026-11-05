@@ -269,6 +269,9 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 /// change the effective text reported for an existing chat.
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     let mut parts = snapshot_for(cfg, &meta.cwd, &meta.harness);
+    // A folder set up for another harness: its instructions, which this one does not read itself.
+    let family = family_for_folder(cfg, &meta.harness);
+    parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
     if let Some(default) = verified_prompt_text(meta, cfg) {
         let text = meta.cmux_preset_prompt.clone().unwrap_or(default);
         parts.push(ContextPart {
@@ -328,7 +331,11 @@ pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
         p.included
             && matches!(
                 p.source.as_str(),
-                "cmux-default" | "cmux-user" | "cmux-project" | GUIDANCE_SOURCE
+                "cmux-default"
+                    | "cmux-user"
+                    | "cmux-project"
+                    | GUIDANCE_SOURCE
+                    | crate::folder_instructions::SOURCE
             )
             && p.channel.as_deref().is_none_or(|channel| channel == "user-context")
     }) {
@@ -372,6 +379,15 @@ pub fn guidance_part(text: String) -> ContextPart {
         channel: Some("user-context".into()),
         text: Some(text),
     }
+}
+
+/// The family whose own instruction files a profile reads: a Claude Code
+/// profile under its own family name (`claude-sr2`) still reads `CLAUDE.md`.
+pub fn family_for_folder(cfg: &Config, harness: &str) -> String {
+    cfg.harnesses
+        .get(harness)
+        .map(|p| crate::config::store_family(harness, p))
+        .unwrap_or_else(|| harness.to_string())
 }
 
 /// Capture settings once when the session is created. Project text replaces user text.

@@ -1784,6 +1784,10 @@
             "minLength": 1,
             "type": "string"
           },
+          "userId": {
+            "description": "The person who enrolled the machine. Optional until every cmux-platform deploy names it.",
+            "type": "string"
+          },
           "wgPublicKey": {
             "description": "A WireGuard public key in standard base64.",
             "examples": [],

@@ -220,6 +220,7 @@ const SKILL_FILES: &[(&str, &str)] = &[
         "cmux-customization/references/viewer-types.md",
         include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
     ),
+    ("cmux-live/SKILL.md", include_str!("../../../../skills/cmux-live/SKILL.md")),
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
     // How the chat draws a plan, sub-sessions, links and a recap (`agent_guidance.rs`).
     ("cmux-chat/SKILL.md", include_str!("../skills/cmux-chat/SKILL.md")),
