@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextSettings
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -41,5 +42,34 @@ struct AgentPaneSpareAdoptionTests {
         #expect(adopts(seeded: true) == nil)
         #expect(adopts(wake: true) == nil)
         #expect(adopts(chief: true) == nil)
+    }
+
+    /// Leo, 2026-11-05: "things just don't f***ing open up fast enough on the right. / links.
+    /// subagents. all". A subagent's pane takes the prewarmed page when the host holds its chat's
+    /// tail (the chat hands it over as it asks for the pane), which the page draws in its adopt
+    /// event's own render, so it never shows the empty transcript HQ#5914 found. Any other existing
+    /// chat still opens cold while ``AgentPaneSpareReadiness/adoptsExistingChats`` is off.
+    @Test func aSubagentPaneWithItsChatsTailTakesTheSpare() {
+        #expect(AgentPaneSpareReadiness.adopts(subagentPane: true, keptTail: true))
+        #expect(!AgentPaneSpareReadiness.adopts(subagentPane: true, keptTail: false))
+        #expect(!AgentPaneSpareReadiness.adopts(subagentPane: false, keptTail: true))
+        #expect(!AgentPaneSpareReadiness.adopts(subagentPane: false, keptTail: false))
+    }
+
+    /// The adopt event carries the chat's kept tail, so the page draws it in the event's own render
+    /// instead of asking the host for it (`chat.tail.get`, a round trip raced against 250 ms that a
+    /// busy main thread loses, leaving the pane empty until acpmux's attach answers).
+    @Test func theAdoptEventCarriesTheChatsTail() throws {
+        let tail: JSONValue = .object(["events": .array([.object(["seq": .number(1), "kind": .string("user_message")])]),
+                                       "historyExhausted": .bool(true)])
+        let text = AgentPaneView.adoptEventDetail(session: "s-1", revealTurn: "subagent:a", tail: tail)
+        let detail = try #require(JSONValue(foundation: try JSONSerialization.jsonObject(with: Data(text.utf8))))
+        #expect(detail["sessionId"] == .string("s-1"))
+        #expect(detail["revealTurn"] == .string("subagent:a"))
+        #expect(detail["tail"] == tail)
+        // No tail kept: the detail names none, and the page asks the host as before.
+        let bare = AgentPaneView.adoptEventDetail(session: "s-1", revealTurn: nil, tail: nil)
+        let parsed = try #require(JSONValue(foundation: try JSONSerialization.jsonObject(with: Data(bare.utf8))))
+        #expect(parsed == .object(["sessionId": .string("s-1")]))
     }
 }

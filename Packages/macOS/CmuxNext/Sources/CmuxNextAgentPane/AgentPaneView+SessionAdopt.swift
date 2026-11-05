@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextSettings
 
 /// A prewarmed New Tab page opens an existing chat (a sidebar click, Open in Tab, a subagent's
 /// pane): the page is loaded, mounted and connected to acpmux already, so it switches to the
@@ -35,6 +36,13 @@ extension AgentPaneView {
               let json = String(data: data, encoding: .utf8) else { return true }
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-session-adopt', {detail: \(json)}))")
         return true
+    }
+
+    /// The adopt event's detail as JSON text (red stub).
+    nonisolated static func adoptEventDetail(session: String, revealTurn: String?, tail: JSONValue?) -> String {
+        var detail: [String: JSONValue] = ["sessionId": .string(session)]
+        if let revealTurn { detail["revealTurn"] = .string(revealTurn) }
+        return JSONValue.object(detail).compactText
     }
 
     /// Tells the page the tab it now is (``AgentPaneModel/tabKey``, on each change), for a page a tab

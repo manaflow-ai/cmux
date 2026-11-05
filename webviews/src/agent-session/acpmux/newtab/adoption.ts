@@ -20,7 +20,7 @@ export const NEW_TAB_WEATHER_EVENT = "acpmux-newtab-weather";
 export const SESSION_ADOPT_EVENT = "acpmux-session-adopt";
 
 /// The chat a session adopt event names, and the turn its open asks to show (a subagent's pane).
-export type SessionAdoption = { sessionId: string; revealTurn?: string };
+export type SessionAdoption = { sessionId: string; revealTurn?: string; tail?: unknown };
 
 /// The adoption an event's detail names; undefined when it names no session.
 export function sessionAdoption(detail: unknown): SessionAdoption | undefined {
@@ -28,6 +28,16 @@ export function sessionAdoption(detail: unknown): SessionAdoption | undefined {
   const { sessionId, revealTurn } = detail as { sessionId?: unknown; revealTurn?: unknown };
   if (typeof sessionId !== "string" || !sessionId) return undefined;
   return typeof revealTurn === "string" && revealTurn ? { sessionId, revealTurn } : { sessionId };
+}
+
+/// Keeps the tail an adopt event carries (red stub).
+export function keepAdoptedTail(_adoption: SessionAdoption): boolean {
+  return false;
+}
+
+/// What an adoption waits on before its switch (red stub).
+export function adoptionPlan(_adoption: SessionAdoption): { readsAnchor: boolean; revealsFirst: boolean } {
+  return { readsAnchor: true, revealsFirst: false };
 }
 
 /// Calls `onAdopt` with each session adopt event, rendered inside the event: the page's next

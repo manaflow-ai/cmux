@@ -49,6 +49,9 @@ public nonisolated struct AgentPaneSpareReadiness: Sendable, Equatable {
     /// painted on a reopen, so every such tab opens cold, as before #31033.
     public static let adoptsExistingChats = false
 
+    /// Whether an open of an existing chat may take the spare at all (red stub).
+    public static func adopts(subagentPane: Bool, keptTail: Bool) -> Bool { adoptsExistingChats }
+
     public var servesChat: Bool {
         handshake && painted && clientReady && !lowPower && thermal.rawValue < ProcessInfo.ThermalState.serious.rawValue
     }
