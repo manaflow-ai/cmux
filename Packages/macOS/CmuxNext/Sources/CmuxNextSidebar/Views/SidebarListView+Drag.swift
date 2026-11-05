@@ -310,6 +310,7 @@ extension SidebarListViewComponents {
         let destination = slot ?? tile ?? settled ?? SidebarListLift.blockFrame(self, lifted) ?? drag.lift.frame
         landing = drag
         drag.landingThen = then
+        drag.flightStart = drag.flightStart.map { $0.union(drag.lift.frame) } ?? drag.lift.frame
         // A row the drop took away (an emptied group's header) goes now if the card is over it or lands on it.
         dropLeavingRows(under: [drag.lift.frame, destination])
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
@@ -336,6 +337,7 @@ extension SidebarListViewComponents {
         if landing === drag { landing = nil }
         drag.landsOnModel = false
         drag.landingThen = nil
+        drag.flightStart = nil
         Motion.withoutAnimation {
             drag.lift.removeFromSuperview()
             // The dropped item, held invisible under the flying card (landSettled), shows in the same transaction.
@@ -359,9 +361,12 @@ extension SidebarListViewComponents {
         if let anchor = drag.renameOnLand { inlineRename.beginGroup(of: anchor) }
     }
 
-    /// Where a dropped card is drawn and lands while it settles or flies (list coordinates); none otherwise.
+    /// Where a dropped card is drawn while it settles or flies (list coordinates): its whole path, from where its
+    /// flight began to its slot (the frame jumps to the slot at once; the layer flies there); none otherwise.
     var flyingCardFrames: [NSRect] {
-        [settling?.drag.lift, landing?.lift].compactMap { $0 }.filter { $0.superview === self }.map(\.frame)
+        [settling?.drag, landing].compactMap { $0 }.filter { $0.lift.superview === self }.map { drag in
+            drag.flightStart.map { $0.union(drag.lift.frame) } ?? drag.lift.frame
+        }
     }
 
     /// Whether `frame` (a row's) sits under one of `cards`. The card draws no material of its own in a

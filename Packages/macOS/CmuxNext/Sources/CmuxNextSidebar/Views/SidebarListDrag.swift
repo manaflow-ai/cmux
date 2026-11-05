@@ -91,6 +91,8 @@ final class SidebarListDrag {
     var landsOnModel = false
     /// The landing's completion, kept for a retarget (only the last landing call's completion runs).
     var landingThen: (@MainActor () -> Void)?
+    /// Where the landing card was when its flight began (or a retarget's began), so its whole path counts as under it.
+    var flightStart: NSRect?
     init(payload: DragPayload, grabbedKey: SidebarRowKey, hiddenKeys: Set<SidebarRowKey>, grabOffsetY: CGFloat, gapHeight: CGFloat, lift: DragLiftView, head: CGFloat? = nil,
          target: DropTarget?) {
         self.payload = payload
