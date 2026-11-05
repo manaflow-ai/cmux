@@ -502,3 +502,75 @@ async fn a_capable_host_name_fronting_an_older_receiver_does_not_move_an_approve
     hub.transfer_request("_acpmux/transfer_abort", &abort).await.unwrap();
     hub.shutdown_all().await;
 }
+
+/// A goal's continuation keeps its mark across a restart, and the person's edit of one clears it
+/// there too: the edited prompt is the person's, which no goal change may refuse (Codex review of
+/// #36666, F2: `queue_updated` named no mark, and the restore kept the queued record's).
+#[tokio::test]
+async fn a_restart_keeps_a_continuations_goal_mark_and_an_edit_clears_it() {
+    let dir = std::env::temp_dir().join(format!("acpmux-goal-mark-{}", uuid::Uuid::now_v7()));
+    let durable = || {
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "defaultHarness": "fake"
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        let store = crate::store::open(&cfg.store, &dir).unwrap();
+        Hub::new(cfg, store)
+    };
+    let hub = durable();
+    let new = crate::hub::NewRequest {
+        cwd: Some(std::env::temp_dir()),
+        ..crate::hub::NewRequest::default()
+    };
+    let session = hub.new_session(new).await.unwrap();
+    let id = session.id.clone();
+    for prompt_id in ["kept", "edited"] {
+        let blocks = [json!({"type": "text", "text": "Keep going"})];
+        let replaced = std::sync::OnceLock::new();
+        let slot = Slot {
+            text: "Keep going",
+            blocks: &blocks,
+            display_parts: None,
+            client: "acpmux",
+            prompt_id,
+            control: Control::Local,
+            cloud_mobile: false,
+            trust_gate: false,
+            interrupt: false,
+            interrupt_turn: None,
+            provenance: None,
+            agent: None,
+            class: None,
+            supersede: None,
+            full_access_device: None,
+            replaced: &replaced,
+            no_queue: false,
+            admitted: false,
+            after_turn: false,
+            goal_mark: Some("41"),
+        };
+        session.queued.fetch_add(1, Ordering::SeqCst);
+        let limits = super::super::queue_admission::QueueLimits { prompts: None, bytes: None };
+        hub.enqueue_or_refuse(&session, &slot, prompt_id, limits).unwrap();
+    }
+    let edit =
+        json!({"sessionId": id, "promptId": "edited", "op": "update", "text": "Do this instead"});
+    hub.queue_edit(&session, &edit, Control::Local, false, None).await.unwrap();
+    hub.shutdown_all().await;
+    drop((session, hub));
+
+    let hub = durable();
+    let session = hub.resolve(&id).unwrap();
+    hub.restore_queue(&session);
+    let marks: Vec<(String, Option<String>)> =
+        session.queue().into_iter().map(|q| (q.prompt_id, q.run.goal_mark.clone())).collect();
+    assert_eq!(
+        marks,
+        [("kept".to_owned(), Some("41".to_owned())), ("edited".to_owned(), None)],
+        "the restored queue's goal marks"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

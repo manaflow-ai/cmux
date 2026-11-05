@@ -614,7 +614,8 @@ impl Hub {
         }
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
         if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting)
-            .and_then(|()| super::goal_tools::check_goal_mark(session, goal_mark.as_deref()))
+            // Its queue entry's mark: an edit made it the person's (none), a restart restored it.
+            .and_then(|()| super::goal_tools::check_goal_mark(session, run.goal_mark.as_deref()))
         {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);

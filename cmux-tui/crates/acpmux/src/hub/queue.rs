@@ -1365,6 +1365,9 @@ impl Hub {
                                 // An edit of a prompt that waits for the owner waits again.
                                 "awaitingOwner",
                                 "revision",
+                                // An edit makes a goal's continuation the person's prompt: no
+                                // `queue_updated` names a mark, so the restored one has none.
+                                "goalMark",
                             ] {
                                 if let Some(value) = e.msg.get(k) {
                                     q.msg[k] = value.clone();

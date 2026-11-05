@@ -258,6 +258,8 @@ fn digestible(q: &QueuedPrompt) -> bool {
         && !q.sent_now
         && run.control != Control::Web
         && !run.trust_gate
+        // A goal's continuation runs on its own, checked against its goal (`goal_tools.rs`).
+        && run.goal_mark.is_none()
         && !run.blocks.is_empty()
         && run.blocks.iter().all(|b| {
             b.get("type").and_then(Value::as_str) == Some("text")
