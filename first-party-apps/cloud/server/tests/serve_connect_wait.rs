@@ -164,3 +164,31 @@ fn a_connect_to_a_pushed_machine_answers_on_the_push_not_on_a_read() {
     assert_eq!(result["ok"], true, "{result}");
     assert_eq!(clock.fire_all(), 0, "the push answered it, not a due read");
 }
+
+/// A pushed removal is final: the machine leaves the projection, and a
+/// stale state frame that comes after it never brings it back.
+#[test]
+fn a_pushed_removal_is_final() {
+    let (mut host, _clock) = host_with_clock();
+    let watch = |host: &mut Host| loop {
+        let line = host.next_within(serve_common::WAIT).expect("a watch event");
+        if line["type"] == "event" && line["event"] == "cloud.machine.watch" {
+            break line;
+        }
+    };
+    pushed(&host, "running", "4");
+    assert_eq!(watch(&mut host)["data"]["type"], "upsert");
+    host.send(&json!({ "type": "team.event", "event": "cloud.machine.state",
+        "data": { "v": 1, "t": "removed", "machine": MACHINE, "revision": 2 } }));
+    let removed = watch(&mut host);
+    assert_eq!(removed["data"]["type"], "removed", "{removed}");
+    pushed(&host, "running", "5");
+    pushed(&host, "paused", "3");
+    while let Some(line) = host.next_within(Duration::from_millis(300)) {
+        assert!(
+            !(line["type"] == "event" && line["event"] == "cloud.machine.watch"),
+            "a stale frame after the removal made no event: {line}"
+        );
+    }
+    assert!(host.cloud.ops().is_empty(), "no read at all: {:?}", host.cloud.ops());
+}

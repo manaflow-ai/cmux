@@ -46,10 +46,16 @@ public final class CloudMachineStatePush {
     /// Whether `machine`'s state is pushed now (its socket is open and sent its first frame).
     public func isLive(_ machine: String) -> Bool { watches[machine]?.live == true }
 
-    /// Watches exactly `machines`: opens a socket for each new one and closes the ones no longer shown.
-    public func watch(_ machines: Set<String>) {
-        for id in watches.keys where !machines.contains(id) { end(id) }
-        for id in machines where watches[id] == nil && Self.validID(id) {
+    /// Watches exactly `machines` (a list's records): opens a socket for each new one and closes the ones no longer
+    /// shown. A listed record is the last one known until a frame brings a newer one, so a removal that comes as the
+    /// socket's first frame still shows.
+    public func watch(_ machines: [CloudMachine]) {
+        let shown = Set(machines.map(\.id))
+        for id in Array(watches.keys) where !shown.contains(id) { end(id) }
+        for machine in machines where Self.validID(machine.id) {
+            let id = machine.id
+            if last[id] == nil { last[id] = machine }
+            guard watches[id] == nil else { continue }
             watches[id] = Watch()
             watches[id]?.runner = Task { [weak self] in await self?.run(id) }
         }

@@ -81,9 +81,11 @@ pub(crate) fn apply(
                 // The socket's first frame before anything was put: the
                 // push is live, the record comes with the next change.
                 ("state", None) => projection.mark_pushed(&frame.machine),
+                // A removal is final (a machine id is never reused): no
+                // later frame or read brings the machine back.
                 ("removed", _) => {
                     projection.mark_pushed(&frame.machine);
-                    projection.remove(&frame.machine);
+                    projection.remove_final(&frame.machine);
                 }
                 _ => return Err(CloudError::invalid(format!("{event}: not a machine state frame"))),
             }

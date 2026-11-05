@@ -240,7 +240,7 @@ public final class CloudMachineChanges {
         // began/stop cancel the old task, including callbacks delivered from inside its refresh.
         guard !stopped, !Task.isCancelled else { return }
         listRevision += 1
-        push?.watch(Set(list.filter { $0.status != .destroyed }.map(\.id)))
+        push?.watch(list.filter { $0.status != .destroyed })
         // CloudService already reconciled these records with their read tickets. Replaying
         // settlement here without tickets could let a rejected stale response clear a mutation.
         delay = Self.settleDelay

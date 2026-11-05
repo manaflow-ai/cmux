@@ -213,6 +213,14 @@ impl Projection {
         self.apply(vec![id.to_owned()], Vec::new());
     }
 
+    /// A pushed removal (`cloud.machine.state` `removed`): the machine is
+    /// gone for good, so it is tombstoned above any revision a stale record
+    /// or read can carry.
+    pub(crate) fn remove_final(&mut self, id: &str) {
+        self.tombstone(id, Revision::final_());
+        self.apply(vec![id.to_owned()], Vec::new());
+    }
+
     /// `cloud.machine.removed {machine, revision}`: removes the machine
     /// unless the projection holds a newer record.
     pub(crate) fn remove_at(&mut self, id: &str, revision: Revision) {
