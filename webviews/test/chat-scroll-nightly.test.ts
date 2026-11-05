@@ -336,6 +336,13 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
     };
   }
 
+  /// Whether the reader is at the top of the whole chat: no room is held above the rows (every older
+  /// page has landed) and the view is at the rows' top.
+  const atFirstPrompt = () => {
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    return !document.querySelector("[data-older-room]") && scroller.scrollTop <= 1;
+  };
+
   test.each(engines.map(([name]) => name))(
     "%s: wheeling up through older history while a reply streams, nothing on screen jumps or flickers",
     async (name) => {
@@ -386,19 +393,39 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       await startWatch(page);
       // A trackpad's uneven steps, in rounds so older pages land while the wheel is moving.
       const traces = [];
+      const driftLog: string[] = [];
+      const roundLog: string[] = [];
       try {
-        for (let round = 0; round < 6; round++)
+        // On up to the chat's first prompt: every older page lands under the wheel, the last one
+        // included, which gives back whatever room the estimate left over.
+        for (let round = 0; round < 40; round++) {
           traces.push(
             await page.evaluate(traceUpwardAnchors, {
               steps: Array.from({ length: 90 }, (_, frame) => -[18.25, 42.5, 27.75, 56.125][frame % 4]!),
               restFrames: 6,
             }),
           );
+          const trace = traces.at(-1)!;
+          for (const sample of trace.samples)
+            if (sample.drift !== null && Math.abs(sample.drift) > 1 && driftLog.length < 8)
+              driftLog.push(
+                `round ${round} frame ${sample.frame}: ${sample.anchorId} moved ${sample.drift.toFixed(2)} px (wheel ${sample.wheelPixels.toFixed(1)}, top ${Math.round(sample.scrollTop)})`,
+              );
+          roundLog.push(
+            await page.evaluate(() => {
+              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              const room = document.querySelector("[data-older-room]")?.getAttribute("data-older-room") ?? "0";
+              return `room ${room} top ${Math.round(scroller.scrollTop)} height ${scroller.scrollHeight}`;
+            }),
+          );
+          if (await page.evaluate(atFirstPrompt)) break;
+        }
       } finally {
         clearInterval(stream);
       }
       const watched = await stopWatch(page);
       const pages = pane!.methods.filter((method) => method === "_acpmux/events").length - pagesBefore;
+      const reachedFirst = await page.evaluate(atFirstPrompt);
       const seen = tally(watched.frames);
       const sum = (key: "cancelledWheels" | "missingAnchors" | "blankFrames" | "blankBandFrames" | "overlapFrames") =>
         traces.reduce((total, trace) => total + (trace[key] as number), 0);
@@ -416,6 +443,9 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       const summary = {
         engine: name,
         pages,
+        reachedFirst,
+        driftLog,
+        roundLog,
         streamed,
         anchors,
         ...seen,
@@ -431,6 +461,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
 
       // The run went where the repros are: older pages landed while the wheel moved up.
       expect(pages).toBeGreaterThan(0);
+      expect(reachedFirst).toBe(true);
       expect(anchors.compared).toBe(anchors.frames);
       // Scroll-up history loading: nothing jumps, blanks, fades in or pulls the reader back.
       expect(anchors.cancelledWheels).toBe(0);
