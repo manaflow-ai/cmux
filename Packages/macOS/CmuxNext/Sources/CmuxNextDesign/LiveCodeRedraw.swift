@@ -9,9 +9,8 @@ extension View {
 
 @MainActor
 struct LiveCodeRedraw: ViewModifier {
-    @ObservedObject var live = LiveCode.shared
-
     func body(content: Content) -> some View {
+        let live = LiveCode.shared
         // Inside the identity: each generation's new view appears once, after its body ran.
         content
             .onAppear { if live.generation > 0 { live.drawn() } }

@@ -1235,6 +1235,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // a relaunch, and redraws the views that ask (Sources/CmuxNextLiveCode/LiveCode.swift).
         .target(
             name: "CmuxNextLiveCode",
+            dependencies: ["CmuxNextCompat"],
             swiftSettings: uiSwiftSettings
         ),
         // Web updates in the app (plans/cmux-next/web-ota.md): serves a signed web update from
