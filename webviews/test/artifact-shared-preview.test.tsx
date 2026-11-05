@@ -152,8 +152,7 @@ test("the shared preview independently enforces host capability and resets Run o
   act(() => root?.unmount());
   root = createRoot(host);
   ranRenders.clear();
-  const drawPreview = (html: string) =>
-    act(() => root!.render(<ArtifactPreview html={html} title="Preview" />));
+  const drawPreview = (html: string) => act(() => root!.render(<ArtifactPreview html={html} title="Preview" />));
   for (const url of rejected) {
     locate(url);
     drawPreview("<p>no preview capability</p>");
@@ -177,7 +176,7 @@ test("the shared preview independently enforces host capability and resets Run o
   const ready = (source: unknown) => {
     const event = new dom.window.MessageEvent("message", { data: { type: "cmux-render-ready" } });
     Object.defineProperty(event, "source", { value: source });
-    act(() => dom.window.dispatchEvent(event));
+    void act(() => dom.window.dispatchEvent(event));
   };
   ready(dom.window);
   expect(sent).toEqual([]);
