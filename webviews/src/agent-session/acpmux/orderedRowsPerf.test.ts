@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { OrderedRows } from "./direct";
 import { turnViewFrom } from "./conversation/turns";
+import { rowsChangedFrom } from "./model";
 
 const EVENT_COUNT = 192_000;
 
@@ -37,6 +38,7 @@ test("a long transcript reuses its ordered snapshot between metadata emissions",
   expect(views.every((view) => view === previous)).toBe(true);
   expect(snapshots.every((snapshot) => snapshot === first)).toBe(true);
   expect(first).toHaveLength(EVENT_COUNT);
+  expect(rowsChangedFrom(first)).toBe(0);
   // This is an allocation guard as well as an identity check: metadata heartbeats must not copy
   // every transcript row while no transcript row changed.
   expect(elapsed).toBeLessThan(50);
@@ -48,4 +50,5 @@ test("a long transcript reuses its ordered snapshot between metadata emissions",
   const changed = rows.sorted();
   expect(changed).not.toBe(first);
   expect(changed).toHaveLength(EVENT_COUNT + 1);
+  expect(rowsChangedFrom(changed)).toBe(EVENT_COUNT);
 });

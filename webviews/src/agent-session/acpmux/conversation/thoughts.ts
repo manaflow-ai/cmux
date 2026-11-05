@@ -58,6 +58,8 @@ export function mergeThoughts(items: readonly AcpmuxActivity[]): readonly Acpmux
 /// Each row as drawn: its thoughts merged and quiet ones left out (WeakMap: one result per row
 /// object, so an unchanged row keeps its identity for turnViewFrom and the row memo).
 const shaped = new WeakMap<AcpmuxRow, AcpmuxRow | null>();
+type ThoughtProjection = { rows: AcpmuxRow[]; offsets: number[] };
+const projections = new WeakMap<readonly AcpmuxRow[], { live: ThoughtProjection; settled: ThoughtProjection }>();
 
 /// A changed row takes a fractional version no row reaches by itself, one for each `keepLast`, so
 /// the transcript draws it again when its turn stops working (permissions/askRows.ts adds 0.5).
@@ -78,10 +80,22 @@ function shapeRow(row: AcpmuxRow, keepLast: boolean): AcpmuxRow | null {
 /// that may still stream stays (the live turn's "Thinking" line reads it): the last of a row the
 /// turns mark `live`, or with `live` (the chat is working), the last of the last row. `rows` itself
 /// when nothing changes.
-export function withoutQuietThoughts(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
+export function withoutQuietThoughts(
+  rows: AcpmuxRow[],
+  live = false,
+  previous?: readonly AcpmuxRow[],
+  reusedRows = 0,
+): AcpmuxRow[] {
+  const prior = previous && projections.get(previous)?.[live ? "live" : "settled"];
+  let reuse = prior && reusedRows > 0 ? Math.min(reusedRows, rows.length, previous.length) : 0;
+  // The caller's index comes from the daemon's raw row list. Refuse it if a filtered or rebuilt
+  // list slipped through, preserving the projection's exact semantics over a speculative speedup.
+  if (reuse > 0 && previous![reuse - 1] !== rows[reuse - 1]) reuse = 0;
   let changed = false;
-  const out: AcpmuxRow[] = [];
-  rows.forEach((row, index) => {
+  const out: AcpmuxRow[] = reuse ? prior.rows.slice(0, prior.offsets[reuse]) : [];
+  const offsets = reuse ? prior.offsets.slice(0, reuse + 1) : [0];
+  for (let index = reuse; index < rows.length; index += 1) {
+    const row = rows[index]!;
     const keepLast = row.live === true || (live && index === rows.length - 1);
     let next: AcpmuxRow | null;
     if (keepLast) next = shapeRow(row, true);
@@ -92,8 +106,13 @@ export function withoutQuietThoughts(rows: AcpmuxRow[], live = false): AcpmuxRow
     }
     if (next !== row) changed = true;
     if (next) out.push(next);
-  });
-  return changed ? out : rows;
+    offsets.push(out.length);
+  }
+  const result = changed || reuse > 0 ? out : rows;
+  const entry = projections.get(rows) ?? { live: { rows: [], offsets: [] }, settled: { rows: [], offsets: [] } };
+  entry[live ? "live" : "settled"] = { rows: result, offsets };
+  projections.set(rows, entry);
+  return result;
 }
 
 /// One part of a thought's text: a heading line as its own title, or the text between headings.

@@ -85,3 +85,15 @@ test("keeps a thought that may still stream: the last one of a working chat or a
   expect(done[0]!.items).toEqual([call]);
   expect(done[0]!.version).not.toBe(withoutQuietThoughts([streaming], true)[0]!.version);
 });
+
+test("reuses the unchanged prefix when a streamed row changes", () => {
+  const first = step("first", [thought(LONG, 0, 5_000)]);
+  const second = step("second", [thought(LONG, 0, 5_000)]);
+  const initial = [first, second];
+  const shaped = withoutQuietThoughts(initial);
+  const changedSecond = { ...second, version: 2, items: [thought(`${LONG} updated`, 0, 5_000)] };
+  const next = [first, changedSecond];
+  const updated = withoutQuietThoughts(next, false, initial, 1);
+  expect(updated[0]).toBe(shaped[0]);
+  expect(updated[1]).toBe(changedSecond);
+});

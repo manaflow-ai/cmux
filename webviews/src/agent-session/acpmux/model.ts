@@ -677,6 +677,19 @@ export type AcpmuxRow = {
   subagents?: Subagent[];
 };
 
+// ``OrderedRows`` publishes a fresh array when one row changes, while keeping the unchanged
+// prefix's row objects. Keep the first changed index beside that array so display projections can
+// process the streaming tail without walking the whole transcript on every token.
+const rowsChangedFromStore = new WeakMap<readonly AcpmuxRow[], number>();
+
+export function markRowsChangedFrom(rows: readonly AcpmuxRow[], index: number): void {
+  rowsChangedFromStore.set(rows, Math.max(0, Math.min(index, rows.length)));
+}
+
+export function rowsChangedFrom(rows: readonly AcpmuxRow[]): number | undefined {
+  return rowsChangedFromStore.get(rows);
+}
+
 export type AcpmuxActivity = {
   kind: string;
   text: string;

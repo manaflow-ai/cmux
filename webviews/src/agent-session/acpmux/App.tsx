@@ -50,6 +50,7 @@ import {
   type AcpmuxSecretAsk,
   type AcpmuxRow,
   type AcpmuxSnapshot,
+  rowsChangedFrom,
   type QueueEdit,
   nextDrawnRow,
   prevDrawnRow,
@@ -7538,6 +7539,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [snapshot.rows, snapshot.permission, snapshot.permissionGroups],
   );
   // The chat's rows before turns fold their work, which Find searches (a closed fold included).
+  const quietRows = useRef<{ input: AcpmuxRow[]; live: boolean; raw: boolean } | undefined>(undefined);
   const sourceRows = useMemo(() => {
     const groups = snapshot.permissionGroups;
     const groupedIds = new Set(groups?.groups.flatMap((group) => group.items.map((item) => item.permissionId)));
@@ -7553,7 +7555,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ? snapshot.rows.filter((row) => row.permission?.permissionId !== individualPermission.permissionId)
         : snapshot.rows;
     // Each step's consecutive thoughts as one, and none that says nothing (conversation/thoughts.ts).
-    return withoutQuietThoughts(rows, snapshot.isWorking);
+    // OrderedRows records the first changed row on a streaming snapshot. Reuse the shaped prefix
+    // so a token update does not revisit every historical row; filtered permission views fall back
+    // to the complete projection because their indexes do not match the daemon's list.
+    const previous = quietRows.current;
+    const reuse =
+      rows === snapshot.rows && previous?.raw && previous.live === snapshot.isWorking
+        ? (rowsChangedFrom(snapshot.rows) ?? 0)
+        : 0;
+    const projected = withoutQuietThoughts(
+      rows,
+      snapshot.isWorking,
+      reuse > 0 ? previous?.input : undefined,
+      reuse,
+    );
+    quietRows.current = { input: rows, live: snapshot.isWorking, raw: rows === snapshot.rows };
+    return projected;
   }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls).
