@@ -27,10 +27,12 @@ extension CEFTab {
     /// page is a hole: Chromium's windowed page cannot be transparent, so
     /// the window's backdrop shows there as in a WebKit tab (Lawrence
     /// 2026-10-10, `PageBackground`).
-    func applyOcclusion() {
+    /// `frames`: the frames the container's layout is about to give its views (by view), read instead of their current
+    /// frames, so the occlusion is set before the frames (`CEFTabContentView.layoutContent`).
+    func applyOcclusion(frames placed: [ObjectIdentifier: CGRect] = [:]) {
         let frames = devToolsController.frames(in: container.bounds)
         if host.visibleTab === self {
-            let pageFrame = host.hostView.frame
+            let pageFrame = placed[ObjectIdentifier(host.hostView)] ?? host.hostView.frame
             var rects = occlusionRects
             if !pastFirstRealPage {
                 // An open side panel is part of the page window: only the web contents' part is a hole.
@@ -46,11 +48,12 @@ extension CEFTab {
             }
         }
         if let views = devToolsController.views {
+            let devToolsFrame = placed[ObjectIdentifier(views.host)] ?? views.host.frame
             if devToolsController.deviceModeActive {
                 // Device mode: DevTools cover the content view; the page shows (and takes the mouse) through this hole.
-                views.host.occlusionRects = Self.local([frames.page], in: views.host.frame)
+                views.host.occlusionRects = Self.local([frames.page], in: devToolsFrame)
             } else {
-                views.host.occlusionRects = frames.grab.isEmpty ? [] : Self.local([frames.grab], in: views.host.frame)
+                views.host.occlusionRects = frames.grab.isEmpty ? [] : Self.local([frames.grab], in: devToolsFrame)
             }
         }
     }

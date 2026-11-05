@@ -23,10 +23,12 @@ protocol BrowserPagePaneMotionHolding: NSView {
 /// With `motion.frameOwner.pages` on (FRAME OWNER S5, cmux-ad m14; latched when the hold begins) nothing holds: the page
 /// follows its pane's page area in every frame, at that frame's size, hosted in the window's layers, with no main-thread wait
 /// for its frame (`beginPageSync(.keyResize)`, `CEFTabContentView+PageSync`) until the hold ends. A page that places itself
-/// (docked DevTools, a side panel, a fit) keeps OFF's whole hold: following made its chrome's subtree lay out and both page
-/// windows resize in every frame (STATUS 13849: 21-28 layouts per frame, 40 missed frames).
+/// (docked DevTools, a side panel, a fit) follows too, with geometry only per frame: its tab container sets each view's
+/// frame once, with the occlusion set first, so each page window gets one tracker update (STATUS 13849, m18).
 extension CEFTabContentView: BrowserPagePaneMotionHolding {
-    var holdsPageInPaneMotion: Bool { pageMotionHold != nil || canStartPageHold }
+    var holdsPageInPaneMotion: Bool {
+        pageMotionHold != nil || canStartPageHold || (Self.pagesOwnedByCommit && window != nil && tab != nil)
+    }
 
     /// This key hold's page follows its pane (S5) instead of holding its size.
     private var pageFollowsPane: Bool { pageSyncReasons.contains(.keyResize) }
@@ -45,7 +47,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
             dropHold()
             return
         }
-        if pageMotionHold == nil, Self.pagesOwnedByCommit, canStartPageHold {
+        if pageMotionHold == nil, Self.pagesOwnedByCommit {
             // S5: no hold. The page lays out at the page area in every frame (no main-thread wait for its frame).
             beginPageSync(.keyResize)
         }

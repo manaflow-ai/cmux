@@ -12,9 +12,12 @@ final class CEFHostView: NSView {
     var occlusionRects: [CGRect] = [] {
         didSet {
             guard occlusionRects != oldValue else { return }
-            postGeometryChange()
+            if frameAtUpdate != nil { occlusionPostPending = true } else { postGeometryChange() }
         }
     }
+    /// The frame when a layout began that sets this view's occlusion and then its frame (``beginFrameUpdate()``).
+    var frameAtUpdate: CGRect?
+    var occlusionPostPending = false
     /// Rounded native UI over the page (the prompt and find bars), in this
     /// view's coordinates. They leave the clip path (`cmuxClipPath`) with their
     /// corners, so the page shows around a rounded bar's corners instead of a
@@ -478,6 +481,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         // In a DevTools window the page keeps its full frame, but the fit still yields.
         let deviceMode = tab?.devToolsController.deviceModeOn ?? false
         let fitPage = tab?.sidePanel.state == nil && !deviceMode ? emulation?.presentedRect(in: pageViewportFrame) : nil
+        var placed: [(view: NSView, frame: CGRect)] = []
         for subview in subviews {
             let frame: CGRect
             if let fitFrame = subview as? BrowserFitFrameView {
@@ -503,9 +507,15 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             } else {
                 frame = fitPage ?? frames.page
             }
-            if subview.frame != frame { subview.frame = frame }
+            placed.append((subview, frame))
         }
-        tab?.applyOcclusion()
+        // Occlusion first, then frames: a host whose frame changes gets ONE tracker update (its frame's notice reads both),
+        // never a second one for the occlusion (S5, STATUS 13849: two updates per page window per motion frame).
+        let hosts = placed.compactMap { $0.view as? CEFHostView }
+        for host in hosts { host.beginFrameUpdate() }
+        tab?.applyOcclusion(frames: Dictionary(placed.map { (ObjectIdentifier($0.view), $0.frame) }) { first, _ in first })
+        for (subview, frame) in placed where subview.frame != frame { subview.frame = frame }
+        for host in hosts { host.endFrameUpdate() }
         // DevTools or the side panel moved the page area without a resize of this view: refit.
         if let tab, let emulation, !deviceMode, emulation.viewport(in: emulation.layoutArea(in: pageViewportFrame).size) != tab.deviceEmulationViewport {
             tab.applyDeviceEmulation()

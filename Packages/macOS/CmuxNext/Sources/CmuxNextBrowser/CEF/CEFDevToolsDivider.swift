@@ -40,17 +40,23 @@ final class CEFDevToolsDivider: NSView {
 
     override func layout() {
         super.layout()
+        placeGlow()
+    }
+
+    /// A new size places the glow at once (geometry only): a pane resize's motion frame lays out nothing under the tab
+    /// container (S5, STATUS 13849).
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        placeGlow()
+    }
+
+    private func placeGlow() {
         let side = devTools?.layout.dock.isSide ?? true
         let t = CEFDevToolsLayout.lineThickness
         let line = side
             ? NSRect(x: bounds.midX - t / 2, y: 0, width: t, height: bounds.height)
             : NSRect(x: 0, y: bounds.midY - t / 2, width: bounds.width, height: t)
         glow.place(along: line, vertical: side)
-    }
-
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        needsLayout = true
     }
 
     override func viewDidMoveToWindow() {
