@@ -29,6 +29,8 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var frameRates: [CGDirectDisplayID: Int] = [:]
     /// The capture rate (``setFrameRate(_:)``).
     private var frameRate = ScreenQuality.baselineFrameRate
+    /// The most pixels on the captured picture's long edge (``setMaximumLongEdge(_:)``; nil: the display's size).
+    private var longEdgeCap: Int?
     private var onFrame: (@Sendable (CVPixelBuffer, CGRect) -> Void)?
     private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
     private let input = EventInjector()
@@ -155,8 +157,21 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         reconfigure(generation: generation)
     }
 
-    /// Brings a running capture to the current ``setFrameRate(_:)`` rate
-    /// without restarting it. Changes in quick succession each start one of
+    /// Captures the display scaled down to at most `pixels` on its long edge
+    /// (the viewer's demand; nil: its full size). ScreenCaptureKit scales,
+    /// so the encoder gets the smaller picture with no extra copy.
+    public func setMaximumLongEdge(_ pixels: Int?) {
+        let generation = lock.withLock { () -> Int? in
+            guard pixels != longEdgeCap else { return nil }
+            longEdgeCap = pixels
+            return stream == nil || streamDisplay == nil ? nil : streamGeneration
+        }
+        guard let generation else { return }
+        reconfigure(generation: generation)
+    }
+
+    /// Brings a running capture to the current ``setFrameRate(_:)`` rate and
+    /// ``setMaximumLongEdge(_:)`` size without restarting it. Changes in quick succession each start one of
     /// these; each reads the rate again after applying, so the capture
     /// always ends at the latest one whatever order they finish in.
     ///
@@ -166,32 +181,33 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private func reconfigure(generation: Int) {
         let log = self.log
         Task {
-            var applied: Int?
+            var applied: (rate: Int, cap: Int?)?
             while true {
-                let running = lock.withLock { () -> (stream: SCStream, display: SCDisplay, rate: Int)? in
+                let running = lock.withLock { () -> (stream: SCStream, display: SCDisplay, rate: Int, cap: Int?)? in
                     guard !stopped, streamGeneration == generation, let stream = self.stream,
                           let streamDisplay else { return nil }
-                    return (stream, streamDisplay, self.frameRate)
+                    return (stream, streamDisplay, self.frameRate, self.longEdgeCap)
                 }
-                guard let running, running.rate != applied else { return }
+                guard let running, running.rate != applied?.rate || running.cap != applied?.cap else { return }
                 let rate = running.rate
+                let configuration = configuration(for: running.display, frameRate: rate, cap: running.cap)
                 do {
-                    try await running.stream.updateConfiguration(configuration(for: running.display, frameRate: rate))
-                    log("capturing display \(running.display.displayID) at \(rate) fps")
+                    try await running.stream.updateConfiguration(configuration)
+                    log("capturing display \(running.display.displayID) at \(configuration.width)x\(configuration.height), \(rate) fps")
                 } catch {
-                    log("capture frame rate \(rate) not applied: \(error.localizedDescription)")
+                    log("capture \(configuration.width)x\(configuration.height) at \(rate) fps not applied: \(error.localizedDescription)")
                     return
                 }
-                applied = rate
+                applied = (rate, running.cap)
             }
         }
     }
 
     /// The pointer stays in the picture (`showsCursor`): the viewer shows the
     /// Mac's own cursor, never one drawn locally.
-    private func configuration(for display: SCDisplay, frameRate: Int) -> SCStreamConfiguration {
+    private func configuration(for display: SCDisplay, frameRate: Int, cap: Int?) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
-        let size = pixelSize(display)
+        let size = ViewerDemand.fit(pixelSize(display), cap: cap)
         configuration.width = Int(size.width)
         configuration.height = Int(size.height)
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(frameRate))
@@ -203,9 +219,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     }
 
     private func capture(_ display: SCDisplay) async throws {
-        let rate = lock.withLock { frameRate }
-        let configuration = configuration(for: display, frameRate: rate)
-        let size = pixelSize(display)
+        let (rate, cap) = lock.withLock { (frameRate, longEdgeCap) }
+        let configuration = configuration(for: display, frameRate: rate, cap: cap)
+        let size = CGSize(width: configuration.width, height: configuration.height)
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
@@ -220,6 +236,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             }
             return (self.stream, false, frameRate, streamGeneration + 1)
         }
+        let latestCap = lock.withLock { longEdgeCap }
         if late {
             try? await stream.stopCapture()
             return
@@ -228,7 +245,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         input.display = display.frame
         log("capturing display \(display.displayID) at \(Int(size.width))x\(Int(size.height)), \(rate) fps")
         // The rate changed while this capture started (setFrameRate found no stream to update).
-        if latest != rate { reconfigure(generation: generation) }
+        if latest != rate || latestCap != cap { reconfigure(generation: generation) }
     }
 
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {

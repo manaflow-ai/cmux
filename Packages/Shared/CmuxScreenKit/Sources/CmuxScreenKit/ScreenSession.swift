@@ -419,6 +419,11 @@ public final class ScreenSession {
         }
     }
 
+    /// Tells the Mac how large the stream shows (``ScreenStreamViewer/reportView(longEdge:pinch:)``).
+    public func reportView(longEdge: Int, pinch: Bool) {
+        stream?.reportView(longEdge: longEdge, pinch: pinch)
+    }
+
     /// Streams display `index` (the Mac crops to it).
     public func selectDisplay(_ index: Int) {
         stream?.send(ScreenInput(t: "display", i: index))

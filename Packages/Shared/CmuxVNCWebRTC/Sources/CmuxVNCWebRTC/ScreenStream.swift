@@ -232,6 +232,9 @@ public protocol ScreenBackend: AnyObject, Sendable {
     var maximumFrameRate: Int? { get }
     /// Captures at most `fps` frames per second from now on.
     func setFrameRate(_ fps: Int)
+    /// Captures at most `pixels` on the picture's long edge (the viewer's
+    /// demand; nil: the display's own size). A source that can't scale ignores it.
+    func setMaximumLongEdge(_ pixels: Int?)
 }
 
 /// Sources that do not know their display's rate (the Screen Sharing
@@ -240,6 +243,7 @@ public extension ScreenBackend {
     var maximumFrameRate: Int? { nil }
     var inputCapabilities: [String] { [] }
     func setFrameRate(_ fps: Int) {}
+    func setMaximumLongEdge(_ pixels: Int?) {}
 }
 
 /// The Mac side of a screen stream: answers a viewer with the screen as a
@@ -270,6 +274,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var frameRate: Int?
         /// Pictures the source delivered since the last encoder log line (idle refreshes not counted).
         var captured = 0
+        /// The size the viewer needs (``ViewerDemand``); full size until it reports one.
+        var demand = ViewerDemand()
         /// The data channel opened: from here on only WebRTC ends the session.
         var opened = false
         init(link: VNCPeerLink, backend: any ScreenBackend) {
@@ -540,6 +546,11 @@ public final class ScreenStreamHost: @unchecked Sendable {
             if applyQuality(session) { sendDisplays(session) }
             return
         }
+        if input.t == ScreenStreamViewer.viewDemandMessage {
+            // The viewer's display, not input: view-only sessions too.
+            applyDemand(input, session: session)
+            return
+        }
         if input.t == ScreenStreamViewer.frameRateMessage {
             // The viewer's display, not input: view-only sessions too.
             guard let fps = Self.reportedFrameRate(input) else { return }
@@ -584,20 +595,42 @@ public final class ScreenStreamHost: @unchecked Sendable {
         _ = session.link.sendText(String(decoding: data, as: UTF8.self))
     }
 
+    /// Takes a viewer's `view` report: once a new size held long enough
+    /// (``ViewerDemand``), the source captures at it and the encoder's
+    /// bitrate follows the smaller picture.
+    private func applyDemand(_ input: ScreenInput, session: Session) {
+        guard let longEdge = input.i else { return }
+        let now = Double(DispatchTime.now().uptimeNanoseconds) / 1e9
+        let changed = session.lock.withLock { () -> Int?? in
+            let display = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
+            guard session.quality == .auto || session.quality == .smooth,
+                  session.demand.report(longEdge: longEdge, displayLongEdge: Int(max(display.width, display.height)),
+                                        pinch: input.d == true, now: now) else { return nil }
+            return .some(session.demand.cap)
+        }
+        guard let changed else { return }
+        log("viewer demand: \(changed.map { "\($0) px long edge" } ?? "full size")")
+        applyQuality(session)
+    }
+
     /// Sets the encoder and the source for the session's quality and the
     /// rate both displays agree on. True when the rate changed (the viewer
     /// hears it with the next displays message).
     @discardableResult
     private func applyQuality(_ session: Session) -> Bool {
         let hostRate = session.backend.maximumFrameRate
-        let (quality, size, fps, changed) = session.lock.withLock { () -> (ScreenQuality, CGSize, Int, Bool) in
-            let size = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
+        let (quality, size, cap, fps, changed) = session.lock.withLock { () -> (ScreenQuality, CGSize, Int?, Int, Bool) in
+            let display = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
+            // The picture as captured: a fixed preset keeps the full display (its own scale-down).
+            let cap = session.quality == .auto || session.quality == .smooth ? session.demand.cap : nil
+            let size = ViewerDemand.fit(display, cap: cap)
             let fps = session.quality.frameRate(hostMaximum: hostRate, viewerMaximum: session.viewerFrameRate)
             defer { session.frameRate = fps }
-            return (session.quality, size, fps, session.frameRate != fps)
+            return (session.quality, size, cap, fps, session.frameRate != fps)
         }
         session.link.applyVideo(quality, source: size, frameRate: fps)
         session.backend.setFrameRate(fps)
+        session.backend.setMaximumLongEdge(cap)
         if changed { log("frame rate: \(fps) fps (this Mac \(hostRate.map(String.init) ?? "?") Hz, viewer \(session.lock.withLock { session.viewerFrameRate }.map(String.init) ?? "?") Hz)") }
         return changed
     }
@@ -915,6 +948,19 @@ public final class ScreenStreamViewer: @unchecked Sendable {
     static func capabilities(in message: ScreenHostMessage) -> [String]? {
         guard message.t == ScreenHostMessage.capabilitiesType else { return nil }
         return (message.s ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// The message type that reports how large the viewer shows the stream:
+    /// `i` the long edge in device pixels the whole streamed display takes at
+    /// the viewer's zoom, `d` true when a pinch just ended (``ViewerDemand``).
+    /// An older host ignores it and keeps the full size.
+    static let viewDemandMessage = "view"
+
+    /// Tells the Mac how large this viewer shows the stream (every 2 s, and
+    /// with `pinch` when a zoom ends). Auto and Smooth Motion then capture
+    /// no larger than that needs; the fixed presets ignore it.
+    public func reportView(longEdge: Int, pinch: Bool) {
+        send(ScreenInput(t: Self.viewDemandMessage, d: pinch, i: longEdge))
     }
 
     /// The input message type that reports the viewer's display rate.
