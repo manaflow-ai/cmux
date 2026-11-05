@@ -77,6 +77,14 @@ extension HomeMirror {
             case .sendMessage(let id, _, _, _):
                 if case .failed = entry.state { failed.insert(id) }
                 pendingSend[id] = entry
+            case .retractMessage(let message, let id):
+                // Delete or Undo Send leaves the preview at the press, not at the owner's echo (#36019);
+                // a refusal keeps it.
+                if case .failed = entry.state { break }
+                if summaries[id]?.lastMessage?.id == message {
+                    summaries[id]?.lastMessage?.parts = []
+                    summaries[id]?.lastMessage?.retractedAt = entry.intent.issuedAt
+                }
             default:
                 break
             }
