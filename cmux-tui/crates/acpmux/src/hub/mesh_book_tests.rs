@@ -127,7 +127,10 @@ async fn only_a_change_is_announced_and_a_stop_empties_the_list() {
 
     hub.set_mesh_book(Default::default(), Vec::new());
     let gone = notices(&mut events);
-    assert_eq!(gone.iter().map(|(kind, _)| kind.as_str()).collect::<Vec<_>>(), ["purged", "purged"]);
+    assert_eq!(
+        gone.iter().map(|(kind, _)| kind.as_str()).collect::<Vec<_>>(),
+        ["purged", "purged"]
+    );
     assert!(hub.all_session_summaries().is_empty());
     assert!(hub.peers().is_empty());
 }
