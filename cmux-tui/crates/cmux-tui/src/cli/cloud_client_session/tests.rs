@@ -449,6 +449,18 @@ fn quiet_create_still_writes_the_token_file_and_refuses_a_secret_path() {
 /// A fake cmux API whose provider has no client sessions: the mint answers 501
 /// cloud.provider.unsupported, and the machine exec route answers `exec_body`.
 fn fake_no_sessions(exec_status: u16, exec_body: String) -> (String, mpsc::Receiver<String>) {
+    let unsupported = json!({ "ok": false, "error": { "code": "cloud.provider.unsupported", "message": "no client sessions" } });
+    fake_mint_then_exec(501, unsupported.to_string(), exec_status, exec_body)
+}
+
+/// A cmux API whose client-session mint answers `mint_status`/`mint_body` and whose machine exec
+/// route answers `exec_status`/`exec_body`; each request's text goes to the receiver.
+fn fake_mint_then_exec(
+    mint_status: u16,
+    mint_body: String,
+    exec_status: u16,
+    exec_body: String,
+) -> (String, mpsc::Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let (sender, requests) = mpsc::channel();
@@ -476,7 +488,7 @@ fn fake_no_sessions(exec_status: u16, exec_body: String) -> (String, mpsc::Recei
                 }
             };
             let (status, body) = if request.contains("/client-session ") {
-                (501, json!({ "ok": false, "error": { "code": "cloud.provider.unsupported", "message": "no client sessions" } }).to_string())
+                (mint_status, mint_body.clone())
             } else {
                 (exec_status, exec_body.clone())
             };
@@ -544,6 +556,28 @@ fn a_refused_machine_exec_route_prints_only_a_known_code() {
         assert!(message.ends_with(shown), "{message}");
         assert!(!message.contains("secret-ish"), "{message}");
     }
+}
+
+#[test]
+fn exec_by_a_teammate_who_did_not_create_the_machine_never_reaches_the_exec_route() {
+    // The platform checks the creator before the provider (ClientSession.ts mintClientSessionOn):
+    // a teammate's mint answers not_creator (403 auth.forbidden), never unsupported, so the exec
+    // route fallback is only ever the creator's.
+    let (origin, requests) = fake_mint_then_exec(
+        403,
+        json!({ "ok": false, "error": { "code": "auth.forbidden", "message": "a client session is only for a machine you created" } })
+            .to_string(),
+        200,
+        json!({ "exitCode": 0, "stdout": "ran", "stderr": "" }).to_string(),
+    );
+    let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let message = run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
+        .unwrap_err();
+    assert!(message.contains("auth.forbidden"), "{message}");
+    let seen: Vec<String> = requests.try_iter().collect();
+    assert!(seen.iter().all(|r| !r.contains("/exec ")), "no exec request: {seen:?}");
+    assert!(out.is_empty(), "nothing ran");
 }
 
 #[test]
