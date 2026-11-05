@@ -4248,9 +4248,12 @@ fn validate_touched_resource_invariants(
                     &mut browsers,
                 )?;
             }
-            ResourceChange::SetTabOrder { pane_id, tab_ids } => {
+            // An order change writes only the pane's tabs' positions: the set (set_resource_tab_order) and the
+            // contiguous positions (below) are its invariants, so it touches no tab's own rows, as
+            // `SetWorkspaceOrder` above. Validating every tab of the pane per create cost O(tabs in the pane):
+            // about 5 queries per tab, under the registry lock a person's next click waits on.
+            ResourceChange::SetTabOrder { pane_id, .. } => {
                 panes.insert(pane_id.to_string());
-                tabs.extend(tab_ids.iter().map(ToString::to_string));
             }
             ResourceChange::UpsertTerminal { public_id, .. }
             | ResourceChange::TombstoneTerminal { public_id, .. } => {
