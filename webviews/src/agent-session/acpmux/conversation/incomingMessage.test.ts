@@ -961,3 +961,20 @@ test("a sender's [from APP › PERSONA] label names the app and the persona", ()
     text: "Yes, on it.",
   });
 });
+
+test("a plain send from a Codex or Claude Code shell is that agent's message, with its harness", () => {
+  // acpmux cli/sender.rs: an agent harness's own shell outside acpmux names `<harness>@<host>` and
+  // its harness (Leo, 2026-11-05: "why is it sending it as if it were me?").
+  const sent = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "codex@cosmic-gray",
+    to: "s-1",
+    fromHarness: "codex",
+  };
+  const text = "Message from desktop-recovery-audit agent: scope corrected.";
+  expect(incomingPrompt(text, { _meta: { provenance: sent }, client: "acpmux-cli#01a2f3@cosmic-gray" })).toEqual({
+    kind: "message",
+    message: { name: "codex@cosmic-gray", harness: "codex", text, raw: text },
+  });
+});
