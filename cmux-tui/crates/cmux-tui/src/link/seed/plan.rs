@@ -28,6 +28,7 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+use super::super::sync_cli;
 use super::{git, github, secrets};
 
 /// The `git.seed.start` params, less `folder` and `bundle` (the remote
@@ -678,22 +679,52 @@ fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<(), Fallback> {
         .map_err(|error| failed(&format!("writing {}", path.display()), error.to_string()))
 }
 
+/// An untracked file bigger than this stays on this Mac, named with its
+/// size: one checkpoint or dataset would outweigh the rest of the seed.
+const BIG_UNTRACKED: u64 = 5 * 1024 * 1024;
+
 /// Untracked files that are not ignored but stay on this Mac: likely
-/// secrets, and git repositories nested in the folder (not submodules).
+/// secrets, git repositories nested in the folder (not submodules), heavy
+/// folders the project rebuilds on the machine (one entry each, as a copy
+/// names them) and files over [`BIG_UNTRACKED`].
 fn untracked_left_out(repo: &Repo) -> Result<Vec<Skipped>, Fallback> {
+    use std::os::unix::ffi::OsStrExt as _;
     let listed =
         git::output(git::at(&repo.top).args(["ls-files", "-z", "--others", "--exclude-standard"]))
             .map_err(|error| failed("listing untracked files", error))?;
     let mut skipped = Vec::new();
+    let mut heavy_named = std::collections::BTreeSet::new();
     for raw in listed.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
         let path = String::from_utf8_lossy(raw).into_owned();
+        if let Some((folder, why)) =
+            std::str::from_utf8(raw).ok().and_then(|name| sync_cli::heavy_folder(&repo.top, name))
+        {
+            if heavy_named.insert(folder.clone()) {
+                skipped.push(Skipped {
+                    raw: folder.clone().into_bytes(),
+                    path: folder,
+                    why: why.to_string(),
+                });
+            }
+            continue;
+        }
         let why = if path.ends_with('/') {
-            Some("a separate git repository inside this folder (not a submodule)")
+            Some("a separate git repository inside this folder (not a submodule)".to_string())
+        } else if let Some(why) = secrets::reason(&repo.top, raw) {
+            Some(why.to_string())
         } else {
-            secrets::reason(&repo.top, raw)
+            std::fs::symlink_metadata(repo.top.join(std::ffi::OsStr::from_bytes(raw)))
+                .ok()
+                .filter(|meta| meta.is_file() && meta.len() > BIG_UNTRACKED)
+                .map(|meta| {
+                    format!(
+                        "a big file ({}) that stays on this Mac",
+                        sync_cli::bytes_text(meta.len())
+                    )
+                })
         };
         if let Some(why) = why {
-            skipped.push(Skipped { path, why: why.to_string(), raw: raw.to_vec() });
+            skipped.push(Skipped { path, why, raw: raw.to_vec() });
         }
     }
     Ok(skipped)

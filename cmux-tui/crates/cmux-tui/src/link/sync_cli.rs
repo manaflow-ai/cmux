@@ -707,6 +707,14 @@ pub(super) fn push(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Re
 }
 
 /// Whether `folder` is in a git working copy (its top folder or below it).
+/// The heavy folder an untracked file `relative` of the repository at `top`
+/// is in, and why it stays on this Mac, as a copy leaves it out: the seed
+/// leaves out the same folders.
+pub(super) fn heavy_folder(top: &Path, relative: &str) -> Option<(String, &'static str)> {
+    local::heavy_folder(top, relative)
+        .map(|folder| (format!("{folder}/"), skips::Why::Heavy.text()))
+}
+
 pub(super) fn in_git(folder: &Path) -> bool {
     !matches!(local::GitDirs::of(folder), Ok(None))
 }

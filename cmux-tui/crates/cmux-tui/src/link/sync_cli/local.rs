@@ -225,7 +225,7 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
 /// The heavy folder ([`skips::heavy`]) `relative` (a file git names in
 /// `top`) is in, as a path in `top`, or `None`. The outermost one wins, as
 /// [`walk_plain`] never enters a heavy folder.
-fn heavy_folder<'a>(top: &Path, relative: &'a str) -> Option<&'a str> {
+pub(super) fn heavy_folder<'a>(top: &Path, relative: &'a str) -> Option<&'a str> {
     let (folders, _file) = relative.rsplit_once('/')?;
     let mut end: usize = 0;
     for name in folders.split('/') {
