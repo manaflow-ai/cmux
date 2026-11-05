@@ -35,7 +35,8 @@ runner='app="$CMUX_EMBEDDER_TEST_DIR/App.app/Contents/Frameworks"; mkdir -p "$ap
 cp -R "$1/Chromium Embedded Framework.framework" "$app/"
 touch "$app/Chromium Embedded Framework.framework/_CodeSignature" 2>/dev/null || exit 1
 shift; for c in "$@"; do echo "==> case $c"; echo "    PASS ($c, exit 0, 1s)"; done'
-# The worker sets TMPDIR to the step's own tmp folder (steps/<id>/tmp); JOB is the step folder.
+# The worker sets TMPDIR to a per-step folder the build user owns (/tmp/cbw-*, or steps/<id>/tmp as a
+# fallback); JOB is the step folder.
 run() { local job="${JOB:-$work/job}"; mkdir -p "$job/tmp"
   CMUX_CI_CEF_DIR="$work/seed" CI_JOB_DIR="$job" TMPDIR="$job/tmp" CMUX_EMBEDDER_INPUT_DIR="$work/in" \
   bash "$script" "$@" >"$work/out" 2>&1; }
