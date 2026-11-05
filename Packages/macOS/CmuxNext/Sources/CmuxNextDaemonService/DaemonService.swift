@@ -605,6 +605,21 @@ public final class DaemonService {
         await startup?.value
     }
 
+    /// Restarts the daemon for a Cloud environment change while its PTY hosts keep running.
+    /// Detaches automatic recovery first so it cannot relaunch with the previous environment.
+    public func stopKeepingHosts() async throws {
+        guard isLocal else { return }
+        guard let connection = detachConnection() else { throw DaemonError.notConnected }
+        do {
+            let reply = try await connection.shutdownDaemon()
+            guard reply.accepted == true else { throw DaemonError.launchFailed("The daemon refused the environment restart.") }
+            await connection.closeAndWait()
+        } catch {
+            await connection.closeAndWait()
+            throw error
+        }
+    }
+
     public func shutdownConnection() {
         // task-owner: teardown hop; close() is idempotent and finishes the store pump
         if let connection = detachConnection() { Task { await connection.close() } }
