@@ -11,7 +11,7 @@ import Observation
 /// the first cell sits exactly Ghostty's padding inside the border
 /// (`TerminalPadding.cmuxDefault` unless the user set their own).
 public final class TerminalHostView: NSView {
-    private weak var current: TerminalSurfaceView?
+    private(set) weak var current: TerminalSurfaceView?
     /// The session's theme; nil paints the config background.
     /// Called with the App Theme's veil this terminal draws on, or nil (``paintBackground()``).
     var onVeil: ((ThemeRGB?) -> Void)?
@@ -395,6 +395,8 @@ public final class TerminalHostView: NSView {
     /// FRAME OWNER S3: the hold this host follows its pane through (``PaneMotionHoldFollowing``), and the host's size
     /// when it began; nil at rest.
     var followedHold: (hold: PaneMotionHold, heldSize: CGSize)?
+    /// A person drags a divider or edge of this host's pane (``PaneResizeGestureFollowing``): the surface it shows follows.
+    var followsResizeGesture = false
 
     /// Keeps the surface at `size`, the size it will have when its pane's layout spring lands (a split or a
     /// close, Lawrence 2026-10-23): the terminal draws its final grid on every frame of the spring and reflows

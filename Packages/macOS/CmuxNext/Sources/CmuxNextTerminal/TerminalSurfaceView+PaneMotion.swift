@@ -21,7 +21,7 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         // (`syncWindowState`, which joins a spring still under way).
         guard isShown else { return .top }
         // A drag's release spring (cmux-ad m14): no hold at the final size; the surface keeps following its pane, and the
-        // grid goes once, when the release lands (`paneResizeGestureDidChange`).
+        // grid goes once, when the release lands (``followResizeGesture(_:)``).
         guard !isFollowingResizeGesture else { return .top }
         return restAt(restSize(sizeChange: sizeChange), growing: sizeChange.height > 0.5)
     }
@@ -94,17 +94,18 @@ extension TerminalSurfaceView: PaneMotionTargeting {
     }
 }
 
-/// A person's divider or edge drag (`ScreenContentView+ResizeGesture`): the pane follows the pointer with no spring.
-/// cmux-ad m14 (Lawrence's P0): in every frame of the drag and of its release each terminal shows its text at that
-/// frame's pane size, never frozen or anchored. The surface takes its pane's size in every frame through the placement
+/// A person's divider or edge drag (`ScreenContentView+ResizeGesture`, told to the surface by its host,
+/// ``TerminalHostView/paneResizeGestureDidChange(active:)``): the pane follows the pointer with no spring. cmux-ad m14
+/// (Lawrence's P0): in every frame of the drag and of its release each terminal shows its text at that frame's pane size,
+/// never frozen or anchored. The surface takes its pane's size in every frame through the placement
 /// any resize uses (`TerminalHostView` `placeSurface`, the frame owner's ``place(_:anchor:)``), and the reflow preview
 /// re-wraps its text at that size. The grid goes to the PTY once, when the release landed: a program does not redraw at
 /// every size while the owner's announcements come a round trip behind (torn rows mid-drag). Before, the drag hold
 /// (`terminalDrag.holdSurface`, RESIZE VIDEOS A3) kept the drag-start size and text through the drag, and the release's
 /// spring held its final size (pixel-perfect's trace, STATUS 13764: 157-159 held ticks in col-drag-2, the surface up to
 /// 150 pt off its pane).
-extension TerminalSurfaceView: PaneResizeGestureFollowing {
-    public func paneResizeGestureDidChange(active: Bool) {
+extension TerminalSurfaceView {
+    func followResizeGesture(_ active: Bool) {
         guard isFollowingResizeGesture != active else { return }
         isFollowingResizeGesture = active
         // The start ends a spring's hold the drag caught (a split or a press still landing): the surface follows the drag

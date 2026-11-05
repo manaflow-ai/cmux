@@ -33,9 +33,12 @@ struct TerminalDividerDragFrameTests {
     func aDividerDragShowsEachTerminalAtItsPanesSizeInEveryFrameAndResizesItsProgramOnce(keysSwitch: Bool) async throws {
         let screen = try await Rig.PaneScreen()
         defer { screen.close() }
-        // A drag does not read the key resizes' switch: both values.
-        TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(keysSwitch))
+        // Both values of the switch: a drag takes its present rule. The store is process-wide and another suite may set
+        // or reset it at an await, so the test pins it again before each frame (`PaneGroundCoversPaneTests.ownFrames`).
+        func pin() { TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(keysSwitch)) }
+        pin()
         await Rig.settle(screen)
+        pin()
         let view = try #require(screen.root.screenViews["s"])
         let handle = try #require(view.dividerViews[.split("x")])
         let start = handle.convert(CGPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
@@ -47,6 +50,7 @@ struct TerminalDividerDragFrameTests {
         let moves = 20
         for move in 1...moves {
             view.handleDrag(kind: .split("x"), event: .moved(CGPoint(x: start.x - CGFloat(move) * 6, y: start.y), []))
+            pin()
             _ = screen.root.advanceFrame(1.0 / 120)
             screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
             await Rig.commit()
@@ -57,6 +61,7 @@ struct TerminalDividerDragFrameTests {
         screen.root.syncWithModel()
         var moving = true, steps = 0
         while moving, steps < 240 {
+            pin()
             moving = screen.root.advanceFrame(1.0 / 120)
             screen.root.layoutSubtreeIfNeeded() // sync-layout: the landing's frames, as the frame tick runs them
             await Rig.commit()

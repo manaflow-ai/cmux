@@ -8,6 +8,23 @@ public import CmuxNextDesign
 /// (``followedSurfaceFrame(_:in:)``), and the PTY gets one grid per press. With the switch off only the surface's origin
 /// moves: it keeps the final size the press asked for (``holdSurface(size:anchor:)``), else the size it had when the
 /// hold began, fixed at the pane edge that does not move.
+/// A person's divider or edge drag (`ScreenContentView+ResizeGesture`, cmux-ad m14) is told to the host, which outlives a
+/// surface swap: the surface it shows follows the drag, and so does one installed during the drag (a replay's
+/// `TerminalSession.swapSurface`: a surface joins its new host's drag, ``TerminalSurfaceView`` `viewWillMove(toSuperview:)`).
+extension TerminalHostView: PaneResizeGestureFollowing {
+    public func paneResizeGestureDidChange(active: Bool) {
+        guard followsResizeGesture != active else { return }
+        followsResizeGesture = active
+        current?.followResizeGesture(active)
+    }
+
+    /// Out of its window no drag's end may reach it (its layout root can go first): a surface it shows later follows none.
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { followsResizeGesture = false }
+    }
+}
+
 extension TerminalHostView: PaneMotionHoldFollowing {
     public func followPaneMotion(_ hold: PaneMotionHold?, heldSize: CGSize?) {
         followedHold = hold.map { ($0, heldSize ?? bounds.size) }
