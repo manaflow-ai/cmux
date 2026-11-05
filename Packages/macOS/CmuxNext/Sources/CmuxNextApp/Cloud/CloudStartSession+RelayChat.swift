@@ -153,8 +153,7 @@ extension CloudStartSession {
     /// The answer's fields: what the CLI prints with `--json`.
     static func relayFields(_ answer: CloudRelayChat.Answer, machineID: String) -> [String: ActionResultValue] {
         var fields: [String: ActionResultValue] = ["machine_id": .string(machineID), "reply": .string(answer.reply),
-                                                   "queued": .bool(answer.queued), "ended": .bool(answer.ended),
-                                                   "delivered": .bool(answer.delivered)]
+                                                   "queued": .bool(answer.queued), "ended": .bool(answer.ended), "delivered": .bool(answer.delivered)]
         let texts = ["session_id": answer.session, "prompt_id": answer.promptID, "stop_reason": answer.stopReason]
             .merging(answer.errorTexts) { $1 } // error_code, error_message and the machine's typed error
         for case let (key, text?) in texts { fields[key] = .string(text) }
