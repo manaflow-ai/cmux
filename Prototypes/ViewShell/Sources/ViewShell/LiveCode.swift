@@ -153,7 +153,11 @@ enum Interposer {
         tuples.withUnsafeBytes { interpose(main, $0.baseAddress!, tuples.count) }
         // dyld_dynamic_interpose leaves a pointer that is already bound on the old code: a `body`
         // SwiftUI called before this patch kept drawing the build's view. Repoint those too.
-        rebind(header: main, slide: _dyld_get_image_vmaddr_slide(0), to: replaced)
+        let rebound = rebind(header: main, slide: _dyld_get_image_vmaddr_slide(0), to: replaced)
+        if rebound.failed > 0 {
+            // Those calls still reach the old code: say so rather than report a clean patch.
+            FileHandle.standardError.write(Data("view-shell: live code: \(rebound.failed) symbol pointers stayed on the old code (mprotect failed)\n".utf8))
+        }
         current.merge(replaced) { $1 }
         return replaced.count
     }
@@ -161,9 +165,11 @@ enum Interposer {
     /// Repoints the image's symbol pointers (`__la_symbol_ptr`, `__got`; the executable is linked
     /// with classic binds, `-no_fixup_chains`) that name a replaced function, as fishhook does.
     /// Its calls to its own Swift functions go through these (`-interposable`), and once dyld has
-    /// bound one, `dyld_dynamic_interpose` does not rewrite it. Returns how many it wrote.
+    /// bound one, `dyld_dynamic_interpose` does not rewrite it. Returns how many it wrote, and how
+    /// many it could not (a page `mprotect` refused).
     @MainActor @discardableResult
-    static func rebind(header: UnsafePointer<mach_header>, slide: Int, to replacements: [String: UnsafeRawPointer]) -> Int {
+    static func rebind(header: UnsafePointer<mach_header>, slide: Int,
+                       to replacements: [String: UnsafeRawPointer]) -> (written: Int, failed: Int) {
         let base = UnsafeRawPointer(header)
         var command = base + MemoryLayout<mach_header_64>.size
         var linkedit: segment_command_64?
@@ -190,13 +196,13 @@ enum Interposer {
             }
             command += Int(load.cmdsize)
         }
-        guard let linkedit, let symtab, let dysymtab, !replacements.isEmpty else { return 0 }
+        guard let linkedit, let symtab, let dysymtab, !replacements.isEmpty else { return (0, 0) }
         let linkeditBase = UnsafeRawPointer(bitPattern: slide + Int(linkedit.vmaddr) - Int(linkedit.fileoff))!
         let symbols = (linkeditBase + Int(symtab.symoff)).assumingMemoryBound(to: nlist_64.self)
         let strings = (linkeditBase + Int(symtab.stroff)).assumingMemoryBound(to: CChar.self)
         let indirect = (linkeditBase + Int(dysymtab.indirectsymoff)).assumingMemoryBound(to: UInt32.self)
         let page = Int(getpagesize())
-        var written = 0
+        var written = 0, failed = 0
         for section in pointerSections {
             guard let slots = UnsafeMutablePointer<UnsafeRawPointer?>(bitPattern: slide + Int(section.addr)) else { continue }
             for slot in 0..<Int(section.size) / MemoryLayout<UnsafeRawPointer>.size {
@@ -206,12 +212,15 @@ enum Interposer {
                       let replacement = replacements[String(cString: strings + Int(symbols[Int(index)].n_un.n_strx))] else { continue }
                 // `__got` is in `__DATA_CONST`, read-only once dyld has bound it.
                 let start = Int(bitPattern: slots + slot) & ~(page - 1)
-                guard mprotect(UnsafeMutableRawPointer(bitPattern: start), page, PROT_READ | PROT_WRITE) == 0 else { continue }
+                guard mprotect(UnsafeMutableRawPointer(bitPattern: start), page, PROT_READ | PROT_WRITE) == 0 else {
+                    failed += 1
+                    continue
+                }
                 slots[slot] = replacement
                 written += 1
             }
         }
-        return written
+        return (written, failed)
     }
 
     private typealias MetadataAccessor = @convention(c) (Int) -> UnsafeRawPointer?

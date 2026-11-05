@@ -225,7 +225,7 @@ public final class AgentChatStore {
     public private(set) var subagents: [AgentSubagent] = []
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
-    /// The allow option waiting for Face ID (nil otherwise).
+    /// The allow option on its way (nil otherwise).
     public private(set) var approvingOptionID: String?
     /// A prompt that was not sent, for the composer to put back (then cleared).
     public var returnedDraft: ReturnedDraft?
@@ -482,8 +482,8 @@ public final class AgentChatStore {
         // A refusal is about the previous answer ("Approve this on your Mac"):
         // a new answer, such as the decline that follows, replaces it.
         clientError = nil
-        // An allow is signed after Face ID: the bar shows "Waiting for Face ID…" until the
-        // decision lands or the signature fails (cancelled Face ID comes back as an error).
+        // An allow is signed with the approval key: the bar shows "Sending…" until the
+        // decision lands or the signature fails.
         approvingOptionID = option?.isAllow == true ? option?.id : nil
         sentPermissionAnswer = (request.id, option?.id)
         permissionAnswerUncertain = false

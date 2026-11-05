@@ -62,6 +62,10 @@ struct SidebarBottomCardSlot {
         return notice.notice != nil ? .notice : nil
     }
 
+    /// The Updated card has the slot and its height lands without the spring (its first frame, the
+    /// page's first report): ``SidebarUpdatedCardHost/landsAtOnce``.
+    var updatedLandsAtOnce: Bool { shown == .updated && updated.landsAtOnce }
+
     /// The notice card shows only while no other card does.
     var showsNotice: Bool { shown == .notice }
 

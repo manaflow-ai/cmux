@@ -15497,33 +15497,6 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Khởi tạo lane cần tên của máy: truyền --name lane-vm-N."}}
       }
     },
-    "cloud.cli.machineOptionsUnavailable": {
-      "comment": "cmux cloud new-machine --size or --persistent on a backend that can't take them. Keep the command names as written.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "This Cloud backend can't create a machine with a size, idle pause, name or bootstrap yet. Create it without them, then use cloud resize-machine, cloud set-idle-pause and cloud rename-machine."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "この Cloud バックエンドでは、サイズ、アイドル時の一時停止、名前、ブートストラップを指定したマシンをまだ作成できません。これらを指定せずに作成してから、cloud resize-machine、cloud set-idle-pause、cloud rename-machine を使用してください。"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Dieses Cloud-Backend kann noch keine Maschine mit Größe, Pause bei Inaktivität, Namen oder Bootstrap erstellen. Erstelle sie ohne diese Angaben und verwende dann cloud resize-machine, cloud set-idle-pause und cloud rename-machine."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Ce backend Cloud ne peut pas encore créer de machine avec une taille, une pause en cas d’inactivité, un nom ou un bootstrap. Créez-la sans, puis utilisez cloud resize-machine, cloud set-idle-pause et cloud rename-machine."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Este backend de Cloud aún no puede crear una máquina con tamaño, pausa por inactividad, nombre o bootstrap. Créala sin ellos y luego usa cloud resize-machine, cloud set-idle-pause y cloud rename-machine."}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "لا تستطيع خلفية Cloud هذه بعدُ إنشاء جهاز بحجم أو إيقاف مؤقت عند الخمول أو اسم أو تمهيد. أنشئه بدونها، ثم استخدم cloud resize-machine وcloud set-idle-pause وcloud rename-machine."}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "이 Cloud 백엔드는 아직 크기, 유휴 시 일시 정지, 이름, 부트스트랩을 지정해 머신을 만들 수 없습니다. 이 옵션 없이 만든 다음 cloud resize-machine, cloud set-idle-pause, cloud rename-machine을 사용하세요."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 后端暂时无法创建带有大小、空闲暂停、名称或引导的机器。请先不带这些选项创建，再使用 cloud resize-machine、cloud set-idle-pause 和 cloud rename-machine。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 後端暫時無法建立帶有大小、閒置暫停、名稱或引導的機器。請先不帶這些選項建立，再使用 cloud resize-machine、cloud set-idle-pause 和 cloud rename-machine。"}},
-        "bs": {"stringUnit": {"state": "needs_review", "value": "Ovaj Cloud backend još ne može napraviti mašinu s veličinom, pauzom pri neaktivnosti, imenom ili početnim podešavanjem. Napravi je bez njih, pa koristi cloud resize-machine, cloud set-idle-pause i cloud rename-machine."}},
-        "da": {"stringUnit": {"state": "needs_review", "value": "Denne Cloud-backend kan endnu ikke oprette en maskine med størrelse, pause ved inaktivitet, navn eller opstart. Opret den uden dem, og brug derefter cloud resize-machine, cloud set-idle-pause og cloud rename-machine."}},
-        "it": {"stringUnit": {"state": "needs_review", "value": "Questo backend Cloud non può ancora creare una macchina con dimensione, pausa per inattività, nome o avvio iniziale. Creala senza, poi usa cloud resize-machine, cloud set-idle-pause e cloud rename-machine."}},
-        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្នែកខាងក្រោយ Cloud នេះមិនទាន់អាចបង្កើតម៉ាស៊ីនដែលមានទំហំ ការផ្អាកពេលទំនេរ ឈ្មោះ ឬការរៀបចំដំបូងបានទេ។ សូមបង្កើតវាដោយគ្មានជម្រើសទាំងនោះ រួចប្រើ cloud resize-machine, cloud set-idle-pause និង cloud rename-machine។"}},
-        "nb": {"stringUnit": {"state": "needs_review", "value": "Denne Cloud-backenden kan ennå ikke opprette en maskin med størrelse, pause ved inaktivitet, navn eller oppstart. Opprett den uten dem, og bruk deretter cloud resize-machine, cloud set-idle-pause og cloud rename-machine."}},
-        "pl": {"stringUnit": {"state": "needs_review", "value": "Ten backend Cloud nie może jeszcze utworzyć maszyny z rozmiarem, wstrzymaniem przy bezczynności, nazwą ani konfiguracją startową. Utwórz ją bez nich, a potem użyj cloud resize-machine, cloud set-idle-pause i cloud rename-machine."}},
-        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Este back-end do Cloud ainda não consegue criar uma máquina com tamanho, pausa por inatividade, nome ou inicialização. Crie-a sem eles e depois use cloud resize-machine, cloud set-idle-pause e cloud rename-machine."}},
-        "ru": {"stringUnit": {"state": "needs_review", "value": "Этот бэкенд Cloud пока не умеет создавать машину с размером, паузой при простое, именем или начальной настройкой. Создайте её без них, затем используйте cloud resize-machine, cloud set-idle-pause и cloud rename-machine."}},
-        "th": {"stringUnit": {"state": "needs_review", "value": "แบ็กเอนด์ Cloud นี้ยังสร้างเครื่องที่กำหนดขนาด การหยุดชั่วคราวเมื่อว่าง ชื่อ หรือการตั้งค่าเริ่มต้นไม่ได้ ให้สร้างโดยไม่ใส่ตัวเลือกเหล่านี้ แล้วใช้ cloud resize-machine, cloud set-idle-pause และ cloud rename-machine"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "Bu Cloud arka ucu henüz boyut, boşta duraklatma, ad veya ilk kurulumla makine oluşturamıyor. Bunlar olmadan oluşturun, ardından cloud resize-machine, cloud set-idle-pause ve cloud rename-machine kullanın."}},
-        "uk": {"stringUnit": {"state": "needs_review", "value": "Цей бекенд Cloud поки не може створити машину з розміром, паузою під час простою, ім'ям або початковим налаштуванням. Створіть її без них, а потім використайте cloud resize-machine, cloud set-idle-pause і cloud rename-machine."}},
-        "vi": {"stringUnit": {"state": "needs_review", "value": "Phần phụ trợ Cloud này chưa thể tạo máy với kích thước, tạm dừng khi rảnh, tên hoặc khởi tạo ban đầu. Hãy tạo máy mà không dùng chúng, rồi dùng cloud resize-machine, cloud set-idle-pause và cloud rename-machine."}}
-      }
-    },
     "cloud.cli.machineNameInvalid": {
       "comment": "cmux cloud new-machine: the --name value is not a plain name. Keep lane-vm-1 as written.",
       "extractionState": "manual",

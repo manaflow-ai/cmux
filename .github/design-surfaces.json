@@ -194,6 +194,21 @@
         "webviews/src/agent-session/acpmux/chatMinimap/"
       ]
     },
+    "notifications": {
+      "spec": "leo-workspace design/notifications.md",
+      "aliases": ["toast", "notice", "warning", "banner", "ask card", "error card", "snackbar"],
+      "paths": [
+        "webviews/src/ui/Notice.tsx",
+        "webviews/src/ui/NoticeStack.tsx",
+        "webviews/src/ui/notice.css",
+        "webviews/src/agent-session/acpmux/NoticeSlot.tsx",
+        "webviews/src/agent-session/acpmux/toolCards/",
+        "webviews/src/agent-session/acpmux/HostError.tsx",
+        "webviews/src/pages/cloud/Notices.tsx",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Toast/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneToolCard.swift"
+      ]
+    },
     "feature-tips": {
       "spec": "leo-workspace design/feature-tips.md",
       "aliases": [

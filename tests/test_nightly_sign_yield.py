@@ -86,8 +86,19 @@ class SignYieldTest(unittest.TestCase):
                 self.assertIn("105", why)
         fake = Fake({105: [job(SIGN, "queued")]})
         sy.decide(env(103), fake, log=lambda _: None)
+        self.assertIn("queued", sy.ACTIVE_RUN_STATUSES)
         self.assertEqual(sorted({p.split("status=")[1].split("&")[0] for p in fake.paths if "status=" in p}),
                          sorted(sy.ACTIVE_RUN_STATUSES))
+
+    def test_a_newer_run_whose_only_unfinished_job_is_its_queued_sign_reads_as_queued_and_counts(self):
+        # 2026-11-04: once a run's builds finish and only its sign job waits for a runner, GitHub reports the whole
+        # run as queued. The yield read no queued runs, so an older build signed while a newer sign job waited.
+        runs = {103: [job(SIGN, "queued")],
+                105: [job("build-nightly-app", "completed", "success"), job(SIGN, "queued")]}
+        fake = Fake(runs, statuses={105: "queued"})
+        yielded, why = sy.decide(env(103), fake, log=lambda _: None)
+        self.assertTrue(yielded)
+        self.assertIn("105", why)
 
     def test_a_newer_push_alone_never_counts(self):
         # #33109's rule still holds for a newer push: no sign job, or one that failed, was skipped or cancelled.

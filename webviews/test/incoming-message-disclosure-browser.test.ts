@@ -370,6 +370,39 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
     }
   });
 
+  // A scroll made from code right after that open (scrollIntoView, Find, a link to a row) stays
+  // where the code put it: the open's hold at the end pinned it back there within its 300 ms (#34780).
+  test("a scroll from code just after opening the chat's last row stays where it was put", async () => {
+    const page = await openChat(
+      [...Array.from({ length: 6 }, (_, index) => turn(index)).flat(), fromAgent(LONG, "Grid fix", "child-3", "m-end")],
+      "Paragraph 1 of the landing report",
+    );
+    try {
+      const toggle = page.locator(".cv-received .cv-disclosure__toggle");
+      await toggle.waitFor({ timeout: 10_000 });
+      await rest(page);
+      expect(await atLatest(page)).toBe(true);
+      await toggle.click();
+      expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+      // A frame into the open, inside its hold: up from the end by one view, from code.
+      const put = await page.locator(".acpmux-scroll").evaluate(async (el) => {
+        await new Promise<void>((done) => requestAnimationFrame(() => done()));
+        el.scrollTop = el.scrollHeight - el.clientHeight * 2;
+        return el.scrollTop;
+      });
+      // The regression is a re-pin inside the open's hold (400 ms, or the fold's length plus 150 ms).
+      // fixed-wait: waiting past the hold is the behavior under test
+      await page.waitForTimeout(600);
+      await rest(page);
+      const after = await page.locator(".acpmux-scroll").evaluate((el) => el.scrollTop);
+      console.log(`code scroll after open: put ${put} -> ${after}`);
+      expect(await atLatest(page)).toBe(false);
+      expect(Math.abs(after - put)).toBeLessThan(2);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("three messages from three senders between two replies are three rows, in order, where they arrived", async () => {
     const page = await openChat(
       [
@@ -457,9 +490,12 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
           const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
           const chevron = line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect();
           // The line's last words: its first line's, or the sender's (its text, not its padded box) in
-          // the stacked gallery look.
+          // the stacked gallery look. The preview first: in the default one-line look (#34464) the
+          // sender comes before it on the same line, and a list selector returns the earlier node.
           const range = document.createRange();
-          range.selectNodeContents(line.querySelector(".cv-received__preview, .cv-received__from")!);
+          range.selectNodeContents(
+            line.querySelector(".cv-received__preview") ?? line.querySelector(".cv-received__from")!,
+          );
           const words = range.getBoundingClientRect();
           const hover = line.querySelector<HTMLElement>(".cv-received__hover");
           return {

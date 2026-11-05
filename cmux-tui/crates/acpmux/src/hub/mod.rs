@@ -409,10 +409,6 @@ pub struct TurnInfo {
     /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
     /// inbox notice and no other agent's steer goes into it.
     pub persons: bool,
-    /// Whether another agent's message, or acpmux's notice or digest of them, started it: the
-    /// person's own prompt queues behind it as a turn of its own instead of steering into it,
-    /// where the turn's reply would answer only the agent (`turns.rs`).
-    pub from_agents: bool,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -2066,9 +2062,9 @@ impl Hub {
         rules: Option<Value>,
     ) -> Result<(), RpcError> {
         self.permission_policy_changed(session, |m| m.permission_rules = rules.clone());
-        let saved = self.save_meta_answered(session);
+        // The line first, then the metadata (R-DURABILITY S3b, as `set_tags_answered`).
         self.append(session, "mux", "rules", json!({"rules": rules}));
-        saved
+        self.save_meta_answered(session)
     }
 
     /// Store the unsent composer text without adding it to the transcript.
@@ -2236,8 +2232,9 @@ impl Hub {
             .map(|m| m.id.as_str())
             .collect();
         // A session whose record did not list still has its folder.
-        let stored =
-            |id: &str| known.contains(id) || self.store.session_dir(id).is_some_and(|d| d.exists());
+        let stored = |id: &str| {
+            known.contains(id) || self.store.session_path(id).is_some_and(|d| d.exists())
+        };
         let stale = crate::agent::session_tmp::stale_for_daemon(&stored, &|id| closed.contains(id));
         if stale.is_empty() {
             return;

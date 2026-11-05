@@ -450,6 +450,25 @@ pub(super) async fn apply_cloud_event<O: Overlay, S: ConnectInfoSource>(
     }
 }
 
+/// A refused Cloud dial: the typed code, and what failed in `error_detail`
+/// and on this link's stderr (the app keeps it in the link's `link.log`).
+/// Both get the same clipped, one-line detail (`failed_because`), never the
+/// raw text.
+async fn refuse<C: AsyncWrite + Unpin>(
+    caller: &mut C,
+    host: &str,
+    service: Service,
+    error: DialError,
+    detail: &str,
+) {
+    let refused = DialReply::failed_because(error, detail);
+    eprintln!(
+        "cmux link: dial {host} {service:?} refused ({error:?}): {}",
+        refused.error_detail.as_deref().unwrap_or("")
+    );
+    reply(caller, refused).await;
+}
+
 /// Serve one `link.dial` for a Cloud host id: the record (cached), the
 /// handshake, then a freshly minted token for this attempt's one hello.
 pub(super) async fn serve_cloud_dial<C, O, S>(
@@ -463,25 +482,31 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
     S: ConnectInfoSource,
 {
     let host = request.host.as_str();
+    let service = request.service;
     let mut refresh = false;
     let (resolved, mut stream) = loop {
         let resolved = match resolver.resolve(host, refresh).await {
             Ok(resolved) => resolved,
-            Err(error) => return reply(&mut caller, DialReply::failed(error.dial_error())).await,
+            Err(error) => {
+                let detail = format!("connect_info: {}", error.detail());
+                return refuse(&mut caller, host, service, error.dial_error(), &detail).await;
+            }
         };
-        if !resolved.info.allows(request.service) {
-            return reply(&mut caller, DialReply::failed(DialError::NotAuthorized)).await;
+        if !resolved.info.allows(service) {
+            let detail = format!("the machine's connect_info does not allow {service:?}");
+            return refuse(&mut caller, host, service, DialError::NotAuthorized, &detail).await;
         }
         let remote = SocketAddr::new(IpAddr::V6(resolved.info.peer.overlay_address), LINK_PORT);
         // Peer setup is not cut by the connect deadline, so a half-applied
         // change cannot be left behind (it bounds its own tunnel start).
-        let configured = overlay.set_cloud_peer(host, resolved.key, &resolved.info).await;
-        if configured.is_ok()
-            && let Ok(Ok(stream)) =
-                tokio::time::timeout(DIAL_TIMEOUT, overlay.connect(remote)).await
-        {
-            break (resolved, stream);
-        }
+        let failed = match overlay.set_cloud_peer(host, resolved.key, &resolved.info).await {
+            Err(error) => format!("the tunnel peer setup failed: {error}"),
+            Ok(_) => match tokio::time::timeout(DIAL_TIMEOUT, overlay.connect(remote)).await {
+                Ok(Ok(stream)) => break (resolved, stream),
+                Ok(Err(error)) => format!("connect to {remote}: {error}"),
+                Err(_) => format!("no handshake with {remote} within {} s", DIAL_TIMEOUT.as_secs()),
+            },
+        };
         // Rule 3: a handshake failure fetches once more before it reports.
         if refresh {
             let error = if resolved.info.is_paused() {
@@ -489,22 +514,28 @@ pub(super) async fn serve_cloud_dial<C, O, S>(
             } else {
                 DialError::Unreachable
             };
-            return reply(&mut caller, DialReply::failed(error)).await;
+            let detail =
+                format!("{failed} (after a fresh connect_info, state {})", resolved.info.state);
+            return refuse(&mut caller, host, service, error, &detail).await;
         }
         refresh = true;
     };
     // One fresh token per attempt, used once, never kept.
-    let grant = match resolver.token(host, request.service).await {
+    let grant = match resolver.token(host, service).await {
         Ok(grant) => grant,
-        Err(error) => return reply(&mut caller, DialReply::failed(error.dial_error())).await,
+        Err(error) => {
+            let detail = format!("link_token: {}", error.detail());
+            return refuse(&mut caller, host, service, error.dial_error(), &detail).await;
+        }
     };
     let hello = ServiceHello {
         service: request.service,
         link_token: Some(grant.token),
         epoch: Some(grant.epoch),
     };
-    if stream.write_all(line(&hello).as_bytes()).await.is_err() {
-        return reply(&mut caller, DialReply::failed(DialError::Unreachable)).await;
+    if let Err(error) = stream.write_all(line(&hello).as_bytes()).await {
+        let detail = format!("the service hello to the machine failed: {error}");
+        return refuse(&mut caller, host, service, DialError::Unreachable, &detail).await;
     }
     let path_state = overlay.path_state(&resolved.key).await;
     if caller.write_all(line(&DialReply::connected(path_state)).as_bytes()).await.is_err() {
