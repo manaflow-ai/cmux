@@ -1,0 +1,167 @@
+/* The GitHub page: one pull request on the shared page backdrop (pageBase.css). States draw in
+   GitHub's colours, as on every other pull request surface (prStateColors.test.ts). */
+html[data-cmux-page="github"] {
+  --agent-muted: var(--page-text-2);
+  --agent-status-success: var(--agent-ansi-10, var(--agent-ansi-2, light-dark(#1a7f37, #3fb950)));
+  --agent-status-failure: var(--agent-ansi-9, var(--agent-ansi-1, light-dark(#b42318, #ff7b72)));
+  --agent-status-warning: var(--agent-ansi-11, var(--agent-ansi-3, light-dark(#8a5a00, #e3b341)));
+  --agent-status-merged: light-dark(#8250df, #a371f7); /* theme-fixed: GitHub's merged purple in every theme (Leo 2026-11-02) */
+}
+
+.gh {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: var(--ds-space-5) var(--ds-space-4) var(--ds-space-6);
+}
+
+.gh-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding-bottom: var(--ds-space-4);
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.gh-ref {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+  font-variant-numeric: tabular-nums;
+}
+
+.gh-glyph { flex: none; color: var(--page-text-3); }
+.gh-glyph[data-state=open] { color: var(--agent-status-success); }
+.gh-glyph[data-state=merged] { color: var(--agent-status-merged); }
+.gh-glyph[data-state=closed] { color: var(--agent-status-failure); }
+.gh-glyph[data-state=draft] { color: var(--agent-muted); }
+
+.gh-title {
+  margin: 0;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  letter-spacing: var(--text-title--letter-spacing);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.gh-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1) var(--ds-space-3);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--page-text-2);
+}
+
+.gh-badge {
+  padding: 0 var(--ds-space-2);
+  border-radius: 999px;
+  color: var(--cmux-on-accent);
+  font-weight: 600;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  background: var(--page-text-3);
+}
+.gh-badge[data-state=open] { background: var(--agent-status-success); }
+.gh-badge[data-state=merged] { background: var(--agent-status-merged); }
+.gh-badge[data-state=closed] { background: var(--agent-status-failure); }
+.gh-badge[data-state=draft] { background: var(--agent-muted); }
+
+.gh-author { color: var(--page-text); font-weight: 600; }
+.gh-branches code {
+  padding: 0 var(--ds-space-1);
+  border-radius: 4px;
+  background: var(--page-hover);
+  font-size: var(--text-caption);
+}
+
+.gh-actions { display: flex; flex-wrap: wrap; gap: var(--ds-space-2); margin-top: var(--ds-space-1); }
+
+.gh-button {
+  padding: var(--ds-space-1) var(--ds-space-3);
+  border: 1px solid var(--page-separator);
+  border-radius: 6px;
+  color: var(--page-text);
+  background: var(--page-elevated);
+  font: inherit;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
+  cursor: default;
+}
+.gh-button:hover:not(:disabled) { background: var(--page-hover); }
+.gh-button:disabled { color: var(--page-text-disabled); }
+.gh-button--primary { border-color: transparent; color: var(--cmux-on-accent); background: var(--cmux-accent); }
+.gh-button--primary:hover:not(:disabled) { background: var(--cmux-accent); filter: brightness(1.08); }
+
+.gh-failure { margin: 0; color: var(--agent-status-failure); }
+.gh-muted { color: var(--page-text-3); }
+
+.gh-section { padding: var(--ds-space-3) 0; border-bottom: 1px solid var(--page-separator); }
+.gh-section:last-child { border-bottom: 0; }
+
+.gh-review { display: flex; flex-wrap: wrap; gap: var(--ds-space-1) var(--ds-space-4); font-size: var(--text-body); }
+.gh-review-state[data-review=approved] { color: var(--agent-status-success); font-weight: 600; }
+.gh-review-state[data-review=changes_requested] { color: var(--agent-status-failure); font-weight: 600; }
+.gh-review-state[data-review=review_required] { color: var(--agent-status-warning); font-weight: 600; }
+.gh-conflicts { color: var(--agent-status-failure); }
+.gh-count { color: var(--page-text); font-variant-numeric: tabular-nums; }
+
+.gh-section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  margin: 0 0 var(--ds-space-2);
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  letter-spacing: var(--text-heading--letter-spacing);
+  font-weight: 600;
+}
+.gh-section-detail { color: var(--page-text-3); font-weight: 400; font-size: var(--text-caption); font-variant-numeric: tabular-nums; }
+
+.gh-list { margin: 0; padding: 0; list-style: none; }
+
+.gh-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: 24px;
+  padding: 0 var(--ds-space-2);
+  border-radius: 6px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.gh-row:hover { background: var(--page-hover); }
+
+.gh-row-link,
+.gh-more {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: var(--page-text);
+  background: none;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.gh-row-link { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-row-link:hover,
+.gh-more:hover { color: var(--cmux-accent); }
+.gh-row-name { flex: 1; }
+.gh-path { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-caption); }
+.gh-more { margin-top: var(--ds-space-1); color: var(--page-text-2); font-size: var(--text-caption); }
+
+.gh-dot { flex: none; width: 8px; aspect-ratio: 1; border-radius: 50%; background: var(--page-text-3); }
+.gh-row[data-check=passed] .gh-dot { background: var(--agent-status-success); }
+.gh-row[data-check=failed] .gh-dot { background: var(--agent-status-failure); }
+.gh-row[data-check=pending] .gh-dot { background: var(--agent-status-warning); }
+
+.gh-lines { flex: none; font-variant-numeric: tabular-nums; font-size: var(--text-caption); }
+.gh-add { color: var(--agent-status-success); }
+.gh-del { color: var(--agent-status-failure); }
