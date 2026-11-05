@@ -1,0 +1,12 @@
+{
+  "title": "Sidebar notification emphasis (sidebar.notificationEmphasis): the showcase sidebar and the Debug row badge preview rows in each look, dot only (before), edge bar and wash, bold name and count pill, pulsing halo. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/sidebar-notification-emphasis.json --video",
+  "launch_args": ["--showcase"],
+  "steps": [
+    {"title": "Add the Debug row badge preview rows (unread, needs-you, working, error)", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.rowBadgePreview", "value": true}}, "wait": 1.5},
+    {"title": "Before: dot only (the current look)", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.notificationEmphasis", "value": "standard"}}, "wait": 1.5},
+    {"title": "Look 1: edge bar and wash", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.notificationEmphasis", "value": "edgeBar"}}, "wait": 1.5},
+    {"title": "Look 2: bold name and count pill", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.notificationEmphasis", "value": "boldPill"}}, "wait": 1.5},
+    {"title": "Look 3: pulsing halo", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "sidebar.notificationEmphasis", "value": "halo"}}, "wait": 3},
+    {"title": "Look 3: pulsing halo, half a pulse later", "rpc": {"method": "debug.sidebar_rows", "params": {}}, "wait": 0.6}
+  ]
+}

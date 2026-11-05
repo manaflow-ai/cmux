@@ -85,7 +85,7 @@ extension WorkspaceRowView {
             // Fills, no borders but the focus ring below: drop target, selection, multi-selection or on screen, hover.
             let fill = isDropTarget || isSelected ? Palette.selectionFill : isSecondarySelected || isOnScreen ? Palette.secondarySelectionFill
                 : isHovered && !isPlaceholderRow && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil
-            let painted = colorFill() ?? fill // `workspaceColors.indicatorStyle` (#25653): fill or rail
+            let painted = emphasisFill(over: colorFill() ?? fill) // `workspaceColors.indicatorStyle` (#25653): fill or rail; then a notification's wash
             paintFill(painted)
             // The one border: the focus ring of the group this row stands for, as its header draws it.
             layer?.borderColor = Palette.focusRing.cgColor
@@ -101,6 +101,7 @@ extension WorkspaceRowView {
         activity.dotDiameter = SidebarStyle.statusDotSize // one diameter for every status dot (Lawrence msg 19696)
         let full = layoutBounds
         layoutColorRail(in: full)
+        layoutEmphasis(in: full)
         // The name lines and the trailing cluster center in the head; the
         // status block, when shown, fills the rest below it.
         let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
@@ -285,7 +286,7 @@ extension WorkspaceRowView {
         updateCalmTitleTip()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in ([activity, rowBadge, agentMark, mutedMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
+        for mark in ([activity, rowBadge, emphasis.pill, agentMark, mutedMark, usageWarningMark, audioSlot.made, presenceDots, timeLabel, tabCount, prBadge] as [NSView?]).compactMap(\.self) {
             // The column's mark gives way while the hover controls show; so does a status spinner left of it.
             let status = mark === activity || (mark === agentMark && markReplacesStatus)
             let covered = mark === usageWarningMark ? false : mark === columnMark?.view ? markGivesWay
