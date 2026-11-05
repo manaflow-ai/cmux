@@ -6,15 +6,18 @@
 //! hundreds of milliseconds. An input lifts the frame-rate cap for a short while
 //! ([`FrameGate::input`]), so the frame that shows the input's effect goes out the
 //! moment its damage arrives instead of on the next interval; the in-flight bound
-//! still holds, and so does a floor of [`INPUT_FRAME_MIN_INTERVAL_US`] between frames.
+//! still holds, and frames stay [`INPUT_FRAME_MIN_INTERVAL_US`] apart, or the cap's own
+//! interval when that is shorter: the window never sends faster than the cap allows outside it.
 
 /// How long after an input its frames skip the frame-rate cap: long enough for the app
 /// and the window server to draw the effect and the capture to deliver it.
 pub const INPUT_FRAME_WINDOW_US: u64 = 100_000;
 
-/// The least time between frames inside an input's window (250 fps). ScreenCaptureKit
-/// delivers at most once per display refresh on its own; X damage has no such bound, so
-/// without this floor a burst of damage after an input would encode a burst of frames.
+/// The least time between frames inside an input's window (250 fps), unless the cap's own
+/// interval is shorter (`--max-fps` above 250), which then holds inside the window as outside
+/// it. ScreenCaptureKit delivers at most once per display refresh on its own; X damage has no
+/// such bound, so without this floor a burst of damage after an input would encode a burst
+/// of frames faster than the cap.
 pub const INPUT_FRAME_MIN_INTERVAL_US: u64 = 4_000;
 
 /// A damaged rectangle in stream pixels.
@@ -97,7 +100,9 @@ impl FrameGate {
         self.input_at_us.map(|at| at.saturating_add(INPUT_FRAME_WINDOW_US))
     }
 
-    /// The least time between frames inside an input's window.
+    /// The least time between frames inside an input's window: the floor, or the cap's interval
+    /// when that is shorter (the window lifts a slow cap; it never spaces frames wider than the
+    /// cap, nor closer than it allows outside the window).
     fn input_interval_us(&self) -> u64 {
         INPUT_FRAME_MIN_INTERVAL_US.min(self.min_interval_us)
     }
