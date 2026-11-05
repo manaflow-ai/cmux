@@ -433,7 +433,8 @@ test("the answer row is content-width buttons, never stretched to equal cells", 
   expect(row).not.toContain("1fr");
   const button = rule(".acpmux-permission-ask .acpmux-permission-buttons button");
   expect(button).toContain("flex:none");
-  expect(button).toContain("align-items:baseline");
+  // Centred, so the label sits level with an esc or ⌘↩ keycap.
+  expect(button).toContain("align-items:center");
 });
 
 // Leo 2026-11-04: "a temporary one-time sort of ask for, like if for whatever reason there's the
