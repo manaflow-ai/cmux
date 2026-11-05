@@ -180,21 +180,21 @@ extension SettingsHarnesses {
                 // move a chat onto it; a Claude login is a config folder of its own.
                 if family == "codex" { route["shadow"] = true }
                 _ = try await callAccounts(environment, .routeAdd, route)
-                try signIn(family: family, home: home, environment: environment)
+                try await signIn(family: family, home: home, environment: environment)
                 pendingLogins.insert(made.id)
             }
         case "accountSignIn":
             let account = try listed(params, action)
             // An API-key account has no login to open.
             guard !account.key else { throw PageError.invalidParams("accountSignIn needs an account with a login") }
-            try signIn(family: account.family, home: account.home, environment: environment)
+            try await signIn(family: account.family, home: account.home, environment: environment)
             pendingLogins.insert(account.id)
         case "accountSignOut":
             let account = try listed(params, action)
             guard !account.key, let line = Self.signOutLine(family: account.family, home: account.home) else {
                 throw PageError.invalidParams("accountSignOut needs an account with a login")
             }
-            openTerminal(line)
+            try await typeLine(line)
             // The logout runs once the tab opens, after the refresh below: Settings coming forward reads it.
             pendingLogins.insert(account.id)
         case "accountRename":
@@ -248,15 +248,15 @@ extension SettingsHarnesses {
 
     /// `acpmux harness login -- <family>` in a new terminal tab, with the family's home variable set
     /// for an account in a folder of its own (acpmux `route_account::login_command`'s shape).
-    private func signIn(family: String, home: String?, environment: AcpmuxEnvironment) throws {
+    private func signIn(family: String, home: String?, environment: AcpmuxEnvironment) async throws {
         guard let line = environment.shellLine(["harness", "login", "--", family]) else {
             throw PageError.invalidParams("this acpmux path cannot be typed into a shell")
         }
-        guard let home else { return openTerminal(line) }
+        guard let home else { return try await typeLine(line) }
         guard let variable = SettingsProviderAccount.homeVariable(family),
               !home.contains(where: { $0 == "'" || $0 == "\\" || $0.isNewline }) else {
             throw PageError.invalidParams("this account folder cannot be typed into a shell")
         }
-        openTerminal("\(variable)='\(home)' " + line)
+        try await typeLine("\(variable)='\(home)' " + line)
     }
 }

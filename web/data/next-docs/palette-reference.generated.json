@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1313,
+    "entries": 1314,
     "shortcuts": 189
   },
   "sections": [
@@ -7422,6 +7422,12 @@
         {
           "id": "debug.projection",
           "title": "Open Projection Window",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "debug.viewWindow",
+          "title": "Open View Window",
           "shortcut": null,
           "command": null
         },

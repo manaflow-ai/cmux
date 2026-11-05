@@ -1,4 +1,5 @@
 public import CmuxNextBrowserImport
+import CmuxNextCompat
 public import Foundation
 
 /// Finds what this Mac has that cmux can bring over, cheaply and without
@@ -194,13 +195,14 @@ public nonisolated struct ImportScanner: Sendable {
     }
 
     /// Conductor's workspaces, one folder each under `~/conductor/workspaces/<repo>`, when its
-    /// database or that folder is here. Folder listings only: what each one becomes is the
-    /// import's dry run (`conductor_import.plan`), read when the person presses Import.
+    /// database or that folder is here. Folder listings only, and only folders count (a file left
+    /// there is no workspace): what each one becomes is the import's dry run
+    /// (`conductor_import.plan`), read when the person presses Import.
     func conductor() -> ImportFinding? {
         let database = home.appending(path: "Library/Application Support/com.conductor.app/conductor.db")
         let root = home.appending(path: "conductor/workspaces", directoryHint: .isDirectory)
-        let workspaces = listing(root).reduce(0) { total, repo in
-            total + listing(root.appending(path: repo, directoryHint: .isDirectory)).count
+        let workspaces = subfolders(root).reduce(0) { total, repo in
+            total + subfolders(root.appending(path: repo, directoryHint: .isDirectory)).count
         }
         guard workspaces > 0 || size(database) > 0 else { return nil }
         return ImportFinding(id: "agents.conductor", kind: .conductor, name: "Conductor", count: workspaces)
@@ -231,6 +233,14 @@ public nonisolated struct ImportScanner: Sendable {
     func listing(_ folder: URL) -> [String] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         return Array(names.lazy.filter { !$0.hasPrefix(".") }.prefix(Self.listingLimit))
+    }
+
+    /// ``listing(_:)``'s folders only, from the one directory read (the type comes with each entry).
+    func subfolders(_ folder: URL) -> [String] {
+        let entries = (try? FileManager.checked.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        return Array(entries.lazy.filter { entry in
+            !entry.lastPathComponent.hasPrefix(".") && (try? entry.blockingResourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+        }.map(\.lastPathComponent).prefix(Self.listingLimit))
     }
 
     /// Inside `~/Library/Containers` or `~/Library/Group Containers`, where macOS guards each app's data.

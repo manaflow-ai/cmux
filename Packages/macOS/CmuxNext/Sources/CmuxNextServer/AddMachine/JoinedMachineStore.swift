@@ -45,8 +45,8 @@ public final class JoinedMachineStore {
     /// `owner`'s section shows the rows: while any section does, the store re-reads the list once
     /// when the first online row's heartbeat would pass ``JoinedMachine/onlineWindow`` (the hub's
     /// 90 s row TTL), and a row whose read failed goes offline at that moment. No online row with a
-    /// heartbeat, no deadline. A fire finding no section on screen (`visible` false: occluded) reads
-    /// nothing and waits another window; the section stays registered until ``stopAging(_:)``.
+    /// heartbeat, no deadline. A fire finding no section on screen (`visible` false: covered) reads
+    /// nothing and stops until ``resumeAging()``; the section stays registered until ``stopAging(_:)``.
     public func startAging(_ owner: AnyObject, visible: @escaping @MainActor () -> Bool) {
         watchers[ObjectIdentifier(owner)] = visible
         scheduleAge()
@@ -58,23 +58,31 @@ public final class JoinedMachineStore {
         if watchers.isEmpty { ageTimer.cancel() }
     }
 
-    /// Follows `signedIn` for the store's life: each change reads the list once, so signing out (no
-    /// service) empties the rows and signing in fills them. Event-driven (Observation), no timer.
-    public func followSignIn(_ signedIn: @escaping @MainActor () -> Bool) {
-        withObservationTracking { _ = signedIn() } onChange: { [weak self] in
-            // task-owner: one read per sign-in change; the store owns the follow for its life.
+    /// Follows `account` (who is signed in and their team; nil signed out) for the store's life: each
+    /// change empties the rows at once, so another account's or team's machines never show, then
+    /// reads the list once. A read still in flight for the old account lands after the emptying and is
+    /// dropped (its ticket is older). Event-driven (Observation), no timer.
+    public func followAccount(_ account: @escaping @MainActor () -> String?) {
+        withObservationTracking { _ = account() } onChange: { [weak self] in
+            // task-owner: one read per account change; the store owns the follow for its life.
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                followSignIn(signedIn)
-                await refresh()
+                followAccount(account)
+                await switchedAccount()
             }
         }
     }
 
-    /// ``followSignIn(_:)``, returning the store (for a lazy property's initializer).
-    public func following(signIn signedIn: @escaping @MainActor () -> Bool) -> JoinedMachineStore {
-        followSignIn(signedIn)
+    /// ``followAccount(_:)``, returning the store (for a lazy property's initializer).
+    public func following(account: @escaping @MainActor () -> String?) -> JoinedMachineStore {
+        followAccount(account)
         return self
+    }
+
+    /// The account or team changed: the old rows go now, then one read fills the new ones.
+    func switchedAccount() async {
+        finishRead([], ticket: beginRead())
+        await refresh()
     }
 
     /// Whether a re-check deadline is pending (tests).
@@ -93,16 +101,27 @@ public final class JoinedMachineStore {
         ageTimer.schedule(after: .milliseconds(Int(delay * 1000))) { @MainActor [weak self] in await self?.ageFired() }
     }
 
-    /// The deadline: with every registered section occluded, it reads nothing and waits one more
-    /// ``JoinedMachine/onlineWindow`` (a section stays registered until it hides or leaves its window,
-    /// ``stopAging(_:)``, so an occluded window wakes this store at most once per 90 s and never loses
-    /// its aging). With a section on screen it reads the list once and ages what the read did not
-    /// renew; the read (``finishRead(_:ticket:)``) sets the next deadline.
+    /// A section's window came back into view (``MachineSectionView`` follows its window's
+    /// occlusion): aging restarts now. A row whose heartbeat passed the window while it was covered
+    /// is read at once; otherwise the deadline is the next expiry again.
+    /// A section's window was covered: with every section covered the deadline stops now, so a covered
+    /// window costs no wakeups at all (``resumeAging()`` starts it again).
+    public func pauseAging() {
+        if !watchers.values.contains(where: { $0() }) { ageTimer.cancel() }
+    }
+
+    public func resumeAging() {
+        guard watchers.values.contains(where: { $0() }), let due = JoinedMachine.nextExpiry(machines) else { return }
+        let delay = max(0, due.timeIntervalSince(clock()) + 1)
+        ageTimer.schedule(after: .milliseconds(Int(delay * 1000))) { @MainActor [weak self] in await self?.ageFired() }
+    }
+
+    /// The deadline. With every registered section covered it reads nothing and stops: a covered
+    /// window costs no wakeups, and ``resumeAging()`` starts it again when the window shows. With a
+    /// section on screen it reads the list once and ages what the read did not renew; the read
+    /// (``finishRead(_:ticket:)``) sets the next deadline.
     func ageFired() async {
-        guard watchers.values.contains(where: { $0() }) else {
-            ageTimer.schedule(after: .seconds(Int(JoinedMachine.onlineWindow))) { @MainActor [weak self] in await self?.ageFired() }
-            return
-        }
+        guard watchers.values.contains(where: { $0() }) else { return ageTimer.cancel() }
         await refresh()
         age(now: clock())
         scheduleAge()

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 583,
+  "count": 584,
   "sections": [
     {
       "id": "general",
@@ -1585,6 +1585,14 @@
             "nightly",
             "off"
           ]
+        },
+        {
+          "key": "updates.whatsNewInstall",
+          "title": "Install Versions from What's New",
+          "help": "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
         },
         {
           "key": "window.titlebar",

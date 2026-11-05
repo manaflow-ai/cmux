@@ -68,7 +68,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.openVaultPane",
         ],
         .noTargetSurface: [
-            "browserProfile.openLink", "file.open",
+            "browserProfile.openLink", "browserProfile.openLinkInNew", "file.open",
             "tabGroup.deleteSaved",
             "tabGroup.reopenSaved",
             "taskManager.killProcess", "toggleChecklistItemComplete", "canvasOverview", "canvasTidy",
