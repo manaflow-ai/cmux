@@ -9564,6 +9564,124 @@
         }
       }
     },
+    "updater.button.updateAvailableRestarts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Available: Click to Update and Restart"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update verfügbar: Klicken zum Aktualisieren und Neustarten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise à jour disponible : cliquez pour mettre à jour et redémarrer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتوفر تحديث: انقر للتحديث وإعادة التشغيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualización disponible: haz clic para actualizar y reiniciar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有可用更新：按一下以更新並重新啟動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有可用更新：点按以更新并重新启动"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 있음: 클릭하여 업데이트 후 재시작"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートがあります：クリックしてアップデートし再起動"
+          }
+        }
+      }
+    },
+    "updater.button.updateAvailableRestartsNamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Available (%@): Click to Update and Restart"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update verfügbar (%@): Klicken zum Aktualisieren und Neustarten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise à jour disponible (%@) : cliquez pour mettre à jour et redémarrer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتوفر تحديث (%@): انقر للتحديث وإعادة التشغيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualización disponible (%@): haz clic para actualizar y reiniciar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有可用更新（%@）：按一下以更新並重新啟動"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有可用更新（%@）：点按以更新并重新启动"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 있음(%@): 클릭하여 업데이트 후 재시작"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートがあります（%@）：クリックしてアップデートし再起動"
+          }
+        }
+      }
+    },
     "updater.card.automaticUpdates": {
       "extractionState": "manual",
       "localizations": {
