@@ -370,10 +370,20 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
     deadline = launched + args.settle
     ok, now, why = False, None, "never polled"
     done = launched
+    marks_text = b""
+
+    def drain():
+        nonlocal marks_text
+        try:
+            while chunk := os.read(marks_read, 1 << 16):
+                marks_text += chunk
+        except (BlockingIOError, OSError):
+            pass
     timeline = row.setdefault("timeline", [])  # [ms since the quit, what still stops it], one entry per change
     while time.monotonic() < deadline and process.poll() is None:
         # Usable counts to the end of the poll that found it so: a field may only have matched during the poll's
         # own reads, so its start would undercount. ready_ms keeps the start as the lower bound.
+        drain()
         polled = time.monotonic()
         ok, now, why = usable(inst, before, made["chat"])
         reason = why.split(" (")[0] if not ok else "usable"
@@ -384,7 +394,18 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
             row["ready_ms"] = round((polled - asked) * 1000)
             break
         time.sleep(POLL_S)
+    drain()
     os.close(marks_read)
+    # The app's own launch marks (ms since its process started, LaunchMarkSink), first of each: which wait the
+    # control socket sat behind (it opens after LaunchSettle, or 4 s).
+    marks: dict[str, float] = {}
+    for line in marks_text.decode(errors="replace").splitlines():
+        name, _, ms = line.rpartition(" ")
+        try:
+            marks.setdefault(name, round(float(ms)))
+        except ValueError:
+            pass
+    row["marks"] = marks
     row["usable"] = ok
     row["quit_to_usable_ms"] = round((done - asked) * 1000) if ok else None
     row["launch_to_usable_ms"] = round((done - launched) * 1000) if ok else None
