@@ -209,7 +209,7 @@ extension AppServices {
     func startCmuxRemote(_ settings: SettingsController) {
         let bundleID = environment.launch.bundleID ?? "com.cmuxterm.app.next"
         let auth = cloud.auth
-        guard let devices = cmuxRemote.start(bundleID: bundleID, deviceHub: deviceHub, pages: macScreenPages,
+        guard let devices = cmuxRemote.start(bundleID: bundleID, loginKeychain: loginKeychain, deviceHub: deviceHub, pages: macScreenPages,
                                              computerUse: ComputerUseHelperDaemon.shared.upstream,
                                              tokens: { try await auth.tokens().access }) else { return }
         let consent = joinConsent, previous = consent.changed

@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextComputerUse
 public import CmuxNextDevices
 public import CmuxNextSettings
@@ -13,7 +13,7 @@ extension CmuxRemoteService {
     /// reads the worker's one User DO socket, and the worker is anchored while signed in; Mac
     /// Screen's host sessions and approval banner are the worker's. Nil (and nothing changes) in
     /// a build without the bundle.
-    public func start(bundleID: String, deviceHub: DeviceHubService, pages: MacScreenPages, computerUse: ComputerUseHelperV2,
+    public func start(bundleID: String, loginKeychain: LoginKeychain, deviceHub: DeviceHubService, pages: MacScreenPages, computerUse: ComputerUseHelperV2,
                       tokens: @escaping @Sendable () async throws -> String) -> CmuxRemoteDevices? {
         guard !started, let executable = ComputerUseRemoteSource.executable() else { return nil }
         markStarted()
@@ -37,7 +37,7 @@ extension CmuxRemoteService {
                 let identity = try await devices.identity()
                 let client = DeviceHubClient(baseURL: url, identity: identity, tokens: DeviceHubAccountToken(tokens))
                 let hub = DeviceHub(client: client, socket: DeviceHubSocket(connector: RemotePushConnector(devices: devices)),
-                                    secrets: KeychainRelaySecretStore(bundleIdentifier: bundleID), deviceName: MacScreenShareHost.computerName)
+                                    secrets: KeychainRelaySecretStore(bundleIdentifier: bundleID, loginKeychain: loginKeychain), deviceName: MacScreenShareHost.computerName)
                 remoteHub = hub
                 return hub
             } catch {
