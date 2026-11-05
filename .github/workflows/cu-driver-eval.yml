@@ -101,6 +101,8 @@ jobs:
             cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "::error title=cu driver eval::no results came back (step ${step:-none}, exit $status)"
+            # A run with no report is never green, whatever the step's own exit.
+            [[ $status == 0 ]] && status=1
           fi
           exit "$status"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

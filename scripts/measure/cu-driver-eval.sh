@@ -9,7 +9,7 @@
 #     [--target-worker W] [--arg=reps=3] [--arg=drivers=cmux-cua,cua-driver-0.38.0] --timeout 3600
 # Output: CU-DRIVER-EVAL lines, the summary, and artifacts/cu-driver-eval.tgz (results.json,
 # summary.md, trials.jsonl and every app's log). No gate: it reports, and exits non-zero only when
-# it could not measure at all (3: no Accessibility grant; 4: nothing ran).
+# it could not measure at all (3: no Accessibility or event-posting grant; 4: nothing ran).
 set -uo pipefail
 reps=3 drivers="cmux-cua,cua-driver-0.38.0" electron=1
 for arg in "$@"; do
@@ -72,8 +72,10 @@ swiftc -O -o "$work/bin/cu-eval-app" "$here/apps.swift" || { finish "could not b
 swiftc -O -o "$work/bin/cu-eval-inject" "$here/inject.swift" || { finish "could not build inject.swift"; exit 4; }
 grants=$("$work/bin/cu-eval-inject" grants)
 echo "CU-DRIVER-EVAL-GRANTS $grants"
-if ! grep -q '"accessibility":true' <<<"$grants"; then
-  finish "the step's processes lack Accessibility on this worker ($grants)"
+# Both: with Accessibility but no event posting, every per-pid post is dropped and would read as a
+# measured zero instead of a blocked run.
+if ! grep -q '"accessibility":true' <<<"$grants" || ! grep -q '"post_event":true' <<<"$grants"; then
+  finish "the step's processes lack Accessibility or event posting on this worker ($grants)"
   exit 3
 fi
 
