@@ -154,6 +154,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   one thread per call: its pipe write blocks only it; it ends when the child has read the request or closed its
   stdin, and a kill at the call's deadline or a cancel closes it, so it never outlives the child; CloudMachineIO),
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
+  `cmux.daemon-bridge.stream` (one Cloud desktop session's `link dial --service desktop` bridge socket,
+  user-initiated, serial: DispatchIO delivers the stream's bytes here and it blocks on nothing; the rd transport
+  reads them in order, a few MB/s of H.264 at most, and the session's end closes it; DaemonBridgeStream),
   `com.cmuxterm.mac-screen.rd-stdin` (one Mac Screen session's JSON lines into its bundled `cmux rd`
   process, user-initiated, serial: its pipe writes block only it; a few lines per session, candidates and
   stop, so no back-pressure; MacScreenRdProcess), `com.cmuxterm.mac-screen.rd-socket` (the viewer's

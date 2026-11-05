@@ -41,6 +41,14 @@ public nonisolated struct RemoteRdHello: Sendable, Equatable, Codable {
     }
 }
 
+public nonisolated extension RemoteRdHello {
+    /// A Cloud machine's desktop session over the owner's Native link (service `desktop`): no
+    /// token. The link admitted the owner, and the host takes only its root receiver's connection.
+    static func cloudDesktop(install: String = "cmux-next-\(ProcessInfo.processInfo.processIdentifier)") -> RemoteRdHello {
+        RemoteRdHello(user: "cmux", install: install, token: nil, service: "desktop")
+    }
+}
+
 /// The host's answer to a hello and start.
 public nonisolated struct RemoteRdWelcome: Sendable, Equatable, Codable {
     public var encoder: String

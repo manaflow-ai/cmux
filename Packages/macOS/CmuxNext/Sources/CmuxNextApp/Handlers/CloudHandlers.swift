@@ -30,7 +30,10 @@ enum CloudHandlers {
         bindMove(into: registry, context: context)
         bindSignInRecovery(into: registry, cloud: cloud)
         CloudMachineStage.gatePowerActions(into: registry, context: context)
-        gateOpenDesktop(into: registry, context: context)
+        // Open Desktop on a machine without a desktop: out of its menu, its run refused with why.
+        ActionTargetVisibility.gate("cloudOpenDesktop", in: registry) { invocation in
+            (try? machine(invocation, context)).flatMap { $0.machine.allows(.desktop) ? nil : CloudStrings.desktopUnavailable($0.machine.title) }
+        }
         // Any catalog row added later without a handler stays covered.
         registry.bindUnavailable(registry.unboundActionIDs(in: [.cloud]), ActionFailure(message: MiscHandlerStrings.cloud))
     }
@@ -244,7 +247,7 @@ enum CloudHandlers {
     @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
         let services = context.services, title = session.machine.title
         guard session.machine.allows(.desktop) else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
-        let viewer = viewer ?? defaultDesktopViewer(session.machine)
+        let viewer = viewer ?? session.machine.defaultDesktopViewer
         if viewer == "rd" {
             guard session.machine.capabilities.desktop,
                   let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .view,
@@ -275,13 +278,6 @@ enum CloudHandlers {
             _ = try await connection.newFrontendBrowserTab(url: address, engine: .cef, in: pane, title: name)
             if let surface = terminal.surface { try await connection.closeTab(surface) }
         }
-    }
-
-    /// Open Desktop's viewer when none is named: `rd` for a machine whose capabilities declare
-    /// `desktop` (its image carries the `cmux-rd` host on the agent display), `web` (noVNC) for
-    /// one that declares none (classic, which keeps its own desktop).
-    static func defaultDesktopViewer(_ machine: CloudMachine) -> String {
-        machine.capabilities.desktop ? "rd" : "web"
     }
 
     /// A remote view pane tab for `record` in a new workspace on this Mac's daemon.

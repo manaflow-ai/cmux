@@ -17,23 +17,23 @@ import Foundation
 import Observation
 
 extension AppServices {
-    /// Open Desktop's `cmux-rd` viewer: Cloud machine `machine`'s desktop host over the owner's
-    /// Native link, one `link.dial` with service `desktop` per session (``CloudDesktopLinkDial``),
-    /// with no token: the link's own owner token admits the dial on the machine. The returned
-    /// closure makes each session's transport in the mode it asks for (`control`: Take over).
-    /// Nil without the machine or the bundled `cmux-tui`.
+    /// Open Desktop's `cmux-rd` viewer: the machine's desktop host over the owner's Native link, a
+    /// new `link.dial` (service `desktop`, a new one-time link token) per session, with no token
+    /// in the hello (``CloudDesktopLinkDial``); each session's transport in the mode it asks for.
     func cloudDesktopRdTransport(machine: String) -> (@MainActor (_ control: Bool) -> RemoteRdStreamTransport?)? {
-        let key = machine.lowercased()
-        guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == key })?.machineID,
+        guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == machine.lowercased() })?.machineID,
               let cli = cloud.binary else { return nil }
-        let hello = CloudDesktopLinkDial.hello()
-        // Each session dials again: the link mints a new one-time token for every dial.
-        let dial: @Sendable () async throws -> CloudDesktopLinkDial = { [weak self] in
-            guard let self else { throw CancellationError() }
-            return try await cloudDesktopLinkDial(machine: id)
-        }
+        let (cloud, run, hello) = (cloud, CloudAppLinks.runner(local: machines.local), RemoteRdHello.cloudDesktop())
         return { control in
-            let carrier = CloudDesktopLinkDial.carrier(cli: cli, dial: dial)
+            let carrier = RemoteRdStreamCarrier {
+                await cloud.ensureLink()
+                let info = try await run(CloudDesktopLinkDial.connectInfoOp, ["machine": id], UUID().uuidString, .script)
+                guard let dial = CloudDesktopLinkDial(connectInfo: info, linkSocket: await cloud.linkSocket) else {
+                    throw CloudLinkError.helperNotRunning(reason: "no link socket or host for the desktop")
+                }
+                let stream = try await dial.open(cli: cli)
+                return RemoteRdByteStream(read: { await stream.read() }, write: { try await stream.send($0) }, close: { stream.close() })
+            }
             return RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString, control: control)
         }
     }
