@@ -262,6 +262,10 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
     readonly tmpFile?: string;
     /** Makes mkdir fail for /tmp paths, as on a full root filesystem. */
     readonly tmpMkdirFails?: boolean;
+    /** The state image cannot be loop-mounted, and the state dir is not a mountpoint. */
+    readonly loopMountFails?: boolean;
+    /** The reservation marker is present but the state image is missing. */
+    readonly noImage?: boolean;
   };
 
   function writeTree(dir: string, files: Record<string, string>): void {
@@ -274,7 +278,7 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
 
   async function withEnsure(
     scenario: Scenario,
-    check: (paths: { status: number | null; stderr: string; bound: boolean; remote: string; reserved: string; tmp: string }) => void,
+    check: (paths: { status: number | null; stderr: string; bound: boolean; remote: string; reserved: string; tmp: string; pgrepPattern: string }) => void,
   ): Promise<void> {
     const root = mkdtempSync(path.join(tmpdir(), "cmux-tui-remote-state-"));
     try {
@@ -294,16 +298,20 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
       mkdirSync(tmp, { recursive: true });
       for (const name of scenario.tmpDirs ?? []) writeTree(path.join(tmp, name), { kept: "" });
       if (scenario.tmpFile) writeFileSync(path.join(tmp, scenario.tmpFile), "planted");
-      writeFileSync(path.join(varLib, "cmux-tui-state.ext4"), "");
+      if (!scenario.noImage) writeFileSync(path.join(varLib, "cmux-tui-state.ext4"), "");
       if (!scenario.noMarker) writeFileSync(path.join(etc, "cmux-tui-state-reservation"), "");
       if (scenario.instanceId) writeFileSync(path.join(etc, "daemon-instance-id"), `${scenario.instanceId}\n`);
       if (scenario.onRoot) writeTree(remote, scenario.onRoot);
       if (scenario.reserved) writeTree(reserved, scenario.reserved);
       if (scenario.alreadyBound) writeFileSync(bound, "");
-      stub(bin, "mountpoint", `case "$2" in */cmux/remote) test -e ${JSON.stringify(bound)} ;; *) exit 0 ;; esac`);
-      // mount --bind FROM TO records what was bound where.
-      stub(bin, "mount", scenario.mountFails ? "exit 1" : `echo "$2 $3" > ${JSON.stringify(bound)}`);
-      stub(bin, "pgrep", scenario.daemonRunning ? "exit 0" : "exit 1");
+      const stateIsMounted = scenario.loopMountFails || scenario.noImage ? "exit 1" : "exit 0";
+      stub(bin, "mountpoint", `case "$2" in */cmux/remote) test -e ${JSON.stringify(bound)} ;; *) ${stateIsMounted} ;; esac`);
+      // mount --bind FROM TO records what was bound where; a loop mount only succeeds or fails.
+      const bindMount = scenario.mountFails ? "exit 1" : `echo "$2 $3" > ${JSON.stringify(bound)}`;
+      const loopMount = scenario.loopMountFails ? "exit 32" : "exit 0";
+      stub(bin, "mount", `if [ "$1" = --bind ]; then ${bindMount}; else ${loopMount}; fi`);
+      const pgrepArgs = path.join(root, "pgrep-args");
+      stub(bin, "pgrep", `echo "$*" > ${JSON.stringify(pgrepArgs)}\n${scenario.daemonRunning ? "exit 0" : "exit 1"}`);
       stub(bin, "chown", "exit 0");
       stub(bin, "flock", "exit 0");
       stub(bin, "id", "echo 1000");
@@ -323,7 +331,8 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
         env: { PATH: `${bin}:/usr/bin:/bin` },
       });
       if (result.error) throw result.error;
-      check({ status: result.status, stderr: result.stderr, bound: existsSync(bound), remote, reserved, tmp });
+      const pgrepPattern = existsSync(pgrepArgs) ? readFileSync(pgrepArgs, "utf8") : "";
+      check({ status: result.status, stderr: result.stderr, bound: existsSync(bound), remote, reserved, tmp, pgrepPattern });
       if (existsSync(bound) && !scenario.alreadyBound) {
         expect(readFileSync(bound, "utf8").trim()).toBe(`${reserved} ${remote}`);
       }
@@ -335,12 +344,14 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
   const read = (dir: string, name: string) => readFileSync(path.join(dir, name), "utf8");
 
   test("the first start copies the identity over and binds it", async () => {
-    await withEnsure({ onRoot: { [`${SESSION}/auth/identity.json`]: "identity" }, instanceId: "i-a" }, ({ status, bound, reserved }) => {
+    await withEnsure({ onRoot: { [`${SESSION}/auth/identity.json`]: "identity" }, instanceId: "i-a" }, ({ status, bound, remote, reserved }) => {
       expect(status).toBe(0);
       expect(bound).toBe(true);
       expect(read(reserved, `${SESSION}/auth/identity.json`)).toBe("identity");
       expect(read(reserved, ".instance-id")).toBe("i-a\n");
       expect(existsSync(`${reserved}.new`)).toBe(false);
+      // Nothing a fork could later uncover: the identity lives in one place.
+      expect(existsSync(path.join(remote, "sessions"))).toBe(false);
     });
   }, TEST_TIMEOUT_MS);
 
@@ -482,6 +493,29 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
     });
   }, TEST_TIMEOUT_MS);
 
+  test("a state image that cannot mount defers the daemon and never moves remote state to the root filesystem", async () => {
+    await withEnsure({ loopMountFails: true, onRoot: { [`${SESSION}/auth/identity.json`]: "identity" } }, ({ status, bound, remote, reserved }) => {
+      expect(status).not.toBe(0);
+      expect(bound).toBe(false);
+      expect(existsSync(reserved)).toBe(false);
+      expect(read(remote, `${SESSION}/auth/identity.json`)).toBe("identity");
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("a marker with no state image binds nothing", async () => {
+    await withEnsure({ noImage: true, onRoot: { [`${SESSION}/auth/identity.json`]: "identity" } }, ({ status, bound, reserved }) => {
+      expect(status).toBe(0);
+      expect(bound).toBe(false);
+      expect(existsSync(reserved)).toBe(false);
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("only the supervised daemon holds the move back, not a daemon the user runs in a pane", async () => {
+    await withEnsure({ daemonRunning: true, onRoot: { [`${SESSION}/runtime.json`]: "{}" } }, ({ pgrepPattern }) => {
+      expect(pgrepPattern).toContain("--session cloud");
+    });
+  }, TEST_TIMEOUT_MS);
+
   test("a failed bind does not defer the daemon", async () => {
     await withEnsure({ mountFails: true }, ({ status, stderr, bound }) => {
       expect(status).toBe(0);
@@ -491,8 +525,9 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
   }, TEST_TIMEOUT_MS);
 
   test("a failed copy leaves no partial reserved copy for a later start to trust", async () => {
-    await withEnsure({ copyFails: true, onRoot: { [`${SESSION}/auth/identity.json`]: "identity" } }, ({ status, bound, reserved, stderr }) => {
+    await withEnsure({ copyFails: true, onRoot: { [`${SESSION}/auth/identity.json`]: "identity" } }, ({ status, bound, remote, reserved, stderr }) => {
       expect(status).toBe(0);
+      expect(read(remote, `${SESSION}/auth/identity.json`)).toBe("identity");
       expect(bound).toBe(false);
       expect(existsSync(reserved)).toBe(false);
       expect(existsSync(`${reserved}.new`)).toBe(false);
