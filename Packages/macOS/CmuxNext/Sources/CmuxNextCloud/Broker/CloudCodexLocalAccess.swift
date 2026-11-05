@@ -15,7 +15,12 @@ public import Foundation
 ///
 /// Only the file store is read (`cli_auth_credentials_store` unset or `"file"`): in keyring or auto
 /// mode the file may be stale and the Keychain item is Codex's own, so nothing is offered.
-public nonisolated enum CloudCodexLocalAccess {
+public nonisolated struct CloudCodexLocalAccess: Sendable {
+    /// The Codex home this reads (``home(environment:userHome:)``).
+    public let home: URL
+
+    public init(home: URL) { self.home = home }
+
     /// A token with less left than this is not offered: the machine would need a renewal at once.
     public static let minimumLifetime: TimeInterval = 15 * 60
     /// `auth.json` is a few KiB; anything larger is not Codex's.
@@ -33,10 +38,10 @@ public nonisolated enum CloudCodexLocalAccess {
     /// The Mac's current Codex access, or nil when there is none cmux may use: no ChatGPT sign-in, an
     /// API key sign-in, keyring storage, a file that is not the person's private regular file, or a
     /// token with less than ``minimumLifetime`` left. Blocking file IO: call it off the main actor.
-    public static func read(home: URL, now: Date = Date()) -> CloudCodexAccessGrant? {
-        guard usesFileStore(config: home.appendingPathComponent("config.toml")),
-              let data = privateFile(home.appendingPathComponent("auth.json")) else { return nil }
-        return grant(authJSON: data, now: now)
+    public func read(now: Date = Date()) -> CloudCodexAccessGrant? {
+        guard Self.usesFileStore(config: home.appendingPathComponent("config.toml")),
+              let data = Self.privateFile(home.appendingPathComponent("auth.json")) else { return nil }
+        return Self.grant(authJSON: data, now: now)
     }
 
     /// The access-only grant in an `auth.json`'s bytes (pure; tests pass fixtures).
@@ -92,7 +97,8 @@ public nonisolated enum CloudCodexLocalAccess {
     }
 
     static func expiry(_ jwt: String) -> Date? {
-        guard let exp = claims(jwt)?["exp"] as? Double, exp > 0 else { return nil }
+        // NumericDate: JSONSerialization gives an NSNumber, integral or not.
+        guard let exp = (claims(jwt)?["exp"] as? NSNumber)?.doubleValue, exp > 0 else { return nil }
         return Date(timeIntervalSince1970: exp)
     }
 

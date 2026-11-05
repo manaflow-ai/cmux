@@ -29,6 +29,11 @@ struct CloudCodexLocalAccessTests {
         #expect(grant.expiresAt == now.addingTimeInterval(3600))
     }
 
+    @Test func readsAnIntegerExpiry() throws {
+        let access = Self.jwt(["exp": Int(now.timeIntervalSince1970) + 3600])
+        #expect(CloudCodexLocalAccess.grant(authJSON: Self.auth(access: access), now: now)?.expiresAt == now.addingTimeInterval(3600))
+    }
+
     @Test func readsTheAccountFromTheTokenWhenTheFileHasNone() throws {
         let access = Self.jwt(["exp": now.timeIntervalSince1970 + 3600, "https://api.openai.com/auth": ["chatgpt_account_id": "from-claim"]])
         #expect(CloudCodexLocalAccess.grant(authJSON: Self.auth(access: access, account: nil), now: now)?.chatgptAccountID == "from-claim")
@@ -51,14 +56,14 @@ struct CloudCodexLocalAccessTests {
         let access = Self.jwt(["exp": Date().timeIntervalSince1970 + 3600])
         try Self.auth(access: access).write(to: file)
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
-        #expect(CloudCodexLocalAccess.read(home: home) == nil) // readable by others: not Codex's own file
+        #expect(CloudCodexLocalAccess(home: home).read() == nil) // readable by others: not Codex's own file
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-        #expect(CloudCodexLocalAccess.read(home: home)?.accessToken == access)
+        #expect(CloudCodexLocalAccess(home: home).read()?.accessToken == access)
         let config = home.appendingPathComponent("config.toml")
         try Data("cli_auth_credentials_store = \"keyring\"\n".utf8).write(to: config)
-        #expect(CloudCodexLocalAccess.read(home: home) == nil) // the Keychain is Codex's own
+        #expect(CloudCodexLocalAccess(home: home).read() == nil) // the Keychain is Codex's own
         try Data("cli_auth_credentials_store = \"file\" # default\n".utf8).write(to: config)
-        #expect(CloudCodexLocalAccess.read(home: home)?.accessToken == access)
+        #expect(CloudCodexLocalAccess(home: home).read()?.accessToken == access)
     }
 
     @Test func homeFollowsCodexHome() {

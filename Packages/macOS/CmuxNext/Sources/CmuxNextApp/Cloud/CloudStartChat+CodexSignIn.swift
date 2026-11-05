@@ -22,7 +22,7 @@ extension CloudStartChat {
     nonisolated static func macCodexAccess() async -> CloudCodexAccessGrant? {
         let environment = ProcessInfo.processInfo.environment, home = FileManager.default.homeDirectoryForCurrentUser
         return await Task.detached(priority: .userInitiated) {
-            CloudCodexLocalAccess.read(home: CloudCodexLocalAccess.home(environment: environment, userHome: home))
+            CloudCodexLocalAccess(home: CloudCodexLocalAccess.home(environment: environment, userHome: home)).read()
         }.value
     }
 
