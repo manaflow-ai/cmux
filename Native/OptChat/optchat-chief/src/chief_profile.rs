@@ -1060,3 +1060,148 @@ fn denied(error: SdkError) -> String {
     }
     format!("profile: {error}")
 }
+
+/// `chiefs` create_channel (plans/cmux-next/chief-channels-DESIGN.md): this
+/// Mac's Chief makes a channel through the app's `home.createChannel`, the
+/// one path New Channel, `cmux chat channel create` and MCP take.
+#[cfg(test)]
+mod channel_tests {
+    use super::*;
+    use crate::chief_channel::ChannelMaker;
+    use crate::cloud_workspace::{AppActions, RunError};
+    use std::sync::{Arc, Mutex};
+
+    type Run = (String, Value, Option<String>);
+
+    struct FakeApp {
+        answer: Result<Value, RunError>,
+        runs: Mutex<Vec<Run>>,
+    }
+
+    impl AppActions for FakeApp {
+        fn run(
+            &self,
+            action: &str,
+            _target: Option<&str>,
+            args: Value,
+            key: Option<&str>,
+        ) -> Result<Value, RunError> {
+            self.runs
+                .lock()
+                .unwrap()
+                .push((action.to_owned(), args, key.map(str::to_owned)));
+            match &self.answer {
+                Ok(v) => Ok(v.clone()),
+                Err(RunError::Refused(e)) => Err(RunError::Refused(e.clone())),
+                Err(RunError::NoAnswer(e)) => Err(RunError::NoAnswer(e.clone())),
+            }
+        }
+    }
+
+    fn app(answer: Result<Value, RunError>) -> Arc<FakeApp> {
+        Arc::new(FakeApp {
+            answer,
+            runs: Mutex::new(Vec::new()),
+        })
+    }
+
+    fn made() -> Value {
+        json!({"conversation": "conv_launch", "chief": "agent_launch", "chief_name": "Launch Chief",
+               "invited": [{"who": "ana@example.com", "ok": true, "code": ""}]})
+    }
+
+    fn tools(granted: &[&str], app: Option<Arc<FakeApp>>) -> ChiefTools {
+        ChiefTools::granted(granted)
+            .with_channels(app.map(|a| ChannelMaker::new(a as Arc<dyn AppActions>)))
+    }
+
+    fn create(title: &str) -> Value {
+        json!({"action": "create_channel", "title": title, "display_name": "Launch Chief",
+               "people": ["ana@example.com", "Leo"]})
+    }
+
+    #[test]
+    fn a_chief_with_chiefs_makes_a_channel_through_the_app() {
+        let app = app(Ok(made()));
+        let tools = tools(&["chiefs"], Some(app.clone()));
+        let answer = tools.chiefs_call(&create("Launch")).unwrap();
+        assert!(answer.contains("conv_launch"), "{answer}");
+        assert!(answer.contains("Launch Chief"), "{answer}");
+        let runs = app.runs.lock().unwrap().clone();
+        assert_eq!(runs.len(), 1);
+        let (action, args, key) = &runs[0];
+        assert_eq!(action, "home.createChannel");
+        assert_eq!(
+            args,
+            &json!({"title": "Launch", "members": "ana@example.com, Leo", "chief": "Launch Chief"})
+        );
+        assert!(
+            key.as_deref().unwrap().starts_with("chief-channel-"),
+            "{key:?}"
+        );
+    }
+
+    #[test]
+    fn the_same_create_resent_keeps_its_key_and_another_gets_its_own() {
+        let app = app(Ok(made()));
+        let tools = tools(&["chiefs"], Some(app.clone()));
+        tools.chiefs_call(&create("Launch")).unwrap();
+        tools.chiefs_call(&create("Launch")).unwrap();
+        tools.chiefs_call(&create("Design")).unwrap();
+        let keys: Vec<_> = app
+            .runs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| r.2.clone())
+            .collect();
+        assert_eq!(keys[0], keys[1]);
+        assert_ne!(keys[0], keys[2]);
+    }
+
+    #[test]
+    fn without_the_chiefs_grant_nothing_runs() {
+        let app = app(Ok(made()));
+        let tools = tools(&["spawn"], Some(app.clone()));
+        let refused = tools.chiefs_call(&create("Launch")).unwrap_err();
+        assert!(refused.contains("chiefs"), "{refused}");
+        assert!(app.runs.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_bad_call_is_refused_before_the_app_runs() {
+        let app = app(Ok(made()));
+        let tools = tools(&["chiefs"], Some(app.clone()));
+        let no_title = tools
+            .chiefs_call(&json!({"action": "create_channel", "title": "  "}))
+            .unwrap_err();
+        assert!(no_title.contains("title"), "{no_title}");
+        let unknown = tools
+            .chiefs_call(
+                &json!({"action": "create_channel", "title": "Launch", "tools": ["spawn"]}),
+            )
+            .unwrap_err();
+        assert!(unknown.contains("no field tools"), "{unknown}");
+        assert!(app.runs.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_apps_refusal_and_its_absence_reach_the_model() {
+        let refusing = app(Err(RunError::Refused("not signed in".into())));
+        let refused = tools(&["chiefs"], Some(refusing))
+            .chiefs_call(&create("Launch"))
+            .unwrap_err();
+        assert!(refused.contains("not signed in"), "{refused}");
+        let away = tools(&["chiefs"], None)
+            .chiefs_call(&create("Launch"))
+            .unwrap_err();
+        assert!(away.contains("cmux app"), "{away}");
+    }
+
+    #[test]
+    fn an_unknown_action_names_create_channel() {
+        let tools = tools(&["chiefs"], None);
+        let e = tools.chiefs_call(&json!({"action": "nope"})).unwrap_err();
+        assert!(e.contains("create_channel"), "{e}");
+    }
+}
