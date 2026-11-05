@@ -57,11 +57,15 @@ public final class WebUpdates {
     }
 
     /// Names where each bundled web folder outside the pages folder sits inside an update
-    /// (``WebUpdateTree/outputs``), so its requests read the active update: the agent pane and the
+    /// (``WebUpdateTree/outputs``), so its requests read the active update: the agent pane, Agent
+    /// Activity (the root the app registered for its page id at launch, before this runs) and the
     /// viewers (`appResources`: the app's resources folder).
     static func registerBundledFolders(_ overlay: WebBundleOverlay, appResources: URL?) {
         if let agentPane = AgentPaneView.bundledPage?.deletingLastPathComponent() {
             overlay.register(bundled: agentPane, output: WebUpdateTree.outputs[0])
+        }
+        if let activity = PageID.bundledRoot(for: "cmux.agent-activity") {
+            overlay.register(bundled: activity, output: WebUpdateTree.outputs[2])
         }
         if let appResources {
             overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: appResources), output: WebUpdateTree.outputs[4])
