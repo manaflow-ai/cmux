@@ -160,7 +160,7 @@ extension SettingsWindowService {
     func vmHostRow(_ row: JSONValue, id: String) -> JSONValue {
         guard case .object(var members) = row, let reach = vmHostReach(id) else { return row }
         let session = services.machines.session(id)
-        let owns = (session?.link?.ownership ?? session?.appLink?.ownership)?.callerOwnsVM == true
+        let owns = session?.appLink?.ownership.callerOwnsVM == true
         let store = services.cloudVmHost
         let entry = owns ? store.state(id, readable: reach) : nil
         guard let vm = Self.vmHostSwitch(entry, callerOwnsVM: owns, busy: !reach || store.setting.contains(id)) else { return row }
