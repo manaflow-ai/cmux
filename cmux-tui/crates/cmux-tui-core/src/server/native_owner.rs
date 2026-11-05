@@ -288,7 +288,7 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::ReadScreen { .. }
         | Command::ReadScrollback { .. }
         | Command::SendKey { .. }
-        | Command::ListTerminals { .. }
+        | Command::ListTerminals
         | Command::SetAttachVisibility { .. }
         | Command::RestartTab { .. }
         | Command::ClearHistory { .. }
