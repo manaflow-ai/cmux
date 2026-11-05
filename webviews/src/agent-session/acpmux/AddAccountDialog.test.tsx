@@ -83,6 +83,9 @@ test("an id comes from the name and never takes one a route has", () => {
   expect(accountIdFor("", "ChatGPT 2", [])).toBe("chatgpt-2");
   expect(accountIdFor("Work", "x", ["work", "work-2"])).toBe("work-3");
   expect(accountIdFor("日本", "", [])).toBe("account");
+  // A built-in route's id is never taken: a route file of that id would replace it.
+  expect(accountIdFor("Codex login", "x", [])).toBe("codex-login-2");
+  expect(accountIdFor("cmux", "x", [])).toBe("cmux-2");
 });
 
 test("a ChatGPT account offers sign-in, the Codex CLI login found on this Mac, and an API key", async () => {
