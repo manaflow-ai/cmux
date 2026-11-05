@@ -36,11 +36,10 @@ cmux_agent_auth_choice() {
   case "$cmux_aa_value" in team|own) printf '%s' "$cmux_aa_value" ;; esac
 }
 
-# 0 when <agent> has its own sign-in on this machine. Text matching on purpose,
-# like every check that decides a launch's mode: python3 here is a mise shim, so
-# a project pinning a Python that is not installed, or a venv, makes it fail,
-# and a project's json.py would shadow the module. Either one would silently
-# keep a signed-in user on CodeRouter.
+# 0 when <agent> has its own sign-in on this machine. Text matching on purpose:
+# the python3 first on PATH can be a project's broken venv or toolchain shim,
+# and a json.py in the working directory shadows the module for `python3 -c`.
+# Either one would silently keep a signed-in user on CodeRouter.
 #   claude    a /login session in its credentials file, or a long-lived
 #             token from `claude setup-token`
 #   codex     `codex login` (ChatGPT tokens or an API key) in auth.json, or
