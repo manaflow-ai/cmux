@@ -178,12 +178,12 @@ class AffectedTests(unittest.TestCase):
         self.assertTrue(plan(files)["all"])
 
     def test_changed_python_test_runs_itself_on_the_linux_lane(self):
-        result = plan(["tests/test_ci_affected_tests.py"])
-        py = [u for u in result["units"] if u["kind"] == "python"]
+        result = plan(["tests/test_short_timeout_guard.py"])
+        py = [u for u in result["units"] if u["kind"] == "python" and u["name"] == "python"]
         self.assertEqual(len(py), 1)
         argv = py[0]["argv"]
         self.assertEqual(argv[:4], ["test", "--setup", "none", "--"])
-        self.assertIn("tests/test_ci_affected_tests.py", argv)
+        self.assertIn("tests/test_short_timeout_guard.py", argv)
         self.assertEqual(argv[argv.index("--lane") + 1], "linux-guard")
 
     def test_python_on_a_macos_lane_is_listed_not_dropped(self):
@@ -336,9 +336,9 @@ class PythonLanePaths(unittest.TestCase):
 
     def test_path_limits_the_lane(self):
         out = subprocess.run([sys.executable, str(self.RUNNER), "--lane", "linux-guard", "--list",
-                              "--path", "tests/test_ci_affected_tests.py"], cwd=ROOT, check=True,
+                              "--path", "tests/test_short_timeout_guard.py"], cwd=ROOT, check=True,
                              capture_output=True, text=True).stdout.split()
-        self.assertEqual(out, ["tests/test_ci_affected_tests.py"])
+        self.assertEqual(out, ["tests/test_short_timeout_guard.py"])
 
     def test_unknown_path_fails(self):
         result = subprocess.run([sys.executable, str(self.RUNNER), "--lane", "linux-guard", "--list",
