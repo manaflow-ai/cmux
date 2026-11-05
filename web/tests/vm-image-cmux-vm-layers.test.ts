@@ -117,10 +117,10 @@ describe("layered bake keys", () => {
   test("the closure follows re-exports and dynamic imports", () => {
     const files: Record<string, string> = {
       "web/scripts/cmux-vm-image/bake.ts": 'import { a } from "./a";\nexport { b } from "./b.ts";\nconst c = await import("./c");',
-      "web/scripts/cmux-vm-image/a.ts": "import { d } from './d';",
+      "web/scripts/cmux-vm-image/a.ts": "import { d } from './d';\nimport \"./e\";\nimport f from \"./f.js\";\nimport type { G } from \"./g.ts\";",
     };
     const scripts = bakeScriptClosure((f) => files[f]);
-    expect([...scripts].sort()).toEqual(["images/cmux-vm/bake.ts", ...["a", "b", "bake", "c", "d"].map((x) => `web/scripts/cmux-vm-image/${x}.ts`)]);
+    expect([...scripts].sort()).toEqual(["images/cmux-vm/bake.ts", ...["a", "b", "bake", "c", "d", "e", "f", "g"].map((x) => `web/scripts/cmux-vm-image/${x}.ts`)]);
   });
 
   test("flags come from the options; --layered refuses promotion, production copies and the dev tree", () => {
