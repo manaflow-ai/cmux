@@ -99,6 +99,23 @@ struct GitHubLocalDiffTests {
         #expect(await GitHubLocalDiff.unified(Data("not json".utf8)) == nil)
     }
 
+    @Test func whatARebuiltHeaderCannotSayAsGitDoesIsNoDiff() async {
+        let line = "@@ -1 +1 @@\n-a\n+b\n"
+        for path in ["a\nb.txt", "say \"hi\".txt", "back\\slash.txt", "caf\u{e9}.txt", "tab\there.txt"] {
+            let file: [String: Any] = ["path": path, "status": "modified", "additions": 1, "deletions": 1, "patch": line]
+            #expect(await GitHubLocalDiff.unified(Self.reply([file])) == nil, "\(path)")
+        }
+        let renamedFrom: [String: Any] = ["path": "plain.txt", "previous_path": "caf\u{e9}.txt", "status": "renamed",
+                                          "additions": 0, "deletions": 0]
+        #expect(await GitHubLocalDiff.unified(Self.reply([renamedFrom])) == nil)
+        // A mode-only change: modified with no lines and no patch.
+        let modeOnly: [String: Any] = ["path": "run.sh", "status": "modified", "additions": 0, "deletions": 0]
+        #expect(await GitHubLocalDiff.unified(Self.reply([modeOnly])) == nil)
+        // An empty new file and a plain path still read.
+        let empty: [String: Any] = ["path": "dir/with space.txt", "status": "added", "additions": 0, "deletions": 0]
+        #expect(await GitHubLocalDiff.unified(Self.reply([empty])) == "diff --git a/dir/with space.txt b/dir/with space.txt\nnew file mode 100644\n")
+    }
+
     @Test func anOpenPullRequestsDiffIsReadFromItsCommitsHereBeforeGitHub() async throws {
         let calls = Calls(), cache = try Self.cache()
         var opened: [String] = []

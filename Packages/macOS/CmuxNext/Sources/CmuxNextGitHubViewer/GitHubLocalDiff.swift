@@ -56,8 +56,9 @@ public struct GitHubLocalDiff: Sendable {
 
     /// A `git.diff` reply as one unified diff, each file's header rebuilt from its path and
     /// status (the reply's patches start at the first hunk); nil when the reply left a file or
-    /// a patch out, so a partial diff never stands in for the whole one. Off the main thread: a
-    /// reply can be megabytes.
+    /// a patch out, or holds what a rebuilt header cannot say as git does (a path git would
+    /// quote, a mode-only change), so a partial or altered diff never stands in for the whole
+    /// one. Off the main thread: a reply can be megabytes.
     @concurrent nonisolated static func unified(_ data: Data) async -> String? {
         guard let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               (reply["files_omitted"] as? Int ?? 0) == 0, let files = reply["files"] as? [[String: Any]] else { return nil }
@@ -66,6 +67,7 @@ public struct GitHubLocalDiff: Sendable {
             guard let path = file["path"] as? String, file["patch_truncated"] as? Bool != true else { return nil }
             let status = file["status"] as? String ?? "modified"
             let old = status == "renamed" ? file["previous_path"] as? String ?? path : path
+            guard !needsQuoting(path), !needsQuoting(old) else { return nil }
             text += "diff --git a/\(old) b/\(path)\n"
             switch status {
             case "added": text += "new file mode 100644\n"
@@ -78,13 +80,20 @@ public struct GitHubLocalDiff: Sendable {
                 continue
             }
             guard let patch = file["patch"] as? String, !patch.isEmpty else {
-                // A file with changed lines and no patch was cut from the reply.
-                if (file["additions"] as? Int ?? 0) + (file["deletions"] as? Int ?? 0) > 0 { return nil }
+                // A file with changed lines and no patch was cut from the reply; a modified one with
+                // neither changed only its mode, which the reply does not carry.
+                if (file["additions"] as? Int ?? 0) + (file["deletions"] as? Int ?? 0) > 0 || status == "modified" { return nil }
                 continue
             }
             text += "--- \(status == "added" ? "/dev/null" : "a/\(old)")\n+++ \(status == "deleted" ? "/dev/null" : "b/\(path)")\n"
             text += patch.hasSuffix("\n") ? patch : patch + "\n"
         }
         return text.isEmpty ? nil : text
+    }
+
+    /// A path git prints quoted in a header (a control character, a quote, a backslash or a
+    /// non-ASCII byte, under its default `core.quotePath`).
+    nonisolated static func needsQuoting(_ path: String) -> Bool {
+        path.utf8.contains { $0 < 0x20 || $0 >= 0x7F || $0 == UInt8(ascii: "\"") || $0 == UInt8(ascii: "\\") }
     }
 }
