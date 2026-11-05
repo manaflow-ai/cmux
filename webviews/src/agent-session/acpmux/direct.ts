@@ -2201,7 +2201,9 @@ export class AcpmuxDirectClient {
   private planRow?: string;
   /// The chat's latest plan row, for Session Info's Progress: unlike `planRow` it outlives its turn
   /// (a later prompt marks it superseded, so it reads as ended) and goes only when the list is cleared.
-  private progressRow?: string;
+  // `undefined` means no plan has been seen; `null` preserves an explicit empty-plan clear while
+  // older pages fold in, so their historical plan cannot be mistaken for the live value.
+  private progressRow?: string | null;
   private progressSuperseded = false;
   /// Session Info's Progress as last published (liveProgress.ts): streamed snapshots reuse it until
   /// the checklist changes or its turn ends, so Session Info does not recount it on every token.
@@ -6809,7 +6811,8 @@ export class AcpmuxDirectClient {
       if (Array.isArray(update.entries) && plan.length === 0) {
         if (existing) this.rows.delete(existing.id);
         // Session Info's Progress goes with it, even when a later prompt already closed that row.
-        this.progressRow = undefined;
+        this.progressRow = null;
+        this.progressSuperseded = false;
         this.planRow = undefined;
         return;
       }
@@ -10447,8 +10450,9 @@ export class AcpmuxDirectClient {
     }
     // Progress stays the live chat's latest plan; an older page's only when the live events hold none,
     // and then as ended, since a later turn came after it.
-    const progressRow = live.progressRow ?? this.progressRow;
-    const progressSuperseded = live.progressRow ? live.progressSuperseded : this.progressRow !== undefined;
+    const progressRow = live.progressRow !== undefined ? live.progressRow : this.progressRow;
+    const progressSuperseded =
+      live.progressRow !== undefined ? live.progressSuperseded : this.progressRow !== undefined;
     Object.assign(this, live, { forkedAtSeq, messageRows, progressRow, progressSuperseded });
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
