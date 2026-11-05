@@ -109,8 +109,8 @@ async fn who_else_finds_the_session_that_edits_the_same_file_in_another_worktree
     let remote = f.hub.who_else(&keyed, false, false).await.unwrap();
     assert_eq!(remote["sessions"][0]["sessionId"], json!(b.id));
     // B is not someone else to itself.
-    let own = f.hub.who_else(&json!({"sessionId": b.id, "keys": keyed["keys"]}), false, false);
-    assert_eq!(own.await.unwrap()["sessions"], json!([]));
+    let own = json!({"sessionId": b.id, "keys": keyed["keys"]});
+    assert_eq!(f.hub.who_else(&own, false, false).await.unwrap()["sessions"], json!([]));
 }
 
 /// Waits until session `id` streams text containing `want`, and answers with that text.

@@ -22,7 +22,6 @@
 use super::*;
 use crate::path_canon::canonical_path;
 use crate::touched_files::{self as tf, Candidate, Query, TouchedFile};
-use std::collections::HashSet;
 use std::time::Duration;
 
 /// How recent another session's edit must be for the notice: six hours.
