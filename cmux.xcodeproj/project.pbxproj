@@ -3839,6 +3839,8 @@
 		842300000000000000000007 /* SurfaceResumeAgentBindingGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 842300000000000000000008 /* SurfaceResumeAgentBindingGenerationTests.swift */; };
 		F6572032A1B2C3D4E5F60718 /* SurfaceResumeAgentHookDowngradeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572033A1B2C3D4E5F60718 /* SurfaceResumeAgentHookDowngradeTests.swift */; };
 		883700000000000000000003 /* SurfaceResumeApprovalLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883700000000000000000004 /* SurfaceResumeApprovalLookup.swift */; };
+		8022553A995828CDC387F8EB /* SurfaceResumeApprovalRecordsCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E5D7593591B1367B3399BF /* SurfaceResumeApprovalRecordsCache.swift */; };
+		977F9A005A52AE036DD1DB78 /* SurfaceResumeApprovalRecordsCacheTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B58611B100E675CF702EF2D /* SurfaceResumeApprovalRecordsCacheTests.swift */; };
 		875900000000000000000005 /* SurfaceResumeApprovalSigningSecretCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875900000000000000000006 /* SurfaceResumeApprovalSigningSecretCache.swift */; };
 		883700000000000000000001 /* SurfaceResumeApprovalSigningSecretResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883700000000000000000002 /* SurfaceResumeApprovalSigningSecretResolution.swift */; };
 		F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */; };
@@ -8511,6 +8513,8 @@
 		842300000000000000000008 /* SurfaceResumeAgentBindingGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeAgentBindingGenerationTests.swift; sourceTree = "<group>"; };
 		F6572033A1B2C3D4E5F60718 /* SurfaceResumeAgentHookDowngradeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeAgentHookDowngradeTests.swift; sourceTree = "<group>"; };
 		883700000000000000000004 /* SurfaceResumeApprovalLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalLookup.swift; sourceTree = "<group>"; };
+		F1E5D7593591B1367B3399BF /* SurfaceResumeApprovalRecordsCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalRecordsCache.swift; sourceTree = "<group>"; };
+		3B58611B100E675CF702EF2D /* SurfaceResumeApprovalRecordsCacheTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SurfaceResumeApprovalRecordsCacheTests.swift"; sourceTree = "<group>"; };
 		875900000000000000000006 /* SurfaceResumeApprovalSigningSecretCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalSigningSecretCache.swift; sourceTree = "<group>"; };
 		883700000000000000000002 /* SurfaceResumeApprovalSigningSecretResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeApprovalSigningSecretResolution.swift; sourceTree = "<group>"; };
 		F6572013A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceResumeBindingCodexUpdateCheckTests.swift; sourceTree = "<group>"; };
@@ -12685,6 +12689,7 @@
 				D4D9700C7689786CCDB82CAE /* TerminalController+AgentMessageClaim.swift */,
 				17A22999A4C0E113B255C2E7 /* NotificationsPopoverView.swift */,
 				067ED4C318664E11B67921F3 /* AppDelegate+NotificationsPopoverDigits.swift */,
+				F1E5D7593591B1367B3399BF /* SurfaceResumeApprovalRecordsCache.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14335,6 +14340,7 @@
 				4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */,
 				2E93DBA33C7287FE3D7FA1BB /* NotificationPopoverRowLayoutTests.swift */,
 				C0C7EE23B232921D28CA56FD /* NotificationsPopoverDrawnRowsTests.swift */,
+				3B58611B100E675CF702EF2D /* SurfaceResumeApprovalRecordsCacheTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -17265,6 +17271,7 @@
 				3E66E7A1B2B320EC850BB174 /* SurfaceResourceDragRegistry.swift in Sources */,
 				12D94A2FDF834F9495F22AEE /* SurfaceResourceGroup+CloudNavigation.swift in Sources */,
 				883700000000000000000003 /* SurfaceResumeApprovalLookup.swift in Sources */,
+				8022553A995828CDC387F8EB /* SurfaceResumeApprovalRecordsCache.swift in Sources */,
 				875900000000000000000005 /* SurfaceResumeApprovalSigningSecretCache.swift in Sources */,
 				883700000000000000000001 /* SurfaceResumeApprovalSigningSecretResolution.swift in Sources */,
 				F0ACC0DE000000000000000F /* SurfaceResumeBindingIndex.swift in Sources */,
@@ -19509,6 +19516,7 @@
 				D01324400000000000000004 /* SurfaceProjectionIdentityTests.swift in Sources */,
 				842300000000000000000007 /* SurfaceResumeAgentBindingGenerationTests.swift in Sources */,
 				F6572032A1B2C3D4E5F60718 /* SurfaceResumeAgentHookDowngradeTests.swift in Sources */,
+				977F9A005A52AE036DD1DB78 /* SurfaceResumeApprovalRecordsCacheTests.swift in Sources */,
 				F6572012A1B2C3D4E5F60718 /* SurfaceResumeBindingCodexUpdateCheckTests.swift in Sources */,
 				842300000000000000000001 /* SurfaceResumeExitedAgentLivenessTests.swift in Sources */,
 				F6572022A1B2C3D4E5F60718 /* SurfaceResumeRestoreClaimTests.swift in Sources */,

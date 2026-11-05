@@ -1015,7 +1015,7 @@ enum SurfaceResumeApprovalSignature {
 
 enum SurfaceResumeApprovalStore {
     static let didChangeNotification = Notification.Name("cmux.surfaceResumeApprovalsDidChange")
-    private static let legacyFileName = "resume-commands.json"
+    static let legacyFileName = "resume-commands.json"
     private static let secretFileName = ".surface-resume-approval-secret"
     private static let settingsTerminalSectionKey = "terminal"
     private static let settingsRecordsKey = "resumeCommands"
