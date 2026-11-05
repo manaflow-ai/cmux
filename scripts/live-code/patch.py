@@ -233,6 +233,8 @@ def main():
         sys.exit("patch.py: --all is one module's files; these are in " + ", ".join(sorted(modules)))
     work = tempfile.mkdtemp(prefix="cmux-live-code-patch.")
     objects, argv, frontend = [], None, None
+    # Every module's edited files, for the sidecar.
+    all_edited = []
     for module, edited in modules.items():
         frontend, filelist = module_commands(opts.log, module)
         if not frontend:
@@ -267,6 +269,7 @@ def main():
             sys.stderr.write(failed[0][-6000:])
             sys.exit(f"patch.py: the compile of {module} failed (command in {module_work}/command)")
         objects += module_objects
+        all_edited += edited
     compiled = time.time()
     kept = 0
     if opts.all:
@@ -301,7 +304,8 @@ def main():
     os.makedirs(opts.live, exist_ok=True)
     # The sidecar first (`cmux live-code status` shows its commit and files), then the dylib.
     with open(os.path.join(opts.live, name[:-len(".dylib")] + ".json"), "w") as f:
-        json.dump({"commit": source_commit(edited), "files": [os.path.relpath(p, source_root(edited) or "/") for p in edited]}, f)
+        json.dump({"commit": source_commit(all_edited),
+                   "files": [os.path.relpath(p, source_root(all_edited) or "/") for p in all_edited]}, f)
     # Moved into place in one step, so the app never reads a half-written file.
     hidden = os.path.join(opts.live, "." + name)
     shutil.move(dylib, hidden)
