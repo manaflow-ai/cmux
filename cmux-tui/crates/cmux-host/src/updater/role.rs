@@ -201,7 +201,9 @@ impl Outcome {
 /// The updater's lock (`<state>/lock`, flock): one check, commit, rollback
 /// or guard at a time, in this process or another (`cmux host update
 /// check`). Released when the holder exits, also when the restart ends it.
-struct Lock(fs::File);
+struct Lock {
+    _file: fs::File,
+}
 
 impl Lock {
     fn take(paths: &Paths, wait: bool) -> Option<Lock> {
@@ -216,7 +218,7 @@ impl Lock {
             .ok()?;
         let flags = if wait { libc::LOCK_EX } else { libc::LOCK_EX | libc::LOCK_NB };
         // SAFETY: flock on a descriptor this function owns.
-        (unsafe { libc::flock(file.as_raw_fd(), flags) } == 0).then_some(Lock(file))
+        (unsafe { libc::flock(file.as_raw_fd(), flags) } == 0).then_some(Lock { _file: file })
     }
 }
 
