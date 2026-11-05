@@ -74,16 +74,27 @@ public final class WebDevOverrideWatcher {
     /// same URL again, which the WebKit scheme handlers and (with ``PageChromiumHosting/setLivePages(_:)``)
     /// Chromium's page host answer from the dev server, the overlay, a web update or the bundle.
     /// Also run when the Live Web Reload setting changes (``WebDevOverride/setAllowed(_:)``).
-    static func reloadPages() {
-        let live = WebDevOverride.current.isActive
-        let chromiumLive = live && (PageWebView.chromiumHosting?.setLivePages(true) ?? false)
-        if !live { _ = PageWebView.chromiumHosting?.setLivePages(false) }
-        WebBundleServedViews.shared.reloadServed()
+    ///
+    /// - Parameters:
+    ///   - live: Whether the override points pages at a server or an overlay.
+    ///   - hosting: The Chromium host (the app's ``PageWebView/chromiumHosting``).
+    ///   - pages: The open pages (nil: every live one, ``PageRegistry``).
+    ///   - served: The WebKit views the scheme handlers served.
+    /// - Returns: The work still running for pages that change engine, nil for none (tests wait on it).
+    @discardableResult
+    static func reloadPages(live: Bool = WebDevOverride.current.isActive,
+                            hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
+                            pages: [PageWebView]? = nil,
+                            served: WebBundleServedViews = .shared) -> Task<Void, Never>? {
+        let chromiumLive = live && (hosting?.setLivePages(true) ?? false)
+        if !live { _ = hosting?.setLivePages(false) }
+        served.reloadServed()
         // Chromium pages reload when they serve the loop now or did until now. One whose Chromium
         // cannot serve it keeps its bundled files until it next opens, in WebKit (PageEnginePolicy).
         defer { chromiumServedLive = chromiumLive }
-        guard chromiumLive || chromiumServedLive else { return }
-        for page in PageRegistry.pages() where page.chromiumPage != nil { page.reload() }
+        guard chromiumLive || chromiumServedLive else { return nil }
+        for page in pages ?? PageRegistry.pages() where page.chromiumPage != nil { page.reload() }
+        return nil
     }
 
     /// Whether Chromium pages were serving the live loop after the last ``reloadPages()``.
