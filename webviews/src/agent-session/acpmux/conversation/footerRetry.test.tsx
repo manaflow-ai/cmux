@@ -129,3 +129,26 @@ test("Retry stays on the person's last prompt's footer when a notification's tur
   const built = turnViewFrom(next, new Set(), { now: 100 }, view);
   expect(built.rows.filter((row) => row.kind === "turnSummary").map(offersRetry)).toEqual([false, false, true]);
 });
+
+// A suggested task's result acpmux sent into the chat (`received`) is not the person's prompt
+// (direct.ts), so its turn's footer never resends it: Retry stays with the person's last prompt.
+test("a task result's turn offers no Retry; the person's last prompt keeps it", () => {
+  const rows: AcpmuxRow[] = [
+    { id: "p1", version: 1, at: 10, kind: "user", text: "Fix the grid" },
+    { id: "a1", version: 1, at: 20, kind: "assistant", text: "Fixed." },
+    { id: "s1", version: 1, at: 30, kind: "turnSummary", status: "completed" },
+    {
+      id: "r",
+      version: 1,
+      at: 40,
+      kind: "user",
+      text: "Task result: the header is done.",
+      received: { offerId: "o1", childSessionId: "child-1", title: "Header" },
+    },
+    { id: "a2", version: 1, at: 50, kind: "assistant", text: "Merged the header." },
+    { id: "s2", version: 1, at: 60, kind: "turnSummary", status: "completed" },
+  ];
+  const footers = turnViewFrom(rows, new Set(), { now: 100 }).rows.filter((row) => row.kind === "turnSummary");
+  expect(footers.map(offersRetry)).toEqual([true, false]);
+  expect(footers[0]!.prompt).toBe("Fix the grid");
+});

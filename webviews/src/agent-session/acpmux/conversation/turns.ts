@@ -153,10 +153,14 @@ export const offersRetry = (row: AcpmuxRow) =>
   row.retryTarget === true && Boolean(row.prompt) && Boolean(row.retryRowId);
 
 /// A turn's prompt that Retry can send again: not a notification or acpmux's inbox notice
-/// (incomingMessage.ts), and with text. A turn whose prompt is not one leaves Retry with the turn
-/// before it (`retryTargetAt`).
+/// (incomingMessage.ts), not a task's result acpmux sent in (`received`, direct.ts: never the
+/// person's prompt), and with text. A turn whose prompt is not one leaves Retry with the turn before
+/// it (`retryTargetAt`).
 const resendable = (user: AcpmuxRow) =>
-  user.incoming?.kind !== "notice" && user.incoming?.kind !== "inbox" && Boolean(user.resend ?? user.text);
+  user.incoming?.kind !== "notice" &&
+  user.incoming?.kind !== "inbox" &&
+  user.received === undefined &&
+  Boolean(user.resend ?? user.text);
 
 /// The turn whose footer offers Retry: the last one, or, when the last turns came from a notice or a
 /// reminder (nothing to send again), the last turn before them whose prompt can be sent again, as
