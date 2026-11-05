@@ -213,7 +213,7 @@ import Testing
         first.container.frame = NSRect(x: 0, y: 0, width: 600, height: 500)
         window.contentView?.addSubview(first.container)
         first.container.layoutSubtreeIfNeeded()
-        CFRunLoopRunInMode(.defaultMode, 0, true)  // the end-of-turn request of the new page window (switch off: none)
+        // With the switch off the new page window made no hosting request (`pageWindowCreated` asks only when wanted).
         try #require(host.hostView.layerHosting.page == nil && PageSpyShim.hostingAsks.isEmpty, "SETUP: hosted with the switch off")
 
         let on = await Self.nextHostingAsk { Self.set(pages: true) }
