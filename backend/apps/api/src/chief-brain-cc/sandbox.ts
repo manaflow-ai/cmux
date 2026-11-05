@@ -6,7 +6,7 @@ import { freestyleIdleSeconds } from "../auto-pause.ts"
 import type { Env } from "../env.ts"
 import { execAs, grant, LINUX_USERS, revokeGrant, revokeIdentity } from "./sandbox-access.ts"
 import { fileVerb, snapshotVerb, snapsOf, takeSnapshot } from "./sandbox-files.ts"
-import { computerActing, computerOf, computerUsedAt, computerVerb, controlOf, forgetComputer, humanHasControl, ownerShot, runInput, SCREEN, setControl, type Control } from "./sandbox-computer.ts"
+import { computerActing, computerOf, computerUsedAt, computerVerb, controlOf, forgetComputer, humanHasControl, humanHasControlRefusal, humanInput, ownerShot, runInput, SCREEN, setControl, type Control } from "./sandbox-computer.ts"
 import { ownerEntitled, PLAN_REQUIRED } from "./sandbox-plan.ts"
 import { costOf, GROW_FS, GUEST_SIZE, guestOf, hasSize, planOf, resourcesOf, sizeOf, toFreestyle, type Guest, type Resources, type Size } from "./sandbox-size.ts"
 
@@ -126,6 +126,19 @@ const live = async (b: ChiefBrainDO) => {
     for (const id of gone) forgetComputer(b, id)
   }
   return out
+}
+
+/** fs verbs that only read: allowed on the computer while the person holds it. */
+const FS_READS = new Set(["read", "ls", "stat", "exists", "upload_status"])
+/**
+ * Whether `req` would change or end the Chief's computer VM `id` while the person holds it (the control lease,
+ * sandbox-computer.ts): exec, fs writes, stop, pause, delete and fork are refused then; reads, get, start and the
+ * computer's own verbs (which check the lease themselves) are not. Deleting the computer never ends a take-over.
+ */
+const heldFromChief = (b: ChiefBrainDO, id: string, req: Req): boolean => {
+  if (computerOf(b)?.id !== id || !humanHasControl(b)) return false
+  if (req.action === "fs") return !FS_READS.has(String(req.op ?? ""))
+  return req.action === "exec" || req.action === "stop" || req.action === "pause" || req.action === "delete" || req.action === "fork"
 }
 
 const NOT_YOURS: Out = { status: 404, json: { error: "not one of your sandboxes (chief-vm list)" } }
@@ -338,6 +351,8 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
     const o = await own(b, agent, req.id)
     if ("status" in o) return o
     const { s, vm } = o
+    // Checked when the action starts: an exec already running may finish after the person takes over.
+    if (heldFromChief(b, vm.id, req)) return humanHasControlRefusal(b, "this sandbox (your computer)")
     const at = `/v5/vms/${encodeURIComponent(vm.id)}`
     switch (req.action) {
       case "get":
@@ -496,8 +511,12 @@ export const ccComputerInput = async (b: ChiefBrainDO, agent: string, req: Recor
   const o = await own(b, agent, c.id)
   if ("status" in o) return o.status === 404 ? (forgetComputer(b, c.id), { status: 404, code: "not_found", error: "this Chief has no computer" }) : { status: 502, code: "computer.unreachable", error: "Freestyle did not answer" }
   if (o.vm.state !== "running") return { status: 409, code: "computer.asleep", error: "the computer is asleep", state: o.vm.state }
+  // A scroll amount out of range is clamped to 1..30 lines, not refused (a trackpad flick sends large deltas).
+  const amount = op === "scroll" && typeof req.amount === "number" && Number.isFinite(req.amount) ? Math.min(30, Math.max(1, Math.round(req.amount))) : req.amount
+  // The person's input keeps their hold (LEASE_IDLE_MS from now); it is not the Chief acting.
+  humanInput(b)
   try {
-    const r = await runInput(b, c.id, op, req)
+    const r = await runInput(b, c.id, op, amount === req.amount ? req : { ...req, amount })
     if (r.status === 200) return { status: 200, done: op, control: controlOf(b) }
     const error = String((r.json as { error?: unknown }).error ?? "the input failed")
     return r.status === 400 ? { status: 400, code: "validation.invalid", error } : { status: 502, code: "computer.unreachable", error }

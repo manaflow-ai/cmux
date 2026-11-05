@@ -2,7 +2,7 @@ import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
 import { writeConfig } from "../chief-brain/brain-store.ts"
 import { CcError } from "./vm.ts"
 import { execAs } from "./sandbox-access.ts"
-import { DESKTOP_PRELUDE, DISPLAY, SCREEN, SETUP } from "./sandbox-computer-setup.ts"
+import { CUA_FALLBACK, DESKTOP_PRELUDE, DISPLAY, SCREEN, SETUP } from "./sandbox-computer-setup.ts"
 
 export { SCREEN }
 
@@ -26,11 +26,13 @@ export { SCREEN }
  */
 export const COMPUTER_KEY = "cc_computer"
 export const COMPUTER_USED_KEY = "cc_computer_used_at"
-/** When the Chief last acted on its computer (ms): the owner's live view follows only recent work. */
+/** When the Chief last acted on its computer (ms), written only by the Chief's own verbs: `acting` in the owner's status. */
 export const COMPUTER_ACTIVE_KEY = "cc_computer_active_at"
+/** When the person last took over, drove or handed back the computer (ms): the lease's idle clock and the live view's. */
+export const COMPUTER_HUMAN_KEY = "cc_computer_human_at"
 /** A frame the owner's view may reuse instead of asking the VM again (several viewers, one shot). */
 const SHOT_REUSE_MS = 700
-/** No Chief action for this long: the owner's view stops asking the VM for frames. */
+/** No Chief action and no input from the person for this long: the owner's view stops asking the VM for frames. */
 const IDLE_MS = 10 * 60_000
 /** The Chief is using the computer now while its last action is this recent: each step is a click, a look, then the next (the chat's popup). */
 const ACTING_MS = 45_000
@@ -66,16 +68,17 @@ export const computerActing = (b: ChiefBrainDO, now = Date.now()): boolean => {
   return Number.isFinite(n) && now - n < ACTING_MS
 }
 
-/** Whether the Chief acted on its computer within IDLE_MS (the owner's view refreshes only then). */
-export const computerIdle = (b: ChiefBrainDO, now = Date.now()): boolean => {
-  const n = Number(configValue(b, COMPUTER_ACTIVE_KEY))
-  return !(Number.isFinite(n) && now - n < IDLE_MS)
+const msOf = (b: ChiefBrainDO, key: string): number => {
+  const n = Number(configValue(b, key))
+  return Number.isFinite(n) && n > 0 ? n : 0
 }
+/** Whether neither the Chief nor the person used the computer within IDLE_MS (the owner's view refreshes only otherwise). */
+export const computerIdle = (b: ChiefBrainDO, now = Date.now()): boolean => now - Math.max(msOf(b, COMPUTER_ACTIVE_KEY), msOf(b, COMPUTER_HUMAN_KEY)) >= IDLE_MS
 
 /** The sandbox `id` is gone: when it was the computer, the Chief has none until the next setup. */
 export const forgetComputer = (b: ChiefBrainDO, id?: string) => {
   const c = computerOf(b)
-  if (c && (id === undefined || c.id === id)) b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?)`, COMPUTER_KEY, CONTROL_KEY)
+  if (c && (id === undefined || c.id === id)) b.sql.exec(`DELETE FROM cb_config WHERE name IN (?, ?, ?)`, COMPUTER_KEY, CONTROL_KEY, COMPUTER_HUMAN_KEY)
 }
 
 /** Base64 of a script, run by bash on the VM: no quoting of the script itself reaches a shell. */
@@ -93,13 +96,20 @@ const point = (req: Req, x = "x", y = "y"): [number, number] | string => {
 /** xdotool key names: letters, digits, + and _ (ctrl+l, Return, shift+Tab), space-separated. */
 const KEYS = /^[A-Za-z0-9_+]{1,40}( [A-Za-z0-9_+]{1,40}){0,19}$/
 
-/** One cua-driver tool on the whole desktop, its JSON arguments in the environment, else `fallback` (xdotool). */
-const cuaOr = (n: number, tool: string, args: Record<string, unknown>, fallback: string) => ({ line: `{ cua ${tool} "$CHIEF_CUA${n}" || ${fallback}; }`, env: { [`CHIEF_CUA${n}`]: JSON.stringify({ scope: "desktop", ...args }) } })
+/**
+ * One cua-driver tool on the whole desktop, its JSON arguments in the environment; `fallback` (xdotool) only when
+ * cua-driver ran nothing (missing, unreachable, or the tool or an argument unknown: CUA_FALLBACK). Any other cua-driver
+ * error fails the verb as it is, so an action that partly ran is never repeated.
+ */
+const cuaOr = (n: number, tool: string, args: Record<string, unknown>, fallback: string) => ({
+  line: `{ cua ${tool} "$CHIEF_CUA${n}"; c=$?; if [ $c -eq ${CUA_FALLBACK} ]; then ${fallback}; else [ $c -eq 0 ]; fi; }`,
+  env: { [`CHIEF_CUA${n}`]: JSON.stringify({ scope: "desktop", ...args }) }
+})
 
 /**
  * The shell for one input verb (run as chief, with TEXT/URL/KEYS in the environment), or why not. Each verb goes
- * through cua-driver (DESKTOP_PRELUDE's `cua`), and through xdotool when cua-driver is missing, fails, or lacks it
- * (a double click, opening a page).
+ * through cua-driver (DESKTOP_PRELUDE's `cua`), and through xdotool when cua-driver is missing or lacks the tool or
+ * an argument (a double click, opening a page), never after a cua-driver error (cuaOr).
  */
 export const inputCommand = (op: string, req: Req): { command: string; env?: Record<string, string> } | string => {
   const x = DESKTOP_PRELUDE
@@ -166,7 +176,7 @@ export const inputCommand = (op: string, req: Req): { command: string; env?: Rec
   return `computer verb must be ${VERBS}`
 }
 
-const VERBS = "setup, screenshot, windows, click, move, drag, scroll, type, key, open, control or request_human"
+const VERBS = "setup, screenshot, windows, click, move, drag, scroll, type, key, open, control, request_human or hand_back"
 /** The desktop's windows: cua-driver's list_windows JSON, else one line per window from xdotool (id, pid, x y w h, title). */
 const WINDOWS = `${DESKTOP_PRELUDE} cua list_windows '{}' && exit 0; echo '#xdotool'; for w in $(xdotool search --onlyvisible --name '.*' 2>/dev/null); do eval "$(xdotool getwindowgeometry --shell "$w" 2>/dev/null)"; printf '%s\\t%s\\t%s %s %s %s\\t%s\\n' "$w" "$(xdotool getwindowpid "$w" 2>/dev/null)" "$X" "$Y" "$WIDTH" "$HEIGHT" "$(xdotool getwindowname "$w" 2>/dev/null | tr '\\t\\n' '  ')"; done`
 const windowsOf = (stdout: string): unknown => {
@@ -196,53 +206,86 @@ const shot = async (b: ChiefBrainDO, id: string): Promise<string> => {
 
 /**
  * Who drives the computer (the control lease, DESIGN "Control lease"): the Chief (the default) or its owner, who took
- * over in the profile's Computer tab, or whom the Chief asked to (`request_human`, with its reason). Kept in this
- * object's cb_config under CONTROL_KEY and written only here. While the person holds it, the Chief's input verbs are
- * refused (it may still look: screenshot, windows); after the person hands it back, the Chief's next verb carries a
- * note to look again first.
+ * over in the profile's Computer tab (`by: "human"`), or whom the Chief asked to (`request_human`, `by: "chief"`, with
+ * its reason). Kept in this object's cb_config under CONTROL_KEY and written only here. While the person holds it, the
+ * Chief's input verbs, and exec, fs writes, stop, pause, delete and fork on this VM (sandbox.ts), are refused with
+ * computer.human_has_control (it may still look: screenshot, windows, control). The hold ends when the person hands it
+ * back, when the Chief hands back a hold it asked for itself (never a person's take-over), or by itself after
+ * LEASE_IDLE_MS without the person's input (computed when read: no timer). After it ends, the Chief's next verb that
+ * succeeds carries a note to look again first.
+ *
+ * The lease is checked when a Chief action starts: an action already running (a type of a long text, an exec) may
+ * finish after the person takes over.
  */
 export const CONTROL_KEY = "cc_computer_control"
 export type Holder = "chief" | "human"
-export type Control = { holder: Holder; since_ms: number; reason?: string }
-type ControlRow = Control & { returned?: boolean }
+export type Control = { holder: Holder; since_ms: number; by?: Holder; reason?: string; expires_ms?: number }
+type ControlRow = { holder: Holder; since_ms: number; by?: Holder; reason?: string; returned?: boolean }
+/** A person's hold with no take-over or input for this long returns to the Chief. */
+export const LEASE_IDLE_MS = 10 * 60_000
 const REASON_MAX = 500
-/** Verbs the Chief may run while the person holds the computer: they only look. */
-const LOOKS = new Set(["screenshot", "windows", "control", "request_human"])
+/** Verbs the Chief may run while the person holds the computer: they only look, or end a hold the Chief asked for. */
+const LOOKS = new Set(["screenshot", "windows", "control", "request_human", "hand_back"])
 export const HANDED_BACK_NOTE = "The person handed the computer back to you: the screen may have changed. Take a fresh screenshot before your next action."
 
-const controlRow = (b: ChiefBrainDO): ControlRow => {
+const storedRow = (b: ChiefBrainDO): ControlRow => {
   try {
     const c = JSON.parse(configValue(b, CONTROL_KEY) ?? "null") as ControlRow | null
     if (c && (c.holder === "chief" || c.holder === "human") && typeof c.since_ms === "number") return c
   } catch {}
   return { holder: "chief", since_ms: computerOf(b)?.since ?? 0 }
 }
-/** The lease as clients see it. */
-export const controlOf = (b: ChiefBrainDO): Control => {
-  const c = controlRow(b)
-  return { holder: c.holder, since_ms: c.since_ms, ...(c.reason ? { reason: c.reason } : {}) }
+/** When a person's hold ends by itself: LEASE_IDLE_MS after it began or after the person's last input, whichever is later. */
+const leaseEnd = (b: ChiefBrainDO, c: ControlRow): number => Math.max(c.since_ms, msOf(b, COMPUTER_HUMAN_KEY)) + LEASE_IDLE_MS
+/** The lease now: an idle person's hold reads as returned to the Chief from its end (written back on the next change). */
+const controlRow = (b: ChiefBrainDO, now = Date.now()): ControlRow => {
+  const c = storedRow(b)
+  if (c.holder !== "human") return c
+  const end = leaseEnd(b, c)
+  return now >= end ? { holder: "chief", since_ms: end, returned: true } : c
 }
-const writeControl = (b: ChiefBrainDO, c: ControlRow) => writeConfig(b.sql, { [CONTROL_KEY]: JSON.stringify(c), [COMPUTER_ACTIVE_KEY]: String(Date.now()) })
+/** The lease as clients see it: `by` and `expires_ms` while the person holds it. */
+export const controlOf = (b: ChiefBrainDO, now = Date.now()): Control => {
+  const c = controlRow(b, now)
+  if (c.holder !== "human") return { holder: c.holder, since_ms: c.since_ms }
+  return { holder: "human", since_ms: c.since_ms, by: c.by ?? "human", ...(c.reason ? { reason: c.reason } : {}), expires_ms: leaseEnd(b, c) }
+}
+const writeControl = (b: ChiefBrainDO, c: ControlRow) => writeConfig(b.sql, { [CONTROL_KEY]: JSON.stringify(c) })
+/** The person did something with the computer: their hold's idle clock and the live view restart. */
+const touchHuman = (b: ChiefBrainDO, now = Date.now()) => writeConfig(b.sql, { [COMPUTER_HUMAN_KEY]: String(now) })
 
 /** The person takes the computer over, or hands it back to the Chief (the owner's route; idempotent). */
 export const setControl = (b: ChiefBrainDO, action: "take_over" | "hand_back"): Control => {
-  const now = controlRow(b)
-  if (action === "take_over" && now.holder !== "human") writeControl(b, { holder: "human", since_ms: Date.now() })
-  // A take-over the Chief asked for keeps its reason; the person now holds it either way.
-  if (action === "take_over" && now.holder === "human") writeConfig(b.sql, { [COMPUTER_ACTIVE_KEY]: String(Date.now()) })
-  if (action === "hand_back" && now.holder === "human") writeControl(b, { holder: "chief", since_ms: Date.now(), returned: true })
-  return controlOf(b)
+  const now = Date.now()
+  const cur = controlRow(b, now)
+  if (action === "take_over") {
+    // Taking over a hold the Chief asked for keeps its reason, and makes it the person's: the Chief can no longer end it.
+    writeControl(b, cur.holder === "human" ? { holder: "human", since_ms: cur.since_ms, by: "human", ...(cur.reason ? { reason: cur.reason } : {}) } : { holder: "human", since_ms: now, by: "human" })
+    touchHuman(b, now)
+  } else if (cur.holder === "human") {
+    writeControl(b, { holder: "chief", since_ms: now, returned: true })
+    touchHuman(b, now)
+  }
+  return controlOf(b, now)
 }
 /** Whether the person holds the computer now. */
 export const humanHasControl = (b: ChiefBrainDO): boolean => controlRow(b).holder === "human"
+/** The person's input while they hold the computer (the owner's route): the hold stays theirs for LEASE_IDLE_MS more. */
+export const humanInput = (b: ChiefBrainDO) => touchHuman(b)
 
-/** One input verb on running sandbox `id` (the person's, through the owner's route; the Chief's, below). */
+/** The 409 for a Chief action on its computer while the person holds it. */
+export const humanHasControlRefusal = (b: ChiefBrainDO, what = "your computer"): Out => {
+  const c = controlOf(b)
+  const ends = c.by === "chief" ? "wait until they are done, or chief-vm computer hand-back ID when you no longer need them" : "wait until they hand it back"
+  return { status: 409, json: { code: "computer.human_has_control", error: `computer.human_has_control: the person is using ${what}${c.reason ? ` (you asked: ${c.reason})` : ""}; ${ends}. screenshot and windows still work`, control: c } }
+}
+
+/** One input verb on running sandbox `id` (the person's, through the owner's route; the Chief's, below). Writes no state. */
 export const runInput = async (b: ChiefBrainDO, id: string, op: string, req: Req): Promise<Out> => {
   const input = inputCommand(op, req)
   if (typeof input === "string") return { status: 400, json: { error: input } }
   const r = await execAs(b, id, { command: input.command, timeout_ms: 30_000, user: "chief", ...(input.env ? { env: input.env } : {}) })
   if (r.exit !== 0) return { status: 502, json: { error: `${op} failed (exit ${r.exit})`, stderr: r.stderr.slice(-1000) } }
-  writeConfig(b.sql, { [COMPUTER_ACTIVE_KEY]: String(Date.now()) })
   return { status: 200, json: { done: op } }
 }
 
@@ -251,11 +294,9 @@ export const computerVerb = async (b: ChiefBrainDO, id: string, state: string, r
   const op = String(req.op ?? "")
   if (state !== "running") return { status: 409, json: { error: `the sandbox is ${state}; chief-vm start ${id} first` } }
   const mine = computerOf(b)?.id === id
+  // The lease is checked here, at the start of the action: one already running may finish after a take-over.
   // Setting up another computer would end the person's take-over: refused too.
-  if ((mine || (op === "setup" && computerOf(b))) && humanHasControl(b) && !LOOKS.has(op)) {
-    const c = controlOf(b)
-    return { status: 409, json: { code: "computer.human_has_control", error: `computer.human_has_control: the person is using your computer${c.reason ? ` (you asked: ${c.reason})` : ""}; wait until they hand it back. screenshot and windows still work`, control: c } }
-  }
+  if ((mine || (op === "setup" && computerOf(b))) && humanHasControl(b) && !LOOKS.has(op)) return humanHasControlRefusal(b)
   if (op === "setup") {
     const r = await execAs(b, id, { command: script(SETUP), timeout_ms: 290_000, user: "root" })
     if (r.exit !== 0) return { status: 502, json: { error: `the desktop did not install (exit ${r.exit})`, stderr: r.stderr.slice(-2000) } }
@@ -270,28 +311,48 @@ export const computerVerb = async (b: ChiefBrainDO, id: string, state: string, r
   if (op === "request_human") {
     const reason = typeof req.reason === "string" ? req.reason.trim() : ""
     if (!reason || reason.length > REASON_MAX) return { status: 400, json: { error: `request_human needs a reason (1 to ${REASON_MAX} characters): what the person should do` } }
-    if (!humanHasControl(b)) writeControl(b, { holder: "human", since_ms: Date.now(), reason })
+    if (!humanHasControl(b)) writeControl(b, { holder: "human", since_ms: Date.now(), by: "chief", reason })
     return { status: 200, json: { control: controlOf(b) } }
   }
-  // The first verb after the person handed the computer back says so once.
+  if (op === "hand_back") {
+    // Only a hold the Chief asked for (request_human) and the person did not take over: a take-over is the person's to end.
+    const c = controlRow(b)
+    if (c.holder === "human" && (c.by ?? "human") !== "chief") return humanHasControlRefusal(b)
+    if (c.holder === "human") writeControl(b, { holder: "chief", since_ms: Date.now(), returned: true })
+    return { status: 200, json: { control: controlOf(b) } }
+  }
+  // The first verb that succeeds after the person handed the computer back says so once (a screenshot is that fresh
+  // look, so it clears the note without carrying it); a verb that fails leaves it for the next.
   const row = controlRow(b)
-  const note = row.returned ? (writeConfig(b.sql, { [CONTROL_KEY]: JSON.stringify({ holder: row.holder, since_ms: row.since_ms } satisfies ControlRow) }), op === "screenshot" ? {} : { note: HANDED_BACK_NOTE }) : {}
+  const note = row.returned && op !== "screenshot" ? { note: HANDED_BACK_NOTE } : {}
+  const seen = () => {
+    const now = controlRow(b)
+    if (row.returned && now.returned && now.holder === "chief" && now.since_ms === row.since_ms) writeControl(b, { holder: "chief", since_ms: row.since_ms })
+  }
   writeConfig(b.sql, { [COMPUTER_ACTIVE_KEY]: String(Date.now()) })
-  if (op === "screenshot") return { status: 200, json: { screen: SCREEN, image: await shot(b, id), ...note } }
+  if (op === "screenshot") {
+    const image = await shot(b, id)
+    seen()
+    return { status: 200, json: { screen: SCREEN, image, ...note } }
+  }
   if (op === "windows") {
     const r = await execAs(b, id, { command: WINDOWS, timeout_ms: 30_000, user: "chief" })
     if (r.exit !== 0) return { status: 502, json: { error: `windows failed (exit ${r.exit})`, stderr: r.stderr.slice(-1000) } }
+    seen()
     return { status: 200, json: { windows: windowsOf(r.stdout), ...note } }
   }
   const done = await runInput(b, id, op, req)
   if (done.status !== 200) return done
+  writeConfig(b.sql, { [COMPUTER_ACTIVE_KEY]: String(Date.now()) })
+  seen()
   // The screen after the action (the Chief looks before its next step), unless it asked for none.
   return { status: 200, json: { done: op, screen: SCREEN, ...note, ...(req.shot === false ? {} : { image: await shot(b, id) }) } }
 }
 
 /**
  * The owner's view of the screen: one shot shared by viewers within SHOT_REUSE_MS, never more than one in flight.
- * While the Chief is idle (computerIdle), the last frame stays the answer, so watching does not keep the VM busy.
+ * While neither the Chief nor the person is using it (computerIdle), the last frame stays the answer, so watching does not
+ * keep the VM busy.
  */
 const recent = new WeakMap<object, { at: number; image: Promise<string>; id: string }>()
 export const ownerShot = (b: ChiefBrainDO, id: string): Promise<string> => {

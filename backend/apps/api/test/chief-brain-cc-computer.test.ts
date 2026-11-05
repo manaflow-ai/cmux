@@ -3,9 +3,10 @@ import { mintAccessToken } from "../src/auth.ts"
 import { handleChiefBrain } from "../src/chief-brain/routes.ts"
 import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import type { Env } from "../src/env.ts"
-import { HANDED_BACK_NOTE } from "../src/chief-brain-cc/sandbox-computer.ts"
+import { sandboxesOf } from "../src/chief-brain-cc/sandbox.ts"
+import { COMPUTER_ACTIVE_KEY, COMPUTER_HUMAN_KEY, CONTROL_KEY, HANDED_BACK_NOTE, LEASE_IDLE_MS } from "../src/chief-brain-cc/sandbox-computer.ts"
 import { fakeCloud, notes, type Started } from "./chief-brain-cc-fake.ts"
-import { enabledChief, http, replies, send, sessionToken, testEnv, useCcSettings } from "./chief-brain-cc-harness.ts"
+import { enabledChief, http, inDO, replies, send, sessionToken, testEnv, useCcSettings } from "./chief-brain-cc-harness.ts"
 
 /**
  * The Chief's computer as a paid Cloud feature with a person who can take it over (DESIGN "Control lease" and
@@ -59,12 +60,28 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
           seen.heldSetup = await call(s, { action: "computer", id, op: "setup" })
           seen.heldShot = await call(s, { action: "computer", id, op: "screenshot" })
           seen.heldWindows = await call(s, { action: "computer", id, op: "windows" })
+          // Nor change or end the VM under the person: exec, fs writes, stop, pause, delete, fork; reading is fine.
+          for (const [k, req] of Object.entries({ exec: { action: "exec", command: "echo hi" }, write: { action: "fs", op: "write", path: "/tmp/x", data: btoa("x") }, mkdir: { action: "fs", op: "mkdir", path: "/tmp/d" }, stop: { action: "stop" }, pause: { action: "pause" }, delete: { action: "delete" }, fork: { action: "fork" } })) {
+            seen[`held_${k}`] = await call(s, { ...req, id })
+          }
+          seen.heldLs = await call(s, { action: "fs", op: "ls", path: "/tmp", id })
+          seen.heldGet = await call(s, { action: "get", id })
+          // A person's take-over is theirs to end, not the Chief's.
+          seen.heldHandBack = await call(s, { action: "computer", id, op: "hand_back" })
         } else if (n === 3) {
           seen.back1 = await call(s, { action: "computer", id, op: "key", keys: "ctrl+l Return" })
           seen.back2 = await call(s, { action: "computer", id, op: "move", x: 7, y: 8 })
           seen.askEmpty = await call(s, { action: "computer", id, op: "request_human" })
           seen.ask = await call(s, { action: "computer", id, op: "request_human", reason: "sign in to Gmail" })
           seen.afterAsk = await call(s, { action: "computer", id, op: "type", text: "x" })
+          // A hold the Chief asked for, the Chief may end; then it asks again.
+          seen.ownHandBack = await call(s, { action: "computer", id, op: "hand_back" })
+          seen.ask2 = await call(s, { action: "computer", id, op: "request_human", reason: "sign in to Gmail" })
+        } else if (n === 4) {
+          // After the lease ran out: a verb that fails keeps the note for the next one that succeeds.
+          seen.expiredBad = await call(s, { action: "computer", id, op: "click", x: 5000, y: 1 })
+          seen.expired1 = await call(s, { action: "computer", id, op: "click", x: 9, y: 9, shot: false })
+          seen.expired2 = await call(s, { action: "computer", id, op: "click", x: 9, y: 9, shot: false })
         }
       }
     )
@@ -80,10 +97,10 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
     await replies(token, chief.main_conversation, chief.id, 1)
     const id = seen.id as string
     expect(seen.setup, JSON.stringify(seen.setup)).toMatchObject({ status: 200, body: { computer: id, driver: "xdotool" } })
-    // Input goes through cua-driver on the whole desktop, with xdotool when it is missing or fails.
+    // Input goes through cua-driver on the whole desktop, with xdotool only when cua-driver ran nothing (127).
     const click = cloud.execs.find((e) => e.vm === id && e.env?.CHIEF_CUA0?.includes('"x":3'))!
     expect(JSON.parse(click.env!.CHIEF_CUA0!)).toEqual({ scope: "desktop", x: 3, y: 4, button: "left" })
-    expect(click.command).toContain('cua click "$CHIEF_CUA0" || xdotool mousemove --sync 3 4 click --repeat 1')
+    expect(click.command).toContain('cua click "$CHIEF_CUA0"; c=$?; if [ $c -eq 127 ]; then xdotool mousemove --sync 3 4 click --repeat 1')
     expect(await status()).toMatchObject({ used: true, entitled: true, computer: { id, state: "running" }, control: { holder: "chief" } })
 
     // The person's input needs the computer first; a stranger gets the same 404 as for no Chief.
@@ -93,7 +110,8 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
     expect((await control("grab")).status).toBe(400)
     const took = await control("take_over")
     expect(took.status, took.text).toBe(200)
-    expect(took.json.value.control).toMatchObject({ holder: "human", since_ms: expect.any(Number) })
+    expect(took.json.value.control).toMatchObject({ holder: "human", by: "human", since_ms: expect.any(Number) })
+    expect(took.json.value.control.expires_ms).toBeGreaterThanOrEqual(took.json.value.control.since_ms + LEASE_IDLE_MS)
     const before = cloud.execs.length
     const typed = await input({ op: "type", text: "hi'; reboot" })
     expect(typed.status, typed.text).toBe(200)
@@ -106,6 +124,19 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
     expect((await input({ op: "open_url", url: "https://example.com/" })).status).toBe(200)
     expect((await input({ op: "key", keys: "ctrl+l; reboot" })).json.error.code).toBe("validation.invalid")
     expect((await input({ op: "screenshot" })).status).toBe(400)
+    // A scroll amount out of range is clamped, not refused.
+    const scrolled = await input({ op: "scroll", x: 10, y: 10, amount: 500 })
+    expect(scrolled.status, scrolled.text).toBe(200)
+    expect(JSON.parse(cloud.execs.at(-1)!.env!.CHIEF_CUA0!)).toMatchObject({ direction: "down", amount: 30 })
+    expect(cloud.execs.at(-1)!.command).toContain("click --repeat 30 --delay 30 5")
+    expect((await input({ op: "scroll", x: 10, y: 10, amount: 0 })).status).toBe(200)
+    expect(JSON.parse(cloud.execs.at(-1)!.env!.CHIEF_CUA0!).amount).toBe(1)
+    // The person's input is not the Chief acting: with the Chief quiet for a minute, `acting` stays off.
+    const sandboxes = sandboxesOf(testEnv as unknown as Env, chief.id)
+    const setConfig = (values: Record<string, string>) => inDO(sandboxes, async (instance) => { for (const [k, v] of Object.entries(values)) instance.sql.exec(`INSERT INTO cb_config (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = excluded.value`, k, v) })
+    await setConfig({ [COMPUTER_ACTIVE_KEY]: String(Date.now() - 60_000) })
+    expect((await input({ op: "move", x: 3, y: 3 })).status).toBe(200)
+    expect((await status()).acting).toBe(false)
 
     // While the person holds it, the Chief may look but not act, nor set up a computer to get around it.
     expect((await send(token, chief.main_conversation, "k2", "keep going")).ok).toBe(true)
@@ -117,6 +148,15 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
     expect(seen.heldShot.body.image).toMatch(/^\/9j\//)
     expect(seen.heldWindows.status).toBe(200)
     expect(cloud.execs.some((e) => e.env?.CHIEF_CUA0?.includes('"x":5'))).toBe(false)
+    for (const k of ["exec", "write", "mkdir", "stop", "pause", "delete", "fork"]) {
+      expect(seen[`held_${k}`], k).toMatchObject({ status: 409, body: { code: "computer.human_has_control", control: { holder: "human", by: "human" } } })
+    }
+    expect(cloud.deleted).not.toContain(id)
+    expect(cloud.lifecycle).not.toContain(`${id} pause`)
+    expect(cloud.execs.some((e) => e.command === "echo hi")).toBe(false)
+    expect(seen.heldLs.status).toBe(200)
+    expect(seen.heldGet.status).toBe(200)
+    expect(seen.heldHandBack).toMatchObject({ status: 409, body: { code: "computer.human_has_control" } })
 
     // Handed back: the Chief's next verb tells it to look again, once.
     expect((await control("hand_back")).json.value.control).toMatchObject({ holder: "chief" })
@@ -130,9 +170,28 @@ describe("the Chief's computer: plan, take over and hand back", { timeout: 120_0
     // The Chief asks for the person: it then holds no input until they hand it back.
     expect(seen.askEmpty.status).toBe(400)
     expect(seen.ask.body.control).toMatchObject({ holder: "human", reason: "sign in to Gmail" })
+    expect(seen.ask.body.control).toMatchObject({ by: "chief", expires_ms: expect.any(Number) })
     expect(seen.afterAsk.body.code).toBe("computer.human_has_control")
-    expect((await status()).control).toMatchObject({ holder: "human", reason: "sign in to Gmail" })
+    expect(seen.ownHandBack.body.control).toMatchObject({ holder: "chief" })
+    expect((await status()).control).toMatchObject({ holder: "human", by: "chief", reason: "sign in to Gmail" })
     expect((await input({ op: "move", x: 2, y: 2 })).status).toBe(200)
+    // The person takes over the Chief's request: it is theirs now, reason kept.
+    expect((await control("take_over")).json.value.control).toMatchObject({ holder: "human", by: "human", reason: "sign in to Gmail" })
+
+    // Idle past the lease (no take-over or input for LEASE_IDLE_MS): the computer is the Chief's again, read lazily.
+    const stale = String(Date.now() - LEASE_IDLE_MS - 1000)
+    await setConfig({ [COMPUTER_HUMAN_KEY]: stale, [CONTROL_KEY]: JSON.stringify({ holder: "human", since_ms: Number(stale), by: "human" }) })
+    expect((await status()).control).toMatchObject({ holder: "chief" })
+    expect((await status()).control.expires_ms).toBeUndefined()
+    expect((await input({ op: "click", x: 1, y: 1 })).json.error.code).toBe("computer.not_human")
+    expect((await send(token, chief.main_conversation, "k4", "go on")).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 4)
+    expect(seen.expiredBad.status).toBe(400)
+    expect(seen.expiredBad.body.note).toBeUndefined()
+    expect(seen.expired1).toMatchObject({ status: 200, body: { done: "click", note: HANDED_BACK_NOTE } })
+    expect(seen.expired2.body.note).toBeUndefined()
+    // Asleep needs the person holding it again.
+    expect((await control("take_over")).status).toBe(200)
 
     // Asleep: the person's input never wakes it.
     cloud.states.set(id, "suspended")

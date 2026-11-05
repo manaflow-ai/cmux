@@ -102,8 +102,12 @@ echo ready`
 
 /**
  * The start of every verb's shell (as chief): the desktop up, its session in the environment, and `cua TOOL JSON`,
- * one cua-driver tool on the whole desktop that fails (so the xdotool fallback runs) when cua-driver is missing or
- * answers an error (it can exit 0 with one).
+ * one cua-driver tool on the whole desktop. It answers 0 when the tool ran, CUA_FALLBACK (127) when nothing ran
+ * because cua-driver is missing, its daemon is unreachable, or it does not know the tool or an argument (then the
+ * caller's xdotool fallback runs), and 1 for any other error (it can exit 0 with one): that tool may have partly run
+ * (half a text typed, a drag pressed), so it is never repeated through xdotool; the verb fails with cua-driver's words.
  */
+export const CUA_FALLBACK = 127
+const CUA_UNSUPPORTED = "unknown tool|no such tool|tool not found|unknown (argument|parameter|field|key)|unexpected (argument|parameter|field|key)|unrecognized (argument|parameter|field)|missing (required )?(argument|parameter|field)|invalid (params|arguments)|-3260[12]|connection refused|daemon (is )?not running|could not connect"
 export const DESKTOP_PRELUDE = `export DISPLAY=${DISPLAY}; /usr/local/bin/chief-desktop >/dev/null 2>&1; [ -f ${DESKTOP_ENV} ] && . ${DESKTOP_ENV};
-cua() { command -v cua-driver >/dev/null 2>&1 || return 1; out=$(cua-driver call "$1" "$2" 2>&1) || return 1; printf '%s' "$out" | grep -Eq '"isError"[[:space:]]*:[[:space:]]*true|^[[:space:]]*\\{[[:space:]]*"error"' && return 1; printf '%s\\n' "$out"; };`
+cua() { command -v cua-driver >/dev/null 2>&1 || return ${CUA_FALLBACK}; out=$(cua-driver call "$1" "$2" 2>&1); rc=$?; if [ $rc -ne 0 ] || printf '%s' "$out" | grep -Eq '"isError"[[:space:]]*:[[:space:]]*true|^[[:space:]]*\\{[[:space:]]*"error"'; then printf '%s' "$out" | grep -Eqi '${CUA_UNSUPPORTED}' && return ${CUA_FALLBACK}; printf 'cua-driver %s: %s\\n' "$1" "$out" | tail -c 1000 >&2; return 1; fi; printf '%s\\n' "$out"; };`
