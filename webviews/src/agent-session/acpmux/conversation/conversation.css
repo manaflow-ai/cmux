@@ -3412,6 +3412,7 @@ button.cv-video-frames__frame:focus-visible {
 }
 .cv-bgtask__text {
   min-width: 0;
+  line-height: inherit;
 }
 .cv-bgtask__owner {
   color: var(--cv-text-muted);
@@ -3428,10 +3429,12 @@ button.cv-video-frames__frame:focus-visible {
   font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: inherit;
 }
 .cv-bgtask__state {
   color: var(--cv-text-muted);
-  font-size: var(--text-detail);
+  font-size: inherit;
+  line-height: inherit;
 }
 .cv-bgtask__details {
   display: flex;
