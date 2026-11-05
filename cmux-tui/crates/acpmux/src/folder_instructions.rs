@@ -54,7 +54,22 @@ fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
 
     let mut folders: Vec<&str> = rel.split('/').collect();
     let last = folders.pop()?;
-    let mut dir: OwnedFd = std::fs::File::open(root).ok()?.into();
+    // The session folder itself may be a link (`/tmp` on macOS); it must be a directory, and
+    // O_NONBLOCK keeps a fifo swapped in for it from blocking the open.
+    let root = CString::new(root.as_os_str().as_encoded_bytes()).ok()?;
+    // SAFETY: `root` is NUL-terminated.
+    let fd = unsafe {
+        libc::openat(
+            libc::AT_FDCWD,
+            root.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return None;
+    }
+    // SAFETY: `fd` was just opened and nothing else owns it.
+    let mut dir = unsafe { OwnedFd::from_raw_fd(fd) };
     for name in folders {
         let name = CString::new(name).ok()?;
         // SAFETY: `dir` is an open descriptor and `name` is NUL-terminated.
@@ -89,11 +104,10 @@ fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
     file.metadata().ok()?.is_file().then_some(file)
 }
 
+/// Elsewhere there is no link-safe open of each step, so no folder file is read.
 #[cfg(not(unix))]
-fn open_beneath(root: &Path, rel: &str) -> Option<std::fs::File> {
-    let path = root.join(rel);
-    let meta = std::fs::symlink_metadata(&path).ok()?;
-    meta.file_type().is_file().then(|| std::fs::File::open(path).ok()).flatten()
+fn open_beneath(_root: &Path, _rel: &str) -> Option<std::fs::File> {
+    None
 }
 
 /// The start of `rel` beneath `cwd` (at most the cap and a few bytes) and its full size;
