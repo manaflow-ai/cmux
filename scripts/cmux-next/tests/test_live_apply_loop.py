@@ -35,6 +35,7 @@ STUB = textwrap.dedent("""\
     ls -1d "$CMUX_WEB_OVERLAY_DIR"/.gen-* | sort -r | tail -n +3 | while read -r old; do
       [[ "$live" == *" ${old##*/} "* ]] || rm -rf "$old"
     done
+    [[ ! -f "$(dirname "$0")/../../webviews/broken-late" ]]
     printf '{"overlay": "%s", "enabled": true}\\n' "$CMUX_WEB_OVERLAY_DIR" > "$(dirname "$CMUX_NEXT_CONFIG_FILE")/web-dev.json"
 """)
 
@@ -115,6 +116,18 @@ class LiveApplyLoopTests(unittest.TestCase):
         code, verdict = self.run_loop("--probe", "true")
         self.assertEqual((code, verdict["applied"], verdict["probe"]), (4, False, "none"))
         self.assertFalse((self.overlay / "manifest.json").exists())
+
+    def test_a_build_that_fails_after_its_swap_is_put_back(self):
+        (self.repo / "webviews/page.txt").write_text("good\n")
+        self.assertEqual(self.run_loop("--probe", "true")[0], 0)
+        good = os.readlink(self.overlay / "pages")
+        (self.repo / "webviews/page.txt").write_text("bad\n")
+        (self.repo / "webviews/broken-late").write_text("x\n")
+        code, verdict = self.run_loop("--probe", "true")
+        self.assertEqual((code, verdict["applied"], verdict["rolled_back"]), (4, False, True), verdict)
+        self.assertEqual(os.readlink(self.overlay / "pages"), good)
+        self.assertEqual(self.served(), "good")
+        self.assertEqual(list(self.overlay.glob(".keep-*")), [])
 
     def test_rollback_with_no_earlier_overlay_restores_the_bundled_pages(self):
         (self.repo / "webviews/page.txt").write_text("new\n")

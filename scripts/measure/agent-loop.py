@@ -164,7 +164,7 @@ class Loop:
         done = subprocess.run([sys.executable, str(ROOT / "scripts/cmux-next/live-apply.py"), "--repo", str(self.tree),
                                "--base", self.commit, "--probe", probe, "--probe-seconds", str(probe_seconds)],
                               env=env, capture_output=True, text=True)
-        (self.out / f"live-apply-{word}.log").write_text(done.stderr)
+        (self.out / f"live-apply-{word}.log").write_text(done.stderr)  # agent-loop.sh clears live-apply-*.log
         try:
             return json.loads(done.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):

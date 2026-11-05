@@ -25,7 +25,8 @@ pass. The last line on stdout is the verdict, everything else goes to stderr:
 
 Exit 0: applied and the probe passed (or nothing in the app changed, or no --probe). 1: the probe
 did not pass. 3: no rung here takes the change. 4: the bundles did not build (nothing changed in the
-app). 2: usage.
+app, or it was put back: `rolled_back`). Runs on one overlay take turns (a lock in the overlay
+folder). 2: usage.
 
 --repo names the checkout to apply (default: this one); its own web-overlay.sh builds and installs
 its bundles. BASE is the commit the running app was built from (its CMUXCommit), by default the merge base of
@@ -45,6 +46,7 @@ L3); until then a swift-live verdict reports `needs` with no apply. The ladder i
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import shutil
@@ -113,6 +115,14 @@ def overlay_state() -> dict:
     manifest = overlay / "manifest.json"
     return {"links": links, "kept": kept, "manifest": manifest.read_text() if manifest.is_file() else None,
             "web_dev": web_dev.read_bytes() if web_dev.is_file() else None}
+
+
+def overlay_state_changed(before: dict) -> bool:
+    overlay, web_dev = overlay_paths()
+    links = {name: os.readlink(overlay / name) if (overlay / name).is_symlink() else None for name in SURFACES}
+    manifest = overlay / "manifest.json"
+    return (links != before["links"] or (manifest.read_text() if manifest.is_file() else None) != before["manifest"]
+            or (web_dev.read_bytes() if web_dev.is_file() else None) != before["web_dev"])
 
 
 def drop_kept(state: dict) -> None:
@@ -231,11 +241,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         return done(0)
 
-    before = overlay_state()
-    try:
-        return apply_and_probe(args, result, phases, before, done)
-    finally:
-        drop_kept(before)  # every way out, an interrupted build or probe included
+    overlay, _ = overlay_paths()
+    overlay.mkdir(parents=True, exist_ok=True)
+    # One apply at a time per overlay: a failed run must never restore its snapshot over a newer
+    # run's change. The lock goes with the process, however it ends.
+    with open(overlay / ".live-apply.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        before = {"kept": {}}
+        try:
+            before = overlay_state()
+            return apply_and_probe(args, result, phases, before, done)
+        finally:
+            drop_kept(before)  # every way out, an interrupted snapshot, build or probe included
 
 
 def apply_and_probe(args, result: dict, phases: dict, before: dict, done) -> int:
@@ -244,6 +261,14 @@ def apply_and_probe(args, result: dict, phases: dict, before: dict, done) -> int
     phases["build_swap"] = round(time.monotonic() - t, 2)
     if built.returncode != 0:
         result["needs"] = f"web-overlay.sh build exited {built.returncode}"
+        if overlay_state_changed(before):
+            # It failed after it swapped something in: put the previous generation back.
+            try:
+                restore(before)
+                result["rolled_back"] = True
+            except (OSError, RuntimeError, ValueError) as error:
+                result["applied"] = None  # unknown: part of the change may be live
+                result["needs"] += f"; rollback incomplete: {error}"
         return done(4)
     result["applied"], result["generation"] = True, generation()
     if not args.probe:
