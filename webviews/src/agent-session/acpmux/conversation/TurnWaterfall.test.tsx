@@ -162,7 +162,8 @@ test("a background shell that ends after the summary changes the footer's end ke
     ).find((row) => row.kind === "turnSummary")!;
   expect(workEnds(footer(5_000).turnWork)).not.toBe(workEnds(footer().turnWork));
   // The row's memo compares that key beside the version (rows/SummaryRow.tsx).
-  const memo = (SummaryRow as unknown as { compare: (a: { row: AcpmuxRow }, b: { row: AcpmuxRow }) => boolean }).compare;
+  const memo = (SummaryRow as unknown as { compare: (a: { row: AcpmuxRow }, b: { row: AcpmuxRow }) => boolean })
+    .compare;
   expect(memo({ row: footer() }, { row: footer(5_000) })).toBe(false);
   expect(memo({ row: footer(5_000) }, { row: footer(5_000) })).toBe(true);
 });
