@@ -164,7 +164,7 @@ def main() -> int:
         with open(log_path, "wb") as log:
             proc = subprocess.Popen(
                 [str(dx), "serve", "--hot-patch", "--interactive", "false", "--platform", "linux",
-                 "-p", "cmux-tui", "--bin", "cmux-tui", "--features", "hotpatch", "--args", daemon_args],
+                 "-p", "cmux-tui", "--bin", "cmux-tui", "--features", "hotpatch", f"--args={daemon_args}"],
                 cwd=repo / "cmux-tui", env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
             )
         start = now()
