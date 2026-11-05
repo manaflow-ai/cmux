@@ -55,7 +55,10 @@ pub(super) async fn handle(
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("id is required"))?
         .to_owned();
-    let (dir, _) = routes::places(&*hub.config.read().await);
+    let (dir, configured) = {
+        let config = hub.config.read().await;
+        (routes::places(&config).0, codex_path(&config.harnesses))
+    };
     let lookup = id.clone();
     let target = tokio::task::spawn_blocking(move || target(dir.as_deref(), &lookup))
         .await
@@ -70,7 +73,7 @@ pub(super) async fn handle(
     let limits = match fresh {
         Some(limits) => limits,
         None => {
-            let limits = read(&home).await?;
+            let limits = read(configured, &home).await?;
             if let Ok(mut last) = LAST.lock() {
                 last.insert(home, (Instant::now(), limits.clone()));
             }
@@ -120,10 +123,26 @@ fn readable(home: &Path) -> Target {
     }
 }
 
-/// One `account/rateLimits/read` in `home`: its `usageLimits`, null when Codex reports no plan
-/// limit. A Codex that cannot be found, does not start or does not answer is an error.
-async fn read(home: &Path) -> Result<Value, RpcError> {
-    let codex = crate::managed_codex::codex_binary()
+/// The Codex a Codex harness profile runs (`CODEX_PATH`, as its launch and its model list pick
+/// it; the `codex` profile first), or None for the one on PATH.
+fn codex_path(harnesses: &BTreeMap<String, crate::config::HarnessProfile>) -> Option<String> {
+    let own = |profile: &crate::config::HarnessProfile| {
+        let path = profile.env.get("CODEX_PATH")?;
+        (!path.is_empty() && !path.contains("${")).then(|| path.clone())
+    };
+    let codex = harnesses.iter().filter(|(name, profile)| {
+        profile.kind == crate::config::HarnessKind::Acp
+            && crate::config::derive_family(name, profile) == "codex"
+    });
+    harnesses.get("codex").and_then(own).or_else(|| codex.filter_map(|(_, p)| own(p)).next())
+}
+
+/// One `account/rateLimits/read` in `home` with `configured` Codex (else the one on PATH): its
+/// `usageLimits`, null when Codex reports no plan limit. A Codex that cannot be found, does not
+/// start or does not answer is an error.
+async fn read(configured: Option<String>, home: &Path) -> Result<Value, RpcError> {
+    let codex = configured
+        .or_else(crate::managed_codex::codex_binary)
         .ok_or_else(|| RpcError::invalid_params("Codex is not installed"))?;
     read_with(vec![codex], home, BTreeMap::new()).await
 }
@@ -178,6 +197,38 @@ mod tests {
         std::fs::write(dir.join("config.toml"), sr).unwrap();
         assert_eq!(readable(&dir), Target::Skip("provider"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_codex_a_codex_profile_names_is_the_one_that_reads() {
+        let acp = |argv: &[&str], env: &[(&str, &str)]| crate::config::HarnessProfile {
+            kind: crate::config::HarnessKind::Acp,
+            argv: argv.iter().map(|s| s.to_string()).collect(),
+            env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        let mut harnesses = BTreeMap::new();
+        assert_eq!(codex_path(&harnesses), None, "no profile: the one on PATH");
+        harnesses.insert(
+            "codex-work".into(),
+            acp(&["codex", "app-server"], &[("CODEX_PATH", "/opt/b")]),
+        );
+        assert_eq!(codex_path(&harnesses).as_deref(), Some("/opt/b"));
+        harnesses
+            .insert("codex".into(), acp(&["codex", "app-server"], &[("CODEX_PATH", "/opt/a")]));
+        assert_eq!(codex_path(&harnesses).as_deref(), Some("/opt/a"), "the codex profile first");
+        harnesses.insert("codex".into(), acp(&["codex", "app-server"], &[("CODEX_PATH", "${X}")]));
+        assert_eq!(
+            codex_path(&harnesses).as_deref(),
+            Some("/opt/b"),
+            "an unresolved one is not a path"
+        );
     }
 
     #[cfg(unix)]
