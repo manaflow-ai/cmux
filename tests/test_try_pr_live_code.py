@@ -48,7 +48,8 @@ import plistlib, sys
 key = sys.argv[2].split(":", 1)[1]
 data = plistlib.load(open(sys.argv[3], "rb"))
 if key not in data: sys.exit(1)
-print(data[key])
+value = data[key]
+print(str(value).lower() if isinstance(value, bool) else value)
 '''
 
 
@@ -204,37 +205,34 @@ class TryPrLiveCodeTests(unittest.TestCase):
         self.assertFalse(self.record.exists(), "nothing was compiled")
         self.assertEqual(len(self.worktrees()), 1)
 
-    def unrecorded(self):
-        """The app as a reload or DEV build: no CMUXCommit."""
+    def stamp(self, **keys):
+        """The app's Info.plist as reload.sh stamps it (CMUXCommit, CMUXCommitDirty), or without them."""
         with open(self.app / "Contents/Info.plist", "wb") as f:
-            plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.debug.live", "CFBundleVersion": "1"}, f)
+            plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.debug.live", "CFBundleVersion": "1", **keys}, f)
 
-    def test_a_build_with_no_recorded_commit_uses_its_checkouts_head(self):
-        self.unrecorded()
+    def test_a_clean_stamped_build_applies(self):
+        self.stamp(CMUXCommit=self.base, CMUXCommitDirty=False)
         self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hello from the PR"')))
         self.answer_patches()
         out = self.try_pr()
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         self.assertRegex(out.stdout, r"live code: applied patch-")
-        self.assertIn("hello from the PR", self.record.read_text())
 
-    def test_an_edited_build_checkout_takes_the_dev_build(self):
-        self.unrecorded()
-        (self.build / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"local edit"'))
+    def test_a_build_with_local_edits_takes_the_dev_build(self):
+        self.stamp(CMUXCommit=self.base, CMUXCommitDirty=True)
         self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
         out = self.try_pr("--no-build")
-        self.assertIn("uncommitted CmuxNextApp changes", out.stdout)
+        self.assertIn("had local changes when it was built", out.stdout)
+        self.assertIn("so a dev build", out.stdout)
+        self.assertFalse(self.record.exists(), "nothing was compiled")
+
+    def test_a_build_that_records_no_commit_takes_the_dev_build(self):
+        self.stamp()
+        self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
+        out = self.try_pr("--no-build")
+        self.assertIn("records no commit (CMUXCommit)", out.stdout)
         self.assertIn("so a dev build", out.stdout)
         self.assertFalse(self.record.exists())
-
-    def test_a_build_checkout_that_moved_since_the_build_takes_the_dev_build(self):
-        self.unrecorded()
-        then = time.time() - 3600
-        os.utime(self.log, (then, then))  # the build is older than the checkout's last HEAD move
-        self.push_pr(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hi"')))
-        out = self.try_pr("--no-build")
-        self.assertIn("moved to another commit after the build", out.stdout)
-        self.assertIn("so a dev build", out.stdout)
 
     def test_a_build_of_a_commit_this_checkout_lacks_takes_the_dev_build(self):
         with open(self.app / "Contents/Info.plist", "wb") as f:
@@ -244,6 +242,107 @@ class TryPrLiveCodeTests(unittest.TestCase):
         out = self.try_pr("--no-build")
         self.assertIn("is not in this checkout", out.stdout)
         self.assertIn("so a dev build", out.stdout)
+
+
+class TryPrWebAgainstTheAppTests(TryPrLiveCodeTests):
+    """A web-only PR is sorted again from the app's own commit (CMUXCommit) when the app is older
+    than the PR's base: the PR's web UI must not load into an app that lacks its Swift side."""
+
+    WEB_FILE = "webviews/src/greeting.ts"
+
+    # The base's tests run once, in TryPrLiveCodeTests.
+    test_a_body_change_loads_with_no_build = None
+    test_a_refused_patch_falls_back_to_the_dev_build = None
+    test_no_answer_removes_the_patch_and_takes_the_dev_build = None
+    test_a_new_file_takes_the_dev_build = None
+    test_a_build_of_a_commit_this_checkout_lacks_takes_the_dev_build = None
+
+    def advance_base(self, edit):
+        """A commit on the base after the app was built; returns it."""
+        git(self.work, "checkout", "-q", "feat-cmux-next")
+        edit(self.work)
+        git(self.work, "add", "-A")
+        git(self.work, *self.ident, "commit", "-q", "-m", "base moves on")
+        subprocess.run(["git", "-C", str(self.work), "push", "-q", str(self.origin), "HEAD:feat-cmux-next"],
+                       check=True, capture_output=True)
+        return git(self.work, "rev-parse", "HEAD")
+
+    def push_web_pr(self, start):
+        git(self.work, "checkout", "-q", "-b", "pr", start)
+        (self.work / self.WEB_FILE).parent.mkdir(parents=True, exist_ok=True)
+        (self.work / self.WEB_FILE).write_text("export const greeting = 'hi'\n")
+        git(self.work, "add", "-A")
+        git(self.work, *self.ident, "commit", "-q", "-m", "pr")
+        subprocess.run(["git", "-C", str(self.work), "push", "-q", str(self.origin), "HEAD:refs/pull/1/head"],
+                       check=True, capture_output=True)
+
+    def set_app_commit(self, commit, **more):
+        with open(self.app / "Contents/Info.plist", "wb") as f:
+            plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.nightly", "CFBundleVersion": "1",
+                           "CMUXCommit": commit[:7], **more}, f)
+
+    def test_a_web_pr_on_the_apps_own_commit_stays_live(self):
+        self.push_web_pr(self.base)
+        out = self.try_pr("--dry-run")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("web only: no build", out.stdout)
+        self.assertNotIn("Swift side", out.stdout)
+
+    def test_swift_the_base_gained_after_the_build_refuses_the_live_apply(self):
+        moved = self.advance_base(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hey"')))
+        self.push_web_pr(moved)
+        out = self.try_pr("--dry-run")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("#1 at", out.stdout)
+        self.assertIn("web-live", out.stdout.splitlines()[0])
+        self.assertIn(f"built at {self.base[:12]}, before it: from there the change is swift-live", out.stdout)
+        self.assertIn("the PR's Swift side is not in that build", out.stdout)
+        self.assertIn(APP_FILE, out.stdout)
+        self.assertNotIn("web only: no build", out.stdout)
+
+    def test_an_app_newer_than_the_prs_base_stays_live(self):
+        self.push_web_pr(self.base)
+        newer = self.advance_base(lambda w: (w / APP_FILE).write_text(BASE_SWIFT.replace('"hello"', '"hey"')))
+        self.checkout_fetch()
+        self.set_app_commit(newer)
+        out = self.try_pr("--dry-run")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("web only: no build", out.stdout)
+
+    def test_an_app_commit_this_checkout_lacks_refuses_the_live_apply(self):
+        self.push_web_pr(self.base)
+        self.set_app_commit("0123456789abcdef0123456789abcdef01234567")
+        out = self.try_pr("--dry-run")
+        self.assertIn("is not in this checkout, so whether it has the PR's Swift side is unknown", out.stdout)
+        self.assertNotIn("web only: no build", out.stdout)
+
+    def test_a_build_with_local_edits_refuses_the_live_apply(self):
+        # reload.sh stamps the full commit and CMUXCommitDirty; the edits may have removed Swift the
+        # PR leans on, even with the app at the PR's base.
+        self.push_web_pr(self.base)
+        self.set_app_commit(self.base, CMUXCommit=self.base, CMUXCommitDirty=True)
+        out = self.try_pr("--dry-run")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn(f"built at {self.base[:12]} with local edits, so whether it has the PR's Swift side is unknown", out.stdout)
+        self.assertNotIn("web only: no build", out.stdout)
+
+    def test_a_clean_reload_build_at_the_base_stays_live(self):
+        self.push_web_pr(self.base)
+        self.set_app_commit(self.base, CMUXCommit=self.base, CMUXCommitDirty=False)
+        out = self.try_pr("--dry-run")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn("web only: no build", out.stdout)
+
+    def test_an_app_commit_that_is_a_ref_name_is_not_looked_up(self):
+        self.push_web_pr(self.base)
+        git(self.checkout, "branch", "none", self.base)
+        self.set_app_commit("none")
+        out = self.try_pr("--dry-run")
+        self.assertIn("is not in this checkout", out.stdout)
+        self.assertNotIn("web only: no build", out.stdout)
+
+    def checkout_fetch(self):
+        git(self.checkout, "fetch", "-q", "origin", "feat-cmux-next:refs/remotes/origin/feat-cmux-next")
 
 
 if __name__ == "__main__":

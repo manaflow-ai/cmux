@@ -290,3 +290,22 @@ fn state_and_pending_round_trip() {
     clear_pending(&paths);
     assert_eq!(load_pending(&paths), None);
 }
+
+#[test]
+fn a_log_line_shortens_a_hash_without_slicing_past_its_end() {
+    assert_eq!(role::short_hex(OLD_TUI), "111111111111");
+    assert_eq!(role::short_hex(COMMIT), "0123456789ab");
+    assert_eq!(role::short_hex("abc"), "abc");
+    assert_eq!(role::short_hex(""), "");
+    // 11 ASCII bytes then a 2-byte character: byte 12 is inside it, so the whole text is logged.
+    assert_eq!(role::short_hex("0123456789aé"), "0123456789aé");
+}
+
+#[test]
+fn a_file_hash_covers_every_byte_past_one_read_buffer() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("big");
+    let bytes: Vec<u8> = (0..(1usize << 16) * 3 + 17).map(|i| (i % 251) as u8).collect();
+    fs::write(&path, &bytes).unwrap();
+    assert_eq!(store::sha256_file(&path).unwrap(), sha(&bytes));
+}

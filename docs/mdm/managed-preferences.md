@@ -280,6 +280,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.trayTucked` | boolean | `false` |  | Tuck Away Running Tray. Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back. |
 | `agentPane.display.trayHandle` | string | `"middle"` | `left`, `middle`, `right` | Running Tray Handle. Where the handle that tucks the running tray away and brings it back sits along the top of the composer. |
 | `agentPane.display.font.preset` | string | `"markdown"` | `markdown`, `system`, `serif`, `mono` | Chat Font |
+| `agentPane.display.font.ui` | string | `"inter-tuned"` | `inter-tuned`, `inter`, `verdana`, `roboto`, `plex`, `source-sans`, `geist`, `system-ui`, `system-ui-tight` | Chat Interface Font. The font of the whole chat: replies, the composer, cards and menus. |
 | `agentPane.display.font.size` | real | `14` | 10 to 28 | Chat Font Size |
 | `agentPane.display.font.lineHeight` | real | `1.625` | 1.2 to 2.4 | Chat Line Height |
 | `agentPane.display.code.family` | string |  |  | Chat Code Font. The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font. |
