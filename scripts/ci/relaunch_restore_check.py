@@ -222,6 +222,13 @@ def seed(inst: Instance, fake_agent: str, work: str) -> dict:
     if not wait(lambda: chat_tab(inst.topology(), made["chat"]), 15, 0.25):
         raise RuntimeError(f"no tab is bound to chat {made['chat']} 15 s after it was made: {json.dumps(chat_tabs(inst.topology()))[:600]}; "
                            f"chat new answered {json.dumps(chat)[:600]}")
+    # The front window shows l5-a, as a person leaves the workspace they worked in. Left alone it shows the fresh
+    # home's first-run Home, whose pane has no selected tab; that relaunch never settles its launch (no pane
+    # content), so the control socket opens only at its 4 s backstop (nightly 4191131679101: 5.3-5.6 s).
+    made["front_workspace"] = a.get("workspace_id")
+    focused = inst.cmux("workspace", a["workspace_id"], "focus")
+    if isinstance(focused, dict) and focused.get("error"):
+        raise RuntimeError(f"focusing l5-a failed: {focused['error']}")
     with open(inst.record, "w") as handle:
         json.dump(made, handle)
     return made
