@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 570,
+  "count": 572,
   "sections": [
     {
       "id": "general",
@@ -1492,6 +1492,14 @@
             "badge",
             "silent"
           ]
+        },
+        {
+          "key": "updates.oneClickInstall",
+          "title": "Update in One Click",
+          "help": "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
         },
         {
           "key": "updates.showFeatureTips",
@@ -3085,6 +3093,19 @@
           }
         },
         {
+          "key": "layout.cornerPadding",
+          "title": "Corner Padding",
+          "help": "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this.",
+          "kind": "number",
+          "default": null,
+          "group": "Panes",
+          "range": {
+            "min": 0,
+            "max": 12,
+            "unit": "points"
+          }
+        },
+        {
           "key": "layout.paneBorder",
           "title": "Border",
           "help": "",
@@ -3120,7 +3141,7 @@
         {
           "key": "layout.paneCornerRadius",
           "title": "Corner Radius",
-          "help": "",
+          "help": "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
           "kind": "number",
           "default": null,
           "group": "Panes",

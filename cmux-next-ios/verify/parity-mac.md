@@ -56,6 +56,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Move Tab to New Dock Column (`tab.moveToNewDockColumn`) | `move-tab-to-column {surface, pane, width, dock: {edge, mode}}` | Panes page > a tab's menu > **Move Tab to New Dock Column** > Left / Right / Top / Bottom | works (live: `panes` pass) | Docked mode, a left dock half the window, the others 30%, as `TabMoves.toNewDockColumn`. A daemon without `dock-columns-v1` (or `edge-docks-v1` for top/bottom) refuses, and the toast says why. |
 | Move Pane to New Workspace (`pane.moveToNewWorkspace`) | `move-tab-to-new-workspace` for its first tab, `move-tab-to-workspace` for the rest | Panes page > a pane's ⋯ > **Move Pane to New Workspace** | works (live: `panes` pass) | Placed right below its workspace (`set-personal-workspace {index}`). The only pane is not offered (the Mac refuses it: "the pane is the only pane of its workspace"). |
 | New Row (`newRow`) | `new-row {pane, height}` (rows-v1) | — | not from a phone (yet) | `new-row` is not on the phone's daemon lane (DaemonLanePolicy, policy.rs); it starts a terminal, so adding it is a lane change for #13742. |
+| One concentric corner radius for panes and tabs: `layout.paneCornerRadius` (pane cards, the curved main pane, tab pills less the padding) and `layout.cornerPadding` (2026-11-04) | none: cmux-next.json keys the Mac's pane chrome reads | — | not from a phone | Mac-only chrome: they shape the Mac's pane cards and tab strips. The phone draws no pane cards or tab strips; the keys stay settable over `cmux settings` like any setting. |
 
 ## Screens
 
@@ -721,6 +722,7 @@ or the relay. States here are from the live run in this batch's proof report. Ri
 | Customize Right-Click Menus… | the Mac's menu editor | Settings → **Long-Press Menus**: each item of the workspace row and Home row menus on or off | partial | Hiding only; the Mac also reorders. Close Workspace always stays. |
 | DEV build signs in as the NIGHTLY account (`CMUX_NEXT_DEV_ACCOUNT=nightly`) | control socket `auth.session.handoff` from a signed DEV build to the running cmux NIGHTLY, same user and cmux team signature both ways | — | not from a phone | Mac-only: two apps on one Mac hand a session over their local socket, checked by uid and code signature. A paired phone signs in on its own and may not read the Mac's session (SECURITY.md). |
 | Gallery Stage (`gallery.openStage`, NIGHTLY and DEV) | none: a gallery stage from the Mac's loopback gallery dev server in a tab of the Mac's window | — | not from a phone | Mac-only chrome and a developer tool: the stage comes from a dev server on the Mac's loopback and shows in the Mac's own window backdrop, which a phone cannot reach or draw. |
+| Update in One Click (`updates.oneClickInstall`, off by default) | none: the Mac's own updater; Update on a found update downloads, installs and relaunches the Mac app | — | not from a phone | Mac-only chrome: it changes how the Mac app installs its own update (Sparkle) and relaunches. The phone updates through the App Store; the key stays settable over `cmux settings` on the Mac. |
 
 ## Terminal tools batch (`feat-cmux-next-ios-terminal-tools-parity`)
 

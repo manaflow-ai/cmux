@@ -120,6 +120,10 @@ def main() -> int:
         # app must not inherit it and keep later reloads locked indefinitely.
         environment = os.environ.copy()
         environment["CMUX_RELOAD_TAG_LOCK_OWNER"] = str(os.getpid())
+        # Test-only: record the reload's pid here, then SIGKILL this supervisor
+        # right after Popen returns, the window before #35952's fix handed the
+        # pid to the watcher.
+        kill_after_popen = environment.pop("CMUX_RELOAD_TAG_LOCK_TEST_KILL_AFTER_POPEN", "")
         child = None
         pending_signals = []
         forwarded = []
@@ -141,13 +145,27 @@ def main() -> int:
         # the reload and its build running. The watcher ends that session then.
         watcher, watch_fd = start_watcher()
         environment["CMUX_RELOAD_TAG_LOCK_WATCHER"] = str(watcher.pid)
+
+        def report_pid_to_watcher():
+            # Runs in the child after setsid, before exec. The child hands the
+            # watcher its own pid, so the watcher knows the session however
+            # early the supervisor dies, then drops its copy of the write end so
+            # the supervisor stays its only holder. preexec_fn is unsafe only
+            # with threads; this supervisor is single-threaded.
+            os.write(watch_fd, f"{os.getpid()}\n".encode())
+            os.close(watch_fd)
+
         child = subprocess.Popen(
             ["bash", script, *arguments],
             env=environment,
             start_new_session=True,
             close_fds=True,
+            pass_fds=(watch_fd,),
+            preexec_fn=report_pid_to_watcher,
         )
-        os.write(watch_fd, f"{child.pid}\n".encode())
+        if kill_after_popen:
+            Path(kill_after_popen).write_text(f"{child.pid}\n")
+            os.kill(os.getpid(), signal.SIGKILL)
         for number in pending_signals:
             forward_signal(number, None)
         result = child.wait()

@@ -568,7 +568,7 @@ private struct DeveloperSection: View {
     let store: AppStore
     @AppStorage(DeveloperOptions.mockDataKey) private var mockData = false
     @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
-    @AppStorage(DeveloperOptions.slowFaceIDKey) private var slowFaceID = false
+    @AppStorage(DeveloperOptions.slowApprovalKey) private var slowApproval = false
     @State private var launchedWithMock = DeveloperOptions.mockData
 
     var body: some View {
@@ -580,9 +580,9 @@ private struct DeveloperSection: View {
             }
             .disabled(mock.forced)
             .accessibilityIdentifier("settings.developer.mock")
-            // Mock approvals wait 2 s, so "Waiting for Face ID…" can be seen.
-            Toggle(isOn: $slowFaceID) {
-                SettingsLabel("Slow mock Face ID", symbol: "faceid")
+            // Mock approvals wait 2 s, so "Sending…" can be seen.
+            Toggle(isOn: $slowApproval) {
+                SettingsLabel("Slow mock approval", symbol: "hourglass")
             }
             .disabled(!mock.on)
             Picker(selection: $launchDemo) {

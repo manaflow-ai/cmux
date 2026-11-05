@@ -394,8 +394,18 @@ nonisolated enum AppearanceSettingsSchema {
             SettingDescriptor(
                 ["layout", "paneCornerRadius"], section: .appearance, group: panes,
                 title: SettingsText.keyed("settings.layout.paneCornerRadius", "Corner Radius"),
-                kind: .number(appearancePoints(PaneChromeOverrides.cornerRadiusRange, step: 1, placeholder: 6)),
-                default: nil, defaultLabel: densityDefault, keywords: ["rounded"]
+                help: SettingsText.keyed("settings.layout.paneCornerRadius.help",
+                                         "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding."),
+                kind: .number(appearancePoints(PaneChromeOverrides.cornerRadiusRange, step: 1, placeholder: 10)),
+                default: nil, defaultLabel: densityDefault, keywords: ["rounded", "radius", "tabs", "concentric", "corners"]
+            ),
+            SettingDescriptor(
+                ["layout", "cornerPadding"], section: .appearance, group: panes,
+                title: SettingsText.keyed("settings.layout.cornerPadding", "Corner Padding"),
+                help: SettingsText.keyed("settings.layout.cornerPadding.help",
+                                         "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."),
+                kind: .number(appearancePoints(PaneChromeOverrides.cornerPaddingRange, step: 1, placeholder: 2)),
+                default: nil, defaultLabel: densityDefault, keywords: ["inset", "gap", "tabs", "concentric", "corners", "radius"]
             ),
             SettingDescriptor(
                 ["layout", "paneBorder"], section: .appearance, group: panes,
