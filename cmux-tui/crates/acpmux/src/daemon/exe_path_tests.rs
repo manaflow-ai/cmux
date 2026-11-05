@@ -257,3 +257,31 @@ fn nightly_and_a_folder_only_named_like_a_dev_app_are_not_dev_apps() {
         }
     }
 }
+
+#[test]
+fn nightly_takes_its_home_back_from_a_dev_build_and_nothing_else_is_taken() {
+    let reclaims = |holder: &str, own: &str, home: &str| {
+        reclaims_home(
+            Path::new(holder),
+            Path::new(own),
+            Path::new(home),
+            Path::new("/Users/cmux/.acpmux"),
+            Path::new(TMP),
+        )
+    };
+    let dev = "/private/tmp/31514/app/cmux DEV 31514-closed.app/Contents/Resources/bin/acpmux";
+    let other_dev = "/Users/cmux/Applications/cmux DEV 28734.app/Contents/Resources/bin/acpmux";
+    let nightly = "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+    let chief = "/Users/cmux/.cmux/chief/default/acpmux";
+    assert!(reclaims(dev, nightly, "/Users/cmux/.acpmux"));
+    assert!(reclaims(dev, nightly, chief));
+    // NIGHTLY's own daemon, an update's older one: an ordinary restart, not a reclaim.
+    assert!(!reclaims(nightly, nightly, "/Users/cmux/.acpmux"));
+    // A DEV build never takes the home, whoever holds it.
+    assert!(!reclaims(nightly, dev, "/Users/cmux/.acpmux"));
+    assert!(!reclaims(other_dev, dev, "/Users/cmux/.acpmux"));
+    // A DEV build's own home stays its own.
+    assert!(!reclaims(dev, nightly, "/Users/cmux/.acpmux/builds/com.cmuxterm.app.debug.31514"));
+    // A test's home in a temporary folder is nobody's.
+    assert!(!reclaims(dev, nightly, "/var/folders/xc/abc/T/a/.acpmux"));
+}

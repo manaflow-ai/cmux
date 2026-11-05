@@ -417,15 +417,17 @@
 }
 /* The panel's sections in the person's one order (SessionInfoGroup.tsx SessionInfoSectionList): each slot keeps
    its block (data-group), and a hairline sits wherever two adjacent slots come from different blocks
-   (data-run-start). The list owns the spacing (design/grid.md section 3): the inner gap between a
-   block's sections, the block gap between blocks, with the hairline centred in it. */
+   (data-run-start). The list owns the spacing (design/grid.md section 3), tighter than the transcript's
+   so the sections read as one list of rows (Leo, 2026-11-04: "there's a bit too big of a gap between
+   sections"): one base step between a block's sections, one inner gap between blocks, with the hairline
+   centred in it. Row height and each section's own spacing stay as they are. */
 .acpmux-session-info-sections {
   position: relative;
   flex: none;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--grid-gap-inner);
+  gap: var(--grid-base);
 }
 .acpmux-session-info-slot {
   position: relative;
@@ -433,12 +435,12 @@
   min-width: 0;
 }
 .acpmux-session-info__body[data-layout="glance"] .acpmux-session-info-slot[data-run-start] {
-  margin-top: calc(var(--grid-gap-block) - var(--grid-gap-inner));
+  margin-top: calc(var(--grid-gap-inner) - var(--grid-base));
 }
 .acpmux-session-info__body[data-layout="glance"] .acpmux-session-info-slot[data-run-start]::before {
   content: "";
   position: absolute;
-  top: calc(-1 * var(--grid-gap-block) / 2);
+  top: calc(-1 * var(--grid-gap-inner) / 2);
   right: 0;
   left: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);
