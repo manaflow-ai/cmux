@@ -126,6 +126,11 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     override public func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         becomeFirstResponder()
+        // The Mac streams at up to this rate (120 on a ProMotion iPhone or iPad
+        // when the Mac's display does 120 too); unreported, it stays at 60.
+        if let fps = view.window?.windowScene?.screen.maximumFramesPerSecond, fps > 0 {
+            session.displayMaximumFrameRate = fps
+        }
     }
 
     override public func viewDidLayoutSubviews() {
