@@ -26,8 +26,8 @@ struct NewTabSuccession {
     let page: StripTabID?
     /// The tab the new one goes right after; nil: the first unpinned slot. Re-anchored when it closes first.
     var before: StripTabID?
-    /// The pane's daemon tabs when the open started.
-    let known: Set<String>
+    /// The pane's daemon tabs when the open started, in its order.
+    let known: [String]
     /// The new tab's surface once known.
     var surface: SurfaceID?
     var deadline: ContinuousClock.Instant
@@ -59,7 +59,7 @@ struct NewTabSuccession {
             active[ObjectIdentifier(pane)] = nil
             return nil
         }
-        let succession = NewTabSuccession(page: page, before: anchor.map { StripTabID($0) }, known: Set(pane.tabs.map(\.id)),
+        let succession = NewTabSuccession(page: page, before: anchor.map { StripTabID($0) }, known: pane.tabs.map(\.id),
                                           deadline: ContinuousClock.now.advanced(by: answerLimit), services: services, pane: pane)
         active[ObjectIdentifier(pane)] = succession
         succession.expire(after: answerLimit)
@@ -127,7 +127,7 @@ struct NewTabSuccession {
         }
         if succession.surface != made { succession.found(made) }
         var others = snapshot.items.filter { $0.id != item.id && $0.id != succession.page }
-        if let before = succession.before, !others.contains(where: { $0.id == before }) { succession.before = pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id))) }
+        if let before = succession.before, !others.contains(where: { $0.id == before }) { succession.before = pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id)), opened: succession.known.map { StripTabID($0) }) }
         // `NewTabSlot`'s slot: the page's, else right after the anchor's group (re-anchored above when it closed), never among the pinned tabs.
         var slot = others.prefix { $0.isPinned }.count
         if let before = succession.before, var index = others.firstIndex(where: { $0.id == before }) {
