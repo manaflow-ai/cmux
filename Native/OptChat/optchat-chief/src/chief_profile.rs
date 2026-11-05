@@ -238,6 +238,9 @@ pub struct ChiefTools {
     client: Option<ProfileClient>,
     /// This host's turn key ([`TURN_KEY_ENV`]).
     turn_key: String,
+    /// `chiefs` create_channel: the app's `home.createChannel` (None: this
+    /// host runs outside the app).
+    channels: Option<crate::chief_channel::ChannelMaker>,
 }
 
 #[derive(Clone, Debug)]
@@ -259,6 +262,7 @@ impl ChiefTools {
             }),
             client: None,
             turn_key: new_turn_key(),
+            channels: None,
         }
     }
 
@@ -271,7 +275,33 @@ impl ChiefTools {
             }),
             client: Some(client),
             turn_key: new_turn_key(),
+            channels: None,
         }
+    }
+
+    /// The same tools, making channels with `channels` (`chiefs`
+    /// create_channel).
+    pub fn with_channels(
+        mut self,
+        channels: Option<crate::chief_channel::ChannelMaker>,
+    ) -> ChiefTools {
+        self.channels = channels;
+        self
+    }
+
+    /// A Chief granted `tools` with no record client (the tests' Chief).
+    #[cfg(test)]
+    fn granted(tools: &[&str]) -> ChiefTools {
+        let mut chief = ChiefTools::none();
+        chief.state = std::sync::RwLock::new(Loaded {
+            profile: None,
+            grant: Grant {
+                tools: Some(tools.iter().map(|t| (*t).to_owned()).collect()),
+                harnesses: BTreeSet::new(),
+            },
+            pending: false,
+        });
+        chief
     }
 
     /// Reads the record with `client` (None: the cloud source, no registry).
@@ -324,6 +354,7 @@ impl ChiefTools {
                     }),
                     client: Some(client),
                     turn_key: new_turn_key(),
+                    channels: None,
                 })
             }
             Err(e) => Err(format!("reading this Chief's record: {e}")),
@@ -440,6 +471,15 @@ impl ChiefTools {
     pub fn chiefs_call(&self, args: &Value) -> Result<String, String> {
         if !self.grant().allows("chiefs") {
             return Err(Grant::refusal("chiefs"));
+        }
+        match args.get("action").and_then(Value::as_str).unwrap_or("list") {
+            "create_channel" => {
+                let channels = self.channels.as_ref().ok_or(crate::chief_channel::NO_APP)?;
+                let args = args.as_object().cloned().unwrap_or_default();
+                return channels.create(&args, &self.turn_key);
+            }
+            "list" | "get" | "create" | "update" | "history" | "undo" => {}
+            other => return Err(no_action(other)),
         }
         let client = self
             .client
@@ -738,6 +778,13 @@ prompt when your brain next starts.",
     }
 }
 
+/// The refusal of an action `chiefs` does not have.
+fn no_action(action: &str) -> String {
+    format!(
+        "chiefs: no action {action}; one of list, get, create, update, history, undo, create_channel"
+    )
+}
+
 /// The fields `chiefs` create and update pass to the daemon.
 const MANAGE_FIELDS: [&str; 10] = [
     "display_name",
@@ -921,9 +968,7 @@ system prompt when its brain next starts."
                 };
                 Ok(format!("{}\n{note}", pretty(&record)))
             }
-            other => Err(format!(
-                "chiefs: no action {other}; one of list, get, create, update, history, undo"
-            )),
+            other => Err(no_action(other)),
         }
     }
 }
