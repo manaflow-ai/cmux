@@ -1,4 +1,4 @@
-// A machine joined with a one-line token (Labs `labs.machineJoin`): what its "…" button in the
+// A machine joined through the hub (a pair code or a one-line token): what its "…" button in the
 // right sidebar's Machines section offers. The App binds them (`MachineSectionHostView`), so the
 // button's menu runs them through the registry like every other menu row. Titles live in
 // RemoteActions.xcstrings. The CLI has its own verbs for them (`cmux machine doctor|rotate|revoke`),

@@ -271,7 +271,7 @@ extension JoinedMachineAction {
         (JoinedMachineStrings.revokeTitle(name), JoinedMachineStrings.revokeBody, JoinedMachineStrings.revokeButton)
     }
 
-    /// Why a joined machine's action does nothing: Labs `labs.machineJoin` is off.
+    /// Why a joined machine's action does nothing: its binder's `labsOn` said no (tests; the app's is always on).
     public static var labsOff: String { JoinedMachineStrings.labsOff }
     /// Why Rotate or Revoke waits: another change on the machine is still running.
     public static var busy: String { JoinedMachineStrings.busy }
@@ -314,7 +314,7 @@ nonisolated enum JoinedMachineStrings {
 
     static func more(_ name: String) -> String { String(format: s("machines.joined.more", "More for %@"), name) }
     static var noWorkspace: String { s("machines.joined.noWorkspace", "Reached through the mesh; workspaces need a link") }
-    /// A joined machine's action asked to run after Labs `labs.machineJoin` turned off.
+    /// A joined machine's action asked to run while its binder's `labsOn` says no (tests; never in the app).
     static var labsOff: String { s("machines.joined.labsOff", "Joined machines are off in Labs.") }
     static var busy: String { s("machines.joined.busy", "Wait for the last change on this machine to finish.") }
 

@@ -7,7 +7,9 @@ import CmuxNextServer
 /// machine's last check and the section's layout tunable, opens a workspace on a machine through
 /// `workspace.newOnMachine` and Add Device through `device.add`. It also lists the person's machines
 /// that joined through the hub (`cmux machine list`), read when the section is made and each
-/// time it shows (never on a timer), with Check, Rotate and Revoke.
+/// time it shows, with Check, Rotate and Revoke. While it is on screen the store re-checks the
+/// online rows once their heartbeat would pass the hub's 90 s window (``JoinedMachineStore/startAging(_:visible:)``),
+/// and it stops when the section hides. Signing out empties the rows.
 final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     let section: MachineSectionView
     private let machines: MachineRegistry
@@ -16,6 +18,8 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     private var observation: Task<Void, Never>?
     /// The joined list's read in flight (a newer show replaces it).
     private var joinedRead: Task<Void, Never>?
+    /// Follows sign-in: signing out reads the list, which then has no service and empties.
+    private var authWatch: Task<Void, Never>?
 
     init(services: AppServices) {
         machines = services.machines
@@ -46,6 +50,46 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
                 self?.section.update(rows, style: style, joined: state)
             }
         }
+        // task-owner: follows sign-in for the section's life; deinit cancels it. Its first value is the
+        // state now, which the refresh above already read.
+        let auth = services.cloud.auth
+        authWatch = Task { [weak self] in
+            var last: Bool?
+            for await signedIn in ObservationStream({ auth.isSignedIn }) {
+                defer { last = signedIn }
+                guard let last, last != signedIn else { continue }
+                self?.refresh()
+            }
+        }
+    }
+
+    /// On screen: in a window, not hidden (its own section or the whole panel), and the window not occluded.
+    private var onScreen: Bool {
+        guard let window, !isHiddenOrHasHiddenAncestor else { return false }
+        return window.occlusionState.contains(.visible)
+    }
+
+    private func followVisibility() {
+        if window != nil, !isHiddenOrHasHiddenAncestor {
+            joined.startAging(self) { [weak self] in self?.onScreen ?? false }
+        } else {
+            joined.stopAging(self)
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        followVisibility()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        followVisibility()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        followVisibility()
     }
 
     @available(*, unavailable)
@@ -56,6 +100,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     nonisolated deinit {
         observation?.cancel()
         joinedRead?.cancel()
+        authWatch?.cancel()
     }
 
     func refresh() {

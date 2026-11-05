@@ -27,9 +27,12 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
     public let joinTokenId: String?
     /// Who made the line it joined with.
     public let mintedBy: String?
+    /// ``lastHeartbeat`` read as a time (nil when unreadable): an online row turns offline
+    /// ``onlineWindow`` after it (``aged(now:)``).
+    public let heartbeatAt: Date?
 
     public init(id: String, name: String, state: State, lastHeartbeat: String? = nil, platform: String? = nil, hostname: String? = nil,
-                meshPeerId: String? = nil, joinTokenId: String? = nil, mintedBy: String? = nil) {
+                meshPeerId: String? = nil, joinTokenId: String? = nil, mintedBy: String? = nil, heartbeatAt: Date? = nil) {
         self.id = id
         self.name = name
         self.state = state
@@ -39,6 +42,21 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
         self.meshPeerId = meshPeerId
         self.joinTokenId = joinTokenId
         self.mintedBy = mintedBy
+        self.heartbeatAt = heartbeatAt
+    }
+
+    /// The row at `now`: an online row whose heartbeat is older than ``onlineWindow`` is offline;
+    /// every other row is unchanged (revoked stays revoked, and offline never turns online without a read).
+    public func aged(now: Date) -> JoinedMachine {
+        guard state == .online, let heartbeatAt, now.timeIntervalSince(heartbeatAt) > Self.onlineWindow else { return self }
+        return JoinedMachine(id: id, name: name, state: .offline, lastHeartbeat: lastHeartbeat, platform: platform, hostname: hostname,
+                             meshPeerId: meshPeerId, joinTokenId: joinTokenId, mintedBy: mintedBy, heartbeatAt: heartbeatAt)
+    }
+
+    /// When the first online row of `machines` goes stale (its heartbeat plus ``onlineWindow``); nil
+    /// when no online row has a readable heartbeat (nothing can age).
+    public static func nextExpiry(_ machines: [JoinedMachine]) -> Date? {
+        machines.compactMap { $0.state == .online ? $0.heartbeatAt?.addingTimeInterval(onlineWindow) : nil }.min()
     }
 
     /// How fresh a heartbeat must be for the machine to show online: the hub's address-book row TTL
@@ -79,11 +97,11 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
         let text = { (key: String) -> String? in (row[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
         guard let id = text("id") ?? text("machineId") else { return nil }
         let revoked = row["revoked"] as? Bool == true
-        let state = Self.state(revoked: revoked, heartbeat: Self.heartbeat(row["lastHeartbeat"]),
-                               listed: text("state").flatMap(State.init(rawValue:)), now: now)
+        let heartbeat = Self.heartbeat(row["lastHeartbeat"])
+        let state = Self.state(revoked: revoked, heartbeat: heartbeat, listed: text("state").flatMap(State.init(rawValue:)), now: now)
         let shownHeartbeat = text("lastHeartbeat") ?? (row["lastHeartbeat"] as? NSNumber).map { "\($0)" }
         self.init(id: id, name: text("name") ?? text("label") ?? text("hostname") ?? id, state: state, lastHeartbeat: shownHeartbeat,
                   platform: text("platform"), hostname: text("hostname"), meshPeerId: text("meshPeerId"),
-                  joinTokenId: text("joinTokenId"), mintedBy: text("mintedBy"))
+                  joinTokenId: text("joinTokenId"), mintedBy: text("mintedBy"), heartbeatAt: heartbeat)
     }
 }

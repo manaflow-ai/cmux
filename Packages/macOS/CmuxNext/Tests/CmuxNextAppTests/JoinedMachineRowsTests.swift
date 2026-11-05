@@ -42,15 +42,77 @@ import CmuxNextTestSupport
         }
     }
 
-    @Test func theStoreListsNothingWhileTheLabsSwitchIsOff() async {
+    @Test func theStoreListsNothingWhileItHasNoService() async {
         let fake = Fake()
         let store = fake.store()
         await store.refresh()
         #expect(store.machines.map(\.id) == ["m_1"])
         fake.on = false
         await store.refresh()
-        #expect(store.machines.isEmpty, "turning the switch off empties the section's joined rows")
+        #expect(store.machines.isEmpty, "signing out (no service) empties the section's joined rows")
         #expect(fake.lists == 1)
+    }
+
+    /// An online row turns offline once its heartbeat passes the 90 s window, offline and revoked rows
+    /// stay as they are, and the next deadline is the first online row's expiry.
+    @Test func anOnlineRowAgesOfflinePastTheHeartbeatWindow() {
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        let fresh = JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: t0)
+        let older = JoinedMachine(id: "m_2", name: "b", state: .online, heartbeatAt: t0.addingTimeInterval(-30))
+        let off = JoinedMachine(id: "m_3", name: "c", state: .offline, heartbeatAt: t0)
+        #expect(fresh.aged(now: t0.addingTimeInterval(90)).state == .online)
+        #expect(fresh.aged(now: t0.addingTimeInterval(91)).state == .offline)
+        #expect(off.aged(now: t0.addingTimeInterval(1)).state == .offline, "aging never brings a row online")
+        #expect(JoinedMachine(id: "m_4", name: "d", state: .online).aged(now: .distantFuture).state == .online,
+                "no readable heartbeat: the CLI's word stands")
+        #expect(JoinedMachine.nextExpiry([fresh, older, off]) == t0.addingTimeInterval(60))
+        #expect(JoinedMachine.nextExpiry([off]) == nil)
+    }
+
+    /// The re-check deadline runs only while a section shows the rows: it starts with a visible
+    /// section, stops when the last one hides, and a fire that finds none on screen reads nothing.
+    @Test func theRecheckRunsOnlyWhileASectionIsVisible() async {
+        let now = Date()
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: now.addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        #expect(!store.isAging, "no section shows the rows: no deadline")
+        let section = NSObject()
+        var visible = true
+        store.startAging(section) { visible }
+        #expect(store.isAging)
+        store.stopAging(section)
+        #expect(!store.isAging, "the last section hid: the deadline stops")
+        store.startAging(section) { visible }
+        visible = false
+        let reads = fake.lists
+        await store.ageFired()
+        #expect(fake.lists == reads, "a fire with no section on screen reads nothing")
+        #expect(!store.isAging)
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .offline, heartbeatAt: now.addingTimeInterval(-10))]
+        await store.refresh()
+        visible = true
+        store.startAging(section) { visible }
+        #expect(!store.isAging, "no online row: nothing can age, no deadline")
+        store.stopAging(section)
+    }
+
+    /// While visible, a fire reads the list once; a row the read did not renew ages offline.
+    @Test func aFireReadsOnceAndAgesWhatTheReadDidNotRenew() async {
+        let past = Date().addingTimeInterval(-200)
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: past)]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        store.startAging(section) { true }
+        let reads = fake.lists
+        await store.ageFired()
+        #expect(fake.lists == reads + 1)
+        #expect(store.machines.first?.state == .offline)
+        #expect(!store.isAging, "no online row left: no next deadline")
+        store.stopAging(section)
     }
 
     @Test func aRefreshIsOneReadAndAFailedReadKeepsTheRows() async {

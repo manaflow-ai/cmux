@@ -81,14 +81,14 @@
         },
         {
           "key": "labs.machineJoin",
-          "note": "Any machine joins with one pasted line (contract: cmux machine join, J6-J8): Add Device's \"Any machine: one line\" way, joined rows in the Machines sidebar with Check, Rotate and Revoke, and This Mac's Screen sharing and Control consent switches in Settings > Devices. Off by default while the join routes answer only on the development platform. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).",
+          "note": "This Mac's Screen sharing and Control consent switches in Settings > Devices, for a Mac that joined with a pair code or line (contract: cmux machine join, J6-J8). Add Device's join way and the Machines section's joined rows no longer depend on it (cmux#36654, cmux#36667). Off by default. The person turns it on: agents may not (not in SettingsSchema agent-writable keys).",
           "title": {
             "key": "settings.labs.machineJoin",
-            "text": "Join Any Machine with One Line"
+            "text": "Screen Sharing for Joined Machines"
           },
           "help": {
             "key": "settings.labs.machineJoin.help",
-            "text": "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them."
+            "text": "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on."
           },
           "kind": "toggle",
           "default": false,

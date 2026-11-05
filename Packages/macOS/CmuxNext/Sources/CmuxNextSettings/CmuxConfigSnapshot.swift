@@ -73,8 +73,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault
     /// `labs.voiceRoom` (off when unset) and `labs.voiceRoomURL` (trimmed; empty is the local room server).
     public var voiceRoom = CmuxConfigSnapshot.voiceRoomDefault, voiceRoomURL = CmuxConfigSnapshot.voiceRoomURLDefault
-    /// `labs.machineJoin`: the one-line machine join surfaces (Add Device's way, joined Machines rows, This Mac's
-    /// consent switches); off when unset.
+    /// `labs.machineJoin`: This Mac's Screen sharing and Control consent switches for a joined Mac (Add Device's
+    /// join way and the joined Machines rows no longer read it); off when unset.
     public var machineJoin = CmuxConfigSnapshot.machineJoinDefault
     /// `labs.liveCode`: a live code build applies Swift patches from ~/Library/Caches/cmux-next/live-code (read at launch); off when unset.
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault

@@ -92171,7 +92171,7 @@
       },
       "help" : {
         "key" : "settings.labs.machineJoin.help",
-        "text" : "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them."
+        "text" : "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on."
       },
       "kept_on_reset_all" : false,
       "key" : "labs.machineJoin",
@@ -92284,7 +92284,7 @@
       },
       "title" : {
         "key" : "settings.labs.machineJoin",
-        "text" : "Join Any Machine with One Line"
+        "text" : "Screen Sharing for Joined Machines"
       },
       "validation" : "portable"
     },

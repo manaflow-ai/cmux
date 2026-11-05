@@ -5,7 +5,7 @@ import CmuxNextIcons
 /// The right sidebar's Machines section (AppKit): this Mac, then a header per kind (Cloud, SSH,
 /// Servers, Joined) over its machines, then Add Machine…, laid out as ``MachineSectionStyle`` says. Every
 /// icon sits in one column and every name starts on one line; text takes three theme inks
-/// (``MachineSectionInk``). A machine that joined with a one-line token (Labs `labs.machineJoin`) is
+/// (``MachineSectionInk``). A machine that joined through the hub (a pair code or a one-line token) is
 /// a ``JoinedMachineRowView`` with its "…" menu, in its link's group or the Joined group. Rows take
 /// value snapshots and an action bundle, never a store.
 public final class MachineSectionView: NSView {
