@@ -1,5 +1,6 @@
 import CmuxNextBridge
 @testable import CmuxNextDaemon
+import CmuxNextSidebar
 import Foundation
 import Testing
 @testable import CmuxNextWorkspaceNaming
