@@ -42,9 +42,11 @@ extension HomeChiefProfileView {
         if let gradient = CGGradient(colorsSpace: space, colors: wallpaper as CFArray, locations: [0, 1]) {
             context.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 1280, y: 800), options: [])
         }
-        fill(CGRect(x: 0, y: 0, width: 1280, height: 28), 0.93, 0.93, 0.94)  // the menu bar
-        for x in [24.0, 72, 128, 176] { fill(CGRect(x: x, y: 9, width: 36, height: 10), 0.55, 0.55, 0.58, radius: 5) }
-        fill(CGRect(x: 1160, y: 9, width: 96, height: 10), 0.55, 0.55, 0.58, radius: 5)
+        // The menu bar: the wallpaper through a light veil, so the card's top edge shows on a light pane too.
+        context.setFillColor(CGColor(gray: 1, alpha: 0.3))
+        context.fill(CGRect(x: 0, y: 0, width: 1280, height: 28))
+        for x in [24.0, 72, 128, 176] { fill(CGRect(x: x, y: 9, width: 36, height: 10), 0.97, 0.97, 0.98, radius: 5) }
+        fill(CGRect(x: 1160, y: 9, width: 96, height: 10), 0.97, 0.97, 0.98, radius: 5)
         let window = CGRect(x: 150, y: 80, width: 980, height: 640)
         fill(window.insetBy(dx: -2, dy: -2), 0.2, 0.22, 0.28, radius: 18)  // its edge
         fill(window, 0.98, 0.98, 0.98, radius: 16)
@@ -72,7 +74,8 @@ extension HomeChiefProfileView {
         // The pointer, black with a white edge, over the middle card.
         let tip = CGPoint(x: 700, y: 400), scale: CGFloat = 1.8
         let arrow = CGMutablePath()
-        arrow.addLines(between: [(0, 0), (0, 46), (11, 35), (19, 53), (26, 50), (18, 32), (33, 32)].map {
+        let outline: [(CGFloat, CGFloat)] = [(0, 0), (0, 46), (11, 35), (19, 53), (26, 50), (18, 32), (33, 32)]
+        arrow.addLines(between: outline.map {
             CGPoint(x: tip.x + $0.0 * scale, y: tip.y + $0.1 * scale)
         })
         arrow.closeSubpath()
