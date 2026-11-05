@@ -370,8 +370,9 @@ struct CreationHoldReplyBoundTests {
         buffer.replyWaitLimit = .seconds(1)
         let ended = BoundEnd()
         buffer.onBound = { _, bound in if bound == .reply { ended.byReply = true } }
-        _ = buffer.open(generation: 1)
-        try await Task.sleep(for: .milliseconds(600))
+        // The creation began 600 ms ago (`open(at:)`, the buffer's own hook for an earlier start), not a 600 ms sleep:
+        // its wait is past 500 ms by construction, whatever the main thread's delays.
+        _ = buffer.open(generation: 1, at: .now - .milliseconds(600))
         buffer.replyWaitLimit = .seconds(60)
         _ = buffer.openClose(closing: ["closing_tab"], machine: nil)
         #expect(buffer.waitedPastReplyBound(.milliseconds(500)), "the close restarted the creation's reply bound")

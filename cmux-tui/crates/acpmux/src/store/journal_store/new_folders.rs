@@ -113,7 +113,9 @@ impl Inner {
             drop(state);
             // Each folder noted through `through` was made before its record was appended, so
             // before this sync starts.
-            let synced = sync_directory(&self.local.root);
+            let synced = self.counted_sync("the sessions folder failed to sync", || {
+                sync_directory(&self.local.root)
+            });
             state = folders.state.lock_or_recover();
             match synced {
                 Ok(()) => {
@@ -122,11 +124,9 @@ impl Inner {
                         state.publish(&durable);
                     }
                 }
+                // `counted_sync` froze the store.
                 Err(error) if error.chain().any(|cause| cause.is::<SyncFailed>()) => {
                     state.failed = true;
-                    drop(state);
-                    self.freeze(format!("the sessions folder failed to sync: {error:#}"));
-                    state = folders.state.lock_or_recover();
                 }
                 Err(error) => {
                     // The folder did not open (no file descriptor left): tried again shortly. A

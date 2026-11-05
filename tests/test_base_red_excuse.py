@@ -78,7 +78,12 @@ class FakeGitHub:
             # Both list every status: the dispatch fallback for deferred_first_runs, the window because a finished
             # job in a running base run is already a verdict.
             assert "branch=feat-cmux-next" in route and "status=" not in route, route
-            return {"workflow_runs": copy.deepcopy(self.base_runs)}
+            runs = copy.deepcopy(self.base_runs)
+            if "&event=" in route:
+                # GitHub filters by event, as the tip suite's dispatch read asks it to.
+                event = route.split("&event=", 1)[1].split("&", 1)[0]
+                runs = [run for run in runs if run.get("event") == event]
+            return {"workflow_runs": runs}
         if "/actions/runs/" in route:
             return {"id": int(route.rsplit("/", 1)[1]), "workflow_id": 7}
         raise AssertionError(route)
@@ -399,6 +404,22 @@ class Excusing(unittest.TestCase):
         self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()", text)
         # The cancelled run 21 has no verdict; the newest run with one decides.
         self.assertNotIn("run 21", text)
+
+    def test_a_pull_request_target_run_is_never_base_evidence(self):
+        # Like a pull_request run, it ran in a PR's context: its red is not the base's.
+        self.gh.base_runs[1]["event"] = "pull_request_target"
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+            self.judge()
+
+    def test_the_newest_base_run_decides_whatever_order_github_lists_them(self):
+        # Run 22 is newer and green; listed after the older red run 20, it still decides: not red on the base.
+        self.gh.jobs[3] = dict(failed_job(3, 22, "c" * 40), conclusion="success",
+                               steps=[{"name": TEST_STEP, "status": "completed", "conclusion": "success"}])
+        self.gh.base_runs[1]["created_at"] = "2026-11-04T10:00:00Z"
+        self.gh.base_runs.append({"id": 22, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                                  "conclusion": "success", "head_sha": "c" * 40, "created_at": "2026-11-04T11:00:00Z"})
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 22"):
+            self.judge()
 
     def test_counts_do_not_matter_only_names(self):
         # The base fails one more test than the head; the head's are all on the base.
@@ -941,6 +962,16 @@ class Excusing(unittest.TestCase):
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
         self.assertIn(f"macos / {SWIFT}", "\n".join(lines))
         self.assertNotIn("'ci-status'", "\n".join(lines))
+
+    def test_a_red_ci_status_check_whose_job_was_retried_green_blocks(self):
+        # The check-run can stay failed while its exact job was re-run green: never rescan the run and excuse
+        # its child reds then, as for a routed rollup (the Guard status).
+        for job_id in (1, 2):
+            self.gh.jobs[job_id]["name"] = f"macos / {SWIFT}"
+        self.red_ci_status()
+        self.gh.jobs[3]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "exact aggregate job is success, not failure"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
 
     def test_a_red_ci_status_whose_failed_jobs_are_all_outside_its_needs_blocks(self):
         # The run's only red job is not under ci-status's needs (ci.yml's pr-red-checks, say), so it did not turn
@@ -1960,10 +1991,37 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "artifact"):
             self.judge()
 
+    def test_two_different_forty_hex_digests_are_not_one_red(self):
+        # cmux#35902: a bare 40-hex token was masked whatever it was, so a head red naming one digest
+        # matched a base red naming another and passed as a base red.
+        scheme = "cmux app scheme compile (Debug)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, scheme, "Build"), 2: failed_job(2, 20, BASE_SHA, scheme, "Build")}
+        line = "error: the runtime pack {} is not the one this tree pins"
+        self.gh.logs[1] = log(scheme, "Build", line.format("f06132224fc58d3cd5349ed190eaadc44736abf2"))
+        self.gh.logs[2] = log(scheme, "Build", line.format("2cadcc0a5426124272e806a9dca5273ce19940ea"))
+        with self.assertRaisesRegex(excuse.Refused, "runtime pack"):
+            self.judge()
+
     def test_only_commit_shas_are_masked(self):
         self.assertEqual(excuse.mask_shas(f"defaced 1234567 accede deadbeef1 {HEAD} at 8f0c2e1 tree `5948da7` "
                                           "commit 1234567 for abcdef12"),
                          "defaced 1234567 accede deadbeef1 <sha> at 8f0c2e1 tree `<sha>` commit <sha> for abcdef12")
+
+    def test_a_forty_hex_digest_named_as_a_stored_thing_is_not_masked(self):
+        # cmux#35902: every bare 40-hex token was masked, so two digests became one error line.
+        digest = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        for named in (f"the artifact {digest} does not match", f"runtime pack {digest} is not pinned",
+                      f"checksum `{digest}` differs", f"Digest {digest} unknown"):
+            self.assertEqual(excuse.mask_shas(named), named)
+        # A commit the line does not name as a stored thing still masks, with or without a keyword.
+        self.assertEqual(excuse.mask_shas(f"this run built {HEAD}"), "this run built <sha>")
+        self.assertEqual(excuse.mask_shas(f"source stamp {HEAD} != {BASE_SHA}"), "source stamp <sha> != <sha>")
+
+    def test_two_different_object_digests_are_two_error_lines(self):
+        first = "f06132224fc58d3cd5349ed190eaadc44736abf2"
+        second = "2cadcc0a5426124272e806a9dca5273ce19940ea"
+        self.assertNotEqual(excuse.normalise_error(f"##[error]artifact {first} does not match"),
+                            excuse.normalise_error(f"##[error]artifact {second} does not match"))
 
     def test_hex_ids_after_a_generic_word_are_compared_as_they_are(self):
         scheme = "cmux app scheme compile (Debug)"
@@ -2377,6 +2435,67 @@ class GuardGroupPerStep(unittest.TestCase):
 
 
 class Script(unittest.TestCase):
+    def test_a_rate_limited_read_exits_3(self):
+        # gh-merge-green reports exit 3 as a rate limit, not a red (main's main_fix_evidence.RateLimited).
+        class RateLimited(excuse.Refused):
+            pass
+
+        def judge(*args, **kwargs):
+            raise RateLimited("GitHub rate-limited `gh api`")
+
+        with unittest.mock.patch.object(excuse, "RateLimited", RateLimited), \
+                unittest.mock.patch.object(excuse, "judge", judge), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
+
+    def test_a_rate_limited_rollups_read_exits_3(self):
+        # The swallow this covers: load_rollups wraps every Refused from its contents reads as
+        # "no rollup red is excused", and main's RateLimited is a Refused, so a rate limit read as a
+        # verdict and main() returned 1 where gh-merge-green expects a rate limit (3).
+        class RateLimited(excuse.Refused):
+            pass
+
+        class Limited:
+            def json(self, route, *, paginate=False):
+                raise RateLimited("GitHub rate-limited `gh api`; resets in 14 minutes")
+
+            def log(self, repo, job):
+                raise AssertionError("no log is read once a read is rate-limited")
+
+        excuse._REPO_ROLLUPS.pop(HQ, None)
+        with unittest.mock.patch.object(excuse, "RateLimited", RateLimited), \
+                unittest.mock.patch.object(excuse, "GitHub", Limited), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", HQ, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
+
+    def test_an_ordinary_refusal_still_exits_1_with_this_branchs_reader(self):
+        # Not patched: this branch's main_fix_evidence.py has no RateLimited, so excuse.RateLimited is the empty
+        # tuple. A handler written `except (RateLimited, RateLimitedRead)` is then `except ((), RateLimitedRead)`,
+        # a TypeError on every ordinary refusal ("catching classes that do not inherit from BaseException"), so
+        # main() would crash instead of saying "not excused" (review of #35947, F1).
+        self.assertEqual(excuse.rate_limited_classes(), (excuse.RateLimitedRead,))
+
+        def judge(*args, **kwargs):
+            raise excuse.Refused("no failed job found on the head to compare with the base")
+
+        with unittest.mock.patch.object(excuse, "judge", judge), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 1)
+
+    def test_a_rate_limited_read_leaves_judge_as_no_verdict(self):
+        class RateLimited(excuse.Refused):
+            pass
+
+        class Limited:
+            def json(self, route, *, paginate=False):
+                raise RateLimited("GitHub rate-limited `gh api`; resets in 14 minutes")
+
+        excuse._REPO_ROLLUPS.pop(HQ, None)
+        with unittest.mock.patch.object(excuse, "RateLimited", RateLimited):
+            # Not a Refused: a rate limit is no verdict on the red, so nothing may excuse or charge it.
+            with self.assertRaisesRegex(excuse.RateLimitedRead, "rate-limited"):
+                excuse.judge(HQ, "main", HEAD, [], Limited(), checks=["x"])
+
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()
         self.assertIn("base_red_excuse.py", text)

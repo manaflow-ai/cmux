@@ -12,7 +12,8 @@ run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', in
 #
 # Secrets: the repo's dev stack pair (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD, the pair ios-e2e.yml
 # writes as CMUX_UITEST_STACK_* for the agent profile) reaches one step through env, which writes them
-# to a 0600 file only the app reads; an always() step removes it. Manual dispatch on feat-cmux-next only.
+# to a 0600 file the app (and the proof's reservation step) reads; an always() step removes it.
+# Manual dispatch on feat-cmux-next only.
 #
 # build: published runs the same trip from the signed cmux NEXT DEV app of the cmux-next-dev release
 # instead (no build): scripts/cmux-next/dev-signin-token.py signs the agent account in and seeds the
