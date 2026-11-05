@@ -135,6 +135,19 @@ struct CloudWorkspaceSetupWizardTests {
     }
 
 
+    /// The person's one cached Claude login reaches every new machine with no dialog and no
+    /// setup-token, as a Cloud sandbox gets the account's credential; only a first workspace,
+    /// with nothing cached, asks.
+    @MainActor
+    @Test func aCachedClaudeLoginGoesToTheNewMachineWithNoDialog() async throws {
+        var moved: [CloudWorkspaceSetupWizard.Provider] = [], asked = 0
+        try await CloudWorkspaceSetupWizard().offerCredentialSetup(machine: "paint", account: "Personal account", cachedClaude: true,
+            present: { _ in asked += 1; return CmuxDialogAnswer(button: "skip", role: .normal) },
+            transfer: { moved.append($0) })
+        #expect(asked == 0)
+        #expect(moved == [.claude])
+    }
+
     @MainActor
     @Test func completedCloneOpensItsAbsoluteProjectDirectory() async throws {
         var opened: [String] = []
