@@ -24,6 +24,8 @@ extension CloudStartSession {
         /// Runs ``passHarnessLogin(_:agent:login:still:)`` on the machine; it leaves its decision on `harnessLogin`.
         var login: @MainActor (CloudMachineSession, Request, _ still: () throws -> Void) async throws -> Void
         var relay: @MainActor () -> CloudRelayChat?
+        /// How long a CLI or MCP run waits for `login` before it answers without sending.
+        var loginWithin: Duration = CloudStartSession.loginWithin
 
         static func live(_ services: AppServices) -> RelaySteps {
             RelaySteps(login: { machine, started, still in
@@ -77,8 +79,17 @@ extension CloudStartSession {
             }
             CloudHandlers.result("cloud relay chat", context) {
                 guard let relay = steps.relay() else { return notSent("cloud.relay.unavailable", CloudStartSessionStrings.relayUnavailable) }
+                // The run answers within the action's result deadline: the login step gets `loginWithin` of it and the turn
+                // the rest. A step still running sends nothing (it goes on and ends on its own); the caller goes the
+                // start-session way, whose start waits for its own step.
+                let clock = ContinuousClock(), begun = clock.now
                 let refusal: (code: String, message: String)?
-                do { refusal = try await login() } catch let failure as ActionFailure { return notSent("cloud.relay.refused", failure.message) }
+                do {
+                    guard let decided = try await Self.first(within: steps.loginWithin, login) else {
+                        return notSent("cloud.relay.login_pending", CloudStartSessionStrings.relayLoginPending(started.asked(machine: machine.machine.title)))
+                    }
+                    refusal = decided
+                } catch let failure as ActionFailure { return notSent("cloud.relay.refused", failure.message) }
                 if let refusal {
                     // The rules' reason with the code, so a caller words its own recovery (no token or provider output).
                     var fields = notSent(refusal.code, refusal.message)
@@ -86,7 +97,7 @@ extension CloudStartSession {
                     return fields
                 }
                 let answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,
-                                                    promptID: promptID, within: CloudHandlers.answerWithin)
+                                                    promptID: promptID, within: CloudHandlers.answerWithin - (clock.now - begun))
                 return relayFields(answer, machineID: machineID)
             }
         }
@@ -99,10 +110,35 @@ extension CloudStartSession {
         guard let decision else { return nil }
         let asked = started.asked(machine: machine)
         if let reason = decision.refusal { return ("cloud.relay.login_refused", CloudStartSessionStrings.loginRefused(reason, asked)) }
-        if decision.outcome == CloudStartChat.signInInChat { return ("cloud.relay.login_missing", CloudStartSessionStrings.relayLoginMissing(asked)) }
+        // No login copied to a machine that needs one: none cached on this Mac, or the person said no to the copy.
+        if decision.outcome == CloudStartChat.signInInChat || decision.outcome == CloudStartChat.loginDeclined { return ("cloud.relay.login_missing", CloudStartSessionStrings.relayLoginMissing(asked)) }
         if let outcome = decision.outcome, outcome.hasPrefix(CloudStartChat.loginFailed) {
             return ("cloud.relay.login_failed", CloudStartSessionStrings.relayLoginFailed(asked, reason: Self.reason(String(outcome.dropFirst(CloudStartChat.loginFailed.count)))))
         }
+        return nil
+    }
+
+    /// How long a CLI or MCP relay chat waits for the login step: well inside ``CloudHandlers/answerWithin``, so the turn keeps 20 s.
+    static let loginWithin: Duration = .seconds(15)
+
+    /// `work`'s answer if it comes within `wait`, else nil (the work goes on to its end). Its error is thrown.
+    static func first<T: Sendable>(within wait: Duration, _ work: @escaping @MainActor () async throws -> T) async throws -> T? {
+        // task-owner: the login step; it runs to its end even when the run answers without it.
+        let step = Task { @MainActor in try await work() }
+        let (answers, continuation) = AsyncStream<Result<T, any Error>?>.makeStream(bufferingPolicy: .bufferingOldest(1))
+        // task-owner: relays the step's answer; it ends with the step (a yield after finish is dropped).
+        Task { continuation.yield(await step.result) }
+        // task-owner: the deadline; cancelled below once an answer is in.
+        let deadline = Task {
+            // wakeup-allow: one-shot login deadline; cancelled when the step answers first
+            try? await Task.sleep(for: wait)
+            continuation.yield(nil)
+        }
+        defer {
+            deadline.cancel()
+            continuation.finish()
+        }
+        for await answer in answers { return try answer?.get() }
         return nil
     }
 

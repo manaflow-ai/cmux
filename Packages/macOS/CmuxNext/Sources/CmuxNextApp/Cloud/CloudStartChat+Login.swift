@@ -66,7 +66,7 @@ extension CloudStartChat {
             case .askConsent:
                 guard await gate.askConsent(&decision) else { return false }
             case .confirmThenInstall:
-                guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else { decision.outcome = "declined"; return false }
+                guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else { decision.outcome = Self.loginDeclined; return false }
                 CloudHarnessLoginChoices().save(.pass, userID: userID) // Their Yes is their choice for every later machine.
             }
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
@@ -97,4 +97,6 @@ extension CloudStartChat {
     static let signInInChat = "no cached login: the chat's Sign in to Claude card"
     /// The start record's outcome when the copy failed, before its fixed text.
     static let loginFailed = "failed: "
+    /// The start record's outcome when the person said no to the copy.
+    static let loginDeclined = "declined"
 }

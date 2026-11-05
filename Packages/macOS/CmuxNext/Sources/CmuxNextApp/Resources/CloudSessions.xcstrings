@@ -1027,6 +1027,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể đưa đăng nhập của bạn cho %2$@ trên %1$@ (%4$@), nên lời nhắc chưa được gửi. Chạy `%3$@` để thử lại."}}
       }
     },
+    "cloud.relayChat.loginPending": {
+      "comment": "Relay chat refusal: the login step on the machine is still running, so nothing was sent. %1$@ machine, %2$@ agent, %3$@ the cmux command (keep in English).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%2$@ on %1$@ is still getting your login, so the prompt wasn't sent over the relay. Run `%3$@`, which waits for it."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%1$@ の %2$@ はまだあなたのログインを受け取っている途中のため、プロンプトはリレーで送信されませんでした。ログインを待つ `%3$@` を実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "%2$@ auf %1$@ erhält deine Anmeldung noch, daher wurde der Prompt nicht über das Relay gesendet. Führe `%3$@` aus, das darauf wartet."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "%2$@ sur %1$@ reçoit encore votre connexion, donc le prompt n'a pas été envoyé par le relais. Exécutez `%3$@`, qui l'attend."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "%2$@ en %1$@ aún está recibiendo tu inicio de sesión, así que el prompt no se envió por el relé. Ejecuta `%3$@`, que lo espera."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا يزال %2$@ على %1$@ يتلقى تسجيل دخولك، لذلك لم تُرسل المطالبة عبر المرحّل. شغّل `%3$@` الذي ينتظره."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@의 %2$@이(가) 아직 내 로그인을 받는 중이라 프롬프트를 릴레이로 보내지 않았습니다. 이를 기다리는 `%3$@`을(를) 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 仍在接收你的登录，所以提示没有通过中继发送。运行会等待它的 `%3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%1$@ 上的 %2$@ 仍在接收你的登入，所以提示沒有透過中繼送出。執行會等待它的 `%3$@`。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "%2$@ na %1$@ još prima tvoju prijavu, pa prompt nije poslan preko releja. Pokreni `%3$@`, koji čeka na nju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "%2$@ på %1$@ er stadig ved at få dit login, så prompten blev ikke sendt via relayet. Kør `%3$@`, som venter på det."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "%2$@ su %1$@ sta ancora ricevendo il tuo accesso, quindi il prompt non è stato inviato tramite il relay. Esegui `%3$@`, che lo attende."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "%2$@ នៅលើ %1$@ កំពុងទទួលការចូលរបស់អ្នកនៅឡើយ ដូច្នេះប្រអប់បញ្ចូលមិនត្រូវបានផ្ញើតាម relay ទេ។ ដំណើរការ `%3$@` ដែលរង់ចាំវា។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "%2$@ på %1$@ får fortsatt påloggingen din, så ledeteksten ble ikke sendt via reléet. Kjør `%3$@`, som venter på den."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "%2$@ na %1$@ wciąż otrzymuje twoje logowanie, więc prompt nie został wysłany przez przekaźnik. Uruchom `%3$@`, które na nie zaczeka."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "%2$@ em %1$@ ainda está recebendo seu login, então o prompt não foi enviado pelo relay. Execute `%3$@`, que espera por ele."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "%2$@ на %1$@ ещё получает ваш вход, поэтому запрос не отправлен через ретранслятор. Запустите `%3$@`, который его дождётся."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "%2$@ บน %1$@ ยังรับการลงชื่อเข้าใช้ของคุณอยู่ จึงไม่ได้ส่งพรอมต์ผ่านรีเลย์ เรียกใช้ `%3$@` ซึ่งจะรอให้เสร็จ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%1$@ üzerindeki %2$@ hâlâ oturumunuzu alıyor, bu yüzden istem aktarıcı üzerinden gönderilmedi. Bunu bekleyen `%3$@` komutunu çalıştırın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "%2$@ на %1$@ ще отримує ваш вхід, тому запит не надіслано через ретранслятор. Запустіть `%3$@`, який його дочекається."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "%2$@ trên %1$@ vẫn đang nhận đăng nhập của bạn, nên lời nhắc chưa được gửi qua relay. Chạy `%3$@`, lệnh này sẽ chờ nó."}}
+      }
+    },
     "cloud.relayChat.replyTitle": {
       "comment": "Title of the sheet that shows a relay chat's reply to the person who ran it.",
       "extractionState": "manual",

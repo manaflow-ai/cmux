@@ -82,16 +82,18 @@ struct CloudRelayChatLoginTests {
     }
 
     /// Runs the relay chat bound with a login step that leaves `decision`, and answers its result and the steps' order.
-    static func relayChat(_ decision: CloudHarnessLoginDecision, origin: ActionOrigin = .cli) async throws
+    static func relayChat(_ decision: CloudHarnessLoginDecision, origin: ActionOrigin = .cli, loginTakes: Duration = .zero,
+                          loginWithin: Duration = CloudStartSession.loginWithin) async throws
         -> (result: Result<[String: ActionResultValue], ActionWorkFailure>?, work: ActionWorkFailure??, steps: [String]) {
         let f = fixture()
         _ = Steps.shared.take()
         CloudStartSession.bindRelayChat(into: f.services.registry, context: AppActionContext(services: f.services), reason: { nil },
                                         steps: .init(login: { machine, _, still in
                                             Steps.shared.append("login")
+                                            if loginTakes > .zero { try await Task.sleep(for: loginTakes) }
                                             machine.harnessLogin = decision
                                             try still()
-                                        }, relay: { Self.relay }))
+                                        }, relay: { Self.relay }, loginWithin: loginWithin))
         let invoke = try #require(f.services.registry.action(for: "cloudRelayChat")?.invoke)
         var run: (work: [ActionWork], results: [ActionResultWork]) = ([], [])
         _ = f.services.registry.capturingRefusal { run = f.services.registry.capturingRun { invoke(Self.invocation(f.machine, origin: origin)) } }
@@ -153,6 +155,28 @@ struct CloudRelayChatLoginTests {
         #expect(fields["login_reason"] == .string("needs-login-choice"))
         guard case .string(let message) = fields["error_message"] else { Issue.record("no message"); return }
         #expect(message.contains("--login machine") && message.contains("`cmux cloud start-session --target machine:"), "\(message)")
+    }
+
+    /// The person said no to the copy, on a machine with no login: nothing is sent.
+    @Test func aDeclinedCopySendsNothing() async throws {
+        let run = try await Self.relayChat(Self.decision(outcome: CloudStartChat.loginDeclined))
+        #expect(run.steps == ["login"])
+        let fields = try Self.fields(run.result)
+        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_missing"))
+    }
+
+    /// A login step that outlasts its share of the result deadline sends nothing and answers at once, typed, so the
+    /// caller never gets a late answer for a prompt the relay sends after it gave up.
+    @Test func aSlowLoginStepSendsNothingAndAnswersInTime() async throws {
+        let clock = ContinuousClock(), begun = clock.now
+        let run = try await Self.relayChat(Self.decision(outcome: "installed"), loginTakes: .seconds(3), loginWithin: .milliseconds(200))
+        #expect(clock.now - begun < .seconds(3), "the answer waited for the login step")
+        let fields = try Self.fields(run.result)
+        #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_pending"))
+        // The step ends on its own; the relay never sends this prompt.
+        try await Task.sleep(for: .seconds(4))
+        #expect(Steps.shared.take() == [], "the relay sent after the run answered")
+        #expect(CloudStartSession.loginWithin + .seconds(20) <= CloudHandlers.answerWithin, "the turn keeps 20 s of the result deadline")
     }
 
     /// The person's own run (the palette) sees the same refusal, and nothing is sent.
