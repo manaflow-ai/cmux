@@ -57,6 +57,8 @@ parser.add_argument("--storm", type=int, default=8)
 parser.add_argument("--phases", default="idle,load")
 parser.add_argument("--commands", default="split_right,split_down,new_tab,new_terminal,new_workspace")
 parser.add_argument("--workspaces", default="", help="comma-separated workspace counts to run every phase at (empty: as launched)")
+parser.add_argument("--empty-workspaces", action="store_true",
+                    help="seed additional workspaces without terminals (safe for 1000-workspace scaling runs)")
 parser.add_argument("--budget-frames", type=float, default=0, help="fail when a command's p95 display frame of visibility is above this (1: the first frame; 0: report only)")
 parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--hang-stacks", action="store_true",
@@ -338,10 +340,13 @@ def workspace_count():
 
 
 def grow_workspaces(count):
-    """At least `count` terminal workspaces, the bench's still shown (scripts make them unfocused)."""
+    """At least `count` workspaces; optionally seed empty rows to avoid opening 1000 PTYs."""
     have = workspace_count()
     for index in range(have, count):
-        rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
+        if opts.empty_workspaces:
+            run("workspace", "create", "--empty", "--name", f"bench-{index}", timeout=120)
+        else:
+            rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
     now = workspace_count()
     print(f"workspaces: {have} -> {now}", flush=True)
     if now < count:

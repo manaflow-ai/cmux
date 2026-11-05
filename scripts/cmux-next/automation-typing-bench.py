@@ -63,6 +63,9 @@ parser.add_argument("--out", required=True)
 parser.add_argument("--json")
 parser.add_argument("--layouts", default="light,stress", help="comma list of light and stress (STRESS session)")
 parser.add_argument("--agents", type=int, default=10)
+parser.add_argument("--workspace-count", type=int, default=0,
+                    help="seed this total workspace count with empty rows; --agents remains the bounded active set")
+parser.add_argument("--no-browser", action="store_true", help="skip the optional browser agent (used for exact one-workspace typing baseline)")
 parser.add_argument("--agent-hz", type=float, default=40.0, help="terminal agent writes per second, all agents together")
 parser.add_argument("--samples", type=int, default=120)
 parser.add_argument("--interval", type=float, default=0.12, help="seconds between keys (wider than one echo)")
@@ -151,6 +154,18 @@ def terminal_of(workspace_name):
                         # The CLI's terminal selector is the daemon's terminal id (`term_...`), not the tab id.
                         return tab.get("terminal") or tab.get("id")
     return None
+
+
+def seed_empty_workspaces(count):
+    """Fill the requested topology with empty workspaces so large runs do not exhaust PTYs."""
+    if count <= 0:
+        return 0
+    # The probe always adds one browser and one focused typing workspace below. Active agent
+    # workspaces are bounded by --agents; only the remainder needs empty rows.
+    empty = max(0, count - opts.agents - 2)
+    for index in range(empty):
+        cli("workspace", "create", "--name", f"scale empty {index}", "--empty")
+    return empty
 
 
 # ---------------------------------------------------------------- load
@@ -357,25 +372,28 @@ def main():
     pid = APP.process.pid
     summary = {}
     try:
+        results["seeded_empty_workspaces"] = seed_empty_workspaces(opts.workspace_count)
         names = [f"agent {i:02d}" for i in range(opts.agents)]
         for name in names:
             cli("workspace", "create", "--name", name, "--shell", "exec cat")
         tabs = [t for t in (wait(lambda n=n: terminal_of(n), 20) for n in names) if t]
         note(f"agent terminals: {len(tabs)} of {opts.agents}")
-        cli("workspace", "create", "--name", "browser agent", "--focus", "--empty")
-        page = os.path.join(OUT, "agent-page.html")
-        open(page, "w").write(PAGE.format(rows="".join(f"<li>row {i} {'lorem ipsum ' * 4}</li>" for i in range(opts.rows))))
-        rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": pathlib.Path(page).as_uri()}, "origin": "script"}, timeout=120)
-        browser_tab = wait(lambda: (lambda r: r.get("tab") if isinstance(r, dict) and r.get("value") is True else None)(
-            rpc("browser.page.eval", {"script": "document.readyState === 'complete' && !!document.getElementById('b')"}, timeout=20)), 60, 0.5)
-        note(f"browser agent tab: {browser_tab}")
-        cef = rpc("debug.cef", timeout=20)
-        results["cef"] = cef
-        not_chromium = chromium_problems(cef) if browser_tab else ["the browser agent's page never loaded"]
-        if not_chromium:
-            results["invalid"] = not_chromium
-            note(f"not measured: the browser agent's page is not Chromium: {not_chromium}")
-            return 2
+        browser_tab = None
+        if not opts.no_browser:
+            cli("workspace", "create", "--name", "browser agent", "--focus", "--empty")
+            page = os.path.join(OUT, "agent-page.html")
+            open(page, "w").write(PAGE.format(rows="".join(f"<li>row {i} {'lorem ipsum ' * 4}</li>" for i in range(opts.rows))))
+            rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": pathlib.Path(page).as_uri()}, "origin": "script"}, timeout=120)
+            browser_tab = wait(lambda: (lambda r: r.get("tab") if isinstance(r, dict) and r.get("value") is True else None)(
+                rpc("browser.page.eval", {"script": "document.readyState === 'complete' && !!document.getElementById('b')"}, timeout=20)), 60, 0.5)
+            note(f"browser agent tab: {browser_tab}")
+            cef = rpc("debug.cef", timeout=20)
+            results["cef"] = cef
+            not_chromium = chromium_problems(cef) if browser_tab else ["the browser agent's page never loaded"]
+            if not_chromium:
+                results["invalid"] = not_chromium
+                note(f"not measured: the browser agent's page is not Chromium: {not_chromium}")
+                return 2
         cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat")
         typing = terminal_of("typing")
         results["setup"] = {"agent_terminals": len(tabs), "browser_tab": browser_tab, "typing": typing}
