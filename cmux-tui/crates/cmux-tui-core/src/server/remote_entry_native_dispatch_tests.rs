@@ -444,7 +444,7 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
 /// CmuxNextDaemon/Requests) is either taken by the owner carrier or listed above.
 #[test]
 fn every_app_command_is_decided_for_the_owner_link() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests");
     if !root.is_dir() {
         eprintln!("skipped: {} is not in this checkout", root.display());
