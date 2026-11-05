@@ -45,14 +45,19 @@ trap cleanup EXIT
 
 # Runs "$@" for at most $1 seconds, printing a line when it starts and ends: a setup phase that
 # hangs names itself and fails the run as could-not-run instead of eating the step's timeout.
+# Job control gives the phase and its watchdog each their own process group, so a timeout ends
+# the phase's children (git, bun) too, and the watchdog's sleep never holds the step's output open.
 bounded() {
   local seconds="$1" name="$2" started=$SECONDS pid watchdog status
   shift 2
   echo "AGENT-LOOP setup: $name"
+  set -m
   "$@" & pid=$!
-  ( sleep "$seconds"; kill -TERM "$pid" 2>/dev/null; sleep 5; kill -KILL "$pid" 2>/dev/null ) & watchdog=$!
+  ( sleep "$seconds"; kill -TERM -- "-$pid" 2>/dev/null; sleep 5; kill -KILL -- "-$pid" 2>/dev/null ) \
+    </dev/null >/dev/null 2>&1 & watchdog=$!
+  set +m
   wait "$pid"; status=$?
-  kill "$watchdog" 2>/dev/null; wait "$watchdog" 2>/dev/null
+  kill -TERM -- "-$watchdog" 2>/dev/null; wait "$watchdog" 2>/dev/null
   echo "AGENT-LOOP setup: $name exit $status in $((SECONDS - started))s"
   return "$status"
 }
@@ -95,7 +100,7 @@ bounded 600 "fetch $commit" fetch_tree || { echo "AGENT-LOOP could not fetch $co
 # The warm checkout's node_modules, cloned (APFS copy on write), when its lockfile is the tree's.
 if [[ -d "$root/webviews/node_modules" ]] && cmp -s "$root/webviews/bun.lock" "$tree/webviews/bun.lock"; then
   cp -cR "$root/webviews/node_modules" "$tree/webviews/node_modules" 2>/dev/null \
-    || cp -R "$root/webviews/node_modules" "$tree/webviews/node_modules"
+    || { rm -rf "$tree/webviews/node_modules"; cp -R "$root/webviews/node_modules" "$tree/webviews/node_modules"; }
   echo "AGENT-LOOP webviews node_modules from this checkout (same bun.lock)"
 fi
 install_deps() { cd "$tree/webviews" && bun install --frozen-lockfile >"$out/bun-install.log" 2>&1; }
