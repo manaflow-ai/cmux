@@ -6688,6 +6688,137 @@
         }
       }
     },
+    "sidebar.hoverCard.freedTerminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطرفيات المحررة: %lld. تبدأ من جديد عند فتح مساحة العمل هذه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oslobođeni terminali: %lld. Ponovo se pokreću kada otvorite ovaj radni prostor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigjorte terminaler: %lld. De starter igen, når du åbner dette arbejdsområde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freigegebene Terminals: %lld. Sie starten wieder, wenn du diesen Workspace öffnest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freed terminals: %lld. They start again when you open this workspace."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminales liberados: %lld. Se inician de nuevo al abrir este espacio de trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminaux libérés : %lld. Ils redémarrent quand vous ouvrez cet espace de travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminali liberati: %lld. Si riavviano quando apri questo spazio di lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解放したターミナル: %lld。このワークスペースを開くと再び起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់ដែលបានដោះលែង៖ %lld។ វាចាប់ផ្ដើមឡើងវិញ ពេលអ្នកបើកកន្លែងធ្វើការនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해제된 터미널: %lld개. 이 작업 공간을 열면 다시 시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frigjorte terminaler: %lld. De starter igjen når du åpner dette arbeidsområdet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwolnione terminale: %lld. Uruchomią się ponownie po otwarciu tego obszaru roboczego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminais liberados: %lld. Eles iniciam de novo quando você abre este espaço de trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Освобождённые терминалы: %lld. Они снова запустятся, когда вы откроете это рабочее пространство."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลที่ปล่อยแล้ว: %lld จะเริ่มใหม่เมื่อคุณเปิดพื้นที่ทำงานนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serbest bırakılan terminaller: %lld. Bu çalışma alanını açtığınızda yeniden başlarlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звільнені термінали: %lld. Вони знову запустяться, коли ви відкриєте цей робочий простір."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal đã giải phóng: %lld. Chúng khởi động lại khi bạn mở không gian làm việc này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已释放的终端：%lld。打开此工作区时会重新启动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已釋放的終端機：%lld。開啟此工作區時會重新啟動。"
+          }
+        }
+      }
+    },
     "sidebar.hoverCard.showDetails": {
       "extractionState": "manual",
       "localizations": {

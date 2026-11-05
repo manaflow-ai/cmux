@@ -256,6 +256,7 @@ public struct SidebarMapping {
                                   lastActivity: lastActivity([tab]))
                 // Its chat's running subagents and commands, which the tab row counts.
                 (listed.subagentsRunning, listed.commandsRunning) = Self.running(tab)
+                listed.isFreed = tab.kind == .pty && tab.dead && tab.relaunch?.onShow == true
                 // What the tab row's line says beyond its folder (Leo 2026-11-01: "not much metadata"):
                 // a page's path, a chat's model, a terminal's running program, a remote terminal's machine.
                 if !isNewTabPage { Self.listedFacts(&listed, of: tab, process: process(tab)) }

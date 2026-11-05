@@ -91,6 +91,8 @@ enum Strings {
     }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .module) }
     static func progressPercent(_ value: Int) -> String { String(localized: "sidebar.a11y.progress", defaultValue: "\(value)% done", bundle: .module) }
+    /// The hover card's line for a workspace whose idle terminals were freed (`workspaces.freeing.*`).
+    static func freedTerminals(_ value: Int) -> String { String(localized: "sidebar.hoverCard.freedTerminals", defaultValue: "Freed terminals: \(value). They start again when you open this workspace.", bundle: .module) }
     static func tabCount(_ value: Int) -> String { String(localized: "sidebar.a11y.tabCount", defaultValue: "Tabs: \(value)", bundle: .module) }
     /// The hover card's machine line on a workspace the Chief started for a subagent.
     /// Status entries a row folds past its limit.

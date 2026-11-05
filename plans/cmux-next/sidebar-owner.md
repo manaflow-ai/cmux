@@ -1450,6 +1450,9 @@ An empty group now keeps only its header at rest. The header's existing + appear
   `SidebarRecentsLayoutTests`. Tour: `scripts/cmux-next/media/tours/sidebar-recents.json`.
 - Review fixes: the opened Archive lists its rows whole in Projects and Recents (no Show more inside it, no blank gaps); Cmd-1...9 and Reveal in Sidebar reach projects past the first five.
 - A group whose workspace needs you lists above Show more, as a row past the row limit does.
+- A workspace whose idle terminals the freeing tier ended (`workspaces.freeing.*`, off by default) gets one hover
+  card line, "Freed terminals: N. They start again when you open this workspace." (snooze icon). Rows do not change.
+  Test: `SidebarRecentsLayoutTests.theHoverCardCountsTheFreedTerminals`.
 
 ## Pinned summary follows the density and text size (2026-11-03)
 
