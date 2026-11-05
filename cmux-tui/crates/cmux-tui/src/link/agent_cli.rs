@@ -365,7 +365,9 @@ fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
             let message = if outdated.older {
                 format!("the {side} daemon runs an older cmux-tui ({build}) without {missing}")
             } else {
-                format!("the {side} daemon ({build}) is not older but does not serve {missing} on this connection")
+                format!(
+                    "the {side} daemon ({build}) is not older but does not serve {missing} on this connection"
+                )
             };
             let mut failed = Failed::new(outdated.code(), message);
             failed.side = Some(side);

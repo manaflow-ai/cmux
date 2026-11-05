@@ -127,7 +127,7 @@ struct AgentPaneNativeSessionInfoTests {
         raw["sections"] = [[
             "id": "subagents", "group": "running", "title": "Subagents", "open": true, "foldable": true,
             "rows": [[
-                "id": "agent-1", "title": "Retrying agent", "working": true,
+                "id": "agent-1", "title": "Retrying agent", "working": true, "identityTone": 3,
                 "wave": ["index": 2, "periodMs": 1_200, "stepMs": 120],
                 "progress": "2 queued / 1 failed", "tone": "running",
             ]],
@@ -135,6 +135,7 @@ struct AgentPaneNativeSessionInfoTests {
         let decoded = try Self.model(raw)
         let row = try #require(decoded.sections[0].rows.first)
         #expect(row.working == true)
+        #expect(row.identityTone == 3)
         #expect(row.wave == .init(index: 2, periodMs: 1_200, stepMs: 120))
         #expect(row.progress == "2 queued / 1 failed")
         guard case .line(let line) = decoded.items.last else {
@@ -142,6 +143,7 @@ struct AgentPaneNativeSessionInfoTests {
             return
         }
         #expect(line.working)
+        #expect(line.identityTone == 3)
         #expect(line.wave == row.wave)
         #expect(line.progress == row.progress)
         #expect(!line.spins)
