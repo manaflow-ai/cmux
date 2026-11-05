@@ -112,6 +112,18 @@ struct GitHubPageProviderTests {
         #expect(reads.count == 2)
     }
 
+    @Test func aFilesLinkOpensItsDiffElseItsWebPage() async throws {
+        let link = try #require(GitHubLink(URL(string: Self.pull.absoluteString + "/files")!))
+        for (answer, opens) in [(Self.patch as String?, "diff"), (nil, "web"), ("not a diff", "web")] {
+            let opened: (String, String) = await withCheckedContinuation { done in
+                GitHubPageProvider.openFiles(link, read: { _ in answer }, openDiff: { done.resume(returning: ("diff", $0)) },
+                                             openWeb: { done.resume(returning: ("web", $0.absoluteString)) })
+            }
+            #expect(opened.0 == opens)
+            #expect(opened.1 == (opens == "diff" ? Self.patch : Self.pull.absoluteString + "/files"))
+        }
+    }
+
     @Test func otherOpsAndLinksAreRefused() async {
         let provider = GitHubPageProvider(cache: Self.cache(), diffReader: { _ in nil }, openWeb: { _, _ in true }, openDiff: { _, _, _, _ in true })
         await #expect(throws: PageError.self) {
