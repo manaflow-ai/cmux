@@ -2668,9 +2668,6 @@ const RESOURCE_STREAMS_PER_CLIENT_CAPACITY: usize = 64;
 const RESOURCE_STREAMS_SERVER_CAPACITY: usize = 256;
 const RESOURCE_WAITS_PER_CLIENT_CAPACITY: usize = 8;
 const RESOURCE_WAITS_SERVER_CAPACITY: usize = 64;
-/// One wake hook per connection; one per idle terminal agent on the daemon.
-const AGENT_MESSAGE_WAITS_PER_CLIENT_CAPACITY: usize = 1;
-const AGENT_MESSAGE_WAITS_SERVER_CAPACITY: usize = 256;
 
 mod worker_admission;
 pub(crate) use worker_admission::ServerSurfaceOperationAdmission;

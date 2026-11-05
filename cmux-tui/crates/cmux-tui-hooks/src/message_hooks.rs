@@ -27,10 +27,14 @@ const CLAUDE_WAKE_TIMEOUT_SECONDS: u64 = 86_400;
 /// wrapper's Claude (`CMUX_TUI_CLAUDE_PID`), which only the wrapper sets.
 /// `quoted_binary` is the cmux-tui binary for hosts without the helper.
 #[cfg_attr(not(unix), allow(dead_code))]
-pub(super) fn add_claude_wake(
-    hooks: &mut Map<String, Value>,
+pub(super) fn with_claude_wake(
+    mut root: Map<String, Value>,
     quoted_binary: Option<&str>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Map<String, Value>> {
+    let hooks = root
+        .get_mut("hooks")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| anyhow::anyhow!("hooks missing"))?;
     let command = match quoted_binary {
         Some(binary) => format!("{binary} {HOOK_MODE_ARG} claude inbox-wait;#{COMMAND_MARKER}"),
         None => format!(
@@ -50,7 +54,7 @@ pub(super) fn add_claude_wake(
             "asyncRewake": true,
         }]}));
     }
-    Ok(())
+    Ok(root)
 }
 
 /// Events whose hook output carries the agent's pending messages

@@ -38,7 +38,9 @@ use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
 use super::agent_session_attach;
 use super::sanitize_window_title;
 use super::size_state_event_json;
-use super::{AGENT_MESSAGE_WAITS_PER_CLIENT_CAPACITY, AGENT_MESSAGE_WAITS_SERVER_CAPACITY};
+use super::worker_admission::{
+    AGENT_MESSAGE_WAITS_PER_CLIENT_CAPACITY, AGENT_MESSAGE_WAITS_SERVER_CAPACITY,
+};
 use super::{
     app_trust, clipboard_read, conversation_tabs_wire, loopback_forward, terminal_snapshot,
     url_open,

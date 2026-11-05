@@ -183,6 +183,13 @@ SECTIONS = [
         "enums": {},
     },
     {
+        "source": "schemas/settings/source/agent-messages.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+AgentMessages.generated.swift",
+        "type": "AgentMessageSettingsSchema",
+        "lists": {"agentMessages": ("descriptors", "AgentMessageSettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/subsessions.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+Subsessions.generated.swift",
         "type": "SubsessionSettingsSchema",

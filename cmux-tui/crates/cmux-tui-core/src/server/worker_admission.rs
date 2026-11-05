@@ -13,6 +13,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 #[cfg(test)]
 use std::time::Instant;
 
+/// `agent.message.wait` workers: one wake hook per connection, one per idle
+/// terminal agent on the daemon (agent_message_wait.rs).
+pub(super) const AGENT_MESSAGE_WAITS_PER_CLIENT_CAPACITY: usize = 1;
+pub(super) const AGENT_MESSAGE_WAITS_SERVER_CAPACITY: usize = 256;
+
 #[derive(Default)]
 struct ResourceWorkerAdmissionState {
     active: usize,

@@ -419,6 +419,9 @@ extension SettingsSchema {
         "agents.autoRetry.enabled": .userOnly,
         "agents.autoRetry.intervalSeconds": .userOnly,
         "agents.autoRetry.attempts": .userOnly,
+        // Whether an agent message starts an idle agent's turn spends the person's usage, and an
+        // agent must not turn off another agent's wake: the person's call.
+        "agents.messages.claudeWake": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not
         // widen what it may open without asking.
         "agents.trust.autoTrust": .userOnly,

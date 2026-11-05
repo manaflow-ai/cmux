@@ -320,6 +320,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             group("settings.group.subsessions"),
             // Whether a turn a rate limit or a lost connection ended is tried again, how often.
             group("settings.group.agentRetry"),
+            // Whether an idle terminal Claude is woken for its agent messages (issue 36496).
+            group("settings.group.agentMessages"),
             // Folders that start an agent without the trust question.
             group("settings.group.folderTrust"),
         ],

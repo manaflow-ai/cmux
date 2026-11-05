@@ -1,0 +1,39 @@
+{
+  "$comment": "HAND-EDITED source of the Agent Messages settings: how a message from another agent or a person (cmux agent message) reaches an agent in a terminal (issue 36496). The terminal agent hook helper reads these keys from the settings file (cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook/inbox.rs) and checks this file's defaults in its tests; gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "agentMessages",
+      "section": "general",
+      "group": {
+        "key": "settings.group.agentMessages",
+        "text": "Agent Messages"
+      },
+      "note": "Settings > Agents > Agent Messages (issue 36496). Messages always reach an agent in its turns (the prompt hook); this decides whether an idle one is woken for them.",
+      "rows": [
+        {
+          "key": "agents.messages.claudeWake",
+          "name": "claudeWake",
+          "note": "On: Claude Code in a cmux terminal, started through cmux's claude wrapper, runs a background asyncRewake hook after its start and each turn that waits in the daemon (agent.message.wait) and wakes an idle session with its messages as a system reminder. Off: the hook exits at once; messages wait for the session's next prompt. Read when the hook starts and again before it hands messages over.",
+          "title": {
+            "key": "settings.agents.messages.claudeWake",
+            "text": "Wake Idle Claude for Messages"
+          },
+          "help": {
+            "key": "settings.agents.messages.claudeWake.help",
+            "text": "When another agent or a person sends a message to Claude Code in a terminal, an idle session starts a turn to read it. Nothing is typed into the terminal. Off: the message waits for the next prompt in that session."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "message",
+            "inbox",
+            "wake",
+            "idle",
+            "claude",
+            "agents"
+          ]
+        }
+      ]
+    }
+  ]
+}
