@@ -54,6 +54,7 @@ import {
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 import { backgroundRunFoldFor, foldBackgroundRuns, openBackgroundRuns } from "./backgroundRuns";
 import { turnFoldStyle, type TurnFoldStyle } from "./turnFoldStyle";
+import { canonicalCall } from "../toolNames";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -2038,6 +2039,10 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
   const label = toolLabel(tool, text, (command) => command);
   const path = editedPaths(tool)[0];
   if (!path || tool.kind === "execute") return label;
+  // A search names its pattern, not the folder it searches in (toolNames.ts).
+  const canonical = canonicalCall(tool)?.tool;
+  if (canonical === "search" || canonical === "glob" || canonical === "fetch" || canonical === "websearch")
+    return label;
   return `${label.split(/\s+/, 1)[0]} ${path.split("/").pop() || path}`;
 }
 

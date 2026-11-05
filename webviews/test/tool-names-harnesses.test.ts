@@ -9,8 +9,9 @@ import { agentCall } from "../src/agent-session/acpmux/conversation/agentCalls";
 import { toolGroupKind, toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 import { toolRunSummary } from "../src/agent-session/acpmux/conversation/toolRunSummary";
 import { writeCall } from "../src/agent-session/acpmux/conversation/WriteLabel";
+import { turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
-import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
+import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {
   canonicalCall,
   HARNESS_TOOL_NAMES,
@@ -163,4 +164,20 @@ test("calls no table names keep their titles", () => {
   expect(canonicalCall(call("mcp__repo__repo_grep", "other"))).toBeUndefined();
   expect(canonicalCall(call("ScheduleWakeup", "other"))).toBeUndefined();
   expect(label(call("Frobnicate", "other"))).toBe("Frobnicate");
+});
+
+test("the live line names a running search by its pattern, not the folder it searches", () => {
+  const user: AcpmuxRow = { id: "u1", version: 1, at: 0, kind: "user", text: "find it" };
+  for (const harness of ["claude", "opencode", "pi"] as const) {
+    const search = { ...HARNESS_CALLS[harness].search, status: "in_progress" };
+    const activity: AcpmuxRow = {
+      id: "a1",
+      version: 1,
+      at: 1,
+      kind: "activity",
+      items: [{ kind: "tool", text: search.title, tool: search }],
+    };
+    const live = turnView([user, activity], new Set(), { working: true }).find((row) => row.kind === WORKING);
+    expect(live?.doing, harness).toMatch(/ useTool$/);
+  }
 });
