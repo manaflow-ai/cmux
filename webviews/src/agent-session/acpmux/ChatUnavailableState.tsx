@@ -67,7 +67,7 @@ export function ChatUnavailableState({
   const named =
     unavailable.reason === "deleted"
       ? (unavailable.machine ?? machine)
-      : unavailable.reason === "notFound"
+      : unavailable.reason === "notFound" || unavailable.reason === "gone"
         ? machine
         : unavailable.machine;
   let title: string;

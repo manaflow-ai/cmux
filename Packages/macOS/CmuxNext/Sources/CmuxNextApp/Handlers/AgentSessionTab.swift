@@ -30,7 +30,6 @@ enum AgentSessionTab {
         switch AgentLaneStore.shared.lanes.values.localSession(session) {
         case .session(let id): return id
         case .asGiven: return session
-        case .unknown: throw ActionFailure(message: MiscHandlerStrings.noLocalSession(session))
         case .ambiguous: throw ActionFailure(message: MiscHandlerStrings.ambiguousLocalSession(session))
         }
     }

@@ -55,14 +55,15 @@ struct AgentLocalSessionTests {
         }
     }
 
-    @Test func aPeersChatNeverAnswersForThisMac() {
-        #expect(Self.lanes.localSession("peer-harness") == .unknown)
-        #expect(Self.lanes.localSession("01a16b00") == .unknown)
+    @Test func aPeersNameOrHarnessIdNeverAnswersForThisMacButItsMirroredIdStillOpens() {
+        #expect(Self.lanes.localSession("peer-harness") == .asGiven)
+        #expect(Self.lanes.localSession("01a16b00") == .session("01a16b00"))
     }
 
-    @Test func anUnknownSessionIdOpensAsGivenAndUnknownTextIsRefused() {
+    @Test func anIdOrNameNothingGoesByOpensAsGiven() {
+        // A chat that just started, a fixed-id session or one acpmux keeps without a lane.
         #expect(Self.lanes.localSession("01a1ffff-0000-7000-8000-000000000000") == .asGiven)
-        #expect(Self.lanes.localSession("no-such-lane") == .unknown)
+        #expect(Self.lanes.localSession("trigger_lane-1") == .asGiven)
     }
 
     @Test func aNameTwoChatsGoByIsAmbiguous() {

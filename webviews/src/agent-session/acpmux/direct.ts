@@ -771,10 +771,7 @@ function namesChat(session: Session, name: string): boolean {
 /// recorded that. `session`: the one chat it names, which the tab opens and rebinds to. `ambiguous`:
 /// it names more than one, so the pane cannot tell which (chatUnavailable.ts `gone`). Neither: it
 /// names nothing listed (the chat may be on a machine not connected yet).
-export function chatNamedBy(
-  id: string,
-  sessions: readonly Session[],
-): { session?: string; ambiguous: boolean } {
+export function chatNamedBy(id: string, sessions: readonly Session[]): { session?: string; ambiguous: boolean } {
   if (!id || sessions.some((session) => session.sessionId === id)) return { ambiguous: false };
   const named = sessions.filter(
     (session) =>
@@ -2739,14 +2736,15 @@ export class AcpmuxDirectClient {
       // A tab that recorded the chat's name or its harness's session id in place of acpmux's id
       // opens the one listed chat that goes by it, and the app rebinds the tab to that chat's id
       // (`onSessionChange`), so it never waits on "Reconnecting…" for an id no machine will list.
-      const named = this.selectedSessionId !== undefined ? chatNamedBy(this.selectedSessionId, this.sessions) : undefined;
+      const named =
+        this.selectedSessionId !== undefined ? chatNamedBy(this.selectedSessionId, this.sessions) : undefined;
       if (named?.session !== undefined) {
         this.wire.lifecycle("tab session named", { asked: this.selectedSessionId, opened: named.session });
         this.selectedSessionId = named.session;
         this.selectionGeneration += 1;
         this.resetSessionState();
         // The host keeps it as the tab's session (`chat.persistSession`), so the tab is rebound.
-        this.markAdopted(named.session);
+        this.rebound = named.session;
       }
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
         // A linked session the daemon lacks is refused, never replaced by the most recent chat.
@@ -3783,13 +3781,20 @@ export class AcpmuxDirectClient {
     this.missingAmbiguous = named.ambiguous;
     const target = named.session ?? missing;
     if (!this.sessions.some((session) => session.sessionId === target)) return false;
-    const [reason, since, peer, ambiguous] = [this.missingReason, this.missingSince, this.missingPeer, this.missingAmbiguous];
+    const [reason, since, peer, ambiguous] = [
+      this.missingReason,
+      this.missingSince,
+      this.missingPeer,
+      this.missingAmbiguous,
+    ];
     const opening = this.select(target);
     // A chat the id only names: the host rebinds the tab to its id once it opens.
     if (target !== missing)
       void opening.then(
         (opened) => {
-          if (opened === target && this.selectedSessionId === target) this.markAdopted(target);
+          if (opened !== target || this.selectedSessionId !== target) return;
+          this.rebound = target;
+          this.onAdopted?.(target);
         },
         () => undefined,
       );
@@ -9399,6 +9404,10 @@ export class AcpmuxDirectClient {
   }
   /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
   adopted?: string;
+  /** The chat the tab's recorded id only named (`chatNamedBy`: its name or its harness's session
+   *  id): the host keeps it as the tab's session, so the tab is rebound to acpmux's id. Not an
+   *  adopt: the tab's harness and start are as they were. */
+  rebound?: string;
   /** Called each time this client adopts a chat as the tab's (`adopted`) after the connect: a
    *  fork or Open Anyway from the live-chat choice, or an adopt retried after Trust. The host
    *  keeps it as the tab's session, so restoring the tab reopens it. */

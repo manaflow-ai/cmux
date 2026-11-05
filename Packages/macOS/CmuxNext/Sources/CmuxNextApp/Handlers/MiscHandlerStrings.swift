@@ -56,12 +56,8 @@ enum MiscHandlerStrings {
     static func ambiguousPeerSession(_ session: String, _ peer: String) -> String {
         String(format: String(localized: "handlers.misc.failed.ambiguousPeerSession", defaultValue: "%1$@ has more than one chat named %2$@. Name it by its session id.", table: "MiscHandlers", bundle: .module), peer, session)
     }
-    /// `agent.openSessionTab` / `agent.openSessionWorkspace` with a `session` that is no session id
-    /// and no live chat's name here.
-    static func noLocalSession(_ session: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.noLocalSession", defaultValue: "No running chat here is named %@. Name it by its session id.", table: "MiscHandlers", bundle: .module), session)
-    }
-    /// The same, with a `session` more than one live chat here goes by.
+    /// `agent.openSessionTab` / `agent.openSessionWorkspace` with a `session` more than one live chat
+    /// here goes by (its name or harness session id).
     static func ambiguousLocalSession(_ session: String) -> String {
         String(format: String(localized: "handlers.misc.failed.ambiguousLocalSession", defaultValue: "More than one chat here is named %@. Name it by its session id.", table: "MiscHandlers", bundle: .module), session)
     }
