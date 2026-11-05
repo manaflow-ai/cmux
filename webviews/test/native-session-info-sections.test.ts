@@ -285,6 +285,46 @@ test("Changes exposes current overflow actions and line breakdown", async () => 
   expect(copied).toEqual([url, "example/project#7"]);
 });
 
+test("a pull request's View diff opens its Files tab, in Changes and in Sources", async () => {
+  const actions = new NativeInfoActions();
+  const opened: string[] = [];
+  const url = "https://github.com/example/project/pull/7";
+  const changes = changesSection(
+    {
+      pullRequests: [{ url, repo: "example/project", number: 7, title: "Update panel", state: "open", opened: true }],
+      statuses: {},
+      open: true,
+      onOpenBeside: (target) => opened.push(target),
+    },
+    actions,
+    t,
+  )!;
+  const changesMenu = changes.rows[0]!.menu!;
+  expect(changesMenu[0]!.label).toBe(t("sessionInfo.changes.viewDiff"));
+  actions.run(changesMenu[0]!.action);
+  const sources = sourcesSection(
+    {
+      sources: [
+        { url, label: "project #7", kind: "pullRequest" },
+        { url: "https://github.com/example/project/issues/8", label: "project #8", kind: "issue" },
+      ],
+      onOpenBeside: (target) => opened.push(target),
+      expanded: false,
+      onExpandedChange: () => undefined,
+      open: true,
+    },
+    actions,
+    t,
+  )!;
+  const [pull, issue] = sources.rows;
+  expect(pull!.menu!.map((item) => item.label)).toEqual([t("sessionInfo.changes.viewDiff")]);
+  // An issue has no diff.
+  expect(issue!.menu).toBeUndefined();
+  actions.run(pull!.menu![0]!.action);
+  await Promise.resolve();
+  expect(opened).toEqual([`${url}/files`, `${url}/files`]);
+});
+
 test("Changes uses the state color for every pull-request glyph", () => {
   const states = ["open", "merged", "draft", "closed", "conflicting"] as const;
   const pullRequests: SummaryPullRequest[] = states.map((state, index) => ({

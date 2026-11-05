@@ -30,6 +30,11 @@ struct GitHubPageProviderTests {
         let link = GitHubLink(URL(string: "https://github.com/manaflow-ai/cmux/pull/36002/files")!)
         #expect(link?.url == Self.pull)
         #expect(link?.reference == "manaflow-ai/cmux#36002")
+        // The Files tab opens the diff itself; the plain link opens the page.
+        #expect(link?.files == true)
+        #expect(link?.filesURL.absoluteString == "https://github.com/manaflow-ai/cmux/pull/36002/files")
+        #expect(GitHubLink(Self.pull)?.files == false)
+        #expect(GitHubLink(URL(string: "https://github.com/manaflow-ai/cmux/pull/36002/commits")!)?.files == false)
         for other in ["https://github.com/manaflow-ai/cmux/issues/1", "https://github.com/manaflow-ai/cmux/pull/1#issuecomment-2",
                       "https://github.com/manaflow-ai/cmux/pull/1?w=1", "https://gitlab.com/a/b/pull/1", "http://github.com/a/b/pull/1",
                       "https://github.com/manaflow-ai/cmux/commit/abc"] {

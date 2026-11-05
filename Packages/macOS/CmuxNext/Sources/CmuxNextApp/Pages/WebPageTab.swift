@@ -107,6 +107,7 @@ extension WebPageTab {
         guard GitHubViewerTunables.nativePullRequests.value, let link = GitHubLink(url),
               LinkRouter.shared.target(for: url) == .cmuxBrowser, LinkRouter.shared.routing().browserEnabled,
               source.daemon.supports(DaemonCapability.pageTabs.rawValue), case .connected = source.daemon.store.connectionState else { return nil }
+        if link.files { return openGitHubDiff(link, from: source, services: services) }
         let tab = registerGitHub(services)
         // The workspace's GitHub tab, wherever it is: selected and moved to this link, no new page.
         for pane in source.workspace?.panes.values.map({ $0 }) ?? [source] {
@@ -126,5 +127,25 @@ extension WebPageTab {
             return services.pages.openStoreTab(.github, in: pane, window: window, focus: placed == nil, key: key, created: placed ?? adopt,
                                                requiresSurface: placed != nil) != nil
         }
+    }
+
+    /// A pull request's Files tab (Session Info's View diff, a `/pull/N/files` link in a reply): its
+    /// diff (`gh pr diff`) in the diff viewer beside the chat, no page in between (Leo, 2026-11-05:
+    /// "you want to see the diff? Boom, here's a diff"). A diff that could not be read opens the Files
+    /// tab's web page instead.
+    static func openGitHubDiff(_ link: GitHubLink, from source: PaneController, services: AppServices) -> Bool {
+        // task-owner: one gh diff read per click; it opens the diff, or the web page when the read fails.
+        Task { @MainActor [weak source, weak services] in
+            // Detached: the read decodes up to 16 MB, never on the main thread.
+            let text = await Task.detached(priority: .userInitiated) { await AgentChatPullRequestReader().diff(url: link.url) }.value
+            guard let source, let services else { return }
+            guard let text, text.hasPrefix("diff --git ") else {
+                _ = services.linkOpener.openWeb(link.filesURL, from: source, background: false, reusesTab: true)
+                return
+            }
+            // Its tab is named `repo#N` (the folder's last part), as the GitHub page's View diff.
+            services.viewers.diffPages.open(chatPatch: DiffChatPatch(text: text, file: nil, folder: "/" + link.reference), in: source, focus: true)
+        }
+        return true
     }
 }
