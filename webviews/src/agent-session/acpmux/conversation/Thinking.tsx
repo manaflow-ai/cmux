@@ -98,7 +98,8 @@ function useRoll(key: string | undefined, label: string, lead: Roll["lead"]): Ro
       key,
       label,
       lead,
-      turns: roll.turns + (rolls ? 1 : 0),
+      // Away clears the count too: the words that come back draw no roll in.
+      turns: key === undefined ? 0 : roll.turns + (rolls ? 1 : 0),
       out: rolls ? { ...roll, out: undefined } : undefined,
     });
   } else if (label !== roll.label) setRoll({ ...roll, label, lead });

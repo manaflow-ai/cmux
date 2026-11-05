@@ -2320,7 +2320,7 @@ pre.cv-math-source {
    calls at the bottom"): the old words (`cv-roll-out`, their action in full ink as the line drew
    them) rise, soften and fade out above while the new rise in from below. Transform, opacity and a
    small blur only, on the agent motion token, so nothing reflows and ui.animationSpeed scales it.
-   Reduce Motion and agent motion off or reduced change the words at once; the old words never
+   Reduce Motion, agent motion off or reduced, and the static status look change the words at once; the old words never
    show. Two keyframes of one roll, swapped each change, restart it on the same element, so the
    line's live region is never remounted. The new words fill backwards only, so no filter stays on
    the shimmer once they land. */
@@ -2328,7 +2328,7 @@ pre.cv-math-source {
   display: none;
 }
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-roll-out {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-status-indicators="static"]) .cv-roll-out {
     display: block;
     position: absolute;
     inset: 0;
@@ -2338,24 +2338,20 @@ pre.cv-math-source {
     pointer-events: none;
     user-select: none;
     -webkit-user-select: none;
-    color: var(--cv-text-muted);
+    color: var(--cv-text-dim);
     animation: cv-roll-out var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
-  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]):not([data-status-indicators="static"])
-    .cv-roll-out {
-    color: var(--cv-text-dim);
-  }
-  .cv-roll-out::before {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-status-indicators="static"]) .cv-roll-out::before {
     content: attr(data-lead);
     color: var(--cv-text);
   }
-  .cv-roll-out::after {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-status-indicators="static"]) .cv-roll-out::after {
     content: attr(data-text);
   }
-  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-thinking[data-roll="odd"] {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-status-indicators="static"]) .cv-thinking[data-roll="odd"] {
     animation: cv-roll-in-odd var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
   }
-  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-thinking[data-roll="even"] {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-status-indicators="static"]) .cv-thinking[data-roll="even"] {
     animation: cv-roll-in-even var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
   }
 }

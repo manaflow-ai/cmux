@@ -207,4 +207,5 @@ test("the words back after a retry roll nothing in, and no old words rise again"
   );
   act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="Read App.tsx" doingAt={1} />));
   expect(container.querySelector(".cv-roll-out")).toBeNull();
+  expect(container.querySelector("output.cv-thinking")?.hasAttribute("data-roll")).toBe(false);
 });
