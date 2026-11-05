@@ -430,7 +430,19 @@ def step_hid_drag(j, step):
                       "app_downs": downs, "first": got[:2], "last": got[-2:]})
         if downs and not bad:
             j.hid_drag_mode = mode
+            mods_landed = None
+            if step.get("modifiers"):
+                # The drag must carry its modifiers to the app (a Command drag is another mode): the app's own journal, its
+                # mouse-down after the call, with every modifier asked for (as real_click proves its click). Fails closed.
+                down = R._journal_mouse_down(j, seq)
+                want = {R.MODIFIERS.get(m, m) for m in step["modifiers"]}
+                got_mods = {R.MODIFIERS.get(m, m) for m in ((down or {}).get("modifiers") or [])}
+                if down is None or not want <= got_mods:
+                    raise D.NotRun(f"hid_drag: the drag reached cmux without its modifiers {sorted(want)}: the app's mouse-down "
+                                   f"had {sorted(got_mods) if down else 'no record'}")
+                mods_landed = sorted(got_mods)
             return {"mode": mode, "from": list(start), "to": list(end), "args": args, "scale": scale,
+                    "modifiers_landed": mods_landed,
                     "duration_ms": duration, "steps": steps, "sent": round(sent, 6), "returned": round(returned, 6),
                     "drag_s": round(returned - sent, 4), "app_mouse_events": len(got), "first": got[:2], "last": got[-2:],
                     "windows_at_start": getattr(j, "input_rows_at", None)}

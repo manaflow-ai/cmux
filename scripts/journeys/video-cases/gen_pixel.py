@@ -591,6 +591,24 @@ def key_then_clamp_play(speed, by=1, ms=1500):
             rest(land(speed), "A's spring and the split's clamp land and rest")]
 
 
+def cmd_col_edge_play(speed):
+    """A real Command-drag of vertical divider 1 (the p1|p2 column edge) 30 pt LEFT in 0.3 s, Command down for the whole drag
+    (hid_drag proves it reached cmux). Every column takes p1's width, 15 pt narrower: the strip still fits its viewport, so
+    the camera has no room (the red case of CommandColumnEdgeFollowsPointerTests, -30). Read with cmd_edge.py: the edge at
+    the mouse-up within 0.5 pt of the pointer, and no move after the up (on feat it slid on under the still pointer)."""
+    return [{"do": "hid_drag", "target": {"divider": 1}, "by": [-30, 0], "duration_ms": 300, "hold_ms": 0,
+             "modifiers": ["cmd"], "mark": "cmd", "title": "Command-drag of the p1|p2 column edge 30 pt left in 0.3 s"},
+            rest(0.6 + land(speed), "the columns land and rest")]
+
+
+def cmd_col_edge_rebuild():
+    """Every column back to a third of the viewport for the next film (the Command drag changed every width)."""
+    steps = []
+    for name in ("p0", "p1", "p2"):
+        steps += [focus(name), {"do": "try_action", "action": "column.widthOneThird", "title": f"set-up: {name}'s column to a third"}]
+    return steps + [rest(0.8, "the column widths land"), focus("p0")]
+
+
 def key_then_drag_rebuild(target, by, speed=None):
     """The layout back for the next film: the dragged edge back by -BY (at rest now), then Ctrl-Shift-H on p0 (its spring at
     the films' SPEED, x0.25 unless named)."""
@@ -729,6 +747,15 @@ def cases():
                     C2X, key_then_clamp_play, "move", "key then held split (clamp)", before=clamp_before(),
                     rebuild=[focus("p0"), press(H, "unkey"), rest(land(SPEEDS_S2BT[0][1]), "p0's column back (its key spring lands)")],
                     play_seconds=lambda s: 2.0 + land(s), fixture_tunables=[(HIT_WIDTH, 24)], speeds=SPEEDS_S2BT))
+    # S2B Command column edge (frame-owner-s2 #36017, CommandColumnEdgeFollowsPointerTests): with Command held, a column-edge
+    # drag gives every column the dragged column's width; the dragged edge must still follow the pointer. Three columns at a
+    # third each fit the viewport (no camera room): on feat a 30 pt drag of c1's right edge (vertical divider 1) showed 31 pt,
+    # then slid on to 56 pt under a still pointer. Left, so the strip still fits after the drag (right would make it scroll).
+    out.append(Case(f"px-cmd-col-edge-{C3T.key}", f"the p1|p2 column edge dragged 30 pt left with Command held "
+                    f"({C3T.text}; terminals only; every column takes p1's width; the strip still fits)", C3T, cmd_col_edge_play, None,
+                    "command drag",
+                    before=[focus("p0")], rebuild=cmd_col_edge_rebuild(), play_seconds=lambda s: 1.8 + land(s),
+                    fixture_tunables=[(HIT_WIDTH, 24)], speeds=SPEEDS_S1R))
     # The pointer chases the clamp (frame-owner-s2's SharedEdgeClamp.follow, #35775 ddf0ac45b40): 30 pt right in 0.6 s, past
     # the clamp (8-18 pt away at x0.125).
     out.append(Case(f"px-keys-then-clamp-chase-{C2X.key}", f"Ctrl-Shift-L on p0, then the split x in B dragged 30 pt right in 0.6 s during "
