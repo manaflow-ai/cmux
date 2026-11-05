@@ -175,6 +175,13 @@ async fn the_same_persons_machine_reads_a_reply_through_the_hub_and_no_one_else_
         .collect();
     assert_eq!(replies, ["pong from b"]);
 
+    // The app's open of the chat: a hidden attach there, answered with its detail and newest page.
+    let attach = json!({"sessionId": format!("machine-b/{session}"), "limit": 200, "maxBytes": 1 << 20});
+    let opened = read(&hub, "machine-b", &session, method::MUX_ATTACH, &attach).await.unwrap();
+    assert_eq!(opened["session"]["sessionId"].as_str(), Some(session.as_str()), "{opened}");
+    assert!(opened["events"].as_array().is_some_and(|events| !events.is_empty()), "{opened}");
+    assert_eq!(opened["peer"], "machine-b");
+
     // Another person is refused by B itself, whatever the hub let through.
     let other = Loopback::new(&b, dir.path(), "person-2");
     let refused = read(&other, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();

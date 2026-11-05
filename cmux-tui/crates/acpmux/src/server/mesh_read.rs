@@ -3,8 +3,10 @@
 //! me."
 //!
 //! A read is a control message with op `read` (cmux-platform `MeshOp`). Its body names one
-//! read-only method and its params: `{"version": 1, "method": "_acpmux/events" | "_acpmux/info",
-//! "params": {...}}`. The receiving daemon runs it on its own session, as a peer daemon's request
+//! read-only method and its params: `{"version": 1, "method": "_acpmux/events" | "_acpmux/info"
+//! | "_acpmux/attach", "params": {...}}`. An attach there is a hidden one, answered with the
+//! chat's detail and newest page; the connection it ran on ends with the read, so it streams
+//! nothing (the chat opens as it is then). The receiving daemon runs it on its own session, as a peer daemon's request
 //! (`Origin::Peer`), and puts the answer in the ack's `result`. The sender waits on the message's
 //! receipt (`MeshHub::answer`), and the hub shows the result to the sender alone. That is
 //! Tailscale's DERP shape: the relay forwards over connections both ends already hold, and only
@@ -14,7 +16,8 @@
 //! user. The receiver checks the hub-stamped sender against its own `meshRelay.controlFrom`
 //! (`sameUser`, the entry `host join` writes) before anything runs (`MeshControlHook::control`).
 //!
-//! The sending side is [`forward`]. An `_acpmux/info` or `_acpmux/events` for `HOST/KEY` that
+//! The sending side is [`forward`]. An `_acpmux/info`, `_acpmux/events` or `_acpmux/attach` for
+//! `HOST/KEY` that
 //! nothing here and no ssh peer resolves (`Hub::mesh_may_route`, the send fallback's own test)
 //! goes to the hub when this daemon has one. It is taken only from this machine's own socket or
 //! the app's pane, never from a peer daemon's link. Its answer carries `peer: HOST` and
@@ -28,11 +31,17 @@ use crate::mesh::{
 use std::time::Duration;
 
 /// The methods a read may run: each answers a page of a session and changes nothing.
-const READ_METHODS: &[&str] = &[method::MUX_INFO, method::MUX_EVENTS];
+const READ_METHODS: &[&str] = &[method::MUX_INFO, method::MUX_EVENTS, method::MUX_ATTACH];
+
+/// Whether `m` reads a page of events, so its params cross and its budget halves.
+fn pages(m: &str) -> bool {
+    matches!(m, method::MUX_EVENTS | method::MUX_ATTACH)
+}
 
 /// The params of an events read that go across. The session is the target's; nothing else is
 /// taken from the asker.
-const EVENT_PARAMS: &[&str] = &["afterSeq", "beforeSeq", "limit", "kinds", "maxBytes", "promptIndex"];
+const EVENT_PARAMS: &[&str] =
+    &["afterSeq", "beforeSeq", "limit", "kinds", "maxBytes", "promptIndex", "waitLogs"];
 
 /// The largest events page a read asks for first. The JSON of a page runs past its byte budget
 /// (`hub/paging.rs` counts records, not the reply around them), so this leaves the hub's 64 KiB
@@ -81,7 +90,7 @@ async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
     let session = hub.mesh_target(&target, None).map_err(|why| format!("{NO_SESSION}: {why}"))?;
     let mut params = json!({"sessionId": session.id});
     let asked = body.get("params").and_then(Value::as_object);
-    if m == method::MUX_EVENTS {
+    if pages(m) {
         for key in EVENT_PARAMS {
             if let Some(value) = asked.and_then(|p| p.get(*key)) {
                 params[*key] = value.clone();
@@ -100,8 +109,12 @@ async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
         "clientInfo": {"name": "acpmux-mesh-read", "version": crate::hub::VERSION},
     });
     super::rpc_call(&tx, &mut rx, 1, method::INITIALIZE, init).await.map_err(failure)?;
+    if m == method::MUX_ATTACH {
+        // Seen by no one here: it neither wakes the agent nor shows as a viewer.
+        params["visible"] = json!(false);
+    }
     for id in 2.. {
-        if m == method::MUX_EVENTS {
+        if pages(m) {
             params["maxBytes"] = json!(budget);
         }
         let reply = super::rpc_call(&tx, &mut rx, id, m, params.clone()).await.map_err(failure)?;
@@ -109,7 +122,7 @@ async fn run(hub: &Arc<Hub>, message: &InMessage) -> Result<String, String> {
         if text.len() <= MAX_READ_RESULT_BYTES {
             return Ok(text);
         }
-        if m != method::MUX_EVENTS || budget <= MIN_READ_PAGE_BYTES {
+        if !pages(m) || budget <= MIN_READ_PAGE_BYTES {
             break;
         }
         budget = (budget / 2).max(MIN_READ_PAGE_BYTES);
@@ -132,7 +145,7 @@ pub(crate) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    if !READ_METHODS.contains(&m) || !may_read(conn) {
+    if !(READ_METHODS.contains(&m) || m == method::MUX_DETACH) || !may_read(conn) {
         return None;
     }
     let mesh = hub.mesh.get()?.clone();
@@ -140,6 +153,10 @@ pub(crate) async fn forward(
     let (host, rest) = key.split_once('/')?;
     if host.is_empty() || rest.is_empty() || !hub.mesh_may_route(key) {
         return None;
+    }
+    // A hub attach holds no stream, so there is nothing to detach.
+    if m == method::MUX_DETACH {
+        return Some(Ok(json!({})));
     }
     Some(read(mesh.as_ref(), host, rest, m, params).await)
 }
@@ -168,7 +185,7 @@ fn recipient(host: &str, key: &str) -> Target {
 /// The request body a read carries: the method and only the params the receiver takes.
 fn body(m: &str, params: &Value) -> String {
     let mut picked = serde_json::Map::new();
-    if m == method::MUX_EVENTS {
+    if pages(m) {
         for key in EVENT_PARAMS {
             if let Some(value) = params.get(*key) {
                 picked.insert((*key).to_owned(), value.clone());
