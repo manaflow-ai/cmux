@@ -61,7 +61,8 @@ MAX_PAGES = 5
 PIN_AFTER_S = 30 * 60
 NEXT_FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
 # A NEXT build number is <run id><two-digit attempt>.
-BUILD = re.compile(r"<sparkle:version>\s*([0-9]{3,})\s*</sparkle:version>")
+# At most 20 digits: anything longer is no build number, and int() of it could raise past Python's digit limit.
+BUILD = re.compile(r"<sparkle:version>\s*([0-9]{3,20})\s*</sparkle:version>")
 
 Get = Callable[[str], Any]
 
@@ -98,8 +99,8 @@ def last_published_run(feed: bytes) -> int | None:
         raise Unreadable("feed over 2 MB")
     text = feed.decode("utf-8", "replace")
     builds = [int(build) // 100 for build in BUILD.findall(text)]
-    if not builds and "<item" in text:
-        raise Unreadable("a feed item with no build number")
+    if text.count("<sparkle:version>") != len(builds) or not builds and "<item" in text:
+        raise Unreadable("a feed item with no readable build number")
     return max(builds) if builds else None
 
 

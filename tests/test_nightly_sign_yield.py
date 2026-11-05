@@ -263,7 +263,10 @@ class NeverPast30MinutesTest(unittest.TestCase):
         self.assertFalse(decide(105, runs, created=created, published=(90,))[0])
 
     def test_an_unreadable_feed_signs(self):
-        for reader in (lambda: b"<item><title>no build</title></item>", lambda: b"x" * 2_000_001):
+        huge = b"<item><sparkle:version>" + b"9" * 5000 + b"</sparkle:version></item>"
+        mixed = b"<item><sparkle:version>4190094575701</sparkle:version></item><item><sparkle:version>x</sparkle:version></item>"
+        for reader in (lambda: b"<item><title>no build</title></item>", lambda: b"x" * 2_000_001,
+                       lambda: huge, lambda: mixed):
             with self.subTest():
                 fake = Fake(self.NEWER)
                 self.assertFalse(sy.decide(env(103), fake, log=lambda _: None, feed=reader, now=lambda: NOW)[0])
