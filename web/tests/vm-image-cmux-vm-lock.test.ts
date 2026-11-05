@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   aptClosureProblems,
   basePackageProblems,
@@ -489,17 +492,51 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
       version: "0.1.0",
       url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.1.0/cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
       format: "tar.gz",
-      bin: { "cmux-rd": "cmux-rd-0.1.0-x86_64-unknown-linux-gnu/cmux-rd" },
+      bin: { "cmux-rd": "bin/cmux-rd" },
       versionArgs: [],
       checksumsUrl: "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.1.0/checksums.txt",
       checksumsName: "cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"],
       roles: ["desktop"],
     });
     expect(problemsOf(withRd())).toEqual([]);
     const lock = validateInputsLock(withRd());
     expect(bakedPrograms(lock).map((p) => p.name)).toContain("cmux-rd");
-    expect(profileLinks(lock).find((l) => l.command === "cmux-rd")?.target).toBe(`/opt/cmux/store/${"cd".repeat(32)}/cmux-rd-0.1.0-x86_64-unknown-linux-gnu/cmux-rd`);
+    expect(profileLinks(lock).find((l) => l.command === "cmux-rd")?.target).toBe(`/opt/cmux/store/${"cd".repeat(32)}/bin/cmux-rd`);
     expect(programInstallCommand(lock.programs[rdIndex(withRd())])).toContain(`grep -qx '${"cd".repeat(32)}  cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz'`);
+  });
+
+  test("the install unpacks an archive packed as scripts/release.py packs it (bin/cmux-rd, LICENSE, THIRD_PARTY_LICENSES.md at the root)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-rd-archive-"));
+    try {
+      const archive = path.join(dir, "cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz");
+      // The members, modes and order of release.py package(); written here, not derived from the shape.
+      const pack = [
+        "import gzip, io, sys, tarfile",
+        "raw = io.BytesIO()",
+        "with tarfile.open(fileobj=raw, mode='w', format=tarfile.PAX_FORMAT) as tar:",
+        "    for name, mode, payload in (('LICENSE', 0o644, b'GPL'), ('THIRD_PARTY_LICENSES.md', 0o644, b'# notices'), ('bin', 0o755, None), ('bin/cmux-rd', 0o755, b'#!/bin/sh\\necho rd\\n')):",
+        "        info = tarfile.TarInfo(name); info.mode = mode",
+        "        if payload is None: info.type = tarfile.DIRTYPE; tar.addfile(info)",
+        "        else: info.size = len(payload); tar.addfile(info, io.BytesIO(payload))",
+        "open(sys.argv[1], 'wb').write(gzip.compress(raw.getvalue(), mtime=0))",
+      ].join("\n");
+      expect((await runChild("python3", ["-I", "-c", pack, archive], { timeout: 20_000 })).status).toBe(0);
+      const bytes = readFileSync(archive);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const program = { ...cmuxRdReleaseShape("0.1.0"), sha256, size: bytes.length, url: `file://${archive}`, checksumsUrl: undefined, checksumsName: undefined };
+      const store = path.join(dir, "store");
+      const command = programInstallCommand(program).replaceAll("/opt/cmux/store", store).replaceAll("/tmp/cmux-dl", path.join(dir, "dl"));
+      const r = await runChild("bash", ["-c", command], { timeout: 60_000 });
+      expect(r.stderr).toBe("");
+      expect(r.status).toBe(0);
+      const entry = path.join(store, sha256);
+      for (const target of [...Object.values(program.bin), ...program.notices]) expect(existsSync(path.join(entry, target))).toBe(true);
+      expect((await runChild(path.join(entry, program.bin["cmux-rd"]), [], { timeout: 20_000 })).stdout.trim()).toBe("rd");
+    } finally {
+      await runChild("chmod", ["-R", "u+w", dir]);
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("another URL, no checksums.txt, no desktop role or a first-use entry is refused", () => {

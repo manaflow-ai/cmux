@@ -385,6 +385,7 @@ export function rdActivateCommand(waitSeconds = 90): string {
     `echo "rd-host-user=$(ps -o user= -p "\${pid:-0}" 2>/dev/null | tr -d ' ')"`,
     `echo "rd-host-cmd=$(tr '\\0' ' ' < /proc/\${pid:-0}/cmdline 2>/dev/null | sed 's/^[^ ]*cmux-rd /cmux-rd /')"`,
     `echo "rd-host-tcp=$(ss -Htlnp 2>/dev/null | grep -c "pid=\${pid:-0}," || true)"`,
+    `echo "rd-host-udp=$(ss -Hulnp 2>/dev/null | grep -c "pid=\${pid:-0}," || true)"`,
     `echo "rd-xauth=$(stat -c '%a:%U' ${RD_XAUTHORITY} 2>/dev/null)"`,
     `sed 's/^/rd-root-/' /tmp/cmux-rd-probe-connect.txt`,
     'kill "$held" 2>/dev/null; wait "$held" 2>/dev/null; true',
@@ -406,9 +407,9 @@ async function desktopChecks(vm: Vm, check: Checker): Promise<void> {
   check("rd-work-user-refused", before["work-connect"] === "EACCES", `connect as ${DEVBOX_WORK_USER}: ${before["work-connect"]}`);
   const a = kv((await run(vm, rdActivateCommand(), 150_000)).stdout);
   check(
-    "rd-root-connection-starts-host-as-its-user",
-    a["rd-root-connect"] === "connected" && a["rd-unit-active"] === "active" && a["rd-host-user"] === RD_USER && (a["rd-host-cmd"] ?? "").includes("--listen-systemd") && a["rd-host-tcp"] === "0",
-    JSON.stringify({ connect: a["rd-root-connect"], unit: a["rd-unit-active"], user: a["rd-host-user"], cmd: a["rd-host-cmd"], tcpListeners: a["rd-host-tcp"] }),
+    "rd-root-connection-starts-host-as-its-user-no-tcp-or-udp",
+    a["rd-root-connect"] === "connected" && a["rd-unit-active"] === "active" && a["rd-host-user"] === RD_USER && (a["rd-host-cmd"] ?? "").includes("--listen-systemd") && a["rd-host-tcp"] === "0" && a["rd-host-udp"] === "0",
+    JSON.stringify({ connect: a["rd-root-connect"], unit: a["rd-unit-active"], user: a["rd-host-user"], cmd: a["rd-host-cmd"], tcpListeners: a["rd-host-tcp"], udpSockets: a["rd-host-udp"] }),
   );
   check("rd-cookie-copy", a["rd-xauth"] === `600:${RD_USER}`, `${RD_XAUTHORITY} ${a["rd-xauth"]}`);
   const after = kv((await run(vm, rdWorkUserCommand(), 30_000, DEVBOX_WORK_USER)).stdout);

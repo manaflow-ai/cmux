@@ -624,23 +624,25 @@ export function cmuxCuaReleaseShape(version: string, arch: CuaArch) {
 export const CMUX_RD_TARGET = "x86_64-unknown-linux-gnu";
 
 /**
- * The lock entry shape for a cmux-rd Linux release: cmux-rd-<V>-x86_64-unknown-linux-gnu.tar.gz
- * (holding cmux-rd-<V>-x86_64-unknown-linux-gnu/cmux-rd) and the release's checksums.txt, role
- * desktop, baked (agent-tools.ts rdUnit starts it). `cmux-rd` has no --version, so the smoke only
- * checks it is executable. sha256 and size are added only from the published release.
+ * The lock entry shape for a cmux-rd Linux release, as cmux-tui/crates/cmux-rd-host/scripts/release.py
+ * packs it: cmux-rd-<V>-x86_64-unknown-linux-gnu.tar.gz holds bin/cmux-rd, LICENSE (GPL-3.0-or-later)
+ * and THIRD_PARTY_LICENSES.md at the archive root, beside the release's checksums.txt. Role desktop,
+ * baked (agent-tools.ts rdUnit starts it). `cmux-rd` has no --version, so the smoke only checks it is
+ * executable. sha256 and size are added only from the published release.
  */
 export function cmuxRdReleaseShape(version: string) {
-  const dir = `cmux-rd-${version}-${CMUX_RD_TARGET}`;
+  const archive = `cmux-rd-${version}-${CMUX_RD_TARGET}.tar.gz`;
   const base = `https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v${version}`;
   return {
     name: "cmux-rd" as const,
     version,
-    url: `${base}/${dir}.tar.gz`,
+    url: `${base}/${archive}`,
     format: "tar.gz" as const,
-    bin: { "cmux-rd": `${dir}/cmux-rd` },
+    bin: { "cmux-rd": "bin/cmux-rd" },
     versionArgs: [] as string[],
     checksumsUrl: `${base}/checksums.txt`,
-    checksumsName: `${dir}.tar.gz`,
+    checksumsName: archive,
+    notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"],
     roles: ["desktop" as const],
   };
 }

@@ -364,6 +364,10 @@ export function cuaUnit(): string {
 export const RD_USER = "cmux-rd";
 export const RD_SOCKET_UNIT = "cmux-agent-rd.socket";
 export const RD_UNIT = "cmux-agent-rd.service";
+/** Cisco's OpenH264 into the host's state dir, once: its own unit, so only it may open network sockets. */
+export const RD_OPENH264_UNIT = "cmux-agent-rd-openh264.service";
+/** The largest display cookie the host accepts (one MIT-MAGIC-COOKIE-1 entry is about 50 bytes). */
+export const RD_XAUTHORITY_MAX_BYTES = 4096;
 /**
  * Root and the host's group only (0710 root:RD_USER): the work user cannot even traverse it, and
  * RD_USER can reach only the cookie copy (the socket itself is 0600 root).
@@ -428,25 +432,86 @@ export function rdSocketUnit(): string {
 
 /**
  * Before the host starts, as root (`+`, outside the sandbox): RD_RUN_DIR's owner and mode again,
- * a bounded wait for the display's cookie and socket (the display unit, ordered before, writes
- * both), then the cookie copied for RD_USER. The display makes a new cookie at each start, and
+ * a bounded wait for the display's X socket (the display unit writes its cookie before Xvfb
+ * starts), then the cookie copied for RD_USER. The source is in the work user's home, which the
+ * agent controls, so root never opens it: it is read as the work user with no groups and no
+ * capabilities (a symlink can only reach what that user can already read), only when it is a
+ * regular file, bounded in time and size, into a root-only temp file in RD_RUN_DIR that is then
+ * handed to RD_USER and renamed into place. The display makes a new cookie at each start, and
  * BindsTo restarts the host with it, so each start copies it again.
  */
-function rdCookieCopy(): string {
+export function rdCookieCopy(): string {
   const src = AGENT_XAUTHORITY;
   const x11 = `/tmp/.X11-unix/X${AGENT_DISPLAY_NUMBER}`;
+  const tmp = `${RD_XAUTHORITY}.new`;
+  const asWorkUser = `setpriv --reuid=${DEVBOX_WORK_USER} --regid=${DEVBOX_WORK_USER} --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs`;
+  const fail = (why: string) => `{ echo "${why}" >&2; rm -f ${tmp}; exit 1; }`;
   return [
+    "umask 077",
     `install -d -m 0710 -o root -g ${RD_USER} ${RD_RUN_DIR}`,
-    `for i in $(seq 1 100); do [ -s ${src} ] && [ -S ${x11} ] && break; sleep 0.1; done`,
-    `[ -s ${src} ] && [ -S ${x11} ] || { echo "no cookie ${src} or socket ${x11} for display ${AGENT_DISPLAY}" >&2; exit 1; }`,
-    `install -m 0600 -o ${RD_USER} -g ${RD_USER} ${src} ${RD_XAUTHORITY}`,
+    `for i in $(seq 1 100); do [ -S ${x11} ] && break; sleep 0.1; done`,
+    `[ -S ${x11} ] || ${fail(`no socket ${x11} for display ${AGENT_DISPLAY}`)}`,
+    `rm -f ${tmp}`,
+    `timeout 5 ${asWorkUser} /bin/sh -c "test -f ${src} && test ! -L ${src} && head -c ${RD_XAUTHORITY_MAX_BYTES + 1} ${src}" > ${tmp} || ${fail(`the display cookie is not a regular file ${DEVBOX_WORK_USER} can read`)}`,
+    `test -s ${tmp} && test "$(wc -c < ${tmp})" -le ${RD_XAUTHORITY_MAX_BYTES} || ${fail(`the display cookie is empty or larger than ${RD_XAUTHORITY_MAX_BYTES} bytes`)}`,
+    `chown ${RD_USER}:${RD_USER} ${tmp} && chmod 0600 ${tmp} && mv -f ${tmp} ${RD_XAUTHORITY}`,
   ].join("; ");
+}
+
+/** The sandbox both RD_USER units share. */
+const RD_SANDBOX = [
+  "NoNewPrivileges=yes",
+  "CapabilityBoundingSet=",
+  "AmbientCapabilities=",
+  "ProtectHome=yes",
+  "ProtectSystem=strict",
+  "PrivateTmp=yes",
+  "PrivateDevices=yes",
+  "ProtectKernelTunables=yes",
+  "ProtectKernelModules=yes",
+  "ProtectKernelLogs=yes",
+  "ProtectControlGroups=yes",
+  "ProtectClock=yes",
+  "ProtectHostname=yes",
+  "RestrictNamespaces=yes",
+  "RestrictRealtime=yes",
+  "RestrictSUIDSGID=yes",
+  "LockPersonality=yes",
+] as const;
+
+/**
+ * `cmux-rd openh264-install` as RD_USER into its state dir, once (the marker): Cisco's binary,
+ * downloaded over HTTPS from Cisco, never bundled. The only RD_USER unit that may open network
+ * sockets; the host itself is AF_UNIX only.
+ */
+export function rdOpenh264Unit(hostBin: string): string {
+  return [
+    "[Unit]",
+    "Description=cmux remote desktop host: Cisco's OpenH264 into its state dir (first start only)",
+    `ConditionPathExists=!${RD_OPENH264_MARKER}`,
+    "",
+    "[Service]",
+    "Type=oneshot",
+    `User=${RD_USER}`,
+    `Group=${RD_USER}`,
+    `Environment=HOME=${RD_STATE_DIR}`,
+    `Environment=XDG_DATA_HOME=${RD_STATE_DIR}`,
+    `StateDirectory=${RD_USER}`,
+    "StateDirectoryMode=0700",
+    `ExecStart=${hostBin} openh264-install`,
+    `ExecStartPost=/usr/bin/touch ${RD_OPENH264_MARKER}`,
+    "TimeoutStartSec=120",
+    ...RD_SANDBOX,
+    // HTTPS to Cisco (and the resolver).
+    "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK",
+    "",
+  ].join("\n");
 }
 
 /**
  * `cmux-rd host` on the agent display, socket-activated (an fd from systemd; each connection's
- * SO_PEERCRED uid must be 0, the root link receiver), as RD_USER. OpenH264 is Cisco's binary,
- * downloaded into its own state dir on the first start only, never bundled. ProtectHome keeps
+ * SO_PEERCRED uid must be 0, the root link receiver), as RD_USER, with no capabilities and Unix
+ * sockets only. OpenH264 comes from RD_OPENH264_UNIT, ordered before. ProtectHome keeps
  * /home out of reach (the cookie copy above runs outside the sandbox); /tmp is private but for the
  * X11 socket dir.
  */
@@ -458,6 +523,9 @@ export function rdUnit(hostBin: string): string {
     `BindsTo=${DISPLAY_UNIT}`,
     `After=${DISPLAY_UNIT} ${RD_SOCKET_UNIT}`,
     `Requires=${RD_SOCKET_UNIT}`,
+    // A skipped install (the marker exists) is not a failure; a failed first download is.
+    `Requires=${RD_OPENH264_UNIT}`,
+    `After=${RD_OPENH264_UNIT}`,
     "StartLimitIntervalSec=120",
     "StartLimitBurst=5",
     "",
@@ -472,21 +540,11 @@ export function rdUnit(hostBin: string): string {
     `StateDirectory=${RD_USER}`,
     "StateDirectoryMode=0700",
     `ExecStartPre=+/bin/sh -c '${rdCookieCopy()}'`,
-    `ExecStartPre=/bin/sh -c 'test -e ${RD_OPENH264_MARKER} || { ${hostBin} openh264-install && touch ${RD_OPENH264_MARKER}; }'`,
     `ExecStart=${hostBin} host --listen-systemd --peer-uid 0 --display ${AGENT_DISPLAY} --xauthority ${RD_XAUTHORITY} --codec openh264`,
-    // The first start downloads OpenH264.
-    "TimeoutStartSec=120",
-    "NoNewPrivileges=yes",
-    "ProtectHome=yes",
-    "ProtectSystem=strict",
-    "PrivateTmp=yes",
+    ...RD_SANDBOX,
     "BindReadOnlyPaths=/tmp/.X11-unix",
-    "PrivateDevices=yes",
-    "ProtectKernelTunables=yes",
-    "ProtectKernelModules=yes",
-    "ProtectControlGroups=yes",
-    "RestrictSUIDSGID=yes",
-    "LockPersonality=yes",
+    // The activated socket and the X display are Unix sockets; the host opens nothing else.
+    "RestrictAddressFamilies=AF_UNIX",
     "",
   ].join("\n");
 }
@@ -496,7 +554,7 @@ export function rdUnit(hostBin: string): string {
  * own), then the socket enabled and listening (in the snapshot too) with the host not running.
  */
 export function rdSetupCommand(): string {
-  const units = [RD_SOCKET_UNIT, RD_UNIT].map((u) => `/etc/systemd/system/${u}`).join(" ");
+  const units = [RD_SOCKET_UNIT, RD_UNIT, RD_OPENH264_UNIT].map((u) => `/etc/systemd/system/${u}`).join(" ");
   return [
     `{ id -u ${RD_USER} >/dev/null 2>&1 || useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin ${RD_USER}; }`,
     `test "$(id -nG ${RD_USER})" = ${RD_USER}`,
@@ -508,9 +566,11 @@ export function rdSetupCommand(): string {
     `test "$(stat -c '%a %U %G' ${RD_RUN_DIR})" = '710 root ${RD_USER}'`,
     `systemd-analyze verify ${units}`,
     "systemctl daemon-reload",
+    `command -v setpriv >/dev/null`,
     `systemctl enable --now --quiet ${RD_SOCKET_UNIT}`,
     `test -S ${RD_SOCKET} && test "$(stat -c '%a %U %G' ${RD_SOCKET})" = '600 root root'`,
     `! systemctl is-active --quiet ${RD_UNIT}`,
+    `! systemctl is-active --quiet ${RD_OPENH264_UNIT}`,
     `echo agent-desktop-ready`,
   ].join(" && ");
 }
@@ -554,6 +614,7 @@ export function agentToolsFiles(lock: InputsLock): Array<{ path: string; text: s
     { path: RD_TMPFILES, text: rdTmpfiles(), mode: 0o644 },
     { path: `/etc/systemd/system/${RD_SOCKET_UNIT}`, text: rdSocketUnit(), mode: 0o644 },
     { path: `/etc/systemd/system/${RD_UNIT}`, text: rdUnit(rd), mode: 0o644 },
+    { path: `/etc/systemd/system/${RD_OPENH264_UNIT}`, text: rdOpenh264Unit(rd), mode: 0o644 },
     ...CUA_REFUSED.map((name) => ({ path: `${CUA_REFUSE_DIR}/${name}`, text: cuaRefuseScript(name), mode: 0o755 })),
   ];
 }
