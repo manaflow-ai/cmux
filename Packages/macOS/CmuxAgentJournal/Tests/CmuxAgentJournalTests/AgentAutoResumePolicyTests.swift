@@ -132,9 +132,6 @@ struct AgentAutoResumePolicyTests {
         .childSpawned,
         .childCompleted,
         .childFailed,
-        .approvalRequested,
-        .questionRequested,
-        .planReviewRequested,
         .attentionResolved,
     ])
     func activityAfterACompletedTurnLetsTheNextErrorSchedule(kind: AgentJournalEventKind) {
@@ -147,6 +144,33 @@ struct AgentAutoResumePolicyTests {
             kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
         ) else {
             Issue.record("an error after \(kind) should schedule")
+            return
+        }
+    }
+
+    @Test(arguments: [
+        AgentJournalEventKind.approvalRequested,
+        .questionRequested,
+        .planReviewRequested,
+    ])
+    func aWaitForAHumanAfterACompletedTurnKeepsTheTurnEnded(kind: AgentJournalEventKind) {
+        // Older Claude Code idle reminders read as a question. Waiting on a
+        // human is not a running turn, so a late error still must not resume.
+        var tracker = AgentAutoResumeTracker()
+        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
+        #expect(tracker.observe(kind: kind, surfaceId: surface, isSubagent: false, detail: nil) == .none)
+        #expect(tracker.observe(kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded") == .none)
+    }
+
+    @Test func aCompletionThatDoesNotEndTheTurnLetsTheNextErrorSchedule() {
+        // Background work still pending, or the app settling a pane before a
+        // slow Stop hook: the turn's own failure may still follow.
+        var tracker = AgentAutoResumeTracker()
+        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil, endsTurn: false) == .none)
+        guard case .schedule(_, 1, _, _) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
+        ) else {
+            Issue.record("an error after a completion that did not end the turn should schedule")
             return
         }
     }
