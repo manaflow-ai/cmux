@@ -216,6 +216,23 @@ class AffectedTests(unittest.TestCase):
                              check=True, capture_output=True, text=True).stdout.split()
         self.assertEqual(out, ["100000", "100000"])
 
+    def test_a_changed_scripts_tests_test_runs_itself(self):
+        # scripts/tests holds tests the lane registry does not list: python-extra runs them.
+        test = "scripts/tests/test_pr_scoped_webviews_checks.py"
+        result = plan([test])
+        extra = [a for u in result["units"] if u["name"].startswith("python-extra") for a in u["argv"]]
+        self.assertIn(test, extra)
+        self.assertNotIn(test, [n["what"] for n in result["not_run"]])
+
+    def test_a_registry_change_runs_the_whole_linux_lane(self):
+        result = plan(["tests/test-execution.d/ci.toml"])
+        python = [u for u in result["units"] if u["kind"] == "python" and not u["name"].startswith("python-extra")]
+        self.assertTrue(python, result["units"])
+        self.assertTrue(all("--path" not in u["argv"] for u in python), python)
+
+    def test_the_guard_runner_is_a_selection_input(self):
+        self.assertTrue(plan(["scripts/ci/guards-local.sh"])["all"])
+
     def test_swift_shards_split_targets_without_loss(self):
         targets = affected_tests.swift_test_targets(ROOT, "Packages/macOS/CmuxNext")
         parts = affected_tests.split(targets, 4)

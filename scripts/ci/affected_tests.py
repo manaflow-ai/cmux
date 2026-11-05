@@ -68,7 +68,7 @@ NATIVE_MODES = {"Native/OptChat/optchat-chief/Cargo.toml": "optchat-chief"}
 SELF_INPUTS = (
     "scripts/ci/affected_tests.py", "scripts/ci/focused_tests.py", "scripts/ci/cargo_affected.py",
     "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py", "scripts/ci/focused-tests-extra.json",
-    RUST_SCRIPT, SWIFT_SCRIPT, WEB_SCRIPT, PYTHON_RUNNER,
+    RUST_SCRIPT, SWIFT_SCRIPT, WEB_SCRIPT, PYTHON_RUNNER, GUARDS_SCRIPT,
 )
 MAX_FILES = 400
 # The controller takes at most 64 CMUX_WEB_TEST_FILES per step, each `(src|test)/....test.<ext>`
@@ -162,11 +162,11 @@ def tests_naming(root: Path, paths: list[str]) -> tuple[dict[str, list[str]], li
 
 
 def unregistered_python_tests(root: Path) -> list[str]:
-    """test_*.py files outside the lane registry's directories (scripts/cmux-next/tests, cmux-tui/scripts,
-    cmux-tui/bindings, ...): their own workflows run them, so the lane runner cannot."""
+    """test_*.py files the lane registry does not list (scripts/tests, scripts/cmux-next/tests,
+    cmux-tui/scripts, ...): their own workflows run them, so the lane runner cannot."""
     registered = set(focused_tests.lanes(root))
     return sorted(p for p in focused_tests.tracked(root, ".") if Path(p).name.startswith("test_") and p.endswith(".py")
-                  and p not in registered and not p.startswith(tuple(d + "/" for d in focused_tests.PYTHON_TEST_DIRS))
+                  and p not in registered
                   and "/node_modules/" not in p and not p.startswith(DEVICE_ONLY) and (root / p).is_file())
 
 
@@ -251,8 +251,8 @@ class Planner:
                 lane = lanes.get(path, "")
                 if lane == LINUX_PYTHON_LANE:
                     chosen.append(path)
-                else:
-                    self.not_run.append({"what": path, "why": f"Python lane {lane or 'unregistered'!r} does not run on Linux fast checks"})
+                elif lane:  # plan() runs an unregistered one in python_extra
+                    self.not_run.append({"what": path, "why": f"Python lane {lane!r} does not run on Linux fast checks"})
         if not chosen:
             return
         n = max(1, min(self.shards, (len(chosen) + 19) // 20))
@@ -368,11 +368,15 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
             p.web([f["path"] for f in focused["web"]] + named_web)
         lanes = python_lane_tests(root)
         lane_paths = [item["path"] for item in focused["python"]]
-        lane_paths += [t for t in web_python if lanes.get(t) == LINUX_PYTHON_LANE and t not in lane_paths]
-        lane_paths += [t for t in named_python if t not in lane_paths]  # p.python lists off-lane ones as not run
+        if any(focused_tests.REGISTRY_FRAGMENT.fullmatch(f) for f in files):
+            # A registry change moves tests between lanes or changes how they run: the whole Linux lane.
+            lane_paths = None
+        if lane_paths is not None:
+            lane_paths += [t for t in web_python if lanes.get(t) == LINUX_PYTHON_LANE and t not in lane_paths]
+            lane_paths += [t for t in named_python if t not in lane_paths]  # p.python lists off-lane ones as not run
         p.python(lane_paths)
         extra = extra_python(root, files)
-        extra += [t for t in web_python if t not in lanes and t not in extra]
+        extra += [t for t in web_python + (lane_paths or []) if t not in lanes and t not in extra]
         if extra:
             p.python_extra(extra, f"{len(extra)} Python tests outside the lane registry")
         p.native([item["manifest"] for item in focused["native"]])
