@@ -104,7 +104,8 @@ struct TerminalGridReportCoalescerTests {
     /// and the final grid always goes.
     @Test func aChangeEveryFrameSendsAtMostEveryWindowAndAlwaysTheFinalGrid() async throws {
         let rig = Rig()
-        var newest = [Duration: TerminalGridSize]()
+        // The newest grid at each send, in send order.
+        var newestAtSend: [TerminalGridSize] = []
         var latest: TerminalGridSize?
         var elapsed = Duration.zero
         var frames = 0
@@ -117,22 +118,21 @@ struct TerminalGridReportCoalescerTests {
             rig.clock.advance(by: Self.frame)
             elapsed += Self.frame
             await rig.settle()
-            if rig.sent.grids.count > before, let latest { newest[rig.sent.times.last ?? .zero] = latest }
+            if rig.sent.grids.count > before { newestAtSend.append(grid) }
             frames += 1
         }
         #expect(frames == 13)
+        let beforeEnd = rig.sent.grids.count
         rig.clock.advance(by: TerminalGridReportCoalescer.defaultInterval)
         await rig.settle()
-        if let time = rig.sent.times.last, newest[time] == nil, let latest { newest[time] = latest }
+        if rig.sent.grids.count > beforeEnd, let latest { newestAtSend.append(latest) }
 
         #expect(rig.sent.grids.count >= 3, "a 100 ms resize sent \(rig.sent.grids.count) grids")
         #expect(rig.sent.grids.count <= 5, "more than one send per 25 ms: \(rig.sent.times)")
         for (earlier, later) in zip(rig.sent.times, rig.sent.times.dropFirst()) {
             #expect(later - earlier >= .milliseconds(25), "two sends \(later - earlier) apart: \(rig.sent.times)")
         }
-        for (grid, time) in zip(rig.sent.grids, rig.sent.times) {
-            #expect(grid == newest[time], "at \(time) the send was \(grid), the newest grid was \(String(describing: newest[time]))")
-        }
+        #expect(rig.sent.grids == newestAtSend, "a send was not the newest grid at its fire: \(rig.sent.times)")
         #expect(rig.sent.grids.last == latest, "the final grid was not sent")
         #expect(Set(rig.sent.grids).count == rig.sent.grids.count, "a grid was sent twice")
         #expect(!rig.coalescer.isWaiting)
