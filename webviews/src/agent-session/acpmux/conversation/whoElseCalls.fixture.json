@@ -1,0 +1,114 @@
+{
+  "claude": [
+    {
+      "_meta": {
+        "claude": {
+          "tool": "mcp__acpmux__who_else"
+        }
+      },
+      "kind": "other",
+      "sessionUpdate": "tool_call",
+      "status": "pending",
+      "title": "mcp__acpmux__who_else",
+      "toolCallId": "toolu_01HFCBe7BmFwhRWdnaSLcdI0"
+    },
+    {
+      "_meta": {
+        "claude": {
+          "tool": "mcp__acpmux__who_else"
+        }
+      },
+      "kind": "other",
+      "rawInput": {
+        "files": ["src/lib.rs"]
+      },
+      "sessionUpdate": "tool_call_update",
+      "status": "in_progress",
+      "title": "mcp__acpmux__who_else",
+      "toolCallId": "toolu_01HFCBe7BmFwhRWdnaSLcdI0"
+    },
+    {
+      "content": [
+        {
+          "content": {
+            "text": "{\"lines\":[\"greet-codex (codex, lane/greeting): edited src/lib.rs; now\"],\"more\":0,\"query\":{\"branch\":null,\"fileCount\":1,\"files\":[\"src/lib.rs\"],\"topic\":null,\"worktree\":null},\"schema\":\"acpmux.who-else.v1\",\"sessions\":[{\"agoMs\":395,\"branch\":\"lane/greeting\",\"cwd\":\"/home/me/demo/proj/wt-codex\",\"editedInCommon\":1,\"files\":[{\"at\":1793878498634,\"edited\":true,\"path\":\"src/lib.rs\",\"repo\":\"github.com/example/who-else-demo\"}],\"filesInCommon\":1,\"harness\":\"codex\",\"lastActiveAt\":1793878615166,\"live\":true,\"name\":\"greet-codex\",\"pullRequests\":[],\"ref\":\"greet-codex\",\"sameBranch\":false,\"sameWorktree\":false,\"score\":100,\"sessionId\":\"01a1ab67-5314-75d0-9422-b331f723a904\",\"status\":\"running\",\"title\":\"Add Rust farewell function\",\"topicWords\":[]}],\"unreached\":[]}",
+            "type": "text"
+          },
+          "type": "content"
+        }
+      ],
+      "sessionUpdate": "tool_call_update",
+      "status": "completed",
+      "toolCallId": "toolu_01HFCBe7BmFwhRWdnaSLcdI0"
+    }
+  ],
+  "codex": [
+    {
+      "_meta": {
+        "codexAppServer": {
+          "itemType": "commandExecution"
+        }
+      },
+      "kind": "execute",
+      "rawInput": {
+        "command": "sleep 60 && /home/me/demo/acpmux --json who-else src/lib.rs",
+        "commandLine": "/bin/bash -lc 'sleep 60 && /home/me/demo/acpmux --json who-else src/lib.rs'",
+        "cwd": "/home/me/demo/proj/wt-codex"
+      },
+      "sessionUpdate": "tool_call",
+      "status": "in_progress",
+      "title": "sleep 60 && /home/me/demo/acpmux --json who-else src/lib.rs",
+      "toolCallId": "exec-9aaa59bd-180c-4be6-a762-bdb5dfead2f3"
+    },
+    {
+      "_meta": {
+        "terminal_output_delta": {
+          "data": "{\n  \"lines\": [\n    \"greet-claude (claude, main): edited src/lib.rs; now\"\n  ],\n  \"more\": 0,\n  \"query\": {\n    \"branch\": null,\n    \"fileCount\": 1,\n    \"files\": [\n      \"src/lib.rs\"\n    ],\n    \"topic\": null,\n    \"worktree\": null\n  },\n  \"schema\": \"acpmux.who-else.v1\",\n  \"sessions\": [\n    {\n      \"agoMs\": 288,\n      \"branch\": \"main\",\n      \"cwd\": \"/home/me/demo/proj/repo\",\n      \"editedInCommon\": 1,\n      \"files\": [\n        {\n          \"at\": 1793877467524,\n          \"edited\": true,\n          \"path\": \"src/lib.rs\",\n          \"repo\": \"github.com/example/who-else-demo\"\n        }\n      ],\n      \"filesInCommon\": 1,\n      \"harness\": \"claude\",\n      \"lastActiveAt\": 1793878614856,\n      \"live\": true,\n      \"name\": \"greet-claude\",\n      \"pullRequests\": [],\n      \"ref\": \"greet-claude\",\n      \"sameBranch\": false,\n      \"sameWorktree\": false,\n      \"score\": 100,\n      \"sessionId\": \"01a1ab67-4e14-78f0-bd0f-a184e188adcc\",\n      \"status\": \"running\",\n      \"title\": \"Update Rust greet to hello world\",\n      \"topicWords\": []\n    }\n  ],\n  \"unreached\": []\n}\n",
+          "terminal_id": "exec-9aaa59bd-180c-4be6-a762-bdb5dfead2f3"
+        }
+      },
+      "content": [
+        {
+          "content": {
+            "text": "{\n  \"lines\": [\n    \"greet-claude (claude, main): edited src/lib.rs; now\"\n  ],\n  \"more\": 0,\n  \"query\": {\n    \"branch\": null,\n    \"fileCount\": 1,\n    \"files\": [\n      \"src/lib.rs\"\n    ],\n    \"topic\": null,\n    \"worktree\": null\n  },\n  \"schema\": \"acpmux.who-else.v1\",\n  \"sessions\": [\n    {\n      \"agoMs\": 288,\n      \"branch\": \"main\",\n      \"cwd\": \"/home/me/demo/proj/repo\",\n      \"editedInCommon\": 1,\n      \"files\": [\n        {\n          \"at\": 1793877467524,\n          \"edited\": true,\n          \"path\": \"src/lib.rs\",\n          \"repo\": \"github.com/example/who-else-demo\"\n        }\n      ],\n      \"filesInCommon\": 1,\n      \"harness\": \"claude\",\n      \"lastActiveAt\": 1793878614856,\n      \"live\": true,\n      \"name\": \"greet-claude\",\n      \"pullRequests\": [],\n      \"ref\": \"greet-claude\",\n      \"sameBranch\": false,\n      \"sameWorktree\": false,\n      \"score\": 100,\n      \"sessionId\": \"01a1ab67-4e14-78f0-bd0f-a184e188adcc\",\n      \"status\": \"running\",\n      \"title\": \"Update Rust greet to hello world\",\n      \"topicWords\": []\n    }\n  ],\n  \"unreached\": []\n}\n",
+            "type": "text"
+          },
+          "type": "content"
+        }
+      ],
+      "sessionUpdate": "tool_call_update",
+      "toolCallId": "exec-9aaa59bd-180c-4be6-a762-bdb5dfead2f3"
+    },
+    {
+      "_meta": {
+        "codexAppServer": {
+          "itemType": "commandExecution"
+        }
+      },
+      "content": [
+        {
+          "content": {
+            "text": "{\n  \"lines\": [\n    \"greet-claude (claude, main): edited src/lib.rs; now\"\n  ],\n  \"more\": 0,\n  \"query\": {\n    \"branch\": null,\n    \"fileCount\": 1,\n    \"files\": [\n      \"src/lib.rs\"\n    ],\n    \"topic\": null,\n    \"worktree\": null\n  },\n  \"schema\": \"acpmux.who-else.v1\",\n  \"sessions\": [\n    {\n      \"agoMs\": 288,\n      \"branch\": \"main\",\n      \"cwd\": \"/home/me/demo/proj/repo\",\n      \"editedInCommon\": 1,\n      \"files\": [\n        {\n          \"at\": 1793877467524,\n          \"edited\": true,\n          \"path\": \"src/lib.rs\",\n          \"repo\": \"github.com/example/who-else-demo\"\n        }\n      ],\n      \"filesInCommon\": 1,\n      \"harness\": \"claude\",\n      \"lastActiveAt\": 1793878614856,\n      \"live\": true,\n      \"name\": \"greet-claude\",\n      \"pullRequests\": [],\n      \"ref\": \"greet-claude\",\n      \"sameBranch\": false,\n      \"sameWorktree\": false,\n      \"score\": 100,\n      \"sessionId\": \"01a1ab67-4e14-78f0-bd0f-a184e188adcc\",\n      \"status\": \"running\",\n      \"title\": \"Update Rust greet to hello world\",\n      \"topicWords\": []\n    }\n  ],\n  \"unreached\": []\n}\n",
+            "type": "text"
+          },
+          "type": "content"
+        }
+      ],
+      "kind": "execute",
+      "rawInput": {
+        "command": "sleep 60 && /home/me/demo/acpmux --json who-else src/lib.rs",
+        "commandLine": "/bin/bash -lc 'sleep 60 && /home/me/demo/acpmux --json who-else src/lib.rs'",
+        "cwd": "/home/me/demo/proj/wt-codex"
+      },
+      "rawOutput": {
+        "duration_ms": 59874,
+        "exit_code": 0,
+        "status": "completed"
+      },
+      "sessionUpdate": "tool_call_update",
+      "status": "completed",
+      "title": "sleep 60 && /home/me/demo/acpmux --json who-else src/lib.rs",
+      "toolCallId": "exec-9aaa59bd-180c-4be6-a762-bdb5dfead2f3"
+    }
+  ]
+}

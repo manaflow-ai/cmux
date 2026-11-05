@@ -7,6 +7,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, session, tool, user } from "../../../gallery/fixtures/acpmux";
 import { WHO_ELSE_SCHEMA } from "./whoElseCalls";
+import real from "./whoElseCalls.fixture.json";
 
 const MINUTE = 60_000;
 const file = (path: string, edited: boolean) => ({ repo: "github.com/example/cmux", path, edited });
@@ -133,6 +134,17 @@ export default agentPaneEntry({
         harness: "codex",
         model: "gpt-6.1-sol",
       }),
+    },
+    live: {
+      note: "The answer a live Claude session got in an end-to-end run while a Codex session in another worktree edited the same file.",
+      snapshot: chat(
+        [
+          user("Add greet_loud() to src/lib.rs, then check who else works on it.", 3),
+          activity([mcp(JSON.parse(real.claude.at(-1)!.content![0]!.content.text) as unknown)], 2.8),
+          assistant("greet-codex (Codex, lane/greeting) is editing src/lib.rs right now.", 2.5),
+        ],
+        { title: "Add greet_loud", branch: "main" },
+      ),
     },
     nobody: {
       note: "Nobody else touches the files: one quiet line.",
