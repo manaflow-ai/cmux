@@ -55,7 +55,8 @@ export default componentEntry<Props>({
   area: "Native",
   height: 860,
   widths: { narrow: 1080, normal: 1360, wide: 1680 },
-  covers: ["gallery/fixtures/WindowChromeShape.tsx#WindowChromeShape"],
+  // A review of the native window and pane chrome shapes (radii, header seam), drawn as a fixture.
+  covers: ["swift:PaneChromeMetrics"],
   load: async () => WindowChromeShape,
   styles: () => Promise.all([import("./WindowChromeShape.css"), import("./sidebarShapes.css")]),
   variants: Object.fromEntries(
