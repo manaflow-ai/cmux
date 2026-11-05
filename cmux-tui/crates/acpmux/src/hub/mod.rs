@@ -759,6 +759,8 @@ pub struct Hub {
     pub presence: presence::Presence,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// The moves one watch ends, or whose begin still makes them (`transfer_watch.rs`).
+    pub(super) watched_moves: StdMutex<HashSet<String>>,
     /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
     pub(super) background_timeout: StdMutex<std::time::Duration>,
     /// How long a foreground shell runs before it goes to the background, None: never
@@ -1002,6 +1004,7 @@ impl Hub {
             presence: Default::default(),
             workflow_index: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            watched_moves: Default::default(),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             auto_background_after: StdMutex::new(auto_background::auto_background_from_env()),
             auto_background_armed: Default::default(),

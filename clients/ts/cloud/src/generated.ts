@@ -305,6 +305,7 @@ export type CloudVmNetworkPolicyView = {
   readonly authority_version: string
   readonly checked_at: number
   readonly expires_at: number
+  readonly admit_until?: number
   readonly acl_version: number
   readonly policy_digest: string
   readonly peers: ReadonlyArray<CloudVmReceiverPeer>
@@ -2090,7 +2091,7 @@ export interface CloudOps {
       readonly delivered: boolean
     }
   }
-  /** Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  /** Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
   readonly "cloud.vm.network_policy": {
     readonly params: {
       readonly machine: MachineId

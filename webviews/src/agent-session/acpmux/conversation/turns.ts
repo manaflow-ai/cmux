@@ -47,6 +47,7 @@ import {
   backgroundTurnRowId,
   collectFoldedBackgroundId,
   foldBackgroundTurns,
+  foldsBackground,
   openBackgroundTurns,
 } from "./backgroundTurns";
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
@@ -681,6 +682,7 @@ function shapedTurn(
       agentFamily,
       reply,
       trayAgents,
+      endedBackgroundTurns(source),
     );
     // Where its runs fold, a run of them that carries messages between agents folds under one line
     // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
@@ -831,6 +833,7 @@ function shapeTurn(
   agentFamily?: string,
   reply?: string,
   trayAgents = 0,
+  endedBackground: ReadonlySet<string> = new Set(),
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   // A turn still running shows its work as it happens, under its live status; one without a
@@ -1071,7 +1074,7 @@ function shapeTurn(
   // Each turn the agent started on its own ends as a prompt's turn does: its reply's footer is a row
   // with the reply to copy, in the slot its live line held while the reply streamed (a reply alone
   // too, not only work), so its end moves nothing (design/transcript-spacing.md "Reply footer").
-  const answered = withTailAnswers(tail);
+  const answered = withTailAnswers(tail, endedBackground, summary.seq);
   if (
     live &&
     liveRuns &&
@@ -1088,7 +1091,7 @@ function shapeTurn(
 /// `tail` with each of its summaries carrying the reply of the turn it ends, as `shapeTurn` gives the
 /// prompt's own summary: a reply's footer is a 32 row of its own, never an empty one laid over the
 /// gap (transcriptGrid.ts MARK_FOOTER_ROW). A summary after no reply stays as it came.
-function withTailAnswers(tail: AcpmuxRow[]): AcpmuxRow[] {
+function withTailAnswers(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>, seq?: number): AcpmuxRow[] {
   let from = 0;
   let out: AcpmuxRow[] | undefined;
   for (let at = 0; at < tail.length; at += 1) {
@@ -1108,7 +1111,69 @@ function withTailAnswers(tail: AcpmuxRow[]): AcpmuxRow[] {
       version: row.version * VERSION_SPAN + answer.version,
     };
   }
-  return out ?? tail;
+  return backgroundFooters(out ?? tail, endedBackground, seq);
+}
+
+/// The id prefix of the footer `backgroundFooters` adds under a turn the agent ran on its own.
+export const BACKGROUND_END = "backgroundEnd";
+
+/// The ids of the turns the agent ran on its own in `rows` that ended with something to say, so
+/// draw their rows (backgroundTurns.ts `foldsBackground`): a running or quiet one is its line.
+function endedBackgroundTurns(rows: readonly AcpmuxRow[]): ReadonlySet<string> {
+  const ended = new Set<string>();
+  for (const row of rows)
+    if (row.kind === BACKGROUND_TURN && row.background && !foldsBackground(row)) ended.add(row.background.id);
+  return ended;
+}
+
+/// `tail` with a footer (copy, fork, pin, read aloud, its time) under the reply of each turn the agent
+/// ran on its own (a background task's notification, a scheduled wakeup) that ended with something to
+/// say, as a prompt's turn ends (Leo, 2026-11-04: "also i want to be able to copy/voice/fork/whatever at
+/// the very bottom... it feels like idk sometimes we're not counting your turns and enabling stuff").
+/// acpmux ends such a Claude turn with its `background_turn` ended record, never a `turn_result`
+/// (hub/background_turn.rs), so it had no summary to carry a footer and the chat's last reply drew
+/// none. Its Copy copies that turn's rows (turnCopy.ts); its Fork goes through the last turn acpmux
+/// ended before it (`seq`, or a later one in `tail`), as acpmux forks only there (fork_through.rs),
+/// which keeps everything up to the next prompt. One a summary already ends gets none more.
+function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>, seq?: number): AcpmuxRow[] {
+  if (endedBackground.size === 0) return tail;
+  const bodies = new Map<string, { rows: AcpmuxRow[]; last: number }>();
+  tail.forEach((row, at) => {
+    const id = row.inBackground;
+    if (id === undefined || !endedBackground.has(id)) return;
+    const body = bodies.get(id) ?? { rows: [], last: at };
+    body.rows.push(row);
+    body.last = at;
+    bodies.set(id, body);
+  });
+  if (bodies.size === 0) return tail;
+  const out: AcpmuxRow[] = [];
+  let through = seq;
+  tail.forEach((row, at) => {
+    out.push(row);
+    if (row.kind === "turnSummary" && row.seq !== undefined) through = row.seq;
+    const id = row.inBackground;
+    const body = id === undefined ? undefined : bodies.get(id);
+    if (!body || body.last !== at || tail[at + 1]?.kind === "turnSummary") return;
+    if (body.rows.some((each) => each.kind === "turnSummary")) return;
+    const answer = body.rows[answerAt(body.rows)];
+    const parts = answer && !answer.streaming ? turnCopyParts(body.rows) : undefined;
+    if (!answer || !parts) return;
+    out.push({
+      id: `${BACKGROUND_END}-${id}`,
+      kind: "turnSummary",
+      // The memoized footer redraws when its turn's rows do.
+      version: body.rows.reduce((sum, each) => (sum * 31 + each.version) % 2_147_483_647, body.rows.length),
+      at: row.at,
+      status: "completed",
+      durationMs: Math.max(0, row.at - body.rows[0]!.at),
+      text: answer.text,
+      answerId: answer.id,
+      turnCopy: parts,
+      ...(through !== undefined && { seq: through }),
+    });
+  });
+  return out;
 }
 
 const VERSION_SPAN = 1_000_000;

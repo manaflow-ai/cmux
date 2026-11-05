@@ -20,6 +20,13 @@ That newest sign job never yields (no newer run has one), so the newest finished
 newer build existed; that can't happen here. The one thing given up: if that newest sign then fails,
 the older builds that yielded to it are not signed, and the next tip builds as usual.
 
+Never past 30 minutes (Leo, 2026-11-05: "If something hasn't f***ing ran for thirty minutes, f***ing build it.
+Stop f***ing canceling it."). A run is due when its landing has waited PIN_AFTER_S (30 min) and the NEXT feed's
+newest build is older than it (a lower run id), so its commits are not published. The newest due run with a sign
+job never yields: it signs and publishes to the end, whatever newer run exists. An older run yields to it, so due
+runs never sign oldest first, and runs newer than it, not yet due, coalesce behind it into one follow-up. An
+unreadable feed, run start or run listing is doubt, and doubt signs.
+
 Scope: attempt 1 of a nightly-next push run on the nightly-next track, unless
 NIGHTLY_NEXT_SIGN_YIELD is 0. A re-run, a dispatch, main's nightly, and any doubt (an unreadable
 answer, a malformed field, a listing longer than MAX_PAGES pages) sign as before.
@@ -31,8 +38,10 @@ Exit 1 only when it yields; 0 otherwise.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
+import re
 import sys
 import urllib.request
 from collections.abc import Callable
@@ -48,6 +57,12 @@ WAITING = frozenset({"queued", "in_progress", "waiting", "pending", "requested"}
 ACTIVE_RUN_STATUSES = ("in_progress", "queued", "waiting", "pending", "requested")
 PAGE = 100
 MAX_PAGES = 5
+# Leo's rule: a landing that has waited this long unpublished is built, signed and published to the end.
+PIN_AFTER_S = 30 * 60
+NEXT_FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+# A NEXT build number is <run id><two-digit attempt>.
+# At most 20 digits: anything longer is no build number, and int() of it could raise past Python's digit limit.
+BUILD = re.compile(r"<sparkle:version>\s*([0-9]{3,20})\s*</sparkle:version>")
 
 Get = Callable[[str], Any]
 
@@ -67,6 +82,52 @@ def http_get(api: str, token: str) -> Get:
         except Exception as error:  # any failure reads as doubt: this job signs
             raise Unreadable(f"{path}: {error}") from error
     return get
+
+
+def read_feed(url: str = NEXT_FEED) -> bytes:
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-nightly-sign-yield/1"}),
+                                    timeout=20) as response:
+            return response.read(2_000_001)
+    except Exception as error:  # doubt: this job signs
+        raise Unreadable(f"{url}: {error}") from error
+
+
+def last_published_run(feed: bytes) -> int | None:
+    """The run id of the NEXT feed's newest build, or None for a feed with no build yet."""
+    if len(feed) > 2_000_000:
+        raise Unreadable("feed over 2 MB")
+    text = feed.decode("utf-8", "replace")
+    builds = [int(build) // 100 for build in BUILD.findall(text)]
+    if text.count("<sparkle:version>") != len(builds) or not builds and "<item" in text:
+        raise Unreadable("a feed item with no readable build number")
+    return max(builds) if builds else None
+
+
+def created(run: dict[str, Any]) -> dt.datetime:
+    """When a push run was created, within a minute of its landing on nightly-next."""
+    value = run.get("created_at")
+    if not isinstance(value, str):
+        raise Unreadable(f"run {run.get('id')!r}: no created_at")
+    try:
+        when = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise Unreadable(f"run {run.get('id')!r}: created_at {value!r}") from error
+    if when.tzinfo is None:
+        raise Unreadable(f"run {run.get('id')!r}: created_at {value!r} has no zone")
+    return when
+
+
+def due(now: dt.datetime, run_id: int, landed: dt.datetime, published_run: int | None) -> bool:
+    """Leo's rule: its landing has waited PIN_AFTER_S and the feed's newest build is older than it."""
+    return (now - landed).total_seconds() >= PIN_AFTER_S and (published_run is None or published_run < run_id)
+
+
+def landed_at(get: Get, repo: str, run_id: int) -> dt.datetime:
+    run = get(f"repos/{repo}/actions/runs/{run_id}")
+    if not isinstance(run, dict) or run.get("id") != run_id:
+        raise Unreadable(f"run {run_id}: unreadable")
+    return created(run)
 
 
 def listing(get: Get, path: str, key: str) -> list[dict[str, Any]]:
@@ -96,10 +157,10 @@ def signing(job: dict[str, Any]) -> bool:
     return status in WAITING or (status == "completed" and conclusion == "success")
 
 
-def newer_signer(get: Get, repo: str, run_id: int) -> tuple[int, str] | None:
-    """The newest nightly-next push run above RUN_ID whose sign job is queued, running or signed,
-    with that job's state; or None."""
-    newer: set[int] = set()
+def newer_signers(get: Get, repo: str, run_id: int) -> list[tuple[int, dt.datetime, str]]:
+    """Every nightly-next push run above RUN_ID whose sign job is queued, running or signed, newest first, with
+    its landing time and that job's state."""
+    newer: dict[int, dt.datetime] = {}
     for status in ACTIVE_RUN_STATUSES:
         for run in listing(get, f"repos/{repo}/actions/workflows/nightly.yml/runs?branch=nightly-next&event=push&status={status}",
                            "workflow_runs"):
@@ -107,16 +168,24 @@ def newer_signer(get: Get, repo: str, run_id: int) -> tuple[int, str] | None:
             if not isinstance(rid, int) or isinstance(rid, bool):
                 raise Unreadable(f"a run id {rid!r}")
             if rid > run_id:
-                newer.add(rid)
+                newer[rid] = created(run)
+    found = []
     for rid in sorted(newer, reverse=True):
         for job in listing(get, f"repos/{repo}/actions/runs/{rid}/jobs?filter=latest", "jobs"):
             name = job.get("name")
             if isinstance(name, str) and name.split(" (", 1)[0] == SIGN_JOB and signing(job):
-                return rid, f"{job['status']}{'/' + str(job.get('conclusion')) if job['status'] == 'completed' else ''}"
-    return None
+                state = f"{job['status']}{'/' + str(job.get('conclusion')) if job['status'] == 'completed' else ''}"
+                found.append((rid, newer[rid], state))
+                break
+    return found
 
 
-def decide(env: dict[str, str], get: Get, log: Callable[[str], None] = print) -> tuple[bool, str]:
+def utcnow() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def decide(env: dict[str, str], get: Get, log: Callable[[str], None] = print,
+           feed: Callable[[], bytes] | None = None, now: Callable[[], dt.datetime] | None = None) -> tuple[bool, str]:
     """(yield, why)."""
     if env.get("NIGHTLY_NEXT_SIGN_YIELD", "1") == "0":
         return False, "NIGHTLY_NEXT_SIGN_YIELD is 0"
@@ -127,15 +196,27 @@ def decide(env: dict[str, str], get: Get, log: Callable[[str], None] = print) ->
     if not run_id.isdigit() or repo.count("/") != 1:
         return False, "no run id or repository"
     try:
-        found = newer_signer(get, repo, int(run_id))
+        rid = int(run_id)
+        landed = landed_at(get, repo, rid)
+        published = last_published_run((feed or read_feed)())
+        signers = newer_signers(get, repo, rid)
     except Unreadable as why:
-        log(f"::warning title=Sign yield::could not read the newer nightly-next runs ({why}); signing as usual")
+        log(f"::warning title=Sign yield::could not read the newer nightly-next runs or the NEXT feed ({why}); "
+            "signing as usual")
         return False, "unreadable"
-    if found is None:
+    current = (now or utcnow)()
+    # A newer due run takes the slot first: due runs sign newest first, never oldest first.
+    for newer, newer_landed, state in signers:
+        if due(current, newer, newer_landed, published):
+            return True, f"newer nightly-next run {newer}, also waiting 30 min unpublished, has its sign job {state}"
+    if due(current, rid, landed, published):
+        waited = int((current - landed).total_seconds() // 60)
+        return False, (f"due: this landing has waited {waited} min and the feed's newest build (run {published}) "
+                       "is older, so nothing newer takes its slot")
+    if not signers:
         return False, "no newer nightly-next run has a sign job yet"
-    rid, state = found
-    return True, f"newer nightly-next run {rid} has its sign job {state}"
-
+    newer, _, state = signers[0]
+    return True, f"newer nightly-next run {newer} has its sign job {state}"
 
 def main() -> int:
     env = dict(os.environ)

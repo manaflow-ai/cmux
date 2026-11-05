@@ -6455,7 +6455,7 @@
         },
         {
           "id": "cloudRelayChat",
-          "title": "Chat on Cloud Machine over the Relay…",
+          "title": "Chat on Cloud Machine via the Relay…",
           "shortcut": null,
           "command": "cmux cloud relay-chat"
         },
