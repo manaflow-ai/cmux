@@ -12,22 +12,30 @@ enum HomeChiefComputerKeys {
         109: "F10", 103: "F11", 111: "F12",
     ]
 
-    /// Punctuation keys by the character they type without Shift, as keysym names.
+    /// Punctuation keys by the character they type, as keysym names.
     static let punctuation: [Character: String] = [
         "-": "minus", "=": "equal", ",": "comma", ".": "period", "/": "slash", ";": "semicolon",
         "'": "apostrophe", "[": "bracketleft", "]": "bracketright", "\\": "backslash", "`": "grave", " ": "space",
+        // What Shift makes of a key (`charactersIgnoringModifiers` keeps Shift): ctrl+shift+question.
+        "!": "exclam", "@": "at", "#": "numbersign", "$": "dollar", "%": "percent", "^": "asciicircum",
+        "&": "ampersand", "*": "asterisk", "(": "parenleft", ")": "parenright", "_": "underscore", "+": "plus",
+        "{": "braceleft", "}": "braceright", "|": "bar", ":": "colon", "\"": "quotedbl", "<": "less",
+        ">": "greater", "?": "question", "~": "asciitilde",
     ]
 
     /// The input for one key press; nil for a key the computer has no name for (a bare modifier).
     /// - Parameters:
     ///   - characters: what the key typed (`NSEvent.characters`), Shift applied.
-    ///   - bare: the key's character without modifiers (`charactersIgnoringModifiers`).
+    ///   - bare: the key's character without modifiers but Shift (`charactersIgnoringModifiers`).
     static func input(keyCode: UInt16, characters: String?, bare: String?, modifiers: NSEvent.ModifierFlags) -> HomeChiefComputerInput? {
         var chord: [String] = []
-        if modifiers.contains(.control) || modifiers.contains(.command) { chord.append("ctrl") }
+        let control = modifiers.contains(.control) || modifiers.contains(.command)
+        if control { chord.append("ctrl") }
         if modifiers.contains(.option) { chord.append("alt") }
         let named = Self.named[keyCode]
-        if chord.isEmpty, named == nil {
+        // Text, Option-composed text too (`@` is Option-L on a German layout): without Command or
+        // Control a key that is not a name types what it made.
+        if !control, named == nil {
             guard let characters, !characters.isEmpty, characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
             else { return nil }
             return .type(characters)

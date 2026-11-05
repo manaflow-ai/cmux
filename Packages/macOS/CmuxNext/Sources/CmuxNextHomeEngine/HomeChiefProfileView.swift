@@ -87,7 +87,7 @@ public final class HomeChiefProfileView: NSView {
     /// What the tab shows now.
     private(set) var shownGate: Gate?
     /// The person's inputs, sent one after another.
-    var sending: Task<Void, Never>?
+    let inputs = HomeChiefComputerInputQueue()
     /// The panel or page is on screen: the computer and the card's sections read.
     private(set) var isOpen = false
 
@@ -105,6 +105,14 @@ public final class HomeChiefProfileView: NSView {
         computer.onStatus = { [weak self] in self?.refresh() }
         controlBar.chief = { [weak self] in self?.name() ?? "" }
         controlBar.onChange = { [weak self] in self?.followControl() }
+        controlBar.beforeGiveBack = { [weak self] in
+            let inFlight = self?.inputs.drop()
+            await inFlight?.value
+        }
+        inputs.failed = { [weak self] in
+            guard let self, controlBar.personDrives else { return }
+            controlBar.sendFailed()
+        }
         settings?.onResize = { [weak self] in self?.needsLayout = true }
         settings?.onComputerShown = { [weak self] in self?.refresh() }
         refresh()
@@ -168,8 +176,7 @@ public final class HomeChiefProfileView: NSView {
             computer.close()
             settings?.commitEditing()
             settings?.cardClosed()
-            sending?.cancel()
-            sending = nil
+            inputs.cancel()
         }
         refresh()
     }

@@ -90,8 +90,11 @@ final class HomeChiefComputerScreenView: NSView {
         // A release outside the frame ends the drag at its edge: the last pixel inside is not known, so
         // it counts as a click where it began.
         let end = pixel(event) ?? start
-        // Each press is one click: a double-click arrives as two, which the computer counts as a double-click.
-        input(Self.press(from: start.pixel, startPoint: start.point, to: end.pixel, endPoint: end.point, button: 1, count: 1))
+        // The first press goes at once as a single click (no wait to see whether a second follows);
+        // the press that makes a double-click sends one click with the full count, which replaces
+        // the first if that is still queued behind a send.
+        input(Self.press(from: start.pixel, startPoint: start.point, to: end.pixel, endPoint: end.point, button: 1,
+                         count: event.clickCount))
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -113,7 +116,8 @@ final class HomeChiefComputerScreenView: NSView {
         scrolled = result.carried
         guard result.steps != 0 else { return }
         let direction = vertical ? (result.steps > 0 ? "up" : "down") : (result.steps > 0 ? "left" : "right")
-        input(.scroll(x: at.pixel.x, y: at.pixel.y, direction: direction, amount: abs(result.steps)))
+        input(.scroll(x: at.pixel.x, y: at.pixel.y, direction: direction,
+                      amount: min(abs(result.steps), HomeChiefComputerInputQueue.maxScroll)))
     }
 
     /// A Command or Control chord while the person drives goes to the computer (Command-L to its
