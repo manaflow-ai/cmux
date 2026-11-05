@@ -46,7 +46,7 @@ struct GhosttyWindowGlassDefaultTests {
         #expect(GhosttyConfigBackground.loaded.blur == -1)
     }
 
-    /// The loaded config's own `background-opacity` and `background-blur`, with no cmux.json override.
+    /// The window opacity and `background-blur` a load of `text` gives, with no cmux.json override.
     private func load(_ text: String) throws -> (opacity: Double, blur: Int16) {
         _ = GhosttyRuntime.shared // runs ghostty_init, which config_new needs
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-glass-default-\(UUID().uuidString)")
@@ -64,10 +64,10 @@ struct GhosttyWindowGlassDefaultTests {
         let config = try #require(GhosttyRuntime.loadConfig(diagnostics: &diagnostics, opacity: &opacity,
                                                             configFile: file.path))
         defer { ghostty_config_free(config) }
-        var configured = 0.0
-        #expect(GhosttyRuntime.configGet(config, &configured, key: "background-opacity"))
+        // The window's opacity is the load's `opacity`: in a translucent window the config's own
+        // `background-opacity` becomes 0 for the cells (GhosttyRuntimeSurfacePolicy).
         var blur: Int16 = 0
         #expect(GhosttyRuntime.configGet(config, &blur, key: "background-blur"))
-        return (configured, blur)
+        return (opacity, blur)
     }
 }
