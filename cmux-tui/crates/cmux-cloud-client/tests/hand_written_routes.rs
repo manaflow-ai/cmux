@@ -67,7 +67,9 @@ fn literals(text: &str) -> Vec<String> {
                 index += 2;
             }
             // A raw string (`r"..."`, `r#"..."#`): to its closing quote and as many `#`.
-            'r' if !index.checked_sub(1).is_some_and(|before| chars[before].is_alphanumeric() || chars[before] == '_')
+            'r' if !index
+                .checked_sub(1)
+                .is_some_and(|before| chars[before].is_alphanumeric() || chars[before] == '_')
                 && {
                     let mut probe = index + 1;
                     while chars.get(probe) == Some(&'#') {
@@ -85,7 +87,8 @@ fn literals(text: &str) -> Vec<String> {
                 index += 1;
                 let mut literal = String::new();
                 while index < chars.len()
-                    && !(chars[index] == '"' && (0..hashes).all(|offset| chars.get(index + 1 + offset) == Some(&'#')))
+                    && !(chars[index] == '"'
+                        && (0..hashes).all(|offset| chars.get(index + 1 + offset) == Some(&'#')))
                 {
                     literal.push(chars[index]);
                     index += 1;
@@ -196,6 +199,14 @@ fn a_literal_names_a_route_by_its_template() {
     assert!(!names_route("/v1/machines/{}/paws", &routes));
     assert!(!names_route("/v1/artifacts", &routes));
     assert_eq!(literals("let a = \"/v1/auth/token\";\n    // \"/v1/y\""), ["/v1/auth/token"]);
-    assert_eq!(literals("let x = 1; // see \"/v1/auth/token\"\n/* \"/v1/a\" */ let q = '\"'; f(\"/v1/b\")"), ["/v1/b"]);
-    assert_eq!(literals("let r = r#\"say \"hi\" /v1/no\"#; f(r\"/v1/raw\"); for_r(\"/v1/c\")"), ["/v1/raw", "/v1/c"]);
+    assert_eq!(
+        literals(
+            "let x = 1; // see \"/v1/auth/token\"\n/* \"/v1/a\" */ let q = '\"'; f(\"/v1/b\")"
+        ),
+        ["/v1/b"]
+    );
+    assert_eq!(
+        literals("let r = r#\"say \"hi\" /v1/no\"#; f(r\"/v1/raw\"); for_r(\"/v1/c\")"),
+        ["/v1/raw", "/v1/c"]
+    );
 }
