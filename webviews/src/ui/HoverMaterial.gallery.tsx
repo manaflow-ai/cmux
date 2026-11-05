@@ -6,10 +6,10 @@
 // "this awkward wannabe glass but kind of just opaque thing").
 import { componentEntry } from "../gallery/format";
 
-type Look = "current" | "material" | "solid";
+type Look = "current" | "material" | "solid" | "control";
 type Props = { looks?: Look[] };
 
-const NAMES: Record<Look, string> = { current: "Today", material: "Material", solid: "Solid" };
+const NAMES: Record<Look, string> = { current: "Today", material: "Material", solid: "Solid", control: "Blur only" };
 
 function Backdrop() {
   return (
@@ -33,6 +33,7 @@ function Column({ look }: { look: Look }) {
       <h3 className="hm-name">{NAMES[look]}</h3>
       <div className="hm-stage">
         <Backdrop />
+        {look === "control" && <div className="hm-blur-control" />}
         <div className="ui-tooltip ui-glass hm-tooltip" role="tooltip">
           <span className="ui-tooltip-label">
             <span className="ui-tooltip-text">Fork from here</span>
@@ -83,5 +84,9 @@ export default componentEntry<Props>({
   variants: {
     compare: { note: "Today, a real material and a crisp solid card over the same chat." },
     shipped: { note: "The shipped hover material alone.", props: { looks: ["current"] } },
+    "blur-control": {
+      note: "A bare 24px backdrop blur over the chat, no tint: shows whether this engine draws backdrop blur at all.",
+      props: { looks: ["control"] },
+    },
   },
 });

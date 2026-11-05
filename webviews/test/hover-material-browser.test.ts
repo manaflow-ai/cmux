@@ -13,7 +13,7 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("hover-material-browser.test.ts", async () => {
   const ENTRY = "ui.hover-material";
-  const VARIANTS = ["compare", "shipped"];
+  const VARIANTS = ["compare", "shipped", "blur-control"];
   setDefaultTimeout(240_000);
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");

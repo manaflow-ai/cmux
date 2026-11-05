@@ -95,3 +95,13 @@
       0 2px 6px rgb(0 0 0 / 8%);
   }
 }
+
+.hm-blur-control {
+  position: absolute;
+  inset: 40px 40px auto auto;
+  width: 180px;
+  height: 160px;
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  outline: 1px dashed currentColor;
+}
