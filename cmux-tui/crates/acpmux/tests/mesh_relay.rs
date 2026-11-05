@@ -242,6 +242,7 @@ impl MeshHub for FakeHub {
                     acked_by: None,
                     resolution: None,
                     start_work: None,
+                    result: None,
                 };
                 s.receipts.insert(id.clone(), receipt.clone());
                 s.waiting.push_back(InMessage {
