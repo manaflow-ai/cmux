@@ -1577,7 +1577,8 @@ def test_restore_record_settings_survive_a_different_restore_directory(failures:
 
     A relative path is read from the launch directory, so it is recorded
     absolute. A BOM before inline JSON still counts as inline (Node's trim()
-    drops it), so it goes to a durable file like any other inline value.
+    drops it, and any more BOMs or spaces after it), so it goes to a durable
+    file like any other inline value.
     """
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-restore-spelling-") as td:
         root = Path(td)
@@ -1588,6 +1589,7 @@ def test_restore_record_settings_survive_a_different_restore_directory(failures:
         user_file = launch_dir / ".claude" / "mine.json"
         user_file.write_text('{"spinnerTipsEnabled": false}', encoding="utf-8")
         bom_inline = '\ufeff{"viewMode": "default"}'
+        repeated_bom_inline = '\ufeff \ufeff{"includeCoAuthoredBy": false}'
 
         def setup(_tmp: Path, env: dict[str, str]) -> None:
             env["HOME"] = str(home)
@@ -1595,14 +1597,19 @@ def test_restore_record_settings_survive_a_different_restore_directory(failures:
 
         code, _real_argv, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
             socket_state="live",
-            argv=["--settings", ".claude/mine.json", "--settings", bom_inline, "hello"],
+            argv=[
+                "--settings", ".claude/mine.json",
+                "--settings", bom_inline,
+                "--settings", repeated_bom_inline,
+                "hello",
+            ],
             setup_sandbox=setup,
         )
         expect(code == 0, f"restore spelling: wrapper exited {code}: {stderr}", failures)
         captured = decode_nul_argv(launch_argv_b64)
         recorded = [captured[index + 1] for index, arg in enumerate(captured[:-1]) if arg == "--settings"]
-        expect(len(recorded) == 2, f"restore spelling: expected two recorded --settings, got {captured}", failures)
-        if len(recorded) != 2:
+        expect(len(recorded) == 3, f"restore spelling: expected three recorded --settings, got {captured}", failures)
+        if len(recorded) != 3:
             return
         expect(
             os.path.isabs(recorded[0]) and os.path.realpath(recorded[0]) == os.path.realpath(user_file),
@@ -1615,6 +1622,14 @@ def test_restore_record_settings_survive_a_different_restore_directory(failures:
             and bom_path.parent == home / ".cmuxterm" / "claude-settings"
             and bom_path.is_file(),
             f"restore spelling: BOM-led inline JSON should be a durable file, got {recorded[1]!r}",
+            failures,
+        )
+        repeated_bom_path = Path(recorded[2])
+        expect(
+            repeated_bom_inline not in captured
+            and repeated_bom_path.parent == home / ".cmuxterm" / "claude-settings"
+            and repeated_bom_path.is_file(),
+            f"restore spelling: inline JSON after repeated BOMs should be a durable file, got {recorded[2]!r}",
             failures,
         )
 
