@@ -61,8 +61,8 @@ nonisolated public struct UpdateTransfer: Equatable, Sendable {
         let percentStyle = FloatingPointFormatStyle<Double>.Percent().precision(.fractionLength(0))
         // Whole percent from the byte counts, floored, so it reads 100% only once every byte is in. Integers:
         // a Double fraction floored under-reads an exact one (29 of 50 is 57.999…%).
-        let whole = min(received, expected).multipliedReportingOverflow(by: 100)
-        let percentage = whole.overflow ? min(received, expected) / (expected / 100) : whole.partialValue / expected
+        // The product is 128-bit (`multipliedFullWidth`), so the floor is exact at any size.
+        let percentage = expected.dividingFullWidth(min(received, expected).multipliedFullWidth(by: 100)).quotient
         let percent = Self.padded((Double(percentage) / 100).formatted(percentStyle), toWidthOf: 1.0.formatted(percentStyle))
         return UpdaterStrings.downloadedOf(got, total, percent)
     }
