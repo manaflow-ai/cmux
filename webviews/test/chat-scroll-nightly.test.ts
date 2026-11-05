@@ -15,7 +15,8 @@
 //   FLICKER LOAD IN WHEN I SCROLL UP TO CHATS"): a row on screen moves only by what the wheel asked
 //   (support/upwardAnchorTrace.ts), no frame shows a blank band, no row on screen is drawn faded or
 //   animating in, the scrollbar's thumb never moves down while the reader goes up, and the wheel's
-//   whole distance is applied.
+//   whole distance is applied. (A row's hover controls fading as rows pass under the resting pointer
+//   are counted apart, not failed: whether they hold still while the wheel moves is Leo's call.)
 // - Jump to latest (2026-10-28 "when I scroll up, I don't want to see that fucking, like, jump to
 //   bottom button be jumping around jittering and flickering like that"): once it shows it shows
 //   for good, its box never moves and its opacity never falls.
@@ -134,6 +135,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
     faded: string[];
     animating: string[];
     live: string[];
+    hover: string[];
   };
   /// Reads every painted frame from now until `stopWatch`: the Jump to latest control, Session Info,
   /// the scrollbar's thumb, and rows on screen drawn faded or running an animation. Session Info's
@@ -173,6 +175,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
         const faded: string[] = [];
         const animating: string[] = [];
         const live: string[] = [];
+        const hover: string[] = [];
         for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row")) {
           const rect = row.getBoundingClientRect();
           if (rect.height === 0 || rect.bottom <= view.top || rect.top >= view.bottom) continue;
@@ -189,18 +192,28 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
           // A live row's entrance (the streaming reply arriving at the bottom) is not scroll-up
           // loading: reported apart, not held here.
           const LIVE = new Set(["cv-enter", "cv-enter-fade", "cv-message-enter"]);
+          // A row's hover controls (a prompt's actions, a turn's time and actions) fade with the
+          // pointer, which rests over the chat as the rows pass under it: reported apart (`hover`),
+          // pending Leo's call on holding them still while the wheel moves.
+          const HOVER =
+            ".cv-user__actions, .cv-received-actions, .cv-received__hover, .cv-reply-actions, .cv-turn-actions, .cv-turn-time";
           const named = (animation: Animation) => {
             const css = (animation as CSSAnimation).animationName;
             if (css) return css;
-            const effect = animation.effect as KeyframeEffect | null;
-            const target = effect?.target;
-            const props = [...new Set((effect?.getKeyframes() ?? []).flatMap((frame) => Object.keys(frame)))]
-              .filter((key) => !["offset", "easing", "composite", "computedOffset"].includes(key))
-              .join("/");
-            return `script(${target ? `${target.tagName.toLowerCase()}.${[...target.classList].join(".")}` : "?"} ${props})`;
+            const target = (animation.effect as KeyframeEffect | null)?.target;
+            const where = target ? `${target.tagName.toLowerCase()}.${[...target.classList].join(".")}` : "?";
+            const property = (animation as CSSTransition).transitionProperty;
+            return property ? `transition(${where} ${property})` : `script(${where})`;
           };
-          const loading = visual.filter((animation) => !LIVE.has((animation as CSSAnimation).animationName));
+          const isHover = (animation: Animation) => {
+            const target = (animation.effect as KeyframeEffect | null)?.target;
+            return !!(animation as CSSTransition).transitionProperty && !!target?.matches(HOVER);
+          };
+          const loading = visual.filter(
+            (animation) => !LIVE.has((animation as CSSAnimation).animationName) && !isHover(animation),
+          );
           if (loading.length) animating.push(`${id}:${loading.map(named).join("+")}`);
+          if (visual.some(isHover)) hover.push(id);
           if (visual.length > loading.length) live.push(id);
           else if (Number(getComputedStyle(row).opacity) < 0.999) faded.push(id);
         }
@@ -221,6 +234,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
           faded,
           animating,
           live,
+          hover,
         });
       });
       holder.__scrollWatch = {
@@ -306,6 +320,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       fadedRows: [...new Set(frames.flatMap((frame) => frame.faded))].slice(0, 8),
       animatingRows: [...new Set(frames.flatMap((frame) => frame.animating))].slice(0, 8),
       liveEntranceRows: [...new Set(frames.flatMap((frame) => frame.live))].slice(0, 8),
+      hoverRevealFrames: frames.filter((frame) => frame.hover.length).length,
     };
   }
 
