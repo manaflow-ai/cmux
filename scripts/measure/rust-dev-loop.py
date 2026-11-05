@@ -205,6 +205,19 @@ def blaze_reset(log) -> None:
         size = subprocess.run(["du", "-sk", str(child)], capture_output=True, text=True).stdout.split()[:1]
         log(f"DEVLOOP-BLAZE-RESET rm {child.name} {size[0] if size else '?'}KB")
         shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink(missing_ok=True)
+    blaze_start(log)
+
+
+def blaze_start(log) -> None:
+    """Start the daemon before a timed build. A client that starts it itself can find its socket
+    not ready ("v2.sock changed and can't be read: No such device or address", Linux, 0.20261105.1)."""
+    for attempt in range(10):
+        r = subprocess.run(["blaze", "status"], capture_output=True, text=True)
+        if r.returncode == 0:
+            log(f"DEVLOOP-BLAZE-START ready after {attempt + 1} status call(s)")
+            return
+        time.sleep(1)
+    log(f"DEVLOOP-BLAZE-START not ready: {r.stderr.strip().splitlines()[-1:]}")
 
 
 LAST_PEAK: dict[str, float] = {}
@@ -347,6 +360,7 @@ def main() -> int:
     if "blaze" in chosen:
         # blaze fetches its own toolchain on its first build (v2 has no `blaze toolchain`): a tiny
         # untimed build takes that download out of the timed clean build.
+        blaze_start(log)
         r = subprocess.run(["blaze", "build", "-p", "acpmux-build-id"], capture_output=True, text=True)
         log(f"DEVLOOP-BLAZE-WARMUP exit {r.returncode} {r.stderr.strip().splitlines()[-1:]}")
         v = subprocess.run(["blaze", "--version"], capture_output=True, text=True)
