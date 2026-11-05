@@ -21,20 +21,26 @@ struct ViewerDemandTests {
 
     @Test func aSmallerPictureAppliesAfterSixSeconds() {
         var demand = ViewerDemand()
-        #expect(!demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 0))
-        #expect(!demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 4))
+        let changed1 = demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 0)
+        #expect(!changed1)
+        let changed2 = demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 4)
+        #expect(!changed2)
         #expect(demand.cap == nil)
-        #expect(demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 6))
+        let changed3 = demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 6)
+        #expect(changed3)
         #expect(demand.cap == 1280)
-        #expect(!demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 8), "no change while it holds")
+        let changed4 = demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 8)
+        #expect(!changed4, "no change while it holds")
     }
 
     @Test func aContradictedReportRestartsTheHold() {
         var demand = ViewerDemand()
         _ = demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 0)
         _ = demand.report(longEdge: 2000, displayLongEdge: display, pinch: false, now: 2)
-        #expect(!demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 6), "the clock started again at 6")
-        #expect(demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 12))
+        let changed5 = demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 6)
+        #expect(!changed5, "the clock started again at 6")
+        let changed6 = demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 12)
+        #expect(changed6)
         #expect(demand.cap == 1280)
     }
 
@@ -45,12 +51,15 @@ struct ViewerDemandTests {
         #expect(demand.cap == 1280)
         // Within 30 s of the step down: 6 s.
         _ = demand.report(longEdge: 2000, displayLongEdge: display, pinch: false, now: 10)
-        #expect(!demand.report(longEdge: 2000, displayLongEdge: display, pinch: false, now: 14))
-        #expect(demand.report(longEdge: 2000, displayLongEdge: display, pinch: false, now: 16))
+        let changed7 = demand.report(longEdge: 2000, displayLongEdge: display, pinch: false, now: 14)
+        #expect(!changed7)
+        let changed8 = demand.report(longEdge: 2000, displayLongEdge: display, pinch: false, now: 16)
+        #expect(changed8)
         #expect(demand.cap == 2560)
         // A raise after a raise: 3 s.
         _ = demand.report(longEdge: 3400, displayLongEdge: display, pinch: false, now: 20)
-        #expect(demand.report(longEdge: 3400, displayLongEdge: display, pinch: false, now: 23))
+        let changed9 = demand.report(longEdge: 3400, displayLongEdge: display, pinch: false, now: 23)
+        #expect(changed9)
         #expect(demand.cap == nil, "full size")
     }
 
@@ -58,18 +67,22 @@ struct ViewerDemandTests {
         var demand = ViewerDemand()
         _ = demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 0)
         _ = demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 6)
-        #expect(demand.report(longEdge: 3600, displayLongEdge: display, pinch: true, now: 7))
+        let changed10 = demand.report(longEdge: 3600, displayLongEdge: display, pinch: true, now: 7)
+        #expect(changed10)
         #expect(demand.cap == nil)
         // A pinch out still waits the 6 s.
-        #expect(!demand.report(longEdge: 1179, displayLongEdge: display, pinch: true, now: 8))
+        let changed11 = demand.report(longEdge: 1179, displayLongEdge: display, pinch: true, now: 8)
+        #expect(!changed11)
         #expect(demand.cap == nil)
     }
 
     @Test func aReportWithNoSizeChangesNothing() {
         var demand = ViewerDemand()
         _ = demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 0)
-        #expect(!demand.report(longEdge: 0, displayLongEdge: display, pinch: false, now: 3))
-        #expect(!demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 7), "the pending step was dropped")
+        let changed12 = demand.report(longEdge: 0, displayLongEdge: display, pinch: false, now: 3)
+        #expect(!changed12)
+        let changed13 = demand.report(longEdge: 1179, displayLongEdge: display, pinch: false, now: 7)
+        #expect(!changed13, "the pending step was dropped")
         #expect(demand.cap == nil)
     }
 
