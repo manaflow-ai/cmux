@@ -268,6 +268,8 @@ impl Inner {
     /// The group commit makes it durable as any acknowledged record, and the shutdown that
     /// follows seals the journal.
     pub(super) fn freeze(&self, why: String) {
+        #[cfg(test)]
+        super::hold_before_frozen_record();
         let mut order = self.order.lock_or_recover();
         if !order.frozen {
             order.frozen = true;

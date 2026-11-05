@@ -155,6 +155,16 @@ thread_local! {
     /// the LSN and the chats to sync.
     pub(crate) static HOLD_AFTER_START: log_sync::HoldSlot =
         const { std::cell::RefCell::new(None) };
+    /// Tests: a freeze on this thread stops before it appends the store's `frozen` record,
+    /// holding no lock.
+    pub(crate) static HOLD_BEFORE_FROZEN_RECORD: log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: the stop of [`HOLD_BEFORE_FROZEN_RECORD`].
+#[cfg(test)]
+fn hold_before_frozen_record() {
+    log_sync::hold(&HOLD_BEFORE_FROZEN_RECORD);
 }
 
 /// Tests: the stop of [`HOLD_AFTER_START`].
