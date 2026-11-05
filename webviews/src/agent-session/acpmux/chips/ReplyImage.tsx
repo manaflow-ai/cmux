@@ -13,9 +13,9 @@
 // the setting under which its chip opens without asking: a preview needs no click (Leo,
 // 2026-10-31: "I SHOULDN'T EVEN HAVE TO CLICK THE OPEN BUTTON IT SHOULD JUST PREVIEW"). A file
 // that is not there has no Open, and a template path (`${variant}-320.png`) is plain text.
-// A reply's own images (`thumb`) draw in a glass thumbnail of a fixed shape whatever their state
-// (waiting, Load image, unavailable, shown), so an image that loads never moves the reply; a click
-// opens it whole in the image viewer.
+// A reply's own images (`thumb`) wait in a glass thumbnail of a fixed shape (waiting, Load image,
+// unavailable); a shown one is the whole image in its own shape (chips.css .cv-thumb--open), and a
+// click opens it in the image viewer.
 import { useContext, useEffect, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";

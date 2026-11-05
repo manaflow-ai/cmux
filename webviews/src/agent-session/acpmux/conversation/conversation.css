@@ -272,6 +272,7 @@
 .cv-user__images {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-end;
   justify-content: flex-end;
   gap: var(--ds-space-2);
   max-width: 70%;
@@ -285,10 +286,10 @@
   background: none;
   cursor: zoom-in;
 }
-/* Each a rounded thumbnail of one fixed height, cropped to fill (UserBubble.tsx sets its width from
-   the image's shape, within bounds), as Claude and ChatGPT show a sent image. A neutral backing
-   under it, so a transparent image still shows its content. An image sent inline in the text
-   (InlinePromptContent.tsx) is the same thumbnail. */
+/* Each a rounded thumbnail of the whole image in its own shape, at most 120px tall and never larger
+   than the image (UserBubble.tsx sentImageSize sets its size), so a wide screenshot is a whole strip,
+   not a magnified crop of its middle. A neutral backing under it, so a transparent image still shows
+   its content. An image sent inline in the text (InlinePromptContent.tsx) is the same thumbnail. */
 .cv-user__images img,
 .cv-user__inline-image img {
   display: block;

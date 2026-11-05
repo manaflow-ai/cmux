@@ -402,9 +402,9 @@
   white-space: nowrap;
 }
 
-/* A reply's image thumbnail (ReplyImage.tsx `thumb`): glass of one fixed shape in every state
- * (waiting, Load image, unavailable, shown), so an image that loads never moves the reply. The image
- * fits inside whole; a click opens it in the image viewer. */
+/* A reply's image thumbnail (ReplyImage.tsx `thumb`): glass of one fixed shape
+ * while it waits (waiting, Load image, unavailable); a shown image takes its own shape (below), and
+ * a click opens it in the image viewer. */
 .cv-thumb {
   box-sizing: border-box;
   display: inline-flex;
@@ -432,6 +432,28 @@
 button.cv-thumb {
   appearance: none;
   cursor: zoom-in;
+}
+/* A shown image is no frame: the thumbnail is the whole image in its own shape, as wide as the column
+ * or the image allows and at most 360px tall, never larger than the image, under a hairline ring.
+ * A wide screenshot is a strip, a phone shot a narrow column, never a thin strip in an empty card
+ * (Leo, 2026-11-05: "I don't think we have good enough looking previews for these"). Only the waiting
+ * and placeholder frames keep the fixed shape. */
+button.cv-thumb--open {
+  width: auto;
+  max-width: 100%;
+  aspect-ratio: auto;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.cv-thumb--open .cv-thumb__img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: var(--cv-media-radius);
+  outline: 1px solid color-mix(in srgb, var(--cv-fg) 12%, transparent);
+  outline-offset: -1px;
 }
 button.cv-thumb:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
