@@ -91,6 +91,9 @@ public final class ComputerUseRemoteSetupFlow {
     @ObservationIgnored private let team: ComputerUseTeamConsent
     @ObservationIgnored private var continued = false
     @ObservationIgnored private var dismissed = false
+    /// Setup reached ready since Computer Use turned on: a team consent turned off after that is the
+    /// person's own revoke (Settings > Devices), so the team card does not come back for it.
+    @ObservationIgnored private var reachedReady = false
     @ObservationIgnored private var requested: Set<String> = []
     @ObservationIgnored private var following: Task<Void, Never>?
 
@@ -133,19 +136,19 @@ public final class ComputerUseRemoteSetupFlow {
         switch next {
         case .none:
             // Off (or not cmux Remote): the next turn-on asks again.
-            (continued, dismissed, requested) = (false, false, [])
+            (continued, dismissed, requested, reachedReady) = (false, false, [], false)
             presenter.withdrawSetup()
         case .reading:
             break
         case .ready:
-            (continued, requested) = (false, [])
+            (continued, requested, reachedReady) = (false, [], true)
             presenter.withdrawSetup()
             if previous != .ready { remoteSetupLogger.notice("Computer Use: cmux Remote has Accessibility and Screen Recording") }
         case .ask:
             guard !dismissed else { return presenter.withdrawSetup() }
             show(.ask)
         case .team:
-            guard !dismissed else { return presenter.withdrawSetup() }
+            guard !dismissed, !reachedReady else { return presenter.withdrawSetup() }
             show(.teamConsent)
         case .request(let grant):
             guard !dismissed else { return presenter.withdrawSetup() }

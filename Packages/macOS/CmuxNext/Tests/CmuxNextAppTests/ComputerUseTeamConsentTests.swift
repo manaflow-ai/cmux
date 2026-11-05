@@ -124,6 +124,19 @@ struct ComputerUseTeamConsentTests {
         #expect(cards.shown == nil)
     }
 
+    /// Turning a switch off in Settings after setup finished is the person's revoke: no card for it.
+    @Test func aRevokeAfterSetupFinishedShowsNoCard() async {
+        let source = Source(), cards = Cards()
+        source.teamConsentNeeded = false
+        let flow = ComputerUseRemoteSetupFlow(source: source, presenter: cards)
+        flow.start()
+        #expect(flow.step == .ready)
+        source.teamConsentNeeded = true
+        for await step in ObservationStream({ flow.step }) where step == .team { break }
+        #expect(cards.shown == nil)
+        #expect(source.teamRequests == 0)
+    }
+
     @Test func notNowClosesTheTeamCardAndTurnsNothingOn() async {
         let source = Source(), cards = Cards()
         let flow = ComputerUseRemoteSetupFlow(source: source, presenter: cards, team: source.team)
