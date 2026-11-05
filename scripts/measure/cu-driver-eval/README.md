@@ -42,7 +42,8 @@ Arms (`inject.swift` for the routes, MCP stdio for the drivers):
 | `session-tap` | `CGEventPost` at the session tap; moves the pointer |
 | `nsevent-pid` | an `NSEvent` with the target's `windowNumber` and a window-local location, converted to a CGEvent, posted to the pid (Hopp's idea; Hopp is AGPL, so idea only, no code). No scroll: NSEvent has no public wheel constructor |
 | `stamped-pid` | Cua Driver's event fields (1, 3, 7, 40, 51, 58, 91, 92, `CGEventSetWindowLocation`, a `mouseMoved` primer), posted through SkyLight then CGEventPostToPid, without its focus step. Ported from trycua/cua (MIT) |
-| `cmux-cua-X.Y.Z` | the cmux-cua release at cmux's pin for this ref (`CMUX_CUA_RELEASE_TAG` and its hash in `scripts/build-cmux-cua.sh`; the release binary, without cmux's local patches), run as cmux runs it: `serve --socket` on a socket of the run with the app's helper environment, and `mcp --socket` with the agent token and `CMUX_CUA_MCP_FORCE_PROXY=1`, with its own `click`, `press_key`, `scroll` tools |
+| `stamped-sl`, `stamped-cg` | the same stamped events, posted through only SkyLight or only `CGEventPostToPid`: `stamped-pid` posts both, and a gesture that arrives through both arrives twice |
+| `cmux-cua-X.Y.Z` | the cmux-cua release at cmux's pin for this ref (`CMUX_CUA_RELEASE_TAG` and its hash in `scripts/build-cmux-cua.sh`; the release binary, without cmux's local patches), run as cmux runs it: `serve --socket` on a socket of the run with the app's helper environment and its argv (cursor motion and owner pid when the manifest declares them), and `mcp --socket` with the agent token and `CMUX_CUA_MCP_FORCE_PROXY=1`, with its own `click`, `press_key`, `scroll` tools |
 | `cua-driver-0.38.0` | upstream Cua Driver v0.38.0 (`pins.json`), run as `mcp --direct`, the same tools |
 
 Driver x,y are screenshot pixels: the scale comes from each driver's own `get_window_state`
