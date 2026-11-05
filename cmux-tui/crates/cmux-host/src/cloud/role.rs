@@ -235,6 +235,10 @@ impl Http for PosterHttp {
     ) -> Result<(u16, Vec<u8>), String> {
         self.0.request_with_deadline(url, body, bearer, deadline)
     }
+
+    fn reset(&self) {
+        self.0.reset();
+    }
 }
 
 /// One `identify` on the daemon's control socket. `timeout` bounds the whole

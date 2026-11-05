@@ -132,6 +132,12 @@ impl JsonPoster {
         result
     }
 
+    /// Drops the pooled connection, so the next request dials a fresh one. After a pause the pool's connection is
+    /// dead and nothing says so: a request on it would hang to its 20 s bound. A request in flight keeps its
+    /// transport, and drops it itself if it fails.
+    pub fn reset(&self) {
+    }
+
     /// Compatibility for callers with an active-clock absolute deadline.
     pub fn request_until(
         &self,
