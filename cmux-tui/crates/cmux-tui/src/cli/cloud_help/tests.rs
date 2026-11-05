@@ -80,6 +80,7 @@ const TARGETLESS: &[&str] = &[
     "sign-out",
     "diagnostics",
     "open-mobile-pairing",
+    "computer-control",
 ];
 
 #[test]
