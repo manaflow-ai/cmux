@@ -248,6 +248,48 @@ const pictured = {
   ],
 };
 
+// Leo's message (2026-11-05): three screen recordings (8, 7 and 8 frames), queued behind a
+// running turn. acpmux lists each video's frames as images; the card draws
+// one tile per attachment, a video at its first frame with its length, in one row ("uh this was a
+// weird preview idk i guess i accidentally queued?").
+const recording = (name: string, seconds: number, count: number) => ({
+  frames: Array.from({ length: count }, (_, at) => ({
+    id: `${name}-${at}`.padEnd(64, "0"),
+    mimeType: "image/jpeg",
+    name: `${name} frame at 0:0${at}.0`,
+    src: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
+  })),
+  part: {
+    kind: "file" as const,
+    name,
+    mimeType: "video/quicktime",
+    video: {
+      durationMs: seconds * 1000,
+      width: 320,
+      height: 180,
+      poster: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
+      frames: Array.from({ length: count }, (_, at) => ({ atMs: at * 1000, data: SCREEN_RECORDING_POSTER_JPEG })),
+    },
+  },
+});
+const recordings = [
+  recording("Screen Recording 2026-11-04 at 16.01.10.mov", 16, 8),
+  recording("Screen Recording 2026-11-04 at 16.02.41.mov", 23, 7),
+  recording("Screen Recording 2026-11-04 at 16.03.55.mov", 9, 8),
+];
+const withVideos = {
+  id: "q1",
+  prompt: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit.",
+  images: recordings.flatMap((video) => video.frames),
+  inlineParts: [
+    {
+      kind: "text" as const,
+      text: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit.",
+    },
+    ...recordings.map((video) => video.part),
+  ],
+};
+
 // A turn that took two steers, one the agent read and one it has not yet, and a prompt sent now
 // to an agent that cannot steer (it goes on with the turn).
 const steerMarks = () =>
@@ -619,6 +661,52 @@ const fontSizeVariants: Record<string, AgentPaneVariant> = Object.fromEntries(
   ),
 );
 
+/// Pastes `types` on the prompt as the system clipboard hands them over; `plain`, after Paste as
+/// Plain Text (⌘⇧V), as the prompt was before rich paste (richClipboard.ts).
+async function pasteTypes(ctx: PlayContext, types: Record<string, string>, settled: string, plain = false) {
+  const view = ctx.document.defaultView!;
+  if (plain) (ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement).acpmuxMarkdownField?.plainPaste();
+  const data = new view.DataTransfer();
+  for (const [type, value] of Object.entries(types)) data.setData(type, value);
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: data });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md")?.textContent?.includes(settled));
+}
+
+/// A bulleted reply as Claude's and ChatGPT's Copy put it on the clipboard (Leo's screenshots).
+const BULLETED_REPLY = [
+  "Continuing the landing pass:",
+  "",
+  "- **#21620** merged; no red of its own",
+  "- **#21621** typecheck fixed where `vp check` failed",
+  "- **#21200** waiting on review",
+].join("\n");
+
+/// HTML from a web page or Notes with a heading, a list and code.
+const HEADING_AND_CODE_HTML =
+  "<meta charset='utf-8'><h2>Retry plan</h2><ul><li>Retry only on <b>429</b> and <b>503</b></li><li>Back off from 200 ms</li></ul><pre><code class='language-ts'>await retry(send, { attempts: 3 });</code></pre>";
+
+/// One long paragraph, as dictation or a chat message gives it: about 1,100 words on a single line.
+const PARAGRAPH = Array.from(
+  { length: 40 },
+  (_, index) =>
+    `Okay, but at the same time the retry helper in step ${index + 1} should back off a little longer each attempt, log why it gave up, and keep the`,
+).join(" ");
+
+/// Pastes PARAGRAPH on the prompt and waits for its card (`card`).
+async function pasteParagraph(ctx: PlayContext, card: string) {
+  const view = ctx.document.defaultView!;
+  const data = new view.DataTransfer();
+  data.setData("text/plain", PARAGRAPH);
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: data });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelector(card));
+  if (/\b1 line\b/.test(ctx.find({ selector: card }).querySelector(".acpmux-text-card__label")?.textContent ?? ""))
+    throw new Error("a one-paragraph paste must say its size, never 1 line");
+}
+
 export default agentPaneEntry({
   id: "agent-pane.composer",
   title: "Composer",
@@ -976,7 +1064,7 @@ export default agentPaneEntry({
     // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
     // the prompt as typed; a click puts it back in the prompt, × removes it (pastedText.ts).
     "text-pasted": {
-      note: "A 130-line paste (780 words, over the 750-word limit): a Pasted text card (its first lines faded, Pasted text · 130 lines) over the typed prompt, × on hover.",
+      note: "A 130-line paste (780 words, over the 750-word limit): a Pasted text card (its first lines faded, Pasted text · 130 lines and its characters) over the typed prompt, × on hover.",
       ready: { draft: "Why does the build fail?" },
       snapshot: chat(finished),
       play: async (ctx) => {
@@ -1020,6 +1108,57 @@ export default agentPaneEntry({
           throw new Error("the inline paste card must show the paste's first lines");
         if (!/131 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
           throw new Error("the inline paste card must say its line count");
+      },
+    },
+    // Leo (2026-11-05): "we don't even render bullet points properly in our thing when we're pasting
+    // that stuff in". Before: the bulleted reply goes in as literal "- " lines (Paste as Plain Text
+    // keeps that); after: an ordinary paste draws the same bullets typing "- " makes.
+    "paste-bulleted-reply-plain": {
+      note: 'Before, and still Paste as Plain Text (⌘⇧V): a bulleted reply copied from a chat goes in as its literal lines, each starting with "- " and **bold** as typed.',
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await pasteTypes(ctx, { "text/plain": BULLETED_REPLY }, "#21200", true);
+        if (ctx.document.querySelector(".acpmux-md li")) throw new Error("Paste as Plain Text must not draw a list");
+      },
+    },
+    "paste-bulleted-reply": {
+      note: "After: the same paste draws its intro line and three bullets, bold and inline code as the reply had them.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await pasteTypes(ctx, { "text/plain": BULLETED_REPLY }, "#21200");
+        if (ctx.document.querySelectorAll(".acpmux-md ul > li").length !== 3)
+          throw new Error("a pasted bulleted reply must draw three bullets");
+      },
+    },
+    "paste-heading-and-code": {
+      note: "HTML from a web page or Notes with a heading, a list and code: a heading, two bullets and a code block in the prompt.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await pasteTypes(
+          ctx,
+          { "text/html": HEADING_AND_CODE_HTML, "text/plain": "Retry plan\nRetry only on 429 and 503" },
+          "attempts",
+        );
+        if (!ctx.document.querySelector(".acpmux-md h2") || !ctx.document.querySelector(".acpmux-md pre"))
+          throw new Error("a pasted heading and code block must draw as a heading and a code block");
+      },
+    },
+    // Leo (2026-11-05): "it says pasted text one line, but there's a lot more than this ... you're
+    // previewing one, two, three, four, five words out of a multi-hundred-word pasted text bit". One
+    // long dictated paragraph: the card wraps it in the composer's font and says its size.
+    "text-pasted-paragraph": {
+      note: "One 1,100-word paragraph pasted in the inline view: the card wraps its first lines in the composer's font, faded, over Pasted text · 5.4K characters (never 1 line).",
+      ready: { draft: "Can you tighten this up? " },
+      snapshot: chat(finished),
+      play: (ctx) => pasteParagraph(ctx, '.acpmux-md-inline-chip[data-preview="text"]'),
+    },
+    "text-pasted-paragraph-strip": {
+      note: "The same paragraph in the strip view: a wider card, three wrapped lines over its size.",
+      ready: { draft: "Can you tighten this up?" },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
+        await pasteParagraph(ctx, ".acpmux-attachment-pasted");
       },
     },
     // Leo (2026-10-28): "double paste of long block text should reveal it instead of duplicating
@@ -1760,6 +1899,10 @@ export default agentPaneEntry({
     "queued-images": {
       note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
       snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
+    },
+    "queued-videos": {
+      note: 'Leo\'s message with three screen recordings (23 frames), queued behind a running turn: three tiles in one row, each video one tile at its first frame with its length (Leo, 2026-11-05: "uh this was a weird preview idk i guess i accidentally queued?").',
+      snapshot: chat(working, { isWorking: true, queue: [withVideos, { id: "q2", prompt: "And update the README" }] }),
     },
     "queued-images-edit": {
       note: "Play: Edit message (the ⋯ menu) on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",

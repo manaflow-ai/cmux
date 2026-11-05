@@ -98,6 +98,7 @@ fn timed_out_cell_pixel_ack_reconciles_when_the_response_arrives_late() {
         launch_activation_pending: false,
         pty_custody: None,
         input_order: None,
+        input_room: Default::default(),
     };
     let (release_ack_tx, release_ack_rx) = std::sync::mpsc::channel();
     let resolver = {
@@ -216,6 +217,7 @@ fn detach_fence_reports_a_delayed_receipt_after_output_as_a_failure() {
         launch_activation_pending: false,
         pty_custody: None,
         input_order: None,
+        input_room: Default::default(),
     };
     let (output_queued, output_seen) = sync_channel(1);
     let (release_ack, ack_release) = sync_channel(1);
@@ -381,6 +383,7 @@ fn adoption_quota_reconfiguration_finishes_before_snapshot_use() {
         launch_activation_pending: false,
         pty_custody: None,
         input_order: None,
+        input_room: Default::default(),
     };
     let responder = thread::spawn(move || {
         let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();

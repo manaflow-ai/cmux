@@ -20,8 +20,7 @@ NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 # Publish jobs whose environment (release or release-next) holds CMUX_RELEASE_APP_ID/_KEY.
 APP_JOBS = {
     "recover-nightly-next-notarization": "read", "publish-nightly": "write", "keep-published-dsyms": "read",
-    "legacy-identity-target": "read", "sign-nightly-identity-legacy": "read",
-    "publish-nightly-identity-legacy": "write", "generate-nightly-deltas": "read",
+    "generate-nightly-deltas": "read",
     "republish-nightly-deltas": "write", "publish-release-notes": "read",
     "publish-nightly-next-github": "write", "publish-nightly-next-github-names": "write",
 }
@@ -90,12 +89,6 @@ class WorkflowTests(unittest.TestCase):
             else:  # the job's own checkout is the workflow commit
                 checkout = next(s for s in steps if "actions/checkout" in str(s.get("uses", "")))
                 self.assertIn(checkout.get("with", {}).get("ref", "${{ github.sha }}"), ("${{ github.sha }}",), name)
-
-    def test_legacy_target_runs_only_where_its_environment_admits(self) -> None:
-        job = self.jobs["legacy-identity-target"]
-        self.assertEqual(job["environment"], "release-next")
-        self.assertIn("github.ref == 'refs/heads/nightly-next'", job["if"])
-        self.assertIn("needs.decide.outputs.environment == 'release-next'", job["if"])
 
     def test_uploaders_run_from_the_workflow_commit(self) -> None:
         # A build checkout may predate GH_APP_TOKEN support; these jobs run the uploader from

@@ -1,0 +1,31 @@
+# Python test execution registry: tests/test_swift_*.py. Keep entries sorted by path;
+# scripts/ci/test_execution_registry.py says how the registry is split and read.
+
+[[test]]
+path = "tests/test_swift_incremental_diagnostics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_linux_packages.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_package_execution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_test_execution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_testing_require_not_nested.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_testing_suite_timeout.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_typecheck_diagnostics.py"
+lane = "manual"
+reason = "Static phase-dependency and diagnostics-parser regression checks; feat-cmux-next guards has no Python test lane."

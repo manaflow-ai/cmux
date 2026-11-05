@@ -193,7 +193,7 @@ staged, and committed. CI keeps the non-mutating lint as the backstop.
 Claude Code and Codex post-edit hooks (`.claude/settings.json`, `.codex/hooks.json`)
 run the same fixer on edited `Packages/**/*.swift` files; they print repairs and never fail an edit.
 They also warn, for the edited files only, about workflow YAML that does not parse or that
-actionlint rejects, a new `tests/test_*.py` missing from `tests/test-execution.toml`, and a
+actionlint rejects, a new `tests/test_*.py` missing from `tests/test-execution.d/`, and a
 CmuxNext Swift or cmux-tui Rust file grown past its god-file cap (`scripts/ci/check-post-edit.sh`).
 
 `scripts/ci/format-post-edit.sh` formats each edited file the way CI checks it:
@@ -269,6 +269,21 @@ cloud overflow switch, and any input or repository variable a nightly
 such as `LINUX_RUNNER` or `MACOS_RUNNER_*`) to a nightly job; when owned
 capacity is short, fix the owned pool. `tests/test_ci_nightly_off_blacksmith.py`
 enforces this.
+
+**Nightlies run on one Mac mini, and nobody cancels them** (Lawrence, 2026-11-04).
+The whole nightly (build, sign, notarize, verify and publish, for cmux-next on
+`nightly-next` and classic on `main`) runs on the single nightly mini: cmux15, the
+signing-reserved mini (its runners carry `glaeda-trusted-next-signing` and the
+nightly-only labels). This applies to humans, Leo and every agent:
+
+- Never move a nightly job to Blacksmith, a GitHub-hosted runner or another mini,
+  and never split one nightly across minis, also not "only for this run".
+- Never cancel a nightly run, a nightly job or the nightly queue to make room or
+  to speed up a proof. A queued nightly waits its turn; the sign yield
+  (`scripts/ci/nightly_sign_yield.py`) hands an older build's slot to a newer
+  one without cancelling anything.
+- When the nightly mini is short of capacity or a nightly is slow, report it and
+  fix the mini or the workflow on that mini. Do not reroute the nightly.
 
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).

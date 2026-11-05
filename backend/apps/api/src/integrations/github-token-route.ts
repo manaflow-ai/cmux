@@ -8,6 +8,7 @@ import type { Env } from "../env.ts"
 import { ssoGate } from "../policy-gate.ts"
 import { principalForOwner, selectTeam } from "../team-select.ts"
 import type { RepoListReply, TokenAsk, TokenReply } from "./github-tokens.ts"
+import { platformCloud } from "../platform-cloud.ts"
 
 /**
  * The GitHub token routes (gh-app-product contract; the work is in github-tokens.ts): POST /token
@@ -58,7 +59,7 @@ const caller = async (request: Request, env: Env, team: string | undefined): Pro
   if (p.install_kind !== "vm") return { p, team: p.team! }
   // vmGate (cloud-vm.ts): its own bound machine, still naming this install, not deleting or failed.
   // This live-machine ownership check gates the VM's existing vm-self read and write access.
-  const cloud = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean }> }
+  const cloud = platformCloud(env.CLOUD_DO, p.team!)
   const self = await cloud.readOp(p.team!, p, "cloud.vm.self.get", { machine: p.bound_machine ?? "" }).catch(() => null)
   return self === null ? unreachable("the VM's machine") : self.ok ? { p, team: p.team!, machine: p.bound_machine! } : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
 }

@@ -56,10 +56,11 @@ final class SectionHeaderRowView: SidebarRowView {
 
     /// The header's mark for `machine` (``MachineLinkState``, the composer strip's same word):
     /// green once its daemon finished the handshake, a spinner on its way, red when down, grey
-    /// when paused. This Mac draws nothing while connected.
+    /// when paused. This Mac and a Cloud machine draw nothing while connected: a Cloud header is a name, a chevron
+    /// and a +, like a group's (Leo 2026-10-30: "JUST DEPICT IT SIMILARLY TO EVERYTHING ELSE").
     static func tone(_ machine: SidebarMachine, hostGroup: Bool) -> StatusTone? {
         switch (machine.kind, machine.status) {
-        case (.local, .connected), (.local, .updateAvailable): return nil
+        case (.local, .connected), (.local, .updateAvailable), (.cloud, .connected), (.cloud, .updateAvailable): return nil
         // An optional update is not the sidebar's to say (Lawrence 2026-10-21: "wtf is chief
         // update available"): the header reads as connected, its green dot as the composer
         // strip's, and the tooltip says it.
@@ -176,7 +177,9 @@ final class SectionHeaderRowView: SidebarRowView {
             statusTone = Self.tone(machine, hostGroup: section.isHostGroup)
             let words = Self.statusWords(machine.status)
             badgeText = Self.statusText(machine.status, hostGroup: section.isHostGroup)
-            statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: badgeText == nil && (statusTone != nil || machine.status == .updateAvailable))
+            // A connected Cloud machine draws no dot (Leo 2026-10-30), yet its tooltip still says it is connected.
+            statusTip = Self.statusToolTip(words: words, detail: machine.detail, bareDot: badgeText == nil
+                && (statusTone != nil || machine.status == .updateAvailable || machine.kind == .cloud))
             cost = machine.kind == .cloud ? machine.cost : nil
             themedToolTip = Self.machineToolTip(status: statusTip, cost: cost, now: Date())
             setAccessibilityLabel(machine.name + ", " + words)

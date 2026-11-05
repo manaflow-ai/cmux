@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""Keep NEXT feed publication independent of the compatibility identity.
+"""The post-publication writers follow the one feed's publication.
 
-The signed arm64 artifact is the user-facing readiness boundary. The
-NIGHTLY-identity compatibility lane must not become a dependency of
-``publish-nightly``. Its target and the release signer pool (hosted Linux and
-one secret-free Mac job) start from this run's prepared app beside cmux NEXT's
-own signers; the macOS signer, the only part that holds an owned signing Mac,
-runs after the NEXT publication (#25957), and the old feed publishes only the
-build ``publish-nightly`` published.
+nightly-next signs each build once, as cmux NIGHTLY (hq#7156; Leo, 2026-11-05:
+"THERE SHOULDN'T BE 2"): no compatibility signer runs before or after
+``publish-nightly``. The release notes and the delta republish write only while
+the live feed still serves the build they describe.
 """
 
 import re
@@ -35,26 +32,11 @@ def needs(job_text: str) -> str:
 failures = []
 publish = job("publish-nightly")
 publish_needs = needs(publish)
-compatibility_jobs = ("legacy-identity-target", "sign-nightly-identity-legacy")
-
-for post_job in compatibility_jobs:
-    if post_job in publish_needs:
-        failures.append(f"publish-nightly must not wait for compatibility job {post_job}")
-if "prepare-nightly-variant" not in needs(job("legacy-identity-target")):
-    failures.append("legacy-identity-target must wait for the prepared NEXT artifact")
-if "publish-nightly" not in needs(job("sign-nightly-identity-legacy")):
-    failures.append("the macOS legacy signer (an owned signing Mac) must run after the primary NEXT publication")
-legacy = job("legacy-identity-target")
-if "build-nightly-app" not in needs(legacy):
-    failures.append("legacy identity targeting must know the current build number")
-if "CURRENT_BUILD_READY" not in legacy or "--candidate-build" not in legacy:
-    failures.append("legacy identity targeting must admit the current signed artifact")
-if "CURRENT_BUILD_SHA" not in legacy or "source_sha=$source_sha" not in legacy:
-    failures.append("legacy identity targeting must carry the current build commit into parallel signing")
-if "verify_remote_daemon_release.py" not in job("sign-nightly-identity-legacy") or "cmux-nightly-remote-daemon" not in job("sign-nightly-identity-legacy"):
-    failures.append("parallel identity signing must embed the verified remote daemon manifest")
-if 'accepted build $pending_build is not on the live cmux NEXT Nightly feed' not in legacy:
-    failures.append("legacy identity continuation must require live NEXT feed membership")
+# The second signing's jobs are gone: nothing re-signs a build for another feed.
+for gone in ("legacy-identity-target", "sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
+             "publish-nightly-identity-legacy", "nightly-identity-legacy-published"):
+    if f"\n  {gone}:\n" in TEXT or gone in publish_needs:
+        failures.append(f"{gone} signs or publishes a second copy of the build")
 notes_publish = job("publish-release-notes")
 # The tag moves after the feed (publish-nightly-next-github), so the live feed is the check:
 # `!=`, a newer build is live or this one was pulled.
@@ -92,28 +74,93 @@ if "write-feed --feed \"$feed\" --same-build" not in job("republish-nightly-delt
         failures.append(f"{writer} must let an in-flight publication finish")
 if "publish-nightly.result == 'success'" not in notes_publish:
     failures.append("publish-release-notes must require a successful NEXT publication")
-for downstream in ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "publish-nightly-identity-legacy"):
-    downstream_needs = needs(job(downstream))
-    if "legacy-identity-target" not in downstream_needs:
-        failures.append(f"{downstream} must remain downstream of legacy-identity-target")
-if "publish-nightly" not in needs(job("publish-nightly-identity-legacy")):
-    failures.append("legacy identity publication must wait for successful NEXT publication")
-legacy_publish = job("publish-nightly-identity-legacy")
-pause_exemption = "needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue'"
-if pause_exemption not in job("sign-nightly-identity-legacy"):
-    failures.append("parallel identity signing must honor the notary pause except for accepted continuations")
-if pause_exemption not in legacy_publish:
-    failures.append("parallel identity publication must honor the notary pause except for accepted continuations")
-if "needs.publish-nightly.outputs.refused != 'true'" not in legacy_publish:
-    failures.append("legacy identity publication must stop when NEXT publication was refused")
-if "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" not in legacy_publish:
-    failures.append("legacy identity publication must match the exact NEXT build selected for the compatibility feed")
-if "needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue'" not in legacy_publish:
-    failures.append("legacy identity continuation must remain available when publish-nightly is intentionally skipped")
-# Run 41126559170 (2026-10-30): the rescue's full re-runs skipped publish-nightly (the build was already on the
-# NEXT feed), so a legacy sign there could never publish. A target from the live feed publishes from any run.
-if "|| needs.legacy-identity-target.outputs.source_run == '')" not in legacy_publish:
-    failures.append("a legacy target from the live NEXT feed (source_run empty) must publish whatever this run's publish-nightly did")
+
+# The PR comments run in their own dispatched run (nightly_next_post_publish), so they never hold the one
+# nightly-next push group (#36111) or the mini's whole-Mac publish jobs: run 41982716550 published at 08:42Z
+# and its comments (247 PRs, 40 min) kept the next push waiting. In that run decide skips, and the only job
+# that can start is published-in; every other job is skipped because a job it needs was.
+def post_publish_runnable() -> list[str]:
+    import yaml
+
+    jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+    status_check = re.compile(r"\b(?:always|cancelled|failure|success)\s*\(")
+
+    def conjuncts(cond: str) -> list[str]:
+        cond = cond.strip()
+        if cond.startswith("${{") and cond.endswith("}}"):
+            cond = cond[3:-2].strip()
+        parts, depth, start = [], 0, 0
+        for index, char in enumerate(cond):
+            depth += char == "("
+            depth -= char == ")"
+            if depth == 0 and cond.startswith("&&", index):
+                parts.append(cond[start:index])
+                start = index + 2
+        return [part.strip() for part in parts + [cond[start:]]]
+
+    def unwrap(term: str) -> str:
+        while term.startswith("(") and term.endswith(")") and conjuncts(term[1:-1]) == [term[1:-1].strip()]:
+            term = term[1:-1].strip()
+        return term
+
+    def requires_a_skipped_job(term: str, skipped: set[str]) -> bool:
+        """The term holds only if one of the skipped jobs ran: needs.<job>.result or an output equals a non-empty value."""
+        alternatives = [alt.strip() for alt in unwrap(term).split("||")]
+        found = [re.fullmatch(r"needs\.([A-Za-z0-9_-]+)\.(?:result|outputs\.[A-Za-z0-9_]+) == '[^']+'", alt)
+                 for alt in alternatives]
+        return all(found) and all(match.group(1) in skipped for match in found)
+
+    def requires_another_input(term: str) -> bool:
+        """A dispatch input other than nightly_next_post_publish must be set; the post-publish dispatch sets none."""
+        term = unwrap(term)
+        return bool(re.fullmatch(r"inputs\.(?!nightly_next_post_publish\b)[a-z_]+ != ''", term)
+                    or re.fullmatch(r"\(inputs\.[a-z_]+ \|\| '[a-z]+'\) != '[a-z]+'", term))
+
+    skipped: set[str] = set()
+    runnable: list[str] = []
+    pending = dict(jobs)
+    while pending:
+        progressed = False
+        for name, spec in list(pending.items()):
+            needed = spec.get("needs") or []
+            needed = [needed] if isinstance(needed, str) else needed
+            if any(need in pending for need in needed):
+                continue
+            del pending[name]
+            progressed = True
+            cond = str(spec.get("if", ""))
+            terms = conjuncts(cond) if cond else []
+            if name == "decide":
+                ok = "inputs.nightly_next_post_publish == ''" in cond
+            elif not needed:
+                ok = any(requires_another_input(term) for term in terms)
+            elif not status_check.search(cond):
+                ok = any(need in skipped for need in needed)  # GitHub's implicit success() skips it
+            else:
+                ok = any(requires_a_skipped_job(term, skipped) for term in terms)
+            if ok:
+                skipped.add(name)
+            else:
+                runnable.append(name)
+        if not progressed:
+            raise AssertionError(f"needs cycle among {sorted(pending)}")
+    return runnable
+
+
+runnable = post_publish_runnable()
+if runnable != ["published-in"]:
+    failures.append(f"a nightly_next_post_publish run must start only published-in, not {runnable}")
+published_in = job("published-in")
+if "inputs.nightly_next_post_publish != ''" not in published_in or "\n    needs:" in published_in:
+    failures.append("published-in must run only in the dispatched post-publish run, needing no push-run job")
+dispatch = job("dispatch-published-in")
+for trusted in ("publish-nightly-next-github", "publish-nightly-next-github-names", "generate-nightly-deltas",
+                "republish-nightly-deltas"):
+    if trusted not in needs(dispatch):
+        failures.append(f"dispatch-published-in must wait for {trusted}: the comments must not hold the mini "
+                        "while the push run's own whole-Mac publishing waits")
+if "-f nightly_next_post_publish=" not in dispatch or "actions: write" not in dispatch:
+    failures.append("dispatch-published-in must dispatch nightly.yml with nightly_next_post_publish")
 
 if failures:
     print("FAIL: NEXT post-publication dependency contract\n  " + "\n  ".join(failures))

@@ -47,6 +47,12 @@ final class ChromiumPageHost: PageChromiumHosting {
 
     func serves(_ page: PageDescriptor) -> Bool { CEFPageSchemes.firstParty[page.id] != nil }
 
+    /// Off always reaches the runtime, so a stale "on" is never applied once CEF becomes available.
+    func setLivePages(_ live: Bool) -> Bool {
+        guard live else { _ = cef.setLivePages(false); return false }
+        return isAvailable && cef.setLivePages(true)
+    }
+
     func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage {
         #if DEBUG || CMUX_BENCH_HOOKS
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).

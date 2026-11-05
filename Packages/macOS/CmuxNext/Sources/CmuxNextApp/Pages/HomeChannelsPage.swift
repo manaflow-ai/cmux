@@ -187,7 +187,7 @@ final class DaemonCredentialPageProvider: PageProvider {
 
     static var tooOld: String {
         String(localized: "homeChannels.daemon.tooOld",
-               defaultValue: "This cmux daemon is too old to serve this page, and cmux cannot restart it. Update the cmux-tui binary that cmux uses, then open this tab again.",
+               defaultValue: "This page needs a newer cmux background service, and cmux can't restart it. Update cmux, then open this tab again.",
                table: "Handlers", bundle: .module)
     }
 
