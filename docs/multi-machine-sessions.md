@@ -63,7 +63,12 @@ The bar is ChatGPT desktop and iOS: sign in, and your devices are there.
    (lens review). While any peer holds a live `control` or `screen` session,
    the target shows "Studio is controlling this Mac" with **Stop**, in the menu
    bar and the window. Stop and Remove travel on the link's control lane, and
-   nothing (no frame, no keystroke) follows them.
+   nothing (no frame, no keystroke) follows them: the target owns the stop.
+   Every control or screen session has an epoch; Stop (pressed there, or
+   arriving from the peer) bumps it on the target first, and the target's
+   input injector drops every queued or later input event that carries an
+   older epoch before it acknowledges Stop. Input is applied only by the
+   target, so no lane ordering can let a keystroke through after it.
 8. **One page per device.** Settings > Devices shows each phone and machine
    once, with everything it may do here. Today that is four switches: Allow
    iPhone Connections, Mac Screen device access, Join consent and Computer
@@ -79,7 +84,9 @@ cmux has:
 - WireGuard (`cmux-wg`, userspace, a fresh key per session) with hole
   punching from host and STUN-reflexive endpoints, then TURN over UDP, then
   TURN over TLS on 443 when UDP is blocked; roaming keeps every byte
-  (`tests/roaming.rs`); no backend relay ever carries data.
+  (`tests/roaming.rs`). A TURN relay carries only WireGuard-encrypted
+  packets and never sees plaintext; no backend service terminates the
+  link's encryption.
 - Priority lanes (control, input, bulk) so a 2 GB build upload never delays a
   keystroke or an approval (`class_queue.rs`, the input lane).
 - Signaling is the person's own hub (`team-hub.ts`, one Durable Object per
@@ -222,7 +229,8 @@ MacBook**, or the sidebar row's menu.
 2. Signed by either:
    - **the cmux release key**: an Ed25519 key that signs a new per-build
      manifest, `cmux-<version>-<arch>.manifest.json` (bundle id, version,
-     channel, arch, the installed-tree hash below), published beside the
+     build number, channel, arch, the archive's SHA-256 and size, and the
+     installed-tree hash below, all inside the signed bytes), published beside the
      DMG by the release and nightly jobs and signed by the same signing step
      that writes the appcast's `sparkle:edSignature` (today that signs the
      DMG only, so this is a new step). The key's public half ships in the
@@ -232,13 +240,19 @@ MacBook**, or the sidebar row's menu.
      its channel: Developer ID Manaflow, Inc. (7WLXT3NR37), notarized, *and*
      bundle id `com.cmuxterm.app` (release) or the nightly's id, nothing
      else. The receiver checks the manifest signature and the archive's
-     sha256 before unpacking, then `codesign --verify --deep --strict
+     sha256 against the signed manifest before unpacking, then the unpacked
+     tree's hash against the signed manifest before the rename, then
+     `codesign --verify --deep --strict
      -R '<designated requirement>'` and `spctl -a` on the unpacked app. Any
-     other app signed by the team (a helper, a lab app) is refused; or
+     other app signed by the team (a helper, a lab app) is refused, and so
+     is a build older than the one installed at that path (the manifest's
+     build number), so an old signed build cannot be replayed; or
    - **a build key the person enrolled here**: an Ed25519 key the sender
      made for its own tagged builds (`~/.config/cmux/build-key`, 0600). The
-     receiver checks the signature over the manifest, the archive's sha256
-     and, after unpacking, the installed-tree hash. A build key is enrolled only through an approval card on the
+     receiver checks the signature over the manifest (which signs the
+     archive's SHA-256 and size and the installed-tree hash), the archive
+     against it before unpacking, and the unpacked tree against it before
+     the rename. A build key is enrolled only through an approval card on the
      receiving machine ("Studio wants to install its own builds here"),
      never by the peer.
 3. The receiver streams it to a staging folder on the bulk lane (resumable by
@@ -309,11 +323,25 @@ with the link in place of the Cloud socket:
 Neither pump may simply be pointed at a Mac. `fs-v1` is served only by a
 Cloud host today, and `agent-transfer-v1` refuses remote and stamped
 clients, both on purpose. A Mac serves them on the link only behind a new
-gate: the peer holds `move` here, the request names one workspace, and the
-folder it writes is the workspace's own (a new folder under the person's
+gate. On the **source**, a move out happens only from the source's own UI
+or its own CLI (the person picks the workspace there), never on a peer's
+request: the source mints a one-use move ticket (random, 5 minutes) scoped
+to that one workspace id, its chats and its folder, and sends it with the
+move. The pumps serve only what the ticket names and refuse every other id.
+A peer that only holds `move` can therefore bring nothing out. On the
+**receiver**, the peer holds `move` here, the request names one workspace,
+and the folder it writes is the workspace's own (a new folder under the person's
 chosen root on the receiver, or the same repo's worktree), checked by
 realpath on every file. No other root is reachable. That gate, with its
 tests, is the move PR's first commit.
+
+A move is one transaction with an id (the ticket's). Each step (folder,
+chats, workspace) is recorded on both sides as it commits, in the ledger;
+a retry with the same id resumes from the last committed step and never
+copies twice, and the source marks the workspace moved only after the
+receiver confirms the last step. A move that cannot finish leaves the
+source as it was and the receiver's partial folder named as such, with
+**Retry** and **Discard**.
 
 ### Take over (`screen`)
 
@@ -365,7 +393,7 @@ service until `auth` passes, exactly as phones are.
 | `machine.describe` | No. | No. | Name, OS, arch, cmux version, logged-in desktop yes/no, the grants this peer has. No paths, sessions or windows. |
 | `install` | Unpacks and, with `--open`, launches an app: allowed only for a signature the receiver verifies itself (release key, or a build key the person enrolled here by card), into a tagged path that never replaces an existing app. Nothing of the sender's choosing runs before verification. | Writes only `~/Applications/cmux DEV <tag>.app` (refuses a tag whose app it did not install) and its staging folder. | No. |
 | `run` | Starts an agent: the launcher is the receiver's own, the agent an enum, the cwd in the grant's folder list; the request has no command-bearing field. | Creates a new workspace owned by this request; names no existing object. | Answers only the receipt. |
-| `move` (in) | Starts terminals in the moved workspace's folders with the receiver's own shell; recreates chats through acpmux's transfer, which carries history, not commands. | Creates new objects; a move out takes only a workspace the person picked on the source. | The source sends only that workspace. |
+| `move` (in) | Starts terminals in the moved workspace's folders with the receiver's own shell; recreates chats through acpmux's transfer, which carries history, not commands. | Creates new objects; a move out takes only the workspace named by a one-use ticket the source minted from its own UI. | The source's pumps serve only the ticket's workspace, chats and folder. |
 | `screen` | Shows the screen (View) or injects input (Control) through the screen-sharing worker; Control never from an `agent` origin; the indicator and Stop always show. | No. | The screen, by design: that is the grant. |
 | `control` (today's phone lanes) | Unchanged: `policy.rs` allowlists, command params denied. | Unchanged ID scoping (`owned_check`). | Unchanged. |
 
