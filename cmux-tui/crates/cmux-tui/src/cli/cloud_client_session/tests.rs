@@ -445,3 +445,107 @@ fn quiet_create_still_writes_the_token_file_and_refuses_a_secret_path() {
     assert!(!error.contains("cred-secret"), "{error}");
     assert!(!secret.exists());
 }
+
+/// A fake cmux API whose provider has no client sessions: the mint answers 501
+/// cloud.provider.unsupported, and the machine exec route answers `exec_body`.
+fn fake_no_sessions(exec_status: u16, exec_body: String) -> (String, mpsc::Receiver<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let (sender, requests) = mpsc::channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().take(2) {
+            let mut stream = stream.unwrap();
+            let mut buffer = Vec::new();
+            let mut chunk = [0_u8; 4096];
+            let request = loop {
+                let n = stream.read(&mut chunk).unwrap();
+                buffer.extend_from_slice(&chunk[..n]);
+                let text = String::from_utf8_lossy(&buffer).to_string();
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let length = text[..end]
+                        .lines()
+                        .find_map(|l| {
+                            l.to_ascii_lowercase()
+                                .strip_prefix("content-length: ")
+                                .map(|v| v.trim().parse::<usize>().unwrap())
+                        })
+                        .unwrap_or(0);
+                    if buffer.len() >= end + 4 + length || n == 0 {
+                        break text;
+                    }
+                }
+            };
+            let (status, body) = if request.contains("/client-session ") {
+                (501, json!({ "ok": false, "error": { "code": "cloud.provider.unsupported", "message": "no client sessions" } }).to_string())
+            } else {
+                (exec_status, exec_body.clone())
+            };
+            let _ = stream.write_all(format!("HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes());
+            let _ = sender.send(request);
+        }
+    });
+    (origin, requests)
+}
+
+#[test]
+fn exec_on_a_machine_without_client_sessions_runs_through_the_machine_exec_route() {
+    let (origin, requests) = fake_no_sessions(
+        200,
+        json!({ "exitCode": 4, "stdout": "out cmux-credential\n", "stderr": "e\n" }).to_string(),
+    );
+    let command = parse(&strings(&[
+        "exec",
+        "--target",
+        VM,
+        "--team",
+        "team_x",
+        "--timeout-ms",
+        "5000",
+        "--",
+        "echo",
+        "hi",
+    ]))
+    .unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code =
+        run(&command, &origin, "cmux-credential", OutputMode::Json, &mut out, &mut err).unwrap();
+    assert_eq!(code, 4);
+    let printed: Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(
+        printed,
+        json!({ "machine": VM, "exit_code": 4, "stdout": "out [redacted]\n", "stderr": "e\n" })
+    );
+    let _mint = requests.recv().unwrap();
+    let route = requests.recv().unwrap();
+    assert!(route.starts_with(&format!("POST /v1/cloud/machines/{VM}/exec ")), "{route}");
+    let lower = route.to_ascii_lowercase();
+    assert!(lower.contains("authorization: bearer cmux-credential"), "{route}");
+    assert!(lower.contains("x-cmux-team: team_x"), "{route}");
+    let body: Value = serde_json::from_str(route.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(body, json!({ "command": "echo hi", "timeoutMs": 5000 }));
+}
+
+#[test]
+fn a_refused_machine_exec_route_prints_only_a_known_code() {
+    let (origin, _requests) = fake_no_sessions(
+        409,
+        json!({ "ok": false, "error": { "code": "cloud.machine.paused", "message": "secret-ish detail" } })
+            .to_string(),
+    );
+    let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let message = run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
+        .unwrap_err();
+    assert!(message.ends_with("cloud.machine.paused"), "{message}");
+    assert!(!message.contains("secret-ish"), "{message}");
+}
+
+#[test]
+fn create_on_a_machine_without_client_sessions_still_fails() {
+    let (origin, _requests) = fake_no_sessions(200, "{}".to_owned());
+    let command = parse(&strings(&["create", "--target", VM])).unwrap();
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let message = run(&command, &origin, "cmux-credential", OutputMode::Human, &mut out, &mut err)
+        .unwrap_err();
+    assert!(message.contains("cloud.provider.unsupported"), "{message}");
+}
