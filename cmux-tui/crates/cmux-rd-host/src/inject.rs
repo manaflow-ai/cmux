@@ -14,11 +14,17 @@
 //! the toplevel under the person's pointer and the time of their last input. An agent can
 //! read it to wait only when it would act on the window the person is using. The property
 //! goes away with the master; after a crash its `last_input_unix_ms` simply stops moving.
+//!
+//! Chrome drops both clicks when one master presses while the other holds a button (the
+//! staging spike: the agent pressed, the person clicked 150 ms later, Chrome saw only the
+//! agent's mousedown). So a person's press waits while the core (agent) pointer holds a
+//! button, at most [`HOLD_LIMIT`], with every later event queued behind it in order; the
+//! property's `button_held` tells the agent the same about the person.
 
 use crate::keymap::hid_to_x;
 use crate::Res;
 use cmux_rd_proto::InputEvent;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use x11rb::connection::Connection;
@@ -32,6 +38,7 @@ use x11rb::protocol::xproto::{
 };
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::rust_connection::RustConnection;
+use x11rb::wrapper::ConnectionExt as _;
 
 /// The XI2 master the person's input goes through (`NAME pointer` / `NAME keyboard`).
 pub const PERSON_MASTER: &str = "cmux person";
@@ -39,6 +46,10 @@ pub const PERSON_MASTER: &str = "cmux person";
 pub const PERSON_PROPERTY: &str = "_CMUX_RD_PERSON";
 /// Motion refreshes the property at most this often; presses and keys always do.
 const PROPERTY_EVERY: Duration = Duration::from_millis(200);
+/// A person's press waits at most this long for the agent's held button.
+pub const HOLD_LIMIT: Duration = Duration::from_secs(2);
+/// Events queued behind a waiting press before the queue is sent anyway.
+const HOLD_QUEUE_MAX: usize = 512;
 
 /// Injectors in this process that hold the person master; the last one removes it.
 static PERSON_USERS: Mutex<usize> = Mutex::new(0);
@@ -48,6 +59,69 @@ static PERSON_USERS: Mutex<usize> = Mutex::new(0);
 struct PersonMaster {
     pointer: u16,
     keyboard: u16,
+    /// The core pointer the agent's XTest drives (0 when not found).
+    core: u16,
+}
+
+/// True for events that press a button: a press, or a scroll (wheel buttons 4 to 7).
+fn presses(event: &InputEvent) -> bool {
+    match event {
+        InputEvent::Button { down, .. } => *down,
+        InputEvent::Scroll { dx, dy, .. } => dx.unsigned_abs() >= 100 || dy.unsigned_abs() >= 100,
+        _ => false,
+    }
+}
+
+/// Holds a person's press (and everything after it, in order) while the agent holds a
+/// button, for at most [`HOLD_LIMIT`]. Pure, so the timing is tested without X.
+#[derive(Default)]
+struct HoldGuard {
+    queue: VecDeque<InputEvent>,
+    since: Option<Instant>,
+}
+
+impl HoldGuard {
+    /// Queues `event` and returns the events to inject now.
+    fn push(
+        &mut self,
+        event: InputEvent,
+        now: Instant,
+        agent_holds: impl FnMut() -> bool,
+    ) -> Vec<InputEvent> {
+        self.queue.push_back(event);
+        if self.queue.len() > HOLD_QUEUE_MAX {
+            self.since = None;
+            return self.queue.drain(..).collect();
+        }
+        self.release(now, agent_holds)
+    }
+
+    /// The events that may go now: everything up to a press the agent's held button
+    /// still blocks.
+    fn release(&mut self, now: Instant, mut agent_holds: impl FnMut() -> bool) -> Vec<InputEvent> {
+        let mut out = Vec::new();
+        while let Some(front) = self.queue.front() {
+            if presses(front) {
+                let waited = self.since.map_or(Duration::ZERO, |s| now.saturating_duration_since(s));
+                if waited < HOLD_LIMIT && agent_holds() {
+                    self.since.get_or_insert(now);
+                    break;
+                }
+                self.since = None;
+            }
+            out.extend(self.queue.pop_front());
+        }
+        out
+    }
+
+    fn waiting(&self) -> bool {
+        !self.queue.is_empty()
+    }
+
+    fn clear(&mut self) {
+        self.queue.clear();
+        self.since = None;
+    }
 }
 
 pub struct Injector {
@@ -60,6 +134,7 @@ pub struct Injector {
     person: Option<Option<PersonMaster>>,
     property: Option<Atom>,
     last_property: Option<Instant>,
+    hold: HoldGuard,
     /// Events with no XTest mapping (for example text), counted for stats.
     pub unsupported: u64,
 }
@@ -77,6 +152,7 @@ impl Injector {
             person: None,
             property: None,
             last_property: None,
+            hold: HoldGuard::default(),
             unsupported: 0,
         })
     }
@@ -129,7 +205,7 @@ impl Injector {
             .and_then(|c| c.reply().ok())
             .map(|r| r.child)
             .unwrap_or(0);
-        let body = person_property(master, window, unix_ms());
+        let body = person_property(master, window, !self.buttons.is_empty(), unix_ms());
         let _ = self.conn.change_property8(
             PropMode::REPLACE,
             self.root,
@@ -139,9 +215,45 @@ impl Injector {
         );
     }
 
-    /// Injects one event and flushes.
+    /// Whether the agent's core pointer holds a button now.
+    fn agent_holds(conn: &RustConnection, root: Window, master: PersonMaster) -> bool {
+        if master.core == 0 {
+            return false;
+        }
+        conn.xinput_xi_query_pointer(root, master.core)
+            .ok()
+            .and_then(|c| c.reply().ok())
+            .is_some_and(|r| r.buttons.first().is_some_and(|m| m & 0x3fe != 0))
+    }
+
+    /// Injects one event (or queues it behind a press the agent's held button blocks)
+    /// and flushes.
     pub fn apply(&mut self, event: &InputEvent) -> Res<()> {
-        let person = self.person();
+        let Some(master) = self.person() else { return self.send(event, None) };
+        let (conn, root) = (&self.conn, self.root);
+        let ready = self.hold.push(event.clone(), Instant::now(), || Self::agent_holds(conn, root, master));
+        for e in &ready {
+            self.send(e, Some(master))?;
+        }
+        Ok(())
+    }
+
+    /// Injects queued events whose press the agent no longer blocks (or that waited
+    /// [`HOLD_LIMIT`]). Returns true while events still wait.
+    pub fn pump(&mut self) -> Res<bool> {
+        if !self.hold.waiting() {
+            return Ok(false);
+        }
+        let Some(Some(master)) = self.person else { return Ok(false) };
+        let (conn, root) = (&self.conn, self.root);
+        let ready = self.hold.release(Instant::now(), || Self::agent_holds(conn, root, master));
+        for e in &ready {
+            self.send(e, Some(master))?;
+        }
+        Ok(self.hold.waiting())
+    }
+
+    fn send(&mut self, event: &InputEvent, person: Option<PersonMaster>) -> Res<()> {
         let mut pressed = false;
         match event {
             InputEvent::Key { usage, down } => match hid_to_x(*usage) {
@@ -162,10 +274,10 @@ impl Injector {
                 self.fake(if *down { BUTTON_PRESS_EVENT } else { BUTTON_RELEASE_EVENT }, b, 0, 0)?;
                 if *down {
                     self.buttons.insert(b);
-                    pressed = true;
                 } else {
                     self.buttons.remove(&b);
                 }
+                pressed = true;
             }
             InputEvent::Scroll { dx, dy, .. } => {
                 // X scrolls in wheel clicks: buttons 4/5 vertical, 6/7 horizontal, one per 100 units.
@@ -191,6 +303,7 @@ impl Injector {
 
     /// Releases every key and button this injector pressed.
     pub fn release_all(&mut self) -> Res<()> {
+        self.hold.clear();
         for code in std::mem::take(&mut self.keys) {
             self.fake(KEY_RELEASE_EVENT, code, 0, 0)?;
         }
@@ -225,13 +338,19 @@ fn unix_ms() -> u64 {
 
 /// The [`PERSON_PROPERTY`] value. `window` is the root child under the person's pointer
 /// (0 when none); the host pid lets a reader tell a live host from a crashed one.
-fn person_property(master: PersonMaster, window: Window, last_input_unix_ms: u64) -> String {
+fn person_property(
+    master: PersonMaster,
+    window: Window,
+    button_held: bool,
+    last_input_unix_ms: u64,
+) -> String {
     serde_json::json!({
         "v": 1,
         "pid": std::process::id(),
         "pointer": master.pointer,
         "keyboard": master.keyboard,
         "window": window,
+        "button_held": button_held,
         "last_input_unix_ms": last_input_unix_ms,
     })
     .to_string()
@@ -257,10 +376,14 @@ fn pick_master(devices: &[(u16, DeviceType, u16, Vec<u8>)], name: &str) -> Optio
     let (pointer, _, keyboard, _) = devices
         .iter()
         .find(|(_, ty, _, n)| *ty == DeviceType::MASTER_POINTER && n.as_slice() == want.as_bytes())?;
+    let core = devices
+        .iter()
+        .find(|(_, ty, _, n)| *ty == DeviceType::MASTER_POINTER && n.as_slice() == b"Virtual core pointer")
+        .map_or(0, |(id, ..)| *id);
     devices
         .iter()
         .any(|(id, ty, _, _)| id == keyboard && *ty == DeviceType::MASTER_KEYBOARD)
-        .then_some(PersonMaster { pointer: *pointer, keyboard: *keyboard })
+        .then_some(PersonMaster { pointer: *pointer, keyboard: *keyboard, core })
 }
 
 /// Finds or adds the person master and makes it `conn`'s ClientPointer.
@@ -339,7 +462,7 @@ mod tests {
         ];
         assert_eq!(
             pick_master(&rows, PERSON_MASTER),
-            Some(PersonMaster { pointer: 11, keyboard: 12 })
+            Some(PersonMaster { pointer: 11, keyboard: 12, core: 2 })
         );
         assert_eq!(pick_master(&rows, "agent"), None);
         assert_eq!(pick_master(&rows[..3], PERSON_MASTER), None);
@@ -348,16 +471,102 @@ mod tests {
     #[test]
     fn person_property_is_versioned_json() {
         let v: serde_json::Value = serde_json::from_str(&person_property(
-            PersonMaster { pointer: 11, keyboard: 12 },
+            PersonMaster { pointer: 11, keyboard: 12, core: 2 },
             0x40_0001,
+            true,
             1_700_000_000_000,
         ))
         .unwrap();
+        assert_eq!(v["button_held"], true);
         assert_eq!(v["v"], 1);
         assert_eq!(v["window"], 0x40_0001);
         assert_eq!(v["pointer"], 11);
         assert_eq!(v["last_input_unix_ms"], 1_700_000_000_000u64);
         assert_eq!(v["pid"], std::process::id());
+    }
+
+    fn press() -> InputEvent {
+        InputEvent::Button { button: 1, down: true }
+    }
+    fn release() -> InputEvent {
+        InputEvent::Button { button: 1, down: false }
+    }
+    fn motion(x: i32) -> InputEvent {
+        InputEvent::Pointer { x, y: 10 }
+    }
+
+    #[test]
+    fn hold_guard_passes_everything_while_the_agent_holds_nothing() {
+        let mut g = HoldGuard::default();
+        let t = Instant::now();
+        assert_eq!(g.push(motion(1), t, || false), vec![motion(1)]);
+        assert_eq!(g.push(press(), t, || false), vec![press()]);
+        assert_eq!(g.push(release(), t, || false), vec![release()]);
+        assert!(!g.waiting());
+    }
+
+    #[test]
+    fn hold_guard_never_asks_x_for_motion() {
+        let mut g = HoldGuard::default();
+        let t = Instant::now();
+        let out = g.push(motion(1), t, || panic!("motion needs no query"));
+        assert_eq!(out, vec![motion(1)]);
+    }
+
+    #[test]
+    fn hold_guard_waits_a_press_and_what_follows_until_the_agent_lets_go() {
+        let mut g = HoldGuard::default();
+        let t = Instant::now();
+        assert_eq!(g.push(motion(1), t, || true), vec![motion(1)], "motion is not held");
+        assert!(g.push(press(), t, || true).is_empty());
+        let t1 = t + Duration::from_millis(100);
+        assert!(g.push(motion(2), t1, || true).is_empty(), "queued behind the press");
+        assert!(g.push(release(), t1, || true).is_empty());
+        assert!(g.release(t + Duration::from_millis(500), || true).is_empty());
+        assert!(g.waiting());
+        // The agent released: the press and everything after it go, in order.
+        let out = g.release(t + Duration::from_millis(600), || false);
+        assert_eq!(out, vec![press(), motion(2), release()]);
+        assert!(!g.waiting());
+    }
+
+    #[test]
+    fn hold_guard_sends_a_press_anyway_after_the_limit() {
+        let mut g = HoldGuard::default();
+        let t = Instant::now();
+        assert!(g.push(press(), t, || true).is_empty());
+        assert!(g.release(t + HOLD_LIMIT - Duration::from_millis(1), || true).is_empty());
+        assert_eq!(g.release(t + HOLD_LIMIT, || true), vec![press()]);
+        // The next press waits again, with its own limit.
+        let t2 = t + HOLD_LIMIT + Duration::from_millis(10);
+        assert_eq!(g.push(release(), t2, || true), vec![release()]);
+        assert!(g.push(press(), t2, || true).is_empty());
+        assert!(g.release(t2 + Duration::from_secs(1), || true).is_empty());
+    }
+
+    #[test]
+    fn hold_guard_holds_scrolls_like_presses_and_clears_on_release_all() {
+        let mut g = HoldGuard::default();
+        let t = Instant::now();
+        let scroll = InputEvent::Scroll { dx: 0, dy: 300, precise: false };
+        assert!(presses(&scroll));
+        assert!(!presses(&InputEvent::Scroll { dx: 0, dy: 50, precise: false }), "no wheel click");
+        assert!(g.push(scroll, t, || true).is_empty());
+        g.clear();
+        assert!(!g.waiting());
+        assert_eq!(g.push(press(), t, || false), vec![press()]);
+    }
+
+    #[test]
+    fn hold_guard_sends_everything_when_the_queue_overflows() {
+        let mut g = HoldGuard::default();
+        let t = Instant::now();
+        assert!(g.push(press(), t, || true).is_empty());
+        for i in 0..HOLD_QUEUE_MAX - 1 {
+            assert!(g.push(motion(i as i32), t, || true).is_empty());
+        }
+        assert_eq!(g.push(release(), t, || true).len(), HOLD_QUEUE_MAX + 1);
+        assert!(!g.waiting());
     }
 
     /// On a real Xvfb: the person's XTest moves the person master, not the core pointer,
@@ -417,6 +626,27 @@ mod tests {
         assert_eq!((p.root_x >> 16, p.root_y >> 16), (700, 500));
         assert_eq!(core(&agent), (200, 150));
 
+        // The agent holds a button: the person's press waits until the agent lets go.
+        let person_buttons = |c: &RustConnection| {
+            let r = c.xinput_xi_query_pointer(root, master.pointer).unwrap().reply().unwrap();
+            r.buttons.first().copied().unwrap_or(0) & 0x3fe
+        };
+        agent.xtest_fake_input(BUTTON_PRESS_EVENT, 1, 0, root, 0, 0, 0).unwrap();
+        agent.sync().unwrap();
+        assert!(Injector::agent_holds(&agent, root, master));
+        person.apply(&InputEvent::Button { button: 1, down: true }).unwrap();
+        person.conn.sync().unwrap();
+        assert_eq!(person_buttons(&agent), 0, "the person's press waits");
+        assert!(person.pump().unwrap(), "still waiting");
+        agent.xtest_fake_input(BUTTON_RELEASE_EVENT, 1, 0, root, 0, 0, 0).unwrap();
+        agent.sync().unwrap();
+        assert!(!person.pump().unwrap(), "sent once the agent let go");
+        person.conn.sync().unwrap();
+        assert_ne!(person_buttons(&agent), 0, "the person's button is down now");
+        person.apply(&InputEvent::Button { button: 1, down: false }).unwrap();
+        person.conn.sync().unwrap();
+        assert_eq!(person_buttons(&agent), 0);
+
         // The marker names the window under the person's pointer.
         let atom = agent.intern_atom(false, PERSON_PROPERTY.as_bytes()).unwrap().reply().unwrap().atom;
         let read = |c: &RustConnection| {
@@ -426,6 +656,7 @@ mod tests {
         let v = read(&agent).expect("marker while the person holds control");
         assert_eq!(v["window"], win);
         assert_eq!(v["pointer"], master.pointer);
+        assert_eq!(v["button_held"], false);
 
         // A second injector (another session, or a restart) reuses the same master.
         let mut again = Injector::new(&display).unwrap();
