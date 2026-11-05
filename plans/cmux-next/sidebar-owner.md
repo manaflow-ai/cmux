@@ -6,6 +6,12 @@
   now fade on `fadeOut` (80 ms at normal speed) from the opacity on screen (`RowMotion.folding`), in both the fold
   (`foldGroup`) and a reload that folds a group or section, a group nested in the folding one included (`SidebarRowTransition.isFolded`). The slot, the rows below, an expand, movement off and Reduce
   Motion are unchanged. Regression: `SidebarFoldFadeTests`.
+- 2026-11-05: the session tree's Earlier says "Loading chats…" until acpmux first sends its rows. Leo, verbatim:
+  "something kinda messed up in my latest restart install of latest cmux nightly... i cant see any chats". acpmux took
+  42 s under load to start its chat index after the relaunch and answered `ready: false` until then; the history drew
+  nothing, which reads as data loss. Until the Earlier window's first answer (`AcpmuxChatWindows.Window.hasAnswered`),
+  Earlier keeps its header and one quiet Loading row in the Show More slot (no click action); folded, only its header.
+  An answered empty index still has no Earlier. Regression: `SidebarChatHistoryTests.earlierSaysLoadingUntilAcpmuxFirstSendsItsRows`.
 - 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
   radius everywhere, for all types of panes where it applies, must be concentric, where inner radius is outer minus
   padding, where padding is configurable too". Rows and rail tiles take the one corner radius
