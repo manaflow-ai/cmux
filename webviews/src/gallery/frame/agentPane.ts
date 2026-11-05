@@ -31,9 +31,6 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   >;
   addPseudoLocales(strings);
   globalThis.__cmuxPaneStrings = strings as never;
-  // A font study pairing's faces load before the pane mounts, so its first frame draws in them.
-  if (context.env.fontStudy)
-    await import("../fontStudy/apply").then((study) => study.applyFontStudy(context.env.fontStudy));
   installChipHost(state.chipHost);
   resetSummaryCards();
   // Only the gallery's mock daemon reads these. Clear them between staged variants, so one

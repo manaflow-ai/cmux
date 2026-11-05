@@ -1,7 +1,8 @@
 // The font study's captures (webviews/src/gallery/fontStudy): every pairing on the same mock-app screen
 // (the sidebar with groups and long names, a long reply with code, a table, CJK and emoji, the
-// composer), dark and light, at the app's size. Writes, per pairing and scheme, the whole window, the
-// sidebar and the pane, plus `index.json` and a contact sheet (`index.html`). Browsers run only off a
+// composer) and on the Settings page (`pages.settings`, the rows a "font" search lists), dark and light,
+// at the app's size. Writes, per pairing and scheme, the whole window, the sidebar, the pane and
+// Settings, plus `index.json` and a contact sheet (`index.html`). Browsers run only off a
 // laptop (README.md): `CMUX_GALLERY_IN_VM=1`, as `cmux-ci test` sets up.
 //
 //   CMUX_GALLERY_IN_VM=1 bun font-study.ts --gallery-dir ../../webviews/dist/gallery --output-dir out [--only a,b]
@@ -80,8 +81,32 @@ try {
       await window.screenshot({ path: join(outputDir, `${name}-window.png`) });
       await page.locator(".app-sidebar").first().screenshot({ path: join(outputDir, `${name}-sidebar.png`) });
       await page.locator(".app-pane iframe").first().screenshot({ path: join(outputDir, `${name}-pane.png`) });
-      results.push({ id, scheme, window: `${name}-window.png`, sidebar: `${name}-sidebar.png`, pane: `${name}-pane.png`, applied });
       await page.close();
+      // Settings: its own stage frame at the Settings window's width, the same pairing applied.
+      const settings = await browser.newPage({ viewport: { width: 1000, height: 760 }, deviceScaleFactor: 2 });
+      const settingsQuery = new URLSearchParams({
+        entry: "pages.settings",
+        variant: "search-results-font",
+        fontStudy: id,
+        colorScheme: scheme,
+      });
+      await settings.goto(`${base}/frame.html?${settingsQuery}`, { waitUntil: "domcontentloaded" });
+      await settings.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined, null, {
+        timeout: 30_000,
+      });
+      const settingsReady = await settings.evaluate(() => document.documentElement.dataset.galleryReady);
+      if (settingsReady !== "1") throw new Error(`${name}: Settings is not ready (galleryReady=${settingsReady})`);
+      await settings.screenshot({ path: join(outputDir, `${name}-settings.png`) });
+      await settings.close();
+      results.push({
+        id,
+        scheme,
+        window: `${name}-window.png`,
+        sidebar: `${name}-sidebar.png`,
+        pane: `${name}-pane.png`,
+        settings: `${name}-settings.png`,
+        applied,
+      });
       console.log(`captured ${name}`);
     }
   }
@@ -93,10 +118,10 @@ writeFileSync(join(outputDir, "index.json"), JSON.stringify(results, null, 2));
 const rows = chosen
   .map(
     (id) =>
-      `<h2>${id}</h2><div class="row">${["dark", "light"].map((scheme) => `<img src="${id}-${scheme}-window.png">`).join("")}</div>`,
+      `<h2>${id}</h2><div class="row">${["dark", "light"].flatMap((scheme) => [`<img src="${id}-${scheme}-window.png">`, `<img src="${id}-${scheme}-settings.png">`]).join("")}</div>`,
   )
   .join("");
 writeFileSync(
   join(outputDir, "index.html"),
-  `<!doctype html><meta charset="utf-8"><title>Font study</title><style>body{font:14px system-ui;margin:24px}.row{display:flex;gap:16px}.row img{width:48%}</style>${rows}`,
+  `<!doctype html><meta charset="utf-8"><title>Font study</title><style>body{font:14px system-ui;margin:24px}.row{display:flex;flex-wrap:wrap;gap:16px}.row img{width:48%}</style>${rows}`,
 );
