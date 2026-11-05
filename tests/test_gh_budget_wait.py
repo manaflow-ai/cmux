@@ -353,6 +353,17 @@ PUBLISH_PATH = (
     "publish-release-notes", "publish-nightly-reel", "build-nightly-app",
 )
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
+# One-mini mode adds room for glaeda's capacity wait on the nightly mini (tests/test_nightly_mini_gate_timeouts.py);
+# these guards hold the limit with the mode off, the smaller one.
+ONE_MINI_TIMEOUT = re.compile(r"\$\{\{ vars\.CI_NIGHTLY_MINI != '' && \d+ \|\| (\d+) \}\}")
+
+
+def mode_off_timeout(value: object) -> str:
+    """A timeout-minutes value with one-mini mode off."""
+    one_mini = ONE_MINI_TIMEOUT.fullmatch(str(value))
+    return one_mini.group(1) if one_mini else str(value)
+
+
 # A job timeout that differs on nightly-next: `${{ ... track == 'nightly-next' && NEXT || OTHER }}`.
 NEXT_TIMEOUT = re.compile(r"\$\{\{ needs\.decide\.outputs\.track == 'nightly-next' && (\d+) \|\| (\d+) \}\}")
 # Publish-path jobs whose nightly-next path makes no gh call (republish-nightly-deltas writes
@@ -387,7 +398,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
         for name in PUBLISH_PATH:
-            timeout = str(self.jobs[name].get("timeout-minutes", 360))
+            timeout = mode_off_timeout(self.jobs[name].get("timeout-minutes", 360))
             by_track = NEXT_TIMEOUT.fullmatch(timeout)
             if by_track:
                 # A shorter nightly-next bound only where that track makes no gh call.
@@ -397,7 +408,7 @@ class WorkflowTests(unittest.TestCase):
             # A step bounded on its own that calls gh needs the hour too, or it times out mid-wait.
             for step in self.jobs[name]["steps"]:
                 if "timeout-minutes" in step and "GH_TOKEN" in step.get("env", {}):
-                    self.assertGreaterEqual(int(step["timeout-minutes"]), 65, (name, step.get("name")))
+                    self.assertGreaterEqual(int(mode_off_timeout(step["timeout-minutes"])), 65, (name, step.get("name")))
 
     def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:
         job = self.jobs["attest-nightly-remote-daemon"]
@@ -409,7 +420,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("blacksmith", job["runs-on"])
         self.assertNotIn("RUNNER_POOLS", job["runs-on"])
         self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
-        self.assertGreaterEqual(int(job["timeout-minutes"]), 65)
+        self.assertGreaterEqual(int(mode_off_timeout(job["timeout-minutes"])), 65)
         # No consumer can put this advisory job back on the publication path,
         # directly or transitively. A budget wait must not delay the feed.
         for name, consumer in self.jobs.items():
@@ -433,7 +444,7 @@ class WorkflowTests(unittest.TestCase):
         # The engine fetch's gh release fallback comes after the install too.
         self.assertLess(next(i for i, s in enumerate(steps) if INSTALL.search(str(s.get("run", "")))),
                         names.index("Fetch the Chromium engine"))
-        self.assertGreaterEqual(int(self.jobs["build-nightly-app"]["timeout-minutes"]), 90 + 60)
+        self.assertGreaterEqual(int(mode_off_timeout(self.jobs["build-nightly-app"]["timeout-minutes"])), 90 + 60)
 
     def test_prepare_builds_when_its_reuse_probe_is_refused(self) -> None:
         for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
