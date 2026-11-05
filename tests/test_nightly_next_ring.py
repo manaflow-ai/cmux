@@ -593,7 +593,10 @@ class LegacyPublishedTests(unittest.TestCase):
         self.assertIn("always() && !cancelled()", condition)
         self.assertNotIn("publish-nightly", condition)
         self.assertIn("NEXT_OK: ${{ needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' }}", body)
-        self.assertIn("SOURCE_RUN: ${{ needs.legacy-identity-target.outputs.source_run }}", body)
+        # The main job's own decision when it signed the copy (legacy_ran), else the target job's.
+        self.assertIn("SOURCE_RUN: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && "
+                      "needs.build-sign-notarize-nightly.outputs.legacy_target_source_run || "
+                      "needs.legacy-identity-target.outputs.source_run) }}", body)
         self.assertNotIn("\n    continue-on-error:", body)
         self.assertNotRegex(body, r"needs\.(?:legacy-identity-target|[a-z-]*identity-legacy)\.result")
         target = self.job("legacy-identity-target")
