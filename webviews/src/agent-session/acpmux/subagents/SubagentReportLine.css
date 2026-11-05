@@ -9,7 +9,19 @@
   min-width: 0;
   margin-inline-start: var(--grid-transcript-text-gap);
 }
-.cv-subagent-report[data-look="rule"] {
+/* Not under its finished line: the subagent's mark in the icon column, the words on the text column. */
+.cv-subagent-report:not([data-under]) {
+  margin-inline-start: 0;
+}
+.cv-subagent-report__icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--cv-row-icon);
+  margin-inline-end: calc(var(--grid-transcript-text-gap) - var(--cv-row-icon) - var(--cv-chevron-gap));
+}
+.cv-subagent-report[data-look="rule"][data-under] {
   /* The rule sits where the words started, and the words keep their column after it. */
   margin-inline-start: calc(var(--grid-transcript-text-gap) - var(--cv-chevron-gap));
   padding-inline-start: calc(var(--cv-chevron-gap) - 1px);
@@ -42,6 +54,12 @@
 }
 .cv-subagent-report__sentence > :not(.cv-agent-tag) {
   flex: none;
+}
+/* The name takes the room the line has and is cut only at its edge, the chevron right after it
+   (the chip's 40% cap is a share of a row that fills the line; this line fits its words). */
+.cv-subagent-report__sentence > .cv-agent-tag {
+  flex: 0 1 auto;
+  max-width: none;
 }
 .cv-subagent-report__chevron {
   display: inline-flex;

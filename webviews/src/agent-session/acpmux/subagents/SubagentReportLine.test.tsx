@@ -90,7 +90,13 @@ test("a report delivered again names its subagent too; the finished line stays a
   const out = withSubagentLines(rows);
   const ids = out.map((entry) => entry.id);
   expect(ids.indexOf(backgroundTurnRowId("report"))).toBe(ids.indexOf(`${SUBAGENT_DONE}:chat/toolu_fix`) + 1);
-  expect(out.find((entry) => entry.id === backgroundTurnRowId("again"))?.subagentReport?.id).toBe("chat/toolu_fix");
+  const again = out.find((entry) => entry.id === backgroundTurnRowId("again"))!;
+  expect(again.subagentReport?.id).toBe("chat/toolu_fix");
+  expect(out.find((entry) => entry.id === backgroundTurnRowId("report"))?.subagentReportFirst).toBe(true);
+  expect(again.subagentReportFirst).toBeUndefined();
+  // Not under its finished line, it draws the subagent's mark.
+  const html = renderToStaticMarkup(<BackgroundTurnLine row={again} expanded={false} onToggle={() => {}} />);
+  expect(html).toContain("cv-subagent-report__icon");
 });
 
 test("the line is kept while nothing it says changes", () => {

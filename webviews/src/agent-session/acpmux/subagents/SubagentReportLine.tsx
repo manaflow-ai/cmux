@@ -16,6 +16,8 @@ import { useT, type Translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { subagentTaskLabel } from "./subsessions";
 import { SubagentViewsContext } from "./SubagentGroup";
+import { AgentIdentity, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { agentTone } from "./agentTones";
 import { reportRowLook, type ReportRowLook } from "./reportRow.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import "./SubagentReportLine.css";
@@ -75,10 +77,14 @@ export function SubagentReportLine({
   const [before, after = ""] = t("subagents.report.from", { name: "\u0000" }).split("\u0000");
   const label = t("subagents.report.from", { name });
   const failed = row.background?.cause?.weight === "failure";
+  // Right under its finished line it needs no mark of its own; anywhere else (a report delivered
+  // again after a resume) it draws the subagent's mark in the icon column, so it still says whose.
+  const under = row.subagentReportFirst === true;
   return (
     <div
       className="cv-subagent-report"
       data-look={look}
+      data-under={under ? "" : undefined}
       data-state={failed ? "failed" : undefined}
       data-background-turn="report"
       data-find-skip=""
@@ -91,6 +97,15 @@ export function SubagentReportLine({
         aria-label={label}
         onClick={onToggle}
       >
+        {!under && (
+          <span className="cv-subagent-report__icon" aria-hidden="true">
+            <AgentIdentity
+              tone={row.subagentReport ? agentTone(row.subagentReport.id) : undefined}
+              size={16}
+              fallback={SUBAGENT_FALLBACK}
+            />
+          </span>
+        )}
         <span className="cv-subagent-report__sentence">
           {before}
           <AgentTag name={name} />

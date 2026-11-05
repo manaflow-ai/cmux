@@ -304,10 +304,17 @@ function reportKey(id: string, reports: ReadonlyMap<string, number>): string | u
 /// A report's line (conversation/BackgroundTurnLine.tsx) names the subagent that sent it: the same
 /// row with `subagentReport`, kept while the row and what the agent says hold, so the turn built on
 /// it stays the same object.
-function reportLine(row: AcpmuxRow, agent: Subagent, cache: DoneLineCache, made: Set<string>): AcpmuxRow {
+function reportLine(
+  row: AcpmuxRow,
+  agent: Subagent,
+  first: boolean,
+  cache: DoneLineCache,
+  made: Set<string>,
+): AcpmuxRow {
   const id = `report:${row.id}`;
   const key = [
     row.version,
+    first ? 1 : 0,
     agent.state,
     agent.name,
     agent.task ?? "",
@@ -318,7 +325,12 @@ function reportLine(row: AcpmuxRow, agent: Subagent, cache: DoneLineCache, made:
   made.add(id);
   const kept = cache.get(id);
   if (kept?.key === key && kept.row.background === row.background) return kept.row;
-  const line: AcpmuxRow = { ...row, version: versionOf(key), subagentReport: agent };
+  const line: AcpmuxRow = {
+    ...row,
+    version: versionOf(key),
+    subagentReport: agent,
+    ...(first && { subagentReportFirst: true as const }),
+  };
   cache.set(id, { key, row: line });
   return line;
 }
@@ -380,8 +392,9 @@ export function withSubagentLines(
   };
   rows.forEach((row, index) => {
     flush(index);
-    const agent = reported.get(reportOrigin(row) ?? "");
-    if (agent) out.push(reportLine(row, agent, cache, made));
+    const origin = reportOrigin(row);
+    const agent = reported.get(origin ?? "");
+    if (agent) out.push(reportLine(row, agent, reports.get(origin!) === index, cache, made));
     else if (!isSubagentGroup(row) || isRunGroup(row)) out.push(row);
     else out.push(...(cards.get(index) ?? []));
   });
