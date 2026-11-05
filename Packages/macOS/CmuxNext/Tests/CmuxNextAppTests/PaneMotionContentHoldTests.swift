@@ -102,7 +102,8 @@ import Testing
         column.host.isOnLayoutSpring = true
         column.host.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
         #expect(column.page.frame.width == 184, "the chat waits for the landing at its start width: \(column.page.frame)")
-        #expect(column.page.frame.minX == 8, "the chat is not pinned at the edge that stays: \(column.page.frame)")
+        let clip = column.page.superview?.bounds ?? .zero
+        #expect(column.page.frame.minX == clip.minX, "the chat is not pinned at the edge that stays: \(column.page.frame) in \(clip)")
         column.host.frame = CGRect(x: 0, y: 0, width: 250, height: 300)
         #expect(column.page.frame.width == 184, "the chat reflowed on a spring frame: \(column.page.frame)")
         column.host.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
