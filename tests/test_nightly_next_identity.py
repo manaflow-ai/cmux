@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import plistlib
+import itertools
 import re
 import sys
 from nightly_workflow_text import nightly_text
@@ -137,6 +138,8 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     # The signing job hands prepare_variant decide's feedBase, and prepare_variant
     # writes its third argument into SUFeedURL.
     builder = job_containing("          prepare_variant \\\n")
+    # The cmux NIGHTLY identity's steps at the end of the same job bake the old feed (checked below).
+    builder, folded = builder[:builder.index(FOLDED)], builder[builder.index(FOLDED):]
     assert job_env(builder, "CHANNEL_FEED_BASE") == "${{ needs.decide.outputs.feed_base }}"
     assert "\n      feed_base: ${{ steps.decide.outputs.feed_base }}\n" in job_block("decide")
     assert "core.setOutput('feed_base', channelIdentity.feedBase);" in WORKFLOW
@@ -191,12 +194,20 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     assert len(re.findall(r"\bprefix=", publish)) == 1
     for block in (sign, publish):
         assert not re.search(r"\bLEGACY_APPCAST=|\bLEGACY_FEED_URL\s*=\s*[^\"$]", block)
+    # The same sign, folded into build-sign-notarize-nightly, bakes the same feed.
+    main = job_block("build-sign-notarize-nightly")
+    assert job_env(main, "LEGACY_APPCAST") == "appcast-arm64.xml"
+    assert folded.count("LEGACY_FEED_URL=") == 2 and 'LEGACY_FEED_URL="${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"' in folded
+    assert not re.search(r"\bLEGACY_APPCAST=|\bLEGACY_FEED_URL\s*=\s*[^\"$]", folded)
     assert legacy_base.startswith(host) and legacy_base != next_base
     # legacy-identity-target picks the candidate by comparing cmux NEXT's feed with this one.
     target = job_block("legacy-identity-target")
     assert '-o old-all.xml "${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"' in target
     assert '-o next-all.xml "${NIGHTLY_NEXT_FEED_BASE}/${LEGACY_APPCAST}"' in target
     assert re.findall(r"\n\s+LEGACY_APPCAST: (\S+)\n", target) == ["appcast-arm64.xml"]
+
+
+FOLDED = '      - name: "cmux NIGHTLY identity: '
 
 
 def job_if(name: str) -> str:
@@ -234,23 +245,88 @@ def test_the_old_feed_signs_only_a_build_its_publisher_can_publish():
         for refused in ("true", "false"):
             for same in ("true", "false"):
                 for action in ("new", "continue"):
-                    for source_run in ("41931011216", ""):
+                    for source_run, legacy_ran in itertools.product(("41931011216", ""), ("true", "")):
                         values = dict(fixed, same_build=same, **{
+                            "needs.build-sign-notarize-nightly.outputs.legacy_ran": legacy_ran,
                             "needs.publish-nightly.result": result, "needs.publish-nightly.outputs.refused": refused,
                             "needs.legacy-identity-target.outputs.action": action,
                             "needs.legacy-identity-target.outputs.source_run": source_run})
-                        case = f"publish-nightly {result} refused={refused} same build={same} {action} source={source_run!r}"
-                        assert evaluate(sign, values) == evaluate(publish, values), case
+                        case = (f"publish-nightly {result} refused={refused} same build={same} {action} "
+                                f"source={source_run!r} signed in the main job={legacy_ran!r}")
+                        # Signed once: by the main job (legacy_ran) or here, and only what the publish can publish.
+                        assert evaluate(sign, values) == (evaluate(publish, values) and legacy_ran != "true"), case
                         checked += 1
     yielded = dict(fixed, same_build="false", **{
         "needs.publish-nightly.result": "skipped", "needs.publish-nightly.outputs.refused": "",
         "needs.legacy-identity-target.outputs.action": "new",
-        "needs.legacy-identity-target.outputs.source_run": "41931011216"})
+        "needs.legacy-identity-target.outputs.source_run": "41931011216",
+        "needs.build-sign-notarize-nightly.outputs.legacy_ran": ""})
     assert not evaluate(sign, yielded), "a yielded run's legacy sign still takes the signing runner"
     published = dict(yielded, same_build="true", **{"needs.publish-nightly.result": "success",
                                                     "needs.publish-nightly.outputs.refused": "false"})
     assert evaluate(sign, published), "the run cmux NEXT published no longer signs the old feed"
-    assert checked == 64
+    assert checked == 128
+    assert not evaluate(sign, dict(published, **{"needs.build-sign-notarize-nightly.outputs.legacy_ran": "true"})), \
+        "the old feed's build signed twice: in the main job and again here"
+
+
+def test_the_old_feed_is_signed_in_the_same_job_as_cmux_next():
+    # Leo, 2026-11-05: "JUST POINT ME TO THE ONE APP/THE ONE FEED", "THERE SHOULDN'T BE 2". Run 41900945757 published
+    # cmux NEXT at 00:2xZ while its cmux NIGHTLY sign queued behind three newer runs' signs on the one signing runner.
+    raw = (ROOT / ".github/workflows/nightly.yml").read_text()
+    main = re.search(r"\n  build-sign-notarize-nightly:\n(.*?)(?=\n  [a-z0-9-]+:\n)", raw, re.S).group(1)
+    assert FOLDED in main, "cmux NIGHTLY is signed only by a later, separately queued job"
+    steps = main[main.index(FOLDED):main.index("\n      - name: Cleanup keychain\n")]
+    assert main.index("        id: notarize-nightly\n") < main.index(FOLDED), "the copy runs after cmux NEXT's DMG is final"
+    blocks = steps.split("\n      - name: ")
+    assert len(blocks) == 16, len(blocks)
+    for block in blocks:
+        # A failed or slow copy never fails or times out cmux NEXT's job.
+        assert "\n        continue-on-error: true\n" in block, block[:80]
+        assert "\n        timeout-minutes: " in block or "uses: actions/upload-artifact@" in block, block[:80]
+    # The same scripts as the separate job for a new build of this run (no continue, no pending download).
+    separate = job_block("sign-nightly-identity-legacy")
+    raw_separate = re.search(r"\n  sign-nightly-identity-legacy:\n(.*?)(?=\n  [a-z0-9-]+:\n)", raw, re.S).group(1)
+    used = set(re.findall(r"scripts/ci/nightly-steps/(legacy-identity-[a-z-]+\.sh)", steps))
+    assert used == set(re.findall(r"scripts/ci/nightly-steps/(legacy-identity-[a-z-]+\.sh)", raw_separate)) - {
+        "legacy-identity-sign-download-pending.sh"}, used
+    assert separate
+    # Only this run's own new build, at this commit; everything else stays with the separate job.
+    here = re.search(r"\n      LEGACY_HERE: \$\{\{ (.*) && 'true' \|\| 'false' \}\}\n", main).group(1)
+    base = {
+        "needs.decide.outputs.track": "nightly-next", "matrix.variant": "arm64",
+        "needs.decide.outputs.environment": "release-next", "needs.legacy-identity-target.result": "success",
+        "needs.legacy-identity-target.outputs.action": "new", "vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "",
+    }
+    def run_here(**changes: str) -> bool:
+        values = dict(base, **changes)
+        expression = here.replace("needs.legacy-identity-target.outputs.source_run == format('{0}', github.run_id)",
+                                  str(values.pop("own_run", "true") == "true"))
+        expression = expression.replace("needs.legacy-identity-target.outputs.build == needs.build-nightly-app.outputs.daemon_build",
+                                         str(values.pop("own_build", "true") == "true"))
+        expression = expression.replace("needs.resolve-nightly-cmux-tui-client.outputs.build_sha == github.sha",
+                                        str(values.pop("own_commit", "true") == "true"))
+        return evaluate(expression, values)
+    assert run_here()
+    assert not run_here(own_run="false"), "another run's build (a recovered or source-less target)"
+    assert not run_here(own_build="false") and not run_here(own_commit="false")
+    assert not run_here(**{"needs.legacy-identity-target.outputs.action": "continue"})
+    assert not run_here(**{"needs.decide.outputs.track": "nightly"}) and not run_here(**{"matrix.variant": "x86_64"})
+    assert not run_here(**{"vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "off"})
+    # Whichever job signed, verify, publish and the report read its outputs.
+    outputs = set(re.findall(r"\n      (legacy_[a-z0-9_]+): ", main))
+    assert "legacy_ran" in outputs
+    for job in ("verify-nightly-identity-legacy", "publish-nightly-identity-legacy", "nightly-identity-legacy-published"):
+        block = job_block(job)
+        assert "build-sign-notarize-nightly" in re.search(r"(?:^|\n)    needs: \[(.*)\]\n", block).group(1), job
+        for field in re.findall(r"needs\.sign-nightly-identity-legacy\.outputs\.([a-z0-9_]+)", block):
+            folded = (f"(needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && "
+                      f"needs.build-sign-notarize-nightly.outputs.legacy_{field} || "
+                      f"needs.sign-nightly-identity-legacy.outputs.{field})")
+            assert block.count(folded) == block.count(f"needs.sign-nightly-identity-legacy.outputs.{field}"), (job, field)
+            assert f"legacy_{field}" in outputs, field
+    assert ("SIGN_RESULT: ${{ needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && 'success' || "
+            "needs.sign-nightly-identity-legacy.result }}") in job_block("publish-nightly-identity-legacy")
 
 
 def main() -> int:
