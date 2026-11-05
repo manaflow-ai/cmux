@@ -56,7 +56,6 @@ final class CaptureSceneRegistry {
             return .object(["error": .string("no app window is ready"), "scene": .string(name)])
         }
         let targetWindowID = targetWindow.state.id
-        if let profile = await renderChiefProfile(definition.name, params: params, windowID: targetWindowID) { return profile }
         if definition.name == Self.workspaceAutoNameScene {
             return await renderWorkspaceAutoName(params, definition: definition, windowID: targetWindowID)
         }
@@ -104,6 +103,8 @@ final class CaptureSceneRegistry {
             ])
         }
 
+        // The Chief profile scenes open Home over the settled showcase window (CaptureSceneRegistry+ChiefProfile).
+        if let profile = await renderChiefProfile(definition.name, params: params, windowID: targetWindowID) { return profile }
         // The sidebar is its picture: the showcase window, then the machines, with no agent turn.
         if definition.name == Self.cloudAgentMachinesScene || definition.name == Self.cloudAgentMachinesLeakedScene {
             return await renderAgentCloudMachines(params, definition: definition, windowID: targetWindowID)
