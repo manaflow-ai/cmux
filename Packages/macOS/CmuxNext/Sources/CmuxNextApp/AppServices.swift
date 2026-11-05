@@ -164,8 +164,7 @@ final class AppServices {
         #if DEBUG
         if let fixture = self.debugFixtures.joinedMachines { return fixture }
         #endif
-        guard self.cloud.auth.isSignedIn else { return nil }
-        return MachineJoinService.app(self)
+        return self.cloud.auth.isSignedIn ? MachineJoinService.app(self) : nil
     }).following(signIn: { [weak self] in self?.cloud.auth.isSignedIn ?? false })
     /// This Mac's join consent (Settings > Devices' switches, the one-time sheet): all labs.machineJoin still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)

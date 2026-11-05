@@ -36,8 +36,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
             section.topAnchor.constraint(equalTo: topAnchor),
             section.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        section.followAging(joined)
-        refresh()
+        section.followAging(joined); refresh()
         let machines = self.machines, health = self.health, joined = self.joined
         observation = Task { [weak self] in
             for await (rows, style, state) in ObservationStream({
