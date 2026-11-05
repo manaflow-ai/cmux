@@ -315,7 +315,13 @@ await requireBrowserLane("composer-chip-press.test.ts", async () => {
               (row, points) => points.map(([x, y]) => row.contains(document.elementFromPoint(x!, y!))),
               probes,
             );
-            if (hits.includes(false)) misses.push(`${name} "${row.text}": ${hits.join(",")}`);
+            if (hits.includes(false)) {
+              const targets = await target.evaluate(
+                (_, points) => points.map(([x, y]) => document.elementFromPoint(x!, y!)?.outerHTML.slice(0, 200)),
+                probes,
+              );
+              misses.push(`${name} "${row.text}": ${hits.join(",")} ${JSON.stringify({ row, targets })}`);
+            }
           }
           await page.close();
         }
