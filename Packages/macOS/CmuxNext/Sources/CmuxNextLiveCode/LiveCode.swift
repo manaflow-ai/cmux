@@ -6,10 +6,10 @@
 // that read ``LiveCode/generation`` redraw. It works only in a build linked for it (`-interposable`,
 // exported symbols, CmuxNextApp unoptimized; reload.sh with CMUX_LIVE_CODE_BUILD=1).
 //
-// It starts only when CMUX_LIVE_CODE_DIR names the live folder, at the first use of
-// ``LiveCode/shared`` (a view's `liveCodeRedraw()`, CmuxNextDesign). The proof of the path comes
-// first (scripts/measure/live-code-app.sh); the check of who may publish a patch comes before it
-// reaches anyone's app.
+// It starts only in a Debug or bench build, when CMUX_LIVE_CODE_DIR names the live folder, at
+// the first use of ``LiveCode/shared`` (a view's `liveCodeRedraw()`, CmuxNextDesign). The proof of
+// the path comes first (scripts/measure/live-code-app.sh); the check of who may publish a patch
+// (cmux#13742) comes before a NIGHTLY watches.
 import CmuxNextCompat
 import Foundation
 import Observation
@@ -18,11 +18,14 @@ import Observation
 @MainActor @Observable
 public final class LiveCode {
     /// Watches the folder CMUX_LIVE_CODE_DIR names, from its first use (a view's `liveCodeRedraw()`).
+    /// Only Debug and bench builds watch until a patch's signed pointer is checked (cmux#13742).
     public static let shared: LiveCode = {
         let live = LiveCode()
+        #if DEBUG || CMUX_BENCH_HOOKS
         if let path = ProcessInfo.processInfo.environment["CMUX_LIVE_CODE_DIR"], !path.isEmpty {
             live.watch(LiveFolder(url: URL(fileURLWithPath: path, isDirectory: true)))
         }
+        #endif
         return live
     }()
 
