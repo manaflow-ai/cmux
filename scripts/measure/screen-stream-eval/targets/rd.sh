@@ -20,6 +20,7 @@ host_start() {
   [[ -n "${EVAL_BIND:-}" ]] && host_flags=(--single-tenant-overlay 1)
   [[ "${EVAL_RD_INPUT_FRAME_NOW:-0}" == 1 ]] && host_flags+=(--input-frame-now 1)
   : >"$EVAL_STATE/timing.jsonl"
+  rm -f "$EVAL_STATE/timing.offset"
   CMUX_RD_TIMING_LOG="$EVAL_STATE/timing.jsonl" "$rd" host --owner owner --bind "${EVAL_BIND:-127.0.0.1}" ${host_flags[@]+"${host_flags[@]}"} --port "$port" \
     --token-fd 3 3< <(cat "$EVAL_STATE/token") >>"$EVAL_STATE/host.log" 2>&1 &
   echo $! >"$EVAL_STATE/host.pid"
@@ -74,17 +75,28 @@ case "$verb" in
     # latency-report INPUT RAW OUT. bench's "same clock" times compare the host's capture time with the
     # viewer's: on two Macs they move onto the viewer's clock by the host-minus-viewer CLOCK_MONOTONIC
     # offset (EVAL_PEER_MONO_OFFSET_MS, peer.py).
-    # The host's timing log since the last report (the report empties it: the host appends) splits
-    # input-to-capture by the frames that followed an input.
+    # The host's timing log since the last report splits input-to-capture by the frames that followed
+    # an input. The host appends to it while this runs, so the report never copies or empties it: it
+    # reads the complete lines after the byte offset the last report left in timing.offset.
     input=$1 raw=$2 out=$3
-    timing="$EVAL_STATE/timing.jsonl.$input"
-    if [[ -f "$EVAL_STATE/timing.jsonl" ]]; then cp "$EVAL_STATE/timing.jsonl" "$timing"; : >"$EVAL_STATE/timing.jsonl"; fi
-    python3 -I - "$raw" "$out" "${EVAL_PEER_MONO_OFFSET_MS:-0}" "$timing" <<'EOF'
+    python3 -I - "$raw" "$out" "${EVAL_PEER_MONO_OFFSET_MS:-0}" "$EVAL_STATE/timing.jsonl" "$EVAL_STATE/timing.offset" <<'EOF'
 import json, os, sys
 text = open(sys.argv[1]).read().strip()
 raw = json.loads(text) if text else {}
 offset = float(sys.argv[3])
-frames = [json.loads(l) for l in open(sys.argv[4]) if l.strip()] if os.path.exists(sys.argv[4]) else []
+frames = []
+if os.path.exists(sys.argv[4]):
+    start = int(open(sys.argv[5]).read() or 0) if os.path.exists(sys.argv[5]) else 0
+    with open(sys.argv[4], "rb") as log:
+        log.seek(start)
+        chunk = log.read()
+    whole = chunk[: chunk.rfind(b"\n") + 1]  # a line the host is still writing waits for the next report
+    for line in whole.splitlines():
+        try:
+            frames.append(json.loads(line))
+        except ValueError:
+            pass
+    open(sys.argv[5], "w").write(str(start + len(whole)))
 def pct(values):
     values = sorted(v for v in values if v is not None and v >= 0)
     if not values:
