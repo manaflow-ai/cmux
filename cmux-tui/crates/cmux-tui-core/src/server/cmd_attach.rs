@@ -175,6 +175,7 @@ pub(super) fn attach_surface(
     rows: Option<u16>,
     expected_generation: Option<String>,
     expected_terminal_id: Option<String>,
+    replay_history_rows: Option<u32>,
     snapshot: terminal_snapshot::SnapshotAttachParams,
 ) -> anyhow::Result<Value> {
     let initial_size = match (cols, rows) {
@@ -467,7 +468,9 @@ pub(super) fn attach_surface(
     lifecycle.set_resumes_pending_sequence(
         mux.control_clients.supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),
     );
-    let attach = match surface.attach_stream_with_lifecycle(lifecycle.clone()) {
+    let attach = match surface
+        .attach_stream_with_history(lifecycle.clone(), replay_history_rows.map(u64::from))
+    {
         Ok(attach) => attach,
         Err(error) => {
             lifecycle.cancel();
@@ -498,6 +501,7 @@ pub(super) fn attach_surface(
         kitty_state: attach.kitty_state,
         colors: terminal_colors_json(attach.colors, shape.color_overrides),
         pending_sequence,
+        history_rows_omitted: attach.history_rows_omitted,
     };
     if let Err(error) = writer.send_initial_vt_state(&initial, &outbound_stream) {
         handle_attach_send_error(&lifecycle, &error);
