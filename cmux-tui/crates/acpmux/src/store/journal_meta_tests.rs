@@ -938,11 +938,13 @@ fn a_failed_checkpoint_after_the_open_keeps_the_segments_it_read() {
     );
 }
 
-/// Review of #35866, P2-1 (the reviewer's test): a freeze on another thread while a checkpoint
-/// is in flight. The checkpoint read its LSN before the freeze, goes on, and at its end removes the freeze
-/// marker the freeze just wrote (`clear_frozen_marker` runs after every checkpoint). The
-/// restart then takes the whole-log path for the frozen chat, its sync reports success for
-/// pages the failed sync dropped, and its checkpoint retires the line's record.
+/// Review of #35866, P2-1 (the reviewer's test): a freeze while a checkpoint is in flight (held
+/// right after its start, where it read its LSN: `HOLD_AFTER_START`). Against the marker design
+/// of `f9c6a16d1b8`, the checkpoint went on and at its end removed the marker the freeze had just
+/// written; the freeze is a journal record now, which no checkpoint in flight can take back, and
+/// a fallback marker is never removed after a freeze of its own run. The restart must write the
+/// line again: else its sync reports success for pages the failed sync dropped, and its
+/// checkpoint retires the line's record. No timer: the checkpoint is let go after the freeze.
 #[test]
 fn a_freeze_during_a_checkpoint_still_makes_the_restart_write_the_lines_again() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -951,26 +953,28 @@ fn a_freeze_during_a_checkpoint_still_makes_the_restart_write_the_lines_again() 
     store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
-    // A checkpoint in flight: it waits in a 2 s sync of chat-b's record.
-    journal.set_sync_delay(Duration::from_secs(2));
+    // A checkpoint in flight (chat-b's record gives it work): held right after its start.
     store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    let (started_tx, started) = std::sync::mpsc::channel();
+    let (go, go_rx) = std::sync::mpsc::channel();
     let flusher = {
         let store = Arc::clone(&store);
-        std::thread::spawn(move || store.flush())
+        std::thread::spawn(move || {
+            super::journal_store::HOLD_AFTER_START
+                .with(|hold| *hold.borrow_mut() = Some((started_tx, go_rx)));
+            store.flush()
+        })
     };
-    std::thread::sleep(Duration::from_millis(300));
+    started.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the checkpoint never started: {e}"));
     // Meanwhile a line past that checkpoint's LSN, and a failed sync of its log on this
-    // thread (`flush_session`): the store freezes and writes its marker.
+    // thread (`flush_session`): the store freezes.
     store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
     FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
     let failed = store.flush_session(CHAT);
     FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
-    journal.set_sync_delay(Duration::ZERO);
     assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
-    let marker = home.path().join("journal-frozen");
-    let after_freeze = marker.exists();
+    let _ = go.send(());
     let in_flight = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
-    let after_checkpoint = marker.exists();
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     // The daemon stops for a restart (no crash); the restart's first checkpoint runs.
     drop(store);
@@ -983,15 +987,16 @@ fn a_freeze_during_a_checkpoint_still_makes_the_restart_write_the_lines_again() 
     assert_eq!(
         seqs(store.as_ref(), CHAT),
         vec![1, 2],
-        "the restart after a failed sync trusted the log and lost an acked line (marker after the freeze: {after_freeze}; after the checkpoint in flight ended ({}): {after_checkpoint})",
-        if in_flight.is_ok() { "ok" } else { "error" }
+        "the restart after a failed sync trusted the log and lost an acked line (the checkpoint in flight returned {})",
+        if in_flight.is_ok() { "ok" } else { "an error" }
     );
 }
 
-/// Review of #35866, P2-2 (the reviewer's test): the freeze marker is the only thing that
-/// makes the restart write the lines again, and `freeze` only logs a failed marker write (`write_atomic`: a new file, its full
-/// sync, a rename). Here the home takes no new file when the log sync fails; on a real disk
-/// the marker's own sync can fail with the log's. The restart then trusts the log's pages.
+/// Review of #35866, P2-2 (the reviewer's test): against the marker design of `f9c6a16d1b8`, the
+/// freeze marker was the only thing that made the restart write the lines again, and a failed
+/// marker write was only logged. Here the home takes no new file when the log sync fails; on a
+/// real disk the marker's own sync can fail with the log's. The freeze is a journal record now,
+/// which needs no new file in the home: the restart must still write the lines again.
 #[test]
 fn a_freeze_in_a_home_that_takes_no_new_file_still_writes_the_lines_again() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -1016,7 +1021,6 @@ fn a_freeze_in_a_home_that_takes_no_new_file_still_writes_the_lines_again() {
     std::fs::set_permissions(home.path(), std::fs::Permissions::from_mode(0o700))
         .unwrap_or_else(|e| panic!("{e}"));
     assert!(failed.is_err(), "the checkpoint went on past a failed log sync");
-    eprintln!("the marker after the freeze: {}", home.path().join("journal-frozen").exists());
     // The daemon stops for a restart (no crash); the restart's first checkpoint runs.
     drop(store);
     let store = open(home.path(), &journal);
@@ -1028,7 +1032,7 @@ fn a_freeze_in_a_home_that_takes_no_new_file_still_writes_the_lines_again() {
     assert_eq!(
         seqs(store.as_ref(), CHAT),
         (1..=5).collect::<Vec<_>>(),
-        "the restart after a failed sync whose freeze marker could not be written trusted the log's pages and lost acked lines"
+        "the restart after a failed sync in a home that takes no new file trusted the log's pages and lost acked lines"
     );
 }
 

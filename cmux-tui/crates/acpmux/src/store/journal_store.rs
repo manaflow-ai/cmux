@@ -20,9 +20,12 @@
 //!   retires the journal segments before it. A failed log sync (in it, at a log's close, or in
 //!   `flush_session`) freezes it: a later sync may report success for pages the kernel dropped,
 //!   so the journal keeps every line and the store asks the daemon to stop
-//!   ([`Store::stop_reason`]). The freeze is a `frozen` record in the journal: the open that
-//!   replays it writes every replayed chat's lines again. Ten failed checkpoints in a row ask the
-//!   daemon to stop too.
+//!   ([`Store::stop_reason`]). The freeze is a `frozen` record in the journal (a control record
+//!   that a full queue never refuses; the journal closes only after the shutdown's last
+//!   checkpoint): the open that replays it writes every replayed chat's lines again. A record the
+//!   journal still refuses (its writer stopped) leaves a durable marker, `<home>/journal-frozen`,
+//!   that the open reads the same way. Ten failed checkpoints in a row ask the daemon to stop
+//!   too.
 //! - Recovery (open) repairs each log and never deletes a whole line or a folder: see
 //!   [`Inner::repair`]. It writes every replayed chat's lines again from the point the journal
 //!   takes over, so the first checkpoint after it syncs bytes this process wrote (a killed
