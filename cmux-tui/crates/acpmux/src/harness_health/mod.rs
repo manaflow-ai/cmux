@@ -343,6 +343,17 @@ fn codex_login_in_file(env: &BTreeMap<String, String>) -> bool {
     }
 }
 
+/// Why the plan usage of the Codex login in `home` is not read at rest (`_acpmux/account/usage`),
+/// or None: a model provider other than the OpenAI sign-in has no plan limits (`provider`), and
+/// a login Codex may keep in the keychain is never asked for (`keychain`, cx-hh0vu).
+pub fn codex_usage_unreadable(home: &Path) -> Option<&'static str> {
+    let env = BTreeMap::from([("CODEX_HOME".to_owned(), home.display().to_string())]);
+    if codex_provider::provider_auth(&env) != codex_provider::ProviderAuth::OpenAiLogin {
+        return Some("provider");
+    }
+    (!codex_login_in_file(&env)).then_some("keychain")
+}
+
 /// Why starting harness `id` may read the login keychain, or None. A
 /// caller that starts a harness to ask its sign-in (`cmux setup harness`)
 /// skips it then, as this check does (cx-hh0vu): its profile env names a

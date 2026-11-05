@@ -26,5 +26,5 @@ public nonisolated struct BrowserPageTunables {
         help: "Enables the webview picker that highlights an element on hover and attaches its DOM, styles, component metadata and crop to the agent composer.",
         default: false, code: "BrowserPageTunables.uiPointer")
 
-    public static var all: [TunableDescriptor] { [loadingBackground.descriptor, uiPointer.descriptor, CEFSpareWindow.pageSetting.descriptor] }
+    public static var all: [TunableDescriptor] { [loadingBackground.descriptor, uiPointer.descriptor, CEFSpareWindow.pageSetting.descriptor, WebKitSpareTab.setting.descriptor] }
 }

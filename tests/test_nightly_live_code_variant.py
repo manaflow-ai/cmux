@@ -35,6 +35,7 @@ STUBS = {
         "import os, sys\nargs = sys.argv[sys.argv.index('--') + 1:]\nos.execvp(args[0], args)\n"),
     "scripts/cmux-next/cef-cache-root.sh": "#!/bin/sh\necho /tmp/cef\n",
     "scripts/ci/run-xcodebuild-with-diagnostics.sh": '#!/bin/bash\nshift\nexec "$@"\n',
+    "scripts/ci/nightly-steps/release-build-summary.sh": "",
 }
 
 
@@ -87,7 +88,7 @@ class NightlyLiveCodeVariant(unittest.TestCase):
     def test_the_relink_passes_the_list(self) -> None:
         args = self.build(CMUX_LIVE_CODE_BUILD="1", CMUX_LIVE_CODE_INTERPOSABLE_LIST="/tmp/list.txt")
         self.assertIn("OTHER_LDFLAGS=$(inherited) -Xlinker -no_fixup_chains -Xlinker -no_deduplicate -Xlinker -interposable_list "
-                      "-Xlinker /tmp/list.txt", args)
+                      "-Xlinker \"/tmp/list.txt\"", args)
 
     def variant(self, check_status: int) -> subprocess.CompletedProcess:
         """app-build-live-code.sh with the release build and the two passes stubbed: each release build records

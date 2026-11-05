@@ -133,6 +133,12 @@ import PackageDescription
 // pointer nullability in ghostty.h (0e067ded7, assume_nonnull); the fork's
 // declarations are annotated to match, and the Swift callers follow it.
 //
+// Since 383b27d73..850bb9849 (fork PR #84, the port of #83 to main): a reflow
+// preview frame whose only change is the grid (each frame of a key resize or a
+// divider drag) re-wraps a kept copy of the terminal with no terminal lock
+// held; the live terminal is copied under the lock only when it changed. No C
+// API change (cmux-ad m18, T-REWRAP).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -156,8 +162,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-383b27d73717a538af3c8b1e21a39995517cb3bd-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "2fb83b927e21c98846060d6b85f8517e8de7ff688c9f715af6dba1f4d0050e3d"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-850bb98497044f6632310c303a68974b6289af4b-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "f8b0c65707292cce8fa34fa195b529206a45b6f2b53b187c5b401339e233006f"
         ),
     ]
 )

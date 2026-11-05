@@ -28,5 +28,7 @@ extension SettingsSchema {
         "tabs.terminalFirst": "cmux Classic Mode was removed; New Tab opens the New Tab page, where a terminal is one pick",
         // No tabs inside the sidebar (Lawrence 2026-10-30: "i dont want to see tabs expanded inside of sidebar").
         "sidebar.showWorkspaceTabs": "the sidebar lists workspaces only; a workspace's tabs show in its tab bar",
+        // Kept for one release after the docked Home (hq-6d cx-ebm.59.5); retired with the stale Labs flags (Leo 2026-11-05: "i ok them i know most are super stale/superseded/obsolete").
+        "labs.classicHome": "Home is the workspace with the Chief docked on the left",
     ]
 }

@@ -33,6 +33,9 @@ on:
       - cmux-tui/crates/cmux-tui/src/cli/machine_join/**
       - cmux-tui/crates/cmux-cloud-client/**
       - cmux-tui/crates/cmux-cloud-wire/**
+      # Which backend and platform origin the CLI dials, per environment.
+      - cmux-tui/crates/cmux-cloud-environment/**
+      - cmux-tui/crates/cmux-cloud-config/**
       - cmux-tui/crates/cmux-host/**
       - cmux-tui/crates/acpmux/src/cli/cloud_join*
       - cmux-tui/crates/acpmux/src/cli/cloud_join/**

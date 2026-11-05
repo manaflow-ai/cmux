@@ -4,6 +4,45 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. While the team VM is tainted by a member removal (team_vm.status `taint`, not accepted) only owners and admins get one (`team_vm.tainted`). Replaying the same idempotency key returns the same certificate, also after a crash.
+    TeamVmSshCertOp {
+        name: "team_vm.ssh_cert",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "execute",
+        principals: [Session, Install],
+        params: TeamVmSshCertParams,
+        result: TeamVmSshCertResult,
+        error: TeamVmSshCertError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertParams {
+    pub public_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validity_minutes: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<SshCertClass>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presence: Option<SshPresenceProof>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmSshCertResult {
+    pub certificate: String,
+    pub serial: i64,
+    pub key_id: String,
+    pub principals: Vec<String>,
+    pub class: SshCertClass,
+    pub valid_after: i64,
+    pub valid_before: i64,
+    pub ca_generation: i64,
+    pub ca_public_key: String,
+}
+
 wire_errors! {
     /// The error codes team_vm.ssh_cert declares.
     TeamVmSshCertError {

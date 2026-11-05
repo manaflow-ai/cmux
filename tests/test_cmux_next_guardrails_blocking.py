@@ -373,6 +373,22 @@ class MainHopRuleTests(unittest.TestCase):
         self.push(SERVICE, HOPS[0])
         self.assertEqual(self.main_hops(), [])
 
+    def test_a_target_with_no_swift_settings_never_takes_the_next_targets_settings(self):
+        """Each target is read from its own call (check-concurrency.sh's swift_scope.package_targets): a target
+        with no swiftSettings is nonisolated, and the uiSwiftSettings target after it stays a UI target. The
+        regex read gave the first one the second one's settings (CmuxNextMallocZone took CmuxNextHome's, so
+        Home's hops were never judged)."""
+        plain = f"{PKG}/Sources/CmuxNextPlain"
+        self.write(f"{PKG}/Package.swift", MANIFEST.replace(
+            "    .target(\n        name: \"CmuxNextUIKit\",",
+            "    .target(name: \"CmuxNextPlain\"),\n    .target(\n        name: \"CmuxNextUIKit\","))
+        self.commit("a target with no settings before the UI target")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.push(UI, HOPS[0])
+        self.assertEqual(len(self.main_hops()), 1)
+        self.push(plain, HOPS[0])
+        self.assertEqual(self.main_hops(), [])
+
     def test_an_existing_hop_is_not_refused_when_the_push_edits_around_or_moves_it(self):
         self.rebase_with_old_hop()
         self.write(f"{UI}/OldHop.swift", "// a new comment\n" + OLD_HOP + "func other() {}\n")
