@@ -339,15 +339,37 @@ export function demoteRememberedMethod(history: RememberedAccount[], accountId: 
   return history.map((entry) => (entry.id === accountId ? { ...entry, signInMethod: null } : entry));
 }
 
+/** Codes that would tell a stranger whether an account exists. */
+const ACCOUNT_REVEALING_CODE = /ALREADY|CONTACT_CHANNEL|EMAIL|USER/;
+
 /**
  * The generic sign-in error, naming the auth service's refusal code when there
  * is one, so two different failures stop looking the same on screen. Only a
- * code is shown: the service's and SDK's own messages can name vendors.
+ * code is shown: the service's and SDK's own messages can name vendors. A code
+ * that would reveal whether an account exists stays off the screen.
  */
 export function withRefusalCode(message: string, error: unknown): string {
   if (typeof error !== "object" || error === null) return message;
   const { errorCode } = error as { errorCode?: unknown };
-  return typeof errorCode === "string" && /^[A-Z][A-Z0-9_]*$/.test(errorCode) ? `${message} (${errorCode})` : message;
+  if (typeof errorCode !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(errorCode)) return message;
+  return ACCOUNT_REVEALING_CODE.test(errorCode) ? message : `${message} (${errorCode})`;
+}
+
+export type SignUpRefusal = "account-exists" | "sign-up-disabled" | "generic";
+
+/**
+ * Why a password sign-up failed. An email that already has an account comes
+ * back as CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE (or the older
+ * USER_EMAIL_ALREADY_EXISTS). The page treats it like a successful sign-up, so
+ * it never reveals that the account exists.
+ */
+export function signUpRefusal(error: unknown): SignUpRefusal {
+  if (typeof error !== "object" || error === null) return "generic";
+  const { errorCode } = error as { errorCode?: unknown };
+  if (errorCode === "USER_EMAIL_ALREADY_EXISTS" || errorCode === "CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE") {
+    return "account-exists";
+  }
+  return errorCode === "SIGN_UP_NOT_ENABLED" ? "sign-up-disabled" : "generic";
 }
 
 export type EmailCodeRefusal = "unverified-account" | "sign-up-disabled" | "generic";

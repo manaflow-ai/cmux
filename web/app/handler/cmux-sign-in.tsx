@@ -32,6 +32,7 @@ import {
   signInEntry,
   signInIsForApp,
   signUpPendingHref,
+  signUpRefusal,
   withRefusalCode,
   type EmailCodeRefusal,
   type RememberedAccount,
@@ -1320,6 +1321,21 @@ function PasswordSignUp({ messages, email, onEmailChange }: {
     return messages.errorGeneric;
   }
 
+  function showRefusal(error: unknown, pending: string) {
+    const refusal = signUpRefusal(error);
+    if (refusal === "account-exists") {
+      // Same page as a successful sign-up: never reveal that the account exists.
+      window.location.assign(pending);
+      return;
+    }
+    if (refusal === "sign-up-disabled") {
+      setEmailError(messages.errorSignUpNotAllowed);
+      return;
+    }
+    console.error("[cmux sign-in] password sign-up failed", error);
+    setEmailError(withRefusalCode(messages.errorGeneric, error));
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     const badEmail = isValidEmail(email) ? null : messages.errorInvalidEmail;
@@ -1339,20 +1355,9 @@ function PasswordSignUp({ messages, email, onEmailChange }: {
         await app.signOut({ redirectUrl: pending });
         return;
       }
-      if (result.error.errorCode === "USER_EMAIL_ALREADY_EXISTS") {
-        // Same page as a successful sign-up: never reveal that the account exists.
-        window.location.assign(pending);
-        return;
-      }
-      console.error("[cmux sign-in] password sign-up was refused", result.error);
-      setEmailError(
-        result.error.errorCode === "SIGN_UP_NOT_ENABLED"
-          ? messages.errorSignUpNotAllowed
-          : withRefusalCode(messages.errorGeneric, result.error),
-      );
+      showRefusal(result.error, pending);
     } catch (caught) {
-      console.error("[cmux sign-in] password sign-up failed", caught);
-      setEmailError(withRefusalCode(messages.errorGeneric, caught));
+      showRefusal(caught, signUpPendingHref(new URL(window.location.href)));
     } finally {
       setBusy(false);
     }
