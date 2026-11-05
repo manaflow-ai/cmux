@@ -546,12 +546,15 @@ mod tests {
         // The launcher alone used a few ms; its agent's loop took far more.
         assert!(state.cpu_ms >= 100, "the agent's CPU time counts: {state:?}");
         // The error names the launcher and the agent it started, with the agent's own work.
-        assert_eq!(state.name, "sh");
+        // macOS's `/bin/sh` runs as `bash`: both processes carry the same program name.
+        assert!(!state.name.is_empty(), "the launcher's name: {state:?}");
         let agent = state.first_child.as_ref().expect("the agent the launcher started");
-        assert_eq!(agent.name, "sh");
+        assert_eq!(agent.name, state.name);
+        assert_ne!(agent.pid, state.pid);
         assert!(agent.cpu_ms >= 100, "the agent's own CPU time: {state:?}");
         let said = state.to_string();
-        assert!(said.contains("; the first process it started is sh (pid "), "{said}");
+        let named = format!("; the first process it started is {} (pid {}), ", agent.name, agent.pid);
+        assert!(said.contains(&named), "{said}");
     }
 
     /// #36028: a start's error says which process it read and what its launcher started, so a
