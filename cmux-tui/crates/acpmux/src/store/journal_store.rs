@@ -73,7 +73,7 @@ pub(super) use fenced::FencedStorage;
 pub(super) use meta::SETTLE_HOLD;
 use repair::Replay;
 #[cfg(test)]
-pub(super) use repair::STOP_AFTER_CUT;
+pub(super) use repair::{FAIL_NEXT_WRITE_BACK, STOP_AFTER_CUT};
 
 /// The journal record kinds. (Kind 3, a `cancel` of a line the log refused, was used before the
 /// review of #34901 and never shipped: a refused line is never journaled now. Kind 4 is `meta`,
@@ -311,13 +311,15 @@ struct Order {
     /// Each chat's newest metadata image that its `session.json` does not hold yet (S3a,
     /// `journal_store/meta.rs`): reads see it first, the checkpoint writes it.
     metas: BTreeMap<String, meta::Pending>,
-    /// The log ranges the open's repair read and kept as they were, each with the bytes it found
-    /// there (equal to the journal's merged lines): the next checkpoint writes those bytes back
-    /// over the range and syncs it before it retires their records. A killed daemon's writes may
-    /// be in the page cache only, and a previous run's failed sync may have dropped pages that
-    /// still read back; the write marks the range dirty again, so its sync puts the bytes on the
-    /// disk whatever happened before (delta review 2 of #35866, D2).
-    read_segments: BTreeMap<PathBuf, repair::Verified>,
+    /// The log segments whose verified bytes the open's repair wrote back over themselves, each
+    /// with the handle it wrote through: the next checkpoint syncs that handle before it retires
+    /// their records. A killed daemon's writes may be in the page cache only, and a previous
+    /// run's failed sync may have dropped pages that still read back; the write marked the range
+    /// dirty again, so the sync puts the bytes on the disk whatever happened before (delta review
+    /// 2 of #35866, D2). The checkpoint never writes: the handle is the file the open read, and a
+    /// file put at its path since is never changed (delta review 3, D3). A delete drops its
+    /// chat's.
+    read_segments: BTreeMap<PathBuf, Arc<File>>,
     /// The open replayed a `frozen` record (a previous run's failed sync) or found the freeze
     /// marker: its repair writes every replayed chat's lines again.
     rewrite_all: bool,
@@ -808,6 +810,10 @@ impl Store for JournalStore {
             }
             Store::delete(&inner.local, id)?;
         }
+        // Its folder is gone: the segments the open wrote back need no sync, and their handles
+        // would keep the removed files' space in use until a checkpoint.
+        let dir = inner.local.dir(id);
+        inner.order.lock_or_recover().read_segments.retain(|path, _| !path.starts_with(&dir));
         if let Some(path) = repair {
             inner.remove_repair(&path)?;
             inner.order.lock_or_recover().repairs.remove(id);

@@ -6,6 +6,8 @@
 //!
 //! The journal runs on `cmux_journal::SimStorage`; the chat logs are real files.
 
+use super::journal_store::FAIL_NEXT_WRITE_BACK;
+use super::sync_model;
 use super::*;
 use cmux_journal::{Crash, SimStorage};
 use serde_json::json;
@@ -59,6 +61,11 @@ fn meta(id: &str, name: &str) -> SessionMeta {
         "lastSeq": 0,
     }))
     .unwrap_or_else(|e| panic!("a test meta: {e}"))
+}
+
+fn seqs(store: &dyn Store, id: &str) -> Vec<u64> {
+    let events = store.events(id, 0, 10_000).unwrap_or_else(|e| panic!("read {id}: {e:#}"));
+    events.iter().map(|record| record.seq).collect()
 }
 
 fn set_mode(path: &Path, mode: u32) {
@@ -230,5 +237,39 @@ fn a_folder_replaced_outside_the_store_never_takes_the_old_chats_verified_bytes(
         after == before,
         "{}",
         changed("a folder put in its place outside the store (the same file id)", &before, &after)
+    );
+}
+
+/// The open's write-back fails (a write error, not a failed sync; the reviewer's answer in delta
+/// review 3 of #35866): the open neither fails nor freezes the store. The chat's log is written
+/// again from the repair start, as for a log that does not read whole, and the first checkpoint
+/// syncs it: after an OS crash, every acknowledged line is there.
+#[test]
+fn a_failed_write_back_at_the_open_writes_the_lines_again() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(114);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    FAIL_NEXT_WRITE_BACK.with(|fail| fail.set(true));
+    let store = open(home.path(), &killed);
+    let unused = FAIL_NEXT_WRITE_BACK.with(|fail| fail.replace(false));
+    assert!(!unused, "the open never wrote a verified range back (no fast path taken)");
+    store.flush().unwrap_or_else(|e| panic!("the checkpoint after a failed write-back: {e:#}"));
+    let crashed = killed.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "a failed write-back at the open: the lines were not written again and synced"
     );
 }

@@ -9,6 +9,10 @@ thread_local! {
     /// Tests: a repair on this thread stops the open with an error right after it cut a log, as a
     /// crash there would.
     pub(crate) static STOP_AFTER_CUT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: the next write-back of a verified range on this thread fails, as a write error
+    /// would (not a failed sync).
+    pub(crate) static FAIL_NEXT_WRITE_BACK: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
 }
 
 /// The records after the checkpoint, by chat.
@@ -63,17 +67,6 @@ enum RepairError {
     /// Tests: stopped right after its cut, as a crash would.
     #[cfg(test)]
     Stopped,
-}
-
-/// A log segment's range that the open's repair read and found equal to the journal's merged
-/// lines: the segment's file id when it was read, the range's start, and its bytes
-/// (`Order::read_segments`). The checkpoint writes these bytes back over the range, then syncs
-/// ([`Inner::rewrite_verified`]), only while the same file is there and still reaches the range.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Verified {
-    pub(super) ino: u64,
-    pub(super) offset: u64,
-    pub(super) bytes: Vec<u8>,
 }
 
 /// One piece of a log read back from a repair's start: a whole line with its `seq`, or bytes
@@ -140,11 +133,14 @@ impl Inner {
     /// whole line or a folder.
     ///
     /// The log is read from just after its last line with a `seq` below the first journaled one
-    /// (the repair start). A log that already holds every merged line in order, with nothing
-    /// torn, is left as it is; its segments are synced by the next checkpoint (below). Its lines and the journal's merge by `seq`: a line in both must be the
+    /// (the repair start). Its lines and the journal's merge by `seq`: a line in both must be the
     /// same bytes; a line only the log has stays; a line only the journal has goes in its place.
     /// A line is a whole JSON line: bytes that do not parse (a torn tail, a hole of zeros, a line
     /// a hole ran into a later one) are not a line and go.
+    ///
+    /// A log that already holds every merged line in order, with nothing torn, keeps its bytes:
+    /// the bytes read are written back over themselves ([`Inner::write_back`]), and the next
+    /// checkpoint syncs them through the same handles before it retires their records.
     ///
     /// Otherwise every merged line is written again from the repair start; also when the
     /// previous run froze (a failed sync: the kernel may have dropped pages it still shows and
@@ -194,11 +190,10 @@ impl Inner {
         let merged: Vec<(u64, &[u8])> = merged.into_iter().collect();
         let keep_merged = || merged.iter().map(|(_, line)| line.to_vec()).collect::<Vec<_>>();
         // The log already holds every merged line, in order, with nothing torn among them: it
-        // stays as it is, and the next checkpoint syncs the segments read here before it retires
-        // their records (a killed daemon's writes may be in the page cache only). After a frozen
-        // run (`rewrite_all`), the kernel may have dropped pages that still read back, so every
-        // replayed chat's lines are written again, as are those of a chat whose earlier repair
-        // failed (its repair file's).
+        // keeps its bytes, written back over themselves, and the next checkpoint syncs them
+        // before it retires their records (a killed daemon's writes may be in the page cache
+        // only). After a frozen run (`rewrite_all`), every replayed chat's lines are written
+        // again, as are those of a chat whose earlier repair failed (its repair file's).
         let rewrite = {
             let order = self.order.lock_or_recover();
             order.rewrite_all || order.rewrite.contains(id)
@@ -211,27 +206,18 @@ impl Inner {
                     .is_some_and(|(at, bytes)| at == seq && bytes.as_slice() == *line)
             });
         if whole && !rewrite {
-            // Each segment's verified range: from its first piece to its last piece's end, the
-            // pieces' bytes in order (they are contiguous: `read_pieces` reads every byte).
-            let mut read: BTreeMap<PathBuf, Verified> = BTreeMap::new();
-            for (index, path) in self.local.segments(id).map_err(chat_error)? {
-                let mut verified: Option<Verified> = None;
-                for piece in pieces.iter().filter(|piece| piece.segment == index) {
-                    let Some((_, line)) = &piece.line else { continue };
-                    let range = verified.get_or_insert_with(|| Verified {
-                        ino: 0,
-                        offset: piece.offset,
-                        bytes: Vec::new(),
-                    });
-                    range.bytes.extend_from_slice(line);
+            match self.write_back(id, &pieces) {
+                Ok(written) => {
+                    self.order.lock_or_recover().read_segments.extend(written);
+                    return Ok(Repaired::Done);
                 }
-                if let Some(mut range) = verified {
-                    range.ino = file_ino(&path).map_err(chat_error)?;
-                    read.insert(path, range);
+                // A write error, not a failed sync: the lines are written again from the repair
+                // start below, whose cut also removes a range written back in part (delta
+                // review 3 of #35866).
+                Err(error) => {
+                    tracing::warn!(session = %id, "write the log's verified bytes back: {error:#}; its lines are written again");
                 }
             }
-            self.order.lock_or_recover().read_segments.extend(read);
-            return Ok(Repaired::Done);
         }
         if let Some(start) = pieces.first() {
             // The lines only the log holds from the repair start: into the journal first.
@@ -254,6 +240,40 @@ impl Inner {
                 .map_err(|error| RepairError::Chat { error, keep: keep_merged() })?;
         }
         Ok(Repaired::Done)
+    }
+
+    /// Writes each segment's verified range of `id`'s log (the pieces of a whole read) back over
+    /// itself, and returns each segment with the handle it wrote through, for the next checkpoint
+    /// to sync (`Order::read_segments`). The bytes are the ones the read checked against the
+    /// journal, never read again: a page the kernel dropped after a previous run's failed sync
+    /// may read back stale. The write marks the range dirty again, so the checkpoint's sync puts
+    /// these bytes on the disk even when an earlier sync failed and left no note of it (delta
+    /// review 2 of #35866, D2). It runs here, before any other thread uses the logs; the
+    /// checkpoint only syncs the handle, so it never writes into another file that a delete, a
+    /// folder replace or a retention rewrite put at the path since (delta review 3, D3).
+    fn write_back(&self, id: &str, pieces: &[Piece]) -> Result<Vec<(PathBuf, Arc<File>)>> {
+        let mut written = Vec::new();
+        for (index, path) in self.local.segments(id)? {
+            // The segment's verified range: from its first piece to its last piece's end, the
+            // pieces' bytes in order (contiguous: `read_pieces` reads every byte).
+            let mut range: Option<(u64, Vec<u8>)> = None;
+            for piece in pieces.iter().filter(|piece| piece.segment == index) {
+                let Some((_, line)) = &piece.line else { continue };
+                range.get_or_insert_with(|| (piece.offset, Vec::new())).1.extend_from_slice(line);
+            }
+            let Some((offset, bytes)) = range else { continue };
+            #[cfg(test)]
+            if FAIL_NEXT_WRITE_BACK.with(|fail| fail.replace(false)) {
+                anyhow::bail!("a failed write-back of {} (a test)", path.display());
+            }
+            let file = open_to_write_back(&path)?;
+            write_at(&file, &bytes, offset)
+                .with_context(|| format!("write back {}", path.display()))?;
+            #[cfg(all(test, unix))]
+            sync_model::rewritten(&file, offset);
+            written.push((path, Arc::new(file)));
+        }
+        Ok(written)
     }
 
     /// Appends `lines` of chat `id` to the journal and waits until they are durable.
@@ -649,18 +669,40 @@ fn truncate_private(path: &Path, len: u64) -> Result<()> {
     Ok(())
 }
 
-/// The file id (inode) of `path`; 0 where the platform gives none.
-pub(super) fn file_ino(path: &Path) -> Result<u64> {
-    let meta =
-        std::fs::symlink_metadata(path).with_context(|| format!("stat {}", path.display()))?;
+/// The log segment at `path` opened to write in place: never made, never through a final link,
+/// never under a lost home, and only an owner-only file of this user (the checks of
+/// `config::private_state_file`, which every read of a segment makes).
+#[cfg(unix)]
+fn open_to_write_back(path: &Path) -> Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    crate::config::refuse_lost_home(path)?;
+    let file = OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open {} to write back", path.display()))?;
+    crate::config::validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
+#[cfg(windows)]
+fn open_to_write_back(path: &Path) -> Result<File> {
+    crate::config::refuse_lost_home(path)?;
+    Ok(crate::owner_only::open_rw_existing(path)?)
+}
+
+/// Writes `bytes` at `offset` of `file`, whole.
+fn write_at(file: &File, bytes: &[u8], offset: u64) -> std::io::Result<()> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
-        Ok(meta.ino())
+        use std::os::unix::fs::FileExt;
+        file.write_all_at(bytes, offset)
     }
     #[cfg(not(unix))]
     {
-        let _ = meta;
-        Ok(0)
+        use std::io::{Seek, SeekFrom, Write};
+        let mut file = file;
+        file.seek(SeekFrom::Start(offset))?;
+        file.write_all(bytes)
     }
 }

@@ -151,18 +151,18 @@ impl Inner {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
         }
-        // The ranges the open's repair read without rewriting them: their bytes written back from
-        // what the open verified, then synced, before their records are retired. A killed
-        // daemon's writes may be in the page cache only (review 3 of #34901, finding 1a), and a
-        // previous run's failed sync may have dropped pages that still read back, which no
-        // durable note of it may say (delta review 2 of #35866, D2): the write marks the range
-        // dirty again, so the sync puts these bytes on the disk either way.
-        if let Err(error) = self.rewrite_verified(&read) {
+        // The segments whose verified bytes the open's repair wrote back over themselves: synced
+        // through the open's handles before their records are retired. A killed daemon's writes
+        // may be in the page cache only (review 3 of #34901, finding 1a), and a previous run's
+        // failed sync may have dropped pages that still read back, which no durable note of it
+        // may say (delta review 2 of #35866, D2): the open's write marked the range dirty again,
+        // so this sync puts those bytes on the disk either way.
+        if let Err(error) = self.sync_read_segments(&read) {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);
         }
-        // Written and synced: no later checkpoint needs to again (the list only shrinks after the
-        // open, so these are exactly the ones done here).
+        // Synced: no later checkpoint needs to sync them again (the list only shrinks after the
+        // open, so these are exactly the ones the sync covered).
         self.order.lock_or_recover().read_segments.retain(|path, _| !read.contains_key(path));
         if let Err(error) = self.sync_logs(&dirty) {
             self.order.lock_or_recover().dirty.extend(dirty);
@@ -208,28 +208,18 @@ impl Inner {
         }
     }
 
-    /// Writes each verified range's bytes back over its segment, then syncs the segment
-    /// (`Order::read_segments`). A segment that is gone, or replaced (another file id), or no
-    /// longer reaches the range's end, is passed: a delete, a retention rewrite or a repair of a
-    /// later open changed it, and that change is durable on its own path. A failed write or sync
-    /// freezes the store, as a failed log sync does. The bytes are never read back from the file:
-    /// a page the kernel evicted after a failed sync reads back stale (review 2 of #35866, D2).
-    fn rewrite_verified(&self, read: &BTreeMap<PathBuf, repair::Verified>) -> Result<()> {
-        for (path, verified) in read {
-            let file = match open_verified(path, verified) {
-                Ok(Some(file)) => file,
-                Ok(None) => continue,
-                Err(error) => return Err(error.context(format!("open {}", path.display()))),
-            };
-            let written = write_at(&file, &verified.bytes, verified.offset).and_then(|()| {
-                #[cfg(all(test, unix))]
-                sync_model::rewritten(&file, verified.offset);
-                log_sync::sync_segment_ordered(&file)
-            });
-            if let Err(error) = written {
+    /// Syncs, in write order, each segment the open wrote its verified bytes back into, through
+    /// the handle it wrote with (`Order::read_segments`): the very file the open read, wherever a
+    /// delete, a folder replace or a retention rewrite has moved it since. The checkpoint writes
+    /// nothing here, so a file put at the path since is never changed (delta review 3 of #35866,
+    /// D3), and the sync of a file that no chat holds any more is harmless. A failed sync
+    /// freezes the store, as a failed log sync does.
+    fn sync_read_segments(&self, read: &BTreeMap<PathBuf, Arc<File>>) -> Result<()> {
+        for (path, file) in read {
+            if let Err(error) = log_sync::sync_segment_ordered(file) {
                 self.freeze(format!("an event log failed to sync: {error}"));
                 return Err(anyhow::Error::from(SyncFailed(error))
-                    .context(format!("write back and sync {}", path.display())));
+                    .context(format!("sync {}", path.display())));
             }
         }
         Ok(())
@@ -591,48 +581,4 @@ fn frozen_reason(why: &str) -> &[u8] {
         end = end.saturating_sub(1);
     }
     why.get(..end).unwrap_or_default().as_bytes()
-}
-
-/// The segment at `path` opened to write, if it is still the file `verified` was read from and
-/// still reaches the end of its range; `None` when it is gone, replaced or shorter.
-fn open_verified(path: &Path, verified: &repair::Verified) -> Result<Option<File>> {
-    let mut options = OpenOptions::new();
-    options.write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW);
-    }
-    let file = match options.open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
-    };
-    let meta = file.metadata()?;
-    #[cfg(unix)]
-    let same = {
-        use std::os::unix::fs::MetadataExt;
-        meta.ino() == verified.ino
-    };
-    #[cfg(not(unix))]
-    let same = true;
-    let end =
-        verified.offset.saturating_add(u64::try_from(verified.bytes.len()).unwrap_or(u64::MAX));
-    Ok((same && meta.len() >= end).then_some(file))
-}
-
-/// Writes `bytes` at `offset` of `file`, whole.
-fn write_at(file: &File, bytes: &[u8], offset: u64) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::FileExt;
-        file.write_all_at(bytes, offset)
-    }
-    #[cfg(not(unix))]
-    {
-        use std::io::{Seek, SeekFrom, Write};
-        let mut file = file;
-        file.seek(SeekFrom::Start(offset))?;
-        file.write_all(bytes)
-    }
 }
