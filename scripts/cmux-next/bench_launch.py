@@ -227,7 +227,7 @@ def start_fresh_state(tag):
         shutil.rmtree(prev, ignore_errors=True)
     os.rename(root, prev)
     # The build's Debug Settings file lives beside the saved session (DebugSettingsService.fileURL): keep it, so an
-    # override a harness set for this run (cef-layer-ab.py's layerHosting) still applies.
+    # override a harness set for this run (cef-resize-sync-bench.py's syncDeadline) still applies.
     tunables = os.path.join(prev, "debug-tunables.json")
     if os.path.isfile(tunables):
         os.makedirs(root, exist_ok=True)

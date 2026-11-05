@@ -21,8 +21,8 @@ lease), [agent-cursor.md](agent-cursor.md), [tab-lifecycle.md](tab-lifecycle.md)
   (`AgentCursorSnapshotBuilder` → `AgentCursorVisibilityResolver`): the tab's own pane when its
   workspace shows, else its sidebar row.
 - No tab kind showed another tab's content. Chromium can hand out its page window's CA context
-  (`CEFLayerHosting`, `browserResize.layerHosting`, off by default), which a second `CALayerHost`
-  could draw, but that is Chromium only, takes no input, and is off.
+  (`CEFLayerHosting`, every page), which a second `CALayerHost`
+  could draw, but that is Chromium only and takes no input.
 
 ## 2. Options
 

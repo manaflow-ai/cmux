@@ -138,7 +138,6 @@ final class CEFRuntime {
     }
     /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
     private var displayObservation: MainActorObservation?
-    let hostingSwitch = CEFHostingSwitch() // takes a hosting switch flip to the shown pages at once
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).

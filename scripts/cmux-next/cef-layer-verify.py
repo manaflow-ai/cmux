@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Chromium layer hosting (fork API 26) works in a real window: pixels, orientation, mouse, keys, scroll, drag.
 
-Launches a tagged cmux-next app (scratch config, no activation) with `browserResize.layerHosting` set by --mode,
-opens a probe page in a Chromium tab and checks:
+Launches a tagged cmux-next app (scratch config, no activation), opens a probe page in a Chromium tab and checks
+(every page the fork can host is hosted and no switch turns that off, so --mode takes only `on`; the `off` half of
+each row below is kept for reading older runs' reports):
 
 Input is real HID events (CGEventPost: the pointer moves on the fleet host), because the point is that the
 WindowServer still routes the mouse and keys to the transparent page window; debug.mouse would post into the cmux
@@ -54,9 +55,9 @@ posts real events at screen points (desktop scope: the WindowServer routes them,
 (get_desktop_state). The run records the daemon's `permissions status` in its facts; a host without the daemon or
 its grants fails the input rows with the daemon's answer.
 
---checks hosted runs only `valid`, `hosted`, `hosted.fork` and `show.again` (cef-layer-ab.py's check of each mode). --tunables build sets the
-tunable in the build's own debug-tunables.json (the path `debug.tunables` reports, which the benches read) instead
-of a scratch file, and records that path.
+--checks hosted runs only `valid`, `hosted`, `hosted.fork` and `show.again`. --tunables build launches with the
+build's own debug-tunables.json (the path `debug.tunables` reports, which the benches read) instead of a scratch
+file, and records that path.
 
 Each row prints PASS or FAIL; OUT/verify-<mode>.json holds them, the debug.cef values and the tunables file. IME,
 accessibility, extension popups and full screen are not covered here (see the design doc's feature table).
@@ -73,7 +74,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default="/tmp")
-parser.add_argument("--mode", default="on", choices=["on", "off"])
+parser.add_argument("--mode", default="on", choices=["on"], help="on only: no switch turns layer hosting off")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
 parser.add_argument("--input", default="hid", choices=["hid", "debug", "cua"],
                     help="hid: real CGEvents (nx-remote --needs input); debug: debug.mouse/debug.key into the app's queue "
@@ -82,7 +83,7 @@ parser.add_argument("--input", default="hid", choices=["hid", "debug", "cua"],
 parser.add_argument("--cua-driver", default="/Applications/CuaDriver.app/Contents/MacOS/cua-driver")
 parser.add_argument("--checks", default="all", choices=["all", "hosted"], help="hosted: only the valid, hosted, hosted.fork and show.again rows")
 parser.add_argument("--tunables", default="scratch", choices=["scratch", "build"],
-                    help="build: set the tunable in the build's own debug-tunables.json (what the benches read)")
+                    help="build: launch with the build's own debug-tunables.json (what the benches read) and record its path")
 opts = parser.parse_args()
 
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
@@ -94,11 +95,10 @@ open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 TUNABLES = os.path.join(SCRATCH, "debug-tunables.json")
-json.dump({"version": 1, "values": {"browserResize.layerHosting": opts.mode == "on"}}, open(TUNABLES, "w"))
+json.dump({"version": 1, "values": {}}, open(TUNABLES, "w"))
 # Left of the top-right corner, where macOS shows notification banners: one there took the
 # clicks meant for the page (step dc19047674621e1ae9bb11aa).
 WINDOW = (40, 40, 1300, 900)
-KEY = "browserResize.layerHosting"
 LAYER_HOSTING_FORK_API = 26
 ROWS, TAB, FACTS = [], {}, {}
 
@@ -435,19 +435,6 @@ def capture_bars(name, rect=None):
     return red, blue, rows
 
 
-def write_build_tunable(path, value):
-    """The build's own override file, after the app quit (its coalesced writer cannot race this)."""
-    try:
-        with open(path) as existing:
-            data = json.load(existing)
-    except (OSError, ValueError):
-        data = {"version": 1, "values": {}}
-    data.setdefault("values", {})[KEY] = value
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as out:
-        json.dump(data, out, indent=2, sort_keys=True)
-
-
 def check_valid_and_hosted():
     cef = rpc("debug.cef") or {}
     tracker = cef.get("tracker") or {}
@@ -765,11 +752,9 @@ def main():
     if not os.environ.get("BENCH_LAUNCH_KEEP_STATE"):
         bench.start_fresh()
     if opts.tunables == "build":
-        # The launch reads the build's file: give it this mode before the first page (a page shown at launch with the
-        # last run's value would count as hosted in mode off). A build that keeps its app names reads another path
-        # (DebugSettingsService.fileURL); the live `set` below still decides that launch's mode.
+        # The launch reads the build's file. A build that keeps its app names reads another path
+        # (DebugSettingsService.fileURL); the live `state` below reports the one it read.
         FACTS["tunables_prelaunch"] = os.path.join(bench.state_root(), "debug-tunables.json")
-        write_build_tunable(FACTS["tunables_prelaunch"], opts.mode == "on")
     log = open(os.path.join(opts.out, f"app-{TAG}-{opts.mode}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     state_socket = os.path.expanduser(f"~/.local/state/cmux/cmux-debug-{TAG}.sock")
@@ -788,11 +773,8 @@ def main():
             return
         time.sleep(4)  # test harness: launch work settles
         if opts.tunables == "build":
-            # The benches launch with no override: they read this file. Set the value live for this launch too.
-            state = rpc("debug.tunables", {"action": "set", "key": KEY, "value": opts.mode == "on"}) or {}
-            if not state.get("file"):  # `set` answers with the tunable's row; the file is in the state
-                FACTS["tunables_set"] = state
-                state = rpc("debug.tunables", {"action": "state"}) or {}
+            # The benches launch with no override: they read this file.
+            state = rpc("debug.tunables", {"action": "state"}) or {}
             FACTS["tunables_file"] = state.get("file")
             FACTS["tunables_prelaunch_matched"] = FACTS.get("tunables_prelaunch") == state.get("file")
             if not state.get("file"):
@@ -919,8 +901,6 @@ def main():
                 os.kill(app.pid, signal.SIGKILL)
             subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
                            env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-        if opts.tunables == "build" and FACTS.get("tunables_file") and not opts.keep:
-            write_build_tunable(FACTS["tunables_file"], opts.mode == "on")
         json.dump({"tag": TAG, "mode": opts.mode, "rows": ROWS, "facts": FACTS},
                   open(os.path.join(opts.out, f"verify-{opts.mode}.json"), "w"), indent=2)
 

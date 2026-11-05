@@ -51,8 +51,8 @@ never calls it keeps the inert store (every read one atomic load). What a
   250 ms after the first frame (a restored page sooner), normally before a
   socket client has sent `activate`: a bench build cannot count on reaching
   `synced` this way. `debug.cef` shows whether, why and when Chromium started
-  (`state`, `trigger`, `ready_after_launch_s`). `browserResize.layerHosting`
-  applies at a page's next show; each tunable's help says when it applies.
+  (`state`, `trigger`, `ready_after_launch_s`). Each tunable's help says when
+  it applies.
   `icons.family`: native icons read it at launch; agent pages made after the
   `set` use it, but the first page that takes the spare made at launch (a New
   Tab, a new workspace's first page, an existing chat of this Mac) keeps the

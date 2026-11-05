@@ -363,10 +363,9 @@ final class CEFDevToolsController {
         if docked, !layout.dock.isDocked { undockViews() }
         tab.container.layoutContent()
         // A docked DevTools is its own page window on its own host view: hosted in the window's layers
-        // too while layer hosting is on (fork API 26), from this open on (a later tunable change applies
-        // at the next open).
+        // too (fork API 26).
         if docked {
-            views?.host.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion), follows: tab.runtime.hostingSwitch)
+            views?.host.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion))
         }
         tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: true)
         // A console or panel asked while the older DevTools closed, opened now by Chromium itself (see `endClosingForNewDevTools`).

@@ -17,15 +17,7 @@ public nonisolated struct BrowserResizeTunables {
         help: "While a Chromium page lays out at a new window or pane size, the gap beside its last frame shows the page's own background color. Off shows Chromium's white and the pane ground.",
         default: true, code: "BrowserResizeTunables.pageBackdrop")
 
-    /// On (the default since cmux-ad m19, 2026-11-05: perf paths ship on, no switches): the page's pixels live in the
-    /// cmux window's layer tree (fork API 26, `CEFHostedPageView`); the page window stays as a transparent input
-    /// target. Off: a Chromium page draws in its own child window over the pane. Applies to pages shown after the change.
-    public static let layerHosting = Tunable<Bool>.toggle(
-        "browserResize.layerHosting", section, "Host Chromium pages in the window's layers",
-        help: "A Chromium page draws inside the cmux window's own layer tree, so it moves, clips and shows with the panes in one frame. Its page window stays on top only to take input. Needs Chromium fork API 26; applies when a page is shown next.",
-        default: true, code: "BrowserResizeTunables.layerHosting")
-
-    /// While a page is layer hosted (`layerHosting`), how long a resize of
+    /// While a page is layer hosted (`CEFLayerHosting`), how long a resize of
     /// its pane may hold the window's frame for Chromium's frame at the new
     /// size (fork API 27), so the page resizes in the same frame as the pane.
     /// An upper bound: the wait never passes half the shortest frame of all
@@ -77,7 +69,7 @@ public nonisolated struct BrowserResizeTunables {
 
     /// On (the default since cmux-ad m19: no new switch stays off). Off: FRAME OWNER S5 is off; the rows above decide. On (cmux-ad m14, Lawrence 2026-11-05: "in every
     /// frame every browser shows live pixels rendered at that frame's pane size"): every Chromium page is hosted in the
-    /// window's own layer tree (fork API 26, as `layerHosting` on), and in a key resize and a divider drag it never keeps an
+    /// window's own layer tree (fork API 26, as every page is), and in a key resize and a divider drag it never keeps an
     /// old size: it lays out at its pane's size in every frame. The main thread never waits for the page (`pagesWait`, 0):
     /// until Chromium's frame at the new size comes, the page shows its last frame inside its pane, never stretched. It
     /// overrides `dragResize`, `keyResizeTopLeft` and every resize wait (`syncDeadline`, `dragResizeDeadline`,
@@ -112,7 +104,7 @@ public nonisolated struct BrowserResizeTunables {
     }
 
     public static var all: [TunableDescriptor] {
-        [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, dragResize.descriptor,
+        [pageBackdrop.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, dragResize.descriptor,
          dragResizeDeadline.descriptor, keyResizeTopLeft.descriptor, framesOwnedByCommit.descriptor, pagesWait.descriptor]
     }
 }
