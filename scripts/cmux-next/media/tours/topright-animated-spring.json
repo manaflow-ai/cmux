@@ -51,7 +51,7 @@
           "focus": true
         }
       },
-      "wait": 3,
+      "wait": 6,
       "shot": false
     },
     {
@@ -91,18 +91,6 @@
       "wait": 1.5
     },
     {
-      "title": "light: click Terminal again: the plate shrinks back into the glyph",
-      "rpc": {
-        "method": "debug.agent_pane",
-        "params": {
-          "action": "click",
-          "selector": "[data-quick-action=\"terminal\"]"
-        }
-      },
-      "wait": 1,
-      "optional": "Terminal takes focus when it opens, so the chat pane may no longer be the focused one"
-    },
-    {
       "title": "Dark appearance",
       "rpc": {
         "method": "debug.appearance",
@@ -123,7 +111,7 @@
           "focus": true
         }
       },
-      "wait": 3,
+      "wait": 6,
       "shot": false
     },
     {
@@ -161,18 +149,6 @@
     {
       "title": "dark: Terminal open, its plate on",
       "wait": 1.5
-    },
-    {
-      "title": "dark: click Terminal again: the plate shrinks back into the glyph",
-      "rpc": {
-        "method": "debug.agent_pane",
-        "params": {
-          "action": "click",
-          "selector": "[data-quick-action=\"terminal\"]"
-        }
-      },
-      "wait": 1,
-      "optional": "Terminal takes focus when it opens, so the chat pane may no longer be the focused one"
     },
     {
       "title": "Back to the system appearance",
