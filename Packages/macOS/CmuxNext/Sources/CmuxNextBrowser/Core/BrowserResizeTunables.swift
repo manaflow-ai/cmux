@@ -81,14 +81,15 @@ public nonisolated struct BrowserResizeTunables {
     /// window's own layer tree (fork API 26, as `layerHosting` on), and in a key resize and a divider drag it never keeps an
     /// old size: it lays out at its pane's size in every frame. The main thread never waits for the page (`pagesWait`, 0):
     /// until Chromium's frame at the new size comes, the page shows its last frame inside its pane, never stretched. It
-    /// overrides `dragResize`, `keyResizeTopLeft` and a hosted page's `syncDeadline`. Read when each resize begins and when
+    /// overrides `dragResize`, `keyResizeTopLeft` and every resize wait (`syncDeadline`, `dragResizeDeadline`,
+    /// `liveResizeDeadline`). Read when each resize begins and when
     /// a page is shown, so one build films OFF and ON. Deleted after the ON films pass (the switch-deletion PR).
     public static let framesOwnedByCommit = Tunable<Bool>.toggle(
         "motion.frameOwner.pages", section, "Page frame and size in one commit",
         help: "A Chromium page draws in the window's own layers and, in a keyboard resize or a divider drag, lays out at its pane's size in every frame. The app never waits for the page: until its frame at the new size comes, the page shows its last frame inside its pane. Needs Chromium fork API 26. Off: the rows above decide. Applies from the next resize; hosting applies when a page is shown next.",
         default: false, code: "BrowserResizeTunables.framesOwnedByCommit")
 
-    /// With `framesOwnedByCommit` on, how long a pane resize may hold the commit for a page's frame at the new size (fork
+    /// With `framesOwnedByCommit` on, how long any resize may hold the commit for a page's frame at the new size (fork
     /// API 27). 0 (the default, the main-thread rule): never. Chromium runs that wait on its UI thread, which is the app's
     /// main thread (`CATransactionCoordinator`'s pre-commit handler), so a value above 0 is for measurement films only
     /// (what a same-frame page costs), capped at half the shortest display frame. The off-main same-frame page needs a fork

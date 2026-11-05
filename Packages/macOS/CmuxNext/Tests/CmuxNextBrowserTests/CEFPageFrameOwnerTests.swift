@@ -15,9 +15,9 @@ import Testing
 /// the page at its start size (the old frame, anchored and clipped) and no page was hosted unless
 /// `browserResize.layerHosting` was set.
 @MainActor @Suite(.serialized, .closesItsWindows) struct CEFPageFrameOwnerTests {
-    /// The longest a resize step's layout turn may take here (no Chromium, no display): one 120 Hz frame. A turn that
-    /// waited for a page (up to the 16 ms drag deadline before the cap) would pass it.
-    static let stepBudget = Duration.microseconds(8_333)
+    /// The main thread's budget for a page's wait in one resize frame: none (cmux-ad m14, lead: the main thread never waits
+    /// for a page).
+    static let mainThreadWaitBudgetMs: Int32 = 0
 
     /// A key resize with the switch on: the page follows its pane's page area in every step at the step's size (never the
     /// start size, never scaled), and no page window is asked to hold a commit for its frame.
@@ -40,21 +40,18 @@ import Testing
         first.container.holdPage(for: PaneMotionHold(trailing: true, bottom: false))
         #expect(first.container.heldPageSize == nil, "the page keeps its start size through the key resize (the old frame)")
         var misses: [String] = []
-        let clock = ContinuousClock()
         // A held key press: the pane's leading edge moves right 120 pt and back past its start, as a key resize spring does.
         let steps: [CGFloat] = (0...12).map { CGFloat($0) * 10 } + (0...12).map { CGFloat(12 - 2 * $0) * 10 }
         for (index, dx) in steps.enumerated() {
-            let started = clock.now
             first.container.frame = NSRect(x: 200 + dx, y: 0, width: 600 - dx, height: 500)
             first.container.layoutSubtreeIfNeeded()
-            let took = clock.now - started
             if page.frame != first.container.bounds {
                 misses.append("step \(index): page \(page.frame), pane page area \(first.container.bounds)")
             }
-            if took > Self.stepBudget { misses.append("step \(index): the layout turn took \(took)") }
         }
         #expect(misses.isEmpty, "\(misses.count) of \(steps.count) steps do not show the page at its pane's size: \(misses.prefix(3))")
-        #expect(PageSpyShim.resizeSyncs.allSatisfy { $0.timeoutMs == 0 }, "a page window may hold the main thread's commit: \(PageSpyShim.resizeSyncs)")
+        // The page window keeps the fork's default, 0: nothing asks it to hold a commit.
+        #expect(PageSpyShim.resizeSyncs.isEmpty, "a page window was asked to hold the main thread's commit: \(PageSpyShim.resizeSyncs)")
 
         first.container.holdPage(for: nil)
         first.container.layoutSubtreeIfNeeded()
@@ -76,8 +73,8 @@ import Testing
         first.container.frame = NSRect(x: 0, y: 0, width: 600, height: 500)
         window.contentView?.addSubview(first.container)
         first.container.layoutSubtreeIfNeeded()
-        // The hosting request of a new page window runs at the end of the run-loop turn.
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        // The hosting request of a new page window runs at the end of the run-loop turn: run that one pass.
+        CFRunLoopRunInMode(.defaultMode, 0, true)
         #expect(PageSpyShim.hostingAsks.contains { $0.browser == 10 && $0.enabled }, "the page window was never asked to be hosted")
         let page = host.hostView
         PageSpyShim.resizeSyncs = []
@@ -91,7 +88,7 @@ import Testing
             if page.frame != first.container.bounds { misses.append("width \(width): page \(page.frame)") }
         }
         #expect(misses.isEmpty, "\(misses.count) drag steps do not show the page at its pane's size: \(misses.prefix(3))")
-        #expect(PageSpyShim.resizeSyncs.allSatisfy { $0.timeoutMs == 0 }, "a page window may hold the main thread's commit")
+        #expect(PageSpyShim.resizeSyncs.isEmpty, "a page window was asked to hold the main thread's commit: \(PageSpyShim.resizeSyncs)")
         first.container.paneResizeGestureDidChange(active: false)
         #expect(!host.hostView.layerHosting.inPaneDrag)
     }
@@ -109,29 +106,45 @@ import Testing
         hosting.stop()
     }
 
-    /// The page misses every frame (Chromium draws late): the main thread still commits each frame at once. The tunables
-    /// that made a pane resize hold the commit before S5 (a hosted page's `syncDeadline`, the drag's `dragResizeDeadline`,
-    /// both set high here) give the fork 0 with S5 on, so Chromium's pre-commit handler never waits on the main thread, and
-    /// the hosted page is shown unscaled. `motion.frameOwner.pagesWait` above 0 (measurement only) stays under half a frame.
+    /// The page misses every frame (Chromium never draws at the new size in time). Chromium's resize wait runs inside the
+    /// app's commit on the main thread for the deadline the fork holds, so that deadline is the main thread's wait per
+    /// frame. With S5 on it is 0 in a drag, a key resize's page sync and the window's live resize, also with every pre-S5
+    /// wait tunable set to 50 ms, so the main thread commits each frame at once; S5 off with those tunables waits (the
+    /// half-frame cap). `motion.frameOwner.pagesWait` above 0 (measurement only) stays under half a frame.
     @Test func aPageThatMissesItsFrameNeverHoldsTheMainThread() throws {
-        Self.set(pages: true, syncDeadline: 0.05, dragDeadline: 0.05)
+        func waitIfThePageMisses(_ fork: FakeFork) -> Int32 { fork.syncs.last?.timeoutMs ?? 0 }
+        Self.set(pages: true, syncDeadline: 0.05, dragDeadline: 0.05, liveDeadline: 0.05)
         defer { Self.set(pages: nil) }
         let (hosting, fork, turn) = Self.hosting(intervals: [1.0 / 120])
         hosting.pageWindowCreated(browser: 3, fork: fork.fork)
         turn.end()
-        let page = try #require(hosting.page, "SETUP: the page is not hosted")
+        try #require(hosting.page != nil, "SETUP: the page is not hosted")
+        var waits: [String: Int32] = ["hosted": waitIfThePageMisses(fork)]
         hosting.paneResizeDrag(active: true)
+        waits["drag"] = waitIfThePageMisses(fork)
         hosting.paneResizeDrag(active: false)
-        #expect(fork.syncs.allSatisfy { $0.timeoutMs == 0 }, "the fork was given a main-thread wait: \(fork.syncs)")
-        #expect(page.layer?.affineTransform() == .identity && page.layer?.sublayers?.first?.affineTransform() == .identity,
-                "the hosted page is scaled")
+        hosting.windowLiveResize(active: true)
+        waits["live resize"] = waitIfThePageMisses(fork)
+        hosting.windowLiveResize(active: false)
+        #expect(waits.values.allSatisfy { $0 <= Self.mainThreadWaitBudgetMs }, "the main thread waits for the page: \(waits)")
+        #expect(fork.syncs.isEmpty, "the fork was given a main-thread wait: \(fork.syncs)")
 
-        // The measurement knob: a wait, but never past half the shortest display frame (4 ms at 120 Hz).
-        Self.set(pages: true, pagesWait: 0.016)
+        // The same tunables with S5 off: a hosted page's frame holds the commit (capped at half a 120 Hz frame).
+        Self.set(pages: false, syncDeadline: 0.05, dragDeadline: 0.05, liveDeadline: 0.05)
         hosting.paneResizeDrag(active: true)
-        #expect(fork.syncs.last?.timeoutMs == 4)
+        #expect(waitIfThePageMisses(fork) == 4, "SETUP: the fake fork does not see the pre-S5 wait")
         hosting.paneResizeDrag(active: false)
-        #expect(fork.syncs.last?.timeoutMs == 0)
+
+        // S5 on again: 0. The measurement knob: a wait, never past half the shortest display frame (4 ms at 120 Hz).
+        Self.set(pages: true)
+        hosting.displaysChanged()
+        #expect(waitIfThePageMisses(fork) == 0)
+        Self.set(pages: true, pagesWait: 0.016)
+        hosting.displaysChanged()
+        #expect(waitIfThePageMisses(fork) == 4)
+        Self.set(pages: true)
+        hosting.displaysChanged()
+        #expect(waitIfThePageMisses(fork) == 0)
         hosting.stop()
     }
 
@@ -194,15 +207,18 @@ import Testing
     }
 
     /// Sets the S5 switch (nil: every tunable here at its default) and the waits it overrides.
-    private static func set(pages: Bool?, syncDeadline: Double? = nil, dragDeadline: Double? = nil, pagesWait: Double? = nil) {
+    private static func set(pages: Bool?, syncDeadline: Double? = nil, dragDeadline: Double? = nil, liveDeadline: Double? = nil,
+                            pagesWait: Double? = nil) {
         let tunables = BrowserResizeTunables.self
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(tunables.all)
         TunableStore.shared.set(tunables.dragResize.key, nil)
-        TunableStore.shared.set(tunables.framesOwnedByCommit.key, pages.map { .bool($0) })
+        // By key: the S5 tunables are not on the base, where a set is refused and the suite fails on behavior.
+        TunableStore.shared.set("motion.frameOwner.pages", pages.map { .bool($0) })
         TunableStore.shared.set(tunables.syncDeadline.key, syncDeadline.map { .number($0) })
         TunableStore.shared.set(tunables.dragResizeDeadline.key, dragDeadline.map { .number($0) })
-        TunableStore.shared.set(tunables.pagesWait.key, pagesWait.map { .number($0) })
+        TunableStore.shared.set(tunables.liveResizeDeadline.key, liveDeadline.map { .number($0) })
+        TunableStore.shared.set("motion.frameOwner.pagesWait", pagesWait.map { .number($0) })
     }
 
     /// A runtime that outlives the test (a shown tab schedules work that reads it after the test returned).

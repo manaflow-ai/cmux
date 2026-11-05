@@ -163,7 +163,8 @@ With the switch on (Debug Settings, default off; read when each resize begins an
    `resizeSync` path (Austin Wang; carried by Leo's #29679), made the S5 path.
 4. The main thread never waits for the page. Chromium's resize wait is its `CATransactionCoordinator` pre-commit handler,
    which runs on Chromium's UI thread, and in cmux that is the app's main thread (`CEFMessagePump`). So with S5 on every
-   pane deadline (`syncDeadline`, `dragResizeDeadline`) is replaced by `motion.frameOwner.pagesWait`, 0 by default
+   resize deadline (`syncDeadline`, `dragResizeDeadline`, and the window's `liveResizeDeadline`) is replaced by
+   `motion.frameOwner.pagesWait`, 0 by default
    (`CEFLayerHosting.waitMs`). API 27's 0 means no pre-commit wait, no GPU CA transaction and no post-commit wait. The
    main thread commits each frame at once; the page window's resize reaches Chromium in that turn; the GPU's frame at the
    new size shows through the hosted context when it is drawn, with no app commit needed. Until then the page shows its

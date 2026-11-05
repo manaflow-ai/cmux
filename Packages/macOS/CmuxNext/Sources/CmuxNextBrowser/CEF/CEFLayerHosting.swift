@@ -121,7 +121,7 @@ final class CEFLayerHosting {
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
          resizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.syncDeadline) },
-         liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
+         liveResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.liveResizeDeadline) },
          dragResizeDeadlineMs: @escaping () -> Int32 = { CEFLayerHosting.waitMs(BrowserResizeTunables.dragResizeDeadline) },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) }) {
         self.isEnabled = isEnabled
@@ -133,8 +133,8 @@ final class CEFLayerHosting {
         self.makePage = makePage
     }
 
-    /// A pane wait tunable in whole ms; with S5 on (`motion.frameOwner.pages`) `motion.frameOwner.pagesWait` instead, 0 by
-    /// default: the main thread never waits for a page in a pane resize (Chromium's wait runs on the main thread).
+    /// A resize wait tunable in whole ms; with S5 on (`motion.frameOwner.pages`) `motion.frameOwner.pagesWait` instead, 0 by
+    /// default: the main thread never waits for a page in any resize (Chromium's wait runs on the main thread).
     static func waitMs(_ tunable: Tunable<Double>) -> Int32 {
         let seconds = BrowserResizeTunables.framesOwnedByCommit.value ? BrowserResizeTunables.pagesWait.value : tunable.value
         return Int32((seconds * 1_000).rounded())
