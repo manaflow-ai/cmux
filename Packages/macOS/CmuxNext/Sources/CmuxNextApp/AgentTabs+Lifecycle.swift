@@ -86,21 +86,22 @@ extension AgentTabStore {
         let splitPane = split.map { ($0, ProvisionalPane(holding: snapshot)) }
         let sendsSplitID = daemon.supports(DaemonCapability.splitClientSplitID.rawValue)
         let store = daemon.store
+        let scoped = AgentTabKey(machine: daemon.machineID, key: key)
         store.onTabCreated = { [weak self] provisional, tab in
-            self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
+            self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface), machine: daemon.machineID)
         }
         let transaction = ClientTransactionID.generate()
         store.intend(splitPane.map { Intent.splitPane(pane: pane, direction: $0.0, ratio: 0.5, provisional: $0.1) } ?? .createTab(pane: pane, provisional: snapshot),
                      transaction: transaction)
-        if let session { sessions[key] = session }
-        newTabPages[key] = newTab
-        if session == nil { seeds[key] = seed }
-        if linked { linkedSessions.insert(key) }
+        if let session { sessions[scoped] = session }
+        newTabPages[scoped] = newTab
+        if session == nil { seeds[scoped] = seed }
+        if linked { linkedSessions.insert(scoped.key) }
         if let adopt { adoptions["\(adopt.harness):\(adopt.agentSessionId)"] = key }
-        track(key, in: store)
-        if let spare, let newTab { adoptSpare(spare, key: key, page: newTab.page) }
+        track(key, in: store, machine: daemon.machineID)
+        if let spare, let newTab { adoptSpare(spare, key: scoped, page: newTab.page) }
         let pending = AgentTabPending(key: key, surface: snapshot.surface)
-        if remote { remoteCreations[key] = pending }
+        if remote { remoteCreations[scoped] = pending }
         pending.result = Task { [weak self, pending] () throws -> AgentTabCreated in
             do {
                 guard let self else { throw CancellationError() }
@@ -109,13 +110,13 @@ extension AgentTabStore {
                                                                                           splitID: sendsSplitID ? $0.1.splitID : nil) })
                 // Closed first (CancelledCreation): nothing moves to the store's tab, which the store
                 // hides and closes; the page's view state goes.
-                if !store.creations.wasCancelled(transaction) { tabCreated(key, as: created) }
+                if !store.creations.wasCancelled(transaction) { tabCreated(key, as: created, machine: daemon.machineID) }
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
                 if store.creations.wasCancelled(transaction) { throw CancellationError() }
                 // A chat its page started (or the harness acpmux reported) before the store answered binds now.
-                if let started = sessions[created.key], !remote { sendSession(started, for: created.key) }
+                if let started = sessions[AgentTabKey(machine: daemon.machineID, key: created.key)], !remote { sendSession(started, for: created.key) }
                 return created
             } catch {
                 // A cancelled creation stays in the log until the store's close of its tab commits.
@@ -194,35 +195,37 @@ extension AgentTabStore {
 
     /// The store created provisional tab `key` as `created` (its reply, or the echo on the event
     /// that added it, whichever came first): view state and the selection move to it.
-    func tabCreated(_ key: String, as created: AgentTabCreated) {
-        rekey(key, to: created.key)
+    func tabCreated(_ key: String, as created: AgentTabCreated, machine: String? = nil) {
+        rekey(key, to: created.key, machine: machine)
         moveSelection(key, created.surface)
     }
 
     /// The store answered the creation: view state under provisional `key` moves to `real`, and
     /// `key` keeps resolving to it until the provisional tab is gone.
-    func rekey(_ key: String, to real: String) {
+    func rekey(_ key: String, to real: String, machine: String? = nil) {
         guard key != real else { return }
-        aliases[key] = real
+        let scoped = tabKey(key, machine: machine)
+        let realKey = AgentTabKey(machine: scoped.machine, key: real)
+        aliases[scoped] = real
         OutboundTab.rekeyed(key, to: real) // a tab on its way out of its pane stays out under its new id
-        if remoteCreations[key] != nil || remoteSeeds[key] != nil { remoteAliases[key] = real }
-        if let view = views.removeValue(forKey: key) {
+        if remoteCreations[scoped] != nil || remoteSeeds[scoped] != nil { remoteAliases[scoped] = real }
+        if let view = views.removeValue(forKey: scoped) {
             // A page made under the store's id meanwhile (another window) gives way to the one shown.
-            if let other = views[real], other !== view { retirer.retire(other) }
-            views[real] = view
+            if let other = views[realKey], other !== view { retirer.retire(other) }
+            views[realKey] = view
         }
-        if let value = sessions.removeValue(forKey: key) { sessions[real] = value }
+        if let value = sessions.removeValue(forKey: scoped) { sessions[realKey] = value }
         unsentDrafts.move(key, to: real)
-        if let value = newTabPages.removeValue(forKey: key) { newTabPages[real] = value }
-        if let value = seeds.removeValue(forKey: key) { seeds[real] = value }
-        if let value = remoteSeeds.removeValue(forKey: key) { remoteSeeds[real] = value }
-        if let value = remoteCreations.removeValue(forKey: key) { remoteCreations[real] = value }
-        if let value = remoteStarts.removeValue(forKey: key) { remoteStarts[real] = value }
-        if let value = pendingTurns.removeValue(forKey: key) { pendingTurns[real] = value }
-        if let value = wakeStates.removeValue(forKey: key) { wakeStates[real] = value }
-        if linkedSessions.remove(key) != nil { linkedSessions.insert(real) }
+        if let value = newTabPages.removeValue(forKey: scoped) { newTabPages[realKey] = value }
+        if let value = seeds.removeValue(forKey: scoped) { seeds[realKey] = value }
+        if let value = remoteSeeds.removeValue(forKey: scoped) { remoteSeeds[realKey] = value }
+        if let value = remoteCreations.removeValue(forKey: scoped) { remoteCreations[realKey] = value }
+        if let value = remoteStarts.removeValue(forKey: scoped) { remoteStarts[realKey] = value }
+        if let value = pendingTurns.removeValue(forKey: scoped) { pendingTurns[realKey] = value }
+        if let value = wakeStates.removeValue(forKey: scoped) { wakeStates[realKey] = value }
+        if linkedSessions.remove(scoped.key) != nil { linkedSessions.insert(realKey.key) }
         adoptions = adoptions.mapValues { $0 == key ? real : $0 }
-        if let store = tabStores.removeValue(forKey: key) { tabStores[real] = store }
+        if let store = tabStores.removeValue(forKey: scoped) { tabStores[realKey] = store }
         if checkpointFocusTab == key { checkpointFocusTab = real }
         // The provisional alias goes once the tree settles: live callbacks then name the store tab (conversion, project reads).
         if let view = views[real] { wire(view.model, key: real) }
@@ -230,10 +233,12 @@ extension AgentTabStore {
     }
 
     /// Local tab `key` adopts the prewarmed `spare` as its page; the chat it becomes still opens tabs (cx-ckt2z).
-    func adoptSpare(_ spare: AgentPaneView, key: String, page: AgentPaneNewTab) {
+    func adoptSpare(_ spare: AgentPaneView, key: String, page: AgentPaneNewTab) { adoptSpare(spare, key: tabKey(key), page: page) }
+
+    func adoptSpare(_ spare: AgentPaneView, key: AgentTabKey, page: AgentPaneNewTab) {
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion) = (spare, true)
-        wire(spare.model, key: key)
+        wire(spare.model, key: key.key)
         spare.adoptNewTab(page)
     }
 
@@ -242,7 +247,9 @@ extension AgentTabStore {
     /// A spare that refuses (no longer an untouched New Tab page) goes back to the pool or is retired,
     /// and the tab gets nothing from it.
     @discardableResult
-    func adoptSpare(_ spare: AgentPaneView, key: String, session: String, revealTurn: String?) -> Bool {
+    func adoptSpare(_ spare: AgentPaneView, key: String, session: String, revealTurn: String?) -> Bool { adoptSpare(spare, key: tabKey(key), session: session, revealTurn: revealTurn) }
+
+    func adoptSpare(_ spare: AgentPaneView, key: AgentTabKey, session: String, revealTurn: String?) -> Bool {
         let moved: @MainActor () -> Void = { [weak spare] in
             // A Chromium page's window follows its view only when told (CEFHostView.pagesNeedUpdate).
             guard let window = spare?.window else { return }
@@ -257,7 +264,7 @@ extension AgentTabStore {
         AgentPaneSpareOutcome.adopted.trace()
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion) = (spare, true)
-        wire(spare.model, key: key)
+        wire(spare.model, key: key.key)
         return true
     }
 
@@ -265,30 +272,32 @@ extension AgentTabStore {
     /// in this tab): a compare-and-swap from the session the tab shows, as a store intent
     /// (`Intent.bindAgentSession`): the record shows the new session at once, and a refusal (a
     /// change another device made first) removes it again with a reason.
-    func sendSession(_ session: String, for key: String) {
+    func sendSession(_ session: String, for key: String, machine: String? = nil) {
+        let scoped = tabKey(key, machine: machine)
+        let key = scoped.key
         // Not created yet: the creation answer binds it (``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)``).
         // A chat of another machine: its daemon bound the session it started (cx-k21v).
-        guard !ProvisionalTab.isProvisional(key), bindsHere(key) else { return }
-        guard let record = lookup(key)?.record else {
+        guard !ProvisionalTab.isProvisional(key), bindsHere(key, machine: scoped.machine) else { return }
+        guard let record = record(for: scoped)?.record else {
             // The store answered but its tree does not list the tab yet: bind once it does.
-            guard tabStores[key] != nil else { return }
+            guard tabStores[scoped] != nil else { return }
             // task-owner: one wait for the tree to list a tab the store just created
             Task { [weak self] in
-                for await listed in ObservationStream({ [weak self] in self?.lookup(key) != nil }) where listed {
-                    self?.sendSession(session, for: key)
+                for await listed in ObservationStream({ [weak self] in self?.record(for: scoped) != nil }) where listed {
+                    self?.sendSession(session, for: key, machine: scoped.machine)
                     return
                 }
             }
             return
         }
         // The record holds every pending bind: the next expects it. A new harness (acpmux's, cx-w4bbw) alone binds too.
-        let (expected, harness) = (record.session, views[key]?.model.transport.sessions.harness(of: session))
-        guard expected != session || (harness != nil && harness != record.harness), let store = lookup(key)?.store, let surface = store.tab(id: key)?.surface else { return }
+        let (expected, harness) = (record.session, views[scoped]?.model.transport.sessions.harness(of: session))
+        guard expected != session || (harness != nil && harness != record.harness), let store = record(for: scoped)?.store, let surface = store.tab(id: key)?.surface else { return }
         let transaction = ClientTransactionID.generate()
         store.intend(.bindAgentSession(surface: surface, session: session, harness: harness), transaction: transaction)
         // task-owner: one compare-and-swap; its answer settles or rejects the intent
         Task { [weak self] in
-            let (outcome, sequence) = await self?.bind(key, surface, expected, session, harness) ?? (.failed, nil)
+            let (outcome, sequence) = await self?.bindScoped(scoped, surface, expected, session, harness) ?? (.failed, nil)
             switch outcome {
             case .taken:
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
@@ -304,9 +313,10 @@ extension AgentTabStore {
 
     /// Whether tab `key`'s session is bound from this app: not for a chat of another machine,
     /// whose daemon binds the session it starts (cx-k21v).
-    func bindsHere(_ key: String) -> Bool {
-        remoteSeeds[key] == nil && remoteCreations[key] == nil
-            && lookup(key)?.record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) != true
+    func bindsHere(_ key: String, machine: String? = nil) -> Bool {
+        let scoped = tabKey(key, machine: machine)
+        return remoteSeeds[scoped] == nil && remoteCreations[scoped] == nil
+            && record(for: scoped)?.record.host.hasPrefix(AgentTabRemoteStart.registryPrefix) != true
     }
 
     /// The tab already resuming the outside chat `adopt` while a tree lists it.
@@ -385,8 +395,9 @@ extension AgentTabStore {
     }
 
     /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it.
-    func track(_ key: String, in store: DaemonStore) {
-        tabStores[key] = store
+    func track(_ key: String, in store: DaemonStore, machine: String? = nil) {
+        let scoped = tabKey(key, machine: machine)
+        tabStores[scoped] = store
         if store.liveTreeLists(tab: key) == true { seenLive.insert(key) }
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }

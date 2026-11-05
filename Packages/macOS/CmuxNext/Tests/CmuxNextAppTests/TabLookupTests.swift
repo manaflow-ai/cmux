@@ -125,6 +125,41 @@ struct TabLookupTests {
         #expect(fixture.services.locateTab(model: fixture.remoteTab) == nil)
         #expect(fixture.services.locateTab(model: replacement.0)?.1 === replacement.1)
     }
+
+    /// AgentTabs' scoped callbacks keep the same durable id on each machine separate (cmuxterm-hq#5338).
+    @Test func agentTabsCallbacksKeepDuplicateIDsOnTheirMachine() async throws {
+        let fixture = try Fixture()
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
+        let localKey = AgentTabKey(machine: MachineRegistry.localID, key: fixture.localTab.id)
+        let remoteKey = AgentTabKey(machine: fixture.remote.machineID, key: fixture.remoteTab.id)
+        tabs.lookupScoped = { key in
+            guard let (tab, _) = fixture.services.locateTab(key.key, onMachine: key.machine) else { return nil }
+            return (record: AgentSessionRef(host: key.machine, session: "session-\(key.machine)"),
+                    store: fixture.services.machines.daemon(forTab: tab).store)
+        }
+        tabs.locateScoped = { key in
+            fixture.services.locateTab(key.key, onMachine: key.machine).map { (pane: $0.1.handle, daemon: fixture.services.machines.daemon(forTab: $0.0)) }
+        }
+        tabs.daemonForTabScoped = { key in
+            fixture.services.locateTab(key.key, onMachine: key.machine).map { fixture.services.machines.daemon(forTab: $0.0) }
+        }
+        var bound: [AgentTabKey] = []
+        tabs.bindScoped = { key, _, _, _, _ in
+            bound.append(key)
+            return (.taken, nil)
+        }
+
+        #expect(tabs.lookupScoped(localKey)?.store === fixture.services.daemon.store)
+        #expect(tabs.lookupScoped(remoteKey)?.store === fixture.remote.daemon.store)
+        #expect(tabs.locateScoped(localKey)?.pane == fixture.localPane.handle)
+        #expect(tabs.locateScoped(remoteKey)?.pane == fixture.remotePane.handle)
+        #expect(tabs.daemonForTabScoped(localKey) === fixture.services.daemon)
+        #expect(tabs.daemonForTabScoped(remoteKey) === fixture.remote.daemon)
+        _ = await tabs.bindScoped(remoteKey, fixture.remoteTab.surface, nil, "remote", nil)
+        _ = await tabs.bindScoped(localKey, fixture.localTab.surface, nil, "local", nil)
+        #expect(bound == [remoteKey, localKey])
+    }
+
     /// A remote tab's menu is built, titled and resolved on its own machine, not refused as
     /// ambiguous or read from this Mac's tab with the same id (cmuxterm-hq#5338).
     @Test func aRemoteTabMenuResolvesItsOwnMachinesTab() throws {
