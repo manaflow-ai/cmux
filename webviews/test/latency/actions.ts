@@ -734,7 +734,7 @@ const flowActions: LatencyAction[] = [
     "chat.menu.add.open",
     "add menu open",
     ".acpmux-composer-plus .acpmux-picker-button",
-    ".acpmux-composer-plus [role='listbox']",
+    ".acpmux-menu.acpmux-composer-plus[role='menu']",
   ),
   composerMenu("chat.menu.slash.open", "slash menu open", "/", ".acpmux-slash-menu:not(.acpmux-mention-menu)"),
   composerMenu("chat.menu.mention.open", "mention menu open", "@", ".acpmux-mention-menu"),
