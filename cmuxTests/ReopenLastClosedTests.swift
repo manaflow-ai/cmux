@@ -13,7 +13,7 @@ private typealias AppStoredShortcut = cmux.StoredShortcut
 #endif
 
 @MainActor
-@Suite("Reopen last closed", .serialized, .exclusiveAppContext)
+@Suite("Reopen last closed", .serialized)
 struct ReopenLastClosedTests {
     private enum RestoredKind: Equatable {
         case panel
