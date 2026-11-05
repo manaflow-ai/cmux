@@ -30598,7 +30598,7 @@
       "range" : {
         "max" : 20,
         "min" : 0,
-        "placeholder" : 10,
+        "placeholder" : 8,
         "step" : 1,
         "unit" : "points"
       },
