@@ -168,7 +168,9 @@
             "rows" : [
               "workspaces.hibernation.enabled",
               "workspaces.hibernation.idleMinutes",
-              "workspaces.hibernation.hiddenSpaceMinutes"
+              "workspaces.hibernation.hiddenSpaceMinutes",
+              "workspaces.freeing.enabled",
+              "workspaces.freeing.idleMinutes"
             ],
             "title" : {
               "key" : "settings.group.workspaceHibernation",
@@ -22248,6 +22250,284 @@
       "title" : {
         "key" : "settings.workspaceHibernation.hiddenSpaceMinutes",
         "text" : "Hibernate Hidden Spaces After"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.freeingEnabled.help",
+        "text" : "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Running commands, agents, pinned workspaces and workspaces kept awake are never freed."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.freeing.enabled",
+      "keywords" : [
+        "free",
+        "freeing",
+        "park",
+        "shell",
+        "terminal",
+        "processes",
+        "idle",
+        "resources",
+        "restore",
+        "scrollback"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "freeing",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:workspaces.freeing.enabled"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.freeingEnabled",
+        "text" : "Free Idle Terminals"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        60,
+        43200,
+        21630
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1440,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.freeingIdleMinutes.help",
+        "text" : "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day)."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.freeing.idleMinutes",
+      "keywords" : [
+        "free",
+        "idle",
+        "hours",
+        "timeout",
+        "shell",
+        "terminal"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "freeing",
+        "idleMinutes"
+      ],
+      "range" : {
+        "max" : 43200,
+        "min" : 60,
+        "placeholder" : 60,
+        "step" : 60,
+        "unit" : "minutes"
+      },
+      "refuses" : [
+        -43080,
+        86340,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:workspaces.freeing.idleMinutes"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.freeingIdleMinutes",
+        "text" : "Free Terminals After"
       },
       "validation" : "portable"
     },
@@ -55468,7 +55748,8 @@
     {
       "accepts" : [
         "none",
-        "folder"
+        "folder",
+        "recents"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -55486,6 +55767,13 @@
             "text" : "Folder"
           },
           "value" : "folder"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupByRecents",
+            "text" : "Projects and Recents"
+          },
+          "value" : "recents"
         }
       ],
       "consumers" : [
@@ -55506,7 +55794,11 @@
         "group",
         "folder",
         "directory",
-        "cwd"
+        "cwd",
+        "recents",
+        "recent",
+        "chatgpt",
+        "history"
       ],
       "kind" : "choice",
       "page_hidden" : false,
