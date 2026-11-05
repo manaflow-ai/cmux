@@ -47,7 +47,8 @@ const createIssue = () =>
 const openFirst: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector("button.cv-tool"));
   ctx.document.querySelector<HTMLButtonElement>("button.cv-tool")?.click();
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool-detail__field"));
+  // The opened body: the fields here, the output or request a build before them draws.
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool-detail__field, .cv-mcp-call, .cv-tool-output-card"));
 };
 
 const restyled =
