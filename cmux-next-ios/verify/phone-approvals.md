@@ -9,6 +9,12 @@
 > An older enclave `approval` key (made with `.userPresence`) is deleted on
 > first use and replaced, so each Mac asks once to allow the phone again.
 > The opt-in Settings → Require Face ID app lock (off by default) is unchanged.
+> What this gives up: the person no longer confirms each signature, so code
+> running in the app (a foreground task, a background reconnect) could sign an
+> Allow without a tap. What still holds: the key never leaves this phone's
+> enclave, notification Allow and option buttons open the app and need the
+> phone unlocked, and the Mac checks the one-use nonce, the 5-minute expiry
+> and that the key is one it allowed.
 > Sections below that describe a Face ID prompt per Allow are the earlier
 > design and its verification record.
 
