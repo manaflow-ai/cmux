@@ -43,11 +43,12 @@ final class HomeTableShimmer {
         let still = reduceMotion()
         let scale = demo.renderScale
         for (key, want) in wanted {
-            let layer = layers[key] ?? make()
+            let layer = layers[key] ?? Self.make()
             layers.updateValue(layer, forKey: key) // crash program: dictionary write
             if layer.superlayer !== want.cell.layer { want.cell.layer.addSublayer(layer) }
             layer.frame = want.rect
             layer.contentsScale = scale
+            demo.scope { Self.paint(layer) }
             layer.sublayers?.first?.frame = CGRect(origin: .zero, size: want.rect.size)
             if let band = layer.sublayers?.last as? CAGradientLayer {
                 band.frame = CGRect(x: -want.rect.width, y: 0, width: want.rect.width * 3, height: want.rect.height)
@@ -65,23 +66,28 @@ final class HomeTableShimmer {
     var count: Int { layers.count }
 
     /// A skeleton block (the card's own fill under the bitmap's skeleton colour) with the light band in it.
-    private func make() -> CALayer {
+    private static func make() -> CALayer {
         let block = CALayer()
         block.cornerRadius = 8
         block.masksToBounds = true
-        block.backgroundColor = Fixture.incoming.cgColor
-        let tint = CALayer()
-        tint.backgroundColor = HomeCardDraw.skeletonFill
-        block.addSublayer(tint)
+        block.addSublayer(CALayer())
         let band = CAGradientLayer()
-        let light = NSColor.white.withAlphaComponent(Fixture.lightAppearance ? 0.55 : 0.10).cgColor
-        let clear = NSColor.white.withAlphaComponent(0).cgColor
-        band.colors = [clear, light, clear]
         band.locations = [0.35, 0.5, 0.65]
         band.startPoint = CGPoint(x: 0, y: 0.5)
         band.endPoint = CGPoint(x: 1, y: 0.5)
         block.addSublayer(band)
+        paint(block)
         return block
+    }
+
+    /// Colours `block` for the theme now: every place, so a theme switch (the card bitmap redraws in the new
+    /// theme) never leaves a block in the old one's colours.
+    private static func paint(_ block: CALayer) {
+        block.backgroundColor = Fixture.incoming.cgColor
+        block.sublayers?.first?.backgroundColor = HomeCardDraw.skeletonFill
+        let light = NSColor.white.withAlphaComponent(Fixture.lightAppearance ? 0.55 : 0.10).cgColor
+        (block.sublayers?.last as? CAGradientLayer)?.colors = [NSColor.white.withAlphaComponent(0).cgColor, light,
+                                                               NSColor.white.withAlphaComponent(0).cgColor]
     }
 
     /// The band sweeping once across a block `width` wide, forever.

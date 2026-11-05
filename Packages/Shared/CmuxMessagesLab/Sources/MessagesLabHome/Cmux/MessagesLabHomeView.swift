@@ -266,6 +266,7 @@ public final class MessagesLabHomeView: NSView {
             demo.chrome.setNeedsDisplay(); demo.refreshVisibleCells()
             demo.compose.rescale()  // the placeholder, waveform and chips are drawn once with the palette
         }
+        controller.intents?.rowsPlaced()  // layers over rows (table skeleton shimmers) take the new colours
     }
 
     /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
