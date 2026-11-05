@@ -65,6 +65,37 @@ import Testing
         if let landing = list.landing { list.finishLand(landing, then: nil) }
     }
 
+    /// w3 dragged down onto the group header's middle (into the group): the header and its members stay where the last
+    /// gap put them, and a still pointer there keeps that target.
+    @Test func aHeldDragOverAHeadersMiddleKeepsTheRowsWhereTheyAre() throws {
+        let drops = SidebarRowEdgeReorderDocDragTests.Drops()
+        let (list, window) = SidebarRowEdgeReorderDocDragTests.list(drops)
+        defer { window.close() }
+        let w3 = try SidebarRowEdgeReorderDocDragTests.row(list, "w3")
+        let start = NSPoint(x: 80, y: w3.y + w3.height / 2)
+        list.press = SidebarPress(key: w3.key, point: start)
+        list.beginDrag(try #require(list.press))
+        let drag = try #require(list.drag, "w3 did not lift")
+        let keys: [SidebarRowKey] = [.group(GroupID("g")), .workspace(WorkspaceID("m1")), .workspace(WorkspaceID("m2"))]
+        func frames() -> [NSRect?] { keys.map { list.rowViews[$0]?.frame } }
+        var before = frames()
+        var y = start.y
+        while y < start.y + 80, drag.target != .intoGroup(GroupID("g")) {
+            before = frames()
+            y += 1
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+        }
+        try #require(drag.target == .intoGroup(GroupID("g")), "the drag never went into the group: \(String(describing: drag.target))")
+        #expect(frames() == before, "over the header's middle the rows moved: \(before) → \(frames())")
+        for _ in 0..<3 {
+            list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))
+            #expect(drag.target == .intoGroup(GroupID("g")), "a still pointer left the group: \(String(describing: drag.target))")
+            #expect(frames() == before, "a still pointer moved the rows: \(frames())")
+        }
+        list.cancelDrag()
+        if let landing = list.landing { list.finishLand(landing, then: nil) }
+    }
+
     /// w3 dragged down through the group a point at a time: each place the drop offers comes once, in order; none
     /// comes back after another (no gap closing and opening again under the pointer).
     @Test func aDragDownThroughAGroupNeverReturnsToAPlaceItLeft() throws {
