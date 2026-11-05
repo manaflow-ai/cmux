@@ -175,6 +175,28 @@ struct AgentAutoResumePolicyTests {
         }
     }
 
+    @Test func aCompletionThatDoesNotEndTheTurnKeepsTheFailingStreak() {
+        // A resumed turn that fails again, with the pane's idle settlement
+        // landing before its StopFailure, must keep backing off and stop.
+        var tracker = AgentAutoResumeTracker(delays: [.seconds(1), .seconds(2)])
+        guard case let .schedule(_, _, _, token) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
+        ) else {
+            Issue.record("expected a schedule")
+            return
+        }
+        #expect(tracker.resumeSent(surfaceId: surface, token: token) == 1)
+        #expect(tracker.observe(kind: .turnStarted, surfaceId: surface, isSubagent: false, detail: nil) == .none)
+        #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: false, detail: nil, endsTurn: false) == .none)
+        #expect(tracker.totalResumes(surfaceId: surface) == 1)
+        guard case .schedule(_, 2, _, _) = tracker.observe(
+            kind: .errorReported, surfaceId: surface, isSubagent: false, detail: "overloaded"
+        ) else {
+            Issue.record("the streak should continue at attempt 2")
+            return
+        }
+    }
+
     @Test func aSubagentsCompletedTurnDoesNotHoldBackTheParentsError() {
         var tracker = AgentAutoResumeTracker()
         #expect(tracker.observe(kind: .turnCompleted, surfaceId: surface, isSubagent: true, detail: nil) == .none)
