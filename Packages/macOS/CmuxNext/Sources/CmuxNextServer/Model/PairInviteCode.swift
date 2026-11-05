@@ -9,7 +9,8 @@ extension PairingCode {
     ///
     /// Longer than the 8-symbol server code because an invite is redeemed by `/v1/pair/begin`,
     /// which has no account to budget guesses against, only a per-IP limit.
-    public nonisolated enum Invite {
+    public nonisolated struct Invite {
+        public nonisolated init() {}
         public static let length = 10
 
         /// `ABCDE12345` -> `ABCDE-12345`. Other lengths are returned unchanged.
