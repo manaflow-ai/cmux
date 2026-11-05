@@ -74,6 +74,12 @@
       "tests": [
         "tests/test_nightly_next_feed_watch.py"
       ]
+    },
+    {
+      "reason": "Lawrence 2026-10-23: no new CI tests. web-validation.yml runs it on main pushes only. On feat-cmux-next the wrapper it tests (scripts/ci/webviews-tests-new-reds.sh) runs on every push, with no base, in cmux-next-web.yml's react-apps-check, so a break shows there on the next push. Run python3 tests/test_webviews_tests_new_reds.py yourself after changing the wrapper, guards_new_reds.py or webviews_test_results.py (about 20 s, a fake bun).",
+      "tests": [
+        "tests/test_webviews_tests_new_reds.py"
+      ]
     }
   ]
 }

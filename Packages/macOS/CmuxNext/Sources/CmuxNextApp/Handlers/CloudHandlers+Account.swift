@@ -171,6 +171,7 @@ extension CloudHandlers {
                     }
                     try await cloud.codexBroker.run(machineID: session.machineID,
                         scope: .init(userID: userID, teamID: teamID), confirmed: true,
+                        askLocalSignIn: { await CloudStartChat.askCodexSignIn(services, mayAsk: true, in: .window(originalWindow)) },
                         presentDeviceCode: { prompt in
                             await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(originalWindow))
                         })
@@ -178,7 +179,8 @@ extension CloudHandlers {
                 }
                 guard await CloudStartChat.loginCopyGate(services).copyAllowed() else { return } // the transfer checks it again last
                 let transfer = CloudCredentialTransfer(provider: .claude,
-                    machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
+                    machineID: session.machineID, teamID: teamID, userID: userID,
+                    otherTeams: CloudStartChat.loginScopes(cloud), openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },

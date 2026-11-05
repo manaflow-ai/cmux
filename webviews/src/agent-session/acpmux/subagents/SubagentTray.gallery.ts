@@ -847,7 +847,7 @@ export default agentPaneEntry({
             "tucked-count",
             "middle",
             false,
-            "Tucked with three running: the grabber in the accent and a small 3 at its end.",
+            "Tucked with three running: the chevron in the accent and a small 3 at its end.",
           ],
           [
             "tucked-waiting",

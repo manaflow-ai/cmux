@@ -113,6 +113,7 @@ public nonisolated enum ActionCatalog {
         TabActionCatalog.self,
         VerticalTabsActionCatalog.self,
         AgentChatRailActionCatalog.self,
+        CmuxRemoteActionCatalog.self,
         TabIconActionCatalog.self,
         ResourceActionCatalog.self,
         HomeActionCatalog.self,

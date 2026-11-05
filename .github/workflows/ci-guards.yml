@@ -198,6 +198,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_classic_api_guard.py
 
+      - name: Validate the classic-frozen guard
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_classic_frozen_guard.py
+
       - name: Validate the PR capture check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_capture_check.py
@@ -477,6 +481,10 @@ jobs:
             git fetch --no-tags --depth=1 origin "$CMUX_TEST_REGISTRY_BASE_REF"
             CMUX_TEST_REGISTRY_BASE_SHA="$(git rev-parse FETCH_HEAD)"
             args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")
+          fi
+          # A push only warns: the pull request that adds an unregistered test is the one that fails.
+          if [[ "${GITHUB_EVENT_NAME:-}" == push ]]; then
+            args+=(--warn-only)
           fi
           python3 scripts/ci/validate_test_execution_registry.py "${args[@]+"${args[@]}"}"
 

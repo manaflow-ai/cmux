@@ -751,8 +751,10 @@ jobs:
       # runs needs a job that runs it (routed by the paths it tests) or an entry in
       # tests/pr-lane-exemptions.json with the reason. ci-guards.yml's copy of this check is in
       # the preflight group, which feat-cmux-next pull requests do not run. HEAD^1 is the base.
+      # A finding the base already has warns, and on a push every finding warns: only the pull
+      # request that adds an unregistered test fails (Leo, 2026-11-05).
       - name: The Python test registry, and the tests no pull request runs
-        run: python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)"
+        run: python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" ${{ github.event_name == 'push' && '--warn-only' || '' }}
 
       # The web lint pre-push hook (scripts/web-lint.sh, scripts/web_lint_prepush.py) on throwaway
       # repositories with stand-in packages; cmux-next-web.yml ran it only on pushes. A stand-in

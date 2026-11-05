@@ -24,6 +24,7 @@ import { handleTeamVmExport } from "./team-vm-export-route.ts"
 import { signInRules, ssoGate, versionRefusal } from "./policy-gate.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
+import { handlePairInviteWait } from "./pair-invite-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
 import { CI_SESSION_PATH, handleCiSession } from "./ci-session.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
@@ -301,6 +302,7 @@ export default {
     // cmux server pairing: no account on the server side; each route verifies its own proof.
     if (url.pathname === "/v1/pair/begin") return handlePairBegin(request, env)
     if (url.pathname === "/v1/pair/wait") return handlePairWait(request, env)
+    if (url.pathname === "/v1/pair/invite/wait") return handlePairInviteWait(request, env)
     if (url.pathname === "/v1/sso/start") return handleSsoStart(request, env)
     const ssoCallbackPath = url.pathname.match(/^\/v1\/sso\/callback\/([^/]+)$/)
     if (ssoCallbackPath) return handleSsoCallback(request, env, ssoCallbackPath[1]!)
