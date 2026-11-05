@@ -129,7 +129,7 @@ public final class DebugFrameProbe {
 
     private func tick(_ tick: FrameTick) {
         if let refresh = tick.refreshInterval { expected = refresh }
-        split.tick(timestamp: tick.timestamp, target: tick.targetTimestamp, refresh: expected)
+        split.tick(timestamp: tick.timestamp, target: tick.targetTimestamp, refresh: expected, openTurnWoke: awakeSince > 0 ? turnWoke : nil)
         let now = CACurrentMediaTime()
         if awakeSince > 0 {
             awake += now - awakeSince

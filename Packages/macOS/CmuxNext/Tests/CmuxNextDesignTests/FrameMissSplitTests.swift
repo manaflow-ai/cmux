@@ -9,9 +9,9 @@ struct FrameMissSplitTests {
     /// Frame 0 ticks at 1.000 and is due at 1.000 + one refresh; the next tick comes at `next`.
     static func split(_ turns: [(woke: Double, mainEnd: Double?, commitEnd: Double)], next: Double) -> FrameMissSplit {
         var split = FrameMissSplit()
-        split.tick(timestamp: 1.0, target: 1.0 + refresh, refresh: refresh)
+        split.tick(timestamp: 1.0, target: 1.0 + refresh, refresh: refresh, openTurnWoke: nil)
         for turn in turns { split.turnEnded(woke: turn.woke, mainEnd: turn.mainEnd, commitEnd: turn.commitEnd) }
-        split.tick(timestamp: next, target: next + refresh, refresh: refresh)
+        split.tick(timestamp: next, target: next + refresh, refresh: refresh, openTurnWoke: nil)
         return split
     }
 
