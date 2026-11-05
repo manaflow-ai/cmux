@@ -15,8 +15,9 @@ import WebRTC
 ///
 /// `CMUX_VNC_STREAM_LINK` the host's pairing link; `CMUX_EVAL_WINDOW_S` how long to receive after
 /// the first frame (the test runs only when it is set); optional `CMUX_EVAL_SNAPSHOT` (a PNG of the
-/// last decoded frame). Prints `streamwindow: first frame` once video shows, then one JSON line,
-/// `streamwindow: {...}`.
+/// last decoded frame) and `CMUX_EVAL_GO` (a file it creates once video shows, which starts the eval's
+/// scene: `swift test` holds the test's output back, so the eval cannot wait on a printed line).
+/// Prints `streamwindow: first frame` once video shows, then one JSON line, `streamwindow: {...}`.
 struct StreamWindowTests {
     final class Newest: NSObject, RTCVideoRenderer, @unchecked Sendable {
         private let lock = NSLock()
@@ -62,6 +63,7 @@ struct StreamWindowTests {
         try #require(reader.rendered > 0, "no video within 15 s")
         // Unbuffered: the eval waits for this line while the test runs, with stdout in a file.
         FileHandle.standardOutput.write(Data("streamwindow: first frame\n".utf8))
+        if let go = env["CMUX_EVAL_GO"] { FileManager.default.createFile(atPath: go, contents: nil) }
         var series: [[String: Any]] = []
         var last = await viewer.videoStats()
         let first = last
