@@ -40,6 +40,11 @@ class WorkspaceScalingTests(unittest.TestCase):
         warning = bench.scaling_warnings(rows)
         self.assertEqual(warning[0]["baseline_workspaces"], 100)
 
+    def test_sidebar_rows_reject_incomplete_frame_capture(self):
+        report = {"sizes": {"100": {"scroll": {"frames": {
+            "intervals_ms": [8.3], "frame_metrics": {"complete": False}}}}}}
+        self.assertNotIn("sidebar_scroll", bench.sidebar_rows(report, 100))
+
     def test_single_workspace_switch_is_explicitly_undefined(self):
         rows = bench.collect({1: {"instant": {}, "sidebar": {}, "typing": {}}})
         switch = next(row for row in rows if row["interaction"] == "switch")

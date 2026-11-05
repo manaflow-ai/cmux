@@ -3,9 +3,10 @@
 
 The bench deliberately reuses the existing NEXT probes (new surfaces, sidebar stress and
 automation typing).  It emits one row per interaction and workspace count, including p50/p95/p99,
-then prints an advisory warning when the 1000-workspace p95 is more than 10% above the one-workspace
-value.  Warnings never fail the job: this is a trend budget, not a merge gate.  The one-workspace
-switch row is present but explicitly marked undefined because there is no second workspace to select.
+then prints an advisory warning when the 1000-workspace p95 is more than 10% above its real baseline.
+Warnings never fail the job: this is a trend budget, not a merge gate.  The one-workspace sidebar
+scroll and switch rows are present but explicitly marked undefined because there is no real gesture
+or second workspace to select; both use the 100-workspace baseline for the ratio.
 
 For report-only use (and unit tests), pass ``--instant-report``, ``--sidebar-report`` and
 ``--typing-report``.  With ``--app`` the three probes are run for each count and their reports are
@@ -78,20 +79,22 @@ def sidebar_rows(report, count):
     size = ((report or {}).get("sizes") or {}).get(str(count)) or {}
     out = {}
     frame_reply = (size.get("scroll") or {}).get("frames") or {}
+    frame_metrics = frame_reply.get("frame_metrics") or {}
     values = frame_reply.get("intervals_ms") or []
     # Do not substitute RPC handling time for frame intervals: they measure different
     # surfaces, so comparing one topology's frame time with another's RPC time would
     # manufacture a scaling result.
-    if values:
+    if values and frame_metrics.get("complete") is True:
         out["sidebar_scroll"] = stats(values)
     switch = size.get("switch") or {}
+    switch_frames = (switch.get("frames") or {}).get("frame_metrics") or {}
     switch_stats = switch.get("click_to_idle_ms")
-    if isinstance(switch_stats, dict) and isinstance(switch_stats.get("p95"), (int, float)):
+    if switch_frames.get("complete") is True and isinstance(switch_stats, dict) and isinstance(switch_stats.get("p95"), (int, float)):
         out["switch"] = {"p50": switch_stats.get("p50", switch_stats["p95"]),
                           "p95": switch_stats["p95"],
                           "p99": switch_stats.get("p99", switch_stats["p95"]),
                           "n": switch_stats.get("n")}
-    elif isinstance(switch_stats, (int, float)):
+    elif switch_frames.get("complete") is True and isinstance(switch_stats, (int, float)):
         out["switch"] = stats([switch_stats])
     return out
 
@@ -146,9 +149,10 @@ def collect(reports):
             merged.update(sidebar_rows(docs.get("sidebar"), docs.get("sidebar_count", count)))
         if "typing" not in invalid:
             merged.update(typing_rows(docs.get("typing"), count))
-        if count == 1 and "sidebar" not in invalid and "switch" not in merged:
-            # A single workspace cannot switch to a different workspace. Keep the row in the
-            # fixed 5-interaction x 3-topology schema while excluding it from ratio warnings.
+        if count == 1 and "sidebar" not in invalid:
+            # A single workspace cannot scroll a list or switch to another workspace. Keep both
+            # rows explicit while excluding them from ratio warnings.
+            merged.setdefault("sidebar_scroll", {"p50": None, "p95": None, "p99": None, "n": 0, "status": "undefined"})
             merged["switch"] = {"p50": None, "p95": None, "p99": None, "n": 0, "status": "undefined"}
         for interaction, values in merged.items():
             rows.append({"name": f"workspace_scaling.{interaction}.{count}", "interaction": interaction,
@@ -190,11 +194,12 @@ def run_app(opts):
         root = pathlib.Path(opts.out) / str(count)
         root.mkdir(parents=True, exist_ok=True)
         failure_start = len(failures)
+        probe_timeout = opts.probe_timeout if count < 1000 else opts.large_probe_timeout
         instant = root / "instant"
         code = run_probe(HERE / "instant-new-surfaces-bench.py",
                          ["--tag", opts.tag, "--app", opts.app, "--commands", "new_workspace,split_right",
                           "--workspaces", str(count), "--empty-workspaces", "--arms", "warm", "--phases", "idle", "--runs", "6",
-                          "--out", str(instant), "--json", str(instant / "report.json")], root, opts.probe_timeout)
+                          "--out", str(instant), "--json", str(instant / "report.json")], root, probe_timeout)
         if code != 0 or not (instant / "report.json").exists():
             failures.append({"workspaces": count, "probe": "instant", "exit": code,
                              "report": str(instant / "report.json")})
@@ -205,7 +210,7 @@ def run_app(opts):
         code = run_probe(HERE / "sidebar-stress-bench.py",
                          ["--tag", opts.tag, "--app", opts.app, "--sizes", str(sidebar_count), "--tickers", "15",
                           "--scenarios", "scroll,scroll_ticking,switch", "--stop", "--no-trace", "--out", str(sidebar)], root,
-                         opts.probe_timeout)
+                         probe_timeout)
         if code != 0 or not (sidebar / "results.json").exists():
             failures.append({"workspaces": count, "probe": "sidebar", "exit": code,
                              "report": str(sidebar / "results.json")})
@@ -217,7 +222,7 @@ def run_app(opts):
         code = run_probe(HERE / "automation-typing-bench.py",
                          ["--app", opts.app, "--agents", str(agents), "--workspace-count", str(count), "--layouts", "light", "--samples", "30",
                           "--rounds", "1", "--no-browser", "--out", str(typing), "--json", str(typing / "report.json")], root,
-                         opts.probe_timeout)
+                         probe_timeout)
         if code != 0 or not (typing / "report.json").exists():
             failures.append({"workspaces": count, "probe": "typing", "exit": code,
                              "report": str(typing / "report.json")})
@@ -243,10 +248,9 @@ def run_app(opts):
         probes = (instant_rows(reports[count]["instant"], count),
                   sidebar_rows(reports[count]["sidebar"], sidebar_count),
                   typing_rows(reports[count]["typing"], count))
-        # A one-workspace sidebar has only the startup row, so a workspace-to-workspace switch is
-        # undefined there. Keep the scroll baseline at 1 and begin switch scaling at 100, where the
-        # same probe has two or more visible workspace rows.
-        sidebar_expected = ("sidebar_scroll", "switch") if count > 1 else ("sidebar_scroll",)
+        # A one-workspace sidebar has no real scroll or workspace-to-workspace switch. Both are
+        # explicit undefined rows and use the 100-workspace topology as their ratio baseline.
+        sidebar_expected = ("sidebar_scroll", "switch") if count > 1 else ()
         expected = (("new_workspace", "open_pane"), sidebar_expected, ("type",))
         for probe, got, names in zip(("instant", "sidebar", "typing"), probes, expected):
             missing = [name for name in names if name not in got]
@@ -274,8 +278,10 @@ def main():
     ap.add_argument("--tag", default="workspace-scaling")
     ap.add_argument("--out", required=True)
     ap.add_argument("--json", required=True)
-    ap.add_argument("--probe-timeout", type=int, default=300,
+    ap.add_argument("--probe-timeout", type=int, default=240,
                     help="maximum seconds for each GUI probe before recording it incomplete")
+    ap.add_argument("--large-probe-timeout", type=int, default=600,
+                    help="maximum seconds for each 1000-workspace probe before recording it incomplete")
     ap.add_argument("--instant-report", action="append", default=[])
     ap.add_argument("--sidebar-report", action="append", default=[])
     ap.add_argument("--typing-report", action="append", default=[])
