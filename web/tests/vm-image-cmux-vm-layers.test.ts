@@ -237,6 +237,8 @@ describe("baked npm cache", () => {
     expect(cmd).toContain("npm-cache-mb");
     // No package's lifecycle scripts run in the build, and every prefill starts from an empty cache.
     expect(cmd).toContain("npm install --ignore-scripts");
+    // The guest runs steps with /bin/sh (dash): no bash-only options.
+    expect(cmd).not.toContain("pipefail");
     expect(cmd).toContain("rm -rf /tmp/cmux-npm-prefill /home/cmux/.npm/_cacache");
   });
 
