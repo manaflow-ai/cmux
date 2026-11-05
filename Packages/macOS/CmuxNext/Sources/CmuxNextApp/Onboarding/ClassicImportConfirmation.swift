@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextOnboarding
 
 /// The preview and mandatory answer before a classic snapshot is restored.
 @MainActor

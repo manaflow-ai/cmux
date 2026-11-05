@@ -134,6 +134,7 @@ fn session_cfg(opts: &Opts) -> Res<SessionCfg> {
             .num_or::<u64>("upstream-record-max-mb", 1024)?
             .saturating_mul(1 << 20),
         frames_in_flight: 1,
+        input_frame_now: opts.flag("input-frame-now"),
         max_width: opts
             .get("max-width")
             .map(|w| w.parse().map_err(|_| format!("--max-width {w}: a pixel count")))

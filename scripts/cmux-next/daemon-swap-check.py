@@ -45,7 +45,7 @@ import time
 from pathlib import Path
 
 FILES = "https://files.cmux.com/cmux-tui"
-APPCAST = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+APPCAST = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one feed since #36287
 TARGET = "x86_64-unknown-linux-musl"
 
 
@@ -167,7 +167,10 @@ def git(repo: Path, *args: str) -> str:
 
 def feed_builds() -> list[tuple[str, str]]:
     """(version, source commit) of every NEXT NIGHTLY in the feed, newest first."""
-    xml = subprocess.run(["curl", "-sf", APPCAST], capture_output=True, text=True, timeout=60).stdout
+    done = subprocess.run(["curl", "-sSf", APPCAST], capture_output=True, text=True, timeout=60)
+    if done.returncode != 0:
+        raise RuntimeError(f"the NEXT feed {APPCAST} is unreadable (curl exit {done.returncode}): {done.stderr.strip()[:200]}")
+    xml = done.stdout
     builds = []
     for item in re.findall(r"<item>(.*?)</item>", xml, re.S):
         version_match = re.search(r"1\.0\.0-nightly\.(\d+)", item)

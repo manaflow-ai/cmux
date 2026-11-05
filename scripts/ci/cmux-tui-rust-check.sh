@@ -36,6 +36,9 @@
 # cmux-tailnet, which links libtailscale built with Go; a pinned Go 1.27.1 is fetched into
 # .build/go-1.27.1 when the host has none), then a release build of both binaries. No fmt
 # step: the imported host code predates a cmux-screen rustfmt config.
+# acpmux-hot: cmux-tui/crates/acpmux-hot/bench.sh (the daemon's hot wasm modules: the guest
+# variants, the swap and rollback bench, and a running daemon's sign-in through a module swapped
+# under it), its outputs at .build/artifacts/acpmux-hot (fetch them with --artifact). No TEST_FILTER.
 # optchat-chief: fmt, clippy and tests of Native/OptChat/optchat-chief (its own workspace)
 # on macOS, where the Chief host runs: its macOS-only code (the acpmux socket peer check,
 # cx-ggai: LOCAL_PEERPID, proc_pidpath, the Security framework) runs only here.
@@ -74,8 +77,8 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
-if [[ ( "$mode" == api-compat* || "$mode" == panic ) && -n "$filter" ]]; then
+case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write [TEST_FILTER]" >&2; exit 2 ;; esac
+if [[ ( "$mode" == api-compat* || "$mode" == panic || "$mode" == acpmux-hot ) && -n "$filter" ]]; then
   echo "error: $mode takes no TEST_FILTER" >&2
   exit 2
 fi
@@ -857,6 +860,12 @@ if [[ "$mode" == rd-bench ]]; then
   warm_target_guard
   step "rd-bench release build" cargo build --locked --release --no-default-features --features bench
   step "rd-bench artifact" copy_rd_bench
+  finish
+fi
+if [[ "$mode" == acpmux-hot ]]; then
+  export FAST_CHECKS_OUT="$root/.build/artifacts/acpmux-hot"
+  warm_target_guard
+  step "acpmux-hot bench" bash "$root/cmux-tui/crates/acpmux-hot/bench.sh"
   finish
 fi
 # Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go

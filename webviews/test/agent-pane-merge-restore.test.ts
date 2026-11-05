@@ -25,9 +25,10 @@ const conversation = styleRules(read("conversation/conversation.css"));
 const rule = (selector: string) => conversation.find((r) => r.selectorText === selector);
 
 test("a sent image keeps its 120px slot while it loads (#21383)", () => {
+  // Square until its shape is known; UserBubble.tsx sentImageSize then sets its width and aspect ratio.
   const slot = rule(".cv-user__image-placeholder");
   expect(slot?.style.width).toBe("120px");
-  expect(slot?.style.height).toBe("120px");
+  expect(slot?.style.getPropertyValue("aspect-ratio")).toBe("1 / 1");
 });
 
 test("a loaded reply image has no entrance animation", () => {
@@ -41,8 +42,10 @@ test("the turn footer actions sit on the left, and Debug Settings can put them o
 });
 
 test("disclosure rows are keyed by their chat (#21344)", () => {
-  expect(app).toContain("<ToolRows row={row} sessionId={sessionId} />");
-  expect(app).toContain("<EditedFilesCard row={row} sessionId={sessionId} onOpenDiff={onOpenDiff} />");
+  expect(read("rows/ToolActivityRow.tsx")).toContain("<ToolRows row={row} sessionId={sessionId} />");
+  expect(read("rows/EditedFilesRow.tsx")).toContain(
+    "<EditedFilesCard row={row} sessionId={sessionId} onOpenDiff={onOpenDiff} />",
+  );
 });
 
 test("the quick surface mounts the Chief Dock when its experiment is on (#21194)", () => {

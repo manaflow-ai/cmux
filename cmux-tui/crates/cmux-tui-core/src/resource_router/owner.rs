@@ -26,6 +26,8 @@ pub(super) enum OperationOwner {
     OpenUrl,
     /// `stash.*` (state/stash_router.rs).
     Stash,
+    /// `conductor_import.*` (state/conductor_import_router.rs).
+    ConductorImport,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -167,6 +169,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::StashRestore
         | ResourceOperation::StashDelete
         | ResourceOperation::StashImport => OperationOwner::Stash,
+        ResourceOperation::ConductorImportPlan | ResourceOperation::ConductorImportRecord => {
+            OperationOwner::ConductorImport
+        }
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet

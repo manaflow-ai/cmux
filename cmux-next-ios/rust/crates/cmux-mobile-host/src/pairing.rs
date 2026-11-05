@@ -634,6 +634,21 @@ pub async fn serve(
 ) -> Result<(), Refused> {
     // The accept loop counted this channel when it opened (`begin`).
     let result = authenticate(pairing, phone, args, sender, receiver).await;
+    // A machine's every pairing attempt is in Activity, allowed or not (a phone's is not).
+    let kind = crate::peer::PeerKind::parse(args.get("kind").and_then(Value::as_str).unwrap_or_default());
+    if let (Some(pairing), Some(kind)) = (pairing, kind)
+        && kind.is_machine()
+    {
+        pairing.activity.record(crate::activity::Entry {
+            at_ms: crate::activity::now_ms(),
+            peer: phone.to_owned(),
+            kind: kind.as_str(),
+            direction: "in",
+            service: "auth".to_owned(),
+            decision: result.as_ref().err().map_or("allowed", |(code, _)| *code).to_owned(),
+            target: None,
+        });
+    }
     let paired = result.is_ok() && action_is_pair(args);
     if paired && let Ok(Some(kind)) = &result {
         let identity_key = args.get("identityKey").and_then(Value::as_str).unwrap_or_default();

@@ -899,3 +899,42 @@ fn a_timeout_shorter_than_the_relay_window_goes_the_link_way() {
     assert_eq!(fake.ran[1][1], "start-session", "{:?}", fake.ran);
     assert!(fake.ran.iter().all(|step| step.get(1).map(String::as_str) != Some("relay-chat")));
 }
+
+/// The words `cmux cloud start-chat --prompt "What is 2+2?" --cwd /home/cmux/w --wait` hands the app's
+/// `cloud relay-chat` on a new machine, as the CLI's own code builds them (the action argument contract's
+/// cmux-tui/spec/fixtures/cli-action-requests.json carries their `action.run` request, which the app's
+/// ArgumentActionContractTests validate against its catalog).
+pub(in crate::cli) fn contract_relay_words() -> Vec<String> {
+    let mut fake = Fake::new(vec![signed_in(), made(), relayed(json!({"session_id": "relay-1"}))]);
+    let asked = request(&["--prompt", "What is 2+2?", "--cwd", "/home/cmux/w", "--wait"]);
+    let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    let words = fake.ran[2].clone();
+    assert_eq!(&words[..2], &strings(&["cloud", "relay-chat"]), "{:?}", fake.ran);
+    words
+}
+
+#[test]
+fn a_harness_sign_in_failure_is_not_the_cmux_account_signed_out() {
+    // acpmux's Cloud text for a Claude with no sign-in (claude_auth.rs `compose_cloud`) and its typed kind:
+    // the machine's Claude, never the person's cmux account, so no `cmux cloud sign-in`.
+    let claude = "Claude is not signed in here. This Cloud machine has no Claude sign-in (Claude home ~/.claude). \
+        Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. \
+        (Claude said: Not logged in · Please run /login)";
+    for error in [
+        json!({"code": "cloud_start_failed", "message": claude}),
+        json!({"code": "runtime", "errorKind": "auth.signed_out", "message": "Not logged in · Please run /login"}),
+        json!({"code": "chat.failed", "error_kind": "auth.expired", "message": "sign in again"}),
+        json!({"code": "auth.signed_out", "message": "Not logged in"}),
+    ] {
+        assert!(!signed_out(&error), "{error}");
+    }
+    // The cmux account's own refusals stay signed out.
+    for error in [
+        json!({"code": "unavailable", "message": "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`."}),
+        json!({"code": "not_signed_in", "message": "x"}),
+        json!({"code": "auth.required", "message": "x"}),
+        json!({"code": "cloud_signed_out", "message": "x"}),
+    ] {
+        assert!(signed_out(&error), "{error}");
+    }
+}
