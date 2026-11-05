@@ -33,11 +33,18 @@ const transcript = (background: Partial<NonNullable<AcpmuxRow["background"]>>) =
     row("started", "assistant", { text: "The suite runs in the background; I'll report when it ends." }),
     row("summary", "turnSummary", { status: "completed", durationMs: 4_000, seq: 40 }),
     row("task", "backgroundTask", {
-      backgroundTask: { id: "t1", command: "bun test", status: "completed" } as AcpmuxRow["backgroundTask"],
+      backgroundTask: { toolCallId: "start", command: "bun test", state: "completed" },
     }),
     row(backgroundTurnRowId("bg"), BACKGROUND_TURN, {
       seq: 41,
-      background: { id: "bg", trigger: "task_notification", running: false, quiet: false, hasRows: true, ...background },
+      background: {
+        id: "bg",
+        trigger: "task_notification",
+        running: false,
+        quiet: false,
+        hasRows: true,
+        ...background,
+      },
     }),
     tool("read", { inBackground: "bg" }),
     row("woken", "assistant", { text: "The suite finished: 412 passed, 0 failed.", inBackground: "bg" }),
@@ -48,7 +55,11 @@ for (const agentFamily of ["claude", undefined])
   test(`${agentFamily ?? "default"}: the last reply of a turn the agent ran on its own ends on its footer`, () => {
     const view = turnView(transcript({}), new Set(), { now: 60_000, agentFamily });
     const footer = view.at(-1)!;
-    expect(footer).toMatchObject({ kind: "turnSummary", text: "The suite finished: 412 passed, 0 failed.", answerId: "woken" });
+    expect(footer).toMatchObject({
+      kind: "turnSummary",
+      text: "The suite finished: 412 passed, 0 failed.",
+      answerId: "woken",
+    });
     // Its Copy copies that turn's own rows, and its Fork goes through the last turn acpmux ended.
     expect(footer.turnCopy?.length).toBeGreaterThan(0);
     expect(footer.seq).toBe(40);
@@ -67,7 +78,7 @@ test("a background turn still running draws no footer yet", () => {
 test("a quiet background turn folds to its line, with no footer", () => {
   const view = turnView(transcript({ quiet: true }), new Set(), { now: 60_000, agentFamily: "claude" });
   expect(view.filter((entry) => entry.kind === "turnSummary")).toHaveLength(1);
-  expect(view.at(-1)!.id).toBe(backgroundTurnRowId("bg"));
+  expect(view.some((entry) => entry.id.startsWith("backgroundEnd"))).toBe(false);
 });
 
 test("a background turn a summary already ends gets no second footer", () => {
