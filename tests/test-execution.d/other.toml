@@ -87,6 +87,11 @@ lane = "manual"
 reason = "Shell-script unit test (no app, no network): run it with python3 -I before a change to merge-cef-universal.sh, build-cef-shim.sh or embed-cef.sh; no CI job runs it (CLAUDE.md: no new CI tests)."
 
 [[test]]
+path = "tests/test_chromium_live.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks which helpers scripts/cmux-next/chromium-live.py ends, that its framework swap is a rename and what status prints; run python3 tests/test_chromium_live.py yourself after changing chromium-live.py (under 1 s, no build)."
+
+[[test]]
 path = "tests/test_chromium_staleness.py"
 lane = "linux-guard"
 
