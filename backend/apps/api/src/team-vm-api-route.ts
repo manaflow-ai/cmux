@@ -3,7 +3,6 @@ import type { Env } from "./env.ts"
 import { transportOf } from "./cloud-vm-api-config.ts"
 import { teamVmApiSettings } from "./team-vm-api-config.ts"
 import { VmApiTeamDriver } from "./team-vm-api-driver.ts"
-import type { EnsurePersonalTenantReply } from "./team-vm-api-personal.ts"
 import { DriverError, teamVmDriver, type TeamVmDriver, type TeamVmFiles } from "./team-vm-driver.ts"
 import { type LedgerRow, TeamVmLedger } from "./team-vm-ledger.ts"
 
@@ -36,10 +35,7 @@ export class TeamVmOwnerDriver implements TeamVmDriver {
     if (transport !== "vm-api") throw refused()
     const settings = teamVmApiSettings(this.env)
     if (!settings) throw refused()
-    const owner = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(this.team)) as unknown as {
-      vmApiTenant(entity: string, purpose: "operate" | "cleanup"): Promise<{ team: string; tenant: string; project: string } | null>
-      ensureVmApiTenant(entity: string): Promise<EnsurePersonalTenantReply>
-    }
+    const owner = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(this.team))
     if (create && !this.mayCreate(row)) throw refused()
     let target = await owner.vmApiTenant(this.team, purpose).catch(() => null)
     if (!target && create) {

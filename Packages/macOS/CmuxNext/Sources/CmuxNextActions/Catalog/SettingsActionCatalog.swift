@@ -130,6 +130,21 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["update", "version", "sparkle"], category: .settings, symbol: "arrow.down.circle",
                 surfaces: [.palette, .menu], cliName: "settings check-for-updates", mainMenu: .app
             ),
+            // Live Web Reload (docs/cmux-next/hot-reload.md): load cmux's web UI from a checkout's dev
+            // server, so a saved edit shows at once with no build. The CLI is `cmux live start|stop`.
+            ActionDescriptor(
+                id: "liveWeb.start",
+                title: String(localized: "action.liveWeb.start", defaultValue: "Edit cmux Live…", bundle: .module),
+                keywords: ["live web reload", "hot reload", "dev server", "edit", "web ui", "webviews", "vite", "checkout", "develop"],
+                category: .settings, symbol: "bolt.horizontal.circle", surfaces: [.palette],
+                arguments: [CatalogArgument.optionalPathString]
+            ),
+            ActionDescriptor(
+                id: "liveWeb.stop",
+                title: String(localized: "action.liveWeb.stop", defaultValue: "Stop Editing cmux Live", bundle: .module),
+                keywords: ["live web reload", "hot reload", "dev server", "built-in", "bundled", "web ui"],
+                category: .settings, symbol: "bolt.horizontal.circle.fill", surfaces: [.palette]
+            ),
             ActionDescriptor(
                 id: "updates.whatsNew",
                 title: String(localized: "action.updates.whatsNew", defaultValue: "What's New in cmux", bundle: .module),

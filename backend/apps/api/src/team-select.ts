@@ -39,7 +39,7 @@ export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string |
   if (team === personalTeamIdFor(p.user) || (p.kind === "install" && isMachineInstallKind(p.install_kind))) return { ok: true, principal: { ...p, team } }
   let role: string | null
   try {
-    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as { memberRole(entity: string, user: string): Promise<string | null> }
+    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
     role = await stub.memberRole(team, p.user)
   } catch (e) {
     console.error(JSON.stringify({ msg: "team selection unreachable", error: String(e).slice(0, 200) }))
@@ -65,7 +65,7 @@ export const principalForOwner = async (env: Env, owner: string, p: Principal): 
   const shared = owner !== "cloud:TeamDO" && p.user && p.team && !personal && !(p.kind === "install" && isMachineInstallKind(p.install_kind))
   let team_role: string | undefined = personal ? "owner" : undefined
   if (shared) {
-    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as { memberRole(entity: string, user: string): Promise<string | null> }
+    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!))
     const role = await stub.memberRole(p.team!, p.user!)
     if (!roleHas(role ?? undefined, "team.resources")) return { refused: role ? `the ${role} role has no access to this team's resources` : "not a member of this team" }
     team_role = role ?? undefined

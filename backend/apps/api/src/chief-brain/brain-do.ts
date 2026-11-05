@@ -358,7 +358,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     // An opencode Chief with a container runs its turns on brainModel (opencode/host.ts): that is the model checked.
     const turningOn = patch.enabled === true && !cur.enabled
     const model = patch.model ?? cur.model
-    const impl = turningOn && opencodeRuns(this.env) ? await (this.env.MUX_DO.get(this.env.MUX_DO.idFromName(agent)) as unknown as { brainImplOf(): Promise<string> }).brainImplOf() : "pi"
+    const impl = turningOn && opencodeRuns(this.env) ? await this.env.MUX_DO.get(this.env.MUX_DO.idFromName(agent)).brainImplOf() : "pi"
     const record = patch.enabled === true || patch.model !== undefined || patch.compactor_model !== undefined ? await chiefRecord(this.env, owner, agent) : null
     const refused = record?.cloud_machine ? null : modelRefusal(this.env, owner, turningOn ? { ...patch, model: impl === "opencode" ? brainModel(model) : model } : patch)
     if (refused) return refused

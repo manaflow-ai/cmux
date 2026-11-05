@@ -59,6 +59,9 @@ DEV = "cmux-next-dev"
 RING_CHANNELS = ("cmux-next-stable", NIGHTLY, "cmux-next-canary", DEV)
 MODES = ("on", "off")
 LEGACY_DEV_ITEMS = 5
+# The Nightly build before the newest one stays on the feed, so a launch crash of the newest
+# has a build to roll back to (nightly_next_launch_smoke.py decide; nightly-next-rollback.yml).
+LEGACY_EARLIER_NIGHTLY_ITEMS = 1
 CMUX_NS = "https://cmux.com/xml-namespaces/cmux"
 
 ITEM = re.compile(r"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
@@ -155,7 +158,9 @@ def legacy(new: str, current: str | None, mode: str, verdict_of) -> tuple[str, d
     ordered = sorted(by_build, key=int, reverse=True)
     nightly = next((build for build in ordered if channels[build] == NIGHTLY), None)
     above = [build for build in ordered if channels[build] == DEV and (nightly is None or int(build) > int(nightly))]
-    kept = [build for build in ordered if build == nightly or build in above[:LEGACY_DEV_ITEMS]]
+    earlier = [build for build in ordered if channels[build] == NIGHTLY and nightly is not None and int(build) < int(nightly)]
+    kept = [build for build in ordered
+            if build == nightly or build in above[:LEGACY_DEV_ITEMS] or build in earlier[:LEGACY_EARLIER_NIGHTLY_ITEMS]]
     first = new.index(fresh[0])
     last = new.rindex(fresh[-1]) + len(fresh[-1])
     items = (set_channel(by_build[build], channels[build]) for build in kept)
