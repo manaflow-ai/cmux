@@ -110,10 +110,33 @@ stdin, never into the image, an argv or a log. One `claude -p` with that scrubbe
 answer. A 529 or overloaded answer is retried after 15, 30 and 60 s and counted in
 `vm.json` `route.retries`, apart from any result.
 
+### Cua Driver Bench v2 (`suite=bench-v2`)
+
+Cua Driver Bench v2 (trycua/cua `libs/cua-driver-bench`, FSL-1.1-MIT) runs from its pinned source
+(`pins.json` `bench_v2.source`) in the guest; it is run, never copied here. The step sets up the route
+as `suite=route` does, then `cu-driver-eval.sh bench=...` in the guest's session fetches the pinned
+Python 3.12 (the image has only 3.9), ffmpeg and ffprobe, unpacks the bench, builds BenchLab and
+BenchSentinel from it, grants Accessibility and screen capture to the Python, the apps and each
+driver, and runs `bench_v2.py`.
+
+`bench_v2.py` imports the bench's runner and registers one Claude Code arm per driver before it hands
+over the command line, so the prompts, model, limits, checkers and row schema are the bench's own:
+
+| Arm | Driver | Skill |
+|---|---|---|
+| `cc-cmux-cua` | the cmux-cua release at cmux's pin, in its helper bundle, its daemon started with cmux's `serve` flags and environment (as the A/B runs it, without the per-launch socket tokens) | cmux's `skills/cmux-cua` |
+| `cc-cua-driver-0380` | the Cua Driver 0.38.0 release's `CuaDriver.app`, `run_script` on, as the bench's public "Cua Driver" setup runs main | the release's skills (`bench_v2.cua_driver_skills`) |
+
+The tasks are Bench v2's seven BenchLab tasks (MB-09 to MB-11, IR-01 to IR-04); CDB-G02 to CDB-G04
+need LibreOffice, GnuCash and Chrome, which the image lacks. Its preflight checks the bench's own
+builds' pins; a check that only fits those builds is waived by name (`waive=REGEX;REGEX`) and kept
+as `warn` with the reason. `bench=preflight` runs only the preflight; `bench=run` runs `reps=` runs
+per task in one `condition=`. Output: `bench-v2/` in the artifact, with the rows (`results.jsonl`),
+`preflight.json`, the bench's own report (`report.md`, `report.json`), `arms.json` (binaries, hashes,
+waivers) and a summary in `summary.md`.
+
 ## Not here yet
 
-- **Cua Driver Bench v2** (trycua/cua `libs/cua-driver-bench`, FSL-1.1-MIT: it is run, never
-  copied here) in a macOS 26 VM at 1920x1080, with the setups cmux-cua, upstream Cua v0.38 and
-  Peekaboo. The VM and the model route (`suite=route`) are here; the harness run is next.
+- **Peekaboo** as a Bench v2 arm.
 - **A macOSWorld subset** with the model fixed and only the driver swapped, a snapshot reset per
   task. Same needs as the bench.

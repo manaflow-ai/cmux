@@ -89,6 +89,10 @@ def summary(results_path: Path, out: Path, previous: Path | None) -> None:
     if run.get("blocked"):
         lines += ["", f"**Blocked:** {run['blocked']}"]
     ab = (data.get("suites") or {}).get("input_ab") or {}
+    bench = results_path.parent / "bench-v2" / "summary.md"  # bench_v2.py's, when the step ran Bench v2
+    if bench.is_file() and not ab.get("rows"):
+        out.write_text("\n".join(lines + ["", bench.read_text().rstrip()]) + "\n")
+        return
     lines += ["", "## Input A/B", ""]
     if not ab.get("rows"):
         lines.append("No trials ran. " + "; ".join(ab.get("errors") or []))

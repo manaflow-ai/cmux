@@ -31,5 +31,35 @@
     "url": "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/2.1.289/darwin-arm64/claude",
     "sha256": "03d66745e3bb69ec727d66023696f3820bc0a00a8a5ba725eb6706d0c67cbe69",
     "why": "the Claude Code Cua Driver Bench v2's registered runs used (its pins.json claude_code_version); the native binary, so the guest needs no Node"
+  },
+  "bench_v2": {
+    "about": "Cua Driver Bench v2 (trycua/cua libs/cua-driver-bench, FSL-1.1-MIT): run from its pinned source in the VM, never copied into this repo. bench_v2.py registers this eval's arms at runtime.",
+    "source": {
+      "commit": "23404c7f51ed6b9f15e5fc953ddc8ae555bae0bb",
+      "url": "https://codeload.github.com/trycua/cua/tar.gz/23404c7f51ed6b9f15e5fc953ddc8ae555bae0bb",
+      "sha256": "af5ffc184cfad533d490cf81d2a1c4b73099a69c7e5850fd3e79fa571f8c5bde",
+      "path": "libs/cua-driver-bench"
+    },
+    "python": {
+      "version": "3.12.16",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-aarch64-apple-darwin-install_only.tar.gz",
+      "sha256": "fbf4afef53c2a6b72bb741bc06d5671a9dfaf87bd84e5aa73ac9b3d0d589f14e",
+      "why": "The bench needs Python 3.10 or later; the image has only the Command Line Tools' 3.9."
+    },
+    "ffmpeg": {
+      "version": "9.0.2",
+      "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip",
+      "sha256": "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924"
+    },
+    "ffprobe": {
+      "version": "9.0.2",
+      "url": "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffprobe.zip",
+      "sha256": "fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6"
+    },
+    "cua_driver_skills": {
+      "version": "0.38.0",
+      "url": "https://github.com/trycua/cua/releases/download/cua-driver-rs-v0.38.0/cua-driver-rs-v0.38.0-skills.tar.gz",
+      "sha256": "0fe3d607e7212d6c58072a2419163342061dcf5cb89ba1243dea593d7e33be0f"
+    }
   }
 }
