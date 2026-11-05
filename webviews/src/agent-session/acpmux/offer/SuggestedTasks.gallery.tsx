@@ -202,8 +202,8 @@ export default componentEntry<Props>({
       },
     },
     "options-model-menu": {
-      note: "Options > Model open over the popover, Sonnet 5.5 hovered in the menus' neutral wash, nothing checked until a pick.",
-      props: { initial: single.map((offer) => ({ ...offer, worktree: true })) },
+      note: "Options > Model open over the popover, Sonnet 5.5 hovered in the menus' neutral wash, Opus 5.5 checked: the model the agent asked for.",
+      props: { initial: single.map((offer) => ({ ...offer, worktree: true, model: "claude-opus-5-5" })) },
       height: 420,
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Options" });

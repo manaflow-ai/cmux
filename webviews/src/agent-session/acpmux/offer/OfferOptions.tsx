@@ -144,6 +144,7 @@ export function OfferOptionRows({
             buttonClassName="acpmux-task-option-select"
             popupClassName="acpmux-task-menu"
             closeOnPick
+            align="end"
           />
         </div>
       )}
@@ -162,6 +163,7 @@ export function OfferOptionRows({
             buttonClassName="acpmux-task-option-select"
             popupClassName="acpmux-task-menu"
             closeOnPick
+            align="end"
           />
         </div>
       )}
@@ -180,6 +182,7 @@ export function OfferOptionRows({
             buttonClassName="acpmux-task-option-select"
             popupClassName="acpmux-task-menu"
             closeOnPick
+            align="end"
           />
         </div>
       )}
