@@ -22,6 +22,7 @@ import { HeaderIcon } from "./HeaderIcon";
 import { menuLetter, type MenuTyping } from "./menuLetters";
 import { HEADER_ACTIONS } from "./headerActions";
 import { headerQuickTools, type HeaderQuickTool } from "./headerQuickTools";
+import { headerRelevance } from "./headerRelevance";
 import { useHeaderFold } from "./headerOverflow";
 import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
 import { HEADER_SYMBOLS } from "./headerSymbols";
@@ -170,6 +171,7 @@ export function ChatHeaderTools({
   onRemoveWorktree,
   sessionInfo,
   inbox,
+  inboxRelevant = true,
   nativeRowTools,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
@@ -224,6 +226,8 @@ export function ChatHeaderTools({
   /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the panel toggle, so the toggle stays
   /// the first of the top-right icons.
   inbox?: ReactNode;
+  /// The inbox has open asks: with a contextual header style (headerRelevance.ts) it shows only then.
+  inboxRelevant?: boolean;
   /// Only the migrated icons; the host offers this opt-in while its native tab row is visible.
   nativeRowTools?: NativeRowToolsHost;
 }) {
@@ -232,7 +236,7 @@ export function ChatHeaderTools({
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
-  const { lit, pullRequest } = useHeaderState();
+  const { lit, pullRequest, headerIcons } = useHeaderState();
   const actions = useQuickActions();
   const worktree = useWorktree(folder, readStatus, statusKey);
   // The right-clicked button, read as the menu opens.
@@ -359,12 +363,17 @@ export function ChatHeaderTools({
     onSideTabs,
     t,
   });
+  // The contextual styles draw only the icons relevant to the chat now (headerRelevance.ts).
+  const relevance = headerRelevance({ style: headerIcons, tools, lit, previewUrl });
   const customize = onCustomize
     ? new Map(tools.map(({ id }) => [id, nativeCustomizeMenu(customizeItems(actions, id, onCustomize, t, true))]))
     : undefined;
+  // The native row's "..." is built now, so its dormant icons go in before it is; the web row resets
+  // this below once it knows what folds.
+  live.current.overflow = relevance.dormant;
   const chatRows = rows();
   const chatMenu = nativeChatMenu(chatRows);
-  const native = useNativeRowTools(nativeRowTools, tools, {
+  const native = useNativeRowTools(nativeRowTools, relevance.shown, {
     customize,
     extra: chatMenu
       ? [
@@ -382,6 +391,10 @@ export function ChatHeaderTools({
         ]
       : [],
   });
+  // Peek draws the rest hidden at the row's leading end, shown on hover; the native row has no hover
+  // layer of its own, so there they wait in "..." as in `contextual`.
+  const peek = headerIcons === "contextualPeek" && !native;
+  const shownTools = relevance.shown;
   const shortcuts: Partial<Record<QuickActionId, string | undefined>> = {
     terminal: terminalKey,
     splitDown: splitDownKey,
@@ -391,26 +404,47 @@ export function ChatHeaderTools({
   // A pane too narrow for every button folds the trailing ones into "..." instead of cutting them off.
   const toolsRef = useRef<HTMLDivElement>(null);
   const webButtons = !native && tabTools && actions.length > 0;
-  const fold = useHeaderFold(toolsRef, webButtons ? tools.length : 0);
-  live.current.overflow = webButtons && fold > 0 ? tools.slice(tools.length - fold) : [];
-  const buttons =
-    webButtons &&
-    tools.slice(0, tools.length - fold).map((tool) => (
-      <button
-        key={tool.id}
-        data-quick-action={tool.id}
-        type="button"
-        className="acpmux-header-tool"
-        aria-label={tool.label}
-        aria-pressed={tool.pressed}
-        {...tooltipProps(tool.title ?? tool.label, tool.title ? undefined : shortcuts[tool.id])}
-        onClick={tool.run}
-      >
-        <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
-      </button>
-    ));
+  // Peek's dormant icons take room too: a narrow pane folds them first, then the trailing shown ones.
+  const candidates = peek ? [...shownTools, ...relevance.dormant] : shownTools;
+  const fold = useHeaderFold(toolsRef, webButtons ? candidates.length : 0);
+  const drawn = new Set(candidates.slice(0, candidates.length - fold));
+  const folded = webButtons ? candidates.filter((tool) => !drawn.has(tool)) : [];
+  // Dormant icons wait at the top of "..." unless Peek draws them.
+  live.current.overflow = peek ? folded : [...relevance.dormant, ...folded];
+  const button = (tool: HeaderQuickTool) => (
+    <button
+      key={tool.id}
+      data-quick-action={tool.id}
+      type="button"
+      className="acpmux-header-tool"
+      aria-label={tool.label}
+      aria-pressed={tool.pressed}
+      {...tooltipProps(tool.title ?? tool.label, tool.title ? undefined : shortcuts[tool.id])}
+      onClick={tool.run}
+    >
+      <HeaderIcon name={tool.icon} size={HEADER_GLYPH} />
+    </button>
+  );
+  const buttons = webButtons && shownTools.filter((tool) => drawn.has(tool)).map(button);
+  // The inbox with no open asks is dormant too in the contextual styles.
+  const inboxDormant = headerIcons !== "standard" && !inboxRelevant;
+  const dormantTools = peek && webButtons ? relevance.dormant.filter((tool) => drawn.has(tool)).map(button) : [];
+  const dormant =
+    peek && (dormantTools.length > 0 || (inboxDormant && inbox)) ? (
+      // At the leading end, so the icons at rest never move when these fade in.
+      <div className="acpmux-header-tool-group acpmux-header-dormant" data-header-dormant="">
+        {inboxDormant && inbox}
+        {dormantTools}
+      </div>
+    ) : null;
   return (
-    <div ref={toolsRef} className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
+    <div
+      ref={toolsRef}
+      className="acpmux-header-tools"
+      data-header-icons={headerIcons === "standard" ? undefined : headerIcons}
+      onPointerEnter={onPointerEnter}
+    >
+      {dormant}
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
@@ -418,8 +452,8 @@ export function ChatHeaderTools({
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
       {!native && sessionInfo}
       {typeof summary === "function" ? summary(native) : !native && summary}
-      {inbox}
-      {buttons ? (
+      {!inboxDormant && inbox}
+      {buttons && (buttons.length > 0 || headerIcons === "standard") ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (
             // Only the buttons: the summary's and the menu's popups are portaled, and a right-click

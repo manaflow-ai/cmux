@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { readHeaderIconsStyle, type HeaderIconsStyle } from "./headerRelevance";
 
 /// What the chat header shows from the chat's tab (CmuxNextAgentPane AgentPaneHeaderState): the pin the
 /// "..." menu's labels read, whether the panes beside the chat show ([+] New tab reads Hide tabs), and
@@ -54,6 +55,9 @@ export interface HeaderState {
   readonly floatingChat: boolean;
   /// The header offers Session Info (Debug Settings `agent.sessionInfo`, session-info/SessionInfo.tsx).
   readonly sessionInfo: boolean;
+  /// Which top-right icons show (Debug Settings `agentChat.headerIcons.contextual`, headerRelevance.ts):
+  /// `standard` (today's), `contextual` or `contextualPeek`.
+  readonly headerIcons: HeaderIconsStyle;
   /// The chip beside the tools; the App sends `null` when the chat's folder has none.
   readonly pullRequest?: HeaderPullRequest;
   /// The Cloud moves the chat's right-click menu offers now (`cloudMove`, `cloudBringBack`): the
@@ -78,6 +82,7 @@ let current: HeaderState = {
   lit: [],
   floatingChat: false,
   sessionInfo: false,
+  headerIcons: "standard",
   moves: [],
   moveTargets: [],
   version: 0,
@@ -92,6 +97,7 @@ export function setHeaderState(value: unknown): void {
     lit?: unknown;
     floatingChat?: unknown;
     inspector?: unknown;
+    headerIcons?: unknown;
     pullRequest?: unknown;
     moves?: unknown;
     moveTargets?: unknown;
@@ -106,6 +112,7 @@ export function setHeaderState(value: unknown): void {
     floatingChat: typeof raw.floatingChat === "boolean" ? raw.floatingChat : current.floatingChat,
     // `inspector` is the wire name the App sends (AgentPaneHeaderState.swift); kept so either side of the rename agrees.
     sessionInfo: typeof raw.inspector === "boolean" ? raw.inspector : current.sessionInfo,
+    headerIcons: readHeaderIconsStyle(raw.headerIcons) ?? current.headerIcons,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
     moves: Array.isArray(raw.moves) ? raw.moves.filter((id): id is string => typeof id === "string") : current.moves,
     moveTargets: Array.isArray(raw.moveTargets)
