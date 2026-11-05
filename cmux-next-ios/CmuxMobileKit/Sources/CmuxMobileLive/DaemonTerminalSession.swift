@@ -615,22 +615,25 @@ public final class DaemonTerminalSession: TerminalSession {
             // allowance. A lane that refuses the allowance (a Mac app older
             // than its daemon) gets the same attach without it.
             func attachSurface(_ size: (columns: Int, rows: Int)?) async throws -> Data {
-                func params(historyRows: Int?) -> [String: Any] {
-                    var params: [String: Any] = ["surface": surface]
-                    if let size {
-                        params["cols"] = size.columns
-                        params["rows"] = size.rows
+                // Each request gets its own literal: a dictionary sent to the
+                // client actor is never touched again here (Swift 6 regions).
+                func send(historyRows: Int?) async throws -> Data {
+                    switch (size, historyRows) {
+                    case let (size?, rows?):
+                        return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows, "replay_history_rows": rows])
+                    case let (size?, nil):
+                        return try await client.request("attach-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows])
+                    case let (nil, rows?):
+                        return try await client.request("attach-surface", params: ["surface": surface, "replay_history_rows": rows])
+                    case (nil, nil):
+                        return try await client.request("attach-surface", params: ["surface": surface])
                     }
-                    if let historyRows { params["replay_history_rows"] = historyRows }
-                    return params
                 }
-                guard tailReplay, let rows = historyAllowance else {
-                    return try await client.request("attach-surface", params: params(historyRows: nil))
-                }
-                let reply = try await client.request("attach-surface", params: params(historyRows: rows))
+                guard tailReplay, let rows = historyAllowance else { return try await send(historyRows: nil) }
+                let reply = try await send(historyRows: rows)
                 guard let error = Self.error(in: reply), error.contains("replay_history_rows") else { return reply }
                 tailReplay = false
-                return try await client.request("attach-surface", params: params(historyRows: nil))
+                return try await send(historyRows: nil)
             }
             sizing.clear()
             lastActivityNote = nil
