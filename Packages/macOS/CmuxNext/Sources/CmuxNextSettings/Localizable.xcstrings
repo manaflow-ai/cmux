@@ -244,6 +244,666 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "放在 ~/.config/cmux/skills 中的技能（每個一個資料夾，內含 SKILL.md）會送到每個新的代理聊天。"}}
       }
     },
+    "settings.sidebar.groupHeader.background": {
+      "comment": "Settings row title: how a sidebar group's background draws (glass or solid).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group Background"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خلفية المجموعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozadina grupe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppebaggrund"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppenhintergrund"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fondo de grupo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arrière-plan des groupes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sfondo dei gruppi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "グループの背景"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទៃខាងក្រោយក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "그룹 배경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gruppebakgrunn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tło grupy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fundo do grupo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фон группы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นหลังกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grup Arka Planı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тло групи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nền nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群组背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群組背景"
+          }
+        }
+      }
+    },
+    "settings.sidebar.groupHeader.background.help": {
+      "comment": "Settings help: the group background choices.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses glass when the sidebar is see-through. A group always has a visible background, also when it has no color."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طريقة رسم خلفية المجموعة في الشريط الجانبي. يُظهر الزجاج خلفية النافذة من خلاله، والصلب معتم. يستخدم الوضع التلقائي الزجاج عندما يكون الشريط الجانبي شفافًا. للمجموعة دائمًا خلفية مرئية، حتى عندما لا يكون لها لون."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kako se pozadina grupe crta u bočnoj traci. Staklo propušta pozadinu prozora; Puna je neprozirna. Automatski koristi staklo kada je bočna traka providna. Grupa uvijek ima vidljivu pozadinu, i kada nema boju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvordan en gruppes baggrund tegnes i sidepanelet. Glas lader vinduets baggrund skinne igennem; Ensfarvet er uigennemsigtig. Automatisk bruger glas, når sidepanelet er gennemsigtigt. En gruppe har altid en synlig baggrund, også når den ikke har nogen farve."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie der Hintergrund einer Gruppe in der Seitenleiste gezeichnet wird. Glas lässt den Fensterhintergrund durchscheinen; Deckend ist undurchsichtig. Automatisch verwendet Glas, wenn die Seitenleiste durchscheinend ist. Eine Gruppe hat immer einen sichtbaren Hintergrund, auch ohne Farbe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cómo se dibuja el fondo de un grupo en la barra lateral. Vidrio deja ver el fondo de la ventana; Sólido es opaco. Automático usa vidrio cuando la barra lateral es transparente. Un grupo siempre tiene un fondo visible, también cuando no tiene color."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Façon dont l’arrière-plan d’un groupe s’affiche dans la barre latérale. Verre laisse transparaître l’arrière-plan de la fenêtre ; Opaque est plein. Automatique utilise le verre quand la barre latérale est transparente. Un groupe a toujours un arrière-plan visible, même sans couleur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Come viene disegnato lo sfondo di un gruppo nella barra laterale. Vetro lascia trasparire lo sfondo della finestra; Pieno è opaco. Automatico usa il vetro quando la barra laterale è trasparente. Un gruppo ha sempre uno sfondo visibile, anche senza colore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーでのグループの背景の描き方です。ガラスはウインドウの背景を透かし、ソリッドは不透明です。自動はサイドバーが透けているときにガラスを使います。色のないグループにも、常に見える背景があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀបដែលផ្ទៃខាងក្រោយក្រុមត្រូវបានគូរក្នុងរបារចំហៀង។ កញ្ចក់អនុញ្ញាតឱ្យផ្ទៃខាងក្រោយបង្អួចមើលឃើញ ហើយរឹងគឺស្រអាប់។ ស្វ័យប្រវត្តិប្រើកញ្ចក់ពេលរបារចំហៀងថ្លា។ ក្រុមតែងតែមានផ្ទៃខាងក្រោយដែលមើលឃើញ សូម្បីតែគ្មានពណ៌។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바에서 그룹 배경을 그리는 방식입니다. 유리는 윈도우 배경이 비쳐 보이고, 단색은 불투명합니다. 자동은 사이드바가 투명할 때 유리를 사용합니다. 그룹에는 색상이 없어도 항상 보이는 배경이 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvordan bakgrunnen til en gruppe tegnes i sidepanelet. Glass lar vinduets bakgrunn skinne gjennom; Heldekkende er ugjennomsiktig. Automatisk bruker glass når sidepanelet er gjennomsiktig. En gruppe har alltid en synlig bakgrunn, også uten farge."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sposób rysowania tła grupy na pasku bocznym. Szkło przepuszcza tło okna; Pełne jest nieprzezroczyste. Automatycznie używa szkła, gdy pasek boczny jest przezroczysty. Grupa zawsze ma widoczne tło, także bez koloru."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Como o fundo de um grupo é desenhado na barra lateral. Vidro deixa o fundo da janela aparecer; Sólido é opaco. Automático usa vidro quando a barra lateral é transparente. Um grupo sempre tem um fundo visível, mesmo sem cor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Как рисуется фон группы на боковой панели. Стекло пропускает фон окна; Сплошной непрозрачен. Автоматически использует стекло, когда боковая панель прозрачна. У группы всегда есть видимый фон, даже без цвета."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "วิธีวาดพื้นหลังของกลุ่มในแถบด้านข้าง กระจกให้พื้นหลังของหน้าต่างมองทะลุได้ ทึบจะไม่โปร่งใส อัตโนมัติใช้กระจกเมื่อแถบด้านข้างโปร่งแสง กลุ่มมีพื้นหลังที่มองเห็นได้เสมอ แม้ไม่มีสี"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir grubun arka planının kenar çubuğunda nasıl çizildiği. Cam, pencerenin arka planını gösterir; Düz opaktır. Otomatik, kenar çubuğu saydamken cam kullanır. Bir grubun rengi olmasa da her zaman görünür bir arka planı vardır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Як малюється тло групи на бічній панелі. Скло пропускає тло вікна; Суцільне непрозоре. Автоматично використовує скло, коли бічна панель прозора. Група завжди має видиме тло, навіть без кольору."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cách vẽ nền của một nhóm trong thanh bên. Kính cho nền cửa sổ hiện qua; Đặc thì không trong suốt. Tự động dùng kính khi thanh bên trong suốt. Một nhóm luôn có nền nhìn thấy được, kể cả khi không có màu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群组背景在边栏中的绘制方式。玻璃会透出窗口背景；实色为不透明。自动在边栏透明时使用玻璃。群组始终有可见的背景，即使没有颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "群組背景在側邊欄中的繪製方式。玻璃會透出視窗背景；實色為不透明。自動會在側邊欄透明時使用玻璃。群組始終有可見的背景，即使沒有顏色。"
+          }
+        }
+      }
+    },
+    "settings.choice.groupBackgroundAuto": {
+      "comment": "Group background choice: glass where the sidebar is see-through.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تلقائي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automático"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វ័យប្រវត្តិ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatycznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automático"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматически"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomatik"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматично"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "settings.choice.groupBackgroundGlass": {
+      "comment": "Group background choice: translucent glass.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glass"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "زجاج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Staklo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glas"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glas"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vidrio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vetro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ガラス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កញ្ចក់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "유리"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szkło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vidro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стекло"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กระจก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скло"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玻璃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "玻璃"
+          }
+        }
+      }
+    },
+    "settings.choice.groupBackgroundSolid": {
+      "comment": "Group background choice: opaque fill.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solid"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صلب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Puna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ensfarvet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deckend"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sólido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opaque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pieno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ソリッド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រឹង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "단색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Heldekkende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pełne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sólido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сплошной"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทึบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Суцільне"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "实色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "實色"
+          }
+        }
+      }
+    },
     "settings.cloud.useMyCodexLogin": {
       "comment": "Settings toggle: use the Codex sign-in on this Mac for the person's own Cloud machines.",
       "extractionState": "manual",

@@ -59,6 +59,7 @@ final class SidebarGroupLineViews {
                 Self.place(view, in: list, decorations)
             }
             view.color = line.color
+            view.background = line.background
             view.strength = SidebarGroupLine.opacity(level: line.level)
             moves.append((view, line.frame))
         }
@@ -110,6 +111,7 @@ final class SidebarGroupLineViews {
                 view.alphaValue = 1
             }
             view.color = line.color
+            view.background = line.background
             view.strength = SidebarGroupLine.opacity(level: line.level)
         }
     }
@@ -155,6 +157,10 @@ final class GroupLineView: NSView {
     let railShape = CAShapeLayer()
     var color: GroupTint = .palette(.grey) {
         didSet { if color != oldValue { needsDisplay = true } }
+    }
+    /// The header bar's `sidebar.groupHeader.background` look: glass or the solid band's rest color.
+    var background: SidebarGroupBackgroundStyle = .auto {
+        didSet { if background != oldValue { needsDisplay = true } }
     }
     /// The share of `color` the rail draws (`SidebarGroupLine.opacity(level:)`).
     var strength: CGFloat = 1 {
@@ -211,9 +217,11 @@ final class GroupLineView: NSView {
         performWithTheme {
             // Under the solid band, the band's rest color (Leo 2026-10-19: bar and line are one color);
             // the quieter looks keep the dot's color.
-            // Under a glass band, the pane's vivid color (`GroupTint.glassRGB`), so rail and rim read as one group.
+            // Under a glass band, the pane's vivid color (`GroupTint.glassRGB`), so rail and rim read as one group;
+            // under the solid band (`sidebar.groupHeader.background` solid, or no glass here), the band's rest color.
+            let glassy = look.glass != .solid && !color.isNone && background.drawsGlass(seeThrough: themeTokens.backgroundOpacity < 1)
             let line = look.style != .band ? color.lineColor(themed: look.themed)
-                : look.glass == .solid || color.isNone ? color.lineFill(themed: look.themed) : color.glassRGB(themed: look.themed).nsColor
+                : glassy ? color.glassRGB(themed: look.themed).nsColor : color.lineFill(themed: look.themed)
             layer?.backgroundColor = NSColor.clear.cgColor
             railShape.fillColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
         }

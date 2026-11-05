@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxTheme
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
 import Testing
@@ -35,7 +36,7 @@ struct GroupNoChosenColorTests {
             let group = try #require(Self.sidebarGroup(id, color: nil))
             #expect(group.tint == .none, "\(id): no stored color is no color, never a picked one")
         }
-        // An untinted header: no dot, band or members' line (`GroupTint.none` draws in the sidebar's own colors).
+        // An untinted group has no color of its own: no dot or swatch (its header keeps a neutral background).
         #expect(GroupTint.none.headerFill.alphaComponent == 0)
         #expect(GroupTint.none.chipFill.alphaComponent == 0)
     }
@@ -65,15 +66,11 @@ struct GroupNoChosenColorTests {
         #expect(Self.alpha(band.lineLayer.backgroundColor) > 0, "a picked color keeps its underline")
     }
     /// Leo 2026-11-02, on a group nobody colored whose header drew a solid bar in the theme's own color: "THE
-    /// GROUP COLOUR SOMEHOW BEING THE THEME COLOUR???" / "IT'S USELESS". No color draws no bar, chip or wash
-    /// (an opaque sidebarBackground bar was the theme color over the translucent sidebar), and the editor's
+    /// GROUP COLOUR SOMEHOW BEING THE THEME COLOUR???" / "IT'S USELESS". Lawrence 2026-11-05: "invariant: groups
+    /// must always have a visible bg color". No color draws no color of its own: no theme-colored bar and no dot,
+    /// but a neutral background (a step of the theme's text into the sidebar) that a person can see. The editor's
     /// "No color" dot clears the color instead of storing a grey band.
-    @Test func noColorHeaderDrawsNoBarAndNoColorDotClears() throws {
-        #expect(GroupTint.none.headerChip.fill.alpha == 0, "no bar")
-        #expect(GroupTint.none.headerChip(themed: true).fill.alpha == 0, "no themed bar")
-        #expect(GroupTint.none.headerChip(themed: false).fill.alpha == 0)
-        #expect(GroupTint.none.headerWash(themed: true).alpha == 0, "no wash")
-        #expect(GroupTint.none.headerWash(themed: false).alpha == 0)
+    @Test func noColorHeaderDrawsAVisibleNeutralBarAndNoColorDotClears() throws {
         #expect(GroupTint.palette(.blue).headerChip.fill.alpha == 1, "a picked color keeps its bar")
 
         let header = GroupHeaderRowView(key: .group(GroupID("grp_none")))
@@ -81,9 +78,20 @@ struct GroupNoChosenColorTests {
         let group = CmuxNextSidebar.SidebarGroup(id: GroupID("grp_none"), name: "cosmic-gray", custom: "none", workspaces: [])
         let row = SidebarRow(key: .group(group.id), y: 0, height: 24, section: .pinned, group: group.id, siblingIndex: 0,
                              parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: 0, groupColor: nil)
-        header.configure(group, row: row, animated: false)
+        header.configure(group, row: row, details: GroupHeaderDetails(background: .solid), animated: false)
         header.updateLayer()
-        #expect(Self.alpha(header.pill.backgroundColor) == 0, "an uncolored header paints no bar at rest")
+        #expect(Self.alpha(header.pill.backgroundColor) == 1, "an uncolored header paints its solid neutral bar at rest")
+        #expect(header.dot.isHidden, "an uncolored header shows no color dot")
+        let tokens = ThemeScope.app.tokens
+        let want = GroupBackground(tint: .none, strength: .band, glass: false, themed: false, tokens: tokens)
+        let drawn = try #require(header.pill.backgroundColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
+        let rgb = ThemeRGB(red: drawn.redComponent, green: drawn.greenComponent, blue: drawn.blueComponent)
+        #expect(abs(rgb.red - want.shown.red) < 0.006 && abs(rgb.green - want.shown.green) < 0.006
+            && abs(rgb.blue - want.shown.blue) < 0.006, "the bar is \(rgb), want the neutral \(want.shown)")
+        #expect(rgb.contrast(with: tokens.sidebarBackground.withAlpha(1)) >= GroupBackground.minimumVisibleContrast - 0.01,
+                "the neutral bar is not visible against the sidebar")
+        #expect(!(abs(rgb.red - tokens.sidebarBackground.red) < 0.006 && abs(rgb.green - tokens.sidebarBackground.green) < 0.006
+            && abs(rgb.blue - tokens.sidebarBackground.blue) < 0.006), "the bar is the theme's own background color")
 
         let editor = SidebarGroupEditorPanel()
         var picked: GroupTint?
