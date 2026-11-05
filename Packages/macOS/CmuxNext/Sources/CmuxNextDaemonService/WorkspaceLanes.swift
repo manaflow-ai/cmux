@@ -114,6 +114,11 @@ public final class WorkspaceLanes {
         if creates[lane]?.isEmpty == true { creates[lane] = nil }
     }
 
+    /// Whether a create of workspace `key` is outstanding in any window (queued, in flight, or made and not yet listed).
+    public func isOutstanding(_ key: String) -> Bool {
+        creates.values.contains { $0.contains { $0.key == key } }
+    }
+
     /// How many creates `window` has outstanding (tests and diagnostics).
     public func outstandingCreates(in window: String) -> Int {
         creates[window]?.count ?? 0

@@ -226,7 +226,7 @@ extension AppActions {
         let window = services.windows.active?.state.id
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
-           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }, taken: PendingWorkspaceRows.shared.remove) { return }
+           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }, taken: { ClosingWorkspaces.shared.hide(untilGone: $0); PendingWorkspaceRows.shared.remove($0) }) { return }
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key, services.selectionCloses.canStart(workspace.id)
         else { return } // a second press during the close sends nothing
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
@@ -281,7 +281,7 @@ extension AppActions {
                         PersonalGroupLife(machines: services.machines).deleteIfEmpty(personalGroup, failed: { _ in controller?.sidebar.resync() })
                     }
                     guard hidden else { return failure }
-                    ClosingWorkspaces.shared.end(id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure), in: controller?.window)
+                    ClosingWorkspaces.shared.end(id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure), in: controller?.window, held: services.workspace(id: id) != nil)
                     return failure
                 }
                 return !offline ? lanes.run(in: window, close) : hidden ? Task { await close() } : Task { services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)); return nil }

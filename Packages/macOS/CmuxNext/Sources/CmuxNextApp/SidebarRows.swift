@@ -108,7 +108,7 @@ final class SidebarRows {
         #if DEBUG
         if let fixture { return model.setSections(fixture) }
         #endif
-        var sections = PendingWorkspaceRows.adding(self.creating.rows, to: edits.applying(to: self.live), home: self.creating.home,
+        var sections = PendingWorkspaceRows.adding(self.creating.rows.filter { !ClosingWorkspaces.shared.ids.contains($0.id) }, to: edits.applying(to: self.live), home: self.creating.home,
                                                    catchingUp: layoutCatchingUp)
         edits.applyFolds(to: &sections)
         // Manual order only (Leo 2026-10-20): a row state shows as a badge; attention order is the Priority view's.

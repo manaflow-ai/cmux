@@ -155,7 +155,7 @@ final class SidebarBridge {
         sameTurn.observe(listsRows: true, {
             // Rows come from the feed: this pass reads no row's status; a row reads its tab selection itself.
             let pages = Self.newTabPages(agentTabs, in: machines.local.store), muted = notifications.preferences.mutedWorkspaces
-            feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable])
+            feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable]); ClosingWorkspaces.shared.releaseGone { machines.workspace(id: $0) != nil || WorkspaceLanes.shared.isOutstanding($0) } // a closed row lists again once gone
             let (listed, launching, failed) = Self.liveSections(
                 machines, doc: services.sidebarDoc, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                 newTabPages: pages, muted: muted,

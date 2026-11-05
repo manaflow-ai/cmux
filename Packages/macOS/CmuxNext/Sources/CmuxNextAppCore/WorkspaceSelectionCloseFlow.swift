@@ -172,7 +172,7 @@ public struct WorkspaceSelectionCloseFlow {
             // Settled: a refused row can be closed again at once.
             running.remove(member.0.id)
             ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure),
-                                         in: member.0.id == firstRefused ? toastWindow : nil)
+                                         in: member.0.id == firstRefused ? toastWindow : nil, held: listed(member.0.id))
         }
         settled()
         return results.filter { $0.1 == nil }.map { $0.0.0.name }

@@ -29,18 +29,24 @@ package final class WorkspacePlacementLedger {
     package func forget(_ id: String) {
         placedByDaemon.remove(id)
         anchors[id] = nil
+        seen.remove(id)
         groupAnchors[id] = nil
     }
 
-    /// Reads the first-frame anchor, pruning settled or vanished rows through injected live lookups.
+    /// Anchored workspaces some store has listed: one gone after that was closed before its document item came.
+    private var seen: Set<String> = []
+
+    /// Reads the first-frame anchor. An anchor lasts until its workspace's document item exists (the document places
+    /// it), or its workspace, once listed, is gone; never by count: a count prune dropped the anchor of a create not
+    /// sent yet (no workspace, not `placedByDaemon`), so its row listed at the end for a hop, then moved.
     package func unplacedAnchor(for id: String, hasDocumentItem: (String) -> Bool,
                                 workspaceExists: (String) -> Bool) -> SidebarDocSections.UnplacedAnchor? {
         guard !anchors.isEmpty else { return nil }
-        if anchors.count > 16 {
-            anchors = anchors.filter { key, _ in
-                !hasDocumentItem(key) && (workspaceExists(key) || placedByDaemon.contains(key))
-            }
+        var ended: [String] = []
+        for key in anchors.keys {
+            if hasDocumentItem(key) { ended.append(key) } else if workspaceExists(key) { seen.insert(key) } else if seen.contains(key) { ended.append(key) }
         }
+        for key in ended { anchors[key] = nil; seen.remove(key) }
         return anchors[id]
     }
 }

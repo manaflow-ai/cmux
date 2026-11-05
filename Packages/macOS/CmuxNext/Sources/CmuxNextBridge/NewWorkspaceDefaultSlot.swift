@@ -45,7 +45,9 @@ package struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// left out on purpose (a filter, another space, a close) and the slot
     /// falls back as documented.
     package func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection], home: String? = nil, catchingUp: Bool) -> Bool {
-        guard catchingUp, (placement == .beforeCurrent || placement == .afterCurrent), let current, let currentMachine,
+        // Every placement: `top` and `bottom` resolve inside the current workspace's group too, so a slot read
+        // before its row lists drew the row at the section's top or end, then moved it into the group.
+        guard catchingUp, let current, let currentMachine,
               current != home,
               case let .machine(machine) = section, machine.rawValue == currentMachine,
               !sections.flatMap(\.workspaces).contains(where: { $0.id.rawValue == current }) else { return false }

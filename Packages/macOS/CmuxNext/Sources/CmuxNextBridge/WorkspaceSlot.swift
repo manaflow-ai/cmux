@@ -13,8 +13,9 @@ public enum WorkspaceSlot: Hashable, Sendable {
     /// First in the container of `anchor` (its group, else the loose rows);
     /// without an anchor, first among the section's loose rows.
     case top(anchor: String?)
-    /// Last in the container of `anchor`; without an anchor, after the
-    /// section's last loose row (loose rows always list before groups).
+    /// Last in the container of `anchor`; without an anchor (or a loose one), last in the section, after a
+    /// trailing group too: where the daemon appends a new workspace and where the sidebar document lists one it
+    /// has not placed yet. After the last loose row drew a new row above trailing groups, then moved it below them.
     case bottom(anchor: String?)
     /// Right before `anchor`, in its container.
     case above(String)
@@ -142,12 +143,9 @@ public enum WorkspaceSlot: Hashable, Sendable {
         return false
     }
 
-    /// First slot, or the slot after the last loose row.
+    /// First slot, or the last slot of the section (after a trailing group).
     private static func loose(_ top: Bool, nodes: [SidebarNode], section: SectionID) -> DropPosition {
-        guard !top, let last = nodes.lastIndex(where: { $0.workspaceID != nil }) else {
-            return DropPosition(section: section, index: 0)
-        }
-        return DropPosition(section: section, index: last + 1)
+        DropPosition(section: section, index: top ? 0 : nodes.count)
     }
 
     private static func group(containing id: String, in nodes: [SidebarNode]) -> SidebarGroup? {
