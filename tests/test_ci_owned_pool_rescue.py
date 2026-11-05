@@ -3473,6 +3473,23 @@ class Nightly(unittest.TestCase):
         self.assertIn("cancel", api.calls)
         self.assertNotIn("decide", result)
 
+    def test_a_nightly_whose_decide_waits_for_the_nightly_mini_is_never_cancelled(self):
+        # Run 41970392032 (nightly-next push, 2026-11-05): decide queued on glaeda-nightly-mini while the one
+        # nightly mini signed, the rescue cancelled the run at 05:20:14 and re-ran it, and again at 05:57:18.
+        # Each cancel put the run at the back of the mini's queue and let a newer push take its group, so no
+        # build reached signing. A nightly runs on that one mini and nobody cancels it (Lawrence, 2026-11-04).
+        for branch in ("nightly-next", "main"):
+            with self.subTest(branch=branch):
+                clock = Clock()
+                api = NightlyAPI(clock, lambda _seconds: [job("decide", labels=["glaeda-nightly-mini"])])
+                target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH,
+                                       side=True, nightly=True, push_branch=branch, event="push")
+                result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+                self.assertNotIn("cancel", api.calls)
+                self.assertNotIn("force-cancel", api.calls)
+                self.assertFalse([call for call in api.calls if str(call).startswith("rerun")], api.calls)
+                self.assertIn("never cancelled", result)
+
     def test_a_completed_decide_without_a_start_record_does_not_block_next_rescue(self):
         decide = job("decide", status="completed") | {"conclusion": "success"}
         queued = job("build-nightly-app", labels=[TRUSTED], created=30)
