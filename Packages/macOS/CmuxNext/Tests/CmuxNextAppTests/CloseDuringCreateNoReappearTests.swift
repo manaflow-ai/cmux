@@ -41,7 +41,7 @@ struct CloseDuringCreateNoReappearTests {
             work += services.registry.capturingWork { _ = services.registry.perform("closeWorkspace") }
 
             let seen = Seen()
-            func sample(_ moment: String) {
+            @MainActor func sample(_ moment: String) {
                 if sidebar.allWorkspaces.contains(where: { $0.id.rawValue == key }) { seen.moments.append(moment) }
             }
             sample("at the press")
