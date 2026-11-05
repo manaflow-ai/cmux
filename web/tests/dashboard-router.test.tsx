@@ -126,6 +126,12 @@ describe("dashboard router", () => {
     expect(router.state.matches.some((match) => match._notFound)).toBe(false);
   });
 
+  test("the deleted Cloud page redirects to the dashboard home, so old return URLs still land", async () => {
+    const { router } = await loadRouter("/dashboard/cloud?welcome=max");
+    expect(router.state.location.pathname).toBe("/dashboard");
+    expect(leafRouteId(router)).toBe("/shell/dashboard");
+  });
+
   test("the locale prefix is the basepath, so route paths stay public", async () => {
     const { router } = await loadRouter("/ja/dashboard/settings", "ja");
     expect(router.options.basepath).toBe("/ja");
