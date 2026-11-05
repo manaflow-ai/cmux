@@ -167,7 +167,7 @@ final class AppServices {
         #endif
         guard self.cloud.auth.isSignedIn else { return nil }
         return MachineJoinService.app(self)
-    })
+    }).following(signIn: { [weak self] in self?.cloud.auth.isSignedIn ?? false })
     /// This Mac's one-line join consent (Settings > Devices' switches, the one-time sheet), behind Labs
     /// `labs.machineJoin`, the one surface that switch still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)

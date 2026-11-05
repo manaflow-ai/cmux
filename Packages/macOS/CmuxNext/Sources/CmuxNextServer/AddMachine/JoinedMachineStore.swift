@@ -58,6 +58,25 @@ public final class JoinedMachineStore {
         if watchers.isEmpty { ageTimer.cancel() }
     }
 
+    /// Follows `signedIn` for the store's life: each change reads the list once, so signing out (no
+    /// service) empties the rows and signing in fills them. Event-driven (Observation), no timer.
+    public func followSignIn(_ signedIn: @escaping @MainActor () -> Bool) {
+        withObservationTracking { _ = signedIn() } onChange: { [weak self] in
+            // task-owner: one read per sign-in change; the store owns the follow for its life.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                followSignIn(signedIn)
+                await refresh()
+            }
+        }
+    }
+
+    /// ``followSignIn(_:)``, returning the store (for a lazy property's initializer).
+    public func following(signIn signedIn: @escaping @MainActor () -> Bool) -> JoinedMachineStore {
+        followSignIn(signedIn)
+        return self
+    }
+
     /// Whether a re-check deadline is pending (tests).
     public var isAging: Bool { ageTimer.isScheduled }
 
