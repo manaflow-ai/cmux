@@ -80,6 +80,8 @@ nonisolated struct LivePatchRecord: Codable, Sendable {
 /// `status.json`: what this process has applied, newest first.
 nonisolated struct LiveStatus: Codable, Sendable {
     var pid: Int32
+    /// The process's executable, so a reader can tell a reused pid from this app.
+    var executable: String?
     var bundleID: String?
     /// Outside Debug and bench, only patches this app's team signed load.
     var teamSignedOnly: Bool
@@ -200,7 +202,7 @@ actor LiveEngine {
 
     private func writeStatus() {
         let status = LiveStatus(
-            pid: getpid(), bundleID: Bundle.main.bundleIdentifier, teamSignedOnly: Self.teamSignedOnly,
+            pid: getpid(), executable: Bundle.main.executablePath, bundleID: Bundle.main.bundleIdentifier, teamSignedOnly: Self.teamSignedOnly,
             folder: folder.url.path, generation: generation, patches: applied.reversed().map(\.record),
             lastError: lastError, updatedAt: Date().timeIntervalSince1970)
         folder.writeStatus(status)

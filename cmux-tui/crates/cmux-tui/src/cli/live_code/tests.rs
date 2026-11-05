@@ -110,6 +110,15 @@ fn status_says_whether_the_app_still_runs() {
     let text = status_text(&read);
     assert!(text.contains("running") && text.contains("team-signed patches only"), "{text}");
     assert!(text.contains("patch-2.dylib  4 functions  abc+dirty  Packages/X.swift"), "{text}");
+    // A pid now running another executable is not the app that wrote it.
+    let reused = json!({"pid": std::process::id(), "executable": "/Applications/Other.app/Contents/MacOS/other", "patches": []});
+    std::fs::write(live.path().join("status.json"), reused.to_string()).expect("write");
+    let reused = status(live.path()).expect("status");
+    assert_eq!(reused.get("watching"), Some(&Value::Bool(false)));
+    let ours = json!({"pid": std::process::id(),
+        "executable": std::env::current_exe().expect("exe").display().to_string(), "patches": []});
+    std::fs::write(live.path().join("status.json"), ours.to_string()).expect("write");
+    assert_eq!(status(live.path()).expect("status").get("watching"), Some(&Value::Bool(true)));
     // A pid that cannot exist is not running.
     let gone = json!({"pid": i32::MAX, "patches": []});
     std::fs::write(live.path().join("status.json"), gone.to_string()).expect("write");

@@ -144,7 +144,13 @@ pub(super) fn status(folder: &Path) -> Option<Value> {
     let text = std::fs::read_to_string(folder.join("status.json")).ok()?;
     let mut value: Value = serde_json::from_str(&text).ok()?;
     let pid = value.get("pid").and_then(Value::as_i64).unwrap_or(0);
-    let watching = pid > 0 && process_runs(pid);
+    // The pid still runs the app that wrote this, not another process that took the pid.
+    let same_app = match (value.get("executable").and_then(Value::as_str), process_executable(pid))
+    {
+        (Some(recorded), Some(running)) => same_file(Path::new(recorded), &running),
+        _ => true,
+    };
+    let watching = pid > 0 && process_runs(pid) && same_app;
     if let Value::Object(map) = &mut value {
         map.insert("watching".into(), json!(watching));
     }
@@ -157,6 +163,34 @@ fn process_runs(pid: i64) -> bool {
     // SAFETY: kill with signal 0 sends nothing; it only checks the pid.
     let sent = unsafe { libc::kill(pid, 0) == 0 };
     sent || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// The executable a process runs, where the platform says.
+fn process_executable(pid: i64) -> Option<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let pid = libc::c_int::try_from(pid).ok()?;
+        let mut buffer = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+        // SAFETY: the buffer is PROC_PIDPATHINFO_MAXSIZE bytes, as proc_pidpath requires.
+        let length =
+            unsafe { libc::proc_pidpath(pid, buffer.as_mut_ptr().cast(), buffer.len() as u32) };
+        (length > 0).then(|| {
+            PathBuf::from(String::from_utf8_lossy(&buffer[..length as usize]).into_owned())
+        })
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
+fn same_file(a: &Path, b: &Path) -> bool {
+    a == b || matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
 }
 
 fn now_nanos() -> u128 {
