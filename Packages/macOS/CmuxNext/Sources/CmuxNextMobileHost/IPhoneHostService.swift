@@ -506,6 +506,13 @@ public final class IPhoneHostService {
         }
     }
 
+    /// What `Dependencies.daemonSocket` throws when policy turned cmux-tui's endpoint off: the one
+    /// socket failure the start does not wait out.
+    public nonisolated struct DaemonSocketBlocked: Error, Sendable {
+        public let reason: String
+        public init(reason: String) { self.reason = reason }
+    }
+
     /// Starts hostd again after cmux-tui's socket was not there for `key`, after the next
     /// ``daemonBackoff`` wait. Shares the identity retry's slot, so turning connections off or
     /// signing out ends it the same way; it never counts as a refused Keychain read.
@@ -561,6 +568,14 @@ public final class IPhoneHostService {
             do {
                 socket = try await dependencies.daemonSocket()
                 self?.daemonBackoff.reset()
+            } catch let blocked as DaemonSocketBlocked {
+                // The organization turned cmux-tui's endpoint off: that does not pass by itself, so no
+                // retry (review of #36099). A later account or toggle change tries again.
+                guard !Task.isCancelled, self?.running == key else { return }
+                logger.error("iPhone host not started: \(blocked.reason, privacy: .public)")
+                await supervisor.stop(phase: .unavailable(blocked.reason))
+                if self?.running == key { self?.running = nil }
+                return
             } catch {
                 // cmux-tui is not connected yet (launch, a daemon restart or update). hostd needs its
                 // socket, so try again on the backoff: giving up here left the Mac unregistered until a
