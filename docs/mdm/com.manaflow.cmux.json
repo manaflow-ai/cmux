@@ -2834,8 +2834,8 @@
     },
     "labs.machineJoin" : {
       "default" : false,
-      "description" : "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on.",
-      "title" : "Screen Sharing for Joined Machines",
+      "description" : "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
+      "title" : "Join Any Machine with One Line",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {

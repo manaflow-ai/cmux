@@ -96,7 +96,7 @@ public final class JoinedMachineStore {
     /// read did not renew. The read (``finishRead(_:ticket:)``) sets the next deadline.
     func ageFired() async {
         watchers = watchers.filter { $0.value() }
-        guard !watchers.isEmpty else { return }
+        guard !watchers.isEmpty else { return ageTimer.cancel() }
         await refresh()
         age(now: clock())
         scheduleAge()
