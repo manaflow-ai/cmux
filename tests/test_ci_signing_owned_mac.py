@@ -86,6 +86,13 @@ SIGNING_JOBS = {
     ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
     ("cmux-next-dev-daily.yml", "sign"),
 }
+# glaeda's exclusive class, word for word (glaeda scripts/glaeda-cmux-runner-hook SIGNING_JOBS): the jobs above
+# and nightly.yml's promote-nightly-next, which holds the release App key, makes no keychain and so is not a
+# signing job here (signing_job()), yet takes a whole owned Mac under its promotion lease
+# (glaeda scripts/glaeda-promotion-admit, PROMOTION_LEASE) and starts with the same claim gate.
+# GlaedaExclusiveClassTests holds the gate, the claim script and the secret order for the extra entry, and the
+# keychain guard's rule 7a reads this list: a job glaeda holds the whole mini for may fall back to an owned route.
+GLAEDA_EXCLUSIVE_JOBS = SIGNING_JOBS | {("nightly.yml", "promote-nightly-next")}
 OWNED_PICKER = "scripts/ci/signing_runner.py"
 BLACKSMITH_PICKER = "scripts/ci/nightly_sign_runner.py"
 CLAIM = "scripts/ci/signing-runner-claim.sh"
@@ -1024,6 +1031,84 @@ class SigningOwnedMacTests(unittest.TestCase):
             named.add((workflow, str(job.get("name") or job_id)))
         self.assertEqual(named, {(workflow, name) for workflow, names in signing_runner.SIGNING_JOBS.items()
                                  for name in names})
+
+
+class GlaedaExclusiveClassTests(unittest.TestCase):
+    """GLAEDA_EXCLUSIVE_JOBS is glaeda's own hook list, and rule 7a's owned route is proven for every entry.
+
+    check() above covers the entries that make a keychain or hold a Sparkle key.  promote-nightly-next makes
+    neither, so signing_job() skips it there; these cases hold its claim gate, its claim script before the
+    release App key and its empty job env, which is what the keychain guard's rule 7a relies on."""
+
+    EXTRA = {("nightly.yml", "promote-nightly-next")}
+
+    def test_the_list_is_the_picker_jobs_plus_the_promote_job(self) -> None:
+        self.assertEqual(SIGNING_JOBS - GLAEDA_EXCLUSIVE_JOBS, set())
+        self.assertEqual(GLAEDA_EXCLUSIVE_JOBS - SIGNING_JOBS, self.EXTRA)
+
+    def test_every_entry_claims_the_whole_mac_before_its_credential(self) -> None:
+        documents = workflows()
+        for workflow, job_id in sorted(GLAEDA_EXCLUSIVE_JOBS):
+            label = f"{workflow} {job_id}"
+            document = dotted(documents[workflow])
+            job = (document.get("jobs") or {})[job_id]
+            with self.subTest(job=label):
+                steps = [step for step in keychain_guard.inline_step_scripts(job).get("steps") or []
+                         if isinstance(step, dict)]
+                gate = steps[0] if steps else {}
+                self.assertEqual(gate.get("id"), CLAIM_GATE_ID, "the first step must be the claim gate")
+                self.assertEqual(str(gate.get("run", "")).strip(), claim_gate_for(workflow).strip())
+                self.assertEqual(set(gate) - {"name", "run", "shell", "id"}, set())
+                self.assertEqual(keychain_guard.owned_route_failures(label, job), [])
+                self.assertNotIn("secrets.", json.dumps(document.get("env") or {}))
+                self.assertTrue(keychain_guard.claim_gated(label, job), "rule 7a must hold for this job")
+
+
+class OwnedRouteVariableTests(unittest.TestCase):
+    """The keychain guard's rule 7a waives a repository variable only for a job that proves the claim."""
+
+    SPARKLE = {"name": "Sign the feed", "run": "echo sign", "env": {"KEY": "${{ secrets.NIGHTLY_SPARKLE_KEY }}"}}
+    RUNS_ON = "${{ vars.CI_NIGHTLY_SIGN_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
+
+    def failures(self, label: str, job: dict) -> list[str]:
+        found: list[str] = []
+        keychain_guard.check_job(label, job, found)
+        return found
+
+    def gate(self, workflow: str) -> dict:
+        return {"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash", "run": claim_gate_for(workflow)}
+
+    def test_a_job_outside_the_exclusive_class_may_not_read_the_variable(self) -> None:
+        job = {"runs-on": self.RUNS_ON, "steps": [self.gate("other.yml"), self.SPARKLE]}
+        found = self.failures("other.yml sign", job)
+        self.assertTrue(any("picks its runner from vars.CI_NIGHTLY_SIGN_RUNNER" in why for why in found), found)
+
+    def test_a_job_in_the_class_without_the_verbatim_gate_may_not_read_it(self) -> None:
+        gate = self.gate("nightly.yml")
+        gate["run"] = gate["run"].replace("exit 1", "exit 0")
+        job = {"runs-on": self.RUNS_ON, "steps": [gate, {"run": f"bash {CLAIM}"}, self.SPARKLE]}
+        found = self.failures("nightly.yml generate-nightly-deltas", job)
+        self.assertTrue(any("picks its runner from vars.CI_NIGHTLY_SIGN_RUNNER" in why for why in found), found)
+
+    def test_a_gated_job_still_needs_the_claim_script_before_its_secret(self) -> None:
+        gate = self.gate("nightly.yml")
+        job = {"runs-on": self.RUNS_ON, "steps": [gate, self.SPARKLE, {"run": f"bash {CLAIM}"}]}
+        found = self.failures("nightly.yml generate-nightly-deltas", job)
+        self.assertTrue(any("names a signing secret before the claim step" in why for why in found), found)
+        job = {"runs-on": self.RUNS_ON, "steps": [gate, self.SPARKLE]}
+        found = self.failures("nightly.yml generate-nightly-deltas", job)
+        self.assertTrue(any(f"without a step that runs {CLAIM}" in why for why in found), found)
+
+    def test_a_gated_job_may_not_hold_the_secret_in_its_job_env(self) -> None:
+        job = {"runs-on": self.RUNS_ON, "env": {"KEY": "${{ secrets.NIGHTLY_SPARKLE_KEY }}"},
+               "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, {"run": "echo sign"}]}
+        found = self.failures("nightly.yml generate-nightly-deltas", job)
+        self.assertTrue(any("job-level env names a signing secret" in why for why in found), found)
+
+    def test_a_gated_job_takes_the_owned_route(self) -> None:
+        job = {"runs-on": self.RUNS_ON,
+               "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}
+        self.assertEqual(self.failures("nightly.yml generate-nightly-deltas", job), [])
 
 
 class ClaimScriptTests(unittest.TestCase):

@@ -47,13 +47,16 @@ statically, so a reordered step fails in review and not on a release day:
    release signing jobs may run on our own Macs), on a mini held whole for the
    job; tests/test_ci_signing_owned_mac.py checks those jobs. Two narrow exceptions,
    each proven here rather than listed:
-   a. A job glaeda gives the exclusive class (test_ci_signing_owned_mac.SIGNING_JOBS)
-      whose first step is that test's CLAIM_GATE may also fall back to the owned
-      pool variables in OWNED_ROUTE_VARIABLES (nightly.yml's owned-only legacy sign
-      and deltas, Lawrence, 2026-10-30, a7b6a61175c). The gate fails the job on any
-      owned Mac without the whole-mini claim before a credential is in reach, however
-      the label was chosen, and test_ci_signing_owned_mac.py holds the claim script,
-      the always() keychain delete and the rest of its rules for those jobs.
+   a. A job glaeda gives the exclusive class (test_ci_signing_owned_mac.GLAEDA_EXCLUSIVE_JOBS,
+      that hook's own list) whose first step is that test's CLAIM_GATE may also route
+      through the owned pool variables in OWNED_ROUTE_VARIABLES (nightly.yml's owned-only
+      legacy sign and deltas, Lawrence, 2026-10-30, a7b6a61175c; its nightly-next signing
+      runner and its promote job, Lawrence, 2026-11-04, 2b01de7c296 and 24111ed7f5e).
+      The gate fails the job on any owned Mac without the whole-mini claim before a
+      credential is in reach, however the label was chosen; owned_route_failures() holds
+      the claim script before the first secret and the empty job `env:` here, and
+      test_ci_signing_owned_mac.py holds those, the always() keychain delete and the rest
+      of its rules for every such job that makes a keychain or holds a Sparkle key.
    b. A job in GATED_SECRET_JOBS reads every signing secret only when its mode
       variable says so, and that same condition picks a literal ephemeral label
       before runs-on reads any variable (stable-next.yml's sign: its dry run signs
@@ -176,8 +179,20 @@ RUNNER_VARIABLE = re.compile(
 )
 ANY_VARS = re.compile(r"\bvars\b", re.IGNORECASE)
 RUNS_ON_END = re.compile(r"\s*\}\}\s*$")
-# Rule 7a: owned pool variables a claim-gated signing job may fall back to.
-OWNED_ROUTE_VARIABLES = frozenset({"CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER"})
+# Rule 7a: owned pool variables a claim-gated signing job may route through.  Each holds a glaeda fleet label:
+# runner_label_policy's NO_HOSTED_MAC_VARIABLES keeps a GitHub-hosted Mac out of all three, and
+# cloud_overflow_switch.py writes none of them (they are in neither SWITCHED_VARIABLES nor
+# OVERRIDABLE_VARIABLES).  So the job lands either on an ephemeral runner or on an owned Mac, where the claim
+# gate refuses it without glaeda's exclusive claim.  CI_NIGHTLY_SIGN_RUNNER is the narrowest of the three: glaeda gives
+# `glaeda-trusted-next-signing` only to the trusted main runners of a mini with runner.trustedNextSigning, and
+# its hook admits exactly nightly.yml's exclusive class there on the nightly-next push (glaeda
+# scripts/glaeda-cmux-runner-hook TRUSTED_NEXT_SIGNING); tests/test_nightly_signing_on_cmux15.py pins the route.
+OWNED_ROUTE_VARIABLES = frozenset({
+    "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER", "CI_NIGHTLY_SIGN_RUNNER",
+})
+# Rule 7a's second half: the claim script, which refuses an owned Mac without the claim and clears a keychain a
+# killed job left, runs before the first step that names a secret.
+CLAIM_SCRIPT = "scripts/ci/signing-runner-claim.sh"
 # These declared pools contain only ephemeral Blacksmith members.  Secret-bearing
 # jobs may use them as their pool-backed fallback; the hosted pools are excluded.
 EPHEMERAL_POOL_KEYS = frozenset({
@@ -209,9 +224,31 @@ def claim_gated(name: str, job: dict) -> bool:
 
     steps = job.get("steps") or []
     first = steps[0] if steps and isinstance(steps[0], dict) else {}
-    return (tuple(name.split(" ", 1)) in owned_mac.SIGNING_JOBS
+    return (tuple(name.split(" ", 1)) in owned_mac.GLAEDA_EXCLUSIVE_JOBS
             and first.get("id") == owned_mac.CLAIM_GATE_ID
             and str(first.get("run", "")).strip() == owned_mac.claim_gate_for(name.split(" ", 1)[0]).strip())
+
+
+def owned_route_failures(name: str, job: dict) -> list[str]:
+    """Rule 7a: what keeps a claim-gated job's owned route from being proven, beyond the first-step gate.
+
+    The gate itself fails the job on an owned Mac without glaeda's exclusive claim, so these are the rules that
+    keep a credential out of reach until the claim is re-checked by the script: the claim step comes before the
+    first step that names a secret, and the job's `env:` names none (every step, the gate included, holds it).
+    tests/test_ci_signing_owned_mac.py holds the same order for the jobs it covers (every keychain and Sparkle-key
+    job); this holds it here for the rest of the exclusive class, which makes no keychain."""
+    steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
+    failures = []
+    claim = next((index for index, step in enumerate(steps) if CLAIM_SCRIPT in str(step.get("run", ""))), None)
+    first_secret = next((index for index, step in enumerate(steps)
+                         if SIGNING_SECRET_REFERENCE.search(json.dumps(step))), None)
+    if claim is None:
+        failures.append(f"{name}: takes an owned route without a step that runs {CLAIM_SCRIPT}")
+    elif first_secret is not None and first_secret < claim:
+        failures.append(f"{name}: step {first_secret} names a signing secret before the claim step ({claim})")
+    if SIGNING_SECRET_REFERENCE.search(json.dumps(job.get("env") or {})):
+        failures.append(f"{name}: job-level env names a signing secret, which every step (the gate's too) holds")
+    return failures
 
 
 def secret_gate_failures(name: str, job: dict) -> list[str] | None:
@@ -351,6 +388,9 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
             # Proven above: every signing secret sits behind the condition that picks an ephemeral label.
             runs_on = ""
         owned_route = claim_gated(name, job)
+        if owned_route and any((m.group(1) or m.group(2)).upper() in OWNED_ROUTE_VARIABLES
+                               for m in RUNNER_VARIABLE.finditer(runs_on)):
+            failures.extend(owned_route_failures(name, job))
         if len(ANY_VARS.findall(runs_on)) != len(RUNNER_VARIABLE.findall(runs_on)):
             failures.append(
                 f"{name}: holds a signing secret and reads a repository variable in runs-on in a form this "
