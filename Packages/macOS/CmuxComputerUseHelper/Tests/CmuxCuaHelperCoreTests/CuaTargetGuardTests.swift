@@ -118,11 +118,11 @@ import Testing
         }
     }
 
-    // v0.38's visual-region parser runs the AGPL cua-perception worker.
+    // The visual-region parser runs the AGPL cua-perception worker; TextEdit (102) is allowed.
     @Test(arguments: [
         ("parse_visual_regions", #"{"capture_id":"c1"}"#),
-        ("run_steps", #"{"pid":100,"steps":[{"tool":"parse_visual_regions","args":{}}]}"#),
-        ("run_steps", #"{"pid":100,"steps":[{"parse_visual_regions":{}}]}"#),
+        ("run_steps", #"{"pid":102,"steps":[{"tool":"parse_visual_regions","args":{}}]}"#),
+        ("run_steps", #"{"pid":102,"steps":[{"parse_visual_regions":{}}]}"#),
     ])
     func perceptionToolIsRefused(name: String, arguments: String) async {
         do {
