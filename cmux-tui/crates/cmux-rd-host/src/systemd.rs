@@ -1,11 +1,12 @@
 //! `cmux-rd host --listen-systemd`: the production Cloud admission (Linux).
 //!
 //! systemd owns the listening socket (`cmux-agent-rd.socket`: `/run/cmux-rd/desktop.sock`,
-//! root-only, 0600) and passes it as fd 3 (`LISTEN_FDS=1`, `LISTEN_PID` = this process).
-//! The only process that may connect is the machine's root link receiver, after it verified
-//! the owner's one-time link token for service `desktop`; the host checks each accepted
-//! connection's `SO_PEERCRED` uid against `--peer-uid` and closes any other peer before it
-//! reads a byte. There is no TCP or UDP listener in this mode.
+//! root:cmux 0660, in `/run/cmux-rd` mode 0711) and passes it as fd 3 (`LISTEN_FDS=1`,
+//! `LISTEN_PID` = this process). The only process meant to connect is the machine's link
+//! receiver (the session daemon's `__receive-vm`, running as the work user, uid 1000),
+//! after it verified the owner's one-time link token for service `desktop`; the host checks
+//! each accepted connection's `SO_PEERCRED` uid against `--peer-uid` and closes any other
+//! peer before it reads a byte. There is no TCP or UDP listener in this mode.
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
