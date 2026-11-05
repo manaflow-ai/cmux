@@ -86,8 +86,12 @@ cmux has:
   user). It already admits a dial from any of the user's devices to any of
   their Macs (`admit`), and stamps the sender's device and user; no backend
   change is needed for Mac to Mac.
-- Every signed-in Mac already runs `cmux-mobile-host` (hostd) with a warm
-  signaling socket. A Mac dials through **its own** hostd (a new `dial`
+- A Mac with **Let My Other Devices Use This Mac** on runs
+  `cmux-mobile-host` (hostd) with a warm signaling socket. That switch is
+  today's `mobile.allowIPhoneConnections`, off by default, and stays off by
+  default: a Mac with it off is listed in My Machines (the registry knows it)
+  as "Not reachable: turn on Let My Other Devices Use This Mac there", with
+  the one step said, and no action is offered on it. A Mac dials through **its own** hostd (a new `dial`
   control request), so it never opens a second socket under its device id and
   every dial reuses warm signaling and cached ICE.
 
@@ -96,7 +100,10 @@ Each side caches the peer's identity key and last endpoints (LAN address,
 STUN-reflexive address, Tailscale address when it has one). A dial tries
 those directly first, in parallel with hub signaling; the WireGuard handshake
 and `auth` against the pinned key are the proof, so a direct dial needs no
-hub. A hub outage stops only first contacts.
+hub. A hub outage stops first contacts, and also a reconnect after either
+side changes networks when no cached address still works (a new address or
+TURN credentials need signaling). Within one network, or over Tailscale, it
+keeps working.
 
 What this replaces as the way between the person's machines: SSH as the
 default route, the `cmux link` overlay's "direct paths only, no relay" slice,
@@ -138,6 +145,19 @@ demo shows it bound).
 Phone pairing already works this way (`pairing.rs`): the first channel of a
 link is `auth`, the caller signs a fresh challenge with its identity key, and
 hostd asks the app "Allow <device>?" unless the key is already approved.
+
+**The `auth` signature is bound to the link it rides** (review: channel
+binding). Today the signed message names both device ids, the nonce and the
+keys, but not the transport, so a hub that both relays signaling and runs
+its own WireGuard endpoint could pass a real peer's challenge and signature
+onto a link it controls. For machines (and then phones), the signed message
+adds the link's binding: the SHA-256 of both WireGuard static public keys of
+this session, in a fixed order (the WebRTC fallback uses both DTLS
+fingerprints). Each side computes it from its own handshake state, never
+from the peer's word, and refuses an `auth` whose binding is not its own
+link's. A relayed signature then names the wrong link and fails. This lands
+before any grant beyond pairing (the next machine PR), so no grant ever rides
+an unbound link.
 Machines use the same `auth`, with `kind: "mac"` and the grants it asks for.
 Linux machines come later: today the device registry and the hub know only
 `mac` and `phone` (`backend/src/index.ts`, `schema.ts`, `team-hub.ts`), so a
@@ -241,7 +261,12 @@ MacBook**, or the sidebar row's menu.
    there and the tree on disk still has the ledger's tree hash; anything else at that path is left alone and
    the send is refused with its reason. A build-key build
    installs only as a tagged DEV app: bundle id `com.cmuxterm.app.debug.<tag>`,
-   into `~/Applications/cmux DEV <tag>.app`. A release build installs beside
+   into `~/Applications/cmux DEV <tag>.app`. The tag must match
+   `^[a-z0-9][a-z0-9-]{0,39}$` (as `scripts/reload.sh` tags already do); any
+   other tag refuses the send, so neither the path nor the bundle id is ever
+   built from a slash, a dot component or a control character. The final
+   path is checked to be a direct child of `~/Applications` after
+   resolving. A release build installs beside
    the others under its own name. The running app and the person's nightly are never
    quit or replaced (the nightly has its own updater).
 5. If a person is logged in at the desktop, it opens the build when asked
@@ -261,9 +286,11 @@ session_id}`; the caller's sidebar shows it under that machine and opens it
 over the same link (the phone's `daemon` and `acpmux` lanes).
 
 Every `run` carries a request id the caller makes once (a UUID). The target
-keeps the ids it answered for a day, with their receipts, in the install
-ledger's sibling file; a retry after a lost reply (a link that dropped and
-came back) gets the same receipt, never a second workspace.
+keeps each id with its receipt for as long as the workspace it made exists,
+and a day after it closes, in the install ledger's sibling file; a retry
+after a lost reply (a link that dropped and came back) gets the same receipt,
+never a second workspace. The caller retries an id for at most a day; after
+that it asks the person again with a new id.
 
 ### Move (`move`)
 
