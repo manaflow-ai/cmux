@@ -34,14 +34,11 @@ pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
             .find(|f| f.node == *node)
             .map(|f| f.error.as_str())
     };
-    let node = status
-        .stuck
-        .iter()
-        .find(|n| {
-            error(n).is_none_or(|e| {
-                optchat_host::capacity_wait(e).is_none() && !crate::host::start_stall(e)
-            })
-        })?;
+    let node = status.stuck.iter().find(|n| {
+        error(n).is_none_or(|e| {
+            optchat_host::capacity_wait(e).is_none() && !crate::host::start_stall(e)
+        })
+    })?;
     let class = match error(node) {
         Some(e) if e.starts_with(optchat_host::SETUP_ERROR) => {
             format!("a {}", optchat_core::cut_at_bytes(e, 240))
@@ -1336,15 +1333,41 @@ impl Brain {
         // A turn the owner stopped posts nothing, even one that ended
         // normally before it saw the interrupt (the stop was accepted).
         let quiet = superseded || owner_stopped;
-        // A turn whose prompt never reached a harness (`unstarted`), past its
-        // cuts: its error is the harness start's, for host.log and the trace,
-        // never a reply. Its messages stay open in the reply ledger, which
-        // runs a retry turn and, if none answers, says so in plain words.
-        let unstarted = outcome.unstarted && outcome.error.is_some() && !outcome.refused;
-        if unstarted && !quiet && let Some(error) = &outcome.error {
+        // A turn whose start stalled before its prompt reached a harness
+        // (`unstarted_stall`), past its cuts: its error is the harness
+        // start's, for host.log and the trace, never a reply. Its messages
+        // stay open in the reply ledger, which runs a retry turn and, if none
+        // answers, says so in plain words.
+        let stalled = unstarted_stall(&outcome);
+        // The ledger holds a person message of the Chief conversation only
+        // (`reply_ledger.rs`): a turn that also answers others (a member's
+        // message in a group) says in plain words that it could not start.
+        let held = self
+            .state
+            .turn
+            .as_ref()
+            .filter(|t| t.key == key)
+            .is_none_or(|t| {
+                t.answers
+                    .iter()
+                    .all(|id| self.state.awaiting.iter().any(|a| &a.id == id))
+            });
+        let unstarted = stalled && held;
+        if stalled
+            && !quiet
+            && let Some(error) = &outcome.error
+        {
             (self.log)(&format!(
-                "turn {key} did not start ({failed}: {error}); its messages wait for a retry turn"
+                "turn {key} did not start ({failed}: {error}); {}",
+                if held {
+                    "its messages wait for a retry turn"
+                } else {
+                    "it says so in plain words"
+                }
             ));
+        }
+        if stalled && !held {
+            outcome.error = Some(UNSTARTED_TEXT.to_owned());
         }
         // A failed turn also leaves a note in the memory log, after the
         // messages it did not answer: without it the next turn's delta shows
@@ -1375,13 +1398,17 @@ impl Brain {
                 "turn {key} ended by the Chief's stop: nothing more posted"
             ));
         }
-        let text = ended_turn_text(
-            outcome.reply,
-            outcome.error,
-            quiet || tool_stopped || unstarted,
-            outcome.refused,
-            &failed,
-        );
+        let text = if stalled && !held && !(quiet || tool_stopped) {
+            UNSTARTED_TEXT.to_owned()
+        } else {
+            ended_turn_text(
+                outcome.reply,
+                outcome.error,
+                quiet || tool_stopped || unstarted,
+                outcome.refused,
+                &failed,
+            )
+        };
         // NO_REPLY posts nothing: a Chief that reads every message stays
         // quiet with it (membership), and any Chief ends with it when a
         // reaction or its `reply` calls said it all (brain/replies.rs).
@@ -1444,7 +1471,9 @@ impl Brain {
             .filter(|t| t.key == key)
             .map(|t| t.answers.clone())
             .unwrap_or_default();
-        if superseded {
+        // A turn that never started carries its messages to the turn that
+        // answers them, as a superseded one does.
+        if superseded || unstarted {
             add_answers(&mut self.state.carry_answers, answers.clone());
         } else if !answers.is_empty() {
             self.state.last_answers = answers.clone();
@@ -1484,7 +1513,7 @@ impl Brain {
         // In a group conversation the reply goes into the thread of the last
         // message it answers (membership::thread_target); a superseded turn's
         // messages keep theirs for the turn that answers them.
-        let thread = if superseded {
+        let thread = if superseded || unstarted {
             None
         } else {
             // In the Chief conversation too: the thread of the user message
@@ -1634,6 +1663,28 @@ const UPSTREAM_TRANSIENT: [&str; 8] = [
     "ECONNRESET",
 ];
 
+/// What a turn that could not start says where no retry turn follows (a
+/// message the reply ledger does not hold): never the start's diagnostics.
+const UNSTARTED_TEXT: &str =
+    "I could not start an agent to answer this; the machine may be busy. Please send it again.";
+
+/// A turn whose prompt never reached a harness because its start stalled or
+/// broke off: rerun, and past its cuts never posted (its message waits in the
+/// reply ledger). A usage limit is not cured by a retry and stays a failure.
+fn unstarted_stall(outcome: &TurnOutcome) -> bool {
+    let Some(error) = outcome.error.as_deref() else {
+        return false;
+    };
+    outcome.unstarted
+        && !outcome.refused
+        && outcome.reply.is_none()
+        && crate::turn::is_start_stall(error)
+        && !matches!(
+            crate::auto_resume::classify_error(error),
+            crate::auto_resume::StopKind::UsageLimit(_)
+        )
+}
+
 /// Whether, and why, a failed turn was cut.
 pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
     let error = outcome.error.as_deref()?;
@@ -1643,19 +1694,14 @@ pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
     if outcome.refused || outcome.cancelled {
         return None;
     }
-    // Its prompt never reached a harness (`TurnOutcome::unstarted`): nothing
-    // ran, so it runs again after an upstream wait whatever the error says.
-    // Leo, 2026-11-04: "(turn failed on claude-sr2: session/new: agent_start
-    // did not finish within 90s; ...)" posted as the Chief's reply three
-    // times, because only Chief's own "no answer within" wording was matched
-    // here. A usage limit is not cured by a retry and stays the failure.
-    if outcome.unstarted
-        && outcome.reply.is_none()
-        && !matches!(
-            crate::auto_resume::classify_error(error),
-            crate::auto_resume::StopKind::UsageLimit(_)
-        )
-    {
+    // Its prompt never reached a harness (`TurnOutcome::unstarted`) and its
+    // start stalled or broke off (`turn::is_start_stall`): nothing ran, so it
+    // runs again after an upstream wait. Leo, 2026-11-04: "(turn failed on
+    // claude-sr2: session/new: agent_start did not finish within 90s; ...)"
+    // posted as the Chief's reply three times, because only Chief's own "no
+    // answer within" wording was matched here. A start refused for a reason
+    // (a setup error) still fails at once and shows.
+    if unstarted_stall(outcome) {
         return Some(Cut::Upstream);
     }
     if outcome.reply.is_none()

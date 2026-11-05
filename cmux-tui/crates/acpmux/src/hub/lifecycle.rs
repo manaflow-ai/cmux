@@ -902,11 +902,20 @@ impl Hub {
                 retried = true;
                 continue;
             }
+            // A start that waits on its harness ends with None only when its harness did no work
+            // for `START_HUNG` (`StartWatch`): a fault, said apart from a missed deadline, which
+            // the Chief retries as a slow machine.
+            let hung =
+                !session.person.load(Ordering::SeqCst) && session.wait_start.load(Ordering::SeqCst);
             return Err(match failed {
                 Some(e) => e,
                 None => {
                     self.abandon_cold_start(session, budget).await;
-                    start_deadline_exceeded(budget, &harness)
+                    if hung {
+                        start_hung(&harness)
+                    } else {
+                        start_deadline_exceeded(budget, &harness)
+                    }
                 }
             });
         }
@@ -2063,6 +2072,24 @@ impl<'a> ReplayHold<'a> {
 
 /// `agent_start`'s deadline error, with what its harness was doing (`cpu_class.rs`, item 4).
 /// Its `data.harness` carries the same fields when they were read.
+/// The error of a start whose harness did no work for `START_HUNG` (`StartWatch`): it waits on
+/// something no wait cures (input, a lock, a sign-in prompt). Not retryable, and worded apart from
+/// a deadline so its creator shows it rather than waiting again.
+fn start_hung(harness: &crate::cpu_class::HarnessSeen) -> RpcError {
+    let mut e = RpcError::new(
+        -32000,
+        format!("agent_start: its agent did no work for {} s", START_HUNG.as_secs()),
+    )
+    .with_data(json!({"reason": "harness_hung", "retryable": false}));
+    e.message.push_str(&harness.detail());
+    if let (crate::cpu_class::HarnessSeen::Running(state), Some(data)) =
+        (harness, e.data.as_mut().and_then(Value::as_object_mut))
+    {
+        data.insert("harness".into(), json!(state));
+    }
+    e
+}
+
 fn start_deadline_exceeded(
     budget: std::time::Duration,
     harness: &crate::cpu_class::HarnessSeen,

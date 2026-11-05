@@ -324,6 +324,18 @@ const TRANSIENT_SESSION_FAILURES: [&str; 13] = [
 const START_NOTICE_AFTER: Duration = Duration::from_secs(30);
 const START_NOTICE_EVERY: u64 = 10;
 
+/// Whether an `unstarted` turn's error is a start that ran out of time or
+/// broke off, not one refused for a reason the person must fix (a refused env
+/// key, a missing preset, a sign-in): acpmux's `deadline_exceeded` errors
+/// ("<wait> did not finish within <t>", retryable by its own data), Chief's
+/// own waits on them, and a harness that closed as it started for no reason
+/// or a passing one (`subagents::is_transient_start_failure`: never one that
+/// is not signed in). Such a turn is rerun and its error never posted
+/// (`brain/turns.rs` `cut_kind`).
+pub fn is_start_stall(error: &str) -> bool {
+    crate::host::start_stall(error) || crate::subagents::is_transient_start_failure(error)
+}
+
 /// Whether a turn's `session/new` error is worth a new try.
 pub fn is_transient_session_failure(error: &str) -> bool {
     TRANSIENT_SESSION_FAILURES.iter().any(|t| error.contains(t))
@@ -654,6 +666,8 @@ pub fn run_with_drafts(
                 "turn {}: the kept session {session} refused the prompt ({e}); starting a new one",
                 start.key
             ));
+            // The kept session refused the prompt, so nothing ran on it: the
+            // fresh start's outcome stands as it is.
             return run_with_drafts(
                 agents, chat, start, interrupt, log, progress, trace, draft, run, starting,
             );
@@ -956,6 +970,7 @@ pub fn run_with_drafts(
         reply: fold.final_text(),
         done_draft,
         cancelled,
+        unstarted: false,
         error,
         orphan,
         harness: Some(Box::new(admitted)),
@@ -1149,7 +1164,11 @@ pub fn run_after_capacity_waits(
         waited += wait;
         let mut next = start.clone();
         next.prompt_id = format!("{}:capacity{attempt}", start.prompt_id);
+        // A try that reached a harness may have done its work: the turn is
+        // not `unstarted` though a later try's start stalls.
+        let ran = !outcome.unstarted;
         outcome = again(&next);
+        outcome.unstarted &= !ran;
     }
 }
 

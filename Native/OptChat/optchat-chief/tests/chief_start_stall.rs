@@ -86,7 +86,10 @@ fn a_turn_whose_agent_did_not_start_runs_again_and_answers() {
     assert_eq!(prompts(&h), 1, "the turn that started ran once");
     let sent = posted(&h);
     assert!(sent.iter().any(|t| t.contains("answer 0")), "{sent:?}");
-    assert!(h.brain.awaiting_replies().is_empty(), "the message is answered");
+    assert!(
+        h.brain.awaiting_replies().is_empty(),
+        "the message is answered"
+    );
 }
 
 #[test]
@@ -189,4 +192,53 @@ fn a_memory_line_held_only_by_a_compactor_start_stall_posts_no_notice() {
         closed: false,
     };
     assert_eq!(optchat_chief::brain::stuck_notice(&status), None);
+}
+
+/// A start refused for a reason the person must fix is not a stall: it still shows at once.
+#[test]
+fn a_start_refused_for_a_reason_still_shows() {
+    let mut h = harness();
+    h.agents.inner.lock().unwrap().session_errors.insert(
+        "claude-sr".into(),
+        "session/new: the acpmux preset optchat-chief is not installed".into(),
+    );
+    h.connect();
+    h.say("user_local", "hi");
+    settle_with_timers(&mut h, WAIT);
+    let sent = posted(&h);
+    assert!(
+        sent.iter()
+            .any(|t| t.contains("preset optchat-chief is not installed")),
+        "{sent:?}"
+    );
+}
+
+/// A harness that closed because it is not signed in is a fault the person must fix, not a stall.
+#[test]
+fn a_harness_that_is_not_signed_in_still_shows() {
+    let mut h = harness();
+    h.agents.inner.lock().unwrap().session_errors.insert(
+        "claude-sr".into(),
+        "session/new: agent process closed (claude): Not logged in · Please run /login".into(),
+    );
+    h.connect();
+    h.say("user_local", "hi");
+    settle_with_timers(&mut h, WAIT);
+    let sent = posted(&h);
+    assert!(sent.iter().any(|t| t.contains("Not logged in")), "{sent:?}");
+}
+
+/// A start acpmux ended because its harness did no work at all is a fault, not a slow machine.
+#[test]
+fn a_harness_acpmux_saw_stop_working_still_shows() {
+    let mut h = harness();
+    h.agents.inner.lock().unwrap().session_errors.insert(
+        "claude-sr".into(),
+        "session/new: agent_start: its agent did no work for 300 s; its agent process (pid 7) is alive".into(),
+    );
+    h.connect();
+    h.say("user_local", "hi");
+    settle_with_timers(&mut h, WAIT);
+    let sent = posted(&h);
+    assert!(sent.iter().any(|t| t.contains("did no work")), "{sent:?}");
 }

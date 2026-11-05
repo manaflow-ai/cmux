@@ -40,6 +40,9 @@
 //!    of 0.5 to 1.5 GB each) every Chief start failed at 90 s with "0.1 s of CPU, 0 of 12 threads
 //!    running", read off the `sr2` launcher, while its `claude` was in uninterruptible page-in
 //!    waits (ps state `U`, 24 MB resident after 14 minutes). Such a harness is slow, not hung.
+//!    The cost: any process of the tree that works (an MCP server's timer) keeps a hung harness
+//!    counted as working, so that case falls to its caller's longer bound (Chief's start ceiling,
+//!    the pool's `START_HAZARD`).
 //!
 //! The class, first set wins: the profile's env `ACPMUX_SESSION_CPU_CLASS` as the harness gets it
 //! (its `${env:…}` references resolved; one build-heavy profile can opt out), the daemon's env
@@ -295,8 +298,6 @@ mod imp {
         (n == size).then(|| unsafe { out.assume_init() })
     }
 
-    // The Mach timebase's struct and call are deprecated in favour of the `mach2` crate, which
-    // acpmux does not depend on; they are not defective.
     /// The most processes of one harness's tree it reads: a launcher, its agent and their MCP
     /// servers are a handful; the bound keeps a harness that forks a build from costing more.
     const TREE_MAX: usize = 64;
@@ -323,6 +324,8 @@ mod imp {
         all
     }
 
+    // The Mach timebase's struct and call are deprecated in favour of the `mach2` crate, which
+    // acpmux does not depend on; they are not defective.
     #[allow(deprecated)]
     pub(super) fn state(pid: u32) -> Option<HarnessState> {
         let id = libc::c_int::try_from(pid).ok().filter(|p| *p > 0)?;
@@ -340,7 +343,8 @@ mod imp {
         let (mut ticks, mut threads, mut running, mut pageins, mut processes) =
             (0u128, 0i32, 0i32, 0u64, 0i32);
         // The harness itself, then each process under it that is still there to read.
-        let rest = tree(id).into_iter().skip(1).filter_map(|kid| pidinfo(kid, libc::PROC_PIDTASKINFO));
+        let rest =
+            tree(id).into_iter().skip(1).filter_map(|kid| pidinfo(kid, libc::PROC_PIDTASKINFO));
         for t in std::iter::once(task).chain(rest) {
             ticks += u128::from(t.pti_total_user.saturating_add(t.pti_total_system));
             threads = threads.saturating_add(t.pti_threadnum);
@@ -452,7 +456,7 @@ mod tests {
         use std::io::BufRead;
         // The launcher (`sh`, kept by the `; :` after its one command) waits on its agent, which
         // spends CPU, says so, then waits on its input.
-        let agent = "i=0; while [ $i -lt 100000 ]; do i=$((i+1)); done; echo worked; exec cat";
+        let agent = "i=0; while [ $i -lt 100000 ]; do i=$((i+1)); done; echo worked; cat";
         let mut launcher = std::process::Command::new("/bin/sh")
             .args(["-c", &format!("/bin/sh -c '{agent}'; :")])
             .stdin(std::process::Stdio::piped())
