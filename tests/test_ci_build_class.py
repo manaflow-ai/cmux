@@ -44,6 +44,8 @@ class BuildClassTests(unittest.TestCase):
         icon = next(p for p in (ROOT / "Packages/macOS/CmuxNext/Sources").rglob("*.svg"))
         self.assertEqual(classify_path(ROOT, icon.relative_to(ROOT).as_posix())[0], "app")
         self.assertEqual(classify_path(ROOT, "docs/mdm/README.md")[0], "app")
+        # A cmux-tui tree input that Rust embeds with include_str! (review on #36567).
+        self.assertEqual(classify_path(ROOT, "docs/remote-agents-and-cloud.md")[0], "app")
 
     def test_change_takes_its_heaviest_file(self):
         self.assertEqual(classify(ROOT, [])["class"], "no-compile")

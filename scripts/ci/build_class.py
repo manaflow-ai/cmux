@@ -53,17 +53,28 @@ def crate_dir(root: Path, path: str) -> str | None:
     return None
 
 
-def unread_doc(path: str) -> bool:
-    """A doc or image in docs/ or design/, or a top-level Markdown file. Anywhere else one can be a
-    build input: an app resource (a Packages/ Resources image), a bundled file, or a crate's
-    include_str!("../README.md"). The generated tier's inputs (docs/mdm/) are left out too."""
-    if not path.endswith(route_mod.DOC_SUFFIXES) or any(route_mod.matches(path, p) for p in route_mod.GENERATED_INPUTS):
+def graph_reads(root: Path, path: str) -> bool:
+    """A CmuxNext test target reads path: by name, by a glob, or through a directory read."""
+    return any(read == path or ("*" in read and route_mod.matches(path, read))
+               or (read.endswith("/") and path.startswith(read))
+               for target in route_mod.load_graph(root)["targets"].values() for read in target.get("reads", []))
+
+
+def unread_doc(root: Path, path: str) -> bool:
+    """A doc or image in docs/ or design/, or a top-level Markdown file, that nothing reads: not the
+    cmux-tui tree key (docs/remote-agents-and-cloud.md is a Rust include_str!), a generated-file
+    check, a CI job script or a test target (route_mod.consumed). Anywhere else a doc can be a build
+    input: an app resource (a Packages/ Resources image), a bundled file, or a crate's
+    include_str!("../README.md")."""
+    if not path.endswith(route_mod.DOC_SUFFIXES):
         return False
-    return path.startswith(DOC_DIRS) or ("/" not in path and path.endswith((".md", ".mdx")))
+    if not (path.startswith(DOC_DIRS) or ("/" not in path and path.endswith((".md", ".mdx")))):
+        return False
+    return not route_mod.consumed(path, route_mod.tree_input_paths(root), lambda p: graph_reads(root, p))
 
 
 def classify_path(root: Path, path: str) -> tuple[str, str]:
-    if unread_doc(path):
+    if unread_doc(root, path):
         return "no-compile", "a doc no compiler reads"
     if not path.startswith(route_mod.CMUX_TUI):
         return "app", "outside cmux-tui: the app build's rules (cmux_next_route.py) place it"
