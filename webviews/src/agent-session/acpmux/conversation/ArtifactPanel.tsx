@@ -23,7 +23,7 @@ import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, Pin, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
-import { ranRenders, useRenderFrame } from "./RenderCard";
+import { ranRenders, useRenderFrame } from "./renderCardModel";
 import { canRender, RENDER_FRAME_URL } from "./renderCardModel";
 import {
   INLINE_PREVIEW_SANDBOX,

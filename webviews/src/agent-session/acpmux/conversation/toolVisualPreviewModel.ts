@@ -1,4 +1,4 @@
-import { mediaKind } from "../chips/ReplyMedia";
+import { mediaKind } from "../chips/replyMediaModel";
 
 /** Keep audio and video in their existing players, including inline MCP media. */
 export function isStillVisual(source: string): boolean {

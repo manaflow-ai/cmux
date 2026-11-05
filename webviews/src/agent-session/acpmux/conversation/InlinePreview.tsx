@@ -21,7 +21,7 @@ import { CodeBlock, languageLabel } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
 import { OpenPreview } from "./OpenPreview";
 import { renderFrameCSS } from "./renderBase";
-import { useRenderFrame } from "./RenderCard";
+import { useRenderFrame } from "./renderCardModel";
 import {
   INLINE_PREVIEW_EXPANDED_MAX_HEIGHT,
   INLINE_PREVIEW_MAX_HEIGHT,

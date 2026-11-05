@@ -10,7 +10,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
-import { ThoughtRow, thoughtDuration, thoughtParts } from "./ThoughtRow";
+import { ThoughtRow } from "./ThoughtRow";
+import { thoughtDuration, thoughtParts } from "./thoughtRowModel";
 import { THOUGHT_LIVE_PX, thoughtLayout, thoughtPreview, type ThoughtFoldThreshold, type ThoughtHeader } from "./thoughtRowModel";
 import { foldMotion } from "./fold";
 
