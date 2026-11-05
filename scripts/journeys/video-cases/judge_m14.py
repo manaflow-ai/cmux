@@ -17,6 +17,8 @@ rows. m20 per kind (terminal, page, agent), a frame fails as:
   foreign      a non-page color between a page's content and its pane edge (the shell, a neighbour's ground)
   frozen       a page whose layout width stays while its pane's width moves by more than 2 px
   gap, edge    a terminal: shell beyond its content; an edge off its pane edge (a grid its view cuts too)
+  band         a terminal's ground run at its pane edge wider than padding + one cell: its program's grid is behind its
+               view (the width in px is the frame's offset); m18 too
   wrap         a primary-screen terminal's text not wrapped at the frame's columns
 and is information:
   lag          a page smaller or larger than its pane (clipped at its edge, its own color beside it), and a terminal's
@@ -105,10 +107,12 @@ def film_verdict(report: dict, contract: str = "m20", smooth: dict | None = None
         elif not smooth_judged and status == "pass":
             status = "not judged"
     unjudged = sum(v.get("not_judged", 0) for v in kinds.values())
+    lost_sides = sum(v.get("lost_sides", 0) for v in kinds.values())
     touching = sum(v.get("touch_not_judged", 0) for v in kinds.values())
     stale_judged = all(v.get("stale_judged", True) for v in kinds.values())
     return {"base": report.get("base"), "contract": contract, "status": status, "not_judged_frames": unjudged,
-            "touch_not_judged_edges": touching, "stale_judged": stale_judged, "smooth_judged": smooth_judged, "kinds": kinds,
+            "touch_not_judged_edges": touching, "stale_judged": stale_judged, "smooth_judged": smooth_judged,
+            "lost_sides": lost_sides, "kinds": kinds,
             "late_as_a_whole": rows.get("late_as_a_whole"), "late_as_a_whole_ranges": rows.get("late_as_a_whole_ranges"),
             "smooth": smooth, "notes": report.get("notes") or []}
 
@@ -139,7 +143,8 @@ def line_of(film: dict, classes) -> str:
     word = film["status"].upper() + (f", {film['not_judged_frames']} frames not judged" if film["not_judged_frames"] else "") \
         + (f", {film['touch_not_judged_edges']} touching edges not judged" if film["touch_not_judged_edges"] else "") \
         + ("" if film.get("stale_judged", True) else ", stale not judged") \
-        + (", smooth not judged" if film.get("smooth_judged") is False else "")
+        + (", smooth not judged" if film.get("smooth_judged") is False else "") \
+        + (f", {film['lost_sides']} frames with a side lost in motion (not judged)" if film.get("lost_sides") else "")
     line = f"{name}: {contract} {word} | " + " | ".join(parts) + f" | late as a whole {film['late_as_a_whole']} (the window showed a whole old frame)"
     return line + (f" | {smooth_line(film['smooth'], contract)}" if "smooth" in film else "")
 

@@ -126,6 +126,14 @@ WRAP_DEFAULTS = {"cell_px": 16, "pad_px": 8, "colors": ["#FF8000", "#8000FF"], "
 TERMINAL_LAG_REFRESHES = 2  # m20 (m19, STATUS 14113): a terminal's last frame may show this many refreshes, clipped
 FROZEN_MIN_PX = 2.0         # m20: a pane width change above this in a motion makes a page that keeps its width frozen
 FROZEN_MIN_FRAMES = 3       # m20: frames of a motion (its pane off its rest width) that must show the page's rest width
+# m18/m20 band (pixel-perfect, STATUS 14660): a terminal's ground run at its pane edge wider than padding + one cell - 1 + 2
+# px is a program grid behind its view (8 + 16 - 1 + 2 = 25 at scale 2, the fixture's padding and cell); read on scan lines
+# from below the header to above the bottom padding plus one cell, with the run's end within BAND_NEAR_PX of the pane edge
+BAND_GROUND_TOL = 8
+BAND_NEAR_PX = 24
+BAND_LIMIT_PX = 25                     # padding 8 + one cell 16 - 1 + 2 (the ring fixture at scale 2; band_check.py)
+BAND_PAD_PX = 8                        # the ring fixture's padding (device px): a line's limit is pad + its ring 1 + 1
+BAND_BOTTOM_PT = 30.0                  # rows this close to the pane's bottom are its padding and last cell (not read)
 PILL_TOL = 6                # a strip pixel this far (max channel) from the strip's ground is not ground: the pill, text
 PILL_BRIDGE = 2             # ground gaps this narrow inside a run (between glyphs) are bridged
 PILL_MIN_PX = 12            # the selected tab's pill: the longest run of non-ground pixels, at least this long
@@ -276,6 +284,7 @@ class Film:
             self.period = float(np.median(d)) if len(d) else 1 / 120
         roles = dict(ROLE_DEFAULT, **(self.note.get("roles") or {}))
         self.roles = {k: code_of(v) for k, v in roles.items()}
+        self.ground_rgb = np.array(rgb_of(roles["theme"]), np.int16)  # a terminal's ground (judge_band)
         self.shell_rgb = np.array(rgb_of(roles["shell"]), np.int16)
         self.strip_rgb = rgb_of(roles["strip"])
         self.panes = {}  # trace pane id -> {kind, fill code, label}
@@ -1492,7 +1501,8 @@ def judge(base, all_frames=False, stale=True):
     judge_page_windows(film, shown, measured, summary, add_frame)
     surfaces = judge_surfaces(film, clock_shown, stale)  # m18 terminals from the trace: held and stale
     wrap = judge_wrap(film, shown, surfaces)  # m18 text wrap of a primary-screen pane (the note's `wrap`)
-    report["m6"] = judge_m6(film, shown, measured, side_rest, strips, repeats["late"], surfaces, wrap)
+    band = judge_band(film, shown, side_rest)  # m18/m20: a terminal's ground band at its pane edge (STATUS 14660)
+    report["m6"] = judge_m6(film, shown, measured, side_rest, strips, repeats["late"], surfaces, wrap, band)
     report["m14"] = report["m6"].pop("m14")  # cmux-ad m14: the same edges, m6's allowances failed (judge_m14.py)
     report["m18"] = report["m6"].pop("m18")  # cmux-ad m18: m14 with its page and terminal rules replaced
     report["m20"] = report["m6"].pop("m20")  # cmux-ad m20: page lag reported; protrude, foreign and frozen fail
@@ -1637,14 +1647,14 @@ M14_ORDER = M14_FAIL_CLASSES + ("pass", "not judged")
 # m18 (Lead 2026-11-05, STATUS 13889): replaces m14's terminal and page rules where they differ. held and stale come from
 # the trace (judge_surfaces; m14 stays the pixel contract of the m14 tables). lag_ok (a page on the frame of at most
 # PAGE_LAG_REFRESHES refreshes before) passes; it is counted (lag_1_2).
-M18_FAIL_CLASSES = ("held", "stale", "scaled", "protrude", "gap", "edge", "allowed", "wrap", "lag")
+M18_FAIL_CLASSES = ("held", "stale", "scaled", "protrude", "gap", "edge", "band", "allowed", "wrap", "lag")
 M18_ORDER = M18_FAIL_CLASSES + ("lag_ok", "pass", "not judged")
 M14_OF_M6 = {"pass": "pass", "late": "allowed", "page late 1": "page_late", "not judged": "not judged"}
 # m20 (Lead 2026-11-05, STATUS 14130; pixel-perfect's FIX at 19a5f7a0efc): pages lag as best they can and the lag is
 # reported, never failed; their hard gates are protrude, foreign (a non-page color beside the content) and frozen (a layout
 # width that does not change in a motion of its pane). Terminals: m18 with the m19 allowance (STATUS 14113): its last frame
 # for at most TERMINAL_LAG_REFRESHES refreshes, clipped, never stretched (lag). lag is information (M20_INFO_CLASSES).
-M20_FAIL_CLASSES = ("held", "stale", "scaled", "protrude", "foreign", "frozen", "gap", "edge", "wrap")
+M20_FAIL_CLASSES = ("held", "stale", "scaled", "protrude", "foreign", "frozen", "gap", "edge", "band", "wrap")
 M20_INFO_CLASSES = ("lag",)
 M20_ORDER = M20_FAIL_CLASSES + M20_INFO_CLASSES + ("pass", "not judged")
 
@@ -1757,6 +1767,72 @@ def judge_surfaces(film, shown, stale=True):
     lag = {f: lag_ok[shown[f]] for f in frames}
     return {"frames": frames, "lag_ok": lag, "phase": phase, "votes": votes, "unmatched": sum(u for _, u in matched),
             "stale": stale, "committed": committed}
+
+
+def judge_band(film, shown, side_rest=None):
+    """m18/m20 band (pixel-perfect's band_check.py, STATUS 14660): per film frame (the clock SHOWN) and ring-fixture terminal
+    pane ("tui"), the widest run of the terminal's ground color (the note's theme role, within BAND_GROUND_TOL) on a scan
+    line through the pane, that ends (hi side) or starts (lo side) within BAND_NEAR_PX of the pane's edge in the shown
+    sample: wider than padding + one cell - 1 + 2 px it is the program's grid behind its view (its surface is at the pane's
+    size; the program has not redrawn). The cell along the line is ring 1's rest width on that line and side (SIDE_REST:
+    the cell's width on a row, its height on a column; rows with none use BAND_LIMIT_PX, columns with none are not read).
+    Scan rows from below the header to BAND_BOTTOM_PT above the pane's bottom; scan columns for the bottom side, from
+    below the header. {f: [(width px, where)]}."""
+    out = collections.defaultdict(list)
+    # ring-fixture terminals only: a text pane (`wrap`, judge_wrap) shows its ground after every short line
+    tui = [pid for pid, info in film.panes.items() if info["kind"] == "tui" and not info["agent"] and "wrap" not in info]
+    if not tui:
+        return out
+    s = film.scale
+    ground = film.ground_rgb
+
+    def limit_of(pid, name, axis, side):
+        rest = (side_rest or {}).get((pid, name, axis, side))
+        ring1 = rest[1][0] if rest and rest[1] and rest[1][0] else None
+        if ring1:
+            return BAND_PAD_PX + ring1 + 1
+        return BAND_LIMIT_PX if axis == "row" else None
+    for name, axis, coord, px in film.lines():
+        if px is None:
+            continue
+        for f in range(film.n):
+            k = shown[f]
+            if k is None:
+                continue
+            smp = film.samples[k]
+            for pid in tui:
+                row = smp.panes.get(pid)
+                if row is None or len(row) < 5:
+                    continue
+                x, y, w, h = (float(v) for v in row[1:5])
+                top = y + film.headers.get(pid, 0.0)
+                if axis == "row":
+                    if not top * s + 4 <= coord <= (y + h - BAND_BOTTOM_PT) * s:
+                        continue
+                    lo, hi = x * s, (x + w) * s
+                else:
+                    if not x * s + 4 <= coord <= (x + w) * s - 4:
+                        continue
+                    lo, hi = top * s, (y + h) * s
+                a, b = max(0, int(lo) - BAND_NEAR_PX), min(px.shape[1], int(math.ceil(hi)) + BAND_NEAR_PX)
+                if b - a < 2:
+                    continue
+                rgb = px[f, a:b, 2::-1].astype(np.int16)
+                mask = np.abs(rgb - ground).max(-1) <= BAND_GROUND_TOL
+                if not mask.any():
+                    continue
+                edges = np.flatnonzero(np.diff(np.concatenate(([0], mask.astype(np.int8), [0]))))
+                for r0, r1 in zip(edges[::2], edges[1::2]):
+                    x0, x1 = a + int(r0), a + int(r1)
+                    side = "hi" if abs(x1 - hi) <= BAND_NEAR_PX else ("lo" if abs(x0 - lo) <= BAND_NEAR_PX and axis == "row" else None)
+                    if axis == "col" and side != "hi":
+                        continue  # a column reads the bottom side only (the top is the strip's)
+                    limit = limit_of(pid, name, axis, side) if side else None
+                    if axis == "col" and limit is not None and x0 - lo <= limit:
+                        continue  # ground from the pane's top down: a column beside the grid (the rows judge that band)
+                    if limit is not None and x1 - x0 > limit:
+                        out[f].append((float(x1 - x0), f"{film.panes[pid].get('label') or pid} {name} {side} (band)"))
+    return out
 
 
 def judge_wrap(film, shown, surfaces):
@@ -2004,7 +2080,7 @@ def _next_distinct(values):
     return out
 
 
-def judge_m6(film, shown, measured, side_rest, strips, late_repeats=(), surfaces=None, wrap=None):
+def judge_m6(film, shown, measured, side_rest, strips, late_repeats=(), surfaces=None, wrap=None, band=None):
     """3e, the judge part of cmux-ad m6 1d (FRAME OWNER): per film frame and content kind (terminal, page, agent), each
     content edge against its pane edge as cmux's own layer shows it in the same film frame (3e.1: never the trace): the
     pane's tab strip on its strip row (x edges) and the strip's top on each scan column that crosses it (the pane's top
@@ -2046,6 +2122,7 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=(), surfaces
     m20_frames = {kind: collections.defaultdict(list) for kind in M6_KINDS}  # the same for m20
     page_rows = collections.defaultdict(dict)  # m20: (pid, row line) -> side -> page edge per frame (frozen, lag stats)
     grid_lag = set()  # m18: frames where a terminal's program grid lags its view on the hi side (information)
+    lost = collections.defaultdict(set)  # kind -> frames with a side found at rest and not found while its pane moves
     for key, per in sorted(measured.items()):
         if key not in side_rest:
             continue  # a side the pane loop does not judge (no fill on the line at rest)
@@ -2175,6 +2252,17 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=(), surfaces
             if page_like and m is not None and m.get("why") == PAGE_CLIPPED:
                 m20_frames[kind][f].append(("lag", None, edge_name + " (clipped at its pane edge)"))
                 continue
+            if m is not None and m.get("status") == "not found" and rest and shown[f] is not None and \
+                    m.get("why") != TOUCH_NOT_JUDGED:
+                k = shown[f]
+                now, before = film.samples[k].panes.get(pid), film.samples[k - 1].panes.get(pid) if k > 0 else None
+                wi = 3 if axis == "row" else 4
+                if now is not None and before is not None and len(now) >= 5 and len(before) >= 5 and \
+                        abs(float(now[wi]) - float(before[wi])) * film.scale >= TOL_PX:
+                    # pixel-perfect (STATUS 14660): a side found at rest and lost in motion is never dropped silently
+                    lost[kind].add(f)
+                    for frames_ in (m18_frames, m20_frames):
+                        frames_[kind][f].append(("not judged", None, edge_name + " (not found in motion)"))
             if m is None or m.get("status") not in ("found", "cut"):
                 continue
             cur, prev, nxt = pane_at(f)
@@ -2266,13 +2354,20 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=(), surfaces
         kind = m6_kind(film.panes[pid])
         for f in where["frames"]:
             m20_frames[kind][f].append(("frozen", None, where["why"]))
+    for f, bands in (band or {}).items():
+        for width, where in bands:
+            for frames_ in (m18_frames, m20_frames):
+                frames_["terminal"][f].append(("band", width, where))
     lag_extra = {kind: page_lag_stats(film, shown, page_rows, kind) for kind in ("page", "agent")}
+    for kind in M6_KINDS:
+        lag_extra.setdefault(kind, {}).update(lost_sides=len(lost[kind]), lost_sides_ranges=ranges(lost[kind]))
     surface20 = surface_rows_m20(film, surfaces, m20_frames, wrap)
     surface = surface_rows(film, surfaces, m18_frames, wrap)
     if surface is not None:
         surface.update(program_grid_lag=len(grid_lag), program_grid_lag_ranges=ranges(grid_lag))
     out["m14"] = m14_rows(m14_frames, touch_edges, touch_frames, out)
-    out["m18"] = contract_rows(m18_frames, M18_FAIL_CLASSES, M18_ORDER, touch_edges, touch_frames, out, surface)
+    out["m18"] = contract_rows(m18_frames, M18_FAIL_CLASSES, M18_ORDER, touch_edges, touch_frames, out, surface,
+                               extra={k: {x: v[x] for x in ("lost_sides", "lost_sides_ranges")} for k, v in lag_extra.items()})
     out["m20"] = contract_rows(m20_frames, M20_FAIL_CLASSES, M20_ORDER, touch_edges, touch_frames, out, surface20,
                                M20_INFO_CLASSES, lag_extra)
     return out
