@@ -20,16 +20,23 @@ import Testing
         let descriptor: SettingDescriptor
         let url: URL
         let panels: [NSWindow]
+        let source: SettingsPaletteSource
 
         var rowID: String { "setting:\(descriptor.id)" }
         var row: PaletteItem? { palette.model.rows.first { $0.item.id == rowID }?.item }
         /// The row's on/off state, as its symbol shows it.
         var rowIsOn: Bool? { row.map { $0.symbol == "checkmark.circle.fill" } }
         var storedIsOn: Bool { descriptor.effectiveValue(in: settings.snapshot.root)?.boolValue ?? false }
+        /// What the row shows on any redraw of the page: the source's row now.
+        var redrawnIsOn: Bool? {
+            guard case .toggle(let isOn)? = source.rows.first(where: { $0.id == descriptor.id })?.kind else { return nil }
+            return isOn
+        }
 
         func tearDown() {
             // The palette keeps its panel for the next open; this palette has none, so it closes.
             // The search field ends editing first, so the system's text input window goes with it.
+            settings.stop()
             for panel in panels { panel.makeFirstResponder(nil) }
             palette.hide()
             for panel in panels {
@@ -40,7 +47,8 @@ import Testing
         }
     }
 
-    func make() async throws -> Harness {
+    /// `watching`: the file watcher runs, as in the app, so its loads overlap the writes' own.
+    func make(watching: Bool = false) async throws -> Harness {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-palette-setting-\(UUID().uuidString)")
         var completed = false
@@ -52,17 +60,19 @@ import Testing
         try Data("{}".utf8).write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        if watching { settings.start() }
         await settings.reload()
         let descriptor = try #require(SettingsSchema.all.first {
             $0.isPaletteExposed && $0.kind == .toggle && $0.defaultValue == .bool(false)
         })
         var sources = PaletteSources()
-        sources.settings = SettingsPaletteSource(settings: settings, themeColors: { [] })
+        let source = SettingsPaletteSource(settings: settings, themeColors: { [] })
+        sources.settings = source
         let palette = PaletteController(registry: ActionRegistry.standard(), sources: sources, frecencyPersistence: nil)
         #expect(palette.show(scope: PaletteScopeID.settings))
         // Keep ownership independently of visibility before the first suspension can lose focus.
         let harness = Harness(settings: settings, palette: palette, descriptor: descriptor, url: url,
-                              panels: NSApp.windows.filter { palette.owns($0) })
+                              panels: NSApp.windows.filter { palette.owns($0) }, source: source)
         defer { if !completed { harness.tearDown() } }
         palette.model.send(.setQuery(descriptor.title))
         await palette.model.settle()
@@ -120,6 +130,44 @@ import Testing
         print("palette setting toggle-to-row: shown \(shown), write landed \(landed)")
         // The palette stays on the same page and query.
         #expect(harness.palette.model.query == harness.descriptor.title)
+    }
+
+    /// Leo, 2026-11-05: "when things get toggled on and off in the command palette, like it shouldn't
+    /// flicker, but it flickers right now. It goes like on and off." With the file watcher running, a
+    /// load that read the file before the write could apply after the write's own load, so the stored
+    /// value (and the row, on its next redraw) went back to the old value until the next load. Each
+    /// click must change the row once, and the stored value once.
+    @Test func aToggleChangesItsRowOnceWhileTheWatcherReloads() async throws {
+        let harness = try await make(watching: true)
+        defer { harness.tearDown() }
+        var expected = false
+        for round in 0..<12 {
+            #expect(harness.redrawnIsOn == expected)
+            expected.toggle()
+            var shown: [Bool] = []
+            var stored: [Bool] = [harness.storedIsOn]
+            func sample() {
+                if let value = harness.redrawnIsOn, shown.last != value { shown.append(value) }
+                if stored.last != harness.storedIsOn { stored.append(harness.storedIsOn) }
+            }
+            try toggle(harness)
+            sample()
+            // The write lands, then the watcher's own loads of it: sample until well after.
+            let deadline = ContinuousClock.now + .seconds(5)
+            while harness.storedIsOn != expected, ContinuousClock.now < deadline {
+                sample()
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+            let after = ContinuousClock.now + .milliseconds(400)
+            while ContinuousClock.now < after {
+                sample()
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+            #expect(shown == [expected], "round \(round): the row showed \(shown)")
+            #expect(stored == [!expected, expected], "round \(round): the stored value went \(stored)")
+            await harness.palette.model.settle()
+            #expect(harness.rowIsOn == expected, "round \(round): the palette's row")
+        }
     }
 
     @Test func aToggleWhoseWriteFailsGoesBack() async throws {
