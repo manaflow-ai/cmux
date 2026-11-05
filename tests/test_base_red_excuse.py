@@ -1019,7 +1019,7 @@ class Excusing(unittest.TestCase):
         original = self.gh.json
 
         def json_with_checks(route, *, paginate=False):
-            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 return copy.deepcopy(self.gh.check_runs)
             if route.endswith("/actions/jobs/1"):
                 return copy.deepcopy(self.gh.jobs[1])
@@ -1034,7 +1034,7 @@ class Excusing(unittest.TestCase):
         original = self.gh.json
 
         def json_with_checks(route, *, paginate=False):
-            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 return copy.deepcopy(self.gh.check_runs)
             if "/actions/jobs/" in route:
                 return copy.deepcopy(self.gh.jobs[int(route.rsplit("/", 1)[1])])
@@ -1293,7 +1293,7 @@ class StatusOnlyChecks(unittest.TestCase):
         original = self.gh.json
 
         def json(route, *, paginate=False):
-            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 self.gh.routes.append(route)
                 return [{"check_runs": []}]
             if route.endswith(f"commits/{HEAD}/status?per_page=100"):
@@ -1376,7 +1376,7 @@ class JoblessStatusChecks(unittest.TestCase):
 
         def json(route, *, paginate=False):
             self.gh.routes.append(route)
-            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
                 return [{"check_runs": []}]
             if route.endswith(f"commits/{HEAD}/status?per_page=100"):
                 return {"statuses": [copy.deepcopy(self.head)]}
