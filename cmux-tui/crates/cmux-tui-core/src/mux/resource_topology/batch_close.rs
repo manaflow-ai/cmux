@@ -55,6 +55,12 @@ pub(crate) struct BatchCloseRequest<'a> {
     /// `close-workspace` `if_empty`: refuse (`workspace_not_empty`) when the
     /// target workspace has a tab at commit time.
     pub if_empty: bool,
+    /// A tab of `Tabs` that is no longer placed at commit time is skipped,
+    /// not refused (`layout.bulk`: a close asks for it to be gone, and it is).
+    pub skip_gone: bool,
+    /// Workspaces with no tab that close in the same plan (`layout.bulk`'s chosen
+    /// empty workspaces); a space delete passes its own in `room`.
+    pub bare: Vec<WorkspaceId>,
 }
 
 /// The space delete a batch close is part of (SPACE-DELETE-CLOSES-ITS-
@@ -191,7 +197,21 @@ impl Mux {
         let mut tab_groups = None;
         let mut plan = match &request.target {
             BatchCloseTarget::Tabs(surfaces) => {
-                let bare = request.room.as_ref().map_or(&[][..], |room| &room.bare[..]);
+                let bare = request.room.as_ref().map_or(&request.bare[..], |room| &room.bare[..]);
+                let placed;
+                let surfaces = if request.skip_gone {
+                    placed = surfaces
+                        .iter()
+                        .copied()
+                        .filter(|surface| state.pane_of(*surface).is_some())
+                        .collect::<Vec<_>>();
+                    &placed
+                } else {
+                    surfaces
+                };
+                if request.skip_gone && surfaces.is_empty() && bare.is_empty() {
+                    anyhow::bail!("close target disappeared");
+                }
                 self.tabs_close_plan_locked(
                     surfaces,
                     bare,
@@ -501,6 +521,8 @@ impl Mux {
             room: None,
             result: None,
             if_empty: false,
+            skip_gone: false,
+            bare: Vec::new(),
         })
     }
 
@@ -533,6 +555,8 @@ impl Mux {
             room: Some(room),
             result: None,
             if_empty: false,
+            skip_gone: false,
+            bare: Vec::new(),
         })
     }
 
@@ -541,10 +565,40 @@ impl Mux {
     /// containers they empty close in the same plan and join the group.
     /// `result` is the request's result, stored for its replay. `rule` is
     /// the single close of the request's level.
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn close_tabs_for_bulk(
         &self,
         surfaces: Vec<SurfaceId>,
+        end_terminals: bool,
+        operation: &str,
+        rule: ResourceOperation,
+        fingerprint: &Value,
+        mutation: &WorkspaceMutation,
+        authorize_workspace: bool,
+        result: Value,
+    ) -> anyhow::Result<BatchCloseOutcome> {
+        self.close_tabs_and_bare_for_bulk(
+            surfaces,
+            Vec::new(),
+            end_terminals,
+            operation,
+            rule,
+            fingerprint,
+            mutation,
+            authorize_workspace,
+            result,
+        )
+    }
+
+    /// `close_tabs_for_bulk` plus `bare`, chosen workspaces with no tab:
+    /// they close in the same plan and join the group (`layout-bulk-bare-v1`).
+    /// A chosen tab that left before the commit is skipped (`skip_gone`).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn close_tabs_and_bare_for_bulk(
+        &self,
+        surfaces: Vec<SurfaceId>,
+        bare: Vec<WorkspaceId>,
         end_terminals: bool,
         operation: &str,
         rule: ResourceOperation,
@@ -562,11 +616,13 @@ impl Mux {
             mutation,
             expected_generation: None,
             expected_workspace_revision: None,
-            authorize_workspace,
+            authorize_workspace: authorize_workspace || !bare.is_empty(),
             record_closed: true,
             room: None,
             result: Some(result),
             if_empty: false,
+            skip_gone: true,
+            bare,
         })
     }
 
@@ -611,6 +667,8 @@ impl Mux {
             room: None,
             result: None,
             if_empty: false,
+            skip_gone: false,
+            bare: Vec::new(),
         })
     }
 
@@ -698,6 +756,8 @@ impl Mux {
             room: None,
             result: None,
             if_empty,
+            skip_gone: false,
+            bare: Vec::new(),
         })?;
         let revision = match outcome.workspace_revision {
             Some(revision) => revision,

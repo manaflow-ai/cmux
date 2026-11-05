@@ -55,6 +55,9 @@ const UI_FONT_LABEL: Record<ChatUiFont, StringKey> = {
   plex: "chatDisplay.uiFontPlex",
   "source-sans": "chatDisplay.uiFontSourceSans",
   geist: "chatDisplay.uiFontGeist",
+  "cmux-sans": "chatDisplay.uiFontCmuxSans",
+  hanken: "chatDisplay.uiFontHanken",
+  atkinson: "chatDisplay.uiFontAtkinson",
   "system-ui": "chatDisplay.uiFontSystemUi",
   "system-ui-tight": "chatDisplay.uiFontSystemUiTight",
 };

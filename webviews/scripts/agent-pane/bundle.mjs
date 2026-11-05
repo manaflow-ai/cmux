@@ -64,7 +64,8 @@ const result = await build({
   legalComments: "none",
   // An imported PNG or WOFF2 becomes a data URL: a page ships as one index.html and its CSP allows
   // `img-src data:` and fonts from data: only (the Settings page's Chief Pet mascots, the chat's
-  // interface font choices, chatFonts/faces.ts, behind a dynamic import).
+  // interface font choices, chatFonts/faces.ts, and the Updated card doodle's handwriting, both
+  // behind a dynamic import).
   loader: { ".png": "dataurl", ".woff2": "dataurl" },
   alias: shikiAlias === "-" ? {} : { shiki: path.resolve(shikiAlias) },
   logLevel: "warning",
