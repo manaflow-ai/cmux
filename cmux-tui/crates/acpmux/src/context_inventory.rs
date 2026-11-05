@@ -269,6 +269,9 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 /// change the effective text reported for an existing chat.
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     let mut parts = snapshot(cfg, &meta.cwd);
+    // A folder set up for another harness: its instructions, which this one does not read itself.
+    let family = cfg.family(&meta.harness).unwrap_or_else(|| meta.harness.clone());
+    parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
     if let Some(default) = verified_prompt_text(meta, cfg) {
         let text = meta.cmux_preset_prompt.clone().unwrap_or(default);
         parts.push(ContextPart {
@@ -326,7 +329,10 @@ pub fn record_preset_source(meta: &mut SessionMeta, part: Option<ContextPart>) {
 pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
     for part in parts.into_iter().flatten().filter(|p| {
         p.included
-            && matches!(p.source.as_str(), "cmux-default" | "cmux-user" | "cmux-project")
+            && matches!(
+                p.source.as_str(),
+                "cmux-default" | "cmux-user" | "cmux-project" | crate::folder_instructions::SOURCE
+            )
             && p.channel.as_deref().is_none_or(|channel| channel == "user-context")
     }) {
         if let Some(text) = part.text.as_deref() {
