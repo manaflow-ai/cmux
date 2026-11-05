@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextGitHubViewer
 import CmuxNextSettings
+import CmuxNextControl
 import os
 
 private typealias JSON = CmuxNextSettings.JSONValue
@@ -21,6 +22,9 @@ private typealias JSON = CmuxNextSettings.JSONValue
 ///   window's focused pane is a new pane);
 /// - `confirmed_ms`: the first frame at which the daemon's object replaced the provisional one
 ///   (no `pending_tab_` id, no provisional pane handle), or null within 5 s;
+/// - `committed_ms`: a lower bound for key-to-pixels, null when the result first held in the visible tick's own pass (``BenchFrames/lastCommitted``);
+/// - `key_changes`: the cmux windows' key-window gains and losses (`key.become`, `key.resign`) up to the daemon's confirm,
+///   and `spans_full` true when the 512-span ring filled (the count may then be short);
 /// - `frames_to_visible`: display frames from the key to `visible_ms` (1 = the next frame);
 /// - `spans`: the main-thread spans and marks `BenchSpans` recorded (handler stages, daemon reply).
 ///
@@ -89,7 +93,8 @@ enum DebugInstantCreateBench {
             _ = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(arguments: arguments))
         } else { _ = DebugKey.send(["key": .string(key), "modifiers": .array(modifiers.map(JSON.string)), "window": .string(controller.state.id)], services: services) }
         let keyMilliseconds = BenchSpans.ms(.now - start)
-        let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000)
+        let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000, watchCommits: true)
+        let committed = frames.lastCommitted
         let chrome = visible == nil || command != .newBrowser ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
         let opensRight = command == .linkRight || command == .splitBrowser
@@ -112,6 +117,7 @@ enum DebugInstantCreateBench {
             "key_ms": .number(keyMilliseconds),
             "visible_ms": visible.map { .number($0) } ?? .null,
             "confirmed_ms": confirmed.map { .number($0) } ?? .null,
+            "committed_ms": committed.map { .number($0) } ?? .null, "key_changes": .number(Double(spans.count(where: { $0.name.hasPrefix("key.") }))), "spans_full": .bool(spans.count >= BenchSpans.capacity),
             "page_ms": page.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "github": .array(githubShown.withLock { $0 }.map(JSON.string)),
             "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"),
             "spare_window": .string(services.cache.cef.spareWindowState),

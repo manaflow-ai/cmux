@@ -395,3 +395,36 @@ fn the_writer_answers_its_own_request_after_its_first_commit() {
         "the writer served B's commit before it answered its own request"
     );
 }
+
+/// `goal_set` answers only once the goal is on disk: the goal outlives a restart, so an answered
+/// goal that a crash right after loses breaks that. Codex review of #36413, finding F2.
+#[test]
+fn a_goal_set_answers_only_once_the_goal_is_on_disk() {
+    let dir = std::env::temp_dir().join(format!("acpmux-goal-durable-{}", uuid::Uuid::now_v7()));
+    let (hub, session) = hub_with_chat(&dir);
+    let (release, writer) = hold_next_write(&hub, &session);
+    let set = {
+        let (hub, session, dir) = (hub.clone(), session.clone(), dir.clone());
+        std::thread::spawn(move || {
+            let request = crate::generic_goal::GoalRequest {
+                objective: "Make the suite pass".into(),
+                done_when: "cargo test passes".into(),
+                token_budget: None,
+                time_budget_minutes: None,
+            };
+            let answer = hub.goal_set(&session, &request);
+            // What a crash right after the answer would leave.
+            (answer, !on_disk(&dir, &session.id)["goal"].is_null())
+        })
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+    while !set.is_finished() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    release.send(()).unwrap();
+    writer.join().unwrap();
+    let (answer, on_disk_at_answer) = set.join().unwrap();
+    answer.expect("the goal");
+    assert!(on_disk_at_answer, "goal_set answered before the goal was on disk");
+    let _ = std::fs::remove_dir_all(&dir);
+}

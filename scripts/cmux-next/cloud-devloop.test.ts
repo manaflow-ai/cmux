@@ -37,6 +37,9 @@ describe("cloud devloop", () => {
     expect(s).toContain("mv -Tf /opt/cmux/current.devloop /opt/cmux/current");
     expect(s).toContain("systemctl --user restart acpmux.service");
     expect(s).not.toContain("cmux-host.service");
+    // cp -a keeps the image profile's old mtime: the new profile is touched, and the prune never takes it.
+    expect(s).toContain(`sudo -n touch "$P"`);
+    expect(s).toContain(`{ grep -vxF "$P" || true; }`);
   });
 
   test("uploads in pieces under the 768 KiB machine write limit, in order, retrying a failed piece", async () => {

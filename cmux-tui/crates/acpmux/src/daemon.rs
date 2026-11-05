@@ -52,6 +52,10 @@ pub(crate) mod owner_exit;
 /// A process's start time, which with its pid names it (the test owner, `owner_exit.rs`).
 pub use owner_exit::process_start;
 mod persist_retry;
+// The provisioning exec's person key for the running daemon (Cloud machines).
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) mod provision;
 #[cfg(unix)]
 mod socket_rebind;
 mod stop_causes;
@@ -168,6 +172,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     windows::keep_from_children(opts.ready_fd);
     // Before anything is spawned: the key never reaches a child.
     let person_key = opts.person_key_fd.and_then(read_person_key);
+    // A Cloud machine's daemon, which the provisioning exec may give the key later: not dumpable for
+    // its whole run, from before anything is spawned (`daemon/provision.rs`).
+    #[cfg(unix)]
+    provision::at_start();
     // A capture fixture that cannot be read stops the start: a capture must
     // never show this host's harnesses in its place (`harness_fixture.rs`).
     crate::harness_fixture::check().map_err(|why| anyhow!(why))?;
@@ -1076,8 +1084,6 @@ fn is_socket(f: &std::fs::File) -> bool {
 /// --keep-agents`). Returns the daemon's readiness line.
 #[cfg(unix)]
 pub async fn start_keyed(fd: i32) -> Result<String> {
-    use std::io::Read;
-    use std::os::fd::FromRawFd;
     not_dumpable().context("make the launcher not dumpable before it reads the person key")?;
     exe_path::check_start()?;
     let path = socket_path();
@@ -1087,11 +1093,41 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
             path.display()
         ));
     }
+    let key = read_key_line(fd)?;
+    // Another daemon is stopping or starting: start again until this key's daemon has the lock,
+    // never leaving the caller to start an unkeyed one.
+    loop {
+        let ready = start_daemon_with(Some(key.clone())).await?;
+        if !lock_held(&ready) {
+            // A keyed daemon that exited before it was ready fails this start: the caller must
+            // not go on to start an unkeyed daemon in its place.
+            anyhow::ensure!(
+                !ready.trim().is_empty(),
+                "the keyed daemon exited before it was ready; see {}",
+                home().join("daemon.log").display()
+            );
+            return Ok(ready);
+        }
+        tokio::time::sleep(HANDOVER_RETRY).await;
+        if Client::connect(&path).await.is_ok() {
+            return Err(anyhow!(
+                "a daemon started at {} meanwhile: it holds another person key or none; stop it with `acpmux daemon shutdown --keep-agents`, then start it again with the key",
+                path.display()
+            ));
+        }
+    }
+}
+
+/// One person key line (64 lowercase hex characters and a newline) from `fd`, which stays open
+/// (stdin), read straight into one fixed buffer that is zeroed on drop: no reader buffer keeps
+/// another copy. The caller made itself not dumpable first.
+#[cfg(unix)]
+pub(crate) fn read_key_line(fd: i32) -> Result<zeroize::Zeroizing<String>> {
+    use std::io::Read;
+    use std::os::fd::FromRawFd;
     // SAFETY: the caller passed this descriptor for this process to read;
     // ManuallyDrop: stdin stays open for the process.
     let input = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(fd) });
-    // Straight into one fixed buffer that is zeroed on drop: no reader
-    // buffer keeps another copy. One line: 64 hex characters and a newline.
     let mut line = zeroize::Zeroizing::new([0u8; 129]);
     let mut filled = 0;
     while filled < line.len() && !line.get(..filled).unwrap_or_default().contains(&b'\n') {
@@ -1116,28 +1152,7 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
             "--person-key-fd {fd}: not a person key (64 lowercase hex characters)"
         ));
     }
-    // Another daemon is stopping or starting: start again until this key's daemon has the lock,
-    // never leaving the caller to start an unkeyed one.
-    loop {
-        let ready = start_daemon_with(Some(key.clone())).await?;
-        if !lock_held(&ready) {
-            // A keyed daemon that exited before it was ready fails this start: the caller must
-            // not go on to start an unkeyed daemon in its place.
-            anyhow::ensure!(
-                !ready.trim().is_empty(),
-                "the keyed daemon exited before it was ready; see {}",
-                home().join("daemon.log").display()
-            );
-            return Ok(ready);
-        }
-        tokio::time::sleep(HANDOVER_RETRY).await;
-        if Client::connect(&path).await.is_ok() {
-            return Err(anyhow!(
-                "a daemon started at {} meanwhile: it holds another person key or none; stop it with `acpmux daemon shutdown --keep-agents`, then start it again with the key",
-                path.display()
-            ));
-        }
-    }
+    Ok(key)
 }
 
 /// Makes this process not dumpable before it holds a person key (cx-0q7o):

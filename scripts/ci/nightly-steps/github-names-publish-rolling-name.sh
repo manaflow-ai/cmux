@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# nightly.yml publish-nightly-next-github-names: "Publish the rolling DMG name and the feed copy". Moved out of the workflow to keep
+# nightly.yml publish-nightly-next-github: "Publish the rolling DMG name and the feed copy". Moved out of the workflow to keep
 # nightly.yml under GitHub's workflow file size limit; the job's and step's env: still set every input.
 set -euo pipefail
 if ! "$RUNNER_TEMP/still-newest"; then echo "newest=false" >> "$GITHUB_OUTPUT"; exit 0; fi
