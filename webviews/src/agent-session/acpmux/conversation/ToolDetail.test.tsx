@@ -235,7 +235,7 @@ test("an opened call has one copy button for its output, with every hover action
     await open(container);
     // The Output heading's button, never a second one in the output card's corner.
     const copies = [...container.querySelectorAll(".cv-tool-detail button")].filter((button) =>
-      /^Copy/.test(button.getAttribute("aria-label") ?? ""),
+      (button.getAttribute("aria-label") ?? "").startsWith("Copy"),
     );
     expect(copies.map((button) => button.getAttribute("aria-label"))).toEqual(["Copy output"]);
     expect(container.querySelector('.cv-tool-detail__copy[aria-label="Copy output"]')).not.toBeNull();
