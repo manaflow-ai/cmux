@@ -28,6 +28,11 @@ use std::time::Duration;
 pub const NOTICE_WINDOW_MS: u64 = 6 * 60 * 60 * 1000;
 /// Who the notice is from, as the transcript shows it.
 const NOTICE_SENDER: &str = "acpmux who-else";
+/// The notice's provenance kind: hub-set, never a client's, as the turn cap's is. It carries a
+/// tool notice's fields (`notice`, `fromName`), so it reads as one, but it is acpmux's own word,
+/// not another agent's message, so it steers into the person's turn as the turn cap's notice does
+/// (an agent's message waits for that turn to end, `turns.rs` `persons_held`).
+pub const NOTICE_KIND: &str = "who_else";
 /// How long a peer may take to answer before the answer goes on without it.
 const PEER_DEADLINE: Duration = Duration::from_secs(5);
 /// The most rows one answer carries.
@@ -213,6 +218,7 @@ impl Hub {
         }
         let text = crate::prompt_provenance::notice_text(&notice, &notice_body(row));
         let mut provenance = crate::prompt_provenance::notice(&notice, &to.id);
+        provenance["kind"] = json!(NOTICE_KIND);
         provenance["whoElse"] = row.clone();
         let opts = PromptOptions {
             prompt_id: Some(format!("who-else-{}-{other_id}", turn.turn_id)),

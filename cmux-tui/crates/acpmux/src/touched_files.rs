@@ -38,7 +38,8 @@ pub struct TouchedFile {
     /// A tool call edited it (an edit, a write, a delete, a move); else it was only read.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub edited: bool,
-    /// When it was last touched, Unix ms.
+    /// When it was last touched, Unix ms. A file a query names (`{repo, path}`) has none.
+    #[serde(default)]
     pub at: u64,
 }
 
