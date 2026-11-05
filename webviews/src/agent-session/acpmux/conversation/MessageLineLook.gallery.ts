@@ -5,11 +5,14 @@
 // truncated on one line, and of the same rows: "i also think this is quite weird looking". The turn
 // holds `acpmux send` calls that also ran other commands, a SendMessage, another machine's lane's
 // message, the live "Sending message to …" line and seven messages from six sessions that wait.
-// Each look (messageLineLook.ts, theme `messageLineLook`) draws the same chat: `stacked`, the
-// default, puts the verb, recipient chip, count and chevron on the line and the message's first line
-// (a group's senders) on its own line under it; `single` is the one line from before; `quiet` keeps
-// the line alone until the row opens. `opened` shows an opened send: the message at the text
-// column, Copy and Raw quiet under it, nothing beside the chevron.
+// Each look (messageLineLook.ts, theme `messageLineLook`) draws the same chat: `single`, the default
+// since Leo said of the stacked rows (2026-11-03) "i don't think these subtitles are as good as just
+// doing it directly in the same line", keeps the verb, the whole recipient name, the count, the
+// muted first line and then the chevron on one line, the first line taking the cut; `stacked` (#33249)
+// puts the first line on its own line under the row; `quiet` keeps the line alone until the row
+// opens. `opened` shows an opened send. `leo-capture` redraws Leo's 2026-11-03 capture: a bot's
+// received line, sends to long `host/lane` names with "· and 1 more command", SendMessage rows and a
+// "Received 2 messages" run, in each look.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { SESSION_ID, activity, chat, session, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -55,6 +58,10 @@ const sendingNow = (target: string, text: string): AcpmuxActivity =>
     command: `acpmux send ${target} '${text}'`,
     description: `Ask ${target}`,
   });
+
+/// Claude Code's SendMessage to a lane (MessageCard.tsx, AgentMessageRow.tsx).
+const sendMessage = (to: string, message: string): AcpmuxActivity =>
+  tool("SendMessage", "other", "completed", { inputSummary: JSON.stringify({ to, message }) });
 
 const fromPeer = (text: string, minutes: number) =>
   user(text, minutes, {
@@ -139,10 +146,82 @@ function coordinatorTurn(): AcpmuxSnapshot {
   return { ...snapshot, summary: { ...snapshot.summary!, family: "claude" } };
 }
 
-/// Opens the first send, to show the opened message with Copy and Raw under it.
+/// Leo's 2026-11-03 capture, redrawn: a bot's received line, sends to long `host/lane` names (one with
+/// "· and 1 more command"), SendMessage rows to long names whose text starts "From <sender>:", and a
+/// received pair, so the names' cut and the chevrons' place show at a glance.
+function leoCapture(): AcpmuxSnapshot {
+  const bot = (text: string, minutes: number) =>
+    user(text, minutes, {
+      incoming: {
+        kind: "message",
+        message: { name: "disk-hygiene", sessionId: "s-disk", text, raw: text },
+      },
+      untyped: true,
+    });
+  const snapshot = chat(
+    [
+      user("Sweep the fleet's stalled lanes.", 9, { id: "leo-prompt" }),
+      bot("disk-hygiene on build-box-16: no-run: no full run finished in the last 3 h", 8.8),
+      activity(
+        [
+          sendAndMore(
+            "studio-mac/coordinator-fleet-mesh",
+            "coordinator: build-box-16's disk cleanup stalled; it is yours (fleet-mesh owns that class).",
+          ),
+        ],
+        8.6,
+      ),
+      fromPeer("Took it: the cleanup runs read-only checks there until the perf work ends.", 8.4),
+      fromPeer("Done: 41 GB freed, the timer is back on its 6 h schedule.", 8.3),
+      activity(
+        [
+          sendMessage(
+            "cloud-codex-swarm-10/spinner-chatgpt",
+            "From coordinator: please stand down on ask c-8d2b48aedc; it's a duplicate of the spinner lane's.",
+          ),
+          sendMessage(
+            "coordinator-stall-reconciler",
+            "From coordinator: stall-reconciler flags a stack in your area: platform#412 has sat 3 h.",
+          ),
+        ],
+        8,
+      ),
+      activity(
+        [
+          sendAndMore(
+            "studio-mac/coordinator-fleet-mesh",
+            "coordinator: the cleanup is yours; report when the timer is green.",
+          ),
+        ],
+        7.8,
+      ),
+    ],
+    {
+      title: COORD,
+      sessions: [
+        session({ sessionId: SESSION_ID, title: COORD, name: COORD }),
+        session({
+          sessionId: "s-mesh",
+          name: `${PEER}/fleet-mesh`,
+          title: "fleet-mesh",
+          peer: PEER,
+          host: PEER,
+          hostKind: undefined,
+        }),
+      ],
+    },
+  );
+  return { ...snapshot, summary: { ...snapshot.summary!, family: "claude" } };
+}
+
+/// Opens the first send, to show the opened message with Raw under it. In the one-line default
+/// (#34464) a sent row has no Copy (cmux#34865); only the stacked version keeps one under the
+/// message beside Raw (`.cv-subsession__actions`), so the play waits for Raw. It clicks the
+/// message's first line on the row, as a person does: the recipient's chip is a button of its own
+/// that opens that chat.
 const openFirstSend: Play = async (ctx) => {
-  await ctx.click({ selector: ".cv-sent" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-subsession__actions"));
+  await ctx.click({ selector: ".cv-sent .cv-sent__preview" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-subsession__toggle"));
 };
 
 export default agentPaneEntry({
@@ -159,21 +238,42 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/Thinking.tsx",
     "agent-session/acpmux/subagents/DisclosureRow.tsx",
   ],
-  keywords: ["message", "sent", "received", "preview", "two lines", "stacked", "and more commands", "sending"],
+  keywords: [
+    "message",
+    "sent",
+    "received",
+    "preview",
+    "one line",
+    "inline",
+    "two lines",
+    "stacked",
+    "and more commands",
+    "sending",
+    "long names",
+  ],
   variants: {
+    single: {
+      note: "The default: each message row on one line, the verb, the recipient's whole name, the count, the message's first line muted and cut, then the chevron right after the words. Rows read in the transcript's text tone.",
+      snapshot: coordinatorTurn(),
+    },
+    "leo-capture": {
+      note: "Leo's 2026-11-03 capture redrawn in the default: a bot's received line, sends to long host/lane names, two SendMessages folded into one closed \"Sent 2 messages\" line (cmux#34865) and a received pair, each name whole and the first line on the same line.",
+      snapshot: leoCapture(),
+    },
+    "leo-capture-stacked": {
+      note: "Before (cmux#33249's stacked look, gallery version): the same capture with each first line on its own line under the row.",
+      theme: { messageLineLook: "stacked" },
+      snapshot: leoCapture(),
+    },
     stacked: {
-      note: "The default: each message row's verb, recipient chip, count and chevron on its line, the message's first line on its own line under it, cut there. The live send line has the envelope and no token counts; the waiting group's senders sit under its count.",
+      note: "Gallery version (theme messageLineLook stacked, cmux#33249): each message row's verb, recipient chip, count and chevron on its line, the message's first line on its own line under it, cut there.",
+      theme: { messageLineLook: "stacked" },
       snapshot: coordinatorTurn(),
     },
     opened: {
-      note: "The first send opened: its message at the row's text column, Copy and Raw quiet on one line under it at the same indent, nothing beside the chevron.",
+      note: "The first send opened in the default one-line look: its message at the row's text column, Raw quiet under it at the same indent; the row has no Copy.",
       snapshot: coordinatorTurn(),
       play: openFirstSend,
-    },
-    single: {
-      note: "Gallery version (theme messageLineLook single): the one line from before, the chip, count and first line cut together.",
-      theme: { messageLineLook: "single" },
-      snapshot: coordinatorTurn(),
     },
     quiet: {
       note: "Gallery version (theme messageLineLook quiet): the line alone, the first line only once the row opens.",

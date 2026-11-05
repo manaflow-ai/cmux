@@ -318,3 +318,38 @@ fn an_upload_worker_panic_sends_file_links_and_releases_the_queue() {
             .any(|line| line.contains("worker panicked: injected attachment upload panic"))
     );
 }
+
+/// Before and after shots in a table (the user, 2026-11-03, msg 19904: "i want to see the images, like
+/// how one might see in a github PR"): each picture in a table cell is still uploaded once, and its image
+/// syntax stays in the cell, pointing at its attachment (`cmux-attachment:<hash>`), so Home draws the
+/// thumbnail in the cell instead of an empty cell over a row of loose pictures.
+#[test]
+fn a_picture_in_a_table_cell_stays_in_the_cell_as_its_attachment() {
+    let dir = tempfile::tempdir().unwrap();
+    let before = dir.path().join("before.png");
+    let after = dir.path().join("after.png");
+    std::fs::write(&before, png(40, 30)).unwrap();
+    std::fs::write(&after, png(30, 40)).unwrap();
+    let reply = format!(
+        "The fix:\n\n| | Before | After |\n|---|---|---|\n| Light | ![before, light]({}) | ![after, light]({}) |\n\nLanded.",
+        before.display(),
+        after.display()
+    );
+    let (parts, _) = turn(reply);
+    let hashes: Vec<String> = parts
+        .iter()
+        .filter_map(|part| match part {
+            Part::Attachment { hash, .. } => Some(hash.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(hashes.len(), 2, "both shots are attached: {parts:?}");
+    assert_eq!(
+        parts[0],
+        text(&format!(
+            "The fix:\n\n| | Before | After |\n|---|---|---|\n| Light | ![before, light](cmux-attachment:{}) | ![after, light](cmux-attachment:{}) |\n\nLanded.",
+            hashes[0], hashes[1]
+        )),
+        "{parts:?}"
+    );
+}

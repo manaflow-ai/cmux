@@ -1,4 +1,5 @@
 import AppKit
+@testable import CmuxNextAgentLanes
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxNextTestSupport
@@ -10,7 +11,8 @@ import Testing
 /// critique their sizings ... legit representative screenshots in swift"): the playground view itself
 /// (``SidebarStatesPlaygroundView``, the Debug menu's window) hosted in a real window, each sheet captured whole
 /// (`sheet-light.png`, `sheet-dark.png`), then one crop per appearance and density with the state names beside it
-/// (`light-compact.png`, ...). `measurements.tsv` lists every trailing mark's measured frame and ink, also printed as
+/// (`light-compact.png`, ...), the pinned row with its hover card at each density (`light-pinned-card.png`), and the App's
+/// Home filter section (a939's Unread filter: `home-filter-light.png`, `home-filter-dark.png`). `measurements.tsv` lists every trailing mark's measured frame and ink, also printed as
 /// `SBSTATES|` lines. `CMUX_TEST_REQUIRE_GUI=1`; bundled to `sidebar-states-gallery.tar` for `cmux-ci run --artifact`.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarStatesGalleryTests {
     static func themes() throws -> SidebarStatesPlaygroundThemes {
@@ -61,7 +63,12 @@ import Testing
                 guard let cell = sheet.cells[column]?[state] else { continue }
                 let head = [sheet.appearanceKind.rawValue, column.density.rawValue, column.textSize.rawValue, state.rawValue,
                             cell.rowView ?? "-", String(format: "%.0f", cell.size.height - 2 * SidebarStatesPlaygroundRenderer.rowPad)]
-                if cell.marks.isEmpty && cell.bars.isEmpty { lines.append((head + ["-", "-", "-", "-", "-"]).joined(separator: "\t")) }
+                if let card = cell.card {
+                    let rows = "tab rows " + card.tabRowHeights.map { SidebarStatesPlaygroundMark.number($0) }.joined(separator: ", ")
+                    lines.append((head + ["card:WorkspaceHoverCardView", "-", SidebarStatesPlaygroundMark.text(card.frame.size), rows,
+                                          String(format: "%.2f", card.frame.minY - cell.rowFrame.minY)]).joined(separator: "\t"))
+                }
+                if cell.marks.isEmpty && cell.bars.isEmpty && cell.card == nil { lines.append((head + ["-", "-", "-", "-", "-"]).joined(separator: "\t")) }
                 for bar in cell.bars {
                     let radii = String(format: "top %.2f / bottom %.2f", bar.topRadius, bar.bottomRadius)
                     lines.append((head + ["bar:" + bar.view, "-", SidebarStatesPlaygroundMark.text(bar.frame.size), radii, "-"])
@@ -94,13 +101,28 @@ import Testing
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         let renderer = SidebarStatesPlaygroundRenderer(design: .shared, themes: try Self.themes())
-        let playground = SidebarStatesPlaygroundView(renderer: renderer)
+        let playground = SidebarStatesPlaygroundView(renderer: renderer, sections: [HomeFilterPlaygroundSection().section()])
         let stateSheets = SidebarStatesPlaygroundAppearance.allCases.compactMap { playground.sheets[$0] }
         #expect(stateSheets.count == 2)
-        // The favicon styles sheets (`sidebar.faviconStyle`, Lawrence msg 19869), written as sheet-favicons-<appearance>.png.
-        let faviconSheets = SidebarStatesPlaygroundAppearance.allCases.compactMap { playground.faviconSheets[$0] }
-        #expect(faviconSheets.count == 2)
-        let sheets = stateSheets + faviconSheets
+        // The favicon styles sheets (`sidebar.faviconStyle`, Lawrence msg 19869), one per style at every density and text
+        // size, written as sheet-favicons-<appearance>-<style>.png.
+        let faviconSheets = SidebarStatesPlaygroundAppearance.allCases.flatMap { playground.faviconSheets[$0] ?? [] }
+        #expect(faviconSheets.count == 2 * SidebarFaviconStyle.allCases.count)
+        // The Home filter section's sheets, written as home-filter-<appearance>.png.
+        let homeFilterSheets = SidebarStatesPlaygroundAppearance.allCases.compactMap { playground.sectionSheets[$0]?.first }
+        #expect(homeFilterSheets.count == 2)
+        for sheet in homeFilterSheets {
+            #expect(sheet.columns.count == SidebarDensity.allCases.count * SidebarTextSize.allCases.count)
+            for column in sheet.columns {
+                let looks = sheet.cells[column] ?? []
+                #expect(looks.count == 3 && looks.allSatisfy { $0.image != nil }, "\(sheet.appearanceKind) \(column.title): a look was not drawn")
+                for (title, look) in zip(sheet.lookTitles, looks) {
+                    print("SBHOMEFILTER|\(sheet.appearanceKind.rawValue)|\(column.density.rawValue)|\(column.textSize.rawValue)|\(title)|"
+                          + SidebarStatesPlaygroundMark.text(look.size))
+                }
+            }
+        }
+        let sheets: [NSView] = stateSheets + faviconSheets + homeFilterSheets
         // A window as large as the playground's content, so no sheet is clipped by its scroll view.
         let size = NSSize(width: sheets.map(\.frame.width).max() ?? 1200,
                           height: sheets.map(\.frame.height).reduce(0, +) + 80)
@@ -113,13 +135,20 @@ import Testing
         window.orderFrontRegardless()
         playground.layoutSubtreeIfNeeded()
         var rows = ["appearance\tdensity\ttextSize\tstate\trowView\trowHeight\tmark\tmarkState\tframe\tink\tcenterFromColumn"]
-        for sheet in sheets {
+        for sheet in homeFilterSheets {
+            sheet.layoutSubtreeIfNeeded()
+            sheet.display()
+            try AAGroupHeaderDensityGalleryTests.write(try Self.capture(sheet),
+                                                       to: out.appending(path: "home-filter-\(sheet.appearanceKind.rawValue).png"))
+        }
+        for sheet in stateSheets + faviconSheets {
             sheet.layoutSubtreeIfNeeded()
             sheet.display()
             let image = try Self.capture(sheet)
             let name = sheet.appearanceKind.rawValue
             if faviconSheets.contains(where: { $0 === sheet }) {
-                try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "sheet-favicons-\(name).png"))
+                let style = try #require(sheet.columns.first?.faviconStyle)
+                try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "sheet-favicons-\(name)-\(style.rawValue).png"))
                 continue
             }
             try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "sheet-\(name).png"))
@@ -128,6 +157,9 @@ import Testing
                 let crop = try Self.crop(sheet, image, [sheet.labelFrame, frame])
                 try AAGroupHeaderDensityGalleryTests.write(crop, to: out.appending(path: "\(name)-\(density.rawValue).png"))
             }
+            // Each density's pinned row with its hover card beside it, at the three text sizes.
+            try AAGroupHeaderDensityGalleryTests.write(try Self.crop(sheet, image, [sheet.cardSectionFrame]),
+                                                       to: out.appending(path: "\(name)-pinned-card.png"))
             for line in Self.measurements(sheet) {
                 rows.append(line)
                 print("SBSTATES|" + line.replacingOccurrences(of: "\t", with: "|"))

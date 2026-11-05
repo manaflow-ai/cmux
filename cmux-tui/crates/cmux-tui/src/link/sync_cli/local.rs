@@ -24,8 +24,9 @@
 //! Outside git, every regular file of the folder goes, except for a chat's
 //! copy the dependency and build folders its project rebuilds on the
 //! machine ([`skips::heavy`]) and secrets (`.env*`, key files: [`skips::secret`]).
-//! Symlinks, special files and names the machine cannot hold (control
-//! characters, over 255 bytes, not UTF-8) are skipped too. Every skip is
+//! A symlink whose target stays inside the folder goes as a symlink
+//! ([`super::links`]); other symlinks, special files and names the machine
+//! cannot hold (control characters, over 255 bytes, not UTF-8) are skipped. Every skip is
 //! named with why ([`Skips`]), except the git path's untracked `.env*` and
 //! non-UTF-8 paths, which are counted.
 
@@ -59,6 +60,8 @@ pub(super) struct LocalFile {
 /// The files to push and what was skipped.
 pub(super) struct LocalSet {
     pub files: BTreeMap<String, LocalFile>,
+    /// Symlinks kept as symlinks ([`super::links`]), by path.
+    pub links: BTreeMap<String, super::Linked>,
     /// Skips counted without a name.
     pub skipped: u64,
     /// Skips named with why.
@@ -154,7 +157,8 @@ const MAX_PATH_BYTES: usize = 4000;
 
 pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
     let skips = Skips::new(folder);
-    let mut set = LocalSet { files: BTreeMap::new(), skipped: 0, skips, git: false };
+    let mut set =
+        LocalSet { files: BTreeMap::new(), links: BTreeMap::new(), skipped: 0, skips, git: false };
     let Some(git) = GitDirs::of(folder)? else {
         walk_plain(&mut set, rules, folder, folder)?;
         return Ok(set);
@@ -450,6 +454,16 @@ fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> 
                 relative,
                 LocalFile { source: Source::File(path.to_path_buf()), permissions },
             );
+        }
+        Ok(meta) if meta.file_type().is_symlink() && holdable(&relative) => {
+            match super::links::local(set.skips.top(), &relative, path)
+                .with_context(|| format!("cannot read {}", path.display()))?
+            {
+                super::links::Local::Keep(kept) => {
+                    set.links.insert(relative, kept);
+                }
+                super::links::Local::Skip(why) => set.skips.note(&relative, why),
+            }
         }
         Ok(meta) => set.skips.note_entry(&relative, path, &meta),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}

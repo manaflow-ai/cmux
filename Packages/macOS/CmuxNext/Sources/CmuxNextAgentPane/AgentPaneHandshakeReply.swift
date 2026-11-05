@@ -15,6 +15,9 @@ enum AgentPaneHandshakeReply {
         }
         model.setCheckpointAvailable(false)
         model.pageCommands = []
+        // The store's start folder is read while acpmux connects, not after (Leo, 2026-11-03: "why does
+        // it even take time to read settings?"): ``AgentPaneStartFolders/apply(to:ready:model:)`` takes it.
+        model.startFolders.prefetch(for: model)
         do {
             var handshake = request == .ready
                 ? try await model.host.handshake(sessionId: model.sessionId)
@@ -57,6 +60,7 @@ enum AgentPaneHandshakeReply {
             }
             if model.sessionId == nil, let folderNeeded = model.seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
             handshake.linkScheme = model.linkScheme
+            handshake.tab = model.tabKey()
             // A chat on another machine names that machine (its host set it), never this Mac.
             let localName = await AgentPaneModel.localMachineName?.value
             if handshake.machineName == nil { handshake.machineName = localName }

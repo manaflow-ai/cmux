@@ -950,13 +950,28 @@ fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
         })
         .transpose()?;
     let workspace_id = notification_workspace(mux, &request.fields)?;
-    let scope = match (&terminal_id, &workspace_id) {
-        (Some(_), Some(_)) => {
-            return Err(validation_error("give terminal_id or workspace_id, not both", json!({})));
+    let notification_id = request
+        .fields
+        .get("notification_id")
+        .map(|value| {
+            // The catalog validates resource ids as strings; a non-string
+            // parses as "" and fails as a validation error, never a panic.
+            NotificationPublicId::parse(value.as_str().unwrap_or_default().to_string())
+        })
+        .transpose()?;
+    let scope = match (&terminal_id, &workspace_id, &notification_id) {
+        (Some(terminal), None, None) => crate::mux::NotificationClearScope::Terminal(terminal),
+        (None, Some(workspace), None) => crate::mux::NotificationClearScope::Workspace(workspace),
+        (None, None, Some(notification)) => {
+            crate::mux::NotificationClearScope::Notification(notification)
         }
-        (Some(terminal), None) => crate::mux::NotificationClearScope::Terminal(terminal),
-        (None, Some(workspace)) => crate::mux::NotificationClearScope::Workspace(workspace),
-        (None, None) => crate::mux::NotificationClearScope::Session,
+        (None, None, None) => crate::mux::NotificationClearScope::Session,
+        _ => {
+            return Err(validation_error(
+                "give at most one of terminal_id, workspace_id and notification_id",
+                json!({}),
+            ));
+        }
     };
     let mutation = request.mutation().map_err(resource_operation_error)?;
     let commit = mux

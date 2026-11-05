@@ -59,7 +59,7 @@ final class SidebarTunablesWatch {
             row.redrawLastConfiguration()
             // `sidebar.rowCloseSpot` changes no configuration: lay the controls out again (the close re-renders its glyph).
             row.needsLayout = true
-            row.closeButton.needsLayout = true
+            row.closeSlot.made?.needsLayout = true
         }
     }
 

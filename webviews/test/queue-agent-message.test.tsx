@@ -224,7 +224,7 @@ test("an agent's waiting message: its line, no Read after this turn, a message's
   const entry = agent(1);
   await card(entry, calls);
   expect(host.querySelector(".cv-received__from")?.textContent).toBe("lane-1");
-  expect(host.querySelector(".cv-disclosure__below")?.textContent).toContain("CI is green on #24001");
+  expect(host.querySelector(".cv-received__preview")?.textContent).toContain("CI is green on #24001");
   expect(host.querySelector(".cv-received__queued-head, .cv-received__queued")).toBeNull();
   expect(host.textContent).not.toContain("Read after this turn");
   expect(host.querySelector(".acpmux-queued, .cv-spinner, [data-spinner]")).toBeNull();

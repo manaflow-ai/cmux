@@ -35,21 +35,17 @@ TARGETS = {
 class RunnerSetTests(unittest.TestCase):
     def test_secret_bearing_changes_takes_ephemeral_hosted_then_measured_retry(self) -> None:
         # The router runs before any picker can, so it is a declared hosted light job
-        # (.github/runners.json hosted_light_jobs): ephemeral hosted Ubuntu on attempt 1, Blacksmith
-        # 8 vCPU or the LINUX_RUNNER mirror on a re-run, never LINUX_RUNNER first (run 41385632466 sat on its 4 vCPU queue)
-        # and never a persistent fleet label, since the job mints GLAEDA_ROUTE_APP_KEY tokens.
+        # (.github/runners.json hosted_light_jobs). Its credentialed body takes a live
+        # verified fleet Linux placement when available, then hosted/paid overflow.
         job = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]
         runs_on = job["runs-on"]
-        self.assertNotIn("fromJSON(vars.RUNNER_POOLS).linux ||", runs_on)
+        self.assertIn("needs.portable-placement.outputs.linux_runner", runs_on)
+        self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", runs_on)
         self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
-        # LINUX_RUNNER only after hosted Ubuntu, as the re-run's bounded ephemeral mirror.
-        hosted, retry = runs_on.split("github.run_attempt == 1 && 'ubuntu-24.04'", 1)
-        self.assertNotIn("LINUX_RUNNER", hosted)
-        self.assertIn("vars.LINUX_RUNNER) && vars.LINUX_RUNNER", retry)
         self.assertTrue(runs_on.rstrip().endswith(
             "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"), runs_on)
-        self.assertNotIn("cmux-fleet-linux-x64", runs_on)
-        self.assertNotIn("glaeda-", runs_on)
+        self.assertEqual(job["needs"], ["portable-placement"])
+        self.assertEqual(yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["portable-placement"]["steps"][-1]["env"]["LINUX_ONLY"], "changes")
 
     def test_light_report_jobs_take_hosted_ubuntu_first(self) -> None:
         # Declared light jobs (.github/runners.json hosted_light_jobs): a few seconds of report or
@@ -79,8 +75,6 @@ class RunnerSetTests(unittest.TestCase):
                 self.assertIn(hosted, runs_on)
                 self.assertTrue(runs_on.rstrip().endswith(tail), runs_on)
                 self.assertNotIn("cmux-fleet-linux-x64", runs_on)
-                if tail == ephemeral:
-                    self.assertNotIn("fromJSON(vars.RUNNER_POOLS).linux ||", runs_on)
 
     def test_stalled_paths_use_the_live_linux_pool(self) -> None:
         for workflow, names in TARGETS.items():

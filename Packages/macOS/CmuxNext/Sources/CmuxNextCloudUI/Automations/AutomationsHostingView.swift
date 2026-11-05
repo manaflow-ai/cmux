@@ -11,14 +11,16 @@ public final class AutomationsHostingView: NSView {
     public private(set) var palette: AutomationsPalette
     private let model: AutomationsPage
     private let tokens: @MainActor () -> ThemeTokens
+    private let actions: AutomationsPageView.Actions
     private let hosting: NSHostingView<AnyView>
 
-    init(model: AutomationsPage, tokens: @escaping @MainActor () -> ThemeTokens) {
+    init(model: AutomationsPage, tokens: @escaping @MainActor () -> ThemeTokens, actions: AutomationsPageView.Actions = .init()) {
         self.model = model
         self.tokens = tokens
+        self.actions = actions
         let palette = AutomationsPalette(tokens: tokens())
         self.palette = palette
-        hosting = NSHostingView(rootView: Self.page(model, palette))
+        hosting = NSHostingView(rootView: Self.page(model, palette, actions))
         super.init(frame: .zero)
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)
@@ -36,10 +38,10 @@ public final class AutomationsHostingView: NSView {
         let next = AutomationsPalette(tokens: tokens())
         guard next != palette else { return }
         palette = next
-        hosting.rootView = Self.page(model, next)
+        hosting.rootView = Self.page(model, next, actions)
     }
 
-    private static func page(_ model: AutomationsPage, _ palette: AutomationsPalette) -> AnyView {
-        AnyView(AutomationsPageView(page: model, palette: palette).task { await model.reload(now: .now) })
+    private static func page(_ model: AutomationsPage, _ palette: AutomationsPalette, _ actions: AutomationsPageView.Actions) -> AnyView {
+        AnyView(AutomationsPageView(page: model, palette: palette, actions: actions).task { await model.reload(now: .now) })
     }
 }

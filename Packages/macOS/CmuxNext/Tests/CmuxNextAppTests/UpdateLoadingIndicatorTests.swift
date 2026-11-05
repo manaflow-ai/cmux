@@ -36,27 +36,18 @@ import Testing
         card.presentation(version: "1.0.0", build: "100")
     }
 
-    /// Attempt Update: the check and the install show on the sidebar's notice card; the download
-    /// between them runs quietly (Leo 2026-11-03, after ChatGPT's one-step update), its stages
-    /// named in Settings > Updates instead (``UpdaterService/settingsStatus``).
-    @Test func attemptUpdateShowsTheCheckAndTheInstallButNotTheDownload() throws {
+    @Test func attemptUpdateShowsOneLoadingCardFromCheckToRelaunch() throws {
         var flow = UpdateFlow()
         _ = flow.handle(.checkRequested, preferences: .defaults)
         var titles: [String] = []
         for phase in Self.attemptPhases {
             _ = flow.handle(.sparkle(phase), preferences: .defaults)
-            if case .downloading = phase {
-                #expect(flow.card(downloadsAutomatically: true) == nil, "the sidebar shows the download at \(phase)")
-                titles.append(Self.presentation(.downloading(Self.transfer(phase))).title)
-                continue
-            }
             let card = try #require(flow.card(downloadsAutomatically: true), "the loading card left at \(phase)")
             let shown = Self.presentation(card)
             #expect(shown.showsProgress, "\(phase) shows no progress")
             #expect(!shown.dismissible, "\(phase) can be dismissed while it works")
-            titles.append(shown.title)
+            if titles.last != shown.title { titles.append(shown.title) }
         }
-        titles = titles.reduce(into: []) { if $0.last != $1 { $0.append($1) } }
         #expect(titles == [UpdaterStrings.checking, UpdaterStrings.startingDownload, UpdaterStrings.downloading,
                            UpdaterStrings.preparing, UpdaterStrings.installingUpdate],
                 "the stages are not named in order: \(titles)")
@@ -153,11 +144,7 @@ import Testing
         for phase in Self.attemptPhases {
             updater.debugIndicatorPhase = phase
             updater.syncFlowPhase()
-            if case .downloading = phase {
-                #expect(updater.card == nil, "the sidebar shows the download at \(phase)")
-            } else {
-                #expect(updater.card != nil, "the loading card left at \(phase)")
-            }
+            #expect(updater.card != nil, "the loading card left at \(phase)")
         }
         #expect(updater.card == .installing)
         #expect(updater.readyCard == nil, "two cards say the update installs")
@@ -202,8 +189,7 @@ import Testing
     }
 
     /// The same phases after the person ran Check for Updates (menu or
-    /// Cmd+Shift+P, `palette.checkForUpdates`) show the check and the install
-    /// on the loading card; the download shows only in Settings > Updates.
+    /// Cmd+Shift+P, `palette.checkForUpdates`) show the loading card.
     @Test func checkForUpdatesFromTheCommandShowsTheLoadingCard() {
         let updater = Self.updater()
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
@@ -212,18 +198,8 @@ import Testing
         for phase in Self.attemptPhases {
             updater.debugIndicatorPhase = phase
             updater.syncFlowPhase()
-            if case .downloading(let transfer) = phase {
-                #expect(updater.card == nil, "the person's download showed a sidebar card at \(phase)")
-                #expect(updater.settingsStatus == .card(.downloading(transfer)), "Settings does not show the download at \(phase)")
-            } else {
-                #expect(updater.card != nil, "the person's update showed no loading card at \(phase)")
-            }
+            #expect(updater.card != nil, "the person's update showed no loading card at \(phase)")
         }
-    }
-
-    static func transfer(_ phase: UpdateIndicatorPhase) -> UpdateTransfer {
-        guard case .downloading(let transfer) = phase else { return .starting }
-        return transfer
     }
 
     static func updater() -> UpdaterService {

@@ -1,8 +1,8 @@
 // l10n-allow-file: test fixture todo items and tool titles, not shipped UI.
 // The activity line (cx-ncc.102, Claude Code desktop's in-session status; Debug Settings
-// `agent.sessionStatus`): while a turn with a todo list runs, the list sits under the work and one
-// line under it names what the agent is doing now, in the "Working for" status's place. The toggle
-// off, or a turn without a list, draws as before.
+// `agent.sessionStatus`): while a turn with a todo list runs, the list is pinned under the work
+// (toggle or not, Leo 2026-11-03) and, with the toggle, one line under it names what the agent is
+// doing now, in the "Working for" status's place. A turn without a list draws as before.
 import { expect, test } from "bun:test";
 import type { AcpmuxPlanEntry, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ACTIVITY_LINE, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
@@ -24,9 +24,9 @@ const live = (rows: AcpmuxRow[], sessionStatus: boolean) =>
   turnView(rows, new Set(), { working: true, sessionStatus }).filter((shaped) => shaped.kind !== "date");
 const kinds = (rows: AcpmuxRow[]) => rows.map((shaped) => `${shaped.kind}:${shaped.id}`);
 
-test("the toggle off keeps the status over the work and the list where it came", () => {
+test("the toggle off keeps the status over the work, the list pinned under it", () => {
   const rows = [row("u", "user"), steps, tool("edit-a", "in_progress")];
-  expect(kinds(live(rows, false))).toEqual(["user:u", "working:working-u", "plan:plan", "activity:edit-a"]);
+  expect(kinds(live(rows, false))).toEqual(["user:u", "working:working-u", "activity:edit-a", "plan:plan"]);
 });
 
 test("the toggle on moves the list under the work, with the activity line in the status's place", () => {
@@ -102,9 +102,9 @@ test("a call whose path arrives after its title redraws the line", () => {
   expect(after.version).not.toBe(before.version);
 });
 
-test("while the answer streams the list stays above it and the line goes", () => {
+test("while the answer streams the list stays pinned under it and the line goes", () => {
   const rows = [row("u", "user"), steps, tool("edit-a", "completed"), row("answer", "assistant", { text: "Done" })];
-  expect(kinds(live(rows, true))).toEqual(["user:u", "activity:edit-a", "plan:plan", "assistant:answer"]);
+  expect(kinds(live(rows, true))).toEqual(["user:u", "activity:edit-a", "assistant:answer", "plan:plan"]);
 });
 
 test("a turn without a list draws as before with the toggle on", () => {

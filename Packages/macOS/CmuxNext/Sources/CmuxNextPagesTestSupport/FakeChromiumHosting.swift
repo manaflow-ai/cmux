@@ -41,7 +41,7 @@ public final class FakeChromiumHosting: PageChromiumHosting {
         if fails { throw Refused() }
         if hangs {
             // A stream nobody yields to ends only when the task is cancelled; the continuation is held.
-            let (pending, continuation) = AsyncStream<Void>.makeStream()
+            let (pending, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
             for await _ in pending {}
             withExtendedLifetime(continuation) {}
             throw CancellationError()

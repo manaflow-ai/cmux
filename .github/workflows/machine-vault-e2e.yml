@@ -2,21 +2,27 @@ name: Machine vault E2E (development)
 
 # "Make this Mac a cmux machine", with the vault, end to end against the DEVELOPMENT platform
 # (https://cmux-platform-development.debussy.workers.dev) only, as a disposable macOS user made for
-# the run: put a nonce (and, when the secret is set, an Anthropic API key) in the dogfood account's
-# vault with `cmux machine vault set`, run the one command `cmux machine add --vault --yes
-# USER@localhost` (the join token rides ssh's stdin, the served join.sh installs acpmux, Claude Code
-# and Codex and pulls the vault into the user's login keychain), check `acpmux machine vault status`
-# as that user, and have a Claude Code session started through acpmux print the nonce from its env.
-# The evidence (no secret; the nonce is fine) is the run summary and the only artifact.
+# the run: put a nonce in the dogfood account's vault with `cmux machine vault set`, run the one command
+# `cmux machine add --vault --yes USER@localhost` (the join token rides ssh's stdin, the served join.sh
+# installs acpmux, Claude Code and Codex and pulls the vault into the user's login keychain), check
+# `acpmux machine vault status` as that user, then sign Claude Code in with the team's subscription and
+# have a session started through acpmux print the nonce from its env and reply. The model is the shared
+# model stub (tests/fixtures/model-stub) on the runner's loopback by default, with a made-up login the
+# stub checks arrived; `model: real` signs Claude Code in with the team's subscription instead, and is
+# the slow-schedule canary's run (real-login-canaries.yml on main dispatches it).
+# The evidence (no secret; the nonce and the reply text are fine) is the run summary and the only
+# artifact.
 #
-# Secrets: the dev stack pair (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD) and the optional
-# CMUX_E2E_ANTHROPIC_API_KEY reach the one run step, through env only.
+# Secrets: the dev stack pair (CMUX_DOGFOOD_STACK_EMAIL and _PASSWORD) and, with `model: real` only,
+# the team's Claude subscription login (CLAUDE_CODE_OAUTH_TOKEN) reach the one run step, through env only.
 # scripts/cmux-next/machine-vault-e2e.ts masks each value the moment it exists, gives the CLI the cmux
 # token in one 0600 file under the runner's private temp (removed in its `finally`), passes vault
 # values on stdin, and revokes the machine, removes the vault entries it set and revokes its install in
-# `finally` and on a cancel. The disposable user, its home, its ssh key and its keychain are removed in
-# an always() step. The vault never carries a Claude or ChatGPT subscription login. Manual dispatch on
-# feat-cmux-next only.
+# `finally` and on a cancel. The Claude login goes on one ssh session's stdin into the disposable
+# user's acpmux daemon env (never argv, never a file, never the vault, which refuses subscription
+# logins); cleanup kills the user's processes that held it and confirms none is left, and the secret
+# scan of the home and the output counts its hits (0 or the run fails). The disposable user, its home,
+# its ssh key and its keychain are removed in an always() step. Manual dispatch on feat-cmux-next only.
 on:
   workflow_dispatch:
     inputs:
@@ -25,6 +31,12 @@ on:
         required: false
         default: feat-cmux-next
         type: string
+      model:
+        description: stub (the shared model stub, no login) or real (the team's Claude subscription; the canary)
+        required: false
+        default: stub
+        type: choice
+        options: [stub, real]
 
 permissions:
   contents: read
@@ -240,13 +252,38 @@ jobs:
           fi
           echo "made $user (uid $uid) with a login keychain and an ssh key"
 
+      # The model stub: loopback only, this checkout's script; the run step reads its log.
+      - name: Start the model stub
+        id: stub
+        if: inputs.model != 'real'
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/model-stub"
+          mkdir -m 0700 "$dir"
+          nohup python3 tests/fixtures/model-stub/model_stub.py --script tests/fixtures/model-stub/machine-vault-e2e.json \
+            --log "$dir/log.jsonl" --ready-file "$dir/ready.json" >"$dir/out.txt" 2>&1 &
+          # A fresh macOS VM's first python3 start can take well over 10 s (run 41830168353 timed out at 10 s
+          # with the stub still starting); give it two minutes, and show its output if it never listens.
+          for _ in $(seq 600); do [ -s "$dir/ready.json" ] && break; sleep 0.2; done
+          if [ ! -s "$dir/ready.json" ]; then
+            echo "::error::the model stub did not listen within 120 s ($(command -v python3 || echo no python3))"
+            cat "$dir/out.txt" || true
+            exit 1
+          fi
+          port="$(jq -r '.port' "$dir/ready.json")"
+          echo "url=http://127.0.0.1:$port" >> "$GITHUB_OUTPUT"
+          echo "log=$dir/log.jsonl" >> "$GITHUB_OUTPUT"
+          echo "model stub on 127.0.0.1:$port"
+
       # The only step that sees the secrets, through env. No `set -x`: the script prints its own lines.
       - name: Vault, join, agent and cleanup
         timeout-minutes: 40
         env:
           CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CMUX_E2E_ANTHROPIC_API_KEY: ${{ secrets.CMUX_E2E_ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          MODEL_STUB_URL: ${{ steps.stub.outputs.url }}
+          MODEL_STUB_LOG: ${{ steps.stub.outputs.log }}
           VAULT_USER: ${{ steps.user.outputs.user }}
           VAULT_HOME: ${{ steps.user.outputs.home }}
           VAULT_WORK: ${{ steps.user.outputs.work }}
@@ -256,8 +293,9 @@ jobs:
             --user "$VAULT_USER" --home "$VAULT_HOME" --ssh "$VAULT_WORK/bin/ssh" --name "ci-vault-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" \
             --work "$VAULT_WORK" --evidence "$RUNNER_TEMP/machine-vault-e2e-evidence/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA"
 
-      # Fails on a token or credential prefix, a JWT, an API key shape or an auth header in the evidence
-      # (nothing is then uploaded or summarized), on missing evidence, and on a run that did not pass.
+      # Fails on a token or credential prefix, a JWT, an Anthropic key or Claude login shape (sk-ant-,
+      # which covers sk-ant-oat01-...) or an auth header in the evidence (nothing is then uploaded or
+      # summarized), on missing evidence, and on a run that did not pass.
       - name: Check the evidence
         id: evidence
         if: always() && steps.user.outcome == 'success'

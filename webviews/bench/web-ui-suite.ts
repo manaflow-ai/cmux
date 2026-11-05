@@ -37,7 +37,7 @@ export const BENCHES: readonly Bench[] = [
     args: ["3000", "2"],
     timeoutMs: 240_000,
   },
-  { name: "thread-rail-jump", file: "thread-rail-jump.bench.ts", args: ["1000", "5"], timeoutMs: 300_000 },
+  { name: "thread-rail-jump", file: "thread-rail-jump.bench.ts", args: ["1000", "5"], timeoutMs: 150_000 },
   { name: "ui-stability", file: "ui-stability.bench.ts", args: ["2"], timeoutMs: 240_000 },
   // A turn that ends while the reader is scrolled up: CLS, the anchor's drift and rows folded away.
   {
@@ -46,6 +46,9 @@ export const BENCHES: readonly Bench[] = [
     args: ["2"],
     timeoutMs: 120_000,
   },
+  // Recorded and generated acpmux logs played into the pane at top speed: shift on open and while streaming, work per
+  // token as rows grow (its slope), long tasks, heap and idle CPU.
+  { name: "transcript-replay", file: "transcript-replay.bench.ts", args: ["--turns", "600"], timeoutMs: 150_000 },
 ];
 
 export type Failure = { bench: string; why: string; tail: string[] };

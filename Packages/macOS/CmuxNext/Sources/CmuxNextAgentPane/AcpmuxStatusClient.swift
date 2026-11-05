@@ -30,14 +30,14 @@ nonisolated enum AcpmuxStatusClient {
 
     /// The endpoint of the daemon listening on `socketPath`. Throws
     /// `.unreachable` when nothing answers there (start one then).
-    @concurrent static func endpoint(socketPath: String, deadline: Duration = .seconds(2)) async throws -> AcpmuxWebEndpoint {
+    @concurrent static func endpoint(socketPath: String, deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> AcpmuxWebEndpoint {
         try await status(socketPath: socketPath, deadline: deadline).endpoint()
     }
 
     /// The running daemon's `_acpmux/status`. Throws `.unreachable` when
     /// nothing answers there. `deadline` nil: waits for the answer, the daemon's close (it
     /// exited) or the caller's cancel, as a slow daemon is not a dead one.
-    @concurrent static func status(socketPath: String, deadline: Duration? = .seconds(2)) async throws -> AcpmuxStatus {
+    @concurrent static func status(socketPath: String, deadline: Duration? = AcpmuxEnvironment.answerDeadline) async throws -> AcpmuxStatus {
         let result = try await call(socketPath: socketPath, method: "_acpmux/status", deadline: deadline)
         return AcpmuxStatus(result)
     }
@@ -51,7 +51,7 @@ nonisolated enum AcpmuxStatusClient {
     /// `_acpmux/chat_open`: the daemon's open plan for one device-wide chat
     /// (nil when the answer is not a plan this build reads).
     @concurrent static func chatOpen(socketPath: String, key: String, cwd: String? = nil,
-                                     deadline: Duration = .seconds(2)) async throws -> AcpmuxChatOpenPlan? {
+                                     deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> AcpmuxChatOpenPlan? {
         var params: [String: any Sendable] = ["key": key]
         if let cwd { params["cwd"] = cwd }
         let result = try await call(socketPath: socketPath, method: "_acpmux/chat_open", params: params, deadline: deadline)
@@ -61,7 +61,7 @@ nonisolated enum AcpmuxStatusClient {
     /// `_acpmux/chat_transcript`: the past turns of one device-wide chat, read from its own
     /// transcript (cx-khns1). The page's handshake waits on it, so the deadline is `chat_open`'s.
     @concurrent static func chatTranscript(socketPath: String, key: String,
-                                           deadline: Duration = .seconds(2)) async throws -> [AgentPanePastTurn] {
+                                           deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> [AgentPanePastTurn] {
         let result = try await call(socketPath: socketPath, method: "_acpmux/chat_transcript", params: ["key": key], deadline: deadline)
         return AgentPanePastTurn.turns(result: result)
     }
@@ -105,7 +105,7 @@ nonisolated enum AcpmuxStatusClient {
     /// scope while rows may still change between requests.
     @concurrent static func sessionPages(socketPath: String, params: [String: any Sendable] = [:],
                                          pageSize: Int = 64, requiredCapability: String? = nil,
-                                         deadline: Duration = .seconds(2)) async throws -> sending [[String: Any]] {
+                                         deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> sending [[String: Any]] {
         var pageParams = params
         pageParams["limit"] = pageSize
         var cursor: String?
@@ -143,7 +143,7 @@ nonisolated enum AcpmuxStatusClient {
     /// daemon's cached peer rows, so a closed chat remains addressable while its
     /// peer is offline; unlike `_acpmux/info`, it never forwards to that peer.
     @concurrent static func sessionSummary(socketPath: String, sessionId: String,
-                                           deadline: Duration = .seconds(2)) async throws -> sending [String: Any]? {
+                                           deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> sending [String: Any]? {
         let result: [String: Any]
         do {
             result = try await call(socketPath: socketPath, method: "_acpmux/resolve",
@@ -190,13 +190,13 @@ nonisolated enum AcpmuxStatusClient {
 
     /// `_acpmux/tag {sessionId, set, remove}`: sets and removes a session's tags.
     @concurrent static func tag(socketPath: String, sessionId: String, set: [String: String], remove: [String],
-                                deadline: Duration = .seconds(2)) async throws {
+                                deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws {
         _ = try await call(socketPath: socketPath, method: "_acpmux/tag",
                            params: ["sessionId": sessionId, "set": set, "remove": remove], deadline: deadline)
     }
 
     /// `_acpmux/markUnread {sessionId}`: marks a session unread until it is shown again.
-    @concurrent static func markUnread(socketPath: String, sessionId: String, deadline: Duration = .seconds(2)) async throws {
+    @concurrent static func markUnread(socketPath: String, sessionId: String, deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws {
         _ = try await call(socketPath: socketPath, method: "_acpmux/markUnread", params: ["sessionId": sessionId], deadline: deadline)
     }
 
@@ -205,7 +205,7 @@ nonisolated enum AcpmuxStatusClient {
     /// whether that value keeps the session asking (the guard's own `config_value_asks`). Nil when
     /// the daemon cannot answer (no socket, no such op, an error).
     @concurrent static func webModes(socketPath: String, sessionId: String?, configId: String?, value: String?,
-                                     deadline: Duration = .seconds(2)) async -> AcpmuxWebModes? {
+                                     deadline: Duration = AcpmuxEnvironment.answerDeadline) async -> AcpmuxWebModes? {
         var params: [String: any Sendable] = [:]
         if let sessionId { params["sessionId"] = sessionId }
         if let configId { params["configId"] = configId }

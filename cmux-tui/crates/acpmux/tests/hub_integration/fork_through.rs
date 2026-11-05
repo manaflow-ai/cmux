@@ -44,6 +44,9 @@ mod processes;
 #[cfg(unix)]
 #[path = "codex_processes.rs"]
 mod codex_processes;
+#[cfg(unix)]
+#[path = "codex_usage_limits.rs"]
+mod codex_usage_limits;
 // Claude's skills in the slash command list, which share these helpers too.
 #[path = "claude_skill_commands.rs"]
 mod claude_skill_commands;

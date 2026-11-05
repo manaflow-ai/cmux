@@ -92,6 +92,14 @@ public nonisolated enum ActionCatalog {
         "browser.link.openInNewWorkspace", "browser.selection.search",
     ]
 
+    /// Actions that open a new tab or pane in the window's workspace
+    /// (`ActionDescriptor.opensWorkspaceContent`): the New Tab family and the new panes.
+    static let workspaceContentActionIDs: Set<ActionID> = [
+        "newSurface", "newTab.default", "newTab.afterCurrent", "newTab.atStart", "newTab.atEnd", "newTab.toRight", "newTab.ofKind",
+        "openBrowser", "openBrowser.chromium", "openBrowser.webkit", "reopenClosedBrowserPanel",
+        "splitRight", "splitDown", "newColumn", "newColumnLeft", "newRow", "newPaneAutoLayout",
+    ]
+
     /// The catalog's domain groups, in inventory order. `all` concatenates
     /// their descriptors in this order, which menu ranks tie-break on.
     static let groups: [any ActionCatalogGroup.Type] = [
@@ -104,6 +112,8 @@ public nonisolated enum ActionCatalog {
         PaneActionCatalog.self,
         TabActionCatalog.self,
         VerticalTabsActionCatalog.self,
+        AgentChatRailActionCatalog.self,
+        CmuxRemoteActionCatalog.self,
         TabIconActionCatalog.self,
         ResourceActionCatalog.self,
         HomeActionCatalog.self,
@@ -181,6 +191,7 @@ public nonisolated enum ActionCatalog {
         for group in groups { all += group.descriptors() }
         for index in all.indices where focusActionIDs.contains(all[index].id) { all[index].focuses = true }
         for index in all.indices where keyedCreateActionIDs.contains(all[index].id) { all[index].waitsForKeyedCreate = true }
+        for index in all.indices where workspaceContentActionIDs.contains(all[index].id) { all[index].opensWorkspaceContent = true }
         return ActionSurfaceCatalog.apply(to: all).withLeaderChords()
     }
 }

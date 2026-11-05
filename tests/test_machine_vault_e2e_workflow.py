@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """machine-vault-e2e.yml keeps the scope it was cleared for.
 
-The workflow holds the repo's dev stack account and an optional Anthropic API key, adds a macOS user and
-opens ssh to it, so these hold for good: manual dispatch only; feat-cmux-next only; top-level
+The workflow holds the repo's dev stack account and the team's Claude subscription login, adds a macOS
+user and opens ssh to it, so these hold for good: manual dispatch only; feat-cmux-next only; top-level
 `permissions: contents: read` and nothing else; the three secrets reach exactly one step, through `env`;
+no Anthropic API key at all, and the Claude login never goes to the vault (only to the user's ssh stdin);
 no `set -x`; the platform origin is development's; the runner is an ephemeral Blacksmith macOS VM read
 from RUNNER_POOLS (never a runner variable that can name a persistent Mac); the channel must contain the
 vault's merge before any secret is in reach; the user, its keychain and its ssh key are made before the
@@ -52,7 +53,9 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
         inputs = load()["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(sorted(inputs), ["join_channel"])
+        self.assertEqual(sorted(inputs), ["join_channel", "model"])
+        # The model stub by default; the team's login only on a model: real dispatch (the canary).
+        self.assertEqual((inputs["model"]["default"], inputs["model"]["options"]), ("stub", ["stub", "real"]))
         self.assertEqual(inputs["join_channel"]["default"], "feat-cmux-next")
 
     def test_feat_cmux_next_only(self) -> None:
@@ -86,23 +89,40 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
 
     def test_secrets_reach_one_step_through_env(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 3)
+        self.assertEqual(len(re.findall(r"\bsecrets\.[A-Z]", text)), 3)
         holders = [s for s in steps() if re.search(r"\$\{\{\s*secrets\.", str(s))]
         self.assertEqual([s["name"] for s in holders], [RUN_STEP])
         run = holders[0]
         self.assertEqual(run["env"]["CMUX_UITEST_STACK_EMAIL"], "${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}")
         self.assertEqual(run["env"]["CMUX_UITEST_STACK_PASSWORD"], "${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}")
-        self.assertEqual(run["env"]["CMUX_E2E_ANTHROPIC_API_KEY"], "${{ secrets.CMUX_E2E_ANTHROPIC_API_KEY }}")
+        # The subscription login reaches the run only on a model: real dispatch (the canary).
+        self.assertEqual(run["env"]["CLAUDE_CODE_OAUTH_TOKEN"], "${{ inputs.model == 'real' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}")
         self.assertNotIn("secrets", run["run"])
         self.assertNotIn("CMUX_UITEST_STACK", run["run"])
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", run["run"])
         self.assertNotIn("ANTHROPIC", run["run"])
         self.assertTrue(run["run"].strip().startswith("exec bun scripts/cmux-next/machine-vault-e2e.ts"))
 
-    def test_no_subscription_login_anywhere(self) -> None:
+    def test_no_api_key_and_the_login_never_in_the_vault(self) -> None:
         for path in (WORKFLOW, SCRIPT):
             text = path.read_text(encoding="utf-8")
-            self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", text, path)
+            self.assertNotIn("CMUX_E2E_ANTHROPIC_API_KEY", text, path)
+            self.assertNotIn("ANTHROPIC_API_KEY", text, path)
             self.assertNotIn("auth.json", text, path)
+        script = SCRIPT.read_text(encoding="utf-8")
+        # The vault only ever gets the nonce; the login is held (masked) and given to one ssh stdin.
+        self.assertEqual(re.findall(r'"vault", "set", (\w+)', script), ["NONCE_VAR"])
+        self.assertNotRegex(script, r'vault[^\n]*LOGIN_VAR')
+        self.assertIn('export const LOGIN_VAR = "CLAUDE_CODE_OAUTH_TOKEN"', script)
+        self.assertIn("hold(login)", script)
+        self.assertLess(script.index("env.CLAUDE_CODE_OAUTH_TOKEN"), script.index("hold(login)"))
+        self.assertIn("sshUser(agentScript(stubUrl), `${login}\\n`", script)
+        self.assertIn("IFS= read -r ${LOGIN_VAR}", script)
+        self.assertIn("unset ${LOGIN_VAR}", script)
+        # Cleanup confirms the processes that held it are gone; the scans count its hits.
+        self.assertIn("a process that held the Claude login is still running after cleanup", script)
+        self.assertIn('"the home holds the Claude login"', script)
+        self.assertIn('"the output holds the Claude login"', script)
 
     def test_one_run_at_a_time(self) -> None:
         self.assertEqual(load()["concurrency"], {"group": "machine-vault-e2e", "cancel-in-progress": "false"})
@@ -159,6 +179,10 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
         check = step("Check the evidence")
         self.assertTrue(check["if"].startswith("always()"))
         self.assertIn("cmj_|cmm_|sk-ant-|eyJ", check["run"])
+        # The evidence grep catches the Claude login's shape (sk-ant-oat01-...) and an API key's.
+        pattern = re.search(r"grep -Eqi '([^']+)'", check["run"]).group(1)
+        for fake in ("sk-ant-oat01-FAKEvalue", "sk-ant-api03-FAKEvalue"):
+            self.assertRegex(fake, re.compile(pattern, re.I))
         self.assertIn("bearer|authorization", check["run"])
         self.assertIn("tr -cd 'A-Za-z0-9 ._:;,()/-'", check["run"])
         upload = step("Upload the evidence")

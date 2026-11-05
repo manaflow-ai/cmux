@@ -96,7 +96,7 @@ fn enroll_adds_this_macs_app_key_once_and_doctor_finds_it() {
     // Doctor without --fix: a warning that says how, and nothing written.
     let r = run(&fake, false);
     assert_eq!(r.state, StepState::Warn, "{r:?}");
-    assert!(r.fix.as_deref().unwrap_or("").contains("acpmux host doctor hb --fix"), "{r:?}");
+    assert!(r.fix.as_deref().unwrap_or("").contains("acpmux machine doctor hb --fix"), "{r:?}");
     assert_eq!(fake.scripts.borrow().len(), 1);
     // Enroll: added there.
     let r = run(&fake, true);
@@ -120,7 +120,7 @@ fn no_app_key_skips_and_an_old_remote_warns_with_the_update() {
     let r = run(&Fake::new(true, None), true);
     assert_eq!(r.state, StepState::Warn, "{r:?}");
     assert!(r.detail.contains("too old"), "{r:?}");
-    assert_eq!(r.data.as_ref().unwrap()["try"], "acpmux host update hb");
+    assert_eq!(r.data.as_ref().unwrap()["try"], "acpmux machine update hb");
 }
 
 #[test]

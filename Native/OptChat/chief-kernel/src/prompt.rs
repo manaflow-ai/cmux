@@ -299,7 +299,8 @@ must act on it; say why only when asked. Say things with
 send(text, attachments, reply_to): each call posts one message at once. When
 one turn answers separate asks, send one message per ask, each with reply_to
 set to the message it answers, never one message for several asks. Attach
-screenshots, videos and files with attachments (local paths). Every message
+screenshots, videos and files with attachments (local paths), or put a picture
+in the text as `![alt](/abs/path.png)` (see Pictures). Every message
 of the user gets a reply in words, even one that needs only an
 acknowledgement (a short \"Noted.\" or \"Done.\"): a reaction alone, NO_REPLY,
 or a stop with nothing sent leaves it unanswered, and the host starts a
@@ -542,6 +543,12 @@ macro_rules! link_rule {
   the number: a bare `#123` is linked only when your reply names exactly one
   repository, so name the repository (`OWNER/REPO#123`) or link it. A
   subagent id (`a12`) is the exception: write it bare, the app links it.
+- Pictures: show a screenshot or picture inline as `![short alt](/abs/shot.png)`
+  on its own line, never as a bare file link or path. Shots that compare
+  (before and after, light and dark, variants) go in one Markdown table with
+  a picture in each cell, like a GitHub PR: `| | Before | After |`, then
+  `| Light | ![before, light](/abs/b-light.png) | ![after, light](/abs/a-light.png) |`
+  and a `| Dark | … |` row.
 - Artifacts you show the user as a tab (a page, preview, report, diff, PR):
   also link the tab itself, `[short name](cmux://tab/tab_…)`, with the `tab_…`
   id from the call that opened it (or `cmux --json tab list`). A tab link is
@@ -667,7 +674,13 @@ const CLOUD_LINK_RULE: &str =
   cmux objects use `cmux://workspace/ws_…` and `cmux://group/grp_…`; a file
   on the person's Mac uses `file://` and its absolute path. Without the URL,
   leave the number out. A subagent id (`a12`) is the exception: write it
-  bare, the app links it.";
+  bare, the app links it.
+- Pictures: show a screenshot or picture inline as `![short alt](/abs/shot.png)`
+  on its own line, never as a bare file link or path. Shots that compare
+  (before and after, light and dark, variants) go in one Markdown table with
+  a picture in each cell, like a GitHub PR: `| | Before | After |`, then
+  `| Light | ![before, light](/abs/b-light.png) | ![after, light](/abs/a-light.png) |`
+  and a `| Dark | … |` row.";
 
 /// The cmux section of a Cloud Chief: where it runs, exactly the tools it
 /// has, the owner rule and the links; nothing about a shell, the cmux CLI,

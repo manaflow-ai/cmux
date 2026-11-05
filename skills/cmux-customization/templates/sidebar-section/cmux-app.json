@@ -1,0 +1,22 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "The tabs of the workspace you are in, live, in the sidebar.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderWorkspace",
+      "title": "This workspace",
+      "symbol": "rectangle.stack",
+      "options": { "defaultRegion": "bottom", "maxRows": 12 }
+    }
+  },
+  "scopes": {
+    "workspace:read": "Read the current workspace and its tabs.",
+    "workspace:write": "Focus a tab when you click its row."
+  }
+}

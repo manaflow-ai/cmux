@@ -14,6 +14,7 @@ import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
 import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
 import { backgroundTasksLook } from "./backgroundTasksLook.experiment";
+import { BACKGROUND_PANE } from "./backgroundPane";
 
 const fence = (lang: string, code: string) => "```" + lang + "\n" + code + "\n```";
 
@@ -145,10 +146,33 @@ const noStrayEdges = (ctx: PlayContext) => {
       .filter((part) => part !== "none" && part.includes("inset"));
   const panel = ctx.document.querySelector(".acpmux-bg");
   // Only a top rule (0 offset across, a positive offset down) may part a docked panel from the side panel.
-  const left = lines(panel).filter((part) => !/(^|\s)0px\s+[1-9][\d.]*px\s+0px/.test(part.replace(/^.*?\)\s*/, "")));
+  const left = lines(panel).filter((part) => {
+    // A 2x webview resolves the hairline token to 0.5px; it is still only a top rule.
+    const offsets = part
+      .replace(/^.*?\)\s*/, "")
+      .match(/-?[\d.]+px/g)
+      ?.map(Number.parseFloat);
+    return !(offsets?.[0] === 0 && offsets[1] > 0 && offsets[2] === 0 && offsets[3] === 0);
+  });
   if (left.length > 0) throw new Error(`the panel draws an edge of its own: ${left.join(", ")}`);
   const head = lines(ctx.document.querySelector(".acpmux-bg__head"));
   if (head.length > 0) throw new Error(`the panel's header draws a rule under it: ${head.join(", ")}`);
+};
+// The system migration keeps independent Stop slots on the compact control track.
+const systemControls = (ctx: PlayContext) => {
+  const view = ctx.document.defaultView!;
+  const panel = ctx.document.querySelector(".acpmux-bg")!;
+  const compact = Number.parseFloat(view.getComputedStyle(panel).getPropertyValue("--ds-control-compact"));
+  if (!Number.isFinite(compact)) throw new Error("the compact control token resolves to a length");
+  for (const slot of panel.querySelectorAll<HTMLElement>(".acpmux-bg__stop-slot")) {
+    const box = slot.getBoundingClientRect();
+    if (Math.abs(box.width - compact) > 0.5 || Math.abs(box.height - compact) > 0.5)
+      throw new Error("Stop's reserved slot stays on the compact control token");
+  }
+  for (const button of panel.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")) {
+    if (view.getComputedStyle(button).cursor !== "default")
+      throw new Error("Background tasks actions retain the native arrow cursor");
+  }
 };
 const openDocument = async (ctx: PlayContext) => {
   await ctx.click({ role: "button", name: "Open preview" });
@@ -221,6 +245,7 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openPanel(ctx);
         noStrayEdges(ctx);
+        systemControls(ctx);
       },
     },
     sections: {
@@ -247,6 +272,30 @@ export default agentPaneEntry({
         await openPanel(ctx);
         await ctx.click({ selector: `.acpmux-bg__group[data-group="agent:${AUDIT.id}"] .acpmux-bg__name` });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-bg__transcript [data-row-id]"));
+      },
+    },
+    tab: {
+      note: 'Its own tab in the chat\'s right column (backgroundPane.ts; Leo, 2026-11-03: "it should be opening up on the right pane as a tab instead of this"): the app reveals the reserved pane id, the panel fills the tab with Clear finished and no Expand or Close.',
+      snapshot: snapshot(false),
+      play: async (ctx) => {
+        const bridge = (
+          ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(value: string): void } }
+        ).cmuxAcpmuxBridge;
+        if (!bridge?.revealTurn) throw new Error("the page takes the app's reveal");
+        bridge.revealTurn(`subagent:${BACKGROUND_PANE}`);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-shell[data-background-pane] > .acpmux-bg"));
+        const shell = ctx.document.querySelector(".acpmux-shell")!.getBoundingClientRect();
+        const panel = ctx.document.querySelector(".acpmux-bg")!.getBoundingClientRect();
+        if (Math.abs(panel.left - shell.left) > 1 || Math.abs(panel.right - shell.right) > 1)
+          throw new Error("the panel fills its tab's width");
+        if (ctx.document.querySelector(".acpmux-main")?.getClientRects().length)
+          throw new Error("the chat's own column is out of sight in the panel's tab");
+        const labels = [...ctx.document.querySelectorAll(".acpmux-bg__head button")].map((b) =>
+          b.getAttribute("aria-label"),
+        );
+        if (labels.includes("Expand") || labels.includes("Close"))
+          throw new Error("its own tab has no Expand or Close");
+        noStrayEdges(ctx);
       },
     },
     finished: {

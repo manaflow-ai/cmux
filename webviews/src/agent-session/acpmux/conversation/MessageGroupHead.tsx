@@ -68,7 +68,8 @@ export function MessageGroupHead({
   mark?: ReactNode;
 }) {
   const look = useInboxNoticeLook();
-  // Stacked (the default, messageLineLook.ts): the senders on their own line under the count, cut
+  // Single (the default, messageLineLook.ts): the senders after the count on its line. Stacked (a
+  // gallery version): the senders on their own line under the count, cut
   // there, as a message row's first line is; `quiet` keeps them in the tooltip only.
   const lineLook = useMessageLineLook();
   const below = lineLook === "stacked" && look !== "group-count" && !open ? senders : undefined;
@@ -98,7 +99,7 @@ export function MessageGroupHead({
           {inline && <span className="cv-message-group__senders">{inline}</span>}
         </span>
         <span className="cv-tool__chevron" aria-hidden="true">
-          <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+          <ChevronRight size={14} className={`cv-rotor${open ? " is-open" : ""}`} />
         </span>
       </button>
       {below && (

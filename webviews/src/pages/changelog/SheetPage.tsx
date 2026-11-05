@@ -17,6 +17,7 @@
 // back into the title, and a line that repeats it becomes the title.
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { Button } from "../../ui/Button";
 import type { Strings } from "../shared/i18n";
 import { areaOf, byArea, type AreaKey } from "./areas";
 import { dayLabel, groupByDay, isFiller, mergedView, rowKind, type ReleaseView } from "./model";
@@ -142,10 +143,10 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
         ))}
       </ul>
       {shown.length < rows.length && (
-        <button type="button" className="cl-more cls-more" onClick={() => setOpen(true)}>
+        <Button size="sm" variant="ghost" className="cl-more cls-more" onClick={() => setOpen(true)}>
           {strings.t("changelog.page.showMore")}
           <span className="cl-count">{rows.length - shown.length}</span>
-        </button>
+        </Button>
       )}
     </section>
   );

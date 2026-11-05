@@ -22,10 +22,13 @@ final class HomeHeaderButton: ClickableButton {
     /// A right-click menu (compose: New Chief, Invite).
     var contextMenu: (() -> NSMenu?)?
 
-    /// A toggle's state: the filled glyph in the accent, and the accessibility value.
+    /// A toggle's state: the filled glyph in the accent, the hover fill kept under it (`lit`: on
+    /// glass the lit and rest glyphs are the same ink, so the fill is what shows it is on), and the
+    /// accessibility value.
     var isOn = false {
         didSet {
             guard isOn != oldValue else { return }
+            hover.state.lit = isOn
             applyTint()
             setAccessibilityValue(isOn ? 1 : 0)
         }

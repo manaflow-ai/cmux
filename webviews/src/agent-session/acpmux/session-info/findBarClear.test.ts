@@ -54,6 +54,13 @@ describe("Find in Chat's bar beside Session Info", () => {
     expect(sessionInfoClear(320, 400)).toBe(0);
   });
 
+  test("an off-grid dragged width keeps the chat flush with the panel", () => {
+    const panel = 300;
+    const room = pushedRoom(1300, panel, column, 0, true);
+    expect(room).toBe(panel + FLOAT_MARGIN);
+    expect(sessionInfoClear(panel, room)).toBe(0);
+  });
+
   test("a chat with no room for the bar's narrowest beside the panel is cramped; unmeasured is not", () => {
     expect(place(528).cramped).toBe(true);
     expect(place(370).cramped).toBe(true);

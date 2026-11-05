@@ -125,10 +125,38 @@ pub fn media_refs(reply: &str, home: Option<&Path>) -> Vec<MediaRef> {
 /// spaces), and the image syntax of `failed` files becomes a `file://` link
 /// to the file. Home never draws a local picture from Markdown, so image
 /// syntax left in the text showed as `!name` (the user, 2026-10-26).
-pub fn settled(reply: &str, sent: &[&MediaRef], failed: &[&MediaRef]) -> String {
+///
+/// A sent picture on a table line (`| … |`, before and after shots) keeps its image syntax in its
+/// cell, pointing at its attachment instead (`![alt](cmux-attachment:<hash>)`, `hashes` gives each
+/// sent file's), so Home draws it in the cell (the user, 2026-11-03: "like how one might see in a
+/// github PR"); without a hash it leaves the text as any other.
+pub fn settled(
+    reply: &str,
+    sent: &[&MediaRef],
+    failed: &[&MediaRef],
+    hashes: &dyn Fn(&MediaRef) -> Option<String>,
+) -> String {
+    let on_table_line = |range: &std::ops::Range<usize>| {
+        let start = reply[..range.start].rfind('\n').map_or(0, |i| i + 1);
+        let end = reply[range.end..]
+            .find('\n')
+            .map_or(reply.len(), |i| range.end + i);
+        let line = reply[start..end].trim();
+        line.starts_with('|') && line.ends_with('|')
+    };
     let mut edits: Vec<(std::ops::Range<usize>, Option<String>)> = sent
         .iter()
-        .filter_map(|r| r.image_syntax.clone().map(|range| (range, None)))
+        .filter_map(|r| {
+            let range = r.image_syntax.clone()?;
+            let cell = on_table_line(&range)
+                .then(|| hashes(r))
+                .flatten()
+                .map(|hash| {
+                    let label = image_label(&reply[range.clone()]).unwrap_or("");
+                    format!("![{label}](cmux-attachment:{hash})")
+                });
+            Some((range, cell))
+        })
         .collect();
     for media in failed {
         let Some(range) = media.image_syntax.clone() else {
@@ -137,10 +165,7 @@ pub fn settled(reply: &str, sent: &[&MediaRef], failed: &[&MediaRef]) -> String 
         let Ok(url) = url::Url::from_file_path(&media.path) else {
             continue;
         };
-        let syntax = &reply[range.clone()];
-        let label = syntax
-            .strip_prefix("![")
-            .and_then(|rest| rest.find("](").map(|end| &rest[..end]))
+        let label = image_label(&reply[range.clone()])
             .filter(|label| !label.trim().is_empty())
             .unwrap_or("file");
         edits.push((range, Some(format!("[{label}]({url})"))));
@@ -175,6 +200,13 @@ pub fn settled(reply: &str, sent: &[&MediaRef], failed: &[&MediaRef]) -> String 
         start = end + 1;
     }
     lines.join("\n")
+}
+
+/// The alt text of an image syntax (`![alt](target)`).
+fn image_label(syntax: &str) -> Option<&str> {
+    syntax
+        .strip_prefix("![")
+        .and_then(|rest| rest.find("](").map(|end| &rest[..end]))
 }
 
 /// Uploads each file of `refs` to `conversation`: the attachment parts of the ones that went

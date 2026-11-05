@@ -57,6 +57,15 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // Fields added since the case list last covered them: each one's CLI path.
         (vec!["notification", "clear", "--workspace", WORKSPACE], "notification.clear"),
         (
+            vec![
+                "notification",
+                "clear",
+                "--notification",
+                "notification_00000000000000000000000000000041",
+            ],
+            "notification.clear",
+        ),
+        (
             vec!["notification", "create", "--title", "t", "--body", "", "--workspace", WORKSPACE],
             "notification.create",
         ),
@@ -371,11 +380,10 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "credential.verify"
                         | "credential.mint"
                         | "credential.rotate"
-                        // The daemon's settings ops (cx-9ce.10) have no
+                        // Apart from settings.list, daemon settings ops have no
                         // noun-first CLI verb yet, as they have no MCP tool
                         // (83285ad2b3bf; cx-9ce.12, cx-ncc.32).
                         | "settings.get"
-                        | "settings.list"
                         | "settings.reset"
                         | "settings.reset_all"
                         | "settings.schema"

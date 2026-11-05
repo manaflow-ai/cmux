@@ -105,6 +105,87 @@ fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
 
+/// Reads the fencing epoch persisted beside an outgoing transfer. Old bundles have no marker and
+/// are treated as epoch zero for compatibility with a daemon that predates fencing.
+pub(super) fn transfer_epoch(dir: &Path) -> Result<u64, RpcError> {
+    Ok(transfer_epoch_marker(dir)?.unwrap_or(0))
+}
+
+/// Reads the marker without treating a crash before marker creation as epoch zero. Callers that
+/// already have the session owner can safely use that owner epoch when this returns `None`.
+pub(super) fn transfer_epoch_marker(dir: &Path) -> Result<Option<u64>, RpcError> {
+    let path = dir.join("epoch");
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(transfer_error("epoch", error)),
+    };
+    let value = raw.trim().parse::<u64>().map_err(|error| {
+        transfer_error("epoch", format!("invalid epoch marker {}: {error}", path.display()))
+    })?;
+    Ok(Some(value))
+}
+
+/// Reject a delayed request from an older owner. Missing epochs remain accepted for old clients;
+/// all current clients include one, and any supplied value must match exactly.
+pub(super) fn check_epoch(expected: u64, supplied: Option<u64>) -> Result<(), RpcError> {
+    if let Some(supplied) = supplied.filter(|epoch| *epoch != expected) {
+        return Err(transfer_error(
+            "stale_epoch",
+            format!("ownership epoch is {expected}, request carried {supplied}"),
+        )
+        .with_data(json!({"epoch": expected})));
+    }
+    Ok(())
+}
+
+/// Missing is the legacy protocol; an explicit non-number is malformed and must not be treated
+/// as epoch zero.
+pub(super) fn parse_epoch(value: Option<&Value>) -> Result<Option<u64>, RpcError> {
+    let Some(value) = value else { return Ok(None) };
+    value
+        .as_u64()
+        .map(Some)
+        .ok_or_else(|| transfer_error("epoch", "epoch must be an unsigned integer"))
+}
+
+/// Current protocol calls must carry the lease. Epoch-zero requests are accepted only for
+/// bundles produced by older daemons.
+pub(super) fn require_epoch(expected: u64, supplied: Option<u64>) -> Result<(), RpcError> {
+    if expected != 0 && supplied != Some(expected) {
+        return Err(transfer_error(
+            "stale_epoch",
+            format!("ownership epoch is {expected}, request carried {supplied:?}"),
+        )
+        .with_data(json!({"epoch": expected})));
+    }
+    check_epoch(expected, supplied)
+}
+
+pub(super) fn require_valid_epoch(session: &Session) -> Result<u64, RpcError> {
+    if !session.ownership_epoch_is_valid() {
+        return Err(transfer_error(
+            "epoch_unreadable",
+            "ownership history is unreadable; refusing transfer writes",
+        ));
+    }
+    Ok(session.ownership_epoch())
+}
+
+/// A target may receive a newer move after its closed copy was moved away, but never an older
+/// bundle that could resurrect a fenced owner. This is used only at receive admission; writes
+/// and finish remain exact-match checks against the persisted manifest.
+pub(super) fn reject_stale_epoch(current: u64, incoming: u64) -> Result<(), RpcError> {
+    if incoming < current {
+        return Err(transfer_error(
+            "stale_epoch",
+            format!("ownership epoch is {current}, request carried {incoming}"),
+        )
+        .with_data(json!({"epoch": current})));
+    }
+    Ok(())
+}
+
 /// The `moving` mark of a chat that moved away (`SessionMeta::moved_to`), restored at load: no
 /// move has that id, so it is never committed, aborted or watched again.
 pub(super) const MOVED_AWAY: &str = "moved-away";
@@ -178,16 +259,43 @@ impl Hub {
             "read" => {
                 let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
                 let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(1 << 20);
-                self.transfer_read(text("transferId"), text("path"), offset, limit)
+                self.transfer_read(
+                    text("transferId"),
+                    text("path"),
+                    offset,
+                    limit,
+                    parse_epoch(params.get("epoch"))?,
+                )
+            }
+            "renew" => {
+                let transfer_id = text("transferId");
+                let dir = inside(&transfers_dir(), transfer_id)?;
+                require_epoch(transfer_epoch(&dir)?, parse_epoch(params.get("epoch"))?)?;
+                if !dir.is_dir() {
+                    return Err(transfer_error("unknown", format!("no move {transfer_id} here")));
+                }
+                super::transfer_watch::note_activity(&dir, None);
+                Ok(json!({"transferId": transfer_id, "epoch": transfer_epoch(&dir)?}))
             }
             "commit" => {
                 let session = self.resolve(text("sessionId"))?;
                 let to = params.get("to").cloned().unwrap_or(Value::Null);
-                self.transfer_commit(&session, text("transferId"), to).await
+                self.transfer_commit_with_epoch(
+                    &session,
+                    text("transferId"),
+                    to,
+                    parse_epoch(params.get("epoch"))?,
+                )
+                .await
             }
             "abort" => {
                 let session = self.resolve(text("sessionId"))?;
-                self.transfer_abort(&session, text("transferId"), None)
+                self.transfer_abort_with_epoch(
+                    &session,
+                    text("transferId"),
+                    None,
+                    parse_epoch(params.get("epoch"))?,
+                )
             }
             "receive" => self.transfer_receive(params).await,
             "write" => self.transfer_write(params),
@@ -207,6 +315,12 @@ impl Hub {
         to_host: Option<&str>,
         gates_receiver: bool,
     ) -> Result<Value, RpcError> {
+        if !session.ownership_epoch_is_valid() {
+            return Err(transfer_error(
+                "epoch_unreadable",
+                "ownership history is unreadable; refusing to begin a transfer",
+            ));
+        }
         // A stopped chat moves (its bundle is its whole history); one that moved away never
         // does again.
         if let Some(to) = session.meta().moved_to {
@@ -214,19 +328,28 @@ impl Hub {
         }
         let transfer_id = uuid::Uuid::now_v7().to_string();
         self.sweep();
-        {
+        // This begin holds the move's watch until it starts it, below: a watch that ran now
+        // would read no `alive` stamp and end the move under it (`transfer_watch.rs`). Claimed
+        // under the `moving` lock, so whoever sees the chat in this move sees the claim too.
+        let watch = {
             let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(other) = moving.as_ref() {
                 let e = transfer_error("moving", "this chat is already being moved");
                 return Err(e.with_data(json!({"transferId": other})));
             }
+            let watch = self.claim_move_watch(&transfer_id);
             *moving = Some(transfer_id.clone());
-        }
+            watch
+        };
+        // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
+        // before transfer_out so a daemon restart restores the same epoch while this move is in flight.
+        let dir = transfers_dir().join(&transfer_id);
         // The continuation of a turn the move stops (`restart_resume.rs`, `Cut::Move`): logged
         // before the Stop, which would leave the turn none, so the bundle's queue carries it and
         // the turn goes on where the chat lands. A move that does not happen queues it here.
         let mut carried: Option<String> = None;
         let unfreeze = |e: RpcError, carried: Option<&str>| {
+            let _ = std::fs::remove_dir_all(&dir);
             self.end_move(session);
             if let Some(id) = carried {
                 self.queue_carried(session, id);
@@ -278,13 +401,63 @@ impl Hub {
             drop(guard);
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
-        // The move is what withdraws the chat from this daemon's tabs (`transfer_authority.rs`):
-        // one that never reached the log does not begin.
+        // Export before the ownership scan so a concurrent log-scan callback cannot remove a
+        // held prompt before `held_prompts` captures the move's exact queue snapshot.
+        if let Err(error) = std::fs::create_dir_all(&dir) {
+            drop(guard);
+            return Err(unfreeze(
+                RpcError::internal(format!("transfer: bundle dir: {error}")),
+                carried,
+            ));
+        }
+        let made = self
+            .export(session, &dir)
+            .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
+            .and_then(|bundle| {
+                let approved_waiting = self.held_prompts(&bundle)?;
+                if !approved_waiting.is_empty() && !gates_receiver {
+                    return Err(approved_prompts_error(
+                        json!(approved_waiting),
+                        "the move's client does not check that its receiver approves",
+                    ));
+                }
+                let files = bundle_files(&bundle)
+                    .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
+                Ok((files, approved_waiting))
+            });
+        let (files, approved_waiting) = match made {
+            Ok(made) => made,
+            Err(error) => {
+                // Preserve the historical rejection receipt even though export now precedes
+                // fencing: callers and recovery use this durable abort to clear the attempted
+                // move without leaving a transfer_out record for a bundle never offered.
+                let record = json!({"transferId": transfer_id, "epoch": session.ownership_epoch()});
+                let (_, logged) =
+                    self.append_at(session, "mux", "transfer_aborted", record, None, None);
+                drop(guard);
+                return Err(if logged { unfreeze(error, carried) } else { error });
+            }
+        };
+        if let Err(error) = self.restore_ownership_epoch(session) {
+            drop(guard);
+            return Err(unfreeze(
+                transfer_error("store", format!("ownership epoch unreadable: {error}")),
+                carried,
+            ));
+        }
+        let epoch = session.bump_ownership_epoch();
+        if let Err(error) = std::fs::write(dir.join("epoch"), epoch.to_string()) {
+            drop(guard);
+            return Err(unfreeze(
+                RpcError::internal(format!("transfer: epoch marker: {error}")),
+                carried,
+            ));
+        }
         let (_, logged) = self.append_at(
             session,
             "mux",
             "transfer_out",
-            json!({"transferId": transfer_id, "continues": carried}),
+            json!({"transferId": transfer_id, "continues": carried, "epoch": epoch}),
             None,
             None,
         );
@@ -295,37 +468,7 @@ impl Hub {
                 carried,
             ));
         }
-        let dir = transfers_dir().join(&transfer_id);
-        let made = self
-            .export(session, &dir)
-            .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
-            .and_then(|bundle| {
-                // Check exactly what the target will restore, even if the live queue changed.
-                let approved_waiting = self.held_prompts(&bundle)?;
-                // A prompt the owner approved that still waits goes only to a receiver whose own
-                // `initialize` listed queue approval, which only the move's client sees (it holds
-                // the connection that sends the bundle, `cli/run/transfer.rs`): a client that
-                // does not say it checks that is refused (review of #28859).
-                if !approved_waiting.is_empty() && !gates_receiver {
-                    let why = "the move's client does not check that its receiver approves";
-                    return Err(approved_prompts_error(json!(approved_waiting), why));
-                }
-                let files = bundle_files(&bundle)
-                    .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
-                Ok((files, approved_waiting))
-            });
         drop(guard);
-        let (files, approved_waiting) = match made {
-            Ok(made) => made,
-            Err(error) => {
-                let _ = std::fs::remove_dir_all(&dir);
-                let record = json!({"transferId": transfer_id});
-                // Its `transfer_out` is logged: it stays frozen unless its end is too.
-                let (_, logged) =
-                    self.append_at(session, "mux", "transfer_aborted", record, None, None);
-                return Err(if logged { unfreeze(error, carried) } else { error });
-            }
-        };
         if let Some(socket) = to {
             let _ = std::fs::write(dir.join("to"), socket);
         }
@@ -338,8 +481,11 @@ impl Hub {
         if let Some(id) = carried {
             let _ = std::fs::write(dir.join("continues"), id);
         }
+        let _ = std::fs::write(dir.join("epoch"), epoch.to_string());
         super::transfer_watch::note_activity(&dir, None);
-        self.watch_transfer(session, &transfer_id);
+        if let Some(watch) = watch {
+            self.watch_claimed(session, watch);
+        }
         let files: Vec<Value> =
             files.into_iter().map(|(path, size)| json!({"path": path, "size": size})).collect();
         let schema = if session.meta().harness == "cmux-harness" {
@@ -353,6 +499,7 @@ impl Hub {
             "sessionId": session.id,
             "files": files,
             "session": self.session_summary(session),
+            "epoch": epoch,
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));
@@ -378,8 +525,11 @@ impl Hub {
         path: &str,
         offset: u64,
         limit: u64,
+        epoch: Option<u64>,
     ) -> Result<Value, RpcError> {
         let root = self.transfer_bundle(transfer_id)?;
+        let dir = transfers_dir().join(transfer_id);
+        require_epoch(transfer_epoch(&dir)?, epoch)?;
         let file = inside(&root, path)?;
         use std::io::{Read, Seek};
         let page = || -> std::io::Result<(Vec<u8>, u64, u64)> {
@@ -391,7 +541,6 @@ impl Hub {
             f.read_exact(&mut data)?;
             Ok((data, start, len))
         };
-        let dir = transfers_dir().join(transfer_id);
         let _pages = super::transfer_watch::PAGES.lock().unwrap_or_else(|e| e.into_inner());
         // The watch may have aborted the move since `transfer_bundle` found it.
         if !dir.is_dir() {
@@ -438,12 +587,16 @@ impl Hub {
 
     /// The chat lives on the target now: its queue is withdrawn here (the target runs it), its
     /// draft and bookmarks cleared, and it closes.
-    pub(super) async fn transfer_commit(
+    pub(super) async fn transfer_commit_with_epoch(
         &self,
         session: &Arc<Session>,
         transfer_id: &str,
         to: Value,
+        epoch: Option<u64>,
     ) -> Result<Value, RpcError> {
+        let dir = transfers_dir().join(transfer_id);
+        let current = require_valid_epoch(session)?;
+        require_epoch(current, epoch)?;
         Self::moving_as(session, transfer_id)?;
         // Committed already (by the source's own watch, or a retried commit). A stopped chat
         // is closed before its move, so the mark is where it went, not its status.
@@ -451,6 +604,9 @@ impl Hub {
             return Ok(
                 json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}),
             );
+        }
+        if let Some(epoch) = transfer_epoch_marker(&dir)? {
+            check_epoch(current, Some(epoch))?;
         }
         for q in session.queue() {
             self.remove_queued(session, &q.prompt_id);
@@ -466,7 +622,12 @@ impl Hub {
         // mark must outlive a restart or the source could reopen and run it: `committed` is
         // answered only once it is on disk.
         self.save_meta_answered(session)?;
-        self.append(session, "mux", "transferred", json!({"transferId": transfer_id, "to": to}));
+        self.append(
+            session,
+            "mux",
+            "transferred",
+            json!({"transferId": transfer_id, "to": to, "epoch": session.ownership_epoch()}),
+        );
         self.kill(session, false).await?;
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))
@@ -487,12 +648,16 @@ impl Hub {
     /// The move did not happen: the chat takes prompts and runs its queue again. `reason` says
     /// why when the source ended it itself (`transfer_watch.rs`). A policy that changed while it
     /// moved (a deny-all default skips a moving chat, `policy_mode.rs`) is followed now.
-    pub(super) fn transfer_abort(
+    pub(super) fn transfer_abort_with_epoch(
         self: &Arc<Self>,
         session: &Arc<Session>,
         transfer_id: &str,
         reason: Option<&str>,
+        epoch: Option<u64>,
     ) -> Result<Value, RpcError> {
+        let dir = transfers_dir().join(transfer_id);
+        let current = require_valid_epoch(session)?;
+        require_epoch(current, epoch)?;
         Self::moving_as(session, transfer_id)?;
         if session.meta().moved_to.is_some() {
             return Err(transfer_error(
@@ -500,7 +665,11 @@ impl Hub {
                 "the move committed; the chat lives on the target",
             ));
         }
+        if let Some(epoch) = transfer_epoch_marker(&dir)? {
+            check_epoch(current, Some(epoch))?;
+        }
         let mut record = json!({"transferId": transfer_id});
+        record.set("epoch", json!(session.ownership_epoch()));
         if let Some(reason) = reason {
             record.set("reason", json!(reason));
         }
@@ -511,7 +680,6 @@ impl Hub {
         if !logged {
             return Err(transfer_error("store", "could not durably record transfer_aborted"));
         }
-        let dir = transfers_dir().join(transfer_id);
         let carried = std::fs::read_to_string(dir.join("continues")).ok();
         self.end_move(session);
         if let Some(id) = carried.as_deref().map(str::trim).filter(|id| !id.is_empty()) {
@@ -580,5 +748,51 @@ impl Hub {
             hub.follow_policy(&followed).await;
             followed.queue_moved.notify_waiters();
         });
+    }
+}
+
+#[cfg(test)]
+mod fencing_tests {
+    use super::*;
+
+    #[test]
+    fn a_delayed_owner_is_rejected_for_every_transfer_write_path() {
+        // The four protocol operations all use the same fencing predicate. Keep this table
+        // explicit so a new endpoint cannot silently accept an old host's epoch.
+        for operation in ["read", "write", "commit", "abort"] {
+            let error = require_epoch(9, Some(8)).expect_err(operation);
+            assert!(error.message.contains("transfer.stale_epoch"));
+        }
+    }
+
+    #[test]
+    fn transfer_epoch_marker_survives_resume_and_only_moves_forward() {
+        let dir = std::env::temp_dir().join(format!("acpmux-epoch-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("epoch"), "4").unwrap();
+        assert_eq!(transfer_epoch(&dir).unwrap(), 4);
+        // A resumed owner can never accept the old epoch after a retry increments it.
+        assert!(require_epoch(5, Some(4)).is_err());
+        assert!(require_epoch(5, Some(5)).is_ok());
+        assert!(reject_stale_epoch(4, 5).is_ok());
+        assert!(reject_stale_epoch(5, 4).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn malformed_epoch_marker_fails_closed() {
+        let dir = std::env::temp_dir().join(format!("acpmux-epoch-bad-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("epoch"), "not-an-epoch").unwrap();
+        assert!(transfer_epoch_marker(&dir).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn epoch_parser_distinguishes_legacy_missing_from_malformed() {
+        assert_eq!(parse_epoch(None).unwrap(), None);
+        assert_eq!(parse_epoch(Some(&json!(7))).unwrap(), Some(7));
+        assert!(parse_epoch(Some(&json!("7"))).is_err());
+        assert!(parse_epoch(Some(&json!(null))).is_err());
     }
 }

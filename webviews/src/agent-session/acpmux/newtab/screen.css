@@ -1,5 +1,5 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - var(--cv-column,720px))/2)) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
+.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:var(--ds-space-3);--nt-screen-top:clamp(40px,14vh,140px);--nt-screen-inset:var(--cv-inset,max(var(--cv-edge,16px),round(down,(100% - var(--cv-column,720px))/2,4px)));padding:var(--nt-screen-top) var(--nt-screen-inset) 24px;box-sizing:border-box;font-family:var(--font-ui);-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll): 12px at 360px tall
    and under, rising with the height to the 14vh above 480px. One continuous curve, so a window resized
@@ -135,6 +135,7 @@
    spanning the card, its top corners the template's --acpmux-strip-radius. Its wrapper only marks the page as touched, so it
    draws nothing of its own. */
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
+.nt-composer[data-cloud-starting="true"] .nt-box { visibility: hidden; pointer-events: none; }
 .nt-location { display: contents; }
 /* No page of this run knows the recent project yet (NewTabScreen projectPending): the folder chip
    keeps its place and names nothing until the daemon lists the chats, never "Choose folder" first. */
@@ -465,7 +466,8 @@
 .nt-composer[data-trailing-gap="shared"] { --acpmux-composer-action-gap: var(--ds-space-1); }
 .nt-composer[data-trailing-gap="roomy"] { --acpmux-composer-action-gap: var(--ds-space-2); }
 /* The style dots (StyleSwitch.tsx, Leo 2026-10-14): a 24px target per style around a 6px round dot,
-   the rest dim on the text ink and the current one under the accent dot that slides to a pick. A
+   the rest dim on the text ink and the current one under the accent dot that slides to a pick
+   (useSlidingIndicator places and slides it; no CSS transition here). A
    name shows over a dot while pointed at, and over a pick for a moment; it is out of the row's flow,
    so the row never moves. The radio fills the target, unseen (the pane does not load ui.css). The
    row sits out of the flow, in the pages' bottom padding, so the pages lay out as without it. */
@@ -478,10 +480,9 @@
 .nt-style-input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;appearance:none;font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-style-mark{position:absolute;top:0;left:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;pointer-events:none}
 .nt-style-mark::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-accent,var(--agent-text))}
-.nt-style-options[data-settled] .nt-style-mark{transition:transform var(--agent-motion-move,180ms) var(--agent-ease-out,ease-out)}
 .nt-style-name{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);padding-bottom:2px;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity var(--agent-motion-out,80ms) var(--agent-ease-out,ease-out);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-style-name[data-shown]{opacity:1;transition-duration:0s}
-@media (prefers-reduced-motion:reduce){.nt-style-options[data-settled] .nt-style-mark,.nt-style-option::after{transition:none}}
+@media (prefers-reduced-motion:reduce){.nt-style-option::after{transition:none}}
 
 /* The browser omnibar's pointer (OmnibarPointer, cx-d0d.80): the field row is the text area, so
    the I-beam shows over all of it (a press there focuses the field, focusFromRow); its glyphs keep
@@ -641,14 +642,16 @@
 .nt-extra-quote blockquote{margin:0;font:inherit}
 .nt-extra-quote figcaption{margin-top:2px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .nt-widgets{display:flex;flex-direction:column;gap:var(--ds-space-3);margin-top:var(--ds-space-2)}
-.nt-widget{display:flex;flex-direction:column;box-sizing:border-box;padding:6px;border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
+/* --nt-card-inset: the 6 px a widget or stage card holds its 14 px rows off its edge; its hairline rules
+   run edge to edge by taking that inset back. */
+.nt-widget{--nt-card-inset:6px;display:flex;flex-direction:column;box-sizing:border-box;padding:var(--nt-card-inset);border-radius:20px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge)}
 .nt-widget-row{display:flex;align-items:center;gap:var(--ds-space-3);min-width:0;height:36px;padding:0 var(--ds-space-3);box-sizing:border-box;border:0;border-radius:14px;background:none;color:var(--agent-soft);font:inherit;font-size:var(--text-body);text-align:left;letter-spacing:var(--text-body--letter-spacing)}
 button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 .nt-widget-row[aria-pressed=true]{color:var(--agent-text)}
 .nt-widget-icon{flex:none;color:var(--acpmux-composer-dim)}
 .nt-widget-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nt-widget-check{flex:none;color:var(--agent-text)}
-.nt-widget-rule{height:0;margin:4px -6px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
+.nt-widget-rule{height:0;margin:4px calc(-1 * var(--nt-card-inset));border:0;border-top:var(--cmux-hairline,.5px) solid var(--acpmux-composer-edge)}
 .nt-widget-attention{gap:var(--ds-space-1)}
 .nt-widget-chat{display:flex;align-items:center;gap:var(--ds-space-1);min-width:0;padding-right:var(--ds-space-1);border-radius:14px}
 /* A Needs you chat's hover lights the control under the pointer alone: its open button, or its x. The row never takes a wash around its small x (Leo 2026-10-27: "why are you giving it the entire row when it's only this small little section? Just don't do that. Don't ever do that."). */
@@ -716,9 +719,10 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 /* A floating card: the composer's surface and rim, its shadow, a small radius. */
 .nt-stage-card {
+  --nt-card-inset: 6px;
   display: flex;
   flex-direction: column;
-  padding: 6px;
+  padding: var(--nt-card-inset);
   box-sizing: border-box;
   border-radius: 14px;
   background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
@@ -808,7 +812,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 }
 .nt-stage-divider {
   height: 0;
-  margin: 4px -6px;
+  margin: 4px calc(-1 * var(--nt-card-inset));
   border: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge);
 }

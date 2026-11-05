@@ -40,6 +40,8 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
         public var symbol: String?
         public var symbolColor: String?
         public var harness: String?
+        /// Identity ink selected by shared web, independent of the row's status.
+        public var identityTone: Int?
         /// A retrying row uses the native spinner instead of its harness glyph.
         public var working: Bool?
         /// A running row's shared wave phase and cadence.
@@ -103,6 +105,10 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
     /// Over the chat's column, how far above the pane's foot it stops (the composer's stack), CSS
     /// pixels; nil runs it to the foot less the float margin.
     public var foot: Double?
+    /// It lies over the chat's column, a short pane's popover too (which sends no ``foot``): it gets
+    /// the overlay glass under it, so the transcript never shows through it. Pages that predate it
+    /// send only ``foot``.
+    public var overChat: Bool?
     /// The panel's accessible name ("Session Info", in the page's language).
     public var label: String
     /// A subagent's own panel names the subagent at its top.

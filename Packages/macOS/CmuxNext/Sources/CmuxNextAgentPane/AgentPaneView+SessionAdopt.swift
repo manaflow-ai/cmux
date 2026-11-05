@@ -37,6 +37,16 @@ extension AgentPaneView {
         return true
     }
 
+    /// Tells the page the tab it now is (``AgentPaneModel/tabKey``, on each change), for a page a tab
+    /// adopted after its handshake (a prewarmed spare): it keeps its Session Info by that tab from here
+    /// (`acpmux-pane-tab`, sessionInfoState.ts). A page with no handshake yet gets it with its handshake.
+    func announceTab() {
+        guard model.hasHandshake, let tab = model.tabKey(),
+              let data = try? JSONSerialization.data(withJSONObject: ["tab": tab], options: [.withoutEscapingSlashes]),
+              let json = String(data: data, encoding: .utf8) else { return }
+        evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-pane-tab', {detail: \(json)}))")
+    }
+
     /// Lays the page outside the window now, before the pane shows this view, and back in place in
     /// the turn it reports the chat drawn (or the loading state's give-up marks it painted).
     private func holdPageAway(moved: (@MainActor () -> Void)?) {

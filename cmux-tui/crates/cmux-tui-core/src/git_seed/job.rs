@@ -270,6 +270,25 @@ impl GitSeedService {
             key: params.retry_key(),
             status: Mutex::new(Status::running(Phase::Clone)),
         });
+        // A delta only applies source changes to a folder already in use: its
+        // dependencies are left alone.
+        let first = params.since.is_none();
+        // Clone-only refuses a nonempty folder without touching it. Do not
+        // replace an existing ready barrier with an incomplete one for that
+        // no-op refusal (the worker repeats this check before cloning).
+        if params.clone_only.is_some()
+            && std::fs::read_dir(&folder).is_ok_and(|mut entries| entries.next().is_some())
+        {
+            job.finish(Err(Failed {
+                code: "seed.folder_not_empty",
+                error: "the folder exists and is not empty".into(),
+                install_url: None,
+            }));
+            jobs.order.push_back(job.id.clone());
+            jobs.by_id.insert(job.id.clone(), job.clone());
+            prune(&mut jobs);
+            return Ok(json!({ "job": job.id }));
+        }
         let credentials =
             self.config.credentials.clone().unwrap_or_else(super::git::machine_credentials);
         let seed = run::Seed::new(
@@ -281,10 +300,28 @@ impl GitSeedService {
             self.config.git.clone(),
             credentials,
         );
+        // Publish the barrier before start answers: no agent may observe a
+        // partially cloned or checked-out repository as ready.
+        let barrier = cmux_git::sync_barrier::Sync::begin(&job.folder).map_err(|error| {
+            SeedRefusal::bad_request(format!("cannot begin repository sync: {error}"))
+        })?;
         let worker = job.clone();
         std::thread::Builder::new()
             .name("cmux-git-seed".into())
-            .spawn(move || worker.finish(seed.run()))
+            .spawn(move || {
+                let result = seed.run().and_then(|()| {
+                    barrier.complete().map_err(|error| Failed {
+                        code: "seed.clone_failed",
+                        error: format!("cannot finish repository sync: {error}"),
+                        install_url: None,
+                    })
+                });
+                let ok = result.is_ok();
+                worker.finish(result);
+                if ok && first {
+                    super::seeded(&worker.folder);
+                }
+            })
             .map_err(|error| SeedRefusal::bad_request(format!("cannot start the seed: {error}")))?;
         jobs.order.push_back(job.id.clone());
         jobs.by_id.insert(job.id.clone(), job.clone());

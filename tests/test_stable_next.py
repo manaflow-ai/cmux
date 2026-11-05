@@ -107,33 +107,6 @@ class PublishedTonight(unittest.TestCase):
         self.assertFalse(stable_next.published_tonight(None, start))
 
 
-class Shards(unittest.TestCase):
-    def test_deals_every_test_target_once(self):
-        package = '.testTarget(\n name: "BTests", deps: []),\n.testTarget(name: "ATests"),\n.target(name: "Lib"),\n.testTarget(name: "CTests")'
-        matrix = stable_next.test_shards(package, 2)
-        filters = ",".join(entry["filters"] for entry in matrix["include"]).split(",")
-        self.assertEqual(sorted(filters), ["ATests", "BTests", "CTests"])
-        self.assertEqual(len(matrix["include"]), 2)
-
-    def test_the_real_package_has_its_test_targets(self):
-        package = (ROOT / "Packages/macOS/CmuxNext/Package.swift").read_text()
-        matrix = stable_next.test_shards(package, 4)
-        filters = ",".join(entry["filters"] for entry in matrix["include"]).split(",")
-        self.assertIn("CmuxNextAppTests", filters)
-        self.assertNotIn("CmuxNextTestSupport", filters)
-        self.assertEqual(len(filters), len(set(filters)))
-
-    def test_every_filter_passes_the_suite_lanes_own_check(self):
-        """package-test-lane.sh suite refuses a filter outside its regex or ending in '.' or '/' (exit 2)."""
-        lane = (ROOT / "scripts/ci/package-test-lane.sh").read_text()
-        pattern = re.search(r'\[\[ "\$suite_filter" =~ (\S+) \]\]', lane).group(1)
-        package = (ROOT / "Packages/macOS/CmuxNext/Package.swift").read_text()
-        for entry in stable_next.test_shards(package, 4)["include"]:
-            for f in entry["filters"].split(","):
-                self.assertRegex(f, pattern)
-                self.assertFalse(f.endswith((".", "/")), f)
-
-
 class MergeAndRollback(unittest.TestCase):
     def test_merge_tags_the_new_item_and_keeps_two_earlier(self):
         live = feed(item(30, "cmux-next-stable"), item(20, "cmux-next-stable"), item(10, "cmux-next-stable"))

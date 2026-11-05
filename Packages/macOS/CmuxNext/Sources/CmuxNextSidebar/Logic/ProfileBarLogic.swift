@@ -159,6 +159,10 @@ public nonisolated struct ProfileSwipeTracker: Sendable {
     /// scroll vertically for it).
     public var isHorizontal: Bool { active && abs(dx) > abs(dy) * 2 && abs(dx) > 4 }
 
+    /// Whether the gesture so far can no longer turn horizontal: it moved more than 4 points and
+    /// not mostly sideways. Once the gesture has moved, exactly one of this and `isHorizontal` holds.
+    public var isVertical: Bool { active && abs(dy) * 2 >= abs(dx) && max(abs(dx), abs(dy)) > 4 }
+
     /// Feeds one scroll event. Returns -1 (previous) or +1 (next) once per
     /// gesture when it qualifies. Positive `deltaX` is a swipe to the right
     /// (content moves right), which goes to the previous profile.

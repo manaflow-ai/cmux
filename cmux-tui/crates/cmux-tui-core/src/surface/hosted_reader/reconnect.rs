@@ -130,7 +130,7 @@ impl HostedReader {
                     {
                         replacement.keep_pty_custody(custody);
                     }
-                    *runtime = PtyRuntime::Hosted(Box::new(replacement));
+                    pty.replace_runtime(&mut runtime, PtyRuntime::Hosted(Box::new(replacement)));
                     pty.supports_clear_history_key_fallback
                         .store(supports_clear_history, Ordering::Release);
                     true
@@ -273,10 +273,20 @@ impl HostedReader {
                 replacement_snapshot.kitty_state.limits,
             ) {
                 replacement_control_responses.fail_all();
-                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
-                    && host.identity() == identity
                 {
-                    host.disconnect();
+                    let runtime = pty.runtime.lock().unwrap();
+                    if let PtyRuntime::Hosted(host) = &*runtime
+                        && host.identity() == identity
+                    {
+                        host.disconnect();
+                        // A `failed` link stays failed (below): the input port refuses until the next install, as a
+                        // write to the shut replacement fails now (#34544 review 4).
+                        if pty.host_connection_state.load(Ordering::Acquire)
+                            == TerminalHostConnectionState::Failed as u8
+                        {
+                            pty.input_route_failed(&runtime);
+                        }
+                    }
                 }
                 // A `failed` link being retried stays failed until it connects.
                 let was = pty
@@ -289,7 +299,7 @@ impl HostedReader {
                 if !reconnect_mux.terminal_host_connection_lost(surface.id, &identity) {
                     pty.host_connection_state
                         .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
-                    pty.stream_progress.notify();
+                    pty.reader_gave_up();
                     return None;
                 }
                 // A resync's reconnect that failed is a loss clients have not heard of.
@@ -316,8 +326,7 @@ impl HostedReader {
             }
             reconnect_mux
                 .reconcile_deferred_cell_pixel_ack(surface.id, replacement_snapshot.cell_pixels);
-            surface.publish_pending_directory();
-            surface.publish_pending_progress();
+            surface.queue_pending_publications();
             reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
             reconnect_mux.emit_terminal_resized(
                 pty.event_surface_id,

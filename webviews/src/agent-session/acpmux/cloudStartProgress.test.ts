@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts and host words, not shipped UI.
 import { expect, test } from "bun:test";
-import { cloudStartBegun, cloudStartEnded, cloudStartPushed } from "./cloudStartProgress";
+import { cloudRefusalText, cloudStartBegun, cloudStartEnded, cloudStartPushed } from "./cloudStartProgress";
 
 const begun = () => cloudStartBegun("k-1", "fix the build", "/Users/me/src/paint/");
 
@@ -137,4 +137,61 @@ test("forwards the environment id and setup ran or cached state", () => {
     setup: { state: "done", status: "ready" },
   });
   expect(cached?.setup).toEqual({ state: "done", status: "ready" });
+});
+
+test("a start this Mac's pane refused says why by its code, never the generic connection refusal", () => {
+  const generic = "The app refused the agent connection.";
+  const outside = cloudStartEnded(begun(), "k-1", {
+    ok: false,
+    code: "transport.path_outside_roots",
+    message: generic,
+  });
+  expect(outside).toEqual({
+    ...begun(),
+    state: "failed",
+    message: "This folder isn't open in this tab; pick it to send it to Cloud.",
+    refusedHere: true,
+  });
+  const gesture = cloudStartEnded(begun(), "k-1", { ok: false, code: "transport.gesture_required", message: generic });
+  expect(gesture?.message).toBe(cloudRefusalText("transport.gesture_required"));
+  expect(gesture?.message).not.toBe(generic);
+  expect(gesture?.refusedHere).toBe(true);
+  // The App's own failure keeps the host's words and its checklist step.
+  expect(
+    cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_start_failed", message: "No machine" })?.refusedHere,
+  ).toBeUndefined();
+});
+
+test("a gone, home or credential folder each says why, naming the credential folder (cmux#35005, cmux#35006)", () => {
+  const ended = (code: string, message: string) => cloudStartEnded(begun(), "k-1", { ok: false, code, message });
+  expect(ended("cloud_folder_missing", "cloud_folder_missing")).toEqual({
+    ...begun(),
+    state: "failed",
+    message: "This folder no longer exists; pick another one to send to Cloud.",
+    refusedHere: true,
+  });
+  expect(ended("cloud_folder_home", "cloud_folder_home")?.message).toBe(
+    "Cloud doesn't copy your home folder or a folder above it; pick a project folder.",
+  );
+  const secret = ended("cloud_folder_secret", "~/.ssh");
+  expect(secret?.message).toBe("Cloud never copies ~/.ssh, which holds keys or credentials; pick a project folder.");
+  expect(secret?.refusedHere).toBe(true);
+  for (const code of ["cloud_folder_missing", "cloud_folder_home", "cloud_folder_secret"])
+    expect(ended(code, "x")?.message).not.toBe(cloudRefusalText("transport.path_outside_roots"));
+});
+
+test("the pane's other refusals before Cloud (attachments, a busy pane) mark no step failed, as Swift counts them", () => {
+  const attachment =
+    "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.";
+  expect(cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_attachments", message: attachment })).toEqual({
+    ...begun(),
+    state: "failed",
+    message: attachment,
+    refusedHere: true,
+  });
+  for (const code of ["unsupported", "unavailable_now", "sandbox_busy", "sandbox_spent"]) {
+    const ended = cloudStartEnded(begun(), "k-1", { ok: false, code, message: code });
+    expect(ended?.refusedHere).toBe(true);
+    expect(ended?.message).not.toBe(code);
+  }
 });

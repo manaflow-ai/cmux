@@ -34,7 +34,7 @@ export default agentPaneEntry({
   },
   variants: {
     "eighteen-prompts": {
-      note: "Eighteen prompts with a tall initial rail. Compare how much quiet vertical rail each height arm gives the thread before overflow.",
+      note: "Eighteen prompts. The fixed arms (200, 240 before, 280, 360, 480 shipped) keep one height with quiet rail under the last tick; the older initial-* arms are here for comparison.",
       snapshot: chat(medium, { title: "Thread minimap height: initial rail" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
@@ -43,8 +43,17 @@ export default agentPaneEntry({
         await ctx.hover({ selector: '[data-tick="8"]' });
       },
     },
+    "long-rest": {
+      note: "Seventy prompts at rest: compare fixed-240 (before), fixed-360 and fixed-480 (chosen). Equal tick lengths; on-screen prompts brighter. The height and pitch scale together.",
+      snapshot: chat(long, { title: "Thread minimap height: long chat" }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__list"));
+        await ctx.scroll({ selector: ".acpmux-scroll" }, 3600);
+        await ctx.waitFor(() => ctx.document.querySelector('[data-tone="current"]'));
+      },
+    },
     "seventy-prompts": {
-      note: "Seventy prompts. Compare the maximum arms as they approach the cleared pane height and leave only the rail's own scroll for overflow.",
+      note: "Seventy prompts. A fixed arm stays at its one height and its list scrolls; the initial-* arms grow toward the pane before they scroll.",
       snapshot: chat(long, { title: "Thread minimap height: long chat" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="40"]')) return;
@@ -58,7 +67,7 @@ export default agentPaneEntry({
       },
     },
     "tall-pane-caps": {
-      note: "Two hundred sixty prompts in a tall pane. The four arms reach distinct row caps before the viewport clearance bound.",
+      note: "Two hundred sixty prompts in a 2100 px pane. A fixed arm keeps the same height as in a 720 px pane; the initial-* arms reach their row caps.",
       height: 2100,
       snapshot: chat(tall, { title: "Thread minimap height: distinct caps" }),
       play: async (ctx) => {

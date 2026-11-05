@@ -227,12 +227,11 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
 
     const opened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
-    expect(opened.folded).toBe(false);
-    expect(opened.animatedHeights).toBe(1);
+    // The body plays its own height and the offset moves with it on each frame (Leo, 2026-11-04:
+    // "it's not a smooth eough/graceful enough/minimally shifting animation"): no thread transform.
+    expect(opened.folded).toBe(true);
     expect(opened.bottomDrift).toBeLessThanOrEqual(2);
-    expect(opened.threadAnimations).toBe(1);
-    expect(opened.threadDuration).toBeGreaterThanOrEqual(150);
-    expect(opened.threadDuration).toBeLessThanOrEqual(200);
+    expect(opened.threadAnimations).toBe(0);
     expect(opened.moved).toBeGreaterThan(1);
     await settle(page);
     const aboveAfter = await page
@@ -273,7 +272,8 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     const reopened = await clickAndWatch(page);
     expect(await page.locator("[data-probe]").getAttribute("aria-expanded")).toBe("true");
     expect(reopened.bottomDrift).toBeLessThanOrEqual(2);
-    expect(reopened.threadAnimations).toBe(1);
+    expect(reopened.threadAnimations).toBe(0);
+    expect(reopened.folded).toBe(true);
     await settle(page);
     expect(await scrollHeight(page)).toBe(expandedEnd);
     expect(await atLatest(page)).toBe(true);
@@ -373,19 +373,21 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await probe(page, '[data-row-id="live-run"] button.cv-tool.is-toggle[aria-expanded="false"]');
     const opened = await clickAndWatch(page);
     expect(opened.bottomDrift).toBeLessThanOrEqual(3);
-    expect(opened.threadAnimations).toBe(1);
+    expect(opened.folded).toBe(true);
     expect(await atLatest(page)).toBe(true);
     // Dispatch the reversal and scroll in one task so the cancellation cannot miss a short animation.
     await page.evaluate(async () => {
       document.querySelector<HTMLElement>("[data-probe]")!.click();
       await window.cmuxPaintFrame();
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      // A short scroll up: the body lands shut at once and the end it had stays as room, so what
+      // was left of its shrink never clamps the reader back to the end.
       node.dispatchEvent(new WheelEvent("wheel", { deltaY: -100, bubbles: true }));
       node.scrollTop -= 100;
     });
     await settle(page);
     expect(await atLatest(page)).toBe(false);
-    expect(await page.locator("[data-bottom-fold]").count()).toBe(0);
+    expect(await page.locator("[data-bottom-fold], [data-bottom-stack-fold]").count()).toBe(0);
     expect(await page.locator(".acpmux-thread").evaluate((node) => node.getAnimations().length)).toBe(0);
     await page.close();
   });

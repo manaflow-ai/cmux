@@ -84,6 +84,10 @@ concurrency:
   group: cmux-next-car-guards-${{ inputs.car && format('{0}-{1}', inputs.car, github.run_id) || github.ref }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   plan:
     name: car guards plan
@@ -104,6 +108,10 @@ jobs:
           ref: ${{ inputs.head || github.event.pull_request.head.sha }}
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       # The guards come from this workflow's commit: a car's tree may predate them (run
       # 39528757300 on f3ecea5 had no scripts/ci/car_guards.py). The car's own guards
@@ -304,6 +312,10 @@ jobs:
           ref: ${{ needs.plan.outputs.head }}
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       # The guards come from this workflow's commit: a car's tree may predate them (run
       # 39528757300 on f3ecea5 had no scripts/ci/car_guards.py). The car's own guards

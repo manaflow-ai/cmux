@@ -2,8 +2,8 @@ import AppKit
 import Testing
 @testable import MessagesLabSidebar
 
-/// The gallery of a Chief avatar's state looks: one row per style, one strip per state (idle, working,
-/// waiting, failed) and one for the cues (a turn ending, a failure), each sampled into eight frames of a
+/// The gallery of a Chief avatar's state looks: one row per style, one strip per state (idle, thinking,
+/// tool, waiting, done, failed) and one for the cues (a turn ending, a failure), each sampled into eight frames of a
 /// synthetic orb (turns and scales drawn 3x so they read). Each frame is drawn from the real look: ``SidebarAvatarLooks/show(_:on:seed:)`` builds
 /// its layers and animations, and the sheet applies their keyframes at that frame's time. One sheet is
 /// written to the package's `.build/chief-avatar-motion-gallery.png` (ignored by git), which a fleet step
@@ -94,8 +94,31 @@ struct ChiefAvatarMotionGalleryTests {
                            startAngle: start, endAngle: start - sweep, clockwise: true)
             path.lineWidth = width
             path.lineCapStyle = .round
+            if ring.lineDashPattern != nil {
+                // Tool running's dots, spaced as the look spaces them on the sheet's larger circle.
+                var dash: [CGFloat] = [0, .pi * (d + 2 * width) / CGFloat(SidebarAvatarLooks.dotCount)]
+                path.setLineDash(&dash, count: 2, phase: 0)
+            }
             color.withAlphaComponent(CGFloat(ring.opacity)).setStroke()
             path.stroke()
+        }
+        // Done's badge on the lower trailing edge, as the look places it (the sheet's y grows upward).
+        if let badge = avatar.sublayers?.first(where: { $0.name == SidebarAvatarLooks.badgeName }) as? CAShapeLayer {
+            let grow = Self.value(badge.animation(forKey: SidebarAvatarMotion.cueKey), at: time) ?? 1
+            let side = (d * 0.4).rounded() * grow
+            let edge = d / 2 * 0.707
+            let disc = NSRect(x: rect.midX + edge - side / 2, y: rect.midY - edge - side / 2, width: side, height: side)
+            (badge.fillColor.flatMap(NSColor.init(cgColor:)) ?? .systemGreen).setFill()
+            NSBezierPath(ovalIn: disc).fill()
+            let check = NSBezierPath()
+            check.move(to: NSPoint(x: disc.minX + side * 0.28, y: disc.maxY - side * 0.52))
+            check.line(to: NSPoint(x: disc.minX + side * 0.44, y: disc.maxY - side * 0.68))
+            check.line(to: NSPoint(x: disc.minX + side * 0.72, y: disc.maxY - side * 0.36))
+            check.lineWidth = max(1.2, side * 0.13)
+            check.lineCapStyle = .round
+            check.lineJoinStyle = .round
+            NSColor.white.setStroke()
+            check.stroke()
         }
     }
 
@@ -124,10 +147,10 @@ struct ChiefAvatarMotionGalleryTests {
                     }
                     let loops = ([avatar] + (avatar.sublayers ?? []).flatMap { [$0] + ($0.sublayers ?? []) })
                         .compactMap { $0.animation(forKey: SidebarAvatarMotion.animationKey) }
-                    // Only working loops; a strip with none (idle, waiting, failed) stands still.
+                    // Only a running turn loops; a strip with none (idle, waiting, done, failed) stands still.
                     period = loops.map { min($0.duration, 1.2) }.max() ?? 1
                 } else {
-                    let (from, to): (SidebarAvatarMotion.Mode, SidebarAvatarMotion.Mode) = column == modes.count ? (.working, .waiting) : (.idle, .failed)
+                    let (from, to): (SidebarAvatarMotion.Mode, SidebarAvatarMotion.Mode) = column == modes.count ? (.tool, .done) : (.idle, .failed)
                     if style != .still {
                         SidebarAvatarLooks.show(.init(style: style, mode: to, moving: true), on: avatar, seed: "gallery")
                         SidebarAvatarLooks.cue(avatar, style: style, from: from, to: to)

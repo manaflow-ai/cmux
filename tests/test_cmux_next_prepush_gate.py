@@ -7,11 +7,13 @@ scripts/cmux-next checks and a small CmuxNext package, then pushes to a bare
 runs. The base already carries a `try!` (base debt): only what a push adds counts.
 """
 import importlib.util
+import sys
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 
@@ -41,6 +43,15 @@ if os.uname().sysname == "Darwin":
 else:
     TOOLS = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "cmux-lint-tools"
 TOOLS = Path(os.environ.get("CMUX_LINT_TOOLS_DIR", TOOLS))
+
+
+def load_gate_tools():
+    """scripts/cmux-next/prepush-gate.py as a module, from this checkout."""
+    spec = importlib.util.spec_from_file_location("cmux_next_prepush_gate_module", SOURCE / "scripts/cmux-next/prepush-gate.py")
+    gate = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = gate
+    spec.loader.exec_module(gate)
+    return gate
 
 
 def _pinned_swiftformat() -> Path:
@@ -397,6 +408,73 @@ class PrePushGateTests(unittest.TestCase):
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
         self.assertIn("push_range.py is missing; rerun scripts/install-git-hooks.sh", output)
+        self.assertNotIn("Traceback", output)
+
+    STALE = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
+
+    def test_a_stale_install_refuses_and_never_runs_the_pushed_check(self):
+        # The hook never runs code the push controls. A reviewed copy older than a check must refuse with how to fix
+        # it, never fall back to the pushed head's copy of that check.
+        snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
+        marker = self.root / "pushed-code-ran"
+        payload = f"open({str(marker)!r}, 'w').close()\n"
+        self.write("schemas/keybindings/ghostty-reserved-keys.json", "[]\n")
+        self.write("plans/cmux-next/action-surfaces.json", "{}\n")
+        self.commit("reserved-key data")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        for number, name in enumerate(("check-leo-bans.py", "check-ghostty-reserved-keys.py")):
+            with self.subTest(name=name):
+                installed = snapshot.resolve() / name
+                if installed.exists():
+                    installed.unlink()
+                self.write(f"scripts/cmux-next/{name}", payload)
+                self.kit(f"Stale{number}", NEW_CLEAN.replace("Fresh", f"Stale{number}"))
+                self.commit(f"a pushed {name}")
+                before = self.remote_head()
+
+                result = self.push()
+
+                output = result.stdout + result.stderr
+                self.assertFalse(marker.exists(), f"the hook ran the pushed {name}")
+                self.assertNotEqual(result.returncode, 0, output)
+                self.assertEqual(self.remote_head(), before)
+                self.assertIn(self.STALE, output)
+                self.assertNotIn("Traceback", output)
+
+    def test_a_stale_install_never_takes_the_tool_pins_from_the_checkout(self):
+        # Review of 9b89be5eefd: an install with no lint-tools.lock read the checkout's (the pushed branch) and
+        # downloaded and ran the binary that lock names; its sha256 proves nothing, it comes from the same lock.
+        snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
+        (snapshot.resolve() / "lint-tools.lock").unlink()
+        marker = self.root / "pushed-code-ran"
+        tools = self.root / "tools"  # a fresh tools folder, so no pinned binary already there answers instead
+        payload = self.root / "payload"
+        payload.mkdir()
+        import hashlib
+        import zipfile
+        binary = payload / "ast-grep"
+        binary.write_text(f"#!/bin/sh\ntouch {marker}\n")
+        archive = payload / "tool.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.write(binary, "ast-grep")
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        gate = load_gate_tools()
+        rows = "".join(f"{tool}\t9.9.9\t{gate.platform_key()}\t{archive.as_uri()}\t{digest}\t{tool}\n"
+                       for tool in ("ast-grep", "swiftformat", "swiftlint"))
+        self.write("scripts/cmux-next/lint-tools.lock", "# tool\tversion\tplatform\turl\tsha256\tbinary-in-zip\n" + rows)
+        self.kit("Pinned", NEW_CLEAN.replace("Fresh", "Pinned"))
+        self.commit("a pushed lock and a Swift change")
+        before = self.remote_head()
+
+        result = self.push(CMUX_LINT_TOOLS_DIR=str(tools))
+
+        output = result.stdout + result.stderr
+        self.assertFalse(marker.exists(), "the hook ran a binary the pushed lock named")
+        self.assertFalse(tools.exists() and any(tools.iterdir()), "the hook downloaded what the pushed lock named")
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn(self.STALE, output)
         self.assertNotIn("Traceback", output)
 
     def test_a_merge_cannot_use_an_upstream_removal_to_pay_for_the_branch_s_own_debt(self):
@@ -1983,6 +2061,39 @@ let package = Package(
 
 
 
+class StaleInstallTests(unittest.TestCase):
+    """The check trees never take the pushed head's scripts/swift_source_mask.py on a hook run."""
+
+    def test_the_trees_refuse_an_install_without_the_masker_and_never_write_the_pushed_one(self):
+        gate = load_gate_tools()
+        with tempfile.TemporaryDirectory(prefix="cmux-stale-install-") as temporary:
+            root = Path(temporary)
+            repo = root / "repo"
+            env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+            run = lambda *args: subprocess.run(["git", "-C", str(repo), *args], env=env, check=True,
+                                               capture_output=True)
+            repo.mkdir()
+            run("init", "--quiet")
+            (repo / "scripts/cmux-next").mkdir(parents=True)
+            (repo / "scripts/cmux-next/check-x.py").write_text("print('x')\n")
+            (repo / "scripts/swift_source_mask.py").write_text("PUSHED = True\n")
+            run("add", "-A")
+            run("-c", "user.email=a@b", "-c", "user.name=n", "commit", "--quiet", "-m", "x")
+            head = run("rev-parse", "HEAD").stdout.decode().strip()
+            trusted = root / "trusted"
+            trusted.mkdir()
+            (trusted / "check-x.py").write_text("print('reviewed')\n")
+            with self.assertRaises(SystemExit) as raised:
+                gate.build_trees(repo, head, head, [], root / "work-stale", trusted)
+            self.assertIn("the installed hook is older than the checks this push needs", str(raised.exception))
+            (trusted / "swift_source_mask.py").write_text("PUSHED = False\n")
+            base_tree, head_tree = gate.build_trees(repo, head, head, [], root / "work", trusted)
+            for tree in (base_tree, head_tree):
+                self.assertNotIn("PUSHED = True", (tree / "scripts/swift_source_mask.py").read_text()
+                                 if (tree / "scripts/swift_source_mask.py").exists() else "")
+                self.assertIn("PUSHED = False", (tree / "scripts/cmux-next/swift_source_mask.py").read_text())
+
+
 class SwiftFormatCacheTests(unittest.TestCase):
     """The gate lints throwaway trees (base and head under a fresh temporary folder per run), and SwiftFormat keys
     its cache by absolute path, so a persistent cache can never hit: it only grows (335 MB on a busy machine, ~50 s
@@ -2023,6 +2134,61 @@ class SwiftFormatCacheTests(unittest.TestCase):
             self.assertIn("Sources/A.swift:1:10", out)
             self.assertEqual(sorted(p.name for p in tools.iterdir()), [], "the lint left a cache file in the tools folder")
             self.assertFalse((tree / "default.cache").exists(), "the lint fell back to a default cache file")
+
+
+class StopCleanlyTests(unittest.TestCase):
+    """The gate stops what it started with SIGTERM first, so a `git` under it clears `.git/index.lock`.
+
+    A `git` that refreshes a stale index holds that lock while it writes the index back, and removes it on
+    SIGTERM but not on SIGKILL (measured: 3 of 3 runs left it on SIGKILL, 0 of 3 on SIGTERM). The stale lock
+    then refuses the developer's next git command with no process alive to blame (live-apply-nightly, three
+    times on 2026-11-04). The stand-in below holds and clears a lock the way git does.
+    """
+
+    HOLDS_A_LOCK = ("#!/usr/bin/env python3\n"
+                    "import os, signal, sys, time\n"
+                    "lock = sys.argv[1]\n"
+                    "signal.signal(signal.SIGTERM, lambda *_: (os.remove(lock), sys.exit(143)))\n"
+                    "open(lock, 'w').close()\n"
+                    "open(sys.argv[2], 'w').close()\n"  # it has the lock now
+                    "time.sleep(300)\n")
+
+    def _holder(self, folder: Path) -> Path:
+        script = folder / "holds-a-lock.py"
+        script.write_text(self.HOLDS_A_LOCK)
+        script.chmod(0o755)
+        return script
+
+    def _wait_for(self, path: Path) -> None:
+        for _ in range(500):
+            if path.exists():
+                return
+            time.sleep(0.02)
+        self.fail(f"{path.name} never appeared")
+
+    def test_stopping_a_process_lets_it_clear_its_lock(self):
+        gate = load_gate_tools()
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            lock, held = folder / "index.lock", folder / "held"
+            process = subprocess.Popen([sys.executable, str(self._holder(folder)), str(lock), str(held)])
+            try:
+                self._wait_for(held)
+                gate.stop([process.pid])
+                process.wait(timeout=30)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+            self.assertFalse(lock.exists(), "the stopped process was killed outright and left its lock behind")
+
+    def test_a_timed_out_check_leaves_no_lock_behind(self):
+        gate = load_gate_tools()
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            lock, held = folder / "index.lock", folder / "held"
+            code, out = gate.run([sys.executable, str(self._holder(folder)), str(lock), str(held)], folder, timeout=2)
+            self.assertEqual(code, 124, out)
+            self.assertFalse(lock.exists(), "the timed-out check's process left its lock behind")
 
 
 if __name__ == "__main__":

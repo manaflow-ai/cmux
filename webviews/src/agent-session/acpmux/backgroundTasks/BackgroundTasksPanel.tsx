@@ -27,6 +27,7 @@
 // running symbol vs just having the time and a square stop button?"). Its one clock ticks each
 // second only while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops
 // with the panel.
+import { Button } from "../../../ui/Button";
 import {
   createContext,
   useCallback,
@@ -105,8 +106,10 @@ export function BackgroundTasksPanel({
   workflow?: WorkflowReads;
   onStop?(target: StopTarget): Promise<unknown>;
   onClearFinished(ids: string[]): void;
-  onExpand(): void;
-  onClose(): void;
+  /// Unset (the panel is a tab of its own, backgroundPane.ts), no Expand button.
+  onExpand?(): void;
+  /// Unset (its own tab, which the tab's own close closes), no Close button and Escape closes nothing.
+  onClose?(): void;
   /// A started chat's row opens that chat; unset leaves it plain text.
   onOpenSession?(sessionId: string): void;
   /// A command's row opens its terminal; unset leaves it plain text.
@@ -229,7 +232,8 @@ function Section({ id, count, children }: { id: PanelSection["id"]; count: numbe
   const [open, setOpen] = useState(true);
   return (
     <div className="acpmux-bg__section" data-section={id}>
-      <button
+      <Button
+        variant="ghost"
         type="button"
         className="acpmux-bg__fold acpmux-bg__section-head"
         aria-expanded={open}
@@ -238,7 +242,7 @@ function Section({ id, count, children }: { id: PanelSection["id"]; count: numbe
         <Disclosure open={open} />
         <span>{t(id === "running" ? "backgroundTasks.section.running" : "backgroundTasks.section.finished")}</span>
         <span className="acpmux-bg__section-count">{count}</span>
-      </button>
+      </Button>
       {open && children}
     </div>
   );
@@ -317,8 +321,10 @@ function PanelFrame({
   backLabel?: string;
   clear?: () => void;
   expanded: boolean;
-  onExpand(): void;
-  onClose(): void;
+  /// Unset (the panel is a tab of its own, backgroundPane.ts), no Expand button.
+  onExpand?(): void;
+  /// Unset (its own tab, which the tab's own close closes), no Close button and Escape closes nothing.
+  onClose?(): void;
   children: ReactNode;
 }) {
   const t = useT();
@@ -331,50 +337,71 @@ function PanelFrame({
       data-expanded={expanded || undefined}
       // ui-allow: Escape steps back out of a transcript, else closes the panel
       onKeyDown={(event) => {
-        if (event.key !== "Escape" || event.defaultPrevented) return;
+        if (event.key !== "Escape" || event.defaultPrevented || !(back || onClose)) return;
         event.preventDefault();
         if (back) back();
-        else onClose();
+        else onClose?.();
       }}
     >
       <header className="acpmux-bg__head">
         {back && (
-          <button type="button" className="cv-iconbtn cv-iconbtn--compact" aria-label={backLabel} onClick={back}>
+          <Button
+            variant="ghost"
+            type="button"
+            className="acpmux-bg__icon"
+            size="sm"
+            icon
+            aria-label={backLabel}
+            onClick={back}
+          >
             <ChevronLeft size={14} />
-          </button>
+          </Button>
         )}
         <h2 className="acpmux-bg__title">{title}</h2>
         <span className="acpmux-bg__tools">
           {clear && (
-            <button
+            <Button
+              variant="ghost"
               type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
+              className="acpmux-bg__icon"
+              size="sm"
+              icon
               aria-label={t("backgroundTasks.clearFinished")}
               title={t("backgroundTasks.clearFinished")}
               onClick={clear}
             >
               <Icon name="action.delete" size={14} />
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={expandLabel}
-            title={expandLabel}
-            aria-pressed={expanded}
-            onClick={onExpand}
-          >
-            <Expand size={14} />
-          </button>
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={t("backgroundTasks.close")}
-            title={t("backgroundTasks.close")}
-            onClick={onClose}
-          >
-            <Close size={14} />
-          </button>
+          {onExpand && (
+            <Button
+              variant="ghost"
+              type="button"
+              className="acpmux-bg__icon"
+              size="sm"
+              icon
+              aria-label={expandLabel}
+              title={expandLabel}
+              aria-pressed={expanded}
+              onClick={onExpand}
+            >
+              <Expand size={14} />
+            </Button>
+          )}
+          {onClose && (
+            <Button
+              variant="ghost"
+              type="button"
+              className="acpmux-bg__icon"
+              size="sm"
+              icon
+              aria-label={t("backgroundTasks.close")}
+              title={t("backgroundTasks.close")}
+              onClick={onClose}
+            >
+              <Close size={14} />
+            </Button>
+          )}
         </span>
       </header>
       {children}
@@ -423,18 +450,24 @@ function GroupBlock({
   return (
     <div className="acpmux-bg__group" data-state={live ? "running" : group.state} data-group={group.id}>
       <div className="acpmux-bg__agent">
-        <button type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
+        <Button variant="ghost" type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
           <span className="acpmux-bg__label">{group.name}</span>
           {opens && (
             <span className="acpmux-bg__chevron" aria-hidden="true">
               <Icon name="disclosure.collapsed" size={12} row />
             </span>
           )}
-        </button>
+        </Button>
         {look === "compact" && group.total > 0 && (
-          <button type="button" className="acpmux-bg__counts" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <Button
+            variant="ghost"
+            type="button"
+            className="acpmux-bg__counts"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+          >
             {counts}
-          </button>
+          </Button>
         )}
         {!live && group.state === "failed" ? (
           <span className="acpmux-bg__time acpmux-bg__failed">{t("subagents.state.failed")}</span>
@@ -444,10 +477,16 @@ function GroupBlock({
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
       {look === "nested" && group.total > 0 && (
-        <button type="button" className="acpmux-bg__fold" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Button
+          variant="ghost"
+          type="button"
+          className="acpmux-bg__fold"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
           <Disclosure open={open} />
           {counts}
-        </button>
+        </Button>
       )}
       {open && group.total > 0 && (
         <TaskList
@@ -508,7 +547,8 @@ function TaskList({
     <div className="acpmux-bg__tasks">
       {group.running.map(row)}
       {finished.length > 0 && nested && (
-        <button
+        <Button
+          variant="ghost"
           type="button"
           className="acpmux-bg__fold acpmux-bg__fold--finished"
           aria-expanded={finishedOpen}
@@ -516,15 +556,20 @@ function TaskList({
         >
           <Disclosure open={finishedOpen} />
           <span>{t("backgroundTasks.finished", { n: finished.length })}</span>
-        </button>
+        </Button>
       )}
       {finishedOpen && (
         <div className={nested ? "acpmux-bg__finished" : undefined}>
           {finished.slice(0, shown).map(row)}
           {finished.length > shown && (
-            <button type="button" className="acpmux-bg__more" onClick={() => setShown(shown + FINISHED_PAGE * 3)}>
+            <Button
+              variant="ghost"
+              type="button"
+              className="acpmux-bg__more"
+              onClick={() => setShown(shown + FINISHED_PAGE * 3)}
+            >
               {t("backgroundTasks.showMore")}
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -556,13 +601,13 @@ function TaskRow({
         : undefined;
   return (
     <div className="acpmux-bg__task" data-state={task.state}>
-      <button type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>
+      <Button variant="ghost" type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>
         {/* A running task's time and Stop say it runs: it leads with the same mark as one that ended. */}
         <span className="acpmux-bg__disclosure" aria-hidden="true">
           <Icon name="disclosure.collapsed" size={12} row />
         </span>
         <span className="acpmux-bg__label">{task.title}</span>
-      </button>
+      </Button>
       <span className="acpmux-bg__time">{time(task.startedAt, task.endedAt, now, task.state === "running")}</span>
       <StopSlot target={task.stop} name={task.title} onStop={onStop} />
     </div>
@@ -589,9 +634,12 @@ function StopSlot({
   const label = t(state === "failed" ? "backgroundTasks.stopFailed" : "backgroundTasks.stop", { name });
   return (
     <span className="acpmux-bg__stop-slot">
-      <button
+      <Button
+        variant="ghost"
         type="button"
         className="acpmux-bg__stop"
+        size="sm"
+        icon
         data-state={state}
         disabled={state === "stopping"}
         aria-label={label}
@@ -602,7 +650,7 @@ function StopSlot({
         }}
       >
         <Icon name="action.stop" size={12} selected />
-      </button>
+      </Button>
     </span>
   );
 }

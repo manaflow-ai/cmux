@@ -521,8 +521,12 @@ def downloads_dir(scratch: str) -> str:
     return os.path.join(scratch, "downloads")
 
 
-def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None):
+def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None,
+           scratch: str | None = None):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
+
+    `scratch` relaunches into an earlier launch's scratch (its HOME and state), as a relaunch after
+    an update does (bench_relaunch_reconnect.py): that launch's daemons may still run then.
 
     Through LaunchServices (`open`), as a user's launch: the app is then the
     responsible process of its WebKit processes. A child of this script
@@ -541,10 +545,11 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     # Every process from this bundle at the end is this run's (cleanup ends
     # them all), so none may exist before: an earlier app's detached daemons
     # and terminal hosts would otherwise be ended too.
+    relaunch = scratch is not None
     running = bundle_pids(bundle)
-    if running:
+    if running and not relaunch:
         raise SystemExit(f"bench-memory: processes from {bundle} are running ({sorted(running)}); end them first")
-    scratch = tempfile.mkdtemp(prefix="bench-memory-")
+    scratch = scratch or tempfile.mkdtemp(prefix="bench-memory-")
     home = os.path.join(scratch, "home")
     os.makedirs(os.path.join(home, "Library"), exist_ok=True)
     env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.path.join(scratch, "tmp") + "/",
@@ -597,7 +602,8 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
                          f"launch {'direct' if direct else 'open'})" + tail(log_path) + exception_records(bundle, launched_at))
     except BaseException:
         end_bundle(bundle)
-        shutil.rmtree(scratch, ignore_errors=True)
+        if not relaunch:
+            shutil.rmtree(scratch, ignore_errors=True)
         raise
 
 

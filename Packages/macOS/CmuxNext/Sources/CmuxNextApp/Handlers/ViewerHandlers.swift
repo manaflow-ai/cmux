@@ -20,8 +20,10 @@ enum ViewerHandlers {
         let services = context.services
         let viewers = services.viewers
         viewers.diffPages.chooser = PickerDiffFolderChooser(viewers: viewers)
-        registry.bind("openDiffViewer", run: { invocation in
-            guard let pane = context.paneController(invocation) else { return }
+        registry.bind("openDiffViewer", run: { asked in
+            guard let pane = context.paneController(asked) else { return }
+            // On a chat (the shortcut, the palette, the File menu): beside it, as the header's Changes.
+            let invocation = AgentBesidePlacement.besideChat(asked, in: pane)
             // `path`: that folder's repository; else the pane's folder.
             let given = invocation["path"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
             // A chat's turn whose changes no git source holds (a folder in no repository, a file
@@ -34,7 +36,7 @@ enum ViewerHandlers {
                 return
             }
             guard let folder = given ?? ViewerService.folder(of: pane) else {
-                return try showPicker(viewers.diffPickerPage(for: pane), context, invocation)
+                return try showPicker(diffPicker(invocation, pane, viewers), context, invocation)
             }
             let focus = invocation.allowsViewChange && !invocation.besideCaller
             // A chat's open (its header's Changes, an edited-files card) names a turn for Last turn.
@@ -58,10 +60,7 @@ enum ViewerHandlers {
                     guard pane.daemon.isLocal else { return ActionWorkFailure("open diff", ActionFailure(message: ViewerService.reason(error))) }
                     guard invocation.allowsViewChange else { return backgroundPickerRefusal() }
                     // The header's pick still opens beside the chat, as its diff would have.
-                    let page = invocation.besideCaller
-                        ? viewers.diffPickerPage(for: pane, beside: { AgentBesidePlacement.opening(invocation, in: pane, then: nil) })
-                        : viewers.diffPickerPage(for: pane)
-                    context.services.palette.show(page: page, relativeTo: context.activeWindow?.window)
+                    context.services.palette.show(page: diffPicker(invocation, pane, viewers), relativeTo: context.activeWindow?.window)
                 }
                 return nil
             })
@@ -70,7 +69,7 @@ enum ViewerHandlers {
         registry.bindEffect("screenshots.open", effect: { services.screenshotsPage.open($0) })
         registry.bind("palette.openDirectoryDiffViewer", run: { invocation in
             guard let pane = context.paneController(invocation) else { return }
-            try showPicker(viewers.diffPickerPage(for: pane), context, invocation)
+            try showPicker(diffPicker(AgentBesidePlacement.besideChat(invocation, in: pane), pane, viewers), context, invocation)
         })
         registry.bindEffect("openMarkdownFile", effect: { invocation in
             guard let pane = context.paneController(invocation) else { return .done }
@@ -78,9 +77,11 @@ enum ViewerHandlers {
                 if let path = invocation["path"]?.stringValue, !path.isEmpty {
                     if !pane.daemon.isLocal {
                         guard path.hasPrefix("/"), !path.contains("\u{0}") else { throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path)) }
-                        if let reason = viewers.openFile(URL(fileURLWithPath: path), on: pane.daemon, in: pane, userChose: invocation.origin == .user) {
+                        if let reason = viewers.openFile(URL(fileURLWithPath: path), on: pane.daemon, from: pane, userChose: invocation.origin == .user) {
                             throw ActionFailure(message: reason)
                         }
+                    } else if AgentBesidePlacement.showsChat(pane) {
+                        if let reason = viewers.openFile(URL(fileURLWithPath: path), on: nil, from: pane, userChose: true) { throw ActionFailure(message: reason) }
                     } else {
                         viewers.openFile(URL(fileURLWithPath: path), in: pane, markdown: true)
                     }
@@ -94,8 +95,8 @@ enum ViewerHandlers {
         })
         // In the palette each picker is a page of the palette, pushed in place.
         services.palette.sources.actionPages["palette.openDirectoryDiffViewer"] = { [weak services] in
-            guard let pane = services?.windows.active?.focusedPane else { return nil }
-            return services?.viewers.diffPickerPage(for: pane)
+            guard let pane = services?.windows.active?.focusedPane, let viewers = services?.viewers else { return nil }
+            return diffPicker(AgentBesidePlacement.besideChat(ActionInvocation(origin: .user), in: pane), pane, viewers)
         }
         services.palette.sources.actionPages["openMarkdownFile"] = { [weak services] in
             services?.viewers.filePickerPage(for: services?.windows.active?.focusedPane, markdown: true)
@@ -103,6 +104,12 @@ enum ViewerHandlers {
         services.palette.sources.actionPages["file.open"] = { [weak services] in
             services?.viewers.filePickerPage(for: services?.windows.active?.focusedPane, markdown: false)
         }
+    }
+
+    /// The diff picker for `pane`; a folder picked for a beside run (an agent's, or one on a chat) opens beside the chat.
+    static func diffPicker(_ invocation: ActionInvocation, _ pane: PaneController, _ viewers: ViewerService) -> PalettePageSpec {
+        invocation.besideCaller ? viewers.diffPickerPage(for: pane, beside: { AgentBesidePlacement.opening(invocation, in: pane, then: nil) })
+            : viewers.diffPickerPage(for: pane)
     }
 
     /// The chat turn `openDiffViewer` names (``AgentPaneDiffTurn/actionArguments``), nil without a valid pair.

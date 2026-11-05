@@ -23,7 +23,7 @@ permissions:
 
 #
 # Coalesced (2026-11-03, cmuxterm-hq build-fleet data for 2026-11-02: 919 push runs, about $4.1k of Blacksmith a
-# day, nearly all for a commit a newer push already held): the web checks run at most once every 15 minutes, on
+# day, nearly all for a commit a newer push already held): the web checks run at most once every 30 minutes, on
 # the newest push that waited, routed from the commit the last run tested, so each run checks everything since.
 # The `coalesce` job waits (scripts/ci/web_coalesce.py wait); a newer push's coalesce job replaces one that is
 # still pending, never one that started, and that run ends cancelled with no job run. A job that slept and finds the
@@ -31,7 +31,7 @@ permissions:
 # coalesced run's webview tests go red, `web bisect` re-runs only the new red files on the commits it covered and
 # names the first red commit and its pull request (test_reds.py bisect_report). Pull requests are unchanged.
 # `web lint (fast)` keeps one run per push in cmux-next-web-lint.yml. vars.NEXT_WEB_COALESCE = '0' runs every push
-# at once.
+# at once. The window was 15 minutes until 2026-11-04 (about 96 runs a day); 30 halves that.
 
 # One run per pushed commit: a later push must not cancel the verdict that
 # base-aware excusal reads.
@@ -42,10 +42,10 @@ concurrency:
 jobs:
   coalesce:
     name: coalesce
-    # A sleep of at most 15 minutes, then a few seconds of work: the reconciled Linux pool's small member, as the
+    # A sleep of at most 30 minutes, then a few seconds of work: the reconciled Linux pool's small member, as the
     # base tier kick does.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
-    timeout-minutes: 20
+    timeout-minutes: 35
     # One coalesce job waits at a time; a newer push's replaces a pending one (never a started one). One that slept
     # yields to a newer push when it wakes (#33872), so no push waits two windows. A dispatch (next_batch's web lane),
     # a re-run and the off switch get a group of their own and run at once: a re-run never waits behind or is
@@ -79,14 +79,14 @@ jobs:
           key: cmux-next-web-coalesce-${{ github.ref_name }}-none
           restore-keys: cmux-next-web-coalesce-${{ github.ref_name }}-
 
-      - name: Wait for the 15-minute window
+      - name: Wait for the 30-minute window
         id: wait
         env:
           PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
           off=(--ref "$GITHUB_REF"); [ "$COALESCE" = 1 ] || off=(--off)
           python3 -I scripts/ci/web_coalesce.py wait "${off[@]}" --last "$RUNNER_TEMP/web-coalesce/last.json" \
-            --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --attempt "$GITHUB_RUN_ATTEMPT" --hold-minutes 15 --out "$RUNNER_TEMP/web-coalesce/last.json"
+            --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --attempt "$GITHUB_RUN_ATTEMPT" --hold-minutes 30 --out "$RUNNER_TEMP/web-coalesce/last.json"
 
       # A re-run records nothing new (its marker is the one it read), and in its own group a late save could roll the
       # newest marker back: only a first attempt saves.
@@ -126,7 +126,29 @@ jobs:
         with:
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+          # The bisector reads the reconciler's read-only last-known-green ref below.
+          # Credentials stay disabled; the read step scopes its token to one fetch.
           persist-credentials: false
+
+      - name: Read last-known-green
+        id: lkg
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          auth=$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags origin refs/heads/last-known-green:refs/remotes/origin/last-known-green >/dev/null 2>&1
+          unset auth GITHUB_TOKEN
+          sha=$(git rev-parse refs/remotes/origin/last-known-green 2>/dev/null || true)
+          case "$sha" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) echo "sha=$sha" >> "$GITHUB_OUTPUT" ;;
+            *) echo "sha=" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Download this run's webview results
         id: results
@@ -184,6 +206,7 @@ jobs:
           shopt -s nullglob
           results=("$RUNNER_TEMP"/web-bisect-results/webviews-test-history-shard*/webviews-head-results.json)
           python3 -I "$WEB_BISECT_RUNNER/web_coalesce.py" bisect --base "$BASE" --head "$GITHUB_SHA" \
+            --last-known-green "${{ steps.lkg.outputs.sha }}" \
             --results "${results[@]}" --history "$RUNNER_TEMP/webviews-test-history/history.json" \
             --probe "$WEB_BISECT_RUNNER/web-bisect-probe.sh" --report "$RUNNER_TEMP/web-bisect/report.json"
           git checkout -q --force --detach "$GITHUB_SHA"

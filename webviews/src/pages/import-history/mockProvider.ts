@@ -12,11 +12,28 @@ export class MockImportHistoryProvider implements PageClient {
         return {
           sources: this.empty
             ? []
-            : ["claude-code", "codex", "claude-memory"].map((source) => ({
-                source,
-                items: 12,
-                bytes: 4000,
-              })),
+            : [
+                ...["claude-code", "codex-sessions", "codex", "claude-memory"].map((source) => ({
+                  source,
+                  kind: source,
+                  items: 12,
+                  bytes: 4000,
+                })),
+                {
+                  source: "zip:/sample/chatgpt-export.zip",
+                  kind: "chatgpt-export",
+                  path: "/Users/example/Downloads/chatgpt-export.zip",
+                  items: 1,
+                  bytes: 24000,
+                },
+                {
+                  source: "zip:/sample/claude-export.zip",
+                  kind: "claude-ai-export",
+                  path: "/Users/example/Desktop/claude-export.zip",
+                  items: 1,
+                  bytes: 18000,
+                },
+              ],
         } as R;
       case OPS.pickZip:
         return {

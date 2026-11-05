@@ -190,7 +190,7 @@ pub fn verdict(
             if !(allow || bundled(exe) || why == Unstable::Temp && verified_clone) =>
         {
             Verdict::Refuse(format!(
-                "{line}. Refused for {}: install acpmux (`acpmux host setup HOST` from another machine, \
+                "{line}. Refused for {}: install acpmux (`acpmux machine setup HOST` from another machine, \
              or copy it to ~/.local/bin/acpmux) and run that, give this one its own ACPMUX_HOME, \
              or set {ALLOW_ENV}=1",
                 home.display()
@@ -327,6 +327,33 @@ pub fn shutdown_refusal(
         peer_exe.display(),
         refused
     ))
+}
+
+/// Whether a daemon run from `own_exe` takes `home` back from the daemon run from `holder_exe`
+/// that holds its lock: a DEV build holds a home of NIGHTLY's and this start is no DEV build.
+/// [`verdict`] and [`shutdown_refusal`] keep a DEV build with those rules out, but a DEV build from
+/// before them can still start there while the home is free, and clients then use it as the
+/// home's daemon (cmux#29050: 28 DEV daemons in `~/.acpmux` between 2026-10-31 and 2026-11-03).
+pub fn reclaims_home(
+    holder_exe: &Path,
+    own_exe: &Path,
+    home: &Path,
+    default_home: &Path,
+    temp_dir: &Path,
+) -> bool {
+    dev_app(holder_exe) && !dev_app(own_exe) && nightly_home(home, default_home, temp_dir)
+}
+
+/// [`reclaims_home`] for this process's own executable and home.
+pub fn current_reclaims_home(holder_exe: &Path) -> bool {
+    let Ok(exe) = std::env::current_exe() else { return false };
+    reclaims_home(
+        &resolved(holder_exe),
+        &resolved(&exe),
+        &resolved(&crate::config::home()),
+        &resolved(&crate::config::default_home()),
+        &resolved(&std::env::temp_dir()),
+    )
 }
 
 /// [`shutdown_refusal`] for this daemon's home and a Unix socket peer, whose executable its audit

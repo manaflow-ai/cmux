@@ -115,7 +115,7 @@ const stackResized = (height: number) =>
     for (const { callback, self } of observers) callback([], self);
   });
 
-test("a composer that grows over the view, or a tray that opens in the stack, leaves the rail's box as it was", async () => {
+test("a composer that grows over the view, or a tray that opens in the stack, never moves the rail or changes its height", async () => {
   stack = 120;
   const root = createRoot(document.getElementById("root")!);
   const dock = document.getElementById("dock")!;
@@ -134,14 +134,16 @@ test("a composer that grows over the view, or a tray that opens in the stack, le
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     expect(scroller.style.getPropertyValue("--acpmux-dock-space")).toBe("120px");
     const rest = railBox();
-    expect(Number.parseFloat(rest.height)).toBeGreaterThan(0);
-    // Three more composer lines, then a background-task bar on top of them.
+    expect(Number.parseFloat(rest.height)).toBe(480);
+    const restBottom = Number.parseFloat(rest.top) + Number.parseFloat(rest.height);
+    // Leo, 2026-11-04: "the height of the left scroll rail should never be affected by anything", and
+    // 2026-11-03: "i just don't like it when the thing shifts". Three more composer lines, then a stack
+    // that reaches past the rail's foot: the box stays where it rests, and the stack lays over its foot.
     await stackResized(188);
     expect(scroller.style.getPropertyValue("--acpmux-dock-space")).toBe("188px");
     expect(railBox()).toEqual(rest);
-    await stackResized(236);
+    await stackResized(VIEWPORT - restBottom - 22 + 40);
     expect(railBox()).toEqual(rest);
-    // Back to rest: still the same box.
     await stackResized(120);
     expect(railBox()).toEqual(rest);
   } finally {

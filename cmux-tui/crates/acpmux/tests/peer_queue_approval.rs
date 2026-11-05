@@ -118,7 +118,7 @@ async fn a_held_prompt_goes_only_to_a_peer_that_holds_it() {
         .unwrap();
     let refused = call(&old, method::SESSION_PROMPT, prompt("g-1", Some("owner"))).await;
     assert_eq!(reason(&refused), "queue.approval_unsupported", "{refused}");
-    assert!(refused["error"]["message"].as_str().unwrap().contains("acpmux host update old"));
+    assert!(refused["error"]["message"].as_str().unwrap().contains("acpmux machine update old"));
     for m in [method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_GET] {
         let answer = json!({"sessionId": "far-1", "promptId": "g-1", "revision": 0});
         let refused = call(&old, m, answer).await;

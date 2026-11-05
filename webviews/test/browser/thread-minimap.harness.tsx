@@ -59,6 +59,8 @@ type Extra = { earlier?: AcpmuxRow[]; promptCount?: number };
 let shownExtra: Extra = {};
 /// A rail click on a prompt not held calls this (`window.__setLoadThrough`), as the pane's client does.
 let loadThrough: ((seq: number) => Promise<boolean>) | undefined;
+/// A hover or click on a pending tick asks for the prompt index through this (`window.__setPromptIndex`).
+let loadPromptIndex: (() => Promise<boolean>) | undefined;
 // A prompt's sent images read through `window.__imageUrl(id)` when the test sets it (the pane reads
 // them from acpmux); a test serves that URL as late as it likes.
 const actions = {
@@ -77,6 +79,7 @@ const actions = {
           earlier={shownExtra.earlier}
           promptCount={shownExtra.promptCount}
           loadThrough={loadThrough}
+          loadPromptIndex={loadPromptIndex}
           onToggleActivity={() => {}}
           expanded={new Set()}
           canLoadOlder={olderPage !== undefined}
@@ -111,4 +114,8 @@ setBookmarkTransport(transport);
 (window as unknown as { __setMarks: (seqs: number[]) => void }).__setMarks = (seqs) => {
   marks = seqs;
   setBookmarkTransport(transport);
+};
+(window as unknown as { __setPromptIndex: (read: typeof loadPromptIndex) => void }).__setPromptIndex = (read) => {
+  loadPromptIndex = read;
+  (window as unknown as { __showRows: (rows: AcpmuxRow[], extra?: Extra) => void }).__showRows(shownRows, shownExtra);
 };

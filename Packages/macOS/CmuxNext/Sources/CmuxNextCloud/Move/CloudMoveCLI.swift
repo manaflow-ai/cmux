@@ -172,6 +172,13 @@ public nonisolated struct CloudMoveCLI: Sendable {
         }
     }
 
+    /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
+    public func startChatReservation(release: Bool, request: String, access: String) async throws -> Data {
+        let result = try await parsed(["link", "start-chat", release ? "release" : "reserve", "--request", request],
+                                      stdin: Data((access + "\n").utf8), timeout: .seconds(release ? 15 : 125))
+        return try JSONSerialization.data(withJSONObject: result.object ?? ["ok": false, "error_code": Self.badAnswer])
+    }
+
     /// `cmux link start-chat plan --request JSON` (cmux-tui `link/start_chat_cli.rs`), the cmux `access` token on stdin.
     public func startChatPlan(request: String, access: String? = nil) async throws -> (Answer, StartChatPlan) {
         let run = try await parsed(["link", "start-chat", "plan", "--request", request], stdin: access.map { Data(($0 + "\n").utf8) })
@@ -220,10 +227,15 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// already finished there. The chat's folder there, whether it copied now, and whether this Mac's acpmux
     /// (its home `acpmuxHome`) trusts the chat's folder here (`source_trusted`).
     public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
-                              workRoots: [String], acpmuxHome: String?, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) {
+                              workRoots: [String], acpmuxHome: String?, access: String? = nil,
+                              stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) {
         let roots = workRoots.flatMap { ["--work-root", $0] } + (acpmuxHome.map { ["--acpmux-home", $0] } ?? [])
+        // With the cmux `access` token (on stdin), the copy goes through the content-addressed store
+        // (`--store`, cmux-tui `link/sync_cli/store.rs`); the link copy stays its fallback.
+        let store = access == nil ? [] : ["--store", "default"]
         let run = try await parsed(["link", "start-chat", "copy", "--key", key, "--account", account, "--machine", machine,
-                                    "--socket", socket, "--local", local, "--subpath", subpath] + roots, stderrLine: stderrLine)
+                                    "--socket", socket, "--local", local, "--subpath", subpath] + roots + store,
+                                   stdin: access.map { Data(($0 + "\n").utf8) }, stderrLine: stderrLine)
         let chat = run.object?["chat"] as? String ?? ""
         let folder = run.object?["folder"] as? String ?? ""
         guard !run.answer.ok || (folder.hasPrefix("/") && (chat == folder || chat.hasPrefix(folder + "/"))) else {

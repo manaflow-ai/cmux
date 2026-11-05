@@ -21,6 +21,11 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
         return coordinator.session(macID: macID)?.creation ?? coordinator.idleSession.creation
     }
 
+    /// The backend of `macID`'s own session (no idle stand-in): what it has listed.
+    func linked(_ macID: String) -> LiveWorkspaceCreationBackend? {
+        coordinator?.session(macID: macID)?.creation
+    }
+
     private func backend(_ macID: String) throws -> LiveWorkspaceCreationBackend {
         guard let backend = on(macID) else { throw WorkspaceCreationError("Not connected to a Mac") }
         // A change to a Mac whose link closed (idle) opens it again.
@@ -43,7 +48,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
         try await backend(workspace.macID).rename(workspace, to: title)
     }
     public func close(_ workspace: Workspace) async throws { try await backend(workspace.macID).close(workspace) }
-    public func duplicate(_ workspace: Workspace) async throws -> Workspace { try await backend(workspace.macID).duplicate(workspace) }
+    public func duplicate(_ workspace: Workspace, browsers: Bool) async throws -> Workspace {
+        try await backend(workspace.macID).duplicate(workspace, browsers: browsers)
+    }
     public func tabKinds(on macID: String) -> [NewTabKind] { on(macID)?.tabKinds(on: macID) ?? [] }
     public func unavailableTabKinds(on macID: String) -> [(kind: NewTabKind, reason: String)] {
         on(macID)?.unavailableTabKinds(on: macID) ?? []
@@ -61,6 +68,12 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func canEditTabs(on macID: String) -> Bool { on(macID)?.canEditTabs(on: macID) ?? false }
     public func renameTab(_ tab: WorkspaceTab, in workspace: Workspace, to title: String) async throws {
         try await backend(workspace.macID).renameTab(tab, in: workspace, to: title)
+    }
+    public func newTab(besides tab: WorkspaceTab, at position: NewTabPosition, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).newTab(besides: tab, at: position, in: workspace)
+    }
+    public func clearTabName(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).clearTabName(tab, in: workspace)
     }
     public func duplicateTab(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
         try await backend(workspace.macID).duplicateTab(tab, in: workspace)
@@ -120,6 +133,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func closeScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
         try await backend(workspace.macID).closeScreen(screen, in: workspace)
     }
+    public func duplicateScreen(_ screen: MacScreen, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).duplicateScreen(screen, in: workspace)
+    }
 
     // MARK: WorkspacePaneBackend
 
@@ -156,6 +172,15 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     }
     public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws {
         try await backend(workspace.macID).moveTab(tab, toPane: pane, in: workspace)
+    }
+    public func setSplitRatio(_ split: Int, to ratio: Double, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).setSplitRatio(split, to: ratio, in: workspace)
+    }
+    public func moveTab(_ tab: WorkspaceTab, toNewDock edge: DockEdge, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).moveTab(tab, toNewDock: edge, in: workspace)
+    }
+    public func movePaneToNewWorkspace(_ pane: Int, in workspace: Workspace) async throws -> Workspace {
+        try await backend(workspace.macID).movePaneToNewWorkspace(pane, in: workspace)
     }
     public func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab {
         try await backend(workspace.macID).forkAgentChat(tab, to: destination, in: workspace)
@@ -216,6 +241,10 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws {
         try await backend(macID).stopAgentChat(chat, on: macID)
     }
+    public func launchAgentTeams(_ teams: AgentTeamsLaunch, beside tab: WorkspaceTab?, folder: String?,
+                                 in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).launchAgentTeams(teams, beside: tab, folder: folder, in: workspace)
+    }
 
     // MARK: WorkspaceGroupBackend
 
@@ -225,6 +254,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     }
     public func moveToNewGroup(_ workspace: Workspace, name: String, color: WorkspaceColor) async throws {
         try await backend(workspace.macID).moveToNewGroup(workspace, name: name, color: color)
+    }
+    public func createGroup(named name: String, color: WorkspaceColor, on macID: String) async throws -> MacWorkspaceGroup {
+        try await backend(macID).createGroup(named: name, color: color, on: macID)
     }
     public func updateGroup(_ group: MacWorkspaceGroup, on macID: String, name: String?, color: WorkspaceColor?, collapsed: Bool?) async throws {
         try await backend(macID).updateGroup(group, on: macID, name: name, color: color, collapsed: collapsed)

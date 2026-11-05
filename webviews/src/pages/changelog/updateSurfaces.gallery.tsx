@@ -9,7 +9,7 @@ import nightlySpan from "./fixtures/nightly-3913596493801-span.json";
 import table from "./generated/strings.json";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
-import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
+import { UpdatedCard, UpdateReadyHighlights, type BriefLayout } from "./UpdateSurfaces";
 
 const base: UpdateHighlights = {
   version: "1.0.0-nightly.3845050428001",
@@ -55,6 +55,8 @@ type Props = {
   /** The card in one theme's tokens over that theme's sidebar (Leo 2026-11-02: "why is the update
    *  thing unthemed"): a light, a dark and a custom (purple) theme. */
   theme?: keyof typeof themes;
+  /** Where the popover with no change list puts See release notes. */
+  briefLayout?: BriefLayout;
 };
 
 // Three themes as WebTheme sends them (the page's --page-* and the glass's surface), each over its
@@ -191,6 +193,7 @@ function UpdateSurfacesGallery({
   wallpaper: onWallpaper = false,
   maxHeight,
   theme,
+  briefLayout,
 }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
@@ -209,6 +212,8 @@ function UpdateSurfacesGallery({
       ) : (
         <div
           style={{
+            // As wide as the popover: the host sizes the window to the page's width.
+            width: "fit-content",
             borderRadius: 8,
             background: "var(--page-elevated)",
             boxShadow: "0 0 0 1px var(--page-separator)",
@@ -216,7 +221,12 @@ function UpdateSurfacesGallery({
             ...(maxHeight ? { maxHeight, overflowY: "auto" as const, overscrollBehavior: "contain" as const } : {}),
           }}
         >
-          <UpdateReadyHighlights data={data} strings={strings} actions={{ openChangelog: noop }} />
+          <UpdateReadyHighlights
+            data={data}
+            strings={strings}
+            actions={{ openChangelog: noop }}
+            briefLayout={briefLayout}
+          />
         </div>
       )}
     </div>
@@ -278,6 +288,10 @@ export default componentEntry<Props>({
     card: {
       note: 'Short card (2026-10-31, "too much text"): "Updated to Nightly", the update\'s one top change and What\'s New; the x on hover only. A click on Nightly copies the full build. The theme\'s surface on a plain page.',
       props: { surface: "card", data: base },
+    },
+    "card-background": {
+      note: 'An automatic install that relaunched cmux behind another app (nobody clicked Restart to Update): "Updated to Nightly in the background", so the card does not seem to come without a restart (2026-11-03).',
+      props: { surface: "card", data: { ...base, delivery: "background" } },
     },
     "card-theme-light": {
       note: "Leo 2026-11-02, \"why is the update thing unthemed\": the card's surface is the theme's (its surface at the card veil's 42%, as the sidebar draws it natively), here a light theme over its sidebar.",
@@ -372,8 +386,24 @@ export default componentEntry<Props>({
       },
     },
     "popover-empty": {
-      note: "No highlights (source none): the full build and See all changes only.",
+      note: 'No highlights (source none), shipped (Leo 2026-11-03: "MAN this looks ugly... stretched out wasted space"): as wide as its lines, See release notes directly under the from line, no rule.',
       props: { surface: "popover", data: { ...base, source: "none", items: [], moreCount: 0 } },
+    },
+    "popover-empty-inline": {
+      note: "Variant: See release notes at the end of the from line, two lines in all.",
+      props: { surface: "popover", data: { ...base, source: "none", items: [], moreCount: 0 }, briefLayout: "inline" },
+    },
+    "popover-empty-title-row": {
+      note: "Variant: See release notes at the end of the title line, the from line under both.",
+      props: {
+        surface: "popover",
+        data: { ...base, source: "none", items: [], moreCount: 0 },
+        briefLayout: "title-row",
+      },
+    },
+    "popover-empty-same-version": {
+      note: "No highlights and no from line: the title and the link under it.",
+      props: { surface: "popover", data: { ...base, source: "none", items: [], moreCount: 0, fromVersion: "" } },
     },
   },
 });

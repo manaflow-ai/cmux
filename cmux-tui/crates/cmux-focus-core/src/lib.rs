@@ -18,6 +18,9 @@
 //! - [`child_window`]: what a window does when a child window becomes key.
 //! - [`agent_cursor_visibility::resolve`]: where an agent cursor for a
 //!   target tab draws (its page, an anchor in its window, or nowhere).
+//! - [`input::InputRouter`]: the one input router: every window's focus and
+//!   every key's route, decided in the key's own call and fixed for the
+//!   key's life (handoff/rewrites/R-INPUT/DESIGN.md).
 //!
 //! Pure: no I/O, no clock (time comes in as monotonic nanoseconds), no
 //! daemon. The serde shapes are the macOS app's synthesized `Codable`
@@ -29,10 +32,12 @@ pub mod child_window;
 pub mod close_aim;
 pub mod close_focus;
 pub mod event;
+pub mod input;
 pub mod invariants;
 pub mod omnibar_memory;
 pub mod reducer;
 pub mod state;
 pub mod topology;
 pub mod type_ahead;
+pub mod window;
 pub mod wire;

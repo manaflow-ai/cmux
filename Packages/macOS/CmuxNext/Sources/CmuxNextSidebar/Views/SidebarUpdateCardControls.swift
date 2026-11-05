@@ -67,6 +67,25 @@ final class SidebarUpdateButton: NSView {
     private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
     private var showsKeyFocus: Bool { KeyWindowRepaint.showsFocus(self, focused: isKeyFocused) }
     private lazy var keyRepaint = KeyWindowRepaint(self)
+    /// A pointer press before this moment (`NSEvent.timestamp`, seconds since boot) is ignored:
+    /// the button just took the place of another card's (``ignorePointer(for:)``). Keys and
+    /// VoiceOver are never ignored. A stored deadline, no timer: nothing to stop or clean up.
+    private var ignoresPointerUntil: TimeInterval = 0
+
+    /// How long a button that just appeared under the pointer ignores presses: long enough for a
+    /// click already on its way to the card it replaced, short enough for a deliberate one.
+    static let appearGuard: TimeInterval = 1
+
+    /// Ignores pointer presses for `duration` from now: the button just replaced another one
+    /// under the pointer, so a click meant for that one must not land on this.
+    func ignorePointer(for duration: TimeInterval = SidebarUpdateButton.appearGuard,
+                       now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        ignoresPointerUntil = now + duration
+        isPressed = false
+    }
+
+    /// Whether a pointer press at `timestamp` (an `NSEvent.timestamp`) is ignored.
+    func ignoresPointer(at timestamp: TimeInterval) -> Bool { timestamp < ignoresPointerUntil }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -112,7 +131,7 @@ final class SidebarUpdateButton: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = isBordered ? PopupStyle.standard.rowCornerRadius + 2 : Metrics.space2
+        layer?.cornerRadius = isBordered ? Metrics.controlCornerRadius : Metrics.insetCornerRadius
         label.font = Self.font(bordered: isBordered)
         let h = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: Metrics.space2, y: (bounds.height - h) / 2, width: max(0, bounds.width - 2 * Metrics.space2), height: h)
@@ -179,7 +198,7 @@ final class SidebarUpdateButton: NSView {
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
     override func mouseExited(with event: NSEvent) { isHovered = false; isPressed = false }
-    override func mouseDown(with event: NSEvent) { if isEnabled { isPressed = true } }
+    override func mouseDown(with event: NSEvent) { if isEnabled, !ignoresPointer(at: event.timestamp) { isPressed = true } }
 
     /// Acts on release inside, like a button.
     override func mouseUp(with event: NSEvent) {

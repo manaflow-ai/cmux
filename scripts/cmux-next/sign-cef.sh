@@ -7,9 +7,12 @@
 #   Contents/Frameworks/<product> Helper{, (GPU), (Renderer), (Plugin), (Alerts)}.app
 #   Contents/Frameworks/<product> Chromium Host.app   (Debug builds only, prototype)
 #
-# The GPU and Renderer helpers get com.apple.security.cs.allow-jit (V8 and
-# the GPU process need it under the hardened runtime); the others get no
-# entitlements. One owner for these rules: embed-cef.sh calls this for dev
+# The plain, GPU and Renderer helpers get com.apple.security.cs.allow-jit (V8
+# and the GPU process need it under the hardened runtime); the others get no
+# entitlements. The plain helper needs it since CEF 156 (cef-156.0.15-cmux.43):
+# Chromium 156 starts renderer and extension processes from the plain
+# "<product> Helper.app", and V8 aborts there without allow-jit ("Failed to
+# reserve virtual memory for CodeRange"). One owner for these rules: embed-cef.sh calls this for dev
 # builds (ad hoc), scripts/sign-cmux-bundle.sh for Developer ID release
 # signing, before the main bundle is signed.
 #
@@ -57,7 +60,7 @@ fi
 for helper in "$frameworks"/*" Helper.app" "$frameworks"/*" Helper ("*").app"; do
   [[ -d "$helper" ]] || continue
   case "$helper" in
-    *" Helper (GPU).app"|*" Helper (Renderer).app")
+    *" Helper.app"|*" Helper (GPU).app"|*" Helper (Renderer).app")
       codesign "${flags[@]}" --entitlements "$jit" "$helper" ;;
     *)
       codesign "${flags[@]}" "$helper" ;;

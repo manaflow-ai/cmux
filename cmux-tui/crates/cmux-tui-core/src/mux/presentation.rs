@@ -662,7 +662,7 @@ impl Mux {
                     }),
                 )?
             };
-            let resource_revision = registry.snapshot()?.resource_revision;
+            let resource_revision = registry.resource_revision()?;
             self.reload_presentation(&registry)?;
             let active_id = state.workspaces.get(state.active_workspace).map(|ws| ws.id);
             state.move_workspace(old_idx, new_idx);
@@ -787,7 +787,7 @@ impl Mux {
                     }),
                 )?
             };
-            let resource_revision = registry.snapshot()?.resource_revision;
+            let resource_revision = registry.resource_revision()?;
             self.reload_presentation(&registry)?;
             state.workspace_revision = commit.revision;
             state.resource_revision = resource_revision;

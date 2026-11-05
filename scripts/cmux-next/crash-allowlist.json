@@ -484,8 +484,8 @@
   {
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceContentController.swift",
    "class": "swift.unowned",
-   "count": 2,
-   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process); and its window state: sibling under WindowController, which holds both the state and this content",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process); its window state is held strongly since #34062 (queued content work outlived the state)",
    "reviewer": "chief 2026-10-08 (unowned A/B table + root rule), crash-lead"
   },
   {

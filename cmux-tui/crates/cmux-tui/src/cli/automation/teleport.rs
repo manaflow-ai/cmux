@@ -127,7 +127,7 @@ fn cloud_triggers(t: &Trigger) -> Result<Value, Failure> {
 /// minutes every hour (N divides an hour) or the same hours every day (N
 /// whole hours dividing a day).
 pub(super) fn every_as_cron(seconds: u64, anchor: i64) -> Option<String> {
-    if seconds == 0 || seconds % 60 != 0 || anchor % 60 != 0 {
+    if seconds == 0 || !seconds.is_multiple_of(60) || anchor % 60 != 0 {
         return None;
     }
     let step = (seconds / 60) as i64;

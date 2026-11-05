@@ -147,7 +147,7 @@ struct CloudStartChatMachineTests {
     }
 
     @Test func thePlanRequestCarriesTheSendItsAccountWorkspaceAndTheListedMachines() throws {
-        let text = CloudStartChat.planRequest(key: "K", account: [Self.me, "team-a"], workspace: "ws-1", user: Self.me, machines: [],
+        let text = CloudStartCore().planRequest(key: "K", account: [Self.me, "team-a"], workspace: "ws-1", user: Self.me, machines: [],
                                               stored: ["vm-new"])
         let object = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         #expect(object["key"] as? String == "K")
@@ -157,18 +157,27 @@ struct CloudStartChatMachineTests {
         #expect(object["loaded"] as? Bool == true)
         #expect((object["machines"] as? [Any])?.isEmpty == true)
         #expect(object["stored"] as? [String] == ["vm-new"])
-        let signedOut = CloudStartChat.planRequest(key: "K", account: [nil, nil], workspace: nil, user: nil, machines: [], stored: [])
+        let signedOut = CloudStartCore().planRequest(key: "K", account: [nil, nil], workspace: nil, user: nil, machines: [], stored: [])
         let unsigned = try #require(try JSONSerialization.jsonObject(with: Data(signedOut.utf8)) as? [String: Any])
         #expect(unsigned["user"] == nil)
         #expect(unsigned["workspace"] == nil)
         #expect(unsigned["credential_on_stdin"] as? Bool == false)
         // Zero-setup hot start: the folder, the chosen environment and that the token is on stdin.
-        let hot = CloudStartChat.planRequest(key: "K", account: [Self.me, nil], workspace: nil, user: Self.me, machines: [],
+        let hot = CloudStartCore().planRequest(key: "K", account: [Self.me, nil], workspace: nil, user: Self.me, machines: [],
                                              local: "/Users/me/src/paint", stored: [], environment: "env_0123456789abcdef01234567", access: true)
         let ensure = try #require(try JSONSerialization.jsonObject(with: Data(hot.utf8)) as? [String: Any])
         #expect(ensure["local"] as? String == "/Users/me/src/paint")
         #expect(ensure["environment"] as? String == "env_0123456789abcdef01234567")
         #expect(ensure["credential_on_stdin"] as? Bool == true)
+        let reservation = UUID().uuidString
+        let warm = CloudStartCore().planRequest(key: "K", account: [Self.me, "team-a"], workspace: nil, user: Self.me, machines: [],
+                                              stored: [], access: true, reservationKey: reservation,
+                                              platform: "https://cmux-platform.debussy.workers.dev", team: "team_0123456789abcdef0123", ensureProject: false)
+        let reserved = try #require(try JSONSerialization.jsonObject(with: Data(warm.utf8)) as? [String: Any])
+        #expect(reserved["reservation_key"] as? String == reservation)
+        #expect(reserved["platform"] as? String == "https://cmux-platform.debussy.workers.dev")
+        #expect(reserved["team"] as? String == "team_0123456789abcdef0123")
+        #expect(reserved["ensure_project"] as? Bool == false)
     }
 
     /// Router review at 6beb0f2: with no `cwd` the tab's own folder is copied, and its `.git` file
@@ -196,14 +205,10 @@ struct CloudStartChatMachineTests {
     /// and its team is the send's, fixed for every try, so a team switch during a slow create never
     /// makes the machine in the other team (router review at 2208632).
     @Test func aNewMachineIsCreatedUnderThePlansKeyInTheSendsTeam() async throws {
-        let request = CloudStartChat.createRequest(key: "cloud-start-chat-k", sizedFor: nil, team: "team-a")
+        let request = CloudMachineRequest(startChatKey: "cloud-start-chat-k", sizedFor: nil, team: "team-a")
         #expect(request.idempotencyKey == "cloud-start-chat-k")
         #expect(request.team == "team-a")
         #expect(!request.wasSent)
-        // The classic create sends to that team, not the app's team now; a sent try keeps its own.
-        #expect(await CloudService.createTeam(sent: nil, requested: request.team) { "team-b" } == "team-a")
-        #expect(await CloudService.createTeam(sent: nil, requested: nil) { "team-b" } == "team-b")
-        #expect(await CloudService.createTeam(sent: .some("team-c"), requested: request.team) { "team-b" } == "team-c")
     }
 
     /// A signed-out first send keeps its stable refusal code for callers, but the

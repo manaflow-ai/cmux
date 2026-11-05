@@ -8,7 +8,7 @@
 // the first output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
 // never "Thinking" while the agent is blocked on them.
-import { useContext, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -22,9 +22,32 @@ import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
 import { verbLeads } from "./ToolVerb";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
+import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
+import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
+import type { AcpmuxTurnRetry } from "../model";
+import type { Translate } from "../i18n";
 
-/// How long streaming text must hold still before the live line comes back under it.
-export const QUIET_MS = 1200;
+/// A rate limit or an overloaded model: the model answered and is busy, not out of reach.
+const BUSY = /\b(?:rate.?limit|overloaded|too many requests|capacity)\b/i;
+
+/// What the live line says while the harness retries a failed model request (acpmux
+/// `turn_retrying`): the cause in plain words, the retry's count, and the harness's error when it
+/// names one ("Can't reach the model · retrying (7 of 10) · 503 server error"). Calm: no sweep and
+/// no clock, since nothing works on the reply while it waits.
+export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: string; count: string; error?: string } {
+  const words = retry.error?.replaceAll("_", " ");
+  const busy = retry.errorStatus === 429 || retry.errorStatus === 529 || BUSY.test(words ?? "");
+  const label = t(busy ? "turn.live.retry.busy" : "turn.live.retry.unreachable");
+  const count =
+    retry.attempt === undefined
+      ? t("turn.live.retry.retrying")
+      : retry.maxRetries === undefined
+        ? t("turn.live.retry.attemptOnly", { attempt: retry.attempt })
+        : t("turn.live.retry.attempt", { attempt: retry.attempt, max: retry.maxRetries });
+  const error = [retry.errorStatus, words].filter((part) => part !== undefined && part !== "").join(" ");
+  return { label, count, ...(error && { error }) };
+}
+
 /// How long a paused answer still reads "Writing"; a longer pause is the agent thinking again.
 export const WRITING_MS = 5000;
 
@@ -32,14 +55,14 @@ export const WRITING_MS = 5000;
 /// `since`, when known, is when the key's text was written: a key that was already that old when the
 /// line mounted (a chat opened long after its reply paused) is quiet from the first frame, instead
 /// of counting `ms` from the mount as if it had just moved.
-function useQuiet(key: string | undefined, ms = QUIET_MS, since?: number, now: () => number = Date.now): boolean {
+function useQuiet(key: string | undefined, ms: number, since?: number, now: () => number = Date.now): boolean {
   const age = () => (since === undefined ? 0 : Math.max(0, now() - since));
   const [quiet, setQuiet] = useState(() => key === undefined || age() >= ms);
   // The key the line mounted with: only that one is timed from `since`; a later key just moved.
   const mounted = useRef(key);
   // The first streamed assistant chunk inserts the answer and changes `key` in the same commit.
-  // Hide the live line before that commit paints; an effect would leave one frame of "Thinking"
-  // underneath the first token. The timer remains an ordinary effect so it never blocks layout.
+  // The line reads "Writing" before that commit paints; an effect would leave one frame of
+  // "Thinking" under the first token. The timer remains an ordinary effect so it never blocks layout.
   useLayoutEffect(() => {
     if (key === undefined) {
       setQuiet(true);
@@ -81,9 +104,10 @@ export function liveLead(label: string, leads: boolean, call: boolean): { lead: 
 /// repo: repo grep 3m 2s · 47.4K tokens", as Claude Code desktop's live line reads, with no mark
 /// before it: the shimmer is its only working sign (Leo, 2026-11-03: "we don't want the claude
 /// symbol ellipsis thing btw we just keep the shimmer ONLY"). Past the turn's first step
-/// (`turnTotal`) that clock reads "· 4m total", after a finished step's own time, so a long wait
-/// never reads as that long a think or call. All shimmer. While text streams (`quietKey` moves) the
-/// line keeps its height but draws nothing.
+/// (`turnTotal`) that clock follows a finished step's own time after a dot ("2s · 4m"), so a long
+/// wait never reads as that long a think or call. All shimmer. While text streams (`quietKey` moves) the
+/// line stays where it is and reads "Writing": it never leaves and comes back mid-turn (Leo,
+/// 2026-11-04: "it appears and disappears????").
 export function Thinking({
   starting = false,
   since,
@@ -101,10 +125,12 @@ export function Thinking({
   thoughtMs,
   turnTotal = false,
   untimed = false,
+  verbKey,
   quietKey,
   quietAt,
   below = false,
   command = false,
+  retry,
 }: {
   /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
   starting?: boolean;
@@ -128,10 +154,12 @@ export function Thinking({
   liveAgents?: number;
   /// "Thinking" past the first step: the turn's summed thinking time, shown beside the word.
   thoughtMs?: number;
-  /// Past the turn's first step the clock reads as the turn's whole time ("· 4m total"), after the
+  /// Past the turn's first step the clock reads as the turn's whole time ("2s · 4m"), after the
   /// finished step's own time when it has one, so no wait reads as that long a think or call.
   turnTotal?: boolean;
   untimed?: boolean;
+  /// The turn's prompt id, used to keep one playful verb for the whole turn when Rotate is on.
+  verbKey?: string;
   quietKey?: string;
   /// When the reply `quietKey` names was written (turns.ts `codexLiveTurn`): a reply already
   /// still past WRITING_MS when the line mounts reads "Thinking" at once.
@@ -141,6 +169,9 @@ export function Thinking({
   /// The call in flight is a command: the line offers ⌃B, as the command's own row does
   /// (BackgroundHint.tsx), since the row is not drawn while it runs.
   command?: boolean;
+  /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that,
+  /// never "Thinking" (`retryParts`).
+  retry?: AcpmuxTurnRetry;
 } = {}) {
   const t = useT();
   const language = usePaneLanguage();
@@ -151,20 +182,37 @@ export function Thinking({
   const from = untimed ? undefined : since;
   const timed = !waiting && from !== undefined;
   const time = useTicking(timed, now);
-  const quiet = useQuiet(waiting || doing !== undefined ? undefined : quietKey);
+  const statusVerbConfig = useStatusVerbConfig();
+  const thinkingVerbs = useContext(ThinkingVerbsContext);
+  const verbs = useMemo(
+    () => thinkingVerbs ?? statusVerbLabels(t, statusVerbConfig),
+    [t, statusVerbConfig, thinkingVerbs],
+  );
+  // CSS sizes both shimmer layers from these inert samples once, not by measuring on each tick.
+  const verbSizes = useMemo(
+    () =>
+      verbs.map((word, index) => (
+        <span key={index} className="cv-status-verb__size" data-text={word} aria-hidden="true" inert />
+      )),
+    [verbs],
+  );
   // A reply that paused only a moment is still being written; one silent for longer is the agent
   // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
   const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
   const writing = liveState === "writing" && stillWriting;
+  const elapsedMs = timed ? Math.max(0, time - from) : 0;
+  const turnVerb = thinkingVerb(thinkingVerbs, verbKey);
+  const decorative = doing === undefined && !waitsOnAgents && !writing;
   const label =
     doing === undefined
       ? waitsOnAgents
         ? t("turn.live.waitingOnSubagents", { n: liveAgents })
         : writing
           ? t("turn.live.writing")
-          : t("thinking")
+          : (turnVerb ??
+            (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")))
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
@@ -176,18 +224,19 @@ export function Thinking({
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
-  // Past the first step the turn's time is labelled as the whole turn's, after the finished step's
-  // own time when it has one: "Ran grep -n x 2s · 15s total", "Waiting on 2 subagents · 1h 24m total"
-  // (Leo, 2026-11-03: "i think the "thinking" accounting is also off pretty frequently").
-  // The total's words around the time ("{time} total"), so the turn's clock stays its own element
-  // (`cv-worked__time`) that keeps ticking from the prompt.
-  const total =
-    turnTotal && turnTime !== undefined ? t("turn.live.total", { time: "\u0000" }).split("\u0000") : undefined;
+  // Past the first step a finished step's own time stands beside the label, and the turn's clock
+  // follows it after a dot: "Ran grep -n x 2s · 15s" (Leo, 2026-11-03: "i think the "thinking"
+  // accounting is also off pretty frequently"). With no own time the turn's clock stands beside the
+  // label alone, "Waiting on 2 subagents 1h 24m", never after a dot, and no line says "total" (Leo,
+  // 2026-11-04: "the total is redundant", "there's no point to say total", and on the dot's gap:
+  // "same here it's annoying to look at"). The turn's clock stays its own element (`cv-worked__time`)
+  // that keeps ticking from the prompt.
+  const total = turnTotal && turnTime !== undefined;
   // What stands beside the label then, never a clock that starts again at a call (Leo, 2026-11-01:
   // "it should just keep going"): a finished step's own start to end, or the turn's summed thinking.
   const ownMs = doing === undefined ? (waitsOnAgents || writing ? undefined : thoughtMs) : done ? doneMs : undefined;
   const own = total && ownMs !== undefined ? formatDuration(ownMs) : undefined;
-  const elapsed = total ? own : turnTime;
+  const elapsed = own ?? turnTime;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
@@ -206,6 +255,35 @@ export function Thinking({
   const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
     (part) => !(liveState === "subagents" && part.key === "agents"),
   );
+  // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
+  // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
+  if (retry && !waiting) {
+    const parts = retryParts(t, retry);
+    return (
+      <div
+        className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
+        data-find-skip
+        data-lead-slot
+        data-retrying=""
+      >
+        <output className="cv-thinking cv-retrying">{parts.label}</output>
+        <span className="cv-worked__count">
+          <span className="cv-worked__sep" aria-hidden="true">
+            ·
+          </span>
+          {parts.count}
+        </span>
+        {parts.error && (
+          <span className="cv-worked__count cv-retrying__error" title={parts.error}>
+            <span className="cv-worked__sep" aria-hidden="true">
+              ·
+            </span>
+            <span className="cv-retrying__words">{parts.error}</span>
+          </span>
+        )}
+      </div>
+    );
+  }
   // The `silent` and `spinner` start looks keep the line's box (`.cv-worked`'s height) with no words.
   if (startLook !== "thinking")
     return (
@@ -217,20 +295,19 @@ export function Thinking({
       </div>
     );
   return (
-    // `cv-worked--live`: its words start on the icon rows' text column (conversation.css), its icon
-    // slot empty (`data-lead-slot`: gallery/invariants.ts reads its lead edge from the box, not the words).
-    <div
-      className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`}
-      data-find-skip
-      data-lead-slot
-    >
+    // `cv-worked--live`: its words start on the icon column, with no icon slot (conversation.css).
+    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}`} data-find-skip>
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}
         </output>
       ) : (
         <span className="cv-shimmer__row">
-          <output className="cv-thinking is-shimmer">
+          <output
+            className="cv-thinking is-shimmer"
+            aria-label={decorative ? t("thinking") : undefined}
+            aria-live={decorative ? "off" : undefined}
+          >
             <ShimmerText
               text={label}
               baseText={
@@ -239,29 +316,34 @@ export function Thinking({
                     <span className="cv-worked__lead">{lead.lead}</span>
                     {lead.rest}
                   </>
+                ) : decorative ? (
+                  <span className="cv-status-verb">
+                    {verbSizes}
+                    <span className="cv-status-verb__word">{label}</span>
+                  </span>
                 ) : (
                   label
                 )
               }
               lit={
                 <>
-                  <span className="cv-shimmer__lit-label" data-text={label} />
+                  <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
+                    {decorative && verbSizes}
+                  </span>
                   {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
                 </>
               }
             />
           </output>
-          {elapsed && <span className={total ? "cv-worked__own" : "cv-worked__time"}>{elapsed}</span>}
+          {elapsed && <span className={own ? "cv-worked__own" : "cv-worked__time"}>{elapsed}</span>}
         </span>
       )}
-      {total && !waiting && (
+      {own && !waiting && (
         <span className="cv-worked__count cv-worked__total">
           <span className="cv-worked__sep" aria-hidden="true">
             ·
           </span>
-          {total[0]}
           <span className="cv-worked__time">{turnTime}</span>
-          {total.slice(1).join("")}
         </span>
       )}
       {showTokens && (

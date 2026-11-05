@@ -21,6 +21,8 @@ struct SidebarStatesPlaygroundCell {
     var marks: [SidebarStatesPlaygroundMark]
     /// The leading bars beside the row (its color rail, its group's rail), as laid out.
     var bars: [SidebarStatesPlaygroundBar] = []
+    /// The hover card drawn beside the row (``SidebarStatesPlaygroundState/pinnedHoverCard`` only), as measured.
+    var card: SidebarStatesPlaygroundCard?
     /// The row view's class name (`WorkspaceRowView`, `SidebarItemRowView`, ...); nil when no row drew the state.
     var rowView: String?
 }

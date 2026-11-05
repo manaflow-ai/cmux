@@ -103,6 +103,10 @@ jobs:
           # authored conflict and skip. Fetch just this PR's head first.
           fetch-depth: 1
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
           persist-credentials: false
 
       # An accurate three-way merge still needs the complete common ancestry.

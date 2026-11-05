@@ -56,10 +56,14 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     /// A Chief's state, each drawn its own way on its avatar (the Codex pet's states).
     public enum AvatarMotion: Hashable, Sendable {
         case idle
-        /// Its turn is running.
-        case working
-        /// A reply is unread: it waits for the person.
+        /// Its turn runs in the model (thinking, writing the reply).
+        case thinking
+        /// Its turn runs a tool.
+        case tool
+        /// It asked the person something (a question or an approval) and waits on them.
         case waiting
+        /// Its turn ended and the reply is unread.
+        case done
         /// A message to it failed to send.
         case failed
     }
@@ -113,8 +117,10 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         s.avatarMotion = own == nil ? nil : avatarMotion.map {
             switch $0 {
             case .idle: .idle
-            case .working: .working
+            case .thinking: .thinking
+            case .tool: .tool
             case .waiting: .waiting
+            case .done: .done
             case .failed: .failed
             }
         }
@@ -312,6 +318,20 @@ public final class CmuxSidebarView: NSView {
     public var unreadOnly: Bool {
         get { controller.filter == .unread }
         set { controller.filter = newValue ? .unread : .all }
+    }
+
+    /// The empty list's Show All was clicked: the filter is off (``unreadOnly`` is false) and the
+    /// host's own filter controls follow.
+    public var onShowAll: (() -> Void)? {
+        get { controller.onShowAll }
+        set { controller.onShowAll = newValue }
+    }
+
+    /// Points added to the empty list's text (No Results, No Unread Chats and Show All): the host's
+    /// sidebar Text Size step. 0, the default, keeps MessagesLab's sizes.
+    public var emptyTextStep: CGFloat {
+        get { controller.emptyTextStep }
+        set { controller.emptyTextStep = newValue }
     }
 
     /// Ends a search: the field empties and the list shows every conversation again.

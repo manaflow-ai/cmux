@@ -53,7 +53,7 @@ public actor DaemonConnection {
     private(set) var serial: UInt64 = 0
     /// The open `session.events` stream id (`DaemonConnection+SessionEvents`).
     var sessionStream: String?
-    private var reconnectTask: Task<Void, Never>?
+    private(set) var reconnectTask: Task<Void, Never>?
     /// The initial endpoint/handshake attempt, retained so teardown can join it too.
     private var connectTask: Task<DaemonIdentity, any Error>?
     private var pacer: RetryPacer
@@ -165,8 +165,11 @@ public actor DaemonConnection {
         return false
     }
 
-    /// Control-plane deadline default: 2 s (architecture.md 5a).
-    public static let defaultRequestTimeout: Duration = .seconds(2)
+    /// Control-plane deadline default: 30 s (architecture.md 5a), the heartbeat's window
+    /// (`heartbeat` x `heartbeatMisses`). A busy daemon is not a dead one: at 2 s, requests behind a
+    /// slow journal step (5-8 s) failed while the daemon still answered them (#34628). A daemon that
+    /// misses this long is the heartbeat's not-answering case, which offers Restart.
+    public static let defaultRequestTimeout: Duration = .seconds(30)
     /// The terminal start deadline: a command that starts a terminal
     /// answers once its host is up. cmux-tui bounds one host launch by its
     /// 2 s handshake after a 1 s connect retry window, and starts the hosts
@@ -362,7 +365,7 @@ public actor DaemonConnection {
         }
     }
 
-    private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
+    func transportClosed(serial: UInt64, reason: TransportCloseReason) {
         guard serial == self.serial else { return }
         if case .closed = phase { return }
         if case .ready = phase {} else if case .connecting = phase {} else { return }

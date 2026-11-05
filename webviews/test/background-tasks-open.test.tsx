@@ -291,3 +291,41 @@ describe("the Background tasks panel", () => {
     }
   });
 });
+
+// Leo, 2026-11-03: "it should be opening up on the right pane as a tab instead of this". The panel
+// opens as a tab in the chat's right column through the subagent pane path, under a reserved id.
+describe("Background tasks opens as a tab in the right column", () => {
+  test("it asks the app for the chat's right-column tab, named Background tasks", async () => {
+    const { BACKGROUND_PANE, isBackgroundPane, openBackgroundPane } =
+      await import("../src/agent-session/acpmux/backgroundTasks/backgroundPane");
+    const { revealedSubagent } = await import("../src/agent-session/acpmux/subagents/subagentPanes");
+    const calls: [string, Record<string, unknown>][] = [];
+    const opened = await openBackgroundPane(async (method, params) => {
+      calls.push([method, params]);
+      return { opened: true };
+    }, "Background tasks");
+    expect(opened).toBe(true);
+    expect(calls).toEqual([
+      ["chat.subagentPane", { subagent: BACKGROUND_PANE, focus: true, title: "Background tasks" }],
+    ]);
+    // The tab's page reads the app's `subagent:<id>` reveal as this panel, never as a subagent.
+    expect(isBackgroundPane(revealedSubagent(`subagent:${BACKGROUND_PANE}`))).toBe(true);
+    expect(isBackgroundPane(revealedSubagent("subagent:toolu_01"))).toBe(false);
+    // A host that opens no tab answers false (or throws), and the chat's own column takes the panel.
+    expect(await openBackgroundPane(async () => ({ opened: false }), "Background tasks")).toBe(false);
+    expect(await openBackgroundPane(async () => Promise.reject(new Error("no host")), "Background tasks")).toBe(false);
+  });
+
+  test("in its own tab the header keeps Clear finished, without Expand or Close", async () => {
+    const host = dom.window.document.getElementById("root")!;
+    const root = createRoot(host);
+    await act(async () =>
+      root.render(createElement(BackgroundTasksPanel, { groups: GROUPS, views: VIEWS, onClearFinished: () => {} })),
+    );
+    const labels = [...host.querySelectorAll(".acpmux-bg__head button")].map((b) => b.getAttribute("aria-label"));
+    expect(labels).not.toContain("Expand");
+    expect(labels).not.toContain("Close");
+    expect(host.querySelector(".acpmux-bg__title")?.textContent).toBe("Background tasks");
+    await act(async () => root.unmount());
+  });
+});

@@ -18,7 +18,7 @@ final class OnboardingAccentButton: NSButton {
         setButtonType(.momentaryPushIn)
         wantsLayer = true
         layer?.cornerCurve = .continuous
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = Metrics.controlCornerRadius
         applyAppearance()
     }
 

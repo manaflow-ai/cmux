@@ -112,26 +112,49 @@ fn run_reading(
     exe_prefix: &[&str],
     payload: impl FnOnce() -> anyhow::Result<Value>,
 ) -> anyhow::Result<()> {
+    let native = payload()?;
+    #[cfg(unix)]
+    if let Err(error) = cmux_git::native_hook::wait(
+        &args.source,
+        &args.native_event,
+        &native,
+        cmux_git::native_hook::WAIT,
+    ) {
+        // Output a provider decision, not a journal failure that the shell
+        // wrapper may discard. No ready lease survives this pre-tool hook.
+        println!("{}", cmux_git::native_hook::denial(&error.to_string()));
+        return Ok(());
+    }
+    let result = run_after_ready(&args, exe_prefix, native);
+    if result.is_err()
+        && args.native_event == "PreToolUse"
+        && matches!(args.source.as_str(), "claude" | "codex")
+    {
+        // Repository readiness is the only blocking part of this hook. Once
+        // it passed, journal delivery is telemetry and must not deny a tool.
+        println!("{{}}");
+        return Ok(());
+    }
+    result
+}
+
+fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::Result<()> {
     let inbox = inbox::Delivery::for_event(&args.source, &args.native_event);
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
-        drain_native_payload()?;
         inbox::print_nothing(inbox);
         return Ok(());
     }
     if inherited_route_is_untrusted(&args.source, |name| env::var_os(name)) {
-        drain_native_payload()?;
         inbox::print_nothing(inbox);
         return Ok(());
     }
     let (socket, terminal) = match session_route(&args.source) {
         Some(route) => route,
         None => {
-            drain_native_payload()?;
             inbox::print_nothing(inbox);
             return Ok(());
         }
     };
-    let native = payload()?;
     let start_source = native.get("source").and_then(Value::as_str).unwrap_or("").to_owned();
     // Read before the journal event redacts it; it travels beside the event, never inside it.
     let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
@@ -405,10 +428,6 @@ fn read_detached_request_id(reader: &mut impl BufRead) -> anyhow::Result<String>
 
 fn shadowed_by_grok(source: &str, grok_hook_event: Option<&std::ffi::OsStr>) -> bool {
     matches!(source, "claude" | "cursor") && grok_hook_event.is_some_and(|value| !value.is_empty())
-}
-
-fn drain_native_payload() -> io::Result<()> {
-    io::copy(&mut io::stdin().take(MAX_NATIVE_PAYLOAD_BYTES + 1), &mut io::sink()).map(|_| ())
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Args> {

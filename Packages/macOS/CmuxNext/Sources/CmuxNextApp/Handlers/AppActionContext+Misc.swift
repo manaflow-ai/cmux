@@ -28,9 +28,15 @@ extension AppActionContext {
     /// selected content is not always that page (a pane shown in two
     /// windows resolves to the first one's controller, an adopted Web Store
     /// tab), which refused the press with "No browser tab is focused."
+    func shownPage(_ invocation: ActionInvocation) throws -> (entry: BrowserEntry, chrome: BrowserChromeView) {
+        let entry = try page(invocation)
+        // `page` on screen: its pane's chrome shows it now.
+        guard let chrome = entry.chrome else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
+        return (entry, chrome)
+    }
     func page(_ invocation: ActionInvocation) throws -> BrowserEntry {
         if let target = invocation.target, target.kind == .tab,
-           let entry = services.cache.existingBrowser(target.id), entry.chrome.window != nil {
+           let entry = services.cache.existingBrowser(target.id), entry.tab.contentView.window != nil {  // shown, or parked hidden in its pane's chrome
             return entry
         }
         guard case .browser(let entry) = scope(invocation).pane?.currentContent else {

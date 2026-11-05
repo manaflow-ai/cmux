@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import Foundation
 import QuartzCore
 
 /// DEV and NIGHTLY (Debug menu > Sidebar States Playground): draws the real sidebar (``SidebarView`` over
@@ -24,6 +25,8 @@ struct SidebarStatesPlaygroundRenderer {
     var pixelScale: CGFloat = 2
     /// Air above and below a row in its cell.
     static let rowPad: CGFloat = 4
+    /// A fixed clock for the hover card's ages, so every column's card says the same.
+    static let now = Date(timeIntervalSinceReferenceDate: 815_000_000)
 
     /// Every state's cell at `column` in `appearance`.
     func cells(_ column: SidebarStatesPlaygroundColumn,
@@ -56,7 +59,9 @@ struct SidebarStatesPlaygroundRenderer {
         let scope = ThemeScope(level: .room)
         if let theme = themes.theme(appearance) { scope.setOverride(theme.spec, input: theme.input, animated: false) }
         scope.root(root)
-        root.layer?.backgroundColor = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
+        // glass-opaque-allow: the stand-in for the window behind the sidebar in an offscreen shot (no desktop shows through), not a glass surface.
+        let background = scope.perform { Palette.windowBackground.withAlphaComponent(1) }.cgColor
+        root.layer?.backgroundColor = background
         let sidebar = SidebarView(model: fixture.model(expanded: column.density == .expanded), design: design)
         sidebar.frame = root.bounds
         root.addSubview(sidebar)
@@ -84,10 +89,13 @@ struct SidebarStatesPlaygroundRenderer {
         let scale = shot.map { CGFloat($0.width) / root.bounds.width } ?? 1
         let pixels = shot.flatMap(SidebarStatesPlaygroundPixels.init)
         let guides = Self.guides(list, root: root)
+        // Drawn in its own window: a glass panel in the sidebar's window leaves the sidebar blank in the shot.
+        let card = cardShot(appearance, background: background)
         var cells: [SidebarStatesPlaygroundState: SidebarStatesPlaygroundCell] = [:]
         for state in SidebarStatesPlaygroundState.allCases {
             let view = Self.view(fixture.ref(for: state), in: list)
-            cells[state] = cell(state, view: view, root: root, shot: shot, pixels: pixels, scale: scale, guides: guides, list: list)
+            cells[state] = cell(state, view: view, root: root, shot: shot, pixels: pixels, scale: scale, guides: guides, list: list,
+                                card: state == .pinnedHoverCard ? card : nil, background: background)
         }
         if list.inlineRename.isActive { list.inlineRename.end(commit: false) }
         list.setHovered(nil)
@@ -97,7 +105,7 @@ struct SidebarStatesPlaygroundRenderer {
     /// Draws every view under `root` as laid out (no layout pass, so the hover set after the list's layout stays), then
     /// returns its pixels at `pixelScale` pixels per point at least: a 1x screen (a fleet display) still gives a 2x shot,
     /// its layers drawn again at that scale, so a size critique reads half points.
-    private static func draw(_ root: NSView, pixelScale: CGFloat) -> CGImage? {
+    static func draw(_ root: NSView, pixelScale: CGFloat) -> CGImage? {
         func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
         let scale = max(pixelScale, root.window?.backingScaleFactor ?? 1)
         func rescale(_ layer: CALayer) {
@@ -142,9 +150,87 @@ struct SidebarStatesPlaygroundRenderer {
         return (leading, column)
     }
 
+    /// The pinned row's real hover card, drawn alone: configured as a hover configures it
+    /// (`WorkspaceHoverCardController.hoverCardBody`), on the overlay glass, at the column's sizes. Its pixels, its size
+    /// (the glass's fitting size, as the panel sizes it) and its tab rows' heights, in points.
+    private func cardShot(_ appearance: SidebarStatesPlaygroundAppearance,
+                          background: CGColor) -> (image: CGImage?, size: CGSize, tabRows: [CGFloat])? {
+        let workspace = SidebarStatesPlaygroundFixture.pinnedRow
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let card = WorkspaceHoverCardView()
+        card.widthCap = min(WorkspaceHoverCardView.maxCardWidth, width + WorkspaceHoverCardView.tokens.sidebarReach)
+        card.configure(.make(workspace, machine: machine, now: Self.now, options: design.workspaceHoverCard, timeline: []), now: Self.now)
+        card.configureTabs(title: workspace.title, tabs: workspace.tabs, now: Self.now, machine: machine)
+        let room = NSRect(x: 0, y: 0, width: WorkspaceHoverCardView.maxCardWidth + 2 * Metrics.space4, height: height)
+        let window = NSWindow(contentRect: room.offsetBy(dx: -40_000, dy: -40_000), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.isExcludedFromWindowsMenu = true
+        window.ignoresMouseEvents = true
+        window.alphaValue = 0 // drawn into a bitmap only; never seen
+        window.appearance = appearance.appearance
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let root = NSView(frame: room)
+        root.wantsLayer = true
+        root.appearance = window.appearance
+        root.layer?.backgroundColor = background
+        window.contentView = root
+        let scope = ThemeScope(level: .room)
+        if let theme = themes.theme(appearance) { scope.setOverride(theme.spec, input: theme.input, animated: false) }
+        scope.root(root)
+        let glass = Glass.makeOverlayPanel(interactive: false, cardFill: false)
+        card.translatesAutoresizingMaskIntoConstraints = false
+        glass.contentView.addSubview(card)
+        root.addSubview(glass)
+        NSLayoutConstraint.activate([
+            card.topAnchor.constraint(equalTo: glass.contentView.topAnchor),
+            card.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor),
+            card.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
+            card.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
+            glass.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            glass.topAnchor.constraint(equalTo: root.topAnchor),
+        ])
+        window.orderFrontRegardless()
+        root.layoutSubtreeIfNeeded()
+        card.applyColors()
+        let frame = root.convert(glass.bounds, from: glass)
+        guard !frame.isEmpty, let shot = Self.draw(root, pixelScale: pixelScale) else { return nil }
+        let scale = CGFloat(shot.width) / root.bounds.width
+        let pixels = CGRect(x: frame.minX * scale, y: (root.bounds.height - frame.maxY) * scale, width: frame.width * scale,
+                            height: frame.height * scale).integral
+        let rows = card.tabList.rowViews.filter { !$0.isHiddenOrHasHiddenAncestor }.map(\.frame.height)
+        return (shot.cropping(to: pixels), frame.size, rows)
+    }
+
+    /// The pinned row's cell: the row's pixels, and its card beside them as the panel places it (against the sidebar's
+    /// edge, its top on the row's), on the window's background.
+    private func composeCard(row: CGImage?, rowBox: CGSize, card: (image: CGImage?, size: CGSize, tabRows: [CGFloat]),
+                             scale: CGFloat, background: CGColor) -> (image: CGImage?, size: CGSize) {
+        let size = CGSize(width: width + card.size.width + Self.rowPad, height: max(rowBox.height, card.size.height + 2 * Self.rowPad))
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: Int((size.width * scale).rounded()), height: Int((size.height * scale).rounded()),
+                                  bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return (nil, size) }
+        let height = CGFloat(ctx.height)
+        ctx.setFillColor(background)
+        ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
+        if let row {
+            ctx.draw(row, in: CGRect(x: 0, y: height - CGFloat(row.height), width: CGFloat(row.width), height: CGFloat(row.height)))
+        }
+        if let image = card.image {
+            ctx.draw(image, in: CGRect(x: width * scale, y: height - Self.rowPad * scale - CGFloat(image.height),
+                                       width: CGFloat(image.width), height: CGFloat(image.height)))
+        }
+        return (ctx.makeImage(), size)
+    }
+
     private func cell(_ state: SidebarStatesPlaygroundState, view: NSView?, root: NSView, shot: CGImage?,
                       pixels: SidebarStatesPlaygroundPixels?, scale: CGFloat,
-                      guides: (leading: CGFloat?, column: CGFloat?), list: SidebarListView) -> SidebarStatesPlaygroundCell {
+                      guides: (leading: CGFloat?, column: CGFloat?), list: SidebarListView,
+                      card: (image: CGImage?, size: CGSize, tabRows: [CGFloat])? = nil,
+                      background: CGColor) -> SidebarStatesPlaygroundCell {
         let empty = SidebarStatesPlaygroundCell(state: state, image: nil, scale: scale, size: CGSize(width: width, height: 0),
                                                 rowFrame: .zero, leadingGuideX: guides.leading, columnGuideX: guides.column,
                                                 marks: [], rowView: nil)
@@ -169,9 +255,16 @@ struct SidebarStatesPlaygroundRenderer {
             bar.frame = local(rect)
             return bar
         }
-        return SidebarStatesPlaygroundCell(state: state, image: shot?.cropping(to: pixelBox), scale: scale, size: box.size,
+        var image = shot?.cropping(to: pixelBox), size = box.size
+        if let card {
+            (image, size) = composeCard(row: image, rowBox: box.size, card: card, scale: scale, background: background)
+        }
+        return SidebarStatesPlaygroundCell(state: state, image: image, scale: scale, size: size,
                                            rowFrame: local(row), leadingGuideX: guides.leading.map { $0 - box.minX },
                                            columnGuideX: guides.column.map { $0 - box.minX }, marks: marks, bars: bars,
+                                           card: card.map { SidebarStatesPlaygroundCard(frame: CGRect(x: width, y: Self.rowPad, width: $0.size.width,
+                                                                                                      height: $0.size.height),
+                                                                                       tabRowHeights: $0.tabRows) },
                                            rowView: String(describing: type(of: view)))
     }
 

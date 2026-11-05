@@ -48,6 +48,8 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import "../../../ui/controls.css";
+import { useChatCut } from "./chatCut";
 import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
@@ -111,6 +113,7 @@ import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
+import { currentPlan, planDone, ProgressSection, type SessionInfoPlan } from "./ProgressSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
 import { AppPanelSection, useAppPanelSections } from "../../../apps/scene/panels";
@@ -135,6 +138,8 @@ export const PUSH_MIN_CHAT = 440;
 export const FLOAT_MARGIN = 8;
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
+/// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
+const NO_FOLDERS: readonly string[] = [];
 
 /// Whether Settings Push always is on: Session Info then always takes a column.
 export const pushes = (placement: SessionInfoPlacement) => placement === "push";
@@ -239,7 +244,7 @@ export const sessionInfoStage = (
     if (wide || sessionInfoPopover(pane.height, true) || !sessionInfoFits(pane.width)) return "overlay";
   }
   const room = pushedRoom(pane.width, pushedWidth(pane.width, width), column, overflow, pushes(placement));
-  return pushKeepsColumn(pane.width, room, column) ? "push" : "overlay";
+  return pushKeepsColumn(pane.width, room, column, pushes(placement)) ? "push" : "overlay";
 };
 
 /// The shell's pin on the transcript's column while Session Info pushes (sessionInfo.css).
@@ -270,11 +275,16 @@ export const findBarCramped = (chatWidth: number, clear: number) =>
 /// width it has in the whole pane (model.ts transcriptColumn): only the gutters shrink, so the column
 /// moves left and no line of the chat wraps anew. While it pushes, the page pins the column to that
 /// width (sessionInfo.css --acpmux-session-info-column), so no frame of the slide narrows it either.
-export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn) =>
+export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn, allowGridRounding = false) =>
   paneWidth <= 0 ||
   room <= 0 ||
   (room < paneWidth &&
-    transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width &&
+    // Push always takes an exact, user-dragged width. Its CSS pins the original column without
+    // rounding the inset, so check that width plus the two minimum page edges fits in the chat.
+    // Default placement still steps in 8s and keeps its existing exact-width guard.
+    (allowGridRounding
+      ? paneWidth - room >= transcriptColumn(paneWidth, column).width + 2 * transcriptColumn(0, column).inset
+      : transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width) &&
     // The column itself too, not only its drawn width: the 4 grid's 0-7 px leftover can make up a
     // column the narrower chat shrank, and that push is one a narrower column would need (Leo,
     // 2026-11-03: "if it would need to be then session info should be an overlay").
@@ -294,11 +304,8 @@ export const sessionInfoPushes = (
 /// moves right as the chat widens.
 const columnEnd = (chatWidth: number, column?: ChatColumn) => chatWidth - transcriptColumn(chatWidth, column).inset;
 
-/// A room of a multiple of 8 pixels: the column's inset is on the 4 grid (model.ts transcriptColumn,
-/// design/grid.md 5.5), so the column centered in the chat beside it then starts on it and keeps the
-/// width it has in the whole pane (pushKeepsColumn), never a pixel less.
-const even = (room: number) => Math.ceil(room / 8) * 8;
-
+/// A room stepped in 8px increments while the column needs only part of the panel: the column's inset is
+/// on the 4 grid (model.ts transcriptColumn, design/grid.md 5.5), so the centered column keeps its width.
 /// The room a pushed panel `panel` wide (pushedWidth) takes from the chat's right end: by default only
 /// what the gutter lacks, so the chat narrows gradually from the pane width where the gutter stops
 /// holding the panel (0 there) to the panel and its margin (Leo, 2026-11-03: "gradually pushing into the
@@ -307,10 +314,12 @@ const even = (room: number) => Math.ceil(room / 8) * 8;
 export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn, overflow = 0, full = false) => {
   const all = panel + FLOAT_MARGIN;
   if (paneWidth <= 0) return all;
-  if (full) return even(all);
+  // Panel widths are user-controlled and may be any pixel value. Keep the panel's own 8px inset exact
+  // instead of rounding the whole room up: an odd drag width must not leave a gap (#33865).
+  if (full) return all;
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
-  if (paneWidth - all <= 0 || columnEnd(paneWidth - all, column) > end) return even(all);
+  if (paneWidth - all <= 0 || columnEnd(paneWidth - all, column) > end) return all;
   // The least room, in steps of 8 (the column's inset is on the 4 grid, so each step moves the column's
   // end in by about 4), whose column still ends by `end`. Rounding a pixel search up to 8 instead could
   // land 1-3 px past it: columnEnd does not grow steadily with the chat's width. At most about 70 steps,
@@ -319,7 +328,7 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   while (room < all && columnEnd(paneWidth - room, column) > end) room += 8;
   // Once the chat would end under the panel itself (its page edge under the card), the whole room: the
   // chat's right edge, its scrollbar with it, is then the panel's left margin, as Push always draws it.
-  return room >= panel ? even(all) : room;
+  return room >= panel ? all : room;
 };
 /// The chat's content Session Info must never float over: the transcript's rows and the composer.
 const CHAT_CONTENT = ".acpmux-main :is(.acpmux-row, .acpmux-composer-box)";
@@ -1045,6 +1054,25 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     ),
   );
   const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
+  // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
+  // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
+  // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
+  // subagent's panel gets the parent's snapshot, so it never reads that one: its plan comes from its
+  // own live rows (not `sectionRows`, which keep their identity until a row is added), so a step ticked
+  // in place shows here at once.
+  const live = snapshot.progress;
+  const livePlan = useMemo<SessionInfoPlan | undefined>(
+    () => (live ? { entries: live.plan, ended: Boolean(live.ended), done: live.completed } : undefined),
+    [live],
+  );
+  const scopedWorking = scopedAgent?.state === "running";
+  const scopedPlan = useSameValue(
+    useMemo(
+      () => (drawn && scopedAgent ? currentPlan(rows, scopedWorking) : undefined),
+      [drawn, scopedAgent, rows, scopedWorking],
+    ),
+  );
+  const plan = scopedAgent ? scopedPlan : drawn ? livePlan : undefined;
   const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
   const documents = useSameValue(useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]));
   const views = subagents?.views;
@@ -1167,12 +1195,14 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           top={nativeTop(shell, tabRowHeight)}
           side={side}
           foot={stopsAboveComposer ? dockHeight : undefined}
+          overChat={overChat}
           label={t("sessionInfo.title")}
           title={scope ? `${t("sessionInfo.subagent")} · ${scope.agent.name}` : undefined}
           onBack={scope?.onBack}
           backLabel={scope ? subagentBackLabel(t, scope.parent) : undefined}
           summary={summary}
           usage={usage}
+          plan={plan}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
           repository={repository}
@@ -1261,6 +1291,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         artifacts={artifacts}
         documents={documents}
         rows={sectionRows}
+        plan={plan}
         toolCalls={toolCalls}
         agents={agents}
         waiting={waiting}
@@ -1362,6 +1393,10 @@ export function SessionInfoPanel({
   // text never reads through the glass (Leo 2026-10-30: "I don't like the non-glassness"). Pushing,
   // or in the gutter, it covers nothing.
   useSeeThroughBlur(frame, glass, chatUnderGlass, chatGlass);
+  // The transcript leaves the panel's box out while it shows (chatCut.ts), so nothing scrolls under
+  // it: its pixels hold still while the chat scrolls (Leo, 2026-11-03: "the session info thing not
+  // flicker EVER when im scrolling"). Its place re-measures when it moves.
+  useChatCut(frame, !presence?.leaving, `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`);
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
   const [footSettled, setFootSettled] = useState(false);
@@ -1517,6 +1552,7 @@ export function SessionInfo({
   artifacts = 0,
   documents = [],
   rows = [],
+  plan,
   toolCalls,
   agents = [],
   waiting = new Set(),
@@ -1581,6 +1617,8 @@ export function SessionInfo({
   onOpenDocument?: (artifact: Artifact) => void;
   /// The chat's rows, for its gallery.
   rows?: readonly AcpmuxRow[];
+  /// The agent's current plan (ProgressSection.tsx `currentPlan`); without one, no Progress.
+  plan?: SessionInfoPlan;
   /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
   /// from `rows`.
   toolCalls?: ReadonlySet<string>;
@@ -1753,6 +1791,7 @@ export function SessionInfo({
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
   const sources = made?.sources ?? [];
+  const folders = summary?.additionalDirectories ?? NO_FOLDERS;
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
@@ -1880,16 +1919,17 @@ export function SessionInfo({
       )}
     </SessionInfoSection>
   );
-  const sourcesSection = sources.length > 0 && (
+  const sourcesSection = sources.length + folders.length > 0 && (
     <SessionInfoSection
       id="sources"
       title={t("summary.sources")}
       open={state.sources}
       onOpenChange={fold("sources")}
-      meta={value(String(sources.length))}
+      meta={value(String(sources.length + folders.length))}
     >
       <SourcesSection
         sources={sources}
+        folders={folders}
         cwd={summary?.cwd}
         onOpenFile={onOpenSourceFile}
         onOpenBeside={onOpenUrl}
@@ -1913,6 +1953,27 @@ export function SessionInfo({
         onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
         onOpenBeside={onOpenUrl}
       />
+    </SessionInfoSection>
+  );
+  // The agent's plan, live: its steps done of its steps, on Context's meter.
+  const planSteps = plan?.entries.length ?? 0;
+  const stepsDone = plan ? planDone(plan) : 0;
+  const progressSection = plan && planSteps > 0 && (
+    <SessionInfoSection
+      id="progress"
+      title={t("sessionInfo.progress")}
+      open={state.progress ?? true}
+      onOpenChange={fold("progress")}
+      meta={
+        <>
+          {value(t("sessionInfo.progress.count", { done: stepsDone, total: planSteps }))}
+          <span className="acpmux-session-info-meter" aria-hidden="true">
+            <span style={{ width: `${Math.round((stepsDone / planSteps) * 100)}%` }} />
+          </span>
+        </>
+      }
+    >
+      <ProgressSection plan={plan} />
     </SessionInfoSection>
   );
   // A workflow Background tasks lists (Labs) is not a Subagents row too.
@@ -1974,7 +2035,8 @@ export function SessionInfo({
   // Usage shows once acpmux reports what this chat or any listed chat spends.
   const ownUsage = summary?.usageStats;
   const usageValue = usageMeta(t, ownUsage, language);
-  const usageSection = (ownUsage || anyUsage) && (
+  const planLimits = typeof summary?.usageLimits === "object" ? summary.usageLimits : undefined;
+  const usageSection = (ownUsage || anyUsage || planLimits) && (
     <SessionInfoSection
       id="usage"
       title={t("sessionInfo.usage")}
@@ -1985,6 +2047,7 @@ export function SessionInfo({
     >
       <UsageSection
         own={ownUsage}
+        planLimits={planLimits}
         sessions={allSessions ?? []}
         chatId={chatId}
         onOpen={onOpenChat}
@@ -2018,6 +2081,7 @@ export function SessionInfo({
           changes,
           sources: sourcesSection,
           outputs: outputsSection,
+          progress: progressSection,
           subagents: subagentsSection,
           tasks,
           ...appNodes,

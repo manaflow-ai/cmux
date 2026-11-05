@@ -64,21 +64,21 @@ extension WindowController {
 extension AppServices {
     /// A browser page in `entry` entered or left element fullscreen.
     func pageContentFullscreenChanged(_ entry: BrowserEntry, on: Bool) {
-        guard let controller = entry.chrome.window?.delegate as? WindowController else { return }
-        if on { controller.presentPage(entry) } else { controller.endPagePresentation(of: entry.chrome) }
+        guard let chrome = entry.chrome, let controller = chrome.window?.delegate as? WindowController else { return }
+        if on { controller.presentPage(entry) } else { controller.endPagePresentation(of: chrome) }
     }
 }
 
 extension WindowController {
     /// Gives `entry`'s fullscreen page the whole screen when its pane is the only one on screen.
     func presentPage(_ entry: BrowserEntry) {
-        guard pagePresentation == nil, let window, let pane = lonePane(showing: entry.chrome) else { return }
+        guard pagePresentation == nil, let window, let chrome = entry.chrome, let pane = lonePane(showing: chrome) else { return }
         let leaving = (window as? ShellWindow)?.isLeavingFullScreen == true
         // The full screen is the page's when the window is not there, is on its way out, or entered
         // for an earlier page whose exit waits for the enter to end (`pageFullScreenExitPending`).
         let entersFullScreen = !window.styleMask.contains(.fullScreen) || leaving || pageFullScreenExitPending
         pageFullScreenExitPending = false
-        pagePresentation = BrowserPagePresentation(chrome: entry.chrome, tab: entry.tab, pane: pane, entersWindowFullScreen: entersFullScreen)
+        pagePresentation = BrowserPagePresentation(chrome: chrome, tab: entry.tab, pane: pane, entersWindowFullScreen: entersFullScreen)
         services.hoverCards.dismiss(.action)
         pane.presentsPage = true
         root.presentsPage = true
@@ -134,7 +134,7 @@ extension WindowController {
         // On screen: still in its pane, which is still a shown pane of the shown workspace (a top
         // page parks the workspace before it hides it).
         guard let chrome = presentation.chrome, let pane = presentation.pane as? PaneController, let content,
-              chrome.window === window, !chrome.isHiddenOrHasHiddenAncestor, chrome.isDescendant(of: pane.view),
+              chrome.window === window, !chrome.isHiddenOrHasHiddenAncestor, chrome.isDescendant(of: pane.view), chrome.tab === presentation.tab,
               pane.isVisible, content.panes.values.contains(where: { $0 === pane }) else {
             let tab = presentation.tab
             endPagePresentation()

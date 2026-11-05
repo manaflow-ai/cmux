@@ -1,4 +1,5 @@
 import SwiftUI
+import CmuxNextDesign
 
 /// `code`: large code, small QR, the four words.
 struct CodeFirst: View {
@@ -34,7 +35,7 @@ struct QRFirst: View {
     var body: some View {
         VStack(spacing: 10) {
             QRCodeImage(payload: offer.qrPayload).frame(width: 196, height: 196)
-                .padding(8).background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white))
+                .padding(8).background(RoundedRectangle(cornerRadius: Metrics.surfaceCornerRadius, style: .continuous).fill(.white))
             Text(ServerStrings.scan).font(.system(size: 12)).foregroundStyle(colors.secondary)
             Text(verbatim: offer.displayCode)
                 .font(.system(size: 20, weight: .semibold, design: .monospaced)).tracking(1.5)
@@ -63,7 +64,7 @@ struct WordsFirst: View {
                 Spacer()
             }
             .padding(.horizontal, 10).frame(height: 32)
-            .card(radius: 8)
+            .card(radius: Metrics.insetCornerRadius)
         }
     }
 }

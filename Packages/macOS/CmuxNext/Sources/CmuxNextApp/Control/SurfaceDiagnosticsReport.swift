@@ -132,6 +132,7 @@ enum SurfaceDiagnosticsReport {
             "frozen": .array(hibernation.frozen.sorted().map(JSONValue.string)),
             // Each live page's lifecycle phase (workspace hibernation discards only `mountedHidden` ones).
             "page_phases": .object(Dictionary(uniqueKeysWithValues: services.cache.browsers.keys.map { ($0, JSONValue.string(services.cache.phase(of: $0).rawValue)) })),
+            "chat_pages": .array(services.madeAgentTabs?.views.keys.sorted().map(JSONValue.string) ?? []),
             "neighbor_radius": JSONValue(hibernation.neighborRadius),
             "awake_neighbors": .array(hibernation.awakeNeighbors.sorted().map(JSONValue.string)),
             "prewarmed_total": JSONValue(hibernation.prewarmedCount),

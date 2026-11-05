@@ -27,12 +27,18 @@ pub struct EncCfg<'a> {
     pub height: u32,
     pub fps: u32,
     pub kbps: u32,
+    /// Software encoders only.
+    #[cfg_attr(
+        not(any(feature = "openh264", feature = "bench", feature = "x264")),
+        allow(dead_code)
+    )]
     pub threads: u16,
     /// `openh264` (default) or `x264` (needs the `x264` feature).
     pub codec: &'a str,
     /// openh264 usage: screen content (default; codes scrolling text with motion search
     /// at a small fraction of the camera mode's bitrate, but turns large changes into
     /// IDRs) or camera.
+    #[cfg_attr(not(any(feature = "openh264", feature = "bench")), allow(dead_code))]
     pub screen_content: bool,
     /// x264 only.
     #[cfg_attr(not(feature = "x264"), allow(dead_code))]

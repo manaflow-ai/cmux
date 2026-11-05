@@ -13,6 +13,8 @@
 .acpmux-minimap__card {
   /* Mixed into the opaque base (styles.css --acpmux-base), as the menus are: the page color can be clear. */
   --acpmux-minimap-base: var(--acpmux-base, var(--agent-page-bg));
+  --acpmux-minimap-pitch: 10px;
+  --acpmux-minimap-bar-height: 2px;
   --acpmux-minimap-rest: var(--agent-muted);
   --acpmux-minimap-text: var(--agent-text);
   --acpmux-minimap-card: color-mix(in srgb, var(--agent-text) 7.5%, var(--acpmux-minimap-base));
@@ -103,7 +105,7 @@
   flex: none;
   display: block;
   width: 100%;
-  height: 10px;
+  height: var(--acpmux-minimap-pitch);
   margin: 0;
   padding: 0;
   border: 0;
@@ -130,7 +132,7 @@
 .acpmux-minimap__bar,
 .acpmux-minimap__dot {
   position: absolute;
-  top: 4px;
+  top: calc((var(--acpmux-minimap-pitch) - var(--acpmux-minimap-bar-height)) / 2);
   left: 0;
   background: currentColor;
   opacity: 0.4;
@@ -215,9 +217,12 @@
    chatgpt's ... it doesn't feel smooth when you're hoving your mouse through it"). While the pointer
    is on the ticks, each tick's length follows --acpmux-minimap-wave (0 at rest to 1 hovered), which
    one loop writes on the bars and dots inside the bump's reach as it eases toward the pointer's y.
-   The loop is the easing, so no per-tick transition restarts as the pointer crosses rows. It
-   overrides the stepped fisheye's inline transform; the pointer leaving drops data-wave, and the
-   ticks ease back to rest on the rule above. Transform only: nothing here lays out. */
+   The loop is the easing, so no per-tick transition restarts as the pointer crosses rows. The
+   zipper (the default; Leo, 2026-11-03: "i'd rather keep it per zipper rail thing") writes the same
+   property, each tick easing to its own row's length, and keeps data-wave while the ticks shrink
+   back to rest after the pointer leaves, then drops it. The cosine arms drop data-wave on leave, and
+   their ticks ease back on the rule above. It overrides the stepped fisheye's inline transform.
+   Transform only: nothing here lays out. */
 .acpmux-minimap__rail[data-wave] .acpmux-minimap__bar {
   transform: scaleX(calc(0.2308 + 0.7692 * var(--acpmux-minimap-wave, 0))) !important;
   transition: none !important;
@@ -307,7 +312,7 @@
   top: 0;
   right: 0;
   width: 9px;
-  height: 10px;
+  height: var(--acpmux-minimap-pitch);
 }
 /* Where the card's x and y count from: the rail's origin, as the card draws in the transcript
    scroller's parent (PreviewCard.tsx). */
@@ -339,8 +344,8 @@
      preview, the tooltips): the tooltip tint over the shared blur, never an opaque fill (Leo
      2026-10-21). Reduce Transparency turns the tint into the solid popup surface and the blur off
      (pages/shared/desktop.css). */
-  padding: 8px;
-  border-radius: 12px;
+  padding: var(--ds-space-2);
+  border-radius: var(--ds-radius-xl);
   background: var(--tooltip-tint, var(--surface-popup, var(--acpmux-minimap-card)));
   -webkit-backdrop-filter: var(--surface-blur);
   backdrop-filter: var(--surface-blur);
@@ -348,7 +353,8 @@
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
     var(--elevation-2);
   color: var(--agent-text);
-  font: var(--text-body, 13px) / 20px var(--font-ui);
+  font: var(--text-body) / var(--text-body--line-height) var(--font-ui);
+  letter-spacing: var(--text-body--letter-spacing);
   -webkit-font-smoothing: antialiased;
   cursor: default;
 }
@@ -364,9 +370,9 @@
 .acpmux-minimap__title {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  min-height: 20px;
-  font-weight: 500;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-compact);
+  font-weight: var(--weight-emphasis);
 }
 .acpmux-minimap__prompt {
   flex: 1;
@@ -386,7 +392,7 @@
   width: 60%;
   height: 0.75em;
   margin-top: 0.375em;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: color-mix(in srgb, var(--agent-muted) 24%, transparent);
 }
 /* Its words arriving under the open card fade in where the line was: opacity only, no slide. */
@@ -399,54 +405,41 @@
 :root[data-cmux-motion="reduced"] .acpmux-minimap__card[data-arrived] :where(.acpmux-minimap__prompt, .acpmux-minimap__reply) {
   animation: none;
 }
-.acpmux-minimap__bookmark {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: none;
+/* Shared Button owns the hit box, hover/press fill and keyboard focus. The mark stays
+   secondary until selected or hovered; the highlight covers this control alone. */
+.acpmux-minimap__bookmark.ui-button.ui-btn {
   color: var(--agent-muted);
-  cursor: default;
 }
-.acpmux-minimap__bookmark:hover {
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+.acpmux-minimap__bookmark.ui-button.ui-btn:hover,
+.acpmux-minimap__bookmark.ui-button.ui-btn[aria-pressed="true"] {
   color: var(--agent-text);
-}
-.acpmux-minimap__bookmark[aria-pressed="true"] {
-  color: var(--agent-text);
-}
-.acpmux-minimap__bookmark:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
-  outline-offset: 1px;
 }
 .acpmux-minimap__reply {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 4;
   overflow: hidden;
-  margin-top: 4px;
+  margin-top: var(--ds-space-1);
   color: var(--agent-muted);
+  line-height: var(--text-title--line-height);
 }
 .acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
   height: auto;
-  max-height: calc(var(--acpmux-minimap-reply-lines, 1) * var(--acpmux-minimap-reply-line-height, 20px));
-  min-height: var(--acpmux-minimap-reply-line-height, 20px);
+  /* Callers provide the measured body line height so a capped reply never exposes a partial row. */
+  max-height: calc(var(--acpmux-minimap-reply-lines, 1) * var(--acpmux-minimap-reply-line-height, var(--text-title--line-height)));
+  min-height: var(--acpmux-minimap-reply-line-height, var(--text-title--line-height));
 }
 .acpmux-minimap__metadata {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 8px;
-  margin-top: 5px;
+  gap: var(--ds-space-1) var(--ds-space-2);
+  margin-top: var(--ds-space-1);
   color: var(--agent-muted);
   font-size: var(--text-detail);
-  line-height: 16px;
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  font-variant-numeric: tabular-nums;
 }
 .acpmux-minimap__meta-link {
   max-width: 100%;
@@ -464,13 +457,13 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
-  margin-top: 5px;
+  margin-top: var(--ds-space-1);
   color: var(--agent-status-failure, var(--agent-muted));
   overflow-wrap: anywhere;
 }
 .acpmux-minimap__failure-icon {
-  margin-right: 5px;
-  vertical-align: -2px;
+  margin-right: var(--ds-space-1);
+  vertical-align: middle;
 }
 .acpmux-minimap__reply p {
   margin: 0;
@@ -479,7 +472,7 @@
   margin-top: 0;
 }
 .acpmux-minimap__reply strong {
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 .acpmux-minimap__reply code {
   font-family: var(--font-mono);
@@ -493,13 +486,13 @@
   pointer-events: none;
 }
 .acpmux-minimap__item {
-  padding-left: 14px;
-  text-indent: -10px;
+  padding-left: var(--ds-space-4);
+  text-indent: calc(-1 * var(--ds-space-3));
 }
 .acpmux-minimap__item::before {
   content: "\2022";
   display: inline-block;
-  width: 10px;
+  width: var(--ds-space-3);
   text-indent: 0;
 }
 /* The landing highlight's first color (scrollMotion.ts highlightBubble): the bubble's own glass
@@ -583,7 +576,7 @@
   opacity: var(--acpmux-minimap-mark, 0.7);
 }
 /* The rows the rail does not draw (tickWindow.ts): one block as tall as they are, painted as their
-   resting ticks: the bar's 2 px at 4 px down each 10 px row, at its resting length (model.ts
+   resting ticks: the bar's 2 px centered in each row, at its resting length (model.ts
    tickLength(0), 0.2308 of the bar's box) in the rest tone at its 40%. A fast wheel or fling can move
    the list past the drawn rows for a frame before its scroll event draws them (Chromium scrolls on
    its compositor); that frame shows ticks at rest, not a blank strip (Leo, 2026-10-31: "if i scroll
@@ -593,14 +586,14 @@
   flex: none;
   background: linear-gradient(
       to bottom,
-      transparent 4px,
-      color-mix(in srgb, var(--acpmux-minimap-rest) 40%, transparent) 4px 6px,
-      transparent 6px
+      transparent calc((var(--acpmux-minimap-pitch) - var(--acpmux-minimap-bar-height)) / 2),
+      color-mix(in srgb, var(--acpmux-minimap-rest) 40%, transparent) calc((var(--acpmux-minimap-pitch) - var(--acpmux-minimap-bar-height)) / 2) calc((var(--acpmux-minimap-pitch) + var(--acpmux-minimap-bar-height)) / 2),
+      transparent calc((var(--acpmux-minimap-pitch) + var(--acpmux-minimap-bar-height)) / 2)
     )
-    0 0 / calc(min(26px, 100%) * 0.2308) 10px repeat-y;
+    0 0 / calc(min(26px, 100%) * 0.2308) var(--acpmux-minimap-pitch) repeat-y;
 }
 /* A tick's list item (its place among every prompt for assistive tech): a plain block around its
-   tick, so it takes the tick's 10 px and the list's rows stay where they were. */
+   tick, so it takes the tick's pitch and the list's rows stay where they were. */
 .acpmux-minimap__entry {
   flex: none;
   display: block;

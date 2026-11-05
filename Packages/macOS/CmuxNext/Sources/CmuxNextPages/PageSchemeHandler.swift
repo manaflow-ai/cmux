@@ -39,9 +39,11 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// The Vite server pages load from (``PageDevServer``, Debug only), nil for the bundled pages.
     let devServer: PageDevServer?
     /// Fetches one file from ``devServer`` (tests replace it).
-    var fetchDevServer: @Sendable (URL) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
+    var fetchDevServer: @Sendable (URLRequest) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
     /// The live override (``WebDevOverride/current``; tests replace it).
     var liveOverride: @Sendable () -> WebDevOverride = { WebDevOverride.current }
+    /// The projection windows (``WebProjection/shared``; tests replace it).
+    var projection = WebProjection.shared
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
 
@@ -72,6 +74,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
+        projection.served(webView, isDocument: task.request.mainDocumentURL == task.request.url) // a projection window's pages load from its server
         let request = task.request
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = request.url, let served = served(url),
@@ -83,10 +86,11 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let id = ObjectIdentifier(task)
         active.insert(id)
         WebBundleServedViews.shared.add(webView)
+        let range = request.value(forHTTPHeaderField: "Range")
         // task-owner: one file read or dynamic lookup per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let reply = await self.reply(to: url)
+            let reply = await self.reply(to: url, range: range, webView: webView)
             guard self.active.remove(id) != nil else { return }
             guard let reply else {
                 task.didFailWithError(URLError(.fileDoesNotExist))
@@ -103,24 +107,36 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// page file comes from that server instead. The live override (``WebDevOverride``) is read
     /// per request: its server's answers, else (a stopped server, a 4xx or 5xx) its overlay
     /// folder's file, else, with an active web update (``WebBundleOverlay``), the update's copy
-    /// of the page's folder, else the bundled one.
-    func reply(to url: URL) async -> Reply? {
+    /// of the page's folder, else the bundled one. A view in a projection window (``WebProjection``)
+    /// reads that window's server in place of the override's. `range` is the request's `Range` header, which
+    /// only a ranged dynamic source (``PageRangedResourceSource``) reads. `webView`'s request reads
+    /// the update that page loaded with (``WebBundleServedViews``), any other the active one.
+    func reply(to url: URL, range: String? = nil, webView: WKWebView? = nil) async -> Reply? {
         guard let served = served(url) else { return nil }
         if served.page.id.lowercased() == PageArtifactFrame.pageID, PageArtifactFrame.isFrame(url) {
             return Self.artifactReply(url: url)
         }
-        let live = liveOverride()
-        if let devServer = devServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
-            if let (body, response) = await fetchDevServer(remote), devServer.isOwn(response.url),
-               self.devServer != nil || response.statusCode < 400 {
+        var live = liveOverride()
+        // A projection window's server wins over the launch variable's too (``WebProjection``).
+        let projected = projection.server(for: webView)
+        if let projected { live.server = projected }
+        let launchServer = projected == nil ? devServer : nil
+        if let devServer = launchServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
+            let request = devServer.request(for: remote)
+            if let (body, response) = await fetchDevServer(request), devServer.answered(response, to: request),
+               launchServer != nil || response.statusCode < 400 {
                 let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
                     ?? Self.mimeType(forExtension: remote.pathExtension)
                 return Self.reply(url: url, csp: devServer.csp(for: served.page), status: response.statusCode, mimeType: type, body: body)
             }
             // The launch variable's server (Debug) fails the request, as before.
-            if self.devServer != nil { return nil }
+            if launchServer != nil { return nil }
         }
-        let update = await WebBundleOverlay.shared.root(for: served.root)
+        let update = if let webView {
+            await WebBundleServedViews.shared.root(for: served.root, in: webView)
+        } else {
+            await WebBundleOverlay.shared.root(for: served.root)
+        }
         let root = live.overlayRoot(for: served.page, bundledRoot: served.root) ?? update
         switch Self.route(for: url, page: served.page, root: root) {
         case nil:
@@ -131,9 +147,36 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             guard let data = await Self.read(file) else { return nil }
             return Self.reply(url: url, page: served.page, status: 200, mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
         case .dynamic(let request):
+            if let ranged = served.dynamicSource as? any PageRangedResourceSource {
+                return await Self.rangedReply(url: url, page: served.page, request: request, range: range, source: ranged)
+            }
             let answer = await Self.dynamicResponse(to: request, source: served.dynamicSource)
             return Self.reply(url: url, page: served.page, status: answer.status, mimeType: answer.mimeType, body: answer.body)
         }
+    }
+
+    /// A Chromium page's file while the live web loop runs: ``reply(to:range:webView:)`` for a
+    /// handler of `page` at `root`, as Chromium takes it, with that reply's CSP. A 404 when there is
+    /// no root or no reply.
+    static func liveChromiumResponse(to url: URL, range: String?, page: PageDescriptor, root: URL?,
+                                     dynamicSource: (any PageDynamicResourceSource)?) async -> PageChromiumResponse {
+        guard let root else { return .notFound }
+        let handler = PageSchemeHandler(page: page, root: root, dynamicSource: dynamicSource)
+        guard let reply = await handler.reply(to: url, range: range) else { return .notFound }
+        return chromiumResponse(reply)
+    }
+
+    /// `reply` as Chromium takes it: status, type, body, the byte-range headers and the CSP.
+    nonisolated static func chromiumResponse(_ reply: Reply) -> PageChromiumResponse {
+        let response = reply.response
+        var range: [String: String] = [:]
+        for name in ["Content-Range", "Accept-Ranges"] {
+            if let value = response.value(forHTTPHeaderField: name) { range[name] = value }
+        }
+        let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(validMIMEType)
+            ?? response.mimeType ?? "application/octet-stream"
+        return PageChromiumResponse(status: response.statusCode, mimeType: type, body: reply.body, rangeHeaders: range,
+                                    csp: response.value(forHTTPHeaderField: "Content-Security-Policy"))
     }
 
     /// The answer to a request under a dynamic prefix, in either engine: the source's resource with
@@ -144,6 +187,28 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         let fallback = mimeType(forExtension: request.path.last.map { ($0 as NSString).pathExtension } ?? "")
         let type = resource.mimeType.flatMap(validMIMEType) ?? fallback
         return PageChromiumResponse(status: 200, mimeType: type, body: resource.data)
+    }
+
+    /// A ranged source's answer as it set it (206 and `Content-Range` for a range), else a 404 with
+    /// the page's headers.
+    static func rangedReply(url: URL, page: PageDescriptor, request: PageResourceRequest, range: String?,
+                            source: any PageRangedResourceSource) async -> Reply {
+        guard let resource = await source.rangedResource(for: request, range: range),
+              let response = HTTPURLResponse(url: url, statusCode: resource.status, httpVersion: "HTTP/1.1",
+                                             headerFields: resource.headers)
+        else { return reply(url: url, page: page, status: 404, mimeType: "text/plain", body: Data()) }
+        return Reply(response: response, body: resource.data)
+    }
+
+    /// A ranged source's byte range as Chromium takes it: the status, the type, the bytes and the
+    /// `Content-Range` and `Accept-Ranges` the source set; a 404 when it has none. Chromium adds the
+    /// page's CSP and the other page headers itself.
+    static func rangedResponse(to request: PageResourceRequest, range: String?,
+                               source: any PageRangedResourceSource) async -> PageChromiumResponse {
+        guard let resource = await source.rangedResource(for: request, range: range) else { return .notFound }
+        let type = resource.headers["Content-Type"].flatMap(validMIMEType) ?? "application/octet-stream"
+        let kept = resource.headers.filter { $0.key == "Content-Range" || $0.key == "Accept-Ranges" }
+        return PageChromiumResponse(status: resource.status, mimeType: type, body: resource.data, rangeHeaders: kept)
     }
 
     /// The dynamic request `url` makes of `page`, nil when it is not under one of the page's dynamic

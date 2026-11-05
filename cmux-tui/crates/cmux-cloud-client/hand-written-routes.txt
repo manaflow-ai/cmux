@@ -1,0 +1,20 @@
+# Hand-written cmux-platform calls to routes cmux_cloud_client generates from openapi.json,
+# written before the client existed (tests/hand_written_routes.rs). Each moves onto the client;
+# a new one fails the test, and this list only shrinks. One per line: crate path, literal.
+acpmux/src/cloud_rewind.rs /v1/workspaces/{}/machine/turns
+acpmux/src/cloud_rewind.rs /v1/workspaces/{}/machine/turns/{}
+acpmux/src/cloud_rewind.rs /v1/workspaces/{}/machine/turns/{}/{}
+acpmux/src/vault/wire.rs /v1/vault/machine
+cmux-host/src/cloud/client.rs /v1/auth/challenge
+cmux-host/src/cloud/client.rs /v1/auth/token
+cmux-server/src/pairing/confirmation.rs /v1/auth/challenge
+cmux-server/src/pairing/confirmation.rs /v1/auth/token
+cmux-tui-cloud-conversations/src/environments.rs /v1/cloud-environments
+cmux-tui-cloud-conversations/src/environments.rs /v1/cloud-environments/{id}
+cmux-tui/src/cli/machine_join.rs /v1/machines/credentials
+cmux-tui/src/cli/machine_join.rs /v1/machines/credentials/{machine_id}/{action}
+cmux-tui/src/cli/machine_join.rs /v1/machines/join-tokens
+cmux-tui/src/cli/machine_join/vault.rs /v1/machines/{}/vault
+cmux-tui/src/link/start_chat_cli.rs /v1/workspaces/{}/machine
+cmux-tui/src/link/start_chat_cli/reservations.rs /v1/machines/reservations
+cmux-tui/src/link/start_chat_cli/reservations.rs /v1/machines/reservations/{}

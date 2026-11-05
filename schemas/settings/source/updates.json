@@ -124,6 +124,27 @@
           ]
         },
         {
+          "key": "updates.oneClickInstall",
+          "note": "One click on a found update's Update downloads it with its progress, then installs and restarts (Leo 2026-11-04, after the Codex app's Update available button). Off: the Update Ready card asks before the restart.",
+          "title": {
+            "key": "settings.updates.oneClickInstall",
+            "text": "Update in One Click"
+          },
+          "help": {
+            "key": "settings.updates.oneClickInstall.help",
+            "text": "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "update",
+            "install",
+            "restart",
+            "relaunch",
+            "one click"
+          ]
+        },
+        {
           "key": "updates.meteredNetwork",
           "note": "What automatic downloads do on a metered link.",
           "title": {
@@ -211,6 +232,30 @@
             "bundle",
             "nightly",
             "merge"
+          ]
+        },
+        {
+          "key": "updates.liveWebReload",
+          "note": "Your own web edits, live in this app (docs/cmux-next/hot-reload.md): pages and agent panes load from the server or overlay ~/.config/cmux/web-dev.json names, in WebKit and Chromium, in every build. On by default (Leo 2026-11-05: \"we probably want to have this feature like toggleable on by default\"); a missing web-dev.json changes nothing.",
+          "title": {
+            "key": "settings.updates.liveWebReload",
+            "text": "Live Web Reload"
+          },
+          "help": {
+            "key": "settings.updates.liveWebReload.help",
+            "text": "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "web",
+            "live",
+            "hot reload",
+            "reload",
+            "dev server",
+            "overlay",
+            "edit",
+            "web-dev"
           ]
         },
         {

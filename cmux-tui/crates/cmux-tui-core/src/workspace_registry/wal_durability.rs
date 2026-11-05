@@ -49,6 +49,9 @@ use crate::panic_free::RecoverPoison;
 /// 1000 pages of 4 KiB).
 const CHECKPOINT_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Each WAL frame is a 24-byte frame header and one page.
+const WAL_FRAME_HEADER_BYTES: u64 = 24;
+
 /// Commit counters shared with the syncer thread.
 #[derive(Default)]
 struct SyncState {
@@ -64,6 +67,10 @@ struct SyncState {
     forced: u64,
     /// The database closed: the thread flushes what is owed and ends.
     stopping: bool,
+    /// Frames in the WAL after the last commit (the WAL hook's page count).
+    wal_frames: u64,
+    /// Bytes of the WAL frames the commits appended (`server-stats` `write_path.registry_wal_frame_bytes`).
+    wal_frame_bytes: u64,
 }
 
 struct Shared {
@@ -77,6 +84,8 @@ struct Shared {
     /// Flush after every commit (a store with no request funnel), instead
     /// of only when asked.
     flush_each_commit: bool,
+    /// Bytes of one WAL frame: its header and one page.
+    frame_bytes: u64,
 }
 
 thread_local! {
@@ -138,6 +147,12 @@ impl WalDurability {
     ) -> Self {
         let mut wal_path = database_path.as_os_str().to_owned();
         wal_path.push("-wal");
+        // A WAL database keeps its page size (SQLite changes it only when the journal is not WAL).
+        let page_size = connection
+            .query_row("PRAGMA page_size", [], |row| row.get::<_, i64>(0))
+            .ok()
+            .and_then(|size| u64::try_from(size).ok())
+            .unwrap_or(4096);
         let shared = Arc::new(Shared {
             database_path: database_path.to_path_buf(),
             wal_path: PathBuf::from(wal_path),
@@ -145,6 +160,7 @@ impl WalDurability {
             changed: Condvar::new(),
             slow_flush,
             flush_each_commit,
+            frame_bytes: page_size + WAL_FRAME_HEADER_BYTES,
         });
         let owner = SyncerOwner(shared.clone());
         let _ = connection.commit_hook(Some(move || {
@@ -152,9 +168,9 @@ impl WalDurability {
             COMMITTING.with(|committing| *committing.borrow_mut() = Some(owner.0.clone()));
             false
         }));
-        connection.wal_hook(Some(|_, _| {
+        connection.wal_hook(Some(|_, frames| {
             if let Some(shared) = COMMITTING.with(|committing| committing.borrow_mut().take()) {
-                note_commit(&shared);
+                note_commit(&shared, frames);
             }
             Ok(())
         }));
@@ -195,11 +211,28 @@ impl WalDurability {
         let state = self.shared.state.lock().recover_poison();
         (state.committed, state.synced)
     }
+
+    /// Bytes of the WAL frames the commits appended since the database opened, for `server-stats`
+    /// `write_path.registry_wal_frame_bytes`: the bytes a write puts on the disk (the checkpoint later copies
+    /// each page once more into the database). The first commit also counts the frames a previous run left in
+    /// the WAL, so a reader takes the difference of two reads.
+    pub(crate) fn wal_frame_bytes(&self) -> u64 {
+        self.shared.state.lock().recover_poison().wal_frame_bytes
+    }
 }
 
-fn note_commit(shared: &Shared) {
+/// One commit; `frames` is the WAL's frame count after it (the WAL hook's argument).
+fn note_commit(shared: &Shared, frames: std::ffi::c_int) {
     let mut state = shared.state.lock().recover_poison();
     state.committed += 1;
+    let frames = u64::try_from(frames).unwrap_or(0);
+    // A smaller count: the WAL restarted from its first frame (a checkpoint had copied all of it), so every
+    // frame is new. A restart whose first commit writes more frames than the WAL held before counts only the
+    // difference; the syncer checkpoints at 4 MiB (about 1000 frames), far above one commit.
+    let appended = frames.checked_sub(state.wal_frames).unwrap_or(frames);
+    state.wal_frames = frames;
+    state.wal_frame_bytes =
+        state.wal_frame_bytes.saturating_add(appended.saturating_mul(shared.frame_bytes));
     if shared.flush_each_commit {
         state.requested = state.committed;
         drop(state);
@@ -353,6 +386,42 @@ mod tests {
         connection.execute("INSERT INTO t VALUES (2)", []).unwrap();
         durability.wait_durable();
         assert_eq!(durability.counts(), (2, 2));
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn each_commit_counts_the_wal_frame_bytes_it_appended() {
+        let (dir, connection) = database("frame-bytes");
+        let durability = WalDurability::attach(&connection, &dir.join("r.sqlite"), None, false);
+        let page: i64 = connection.query_row("PRAGMA page_size", [], |row| row.get(0)).unwrap();
+        let page = u64::try_from(page).unwrap();
+        let frame = page + WAL_FRAME_HEADER_BYTES;
+        // The first counted commit also counts the frames already in the WAL (here the CREATE TABLE): a reader
+        // takes differences.
+        connection.execute("INSERT INTO t VALUES (0)", []).unwrap();
+        let base = durability.wal_frame_bytes();
+        connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
+        let small = durability.wal_frame_bytes() - base;
+        assert!(
+            small >= frame && small <= 3 * frame,
+            "a one-row commit appended {small} bytes ({frame} per frame)"
+        );
+        // A 256 KiB value: overflow pages, so at least its size in frames.
+        connection.execute("INSERT INTO t VALUES (?1)", [vec![7u8; 256 * 1024]]).unwrap();
+        let large = durability.wal_frame_bytes() - base - small;
+        assert!(
+            large >= 256 * 1024 && large <= 256 * 1024 + 16 * frame,
+            "a 256 KiB commit appended {large} bytes"
+        );
+        // The same small commit again appends about what the first one did, not the WAL so far.
+        let before = durability.wal_frame_bytes();
+        connection.execute("INSERT INTO t VALUES (2)", []).unwrap();
+        let again = durability.wal_frame_bytes() - before;
+        assert!(
+            again >= frame && again <= 3 * frame,
+            "a second one-row commit appended {again} bytes"
+        );
         drop(connection);
         let _ = std::fs::remove_dir_all(&dir);
     }

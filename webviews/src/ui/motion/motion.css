@@ -91,11 +91,13 @@
 /* ---------- Hover and press feedback ---------- */
 
 /* A hover fill on the control itself (never the row around it): in and out over quick (80 ms). A
-   press changes nothing: no flash, no dip, no lingering tint (Leo, 2026-10-19). */
+   press changes nothing: no flash, no dip, no lingering tint (Leo, 2026-10-19). The fade is named in
+   --ui-fill-transition so a control that is also revealed (.ui-reveal) keeps it. */
 .ui-hover-fill {
-  transition:
+  --ui-fill-transition:
     background-color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)),
     color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+  transition: var(--ui-fill-transition);
 }
 .ui-hover-fill:hover,
 .ui-hover-fill[data-popup-open] {
@@ -105,15 +107,22 @@
 /* A control revealed on hover of its host fades in over micro (120 ms) and out over quick (80 ms),
    never blinks; it stays shown while a menu it opened is open (data-popup-open) or it has focus. */
 .ui-reveal {
+  --ui-reveal-ms: var(--cmux-motion-quick, 80ms);
   opacity: 0;
-  transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
+  transition: opacity var(--ui-reveal-ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
 }
 .ui-reveal-host:hover .ui-reveal,
 .ui-reveal-host:focus-within .ui-reveal,
 .ui-reveal[data-popup-open],
 .ui-reveal-host:has([data-popup-open]) .ui-reveal {
+  --ui-reveal-ms: var(--cmux-motion-micro, 120ms);
   opacity: 1;
-  transition-duration: var(--cmux-motion-micro, 120ms);
+}
+/* Both: the reveal's own in and out durations, and the fill's 80 ms fade beside them. */
+.ui-reveal.ui-hover-fill {
+  transition:
+    opacity var(--ui-reveal-ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)),
+    var(--ui-fill-transition);
 }
 
 /* ---------- Depth layer (DepthLayer.tsx) ---------- */

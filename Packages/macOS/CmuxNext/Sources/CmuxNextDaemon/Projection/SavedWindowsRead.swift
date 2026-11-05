@@ -1,11 +1,13 @@
 import Foundation
 
 /// The launch's read of the saved window records (#26681). A daemon still starting (a large
-/// registry, journal maintenance after an update relaunch) can answer later than the 2 s
-/// control-plane deadline; before, that failure read as "nothing saved": the launch window took
-/// every workspace, and its first save replaced the stored windows with that one window. The read
-/// waits up to `attemptTimeout` per request, continuing until the daemon answers or the launch
-/// is cancelled. A reconnect waits for readiness rather than consuming a fixed retry budget.
+/// registry, journal maintenance after an update relaunch) could answer later than the 2 s
+/// control-plane deadline of the time (30 s since #35075); before, that failure read as "nothing
+/// saved": the launch window took every workspace, and its first save replaced the stored windows
+/// with that one window. The read waits up to `attemptTimeout` per request (10 s, now shorter than
+/// the default deadline; that loses nothing, because a timed-out attempt is asked again),
+/// continuing until the daemon answers or the launch is cancelled. A reconnect waits for readiness
+/// rather than consuming a fixed retry budget.
 public struct SavedWindowsRead: Sendable {
     public enum Outcome: Sendable {
         case loaded(WindowStateDocument)

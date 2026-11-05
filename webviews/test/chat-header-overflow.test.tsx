@@ -92,6 +92,28 @@ test("the fold count covers the overflow by whole buttons and does not depend on
   expect(headerFoldCount(200 - HEADER_TOOL_PITCH, 1, 199, 4)).toBe(1);
   expect(headerFoldCount(200, 0, 0, 4)).toBe(4);
   expect(headerFoldCount(200, 0, 0, 0)).toBe(0);
+  // A larger interface or the comfortable density widens the pitch: 32px buttons fold by 32s.
+  expect(headerFoldCount(200, 0, 200 - 33, 4, 32)).toBe(2);
+  expect(headerFoldCount(200 - 32, 1, 199, 4, 32)).toBe(1);
+});
+
+test("the measured pitch is a square tool's, never a text chip's ahead of it", async () => {
+  const { measuredPitch, HEADER_TOOL_PITCH } = await import("../src/agent-session/acpmux/header/headerOverflow");
+  // No gap set (jsdom computes none), so the pitch is the square's own width.
+  const tools = document.createElement("div");
+  const box = (width: number, attrs: Record<string, string>) => {
+    const element = document.createElement("button");
+    for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
+    element.getBoundingClientRect = () => ({ width }) as DOMRect;
+    tools.append(element);
+    return element;
+  };
+  expect(measuredPitch(tools)).toBe(HEADER_TOOL_PITCH);
+  box(140, { class: "acpmux-header-tool" }); // the worktree pill
+  const more = box(28, { class: "acpmux-header-tool acpmux-header-more" });
+  expect(measuredPitch(tools)).toBe(28);
+  tools.insertBefore(box(32, { class: "acpmux-header-tool", "data-quick-action": "changes" }), more);
+  expect(measuredPitch(tools)).toBe(32);
 });
 
 test("a narrow pane folds the trailing header buttons into the chat menu and a wide one shows them again", async () => {

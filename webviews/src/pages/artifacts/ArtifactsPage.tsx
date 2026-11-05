@@ -3,10 +3,11 @@
 // previews (sandboxed HTML, images) and the file's history come with later slices of #27823.
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { FileIcon } from "../../file-icons";
+import { SignInButton } from "../../ui/SignInButton";
 import { Tree, type TreeLine } from "../../ui/Tree";
 import type { Strings } from "../shared/i18n";
 import { textOf, type ArtifactsFailure, type ArtifactsSnapshot, type ArtifactsStore } from "./store";
-import type { ArtifactFile } from "./types";
+import { SIGNED_OUT, type ArtifactFile } from "./types";
 
 export function ArtifactsPage({ store, strings }: { store: ArtifactsStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -18,9 +19,13 @@ export function ArtifactsPage({ store, strings }: { store: ArtifactsStore; strin
     return (
       <div className="artifacts-message" role="alert">
         <p>{failureText(snapshot.failure, strings)}</p>
-        <button type="button" className="artifacts-retry" onClick={() => void store.start()}>
-          {t("artifacts.page.retry")}
-        </button>
+        {snapshot.failure?.code === SIGNED_OUT ? (
+          <SignInButton label={t("artifacts.page.signIn")} onSignIn={() => void store.signIn()} />
+        ) : (
+          <button type="button" className="artifacts-retry" onClick={() => void store.start()}>
+            {t("artifacts.page.retry")}
+          </button>
+        )}
       </div>
     );
   if (snapshot.status === "empty")

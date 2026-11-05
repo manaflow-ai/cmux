@@ -728,3 +728,17 @@ fn the_bundle_copy_is_private_and_removed() {
 }
 
 mod export;
+
+#[test]
+fn clone_job_releases_only_successful_repository_sync() {
+    use cmux_git::sync_barrier::{Probe, probe};
+    let world = World::new("barrier");
+    let ready = world.home.join("ready");
+    assert_eq!(seed(&world, &clone_params(&ready, None))["state"], "done");
+    assert!(matches!(probe(&ready.join("a")).unwrap(), Probe::Ready(_)));
+    assert_eq!(seed(&world, &clone_params(&ready, None))["state"], "failed");
+    assert!(matches!(probe(&ready).unwrap(), Probe::Ready(_)), "a refused clone touched nothing");
+    let failed = world.home.join("failed");
+    assert_eq!(seed(&world, &clone_params(&failed, Some("no-such-branch")))["state"], "failed");
+    assert!(matches!(probe(&failed).unwrap(), Probe::Incomplete));
+}

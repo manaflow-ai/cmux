@@ -31,6 +31,12 @@ pub struct Tab {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub surface: Option<String>,
     pub kind: Kind,
+    /// A terminal tab's host terminal id: the client mints it for a new
+    /// terminal, so a creation's stand-in tab and the daemon's tab that
+    /// replaces it name the same terminal (the input router's sink, see
+    /// [`crate::input`]). None when the app does not know it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

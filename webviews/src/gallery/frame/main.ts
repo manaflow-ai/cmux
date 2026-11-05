@@ -10,6 +10,7 @@ import type { GalleryEntry } from "../format";
 import { errorText, readyEntries } from "../entryStore";
 import { createFrameEntryStore } from "../registry";
 import { watchStageErrors } from "./liveErrors";
+import { appHostSeeThrough, appHostTheme, isAppHosted } from "./appHost";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
 import { deriveAppTheme } from "../../theme/appTheme";
@@ -18,9 +19,11 @@ import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
 import { installUiFont } from "./uiFont";
+import { startGalleryLoad } from "./load";
 import { setLastingGrace } from "../../ui/lasting";
 import "./frame.css";
 import revision from "virtual:cmux-gallery/revision";
+import entryIndex from "virtual:cmux-gallery/entry-index";
 import { isSubpixelLayoutShift, resolveTarget, type LoadReport, type Shift } from "../play";
 import { startBoxTracker } from "../shift";
 import { collectInvariants, type Violation } from "../invariants";
@@ -38,7 +41,10 @@ const sourceHint = params.get("source") || undefined;
 // A frame can be opened directly while the shell is still loading unrelated gallery modules.
 // Keep that wait explicit so a slow sibling never looks like a broken white page.
 const requestedId = params.get("entry");
-const entryStore = createFrameEntryStore(sourceHint);
+// Without the shell's source hint (a direct link, the mock app, the native preview), the build's
+// entry index names the one file to load, so a stage never compiles the whole registry for one entry.
+const indexedSource = requestedId ? entryIndex[requestedId] : undefined;
+const entryStore = createFrameEntryStore(sourceHint ?? indexedSource);
 if (requestedId && stageRoot) {
   stageRoot.textContent = `Loading ${requestedId}…`;
   stageRoot.className = "gallery-frame-loading";
@@ -62,8 +68,12 @@ if (sourceHint && entryStore.getSnapshot().length === 0)
 // A frame renders one requested entry. Resolve it as soon as that entry loads; a broken or slow
 // sibling must never leave a valid stage blank while the shell is still auditing the full registry.
 // A missing entry still falls back to the full settled list so the error can name the bad sources.
-const match = requestedId ? await entryStore.find(requestedId) : undefined;
-const settled = match?.entry ? undefined : await entryStore.settled();
+const indexedMatch = requestedId ? await entryStore.find(requestedId) : undefined;
+// An index guess that does not hold the entry (its first literal id was another one) falls back to
+// the whole registry.
+const fullStore = !sourceHint && indexedSource && !indexedMatch?.entry ? createFrameEntryStore() : undefined;
+const match = fullStore && requestedId ? await fullStore.find(requestedId) : indexedMatch;
+const settled = match?.entry ? undefined : await (fullStore ?? entryStore).settled();
 const entryState = match?.state ?? settled?.find((state) => state.entry?.id === requestedId);
 // The live dev server: a save of this stage's entry file (or of any file, while it does not load)
 // reloads this stage alone; compile errors in stage code show inside the stage (liveErrors.ts).
@@ -89,7 +99,9 @@ for (const key of ["languages", "language"] as const)
     get: () => (key === "languages" ? [env.locale] : env.locale),
   });
 
-const theme = themeNamed(env.theme, DEFAULT_DARK_THEME);
+// `host=app`: inside the app's own window (appHost.ts), the app's theme and backdrop, not the gallery's.
+const appHosted = isAppHosted(params);
+const theme = (appHosted ? appHostTheme() : undefined) ?? themeNamed(env.theme, DEFAULT_DARK_THEME);
 const scheme = env.colorScheme === "auto" ? (themeIsDark(theme) ? "dark" : "light") : env.colorScheme;
 // Pages that hold both sides (the diff and markdown appearance) get the theme on the side the
 // window shows and the default on the other, as `theme = light:A,dark:B` would.
@@ -99,24 +111,31 @@ const pair =
     : { dark: themeNamed(DEFAULT_DARK_THEME, DEFAULT_DARK_THEME), light: theme };
 const tokens = themeTokens(theme, env.accent);
 // The background axis: over a picture the page is see-through, as over the user's in the app.
-const seeThrough = overPicture(env);
+// In the app, see-through follows the app's own window (its page background is clear over a backdrop).
+const seeThrough = appHosted ? appHostSeeThrough() : overPicture(env);
 
-emulateMedia({
-  "prefers-color-scheme": scheme,
-  "prefers-reduced-motion": env.reducedMotion ? "reduce" : "no-preference",
-  "prefers-contrast": env.highContrast ? "more" : "no-preference",
-});
+// The app's web view answers these from its window and the system settings itself.
+if (!appHosted)
+  emulateMedia({
+    "prefers-color-scheme": scheme,
+    "prefers-reduced-motion": env.reducedMotion ? "reduce" : "no-preference",
+    "prefers-contrast": env.highContrast ? "more" : "no-preference",
+  });
 // WebTheme: the app's document-start script, then its payload, as every cmux web view gets them.
 // A classic script, as WKUserScript injects it.
-const bootstrap = document.createElement("script");
-bootstrap.textContent = webThemeBootstrap;
-document.head.append(bootstrap);
-bootstrap.remove();
+// In the app, its own bootstrap and live payload are already in place and stay.
+if (!appHosted) {
+  const bootstrap = document.createElement("script");
+  bootstrap.textContent = webThemeBootstrap;
+  document.head.append(bootstrap);
+  bootstrap.remove();
+}
 installUiFont();
-(window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
-  webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough),
-);
-if (seeThrough) {
+if (!appHosted)
+  (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
+    webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough),
+  );
+if (seeThrough && !appHosted) {
   const [{ applyGalleryBackground }, { default: metrics }] = await Promise.all([
     import("./background"),
     import("virtual:cmux-gallery/metrics"),
@@ -127,11 +146,17 @@ if (seeThrough) {
 }
 // Document scale and the chrome scale are separate. The app sets pageZoom for the former and
 // this token for the latter; gallery exposes both so each sheet is reproducible.
-if (env.scale !== 1) root.style.zoom = String(env.scale);
-root.style.setProperty("--cmux-ui-scale", String(env.scale));
-root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));
-// Entries were imported before the token was set: chat sizing (chatWidth.ts) reads it again.
-window.dispatchEvent(new Event("cmux-ui-scale-change"));
+// In the app, its page zoom and its own scale script (DesignSettings.interfaceScaleScript) set both.
+if (!appHosted) {
+  if (env.scale !== 1) root.style.zoom = String(env.scale);
+  root.style.setProperty("--cmux-ui-scale", String(env.scale));
+  root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));
+  // Entries were imported before the token was set: chat sizing (chatWidth.ts) reads it again.
+  window.dispatchEvent(new Event("cmux-ui-scale-change"));
+}
+// The load axis: the stage's main thread shares its frames with other work, from the first frame.
+startGalleryLoad(env.load);
+if (env.load) root.dataset.galleryLoad = env.load;
 root.dataset.galleryEntry = entry.id;
 root.dataset.galleryVariant = variantName;
 root.dataset.gallerySource = entryState?.path ?? "";
@@ -346,6 +371,10 @@ async function mount(): Promise<void> {
       return;
   }
 }
+
+// `cpu=N`: simulated main-thread contention for the whole stage (scripts.ts).
+const cpuFactor = Number(params.get("cpu"));
+if (cpuFactor > 1) void import("./scripts").then(({ simulateCpuContention }) => simulateCpuContention(cpuFactor));
 
 // The stage is the surface alone, at the size its frame gives it (window mode sizes the frame to
 // the pane the surface has in the app; nothing of the native window is drawn).

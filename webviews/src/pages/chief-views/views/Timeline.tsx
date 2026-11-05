@@ -43,7 +43,7 @@ export function TimelineView({ data, strings, now, onOpenAgent, onOpenURL }: Chi
                   {clock.format(event.at)}
                 </time>
                 <span className="cv-event-rail" aria-hidden="true">
-                  <StatusGlyph name={GLYPH[event.kind]} size={10} />
+                  <StatusGlyph name={GLYPH[event.kind]} size={12} />
                 </span>
                 <span className="cv-event-body">
                   <span className="cv-event-kind">{strings.t(`chiefViews.timeline.${event.kind}`)}</span>

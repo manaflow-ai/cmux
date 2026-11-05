@@ -19,6 +19,8 @@ import type { AcpmuxSnapshot } from "../model";
 import { homePath } from "../sessionList";
 import { chatProject } from "./chatFolders";
 import { openCloudEnvironment } from "../cloudEnvironment";
+import { Switch } from "../../../ui/Switch";
+import "../../../ui/controls.css";
 import {
   CloudRepositoryPicker,
   loadAttachedCloudRepos,
@@ -359,12 +361,12 @@ export function EnvironmentSection({
           <Icon name={remoteControlIcon} size={ROW_ICON} row fit />
           <label className="acpmux-session-info-switch" title={t("sessionInfo.environment.remoteControl.help")}>
             <span className="acpmux-session-info-row__name">{t("sessionInfo.environment.remoteControl")}</span>
-            <input
-              type="checkbox"
+            <Switch
               className="acpmux-session-info-switch__input"
+              size="md"
               aria-label={t("sessionInfo.environment.remoteControl")}
               checked={remoteControl.on}
-              onChange={(event) => remoteControl.set(event.currentTarget.checked)}
+              onCheckedChange={remoteControl.set}
             />
           </label>
         </li>

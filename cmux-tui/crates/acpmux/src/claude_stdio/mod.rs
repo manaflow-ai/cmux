@@ -275,6 +275,12 @@ mod inbound;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
+mod live_name;
+#[cfg(test)]
+mod live_name_tests;
+mod loops;
+#[cfg(test)]
+mod loops_tests;
 mod outbound;
 pub mod prompt_cache;
 pub mod prompt_suggestions;
@@ -299,6 +305,9 @@ mod stop_spares_background_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
+mod task_plan;
+#[cfg(test)]
+mod task_plan_tests;
 #[cfg(test)]
 mod tests;
 mod usage_limits;
@@ -307,7 +316,7 @@ mod usage_limits_tests;
 #[cfg(test)]
 mod workflow_tests;
 mod workflows;
-pub use usage_limits::merge_usage_limits;
+pub use usage_limits::{merge_usage_limits, usage_limit_reached};
 
 /// Longest failure text a failed subagent's end carries, in characters.
 const MAX_FAILURE_CHARS: usize = 600;
@@ -337,11 +346,6 @@ pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
 /// or Claude Code's error.
 pub const MCP_RECONNECT: &str = "_acpmux/claude/mcp_reconnect";
 
-/// The most categories, memory files, MCP tools and skills a context breakdown
-/// names (`context_breakdown`; the lists the largest first, categories in Claude Code's order): a chat with hundreds of MCP
-/// tools would otherwise log every one at each turn's end.
-const BREAKDOWN_ROWS: usize = 50;
-
 /// The internal ACP request for Claude Code's native, transcript-free `/btw`
 /// control request. The translator turns this into a `side_question`
 /// `control_request` on Claude's running stream-json process.
@@ -353,6 +357,12 @@ pub const SIDE_QUESTION: &str = "_acpmux/claude/side_question";
 /// makes its own recap (`away_summary`) only in its terminal UI, from the terminal's focus;
 /// under `-p` it never does.
 pub const RECAP: &str = "_acpmux/claude/recap";
+
+/// The internal ACP request that gives the running Claude Code the session's new name
+/// (`hub/live_name.rs`), `{sessionId, name}`: its `/rename` line between turns (`live_name.rs`).
+/// The answer is `{renamed: true}`, or `RENAME_BUSY` while a turn runs.
+pub const RENAME: &str = "_acpmux/claude/rename";
+pub use live_name::{RENAME_BUSY, RENAME_IN_FLIGHT, RENAME_UNSUPPORTED};
 
 /// The chat's own session recap switch (`hub/away_recap.rs`): `default` follows the app's
 /// `agents.chats.sessionRecap`, `on` and `off` override it for this chat. acpmux keeps it; Claude
@@ -434,6 +444,13 @@ pub fn spawn_plan(
         args.push("--effort".into());
         args.push(e.into());
     }
+    // In -p, Claude Code 2.1.310 streams thinking blocks empty (display
+    // omitted) unless asked for summaries, so the chat showed no thinking
+    // (Leo: "why is no thinking appearing for you?"). A profile may pin its own.
+    if !profile.argv.iter().any(|a| a == "--thinking-display") {
+        args.push("--thinking-display".into());
+        args.push("summarized".into());
+    }
     // A later --model wins over one the profile pins in its argv.
     if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
         args.push("--model".into());
@@ -497,6 +514,8 @@ pub struct Translator {
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
+    /// The `/rename` lines written and not yet answered, oldest first (`live_name.rs`).
+    renaming: Mutex<std::collections::VecDeque<live_name::Rename>>,
     /// Prompts still unanswered when the next one went out: acpmux ended
     /// their turn itself (a Stop Claude Code answered late, `hub/cancel.rs`).
     /// Claude Code's result for them comes before it reads the next prompt,
@@ -603,6 +622,11 @@ pub struct Translator {
     /// The plan usage limit windows Claude Code reported, newest each, by id
     /// (`usage_limits.rs`).
     usage_limits: Mutex<std::collections::BTreeMap<&'static str, Value>>,
+    /// Claude Code's task list, from its TaskCreate and TaskUpdate calls
+    /// (`task_plan.rs`), sent whole as the turn's ACP plan.
+    task_plan: Mutex<task_plan::TaskPlan>,
+    /// Claude Code's /loop: its tools' calls and the loops armed, the chat's goal (`loops.rs`).
+    loops: Mutex<loops::Loops>,
 }
 
 /// A running shell: the session its Bash call ran in, its command, Claude's
@@ -611,6 +635,9 @@ pub struct Translator {
 struct BackgroundShell {
     sid: String,
     command: String,
+    /// What the Bash call says it does (its `description`): the tray names
+    /// the process by it (webviews `session-info/commandRules.ts`).
+    description: Option<String>,
     task: Option<String>,
     background: bool,
     /// Started in the background (`run_in_background`), not moved there.
@@ -689,6 +716,7 @@ impl Translator {
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
+            renaming: Mutex::new(std::collections::VecDeque::new()),
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
             steer_lines: Mutex::new(HashMap::new()),
@@ -707,6 +735,7 @@ impl Translator {
             failed_agents: Mutex::new(Default::default()),
             workflows: Mutex::new(HashMap::new()),
             background_shells: Mutex::new(HashMap::new()),
+            task_plan: Mutex::new(Default::default()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
@@ -722,6 +751,7 @@ impl Translator {
             edits: Mutex::new(HashMap::new()),
             announced: Mutex::new(HashMap::new()),
             usage_limits: Mutex::new(Default::default()),
+            loops: Mutex::new(Default::default()),
         })
     }
 
@@ -765,8 +795,11 @@ impl Translator {
         held
     }
 
-    /// Error answers for the steered prompts Claude Code never echoed: the
-    /// turn ended without reading them (no echo support).
+    /// The answers of the steered prompts Claude Code never echoed: the turn ended
+    /// without reading them (acpmux always asks for echoes, `--replay-user-messages`,
+    /// and Claude Code echoes each line it reads). Each answers `STEER_NO_TURN`, so the
+    /// hub runs it as the next prompt (`hub/steer_end.rs`), never "Not sent" (Leo,
+    /// 2026-11-05: "WTF IS THIS").
     async fn fail_steers(&self) -> Vec<Message> {
         let mut batches = self.batches.lock().await;
         let mut steers = self.steers.lock().await;
@@ -780,10 +813,7 @@ impl Translator {
         drop(batches);
         let failed = failed.into_iter().map(|(_, id)| {
             let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
-            Message::err(
-                id,
-                RpcError::internal("steer: the turn ended before Claude Code read the message"),
-            )
+            Message::err(id, RpcError::invalid_params(STEER_NO_TURN))
         });
         held.into_iter().chain(failed).collect()
     }
@@ -1062,10 +1092,10 @@ pub fn is_context_answer(line: &Value) -> bool {
         .is_some_and(|id| id.starts_with("ctx-"))
 }
 
-/// Claude Code's answer to `get_context_usage` (its `/context`), trimmed to
-/// what a client draws: each category's tokens and kind, the memory files,
-/// MCP tools and skills by size (at most `BREAKDOWN_ROWS` of each, the
-/// largest), and the totals; no grid or colors. None without categories: a
+/// Claude Code's answer to `get_context_usage` (its `/context`), retaining
+/// every reported category, memory file, MCP tool and skill with token counts.
+/// Detail rows are sorted by size; presentation-only grid and colors are omitted.
+/// None without categories: a
 /// Claude Code too old to answer, or one that answered something else.
 pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
     let categories = usage.get("categories")?.as_array()?;
@@ -1088,13 +1118,10 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
             })
             .collect();
         rows.sort_by_key(|row| std::cmp::Reverse(tokens(row)));
-        rows.truncate(BREAKDOWN_ROWS);
         rows
     };
-    // Claude Code names a dozen; the bound keeps a misbehaving answer out of the log.
     let categories: Vec<Value> = categories
         .iter()
-        .take(BREAKDOWN_ROWS)
         .map(|c| {
             let mut kept =
                 json!({"name": c.get("name"), "tokens": tokens(c), "kind": c.get("kind")});

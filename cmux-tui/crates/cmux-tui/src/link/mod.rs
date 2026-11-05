@@ -44,6 +44,7 @@ mod native_supervision;
 mod paired_streams;
 mod process_exit;
 mod receiver_deadline;
+mod refusal_watch;
 mod state;
 
 #[cfg(test)]
@@ -197,6 +198,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
                 "--session-socket",
                 "--server-config",
                 "--credential-socket",
+                "--cloud-token-file",
                 "--ready-fd",
                 "--native-cloud-broker-fd",
             ],
@@ -216,6 +218,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
                         "--session-socket",
                         "--server-config",
                         "--credential-socket",
+                        "--cloud-token-file",
                     ],
                 )?,
                 handoff,
@@ -411,7 +414,7 @@ async fn reload(socket: &Path) -> bool {
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let native = flags.contains_key("--native-cloud-broker-fd");
     if native
-        && ["--credential-socket", "--session-socket", "--server-config"]
+        && ["--credential-socket", "--cloud-token-file", "--session-socket", "--server-config"]
             .iter()
             .any(|flag| flags.contains_key(*flag))
     {
@@ -429,6 +432,7 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
     let credential_socket = flags.get("--credential-socket").map(PathBuf::from);
+    let cloud_token_file = flags.get("--cloud-token-file").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
     // `link.status` hashes, the same bytes.
     let config_path = if native { None } else { server_config_path(flags) };
@@ -444,7 +448,7 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
     let cloud = match broker {
         Some(bound) => CloudAccess::Broker(Box::new(bound)),
-        None => CloudAccess::Relay(credential_socket),
+        None => CloudAccess::RelayOrDirect { credential_socket, cloud_token_file },
     };
     tokio_runtime()?.block_on(serve(state, session_socket, cloud, owner, ready, served, watch))
 }
@@ -454,7 +458,38 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
 /// closed as unavailable). `run_serve` refuses a broker with a relay socket.
 enum CloudAccess {
     Broker(Box<cloud_broker::Bound>),
-    Relay(Option<PathBuf>),
+    RelayOrDirect { credential_socket: Option<PathBuf>, cloud_token_file: Option<PathBuf> },
+}
+
+fn direct_source(token_file: Option<&Path>) -> Option<cloud::DirectSource> {
+    let api = std::env::var("CMUX_CLOUD_API_URL").ok();
+    let token = match token_file {
+        Some(path) => read_cloud_token_file(path).ok(),
+        None => std::env::var("CMUX_CLOUD_INSTALL_TOKEN").ok(),
+    }?;
+    let api = api?;
+    match token_file {
+        Some(path) => cloud::DirectSource::with_token_file(api, token, path.to_owned()).ok(),
+        None => cloud::DirectSource::new(api, token).ok(),
+    }
+}
+
+pub(super) fn read_cloud_token_file(path: &Path) -> anyhow::Result<String> {
+    let metadata =
+        std::fs::metadata(path).map_err(|error| anyhow!("read Cloud token file: {error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            bail!("Cloud token file must be private (mode 0600): {}", path.display());
+        }
+    }
+    let token =
+        std::fs::read_to_string(path).map_err(|error| anyhow!("read Cloud token file: {error}"))?;
+    if token.trim().is_empty() {
+        bail!("Cloud token file is empty");
+    }
+    Ok(token.trim().to_owned())
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
@@ -528,7 +563,7 @@ async fn serve(
     let native = matches!(&cloud, CloudAccess::Broker(bound) if bound.identity.is_some());
     let identity = match &mut cloud {
         CloudAccess::Broker(bound) => bound.identity.take(),
-        CloudAccess::Relay(_) => None,
+        CloudAccess::RelayOrDirect { .. } => None,
     };
     let (config, private_key, native_route) = match identity {
         Some(identity) => (identity.config, identity.key, Some(identity.route)),
@@ -562,13 +597,14 @@ async fn serve(
             let (source, driver) = cloud_broker::channel(tokio::net::UnixStream::from_std(stream)?);
             (cloud::CloudSource::Broker(source), Some(driver))
         }
-        CloudAccess::Relay(credential_socket) => (
-            cloud::CloudSource::Relay(
-                credential_socket
-                    .map_or_else(cloud::RelaySource::unavailable, cloud::RelaySource::socket),
-            ),
-            None,
-        ),
+        CloudAccess::RelayOrDirect { credential_socket, cloud_token_file } => {
+            let source = match (credential_socket, direct_source(cloud_token_file.as_deref())) {
+                (Some(path), _) => cloud::CloudSource::Relay(cloud::RelaySource::socket(path)),
+                (None, Some(source)) => cloud::CloudSource::Direct(source),
+                (None, None) => cloud::CloudSource::Relay(cloud::RelaySource::unavailable()),
+            };
+            (source, None)
+        }
     };
     let resolver = Arc::new(cloud::CloudResolver::new(source));
     let peers = Arc::new(if native {

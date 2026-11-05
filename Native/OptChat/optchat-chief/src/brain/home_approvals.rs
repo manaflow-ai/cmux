@@ -1,6 +1,6 @@
 //! Home delivery for hidden local owner subagents only. The conversation
-//! owner's acknowledgement establishes delivery, never visibility. Hidden
-//! requests keep their no-answer deadline even after delivery.
+//! owner's acknowledgement establishes delivery; from then on the request
+//! waits for the person's Allow or Deny and is never denied for a deadline.
 use super::Brain;
 use crate::state::PendingPermission;
 use cmux_conversation::{
@@ -202,6 +202,27 @@ impl Brain {
         self.flush_outbox();
     }
 
+    /// Whether `id`'s pending request has a Home card, sent or on its way.
+    pub(super) fn home_approval_queued(&self, id: &str) -> bool {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return false;
+        };
+        let (Some(session), Some(pending)) = (sub.session_id.as_deref(), sub.permission.as_ref())
+        else {
+            return false;
+        };
+        if pending.home_closed {
+            return false;
+        }
+        let key = home_key(session, pending);
+        pending.home_message.is_some()
+            || self
+                .state
+                .outbox
+                .iter()
+                .any(|entry| entry.idempotency_key == key)
+    }
+
     /// Only an acknowledgement of our exact durable send can establish delivery.
     pub(super) fn home_approval_posted(
         &mut self,
@@ -250,6 +271,10 @@ impl Brain {
                 .as_mut()
                 .unwrap();
             pending.home_message = Some(message.id.clone());
+            // The card is in Home: the request waits for the person's click
+            // (or the Chief's deny or steer), never for a deadline (Leo, 2026-11-03).
+            let permission = pending.id.clone();
+            self.forget_unanswered(&question.session, &permission);
         } else {
             if let Some(id) = live {
                 // An unavailable late ACK must never become readiness on a ledger

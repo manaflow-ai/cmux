@@ -25,7 +25,7 @@ export const agentsOf = (data: ChiefViewProps["data"]): readonly ChiefAgent[] =>
 export const stateKey = (state: AgentState) => `chiefViews.state.${state}`;
 
 export function StateMark({ state, strings }: { state: AgentState; strings: Strings }) {
-  return <StatusGlyph name={GLYPH[state]} size={10} label={strings.t(stateKey(state))} className="cv-state" />;
+  return <StatusGlyph name={GLYPH[state]} size={12} label={strings.t(stateKey(state))} className="cv-state" />;
 }
 
 /** "4 min" since `at`, in the page's language; nothing without a time. */

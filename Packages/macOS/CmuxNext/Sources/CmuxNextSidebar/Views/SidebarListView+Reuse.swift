@@ -69,6 +69,14 @@ extension SidebarListViewComponents {
             view.onEdit = { [weak self] in self?.groupEditing.open(id, from: .moreButton) }
             // The header's + runs the editor's New Workspace in Group (one action path).
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
+            // A pinned header's Unpin runs the editor's Unpin Group (one action path, #27700).
+            // The button takes its click before the list's mouseDown, so it closes an open editor itself: the editor's
+            // Pin row was titled when it opened and would read Unpin Group still.
+            view.onUnpin = onGroupEditorItem == nil ? nil : { [weak self] in
+                guard let self else { return }
+                if groupEditor.isVisible { groupEditor.hide() }
+                onGroupEditorItem?(id, "workspaceGroup.togglePin")
+            }
             view.isEditing = groupEditor.shownGroup == id
             view.isKeyboardFocused = showsFocusRing && focusedGroup == id
         case let (.emptyGroup(id), view as EmptyGroupRowView):

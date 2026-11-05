@@ -83,7 +83,7 @@ extension LayoutModel {
     func holdSplitRatio(_ split: SplitID, ratio: Double, transaction: LayoutTransactionID) {
         let ratio = min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
         updateScreen(where: { $0.ratio(of: split) != nil }) { $0.settingRatio(ratio, for: split) }
-        splitOverrides[split] = Override(value: ratio, transaction: transaction, ended: false)
+        splitOverrides[split] = GestureOverride(value: ratio, transaction: transaction, ended: false)
     }
 
     /// Whether `split` still shows the value `transaction` set (no later gesture took it over).

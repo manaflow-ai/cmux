@@ -137,9 +137,9 @@ struct AgentCursorSnapshotBuilder {
         }
         var page: AgentCursorVisibilitySnapshot.Page?
         if selected == target, controller.currentTabKey == target, case let .browser(entry)? = controller.currentContent,
-           entry.chrome.window != nil {
-            page = .init(viewport: AgentCursorRect(space.rect(entry.chrome.pageViewportRect, from: entry.chrome)),
-                         zoom: entry.tab.state.zoom, scale: Double(entry.chrome.pageViewportScale))
+           let chrome = entry.chrome, chrome.window != nil {
+            page = .init(viewport: AgentCursorRect(space.rect(chrome.pageViewportRect, from: chrome)),
+                         zoom: entry.tab.state.zoom, scale: Double(chrome.pageViewportScale))
         }
         return AgentCursorVisibilitySnapshot.Pane(
             id: key,

@@ -160,6 +160,25 @@ struct PageWebViewChromiumTests {
         view.close()
     }
 
+    /// A video in a Chromium page asks one byte range at a time: a ranged source gets the request's
+    /// Range header and its 206 reaches Chromium with only Content-Range and Accept-Ranges (#34726).
+    @Test func aChromiumPageGetsByteRangesFromARangedSource() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dynamic = PageDescriptor(id: "test.chromium-ranged", resource: "chromium-page", namespaces: [], dynamicPrefixes: ["media"])
+        let hosting = FakeChromiumHosting()
+        let source = RangedResource()
+        let view = try #require(PageWebView(descriptor: dynamic, root: root, routes: [], dynamicResources: source, chromium: hosting))
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let resources = try #require(hosting.made.first?.resources)
+        let url = try #require(URL(string: "cmux-page://test.chromium-ranged/media/clip.mov"))
+        let slice = await resources(url, "bytes=2-3")
+        #expect(slice == PageChromiumResponse(status: 206, mimeType: "video/quicktime", body: Data([2, 3]),
+                                              rangeHeaders: ["Content-Range": "bytes 2-3/8", "Accept-Ranges": "bytes"]))
+        #expect(source.ranges == ["bytes=2-3"])
+        view.close()
+    }
+
     /// A Chromium page asks the host for its dynamic paths, as the WebKit scheme handler does: the
     /// page's source answers a path under one of its prefixes; anything else is a 404 that never
     /// reaches the source.
@@ -174,13 +193,13 @@ struct PageWebViewChromiumTests {
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         let resources = try #require(page.resources)
-        let png = await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/a.png")))
+        let png = await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/a.png")), nil)
         #expect(png == PageChromiumResponse(status: 200, mimeType: "image/png", body: Data([1, 2, 3])))
-        let typeFromName = await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/b.json")))
+        let typeFromName = await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/b.json")), nil)
         #expect(typeFromName == PageChromiumResponse(status: 200, mimeType: "application/json", body: Data("{}".utf8)))
-        #expect(await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/none.png"))).status == 404)
-        #expect(await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/index.html"))).status == 404)
-        #expect(await resources(try #require(URL(string: "cmux-page://other.page/asset/a.png"))).status == 404)
+        #expect(await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/none.png")), nil).status == 404)
+        #expect(await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/index.html")), nil).status == 404)
+        #expect(await resources(try #require(URL(string: "cmux-page://other.page/asset/a.png")), nil).status == 404)
         #expect(source.asked.map(\.path) == [["a.png"], ["b.json"], ["none.png"]])
         view.close()
     }
@@ -332,6 +351,22 @@ extension PageWebViewChromiumTests {
         #expect(call.params["awaitPromise"] as? Bool == true)
         #expect(call.params["returnByValue"] as? Bool == true)
         view.close()
+    }
+}
+
+/// A ranged source with one 8-byte clip; it answers every range with bytes 2-3.
+@MainActor
+private final class RangedResource: PageDynamicResourceSource, PageRangedResourceSource {
+    private(set) var ranges: [String?] = []
+
+    func resource(for request: PageResourceRequest) async -> PageResource? { nil }
+
+    func rangedResource(for request: PageResourceRequest, range: String?) async -> PageRangedResource? {
+        ranges.append(range)
+        return PageRangedResource(status: 206, headers: [
+            "Content-Type": "video/quicktime", "Content-Range": "bytes 2-3/8", "Accept-Ranges": "bytes",
+            "Content-Security-Policy": "default-src *", "Content-Length": "2",
+        ], data: Data([2, 3]))
     }
 }
 

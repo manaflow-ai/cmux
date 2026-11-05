@@ -216,6 +216,40 @@ fn malformed_config_is_refused() {
     ));
 }
 
+/// The cause of `a_socketpair_is_not_mistaken_for_utun` failing in some runs: on macOS the
+/// utun name query (level `SYSPROTO_CONTROL` 2, option `UTUN_OPT_IFNAME` 2) is also
+/// `LOCAL_PEERPID` on a local socket, whose handler ignores the level. A socketpair answers it
+/// with this process's pid as 4 bytes, and those bytes read as a "name" whenever they are
+/// ASCII. nextest runs each test in its own process, so the pid, and the result, changed
+/// from run to run.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_utun_name_query_answers_a_local_socket_with_its_peer_pid() {
+    let (engine_side, _test_side) = socketpair();
+    let mut reply = [0u8; 16];
+    let mut length = libc::socklen_t::try_from(reply.len()).unwrap();
+    // SAFETY: `reply` is writable for `length` bytes.
+    let result = unsafe {
+        libc::getsockopt(engine_side.as_raw_fd(), 2, 2, reply.as_mut_ptr().cast(), &mut length)
+    };
+    assert_eq!(
+        result,
+        0,
+        "the name query fails on a local socket: {}",
+        std::io::Error::last_os_error()
+    );
+    let pid = std::process::id().cast_signed().to_ne_bytes();
+    assert_eq!(reply.get(..usize::try_from(length).unwrap()), Some(pid.as_slice()));
+}
+
+/// The decision itself, in every process: a local socket is never a kernel control socket,
+/// whatever this process's pid is.
+#[test]
+fn a_socketpair_is_not_a_kernel_control_socket() {
+    let (engine_side, _test_side) = socketpair();
+    assert!(!crate::utun::is_kernel_control(engine_side.as_raw_fd()));
+}
+
 #[test]
 fn a_socketpair_is_not_mistaken_for_utun() {
     let (engine_side, _test_side) = socketpair();

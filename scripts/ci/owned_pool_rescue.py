@@ -194,10 +194,11 @@ It stops watching, doing nothing, when:
   that job uploaded its marker (it moved jobs onto owned root runners);
 - the run finished, or the watch limit passed.
 
-Request budget: the reads use a manaflow-glaeda-route App token when the
-workflow could mint one (READ_TOKEN; its own 5000 requests an hour), else
-GITHUB_TOKEN, which allows about 1000 requests an hour for the whole
-repository. Cancels and re-runs always use GITHUB_TOKEN (GitHub.__doc__). A run on an ephemeral pool costs a jobs listing every
+Request budget: the reads use the workflow's existing token (READ_TOKEN,
+which is the cmux-bot token when the workflow can mint one, otherwise
+GITHUB_TOKEN). They never mint or fall back to the runner-routing App, so
+polling cannot drain that installation's quota. Cancels and re-runs always
+use GITHUB_TOKEN (GitHub.__doc__). A run on an ephemeral pool costs a jobs listing every
 POLL_SECONDS until `changes` finishes (usually two or three) plus one artifact
 listing. A run on a persistent pool adds a jobs listing every POLL_SECONDS
 while one of its jobs waits for a runner and every IDLE_POLL_SECONDS otherwise,
@@ -284,6 +285,20 @@ TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-
 # nightly-next's build picker offers first (nightly_build_runner.NIGHTLY_SLOT_LABEL). main's copy of this watch (the
 # one workflow_run runs) matches it through pr_runner_pool.LANE_LABEL; this copy matches it too.
 NIGHTLY_SLOT_LABEL = re.compile(r"glaeda-(?:aws-)?nightly-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# NEXT's all-nightly reservation is a set of labels rather than a normal
+# persistent pool.  The app build can be queued on the reservation while the
+# rest of the run is still healthy, so it must be visible to this rescue too.
+# Keep the prefix here in sync with nightly_build_runner.py's declared
+# NIGHTLY_ONLY_* labels; a new dedicated class remains covered without making
+# the rescue depend on a second workflow checkout.
+NIGHTLY_ONLY_LABEL_PREFIX = "glaeda-nightly-only-"
+
+
+def nightly_owned_label(label: object) -> bool:
+    """Whether a label is a NEXT nightly-owned route judged by the rescue."""
+    value = str(label or "")
+    return (bool(TRUSTED_LABEL.fullmatch(value)) or bool(NIGHTLY_SLOT_LABEL.fullmatch(value))
+            or nightly_dedicated(value) or value.startswith(NIGHTLY_ONLY_LABEL_PREFIX))
 # feat-cmux-next-only owned workflows the rescue leaves to a person. main's copy of this file is the one the
 # workflow_run runs and holds the full UNRESCUED_WORKFLOW_PATHS; an entry here changes no behaviour (an unlisted
 # workflow is already not watched) and only records the acknowledgement while main takes no merges.
@@ -525,8 +540,7 @@ def parse_time(value: object) -> dt.datetime | None:
 def job_pool(job: Mapping[str, Any]) -> str | None:
     """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
     for label in job.get("labels") or []:
-        if (persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or NIGHTLY_SLOT_LABEL.fullmatch(str(label))
-                or nightly_dedicated(str(label))):
+        if (persistent(str(label)) or nightly_owned_label(label)):
             return str(label)
     return None
 
@@ -553,10 +567,11 @@ def nightly_watched(job: Mapping[str, Any]) -> bool:
     minutes past the signed build (visual-gate-nightly-verdict), so a queued
     gate holds nothing.
     """
-    return job.get("name") == NIGHTLY_APP_JOB or any(TRUSTED_LABEL.fullmatch(str(label))
-                                                     for label in job.get("labels") or []) \
+    return job.get("name") == NIGHTLY_APP_JOB or any(
+        TRUSTED_LABEL.fullmatch(str(label)) or nightly_dedicated(str(label))
+        for label in job.get("labels") or []) \
         or job.get("name") == NIGHTLY_DECIDE_JOB and any(
-            NIGHTLY_SLOT_LABEL.fullmatch(str(label)) or nightly_control_label(label)
+            nightly_owned_label(label) or nightly_control_label(label)
             for label in job.get("labels") or [])
 
 
@@ -787,14 +802,15 @@ def _headers(token: str) -> dict[str, str]:
 class GitHub:
     """The Actions API. Reads may use `read_token`, writes always use `token`.
 
-    `read_token` is a manaflow-glaeda-route App installation token, so the
-    watch's polling draws on the App's own 5000 requests an hour instead of
-    the repository's GITHUB_TOKEN budget. Cancels and re-runs keep
-    GITHUB_TOKEN: a re-run's triggering actor must stay github-actions[bot],
-    which ci-macos.yml's attempt-2 routing checks. An installation token
-    lasts an hour and a watch may outlive it, so a 401 on a read drops back to
-    `token` for the rest of the watch. A 403 is a read the App may not make
-    (branch_head needs contents, which it lacks): that one read uses `token`.
+    The workflow supplies its existing cmux-bot token (or GITHUB_TOKEN) for
+    both values. Keeping reads on that workflow token avoids minting the
+    runner-routing App, whose installation quota is shared with the pickers.
+    Cancels and re-runs keep GITHUB_TOKEN: a re-run's triggering actor must
+    stay github-actions[bot], which ci-macos.yml's attempt-2 routing checks.
+    An installation token lasts an hour and a watch may outlive it, so a 401
+    on a read drops back to `token` for the rest of the watch. A 403 is a read
+    the App may not make (branch_head needs contents, which it lacks): that
+    one read uses `token`.
     """
 
     def __init__(self, token: str, repo: str, read_token: str = "") -> None:

@@ -1,6 +1,138 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "apps.toast.source" : {
+      "comment" : "The second line of an app's toast detail: the id of the app that showed it.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "من %@"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Od %@"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fra %@"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Von %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "From %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Da %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ から"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពី %@"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@에서"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fra %@"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Od %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "От %@"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จาก %@"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "%@ tarafından"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Від %@"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Từ %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "来自 %@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "來自 %@"
+          }
+        }
+      }
+    },
     "store.feature.workspacesAsTabs.name" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15219,127 +15351,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Needs a newer cmux-tui"
+            "value" : "Needs a newer cmux"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "يتطلب إصدارًا أحدث من cmux-tui"
+            "value" : "يحتاج إلى إصدار أحدث من cmux"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Potreban je noviji cmux-tui"
+            "value" : "Potreban je noviji cmux"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kræver en nyere cmux-tui"
+            "value" : "Kræver en nyere cmux"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Benötigt ein neueres cmux-tui"
+            "value" : "Benötigt ein neueres cmux"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Requiere un cmux-tui más reciente"
+            "value" : "Necesita un cmux más reciente"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nécessite un cmux-tui plus récent"
+            "value" : "Nécessite une version plus récente de cmux"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Richiede un cmux-tui più recente"
+            "value" : "Serve un cmux più recente"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "新しい cmux-tui が必要です"
+            "value" : "新しい cmux が必要です"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ត្រូវការ cmux-tui ថ្មីជាងនេះ"
+            "value" : "ត្រូវការ cmux ថ្មីជាងនេះ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "최신 cmux-tui가 필요합니다"
+            "value" : "최신 cmux가 필요합니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Krever en nyere cmux-tui"
+            "value" : "Krever en nyere cmux"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Wymaga nowszego cmux-tui"
+            "value" : "Wymaga nowszego cmux"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Requer um cmux-tui mais recente"
+            "value" : "Precisa de um cmux mais recente"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Нужна более новая версия cmux-tui"
+            "value" : "Нужен более новый cmux"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ต้องใช้ cmux-tui เวอร์ชันใหม่กว่า"
+            "value" : "ต้องใช้ cmux เวอร์ชันใหม่กว่า"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Daha yeni bir cmux-tui gerekiyor"
+            "value" : "Daha yeni bir cmux gerekiyor"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Потрібна новіша версія cmux-tui"
+            "value" : "Потрібен новіший cmux"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cần cmux-tui mới hơn"
+            "value" : "Cần cmux mới hơn"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "需要更新版本的 cmux-tui"
+            "value" : "需要更新版本的 cmux"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "需要更新版本的 cmux-tui"
+            "value" : "需要更新版本的 cmux"
           }
         }
       }
@@ -15350,127 +15482,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux-tui is not connected"
+            "value" : "This machine isn't connected"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui غير متصل"
+            "value" : "هذا الجهاز غير متصل"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui nije povezan"
+            "value" : "Ovaj računar nije povezan"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui er ikke forbundet"
+            "value" : "Denne maskine er ikke forbundet"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui ist nicht verbunden"
+            "value" : "Dieser Rechner ist nicht verbunden"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui no está conectado"
+            "value" : "Esta máquina no está conectada"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui n’est pas connecté"
+            "value" : "Cette machine n’est pas connectée"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui non è connesso"
+            "value" : "Questa macchina non è connessa"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui に接続されていません"
+            "value" : "このマシンは接続されていません"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui មិនបានភ្ជាប់"
+            "value" : "ម៉ាស៊ីននេះមិនបានភ្ជាប់ទេ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui가 연결되지 않음"
+            "value" : "이 머신이 연결되어 있지 않습니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui er ikke tilkoblet"
+            "value" : "Denne maskinen er ikke tilkoblet"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui nie jest połączony"
+            "value" : "Ta maszyna nie jest połączona"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui não está conectado"
+            "value" : "Esta máquina não está conectada"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui не подключен"
+            "value" : "Эта машина не подключена"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui ไม่ได้เชื่อมต่อ"
+            "value" : "เครื่องนี้ไม่ได้เชื่อมต่อ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui bağlı değil"
+            "value" : "Bu makine bağlı değil"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui не підключено"
+            "value" : "Ця машина не підключена"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui chưa kết nối"
+            "value" : "Máy này chưa kết nối"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui 未连接"
+            "value" : "此机器未连接"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "cmux-tui 未連線"
+            "value" : "此機器未連線"
           }
         }
       }

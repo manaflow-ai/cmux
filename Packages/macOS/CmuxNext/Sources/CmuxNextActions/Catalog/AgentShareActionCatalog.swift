@@ -2,8 +2,8 @@
 /// is the op every surface runs: the palette's Share Chat with Guest…, the chat tab's menu, `cmux share
 /// chat` and its MCP tool. List, revoke and kick are its family (the share sheet offers them in place):
 /// the CLI and MCP name them, the palette and menus do not. `agent.share.invite` invites a cmux account
-/// to the chat (the palette's Invite People to Chat…, `cmux share invite`, its MCP tool and the share
-/// sheet's Invite People); `agent.share.uninvite` is its family. The handlers are CmuxNextDaemonService's
+/// to the chat (the palette's Invite People to Chat… and the tab menu's Invite People…, which open the
+/// Invite People sheet, `cmux share invite` and its MCP tool); `agent.share.uninvite` is its family. The handlers are CmuxNextDaemonService's
 /// AgentShareActions.swift and AgentShareInvites.swift.
 nonisolated enum AgentShareActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
@@ -44,11 +44,14 @@ nonisolated enum AgentShareActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "agent.share.invite",
                 title: t("action.agent.share.invite", "Invite People to Chat…"),
-                description: "Invites a cmux account (--account, an email or @handle) to an agent chat (--target tab:<id>, --surface N, else the chat that runs the command, else the focused chat): once they sign in they see the chat as you do. --role talk (default: they may also send messages, each held for you) or view (watch only). Invites go on the chat's invite share, made first when the chat has none (--ttl, default 7d). Returns share_id, account, role, state and created_share. Errors: share.declined, share.invited (already invited with the other role: uninvite first), share.needs_sign_in, share.limit, share.not_a_chat, share.bad_request (not an email or @handle).",
+                description: "Invites a cmux account (--account, an email or @handle; a person's own run without one opens the chat's Invite People sheet) to an agent chat (--target tab:<id>, --surface N, else the chat that runs the command, else the focused chat): once they sign in they see the chat as you do. --role talk (default: they may also send messages, each held for you) or view (watch only). Invites go on the chat's invite share, made first when the chat has none (--ttl, default 7d). Returns share_id, account, role, state and created_share. Errors: share.declined, share.invited (already invited with the other role: uninvite first), share.needs_sign_in, share.limit, share.not_a_chat, share.bad_request (not an email or @handle).",
                 keywords: ["share", "invite", "teammate", "people", "account", "email", "multiplayer", "agent", "chat", "collaborate"],
-                category: .agents, symbol: "person.crop.circle.badge.plus",
-                arguments: [accountArgument, roleArgument, surfaceArgument, ttlArgument], targets: [.tab], cliName: "share invite",
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .familyMember)
+                category: .agents, symbol: "person.crop.circle.badge.plus", surfaces: [.palette, .contextMenu],
+                arguments: [optionalAccountArgument, roleArgument, surfaceArgument, ttlArgument], targets: [.tab], cliName: "share invite",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
+                    // Beside Share with Guest… in the tab menu's More: opens the Invite People sheet.
+                    ActionSurfaceCatalog.p(.tab, .identity, 591, label: t("action.agent.share.invite.menu", "Invite People…")),
+                ])
             ),
             ActionDescriptor(
                 id: "agent.share.uninvite",
@@ -92,6 +95,11 @@ nonisolated enum AgentShareActionCatalog: ActionCatalogGroup {
 
     static var optionalShareIDArgument: ActionArgument {
         ActionArgument(name: "shareId", title: t("argument.agentShare.shareId", "Share ID"), kind: .string, isRequired: false)
+    }
+
+    /// Invite's account: a person's own run without one opens the Invite People sheet instead.
+    static var optionalAccountArgument: ActionArgument {
+        ActionArgument(name: "account", title: t("argument.agentShare.account", "Email or @handle"), kind: .string, isRequired: false)
     }
 
     static var accountArgument: ActionArgument {

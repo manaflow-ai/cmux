@@ -219,21 +219,16 @@ test("a send reads Sent to <recipient>, the recipient one chip, its status in th
   expect(rows["acpmux-send"]!.querySelector(".cv-recipient")!.textContent).toBe("fanout-infra");
 });
 
-test("every message preview is cut by the one rule: one muted line under the row that ellipsizes", async () => {
-  const { container, rows } = await fourRows();
+test("every message preview is cut by the one rule: one muted span that ellipsizes", async () => {
+  const { rows } = await fourRows();
   for (const kind of ["send-message", "acpmux-send"]) {
-    // Stacked (the default look), the first line sits on its own line under the row, never inline.
-    const scope = container.querySelector(`[data-kind="${kind}"]`)!;
-    const previews = [...scope.querySelectorAll(".cv-msgline__preview")].filter((node) => node.textContent);
-    const inline = [...rows[kind]!.querySelectorAll(".cv-agentmsg__preview")].filter((node) => node.textContent);
-    expect({ kind, previews: previews.length, inline: inline.length }).toEqual({ kind, previews: 1, inline: 0 });
+    const previews = rows[kind]!.querySelectorAll(".cv-agentmsg__preview");
+    expect({ kind, previews: previews.length }).toEqual({ kind, previews: 1 });
   }
   const css = readFileSync(new URL("./AgentMessageRow.css", import.meta.url), "utf8");
-  for (const name of ["cv-agentmsg__preview", "cv-msgline__preview"]) {
-    const rule = new RegExp(`\\.${name} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
-    expect(rule).toContain("text-overflow: ellipsis");
-    expect(rule).toContain("white-space: nowrap");
-  }
+  const rule = /\.cv-agentmsg__preview \{([^}]*)\}/.exec(css)?.[1] ?? "";
+  expect(rule).toContain("text-overflow: ellipsis");
+  expect(rule).toContain("white-space: nowrap");
 });
 
 test("the subagent line's duration is in the trailing column, not the sentence", async () => {
@@ -256,7 +251,9 @@ test("a subagent's line with no harness known draws the subagent mark, not the c
   expect(icon.querySelector('[data-icon="task.ai"]')).not.toBeNull();
 });
 
-test("a subagent naming no harness draws the chat's harness mark when the chat has one", async () => {
+// Leo, 2026-11-04: "these all being claude": a subagent of the chat's own family draws its toned
+// subagent mark, not the chat's harness mark on every line.
+test("a subagent of the chat's own family draws its toned subagent mark", async () => {
   const container = await render(
     <SubagentHarnessContext.Provider value="claude">
       <SubagentDoneLine row={subagentRow} />
@@ -264,16 +261,19 @@ test("a subagent naming no harness draws the chat's harness mark when the chat h
   );
   const icon = container.querySelector(".cv-tool__icon")!;
   expect(icon.querySelector('[data-icon="agent.session"]')).toBeNull();
-  expect(icon.querySelector('[data-icon="task.ai"]')).toBeNull();
-  expect(icon.children.length).toBeGreaterThan(0);
+  expect(icon.querySelector('[data-agent-tone] [data-icon="task.ai"]')).not.toBeNull();
 });
 
-test("a subagent that names its own harness draws that harness's mark", async () => {
+test("a subagent of another family than the chat's draws its harness's mark", async () => {
   const codexRow = {
     ...subagentRow,
     subagents: [{ ...subagentRow.subagents![0]!, harness: "codex" }],
   } as AcpmuxRow;
-  const container = await render(<SubagentDoneLine row={codexRow} />);
+  const container = await render(
+    <SubagentHarnessContext.Provider value="claude">
+      <SubagentDoneLine row={codexRow} />
+    </SubagentHarnessContext.Provider>,
+  );
   const icon = container.querySelector(".cv-tool__icon")!;
   expect(icon.querySelector('[data-icon="agent.session"]')).toBeNull();
   expect(icon.querySelector('[data-icon="task.ai"]')).toBeNull();

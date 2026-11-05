@@ -139,16 +139,7 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
       /** The drawn lines of the transcript row that holds `text`, top to bottom. */
       const rowLines = (text: string) => lines(holding(text)?.closest(".acpmux-row"));
       // A running turn lists a run's calls one line each; a finished one folds them ("Sent 3 messages").
-      // Each send's first line sits on its own 18px line under it (messageLineLook.ts `stacked`,
-      // pinned by rowEstimates.test.ts): the pitch is between the sends' own lines, less that line.
-      const sendRow = holding("Take the one-line row pitch")?.closest(".acpmux-row");
-      const firstLines = [...(sendRow?.querySelectorAll(".cv-msgline__preview") ?? [])].map((element) =>
-        element.getBoundingClientRect(),
-      );
-      const firstLine = firstLines.find((box) => box.height > 0)?.height ?? 0;
-      const sends = rowLines("Take the one-line row pitch").filter(
-        (line) => !firstLines.some((box) => line.top >= box.top - 0.5 && line.bottom <= box.bottom + 0.5),
-      );
+      const sends = rowLines("Take the one-line row pitch");
       const short = paragraph("Briefs are out");
       const commands = rowLines("gh pr checks 2210").length ? rowLines("gh pr checks 2210") : rowLines("Checked #2210");
       /** The first line of the shown row of kind `kind` whose words read `text`, across spans: the
@@ -164,7 +155,6 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
 
       const diff = (a: number | null | undefined, b: number | null | undefined) =>
         a == null || b == null ? null : Math.round((b - a) * 100) / 100;
-      const less = (gap: number | null) => (gap == null ? null : Math.round((gap - firstLine) * 100) / 100);
       const at = (line: { top: number; bottom: number } | null | undefined) => centre(line ?? undefined);
       const glyphCentre = glyph ? (glyph.top + glyph.bottom) / 2 : null;
       const gaps: Record<string, number | null> = {
@@ -173,12 +163,22 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
         "footer-to-next": diff(glyphCentre, at(inboxes[0])),
         "step-to-prompt": diff(at(inboxes[0]), prompt?.top),
         "prompt-to-step": diff(prompt?.bottom, at(sends[0])),
-        "step-pitch": less(diff(at(sends[0]), at(sends[1]))),
-        "step-to-prose": less(diff(at(sends.at(-1)), at(short[0]))),
+        "step-pitch": diff(at(sends[0]), at(sends[1])),
+        "step-to-prose": diff(at(sends.at(-1)), at(short[0])),
         "prose-to-step": diff(at(short.at(-1)), at(commands[0])),
         "run-to-step": diff(at(commands.at(-1)), at(inboxes[1])),
-        "step-to-live": diff(at(inboxes[1]), at(live)),
-        "live-to-step": diff(at(live), at(waiting)),
+        "step-to-waiting": diff(at(inboxes[1]), at(waiting)),
+        // Closed, the group draws its first message's line under its head (stacked): the live line
+        // is a row under that line (as transcript-spacing-kinds.test.ts `after`).
+        "step-to-live": ((gap) =>
+          gap == null
+            ? null
+            : Math.round(
+                (gap -
+                  (document.querySelector(".acpmux-pendingMessages .cv-msgline__preview")?.getBoundingClientRect()
+                    .height ?? 0)) *
+                  100,
+              ) / 100)(diff(at(waiting), at(live))),
       };
 
       const bubbleElement = holding("Hand the three polish lanes")?.closest<HTMLElement>(".cv-user__bubble");

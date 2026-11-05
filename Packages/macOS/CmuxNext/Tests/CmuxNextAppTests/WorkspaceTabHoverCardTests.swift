@@ -130,6 +130,30 @@ struct WorkspaceTabHoverCardTests {
         #expect(card.lines.contains("Keep this detail"))
     }
 
+    /// A sweep must not build hidden history rows before the visible card can paint.
+    /// Expanding reads the latest retarget, including changes received while collapsed.
+    @Test func collapsedHistoryWaitsUntilTheDetailsOpen() {
+        let card = WorkspaceHoverCardView()
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        func content(_ text: String) -> WorkspaceHoverCardContent {
+            var content = WorkspaceHoverCardContent(title: text, icon: .terminal, facts: [])
+            content.timeline = [SidebarTimelineEntry(kind: .prompt, date: now, text: text, agent: "Claude Code")]
+            return content
+        }
+        card.configure(content("First workspace"), now: now)
+        #expect(card.timeline.lines.isEmpty, "collapsed history constructed and measured its rows")
+        card.configure(content("Second workspace"), now: now)
+        #expect(card.timeline.lines.isEmpty)
+        card.detailsToggle.performClick(nil)
+        #expect(card.timeline.lines.contains { $0.contains("Second workspace") })
+        #expect(!card.timeline.lines.contains { $0.contains("First workspace") })
+        card.detailsToggle.performClick(nil)
+        card.configure(content("New prompt"), now: now)
+        #expect(!card.timeline.lines.contains { $0.contains("New prompt") }, "a collapsed update laid out hidden rows")
+        card.detailsToggle.performClick(nil)
+        #expect(card.timeline.lines.contains { $0.contains("New prompt") })
+    }
+
     @Test func aCardWithoutDetailsHasNoDisclosure() {
         let card = WorkspaceHoverCardView()
         card.configure(WorkspaceHoverCardContent(title: "Scratch", icon: .terminal, facts: []))

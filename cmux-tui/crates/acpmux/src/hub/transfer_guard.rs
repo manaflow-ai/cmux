@@ -418,7 +418,7 @@ impl Hub {
                 format!("mode {shown} does not ask before it acts for a {family} chat here"),
             ));
         }
-        let options = meta.config_options.as_ref().and_then(Value::as_array);
+        let options = meta.config_options.as_deref().and_then(Value::as_array);
         for o in options.into_iter().flatten() {
             let id = o.get("id").and_then(Value::as_str).unwrap_or("");
             let value = o.get("currentValue").and_then(Value::as_str);

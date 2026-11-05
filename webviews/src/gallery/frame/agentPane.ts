@@ -118,8 +118,24 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     // The chat's look as the app's `display` push sends it (none: the default look).
     setChatDisplay(state.display ?? {});
     bridge.applyWorkflowLabs?.(state.workflowLabs !== false);
-    bridge.receive(structuredClone(snapshot));
+    const query = new URLSearchParams(location.search);
+    const script = query.get("script");
+    const slot = query.get("slot");
+    if (!script && !slot) {
+      bridge.receive(structuredClone(snapshot));
+      return;
+    }
+    // `slot=` (an extension's renderer) and `script=` (the chat on a loop): scripts.ts, through the
+    // same `receive`.
+    void import("./scripts").then(({ applySlot, playScript }) => {
+      const base = applySlot(slot, snapshot);
+      window.cmuxAcpmuxBridge?.receive(structuredClone(base));
+      if (!script || scriptStarted) return;
+      scriptStarted = true;
+      playScript(script, base, (next) => window.cmuxAcpmuxBridge?.receive(next), { loop: query.get("loop") !== "0" });
+    });
   };
+  let scriptStarted = false;
   const next = (method: string | undefined) => {
     const after =
       method && state.afterCall && Object.hasOwn(state.afterCall, method) ? state.afterCall[method] : undefined;
@@ -149,9 +165,11 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       }
     }
   };
-  (window as unknown as { webkit: unknown }).webkit = {
+  const stubWebkit = {
     messageHandlers: {
       agentSession: {
+        // A stand-in, not the app: the pane's flicker detector (acpmux/flickerLog.ts) stays off.
+        standIn: true,
         postMessage: (message: Message) => {
           const reply = handle(message);
           const delay = state.nativeDelayMs?.[message.method ?? ""];
@@ -160,6 +178,13 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       },
     },
   };
+  // In a real WKWebView (the native view shell) `window.webkit` is the host's own namespace and
+  // may not take an assignment: shadow it on the window instead, so the pane talks to this stand-in.
+  try {
+    (window as unknown as { webkit: unknown }).webkit = stubWebkit;
+  } catch {}
+  if ((window as unknown as { webkit?: unknown }).webkit !== stubWebkit)
+    Object.defineProperty(window, "webkit", { value: stubWebkit, configurable: true, writable: true });
   document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
   // Before the pane's scripts run, as AgentPaneTunables.documentScript sets them in the app.
   for (const [name, value] of Object.entries(state.documentAttributes ?? {}))

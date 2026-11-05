@@ -81,10 +81,11 @@ enum OmnibarStyle {
     // MARK: Omnibox
 
     /// Bar corner radius.
-    static let barCornerRadius: CGFloat = 8
+    /// The default bar radius: a field one level inside the toolbar (`browser.omnibar.cornerRadius` overrides it).
+    static var barCornerRadius: CGFloat { Metrics.insetCornerRadius }
     /// Page-info chip.
     static var chipSize: CGFloat { barHeight - 4 }
-    static let chipCornerRadius: CGFloat = 6
+    static var chipCornerRadius: CGFloat { Metrics.cornerRadius(nestedIn: cardCornerRadius, inset: chipLeading) }
     /// Chip distance from the bar's leading edge.
     static let chipLeading: CGFloat = 2
     /// Text distance after the chip.

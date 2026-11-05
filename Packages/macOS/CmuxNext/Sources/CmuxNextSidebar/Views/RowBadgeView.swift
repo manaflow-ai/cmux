@@ -31,13 +31,13 @@ final class RowBadgeView: NSView {
     /// "a bigger red warn symbol", like ChatGPT (the 14 pt box draws the info ring at about 13 pt),
     /// then "and every icon is still fucking small". The cell, its center and the row's spacing
     /// stay fixed; every dot, blue or orange, paints `SidebarStyle.statusDotSize` (Lawrence msg 19696).
-    static let markSide: CGFloat = 14
+    static var markSide: CGFloat { SidebarStyle.statusMarkSide }
     /// A working or loading spinner draws smaller than the other marks: the row's status glyph size
     /// (`SidebarStyle.statusGlyphSize`, 10 pt compact, 12 comfortable), the box the shared indicator takes
     /// on rows without badges, so it never outweighs the 8 pt unread dot or the row's leading icon. Its
     /// cell stays the same, so nothing moves as work starts or ends. Leo 2026-11-03: "i think the spinners
     /// are maybe a bit too big".
-    static var spinnerSide: CGFloat { SidebarStyle.statusGlyphSize }
+    static var spinnerSide: CGFloat { SidebarStyle.statusSpinnerSide }
     static let ringWidth: CGFloat = 1.5
 
     /// A dot glyph keeps the 10 pt box its dot tokens are measured in; every other mark takes `markSide`.

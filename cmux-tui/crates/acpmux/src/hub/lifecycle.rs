@@ -11,6 +11,10 @@ use super::resolve::{Draft, Resolved, draft_meta};
 
 /// How often the person's agent start that is still under way says so (`person_start`).
 const START_PROGRESS: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long a start that waits on its harness (`Session::wait_start`) lets the harness use no CPU
+/// with no thread ready before it ends the start: minutes, since a harness on a loaded host waits
+/// on its disk, but one that truly works moves its CPU time within them.
+const START_HUNG: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 /// Owns a session while a creation future is still configuring it. If that future is cancelled
 /// after publication, the guard purges the exact session rather than guessing from its name.
@@ -107,6 +111,7 @@ impl Hub {
             checked_cwd,
             additional_directories,
             person,
+            wait_start,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
@@ -248,6 +253,11 @@ impl Hub {
         });
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
+        if !remote && adopt.is_none() {
+            let cfg = self.config.read().await;
+            meta.cmux_preset_prompt = crate::context_inventory::preset_override(&meta, &cfg);
+            meta.cmux_context = Some(crate::context_inventory::snapshot_session(&meta, &cfg));
+        }
         meta.workspace_id = workspace_id;
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
@@ -262,19 +272,16 @@ impl Hub {
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
         // for the person's next chat, which never waits behind a lane's start.
-        let pooled = match (&fixed_id, &adopt) {
-            (None, None)
-                if starter.is_none()
-                    && meta.session_env.is_empty()
-                    && route.is_none()
-                    && meta.tools.off.is_empty()
-                    && meta.additional_directories.is_empty()
-                    && checked_cwd.is_none() =>
-            {
-                self.pool_claim(&meta, &profile, &defaults.env).await
-            }
-            _ => None,
-        };
+        let claimable = fixed_id.is_none()
+            && adopt.is_none()
+            && starter.is_none()
+            && meta.session_env.is_empty()
+            && route.is_none()
+            && meta.tools.off.is_empty()
+            && meta.additional_directories.is_empty()
+            && checked_cwd.is_none();
+        let pooled =
+            if claimable { self.pool_claim(&meta, &profile, &defaults.env).await } else { None };
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
@@ -335,6 +342,7 @@ impl Hub {
             };
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
+            session.wait_start.store(wait_start, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
             // Read before the session is published: a stop from then on ends its first start.
@@ -491,7 +499,7 @@ impl Hub {
         }
         // An agent's create warms nothing: the pool is the person's (`pool/`).
         if adopt.is_none() && starter.is_none() {
-            self.pool_note_used(&session);
+            self.pool_note_used(&session, claimable);
         }
         creation_guard.disarm();
         Ok(session)
@@ -580,6 +588,11 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
+        // Harness startup can itself run repository hooks and write files.
+        let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+            session.stops.load(Ordering::SeqCst) != stops
+        })
+        .await?;
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started. The idle pass never ends the harness meanwhile.
         self.touch(session);
@@ -796,6 +809,8 @@ impl Hub {
         Self::starting(session, stops);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
+        // The name its Claude Code was started under (`--name`), before the claim is taken.
+        let pooled_name = self.pool_claimed_name(&session.id);
         if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, off) {
             #[cfg(debug_assertions)]
             self.take_off_seam();
@@ -823,6 +838,10 @@ impl Hub {
                 // start, under the same budget. Its `session/set_mode` would otherwise wait
                 // forever on a harness that stays alive but never answers, holding `spawn_lock`.
                 Ok((child, _)) => {
+                    // Taken under another name than it started with: its Claude Code takes it.
+                    if pooled_name.is_some_and(|n| n != session.meta().name) {
+                        self.rename_live_claude(session);
+                    }
                     let budget = self.config.read().await.agent_start_timeout();
                     return match tokio::time::timeout(
                         budget,
@@ -856,16 +875,19 @@ impl Hub {
             // Boxed: a cold start is a deep future, and this loop keeps it beside the retry's
             // state on the stack its caller polls it on.
             let started = Box::pin(self.cold_start(session, profile, stops, off));
-            // The person's start has no deadline (`person_start`); an agent's or a lane's has.
+            // The person's start has no deadline, one that asked to wait on its harness ends when
+            // the harness stops working (`waiting_start`); an agent's or a lane's has a deadline.
             let started = if session.person.load(Ordering::SeqCst) {
-                Ok(self.person_start(session, budget, started).await)
+                self.waiting_start(session, budget, started, None).await
+            } else if session.wait_start.load(Ordering::SeqCst) {
+                self.waiting_start(session, budget, started, Some(StartWatch::default())).await
             } else {
-                tokio::time::timeout(budget, started).await
+                tokio::time::timeout(budget, started).await.ok()
             };
             let failed = match started {
-                Ok(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),
-                Ok(Err(e)) => Some(e),
-                Err(_) => None,
+                Some(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),
+                Some(Err(e)) => Some(e),
+                None => None,
             };
             // What its harness was doing, read before it is ended (`cpu_class.rs`).
             let harness = Self::starting_harness(session).await;
@@ -873,15 +895,24 @@ impl Hub {
             // the start by another process: acpmux clears it at the spawn) runs once more
             // (`cpu_class.rs`, item 3). Each try has the whole budget: a caller waits up to twice
             // that (Chief's `SESSION_NEW_DEADLINE`).
+            // A start that waits on its harness ends with None only when its harness did no work
+            // for `START_HUNG` (`StartWatch`): a fault, said apart from a missed deadline, which
+            // the Chief retries as a slow machine.
+            let hung =
+                !session.person.load(Ordering::SeqCst) && session.wait_start.load(Ordering::SeqCst);
             if let Some(state) = harness.background().filter(|_| !retried) {
                 self.end_cold_start(session).await;
-                let why = if failed.is_some() { "failed" } else { "missed its deadline" };
+                let why = match (&failed, hung) {
+                    (Some(_), _) => "failed",
+                    (None, true) => "did no work",
+                    (None, false) => "missed its deadline",
+                };
                 tracing::warn!(session = %session.id, "the agent start {why} at background CPU class ({state}); starting it once more");
                 self.append(
                     session,
                     "mux",
                     "agent_start_retried_at_normal",
-                    json!({"timedOut": failed.is_none(), "harness": state}),
+                    json!({"timedOut": failed.is_none() && !hung, "hung": failed.is_none() && hung, "harness": state}),
                 );
                 retried = true;
                 continue;
@@ -890,10 +921,24 @@ impl Hub {
                 Some(e) => e,
                 None => {
                     self.abandon_cold_start(session, budget).await;
-                    start_deadline_exceeded(budget, &harness)
+                    if hung {
+                        start_hung(&harness)
+                    } else {
+                        start_deadline_exceeded(budget, &harness)
+                    }
                 }
             });
         }
+    }
+
+    /// Its starting harness while the start itself is not being polled: the start may hold the
+    /// locks this reads, so a held one answers None (nothing known this tick) rather than waiting.
+    async fn harness_now(session: &Session) -> Option<crate::cpu_class::HarnessSeen> {
+        let child = session.child.try_lock().ok()?.clone();
+        let Some(child) = child else {
+            return Some(crate::cpu_class::HarnessSeen::NotStarted);
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(1), child.harness_seen()).await.ok()
     }
 
     /// Its starting harness, as a deadline error says it (`cpu_class::HarnessSeen`).
@@ -928,12 +973,17 @@ impl Hub {
     /// (sooner when `agentStartTimeoutMs` is shorter) its log says it is still starting
     /// (`agent_start_waiting`, `waitedMs`), so the app can show that the host is busy. An agent's
     /// or a lane's start keeps `agentStartTimeoutMs` (cx-m5up).
-    async fn person_start<T>(
+    ///
+    /// A start that asked to wait on its harness (`Session::wait_start`) waits the same way under
+    /// `watch`, and answers None when its harness stopped working (`StartWatch`), which the caller
+    /// ends as a missed deadline.
+    async fn waiting_start<T>(
         &self,
         session: &Arc<Session>,
         budget: std::time::Duration,
         start: impl std::future::Future<Output = T>,
-    ) -> T {
+        mut watch: Option<StartWatch>,
+    ) -> Option<T> {
         let every = START_PROGRESS.min(budget).max(std::time::Duration::from_millis(100));
         let began = tokio::time::Instant::now();
         let mut tick = tokio::time::interval_at(began + every, every);
@@ -942,15 +992,22 @@ impl Hub {
         let mut said = false;
         loop {
             tokio::select! {
-                done = &mut start => return done,
+                done = &mut start => return Some(done),
                 _ = tick.tick() => {
                     let waited = began.elapsed();
                     if !said && waited >= budget {
                         said = true;
                         tracing::warn!(
                             session = %session.id,
-                            "the person's agent start is past {budget:?}; it keeps waiting"
+                            "the agent start is past {budget:?}; it keeps waiting"
                         );
+                    }
+                    if let Some(watch) = &mut watch
+                        && let Some(seen) = Self::harness_now(session).await
+                        && watch.hung(&seen, waited)
+                    {
+                        tracing::warn!(session = %session.id, "the agent start's harness stopped working ({seen:?})");
+                        return None;
                     }
                     let waited_ms = u64::try_from(waited.as_millis()).unwrap_or(u64::MAX);
                     let waiting = json!({"waitedMs": waited_ms});
@@ -1432,7 +1489,7 @@ impl Hub {
         }
         let opts: Vec<(String, Value)> = saved
             .config_options
-            .as_ref()
+            .as_deref()
             .and_then(Value::as_array)
             .map(|a| {
                 a.iter()
@@ -1496,7 +1553,7 @@ impl Hub {
     /// Remember the models an agent lists so the picker can show them for
     /// harnesses without a live session.
     pub(super) fn remember_models(&self, agent: &str, meta: &SessionMeta) {
-        self.remember_models_from(agent, meta.config_options.as_ref(), meta.models.as_ref());
+        self.remember_models_from(agent, meta.config_options.as_deref(), meta.models.as_ref());
     }
 
     fn remember_models_from(
@@ -1741,6 +1798,12 @@ impl Hub {
         session: &Arc<Session>,
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
+        // A live full-access harness may execute tools without permission RPCs.
+        // Wait before handing it a new prompt, including the already-live path.
+        let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+            session.stops.load(Ordering::SeqCst) != stops
+        })
+        .await?;
         // A watched chat starts no agent until Take Over: every lazy start (warm, model, mode, fork).
         if session.meta().watching.is_some() {
             return Err(super::watch::read_only());
@@ -1797,7 +1860,7 @@ fn stopped_while_starting() -> RpcError {
 /// partial creation, corrupt metadata or a symlink. Never turn a read error into
 /// permission to overwrite a chat. Memory stores use their metadata instead.
 fn refuse_stored_fixed_id(store: &dyn crate::store::Store, id: &str) -> Result<(), RpcError> {
-    let taken = if let Some(path) = store.session_dir(id) {
+    let taken = if let Some(path) = store.session_path(id) {
         match std::fs::symlink_metadata(path) {
             Ok(_) => true,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
@@ -1947,6 +2010,39 @@ mod fixed_id_tests {
     }
 }
 
+/// Whether a start's harness still works (`HarnessState::worked_since`, over its whole process
+/// tree): a thread on a CPU, CPU time, a page read in or a process started since the last read. A
+/// loaded host or short memory slows that down, it does not stop it. A harness not spawned yet,
+/// or one whose state cannot be read (not macOS), is never called hung here: its creator's own
+/// wait bounds that.
+#[derive(Default)]
+struct StartWatch {
+    last: Option<crate::cpu_class::HarnessState>,
+    idle_since: Option<std::time::Duration>,
+}
+
+impl StartWatch {
+    /// `seen` at `waited` into the start: whether its harness has not worked for `START_HUNG`.
+    fn hung(&mut self, seen: &crate::cpu_class::HarnessSeen, waited: std::time::Duration) -> bool {
+        let crate::cpu_class::HarnessSeen::Running(state) = seen else {
+            self.last = None;
+            self.idle_since = None;
+            return false;
+        };
+        let worked = self.last.as_ref().is_none_or(|last| state.worked_since(last));
+        self.last = Some(state.clone());
+        if worked {
+            self.idle_since = None;
+            return false;
+        }
+        waited.saturating_sub(*self.idle_since.get_or_insert(waited)) >= START_HUNG
+    }
+}
+
+#[cfg(test)]
+#[path = "start_watch_tests.rs"]
+mod start_watch_tests;
+
 #[cfg(test)]
 #[path = "stop_fence_tests.rs"]
 mod stop_fence_tests;
@@ -1982,6 +2078,24 @@ impl<'a> ReplayHold<'a> {
             self.session.end_replay(self.agent.generation);
         }
     }
+}
+
+/// The error of a start whose harness did no work for `START_HUNG` (`StartWatch`): it waits on
+/// something no wait cures (input, a lock, a sign-in prompt). Not retryable, and worded apart from
+/// a deadline so its creator shows it rather than waiting again.
+fn start_hung(harness: &crate::cpu_class::HarnessSeen) -> RpcError {
+    let mut e = RpcError::new(
+        -32000,
+        format!("agent_start: its agent did no work for {} s", START_HUNG.as_secs()),
+    )
+    .with_data(json!({"reason": "harness_hung", "retryable": false}));
+    e.message.push_str(&harness.detail());
+    if let (crate::cpu_class::HarnessSeen::Running(state), Some(data)) =
+        (harness, e.data.as_mut().and_then(Value::as_object_mut))
+    {
+        data.insert("harness".into(), json!(state));
+    }
+    e
 }
 
 /// `agent_start`'s deadline error, with what its harness was doing (`cpu_class.rs`, item 4).

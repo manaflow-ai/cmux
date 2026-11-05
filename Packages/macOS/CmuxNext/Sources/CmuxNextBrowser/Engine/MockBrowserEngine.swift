@@ -234,17 +234,25 @@ public final class MockBrowserTab: BrowserTab {
         return BrowserPictureRequest { [self] in try await snapshot() }
     }
 
+    /// The pixel size of the pictures `snapshot` makes (tests of picture budgets set a page's real size; a larger
+    /// picture has stripes, so it is not blank).
+    @ObservationIgnored public var snapshotPixelSize = CGSize(width: 4, height: 4)
+
     public func snapshot() async throws -> CGImage {
         guard !isClosed else { throw BrowserTabError.closed }
         snapshotCount += 1
-        let size = 4
+        let width = Int(snapshotPixelSize.width), height = Int(snapshotPixelSize.height)
         let context = CGContext(
-            data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )
         context?.setFillColor(gray: 0.5, alpha: 1)
-        context?.fill(CGRect(x: 0, y: 0, width: size, height: size))
+        context?.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        if width > 4 {
+            context?.setFillColor(gray: 0.1, alpha: 1)
+            for row in stride(from: 0, to: height, by: 16) { context?.fill(CGRect(x: 0, y: row, width: width, height: 8)) }
+        }
         guard let image = context?.makeImage() else { throw BrowserTabError.snapshotUnavailable }
         return image
     }

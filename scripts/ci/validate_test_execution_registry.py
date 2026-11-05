@@ -9,9 +9,19 @@ that was already unregistered on the base branch is reported as a warning:
 it is somebody else's oversight, and failing here would turn every open pull
 request red for a reason its author cannot fix.
 
-Everything a pull request can only break by editing the registry itself --
-malformed entries, unknown fields, entries pointing at files that no longer
-exist, lanes no workflow runs -- stays a hard failure.
+Everything else -- malformed entries, unknown fields, entries pointing at
+files that no longer exist, lanes no workflow runs -- is judged the same way:
+with --base-sha, a finding the base's tree already has warns (a direct push to
+the base made it, and no later pull request can fix it), and only a finding
+this change adds fails. A test this change renames counts as one it adds.
+Leo, 2026-11-05, after a direct push's dead registration reddened every pull
+request: "There is no way that, like, the notion of not adding tests should
+block CI."
+
+Each warning about a test file names the commit that added the file, when the
+checkout's history has it. `--warn-only` (a push to the branch) turns every
+finding into a warning, so base-red-watch reads it from the run's annotations
+and the push stays green.
 
 `--write` registers every unregistered test whose lane can be derived (a
 workflow already runs the file) and leaves the rest for a person to place.
@@ -280,13 +290,14 @@ def register_derivable(root: Path = ROOT, only: set[str] | None = None) -> list[
 
 
 def newly_added_tests(base_sha: str, root: Path = ROOT) -> set[str]:
-    """Test files this branch adds, relative to the merge base with `base_sha`."""
+    """Test files this branch adds or renames, relative to the merge base with `base_sha`."""
     output = subprocess.check_output(
         [
             "git",
             "diff",
             "--name-only",
-            "--diff-filter=A",
+            "--diff-filter=AR",
+            "-M",
             comparison_point(base_sha, root),
             "HEAD",
             "--",
@@ -530,8 +541,8 @@ def validate_pr_lanes(root: Path, branch: str) -> list[str]:
     return errors
 
 
-def base_pr_lane_errors(root: Path, branch: str, base_sha: str) -> set[str]:
-    """validate_pr_lanes on the base's tree (this checkout's code, the base's workflows and tests)."""
+def base_tree_findings(root: Path, base_sha: str, judge) -> set[str]:
+    """`judge(tree)` on the base's tree (this checkout's code, the base's workflows and tests)."""
     point = comparison_point(base_sha, root)
     present = [
         path for path in PR_LANE_BASE_PATHS
@@ -541,7 +552,7 @@ def base_pr_lane_errors(root: Path, branch: str, base_sha: str) -> set[str]:
         return set()
     archive = subprocess.run(["git", "archive", "--format=tar", point, "--", *present],
                              cwd=root, capture_output=True, check=True).stdout
-    with tempfile.TemporaryDirectory(prefix="pr-lanes-base-") as directory:
+    with tempfile.TemporaryDirectory(prefix="registry-base-") as directory:
         with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
             try:
                 tar.extractall(directory, filter="data")
@@ -550,7 +561,71 @@ def base_pr_lane_errors(root: Path, branch: str, base_sha: str) -> set[str]:
         base = Path(directory)
         if not (base / "tests" / "test-execution.toml").is_file():
             return set()
-        return set(validate_pr_lanes(base, branch))
+        return set(judge(base))
+
+
+def base_pr_lane_errors(root: Path, branch: str, base_sha: str) -> set[str]:
+    """validate_pr_lanes on the base's tree."""
+    return base_tree_findings(root, base_sha, lambda base: validate_pr_lanes(base, branch))
+
+
+def registry_findings(root: Path, base_sha: str = "") -> tuple[list[str], list[str], Counter[str]]:
+    """(errors, warnings, lane counts) of the registry, judged against the base.
+
+    A finding the base's tree already has warns; only one this change adds fails. An unregistered
+    test is judged by `validate` itself (added or renamed here, or not), so the base's own copy of
+    the check runs with nothing added.
+    """
+    errors, warnings, lane_counts = validate(root, base_sha)
+    if not base_sha or not errors:
+        return errors, warnings, lane_counts
+    try:
+        on_base = base_tree_findings(
+            root, base_sha, lambda base: validate(base, added=set(), base_duplicates=set())[0])
+    except (OSError, ValueError, tarfile.TarError, subprocess.CalledProcessError) as error:
+        note = (f"could not judge the registry at the base {base_sha}: {error}; "
+                "every finding below is a warning")
+        return [], [note, *warnings, *errors], lane_counts
+    return (
+        [error for error in errors if error not in on_base],
+        [*warnings, *(f"{error} (already so on the base, so this warns)" for error in errors if error in on_base)],
+        lane_counts,
+    )
+
+
+def shallow_boundary(root: Path) -> set[str]:
+    """The commits a shallow clone cut its history at: each looks as if it added every file."""
+    try:
+        name = subprocess.check_output(["git", "rev-parse", "--git-path", "shallow"], cwd=root, text=True).strip()
+        return set((root / name).read_text(encoding="utf-8").split())
+    except (OSError, subprocess.CalledProcessError):
+        return set()
+
+
+def added_by(path: str, root: Path, boundary: set[str]) -> str | None:
+    """`<sha> (<subject>)` of the commit that added `path`, or None when the history here lacks it."""
+    try:
+        line = subprocess.check_output(
+            ["git", "log", "-1", "--diff-filter=A", "--format=%H%x09%s", "HEAD", "--", path],
+            cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    sha, _, subject = line.partition("\t")
+    if not sha or sha in boundary:
+        return None
+    return f"{sha[:12]} ({subject})"
+
+
+def attribute(warnings: list[str], root: Path) -> list[str]:
+    """Each warning about a test file, with the commit that added the file in its first line."""
+    boundary = shallow_boundary(root)
+    out = []
+    for warning in warnings:
+        headline, newline, rest = warning.partition("\n")
+        path = headline.split(":", 1)[0]
+        commit = added_by(path, root, boundary) if TEST_PATH_RE.fullmatch(path) else None
+        out.append(f"{headline} Added by {commit}.{newline}{rest}" if commit else warning)
+    return out
 
 
 def pr_lane_findings(root: Path, branch: str, base_sha: str = "") -> tuple[list[str], list[str]]:
@@ -601,7 +676,8 @@ def report_warnings(warnings: list[str]) -> None:
     lines.extend(
         [
             "",
-            "These were already so on the base, so they do not fail this pull request. "
+            "These do not fail this run: they were already so on the base, or this is a push "
+            "(--warn-only). "
             "Register unregistered tests in `tests/test-execution.toml`; route or exempt "
             "(`tests/pr-lane-exemptions.json`) tests no pull request runs.",
             "",
@@ -629,6 +705,8 @@ def main(argv: list[str]) -> int:
                         help="with --write, register only these tests (repeatable)")
     parser.add_argument("--pr-lanes", metavar="BRANCH", default="",
                         help="also fail on a test no pull request into BRANCH runs (needs PyYAML)")
+    parser.add_argument("--warn-only", action="store_true",
+                        help="report every finding as a warning and exit 0 (a push to the branch)")
     args = parser.parse_args(argv)
     root = args.repo_root.resolve()
 
@@ -641,7 +719,7 @@ def main(argv: list[str]) -> int:
             return 1
 
     try:
-        errors, warnings, lane_counts = validate(root, args.base_sha)
+        errors, warnings, lane_counts = registry_findings(root, args.base_sha)
     except (OSError, ValueError) as error:
         print(error, file=sys.stderr)
         return 1
@@ -654,7 +732,9 @@ def main(argv: list[str]) -> int:
         except (OSError, ValueError, ImportError) as error:
             errors.append(f"could not read the pull request lanes into {args.pr_lanes}: {error}")
 
-    report_warnings(warnings)
+    if args.warn_only:
+        warnings, errors = [*warnings, *errors], []
+    report_warnings(attribute(warnings, root))
 
     if errors:
         print("Python test execution registry validation failed:", file=sys.stderr)

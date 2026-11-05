@@ -171,6 +171,23 @@ import SwiftUI
         #expect(source.tabs.count == count + 1)
     }
 
+    /// User report 2026-11-03: "how can i create a mac screen sharing tab in ios? … i dont see
+    /// screen sharing". Signed in, + offers Screen Sharing; it opens the Macs sheet, asks the
+    /// Mac for no tab and adds none. Signed out (no service), + has no such entry.
+    @Test func plusOffersScreenSharingWhenSignedIn() async throws {
+        let (_, source) = make()
+        #expect(!source.newTabOptions.contains { $0.title == "Screen Sharing" })
+        source.offersScreenSharing = true
+        #expect(source.newTabOptions.last?.title == "Screen Sharing")
+        let count = source.tabs.count
+        _ = await source.createTab(try #require(source.newTabOptions.first { $0.title == "Screen Sharing" }))
+        #expect(source.showingScreenSharing)
+        #expect(source.pendingTabTitle == nil)
+        #expect(source.tabs.count == count)
+        // The palette lists it too, as every + option.
+        #expect(source.paletteActions().contains { $0.id == "new.screen-sharing" })
+    }
+
     /// User report 2026-10-14: no browser tabs from the phone, with no word why (an older
     /// Mac that does not stream them). The entry stays, and a tap says why.
     @Test func aKindTheMacCantOpenStaysWithItsReason() async throws {
@@ -647,8 +664,13 @@ import SwiftUI
         let kit = try #require(source.tabs.first { $0.id == "t-zsh" })
         let groups = source.pageMenu(for: kit)
         #expect(groups.first?.map(\.title) == ["Files and Links", "Paste"])
-        // Design/terminal P1: Back leaves the workspace, so no "All Workspaces".
-        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"], ["Close Tab"]])
+        // Design/terminal P1: Back leaves the workspace, so no "All Workspaces". Command Palette…
+        // (#32570) leads the layout group, which has no Panes, Screens or Send Message here, and
+        // ends with the Copy rows (the mock tab has the Mac's ids; copying needs no edit rights);
+        // Reveal in Workspaces List (the Mac's Reveal Workspace in Sidebar) has its own group.
+        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"],
+                                                    ["Command Palette…", "Copy Tab Link", "Copy Tab ID", "Copy Pane Link", "Copy Pane ID", "Copy IDs"],
+                                                    ["Reveal in Workspaces List"], ["Close Tab"]])
         groups.first?.first?.action()
         #expect(content.performed == ["files"])
     }
