@@ -1405,7 +1405,7 @@ export default componentEntry<Props>({
       },
     },
     "reorder-dragging": {
-      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Usage and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
+      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (the head hover tint over the glass and a shadow, only while held, never a near-opaque slab) and follows the pointer; a neighbour makes way once its leading edge passes the middle of that neighbour; Usage and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
       props: full,
       play: dragOutputsOverContext,
     },
