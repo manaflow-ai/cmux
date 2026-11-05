@@ -305,10 +305,12 @@ async fn a_prompt_an_agent_sends_through_a_peer_names_that_agent_on_the_owning_d
                          "fromSessionId": lane_id, "fromHarness": family,
                          "verified": false, "transport": "peer", "forwardedBy": {"actor": "peer"}});
     assert_eq!(by_id("from-lane").pointer("/_meta/provenance"), Some(&stamped), "{messages:?}");
-    // A's unix client proved no person, so B records it as unverified, never as the person's.
+    // A's client proved the person (`client` above): A says so (`personProven`), and B records
+    // the prompt as the person's, marked as proven.
+    assert!(by_id("from-person").pointer("/_meta/provenance").is_none(), "{messages:?}");
     assert_eq!(
-        by_id("from-person").pointer("/_meta/provenance/kind"),
-        Some(&json!("unverified")),
+        by_id("from-person").pointer("/_meta/origin"),
+        Some(&json!({"actor": "person", "verified": true})),
         "{messages:?}"
     );
 }

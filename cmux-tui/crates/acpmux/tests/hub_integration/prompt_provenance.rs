@@ -1155,7 +1155,11 @@ async fn a_notice_is_recorded_on_its_user_message_and_its_queued_record() {
     c.cancel(&session).await;
     c.reply_to(waiting).await;
     let ran = c.user_message(&session, "n-q").await;
-    assert_eq!(ran.pointer("/_meta/provenance"), Some(&stamped_notice(&session)), "{ran}");
+    assert_eq!(
+        ran.pointer("/_meta/provenance"),
+        Some(&seen(stamped_notice(&session), "unix")),
+        "{ran}"
+    );
 }
 
 /// A notice is a tool's, never the person's: one sent from inside a session names that session
