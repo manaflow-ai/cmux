@@ -15,7 +15,7 @@ import Testing
         #expect(PairingCode.Invite.display("ABCDE12345") == "ABCDE-12345")
         #expect(PairingCode.Invite.display("ABCD1234") == "ABCD1234", "another length is returned unchanged")
         #expect(PairingCode.Invite.normalize(" abcde-1234o ") == "ABCDE12340", "case, dashes, spaces and O read as the server code's")
-        #expect(PairingCode.Invite.normalize("il1LI-OoO00") == "11111000000")
+        #expect(PairingCode.Invite.normalize("il1LI-OoO00") == "1111100000")
         #expect(PairingCode.Invite.isComplete("abcde-12345"))
         #expect(PairingCode.Invite.isComplete("ABCDE 1234O"))
         #expect(!PairingCode.Invite.isComplete("ABCDE-1234"), "nine symbols")
