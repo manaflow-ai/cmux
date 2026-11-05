@@ -67,13 +67,15 @@ public final class RemoteLocalhostService {
     /// tab of this Mac's daemon routes to that machine, never to this Mac. In a remote tree's tab
     /// the same address is that machine's own loopback: a remote tree never reaches another
     /// machine through this Mac's tunnel.
-    public func route(for tab: TabModel, engine: BrowserEngineKind, url: URL? = nil) -> RemoteLocalhostRoute {
+    public func route(for tab: TabModel, engine: BrowserEngineKind, url: URL? = nil,
+                      known: (daemon: DaemonService, workspace: String?)? = nil) -> RemoteLocalhostRoute {
         if let machine = boundTabs[tab.id] { return boundRoute(machine, engine: engine) }
-        if let machine = Self.desktopMachine(url: url, tabIsLocal: machines.daemon(forTab: tab).isLocal) {
+        let daemon = known?.daemon ?? machines.daemon(forTab: tab)
+        if let machine = Self.desktopMachine(url: url, tabIsLocal: daemon.isLocal) {
             let name = machines.cloudMachineBadge(machine: machine) ?? machine
             return engine == .cef ? .machine(name) : .thisMacInstead(name, .webKit)
         }
-        let daemon = machines.daemon(forTab: tab)
+        if let known { return route(daemon: daemon, workspace: known.workspace, engine: engine) }
         let workspace = daemon.store.pane(containing: tab.surface).flatMap { daemon.store.workspace(containing: $0.handle) }
         return route(daemon: daemon, workspace: workspace?.id, engine: engine)
     }
@@ -277,10 +279,13 @@ public final class RemoteLocalhostService {
     // MARK: Badge
 
     /// The machine chip of a browser tab showing `url`: shown only for a
-    /// loopback page of a tab whose machine is not this Mac.
-    public func badge(for tab: TabModel, url: URL?, engine: BrowserEngineKind) -> (text: String, help: String)? {
+    /// loopback page of a tab whose machine is not this Mac. `known`: the tab's daemon and workspace id when the
+    /// caller has them (a pane's strip item), so no store is searched for the tab: that search reads the whole
+    /// session's tab list, and every create in the session then woke every browser tab's item.
+    public func badge(for tab: TabModel, url: URL?, engine: BrowserEngineKind,
+                      known: (daemon: DaemonService, workspace: String?)? = nil) -> (text: String, help: String)? {
         guard let url, LoopbackHost(url: url)?.isLoopback == true else { return nil }
-        switch route(for: tab, engine: engine, url: url) {
+        switch route(for: tab, engine: engine, url: url, known: known) {
         case .thisMac:
             return nil
         case .machine(let name):

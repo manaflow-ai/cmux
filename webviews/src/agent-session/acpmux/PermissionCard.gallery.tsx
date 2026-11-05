@@ -134,6 +134,45 @@ const fourOptions: AcpmuxPermission = {
   ],
 };
 
+const PLAN = `## Retry failed uploads
+
+Uploads that fail on a dropped connection are lost today. Retry them with backoff.
+
+1. Add \`withRetry\` to \`src/net/retry.ts\`: three attempts, 250 ms doubling, only on network errors.
+2. Wrap \`uploadChunk\` in \`src/upload/client.ts\` with it.
+3. Show "Retrying…" on the upload row while an attempt waits.
+
+### Tests
+
+- \`retry.test.ts\`: gives up after three attempts; never retries a 4xx.
+- \`client.test.ts\`: a dropped chunk uploads on the second attempt.`;
+
+/// Claude Code's ExitPlanMode: the plan as its input, Allow and Reject as acpmux offers them.
+const claudePlan: AcpmuxPermission = {
+  permissionId: "gallery-claude-plan",
+  kind: "other",
+  title: "Approve plan",
+  plan: PLAN,
+  pending: true,
+  options: [
+    { id: "allow_once", name: "Allow", kind: "allow_once", allow: true },
+    { id: "reject_once", name: "Reject", kind: "reject_once", allow: false },
+  ],
+};
+
+/// Grok's plan approval as acpmux builds it (hub xai.rs): "Ready to code?" with the plan.
+const grokPlan: AcpmuxPermission = {
+  permissionId: "gallery-grok-plan",
+  kind: "switch_mode",
+  title: "Ready to code?",
+  plan: PLAN,
+  pending: true,
+  options: [
+    { id: "approve_plan", name: "Yes, start coding", kind: "allow_once", allow: true },
+    { id: "keep_planning", name: "No, keep planning", kind: "reject_once", allow: false },
+  ],
+};
+
 function GalleryPermissionCard({ permission, harness, fullAccessMode, scopeStyle, rowStyle, oneTimeStyle }: Props) {
   return (
     <div
@@ -208,6 +247,14 @@ export default componentEntry<Props>({
       note: "Four Codex options: each a short button in the request's kinds; the Always allow's own long name moves to the scope line.",
       props: { permission: fourOptions, harness: "codex" },
       play: scopeOnce,
+    },
+    "plan-claude": {
+      note: 'Leo 2026-11-05: "i like these plans too... i want us to be able to render it in ours". Claude Code\'s ExitPlanMode: the plan renders as Markdown in the card, with Approve plan and Keep planning (which opens a field for what to change).',
+      props: { permission: claudePlan, harness: "claude" },
+    },
+    "plan-grok": {
+      note: "Grok's plan approval (x.ai/exit_plan_mode): the same plan card.",
+      props: { permission: grokPlan, harness: "grok" },
     },
     "bypass-still-asks": {
       note: "Leo 2026-11-04: \"a temporary one-time sort of ask for, like if for whatever reason there's the bypass permissions, it doesn't bypass every single thing\". Shipped: in Bypass permissions an ask Claude Code still raises says under its title that the mode doesn't cover it and Allow once lets it run this time only.",

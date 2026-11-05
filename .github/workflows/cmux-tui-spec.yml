@@ -37,6 +37,7 @@ on:
       - "skills/cmux-browser/**"
       - "skills/cmux-cua/SKILL.md"
       - "skills/cmux-customization/**"
+      - "skills/cmux-live/SKILL.md"
       - "skills/cmux/SKILL.md"
   # Every pull request (no paths): feat-cmux-next requires `clippy (changed cmux-tui
   # packages)`, and a required check must report. The `changes` job below says whether

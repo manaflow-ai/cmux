@@ -17,7 +17,7 @@ light layout dragged a divider while something else showed in front, so no termi
    each round's pane check (`debug.terminal_display`, ``follow``) counts per terminal the frames in which its host asked
    another size than its pane's (held) and in which its layer showed another size (lagging). A held frame fails the
    round, and the message names the terminal, its held frames and the first sizes; lagging frames are data only. A
-   held drag (`terminalDrag.holdSurface`, on by default since #32006) used to pass on laid-out views: it fails now. A
+   held drag (`terminalDrag.holdSurface`, on by default from #32006 until cmux-ad m19, 2026-11-05) used to pass on laid-out views: it fails now. A
    round with no pane check fails: it judged nothing.
 4. The key-resize layouts (keys, keys-stress) need a resized terminal and a counted frame in each round, and a round
    whose arm the bench could not set (`debug.tunables set`) fails; terminal_resize_arms alternates the arm order per

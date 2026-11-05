@@ -124,7 +124,7 @@ export const stageAttachments = async (env: Env, vm: string, agent: string, owne
   if (wanted.length === 0) return { written: 0, bytes: 0, missing }
   const actor = homeConversation.actorOf(chiefPrincipal(agent, owner))
   if (!actor) return { written: 0, bytes: 0, missing: wanted.map((w) => ({ path: w.path, why: "no actor" })) }
-  const access = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation)) as unknown as Access
+  const access = env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(conversation))
   let written = 0
   let bytes = 0
   for (const w of wanted) {

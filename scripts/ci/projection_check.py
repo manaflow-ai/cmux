@@ -222,7 +222,19 @@ def check(args) -> int:
                 step("open", False, error=opened)
                 return [f"open: {opened}"]
             doc = wait(lambda: [r for r in proxy.since(t_open) if f"/{PAGE}" in r[1]], 30)
-            if not step("open", bool(doc), open_to_page_ms=int((doc[0][0] - t_open) * 1000) if doc else None):
+            if not doc:
+                # What the app answered and showed, and what reached the server, for the report.
+                topo = inst.topology() or {}
+                (out / "topology.json").write_text(json.dumps(topo, indent=1, default=str))
+                try:
+                    subprocess.run(["screencapture", "-x", str(out / "open.png")], check=False, timeout=20)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+                step("open", False, open_to_page_ms=None, answer=opened, windows_before=windows_before,
+                     windows_after=len(topo.get("windows") or []), requests=[r[1] for r in proxy.since(0.0)][-40:])
+                failures.append("open: the projection window's page never loaded from the worktree")
+                return failures
+            if not step("open", True, open_to_page_ms=int((doc[0][0] - t_open) * 1000)):
                 failures.append("open: the projection window's page never loaded from the worktree")
                 return failures
 
