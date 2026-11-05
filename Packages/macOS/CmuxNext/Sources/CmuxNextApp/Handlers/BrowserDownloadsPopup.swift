@@ -335,7 +335,7 @@ private struct BrowserDownloadPopupRow: View {
         }
         .padding(.horizontal, 8)
         .frame(maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: 6).fill(hovered ? model.colors.hover : Color.clear))
+        .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(hovered ? model.colors.hover : Color.clear))
         .padding(.horizontal, 4)
         .onHover { inside in
             overRow = inside
@@ -374,7 +374,7 @@ private struct BrowserDownloadsFooterRow: View {
             .padding(.horizontal, 8)
             .frame(height: 28)
             .contentShape(Rectangle())
-            .background(RoundedRectangle(cornerRadius: 6).fill(hovered ? colors.hover : Color.clear))
+            .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(hovered ? colors.hover : Color.clear))
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 4)

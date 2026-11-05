@@ -46,9 +46,9 @@ import Testing
         #expect(abs(header - row) <= 0.5, "\(label)")
         // A band row (Home, App Store, a pinned link) is one line: as tall as a one-line workspace row. In
         // Expanded, workspace rows and group headers take two lines (SidebarLayoutMetrics.rowStep); band rows
-        // stay one line, the same height as compact's.
-        let oneLine = minimal ? SidebarLayoutMetrics.standard.minimal.rowHeight : SidebarLayoutMetrics.standard.rowHeight
-        let expected = density == .expanded && !minimal ? oneLine : row
+        // stay one line at Comfortable's height (`SidebarRowTokens.band`, Lawrence 2026-11-04: pinned rows were
+        // too short at the app's 24 pt).
+        let expected = density == .expanded && !minimal ? SidebarRowTokens.current.band.rowHeight : row
         #expect(abs(band - expected) <= 0.5, "a band row (Home, pinned) differs from a one-line workspace row: \(label)")
         // Every list item the band placed (not a header, tile or app) is that one height.
         for placed in sidebar.aboveRegion.layoutResult.rows {
