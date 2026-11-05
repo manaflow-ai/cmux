@@ -48,7 +48,7 @@ public final class NewTabInputBuffer {
 
     /// Gives every held key, in typing order, to the normal dispatch (whatever has focus now). They are the person's own
     /// keys, so they go on with no `ActionRunScope`, whatever run ends the hold (a CLI's opening, a menu pick, a create
-    /// task); other task-local state of that run (its daemon command scope, a registry capture) still applies.
+    /// task); other state of that run (its daemon command scope, a registry capture) still applies.
     public func release() {
         guard !replaying else { return }
         replaying = true
