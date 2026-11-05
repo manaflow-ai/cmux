@@ -1138,9 +1138,11 @@ fn a_log_sync_that_fails_in_the_shutdowns_last_checkpoint_keeps_the_rewrite() {
         store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
     }
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
-    // `Hub::seal`: the seal, then the last checkpoint, whose log sync fails.
-    store.seal();
+    // `Hub::seal`: the seal, then a checkpoint; the shutdown's last log sync fails. It is armed
+    // before the seal: wherever the last checkpoint runs (after the seal, or inside it), its log
+    // sync on this thread fails.
     FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    store.seal();
     let failed = store.flush();
     FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
     assert!(failed.is_err(), "the last checkpoint went on past a failed log sync");
