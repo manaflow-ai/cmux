@@ -170,8 +170,11 @@ class SidebarItemRowView: NSView {
     func configure(_ info: SidebarItemInfo, style: Style) {
         guard info != self.info || style != self.style else { return }
         // A selection change paints at once (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION).
-        if info.isActive != self.info.isActive || info.isSecondarySelected != self.info.isSecondarySelected { fadesNextFill = false }
+        let activeChanged = info.isActive != self.info.isActive
+        if activeChanged || info.isSecondarySelected != self.info.isSecondarySelected { fadesNextFill = false }
         self.info = info
+        // Debug `sidebar.cornerMorph` bridge: an active band row (Home, a pin) joins the card.
+        if activeChanged { SidebarContainerView.cornerMorphMoved(from: self) }
         self.style = style
         title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly || isRenaming
