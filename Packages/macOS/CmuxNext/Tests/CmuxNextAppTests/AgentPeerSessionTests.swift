@@ -35,3 +35,49 @@ struct AgentPeerSessionTests {
         #expect(Self.lanes.peerSession("anything", on: "chief:home") == .notAPeer)
     }
 }
+
+/// `agent.openSessionTab` / `agent.openSessionWorkspace` on this Mac: a chat named by its harness's
+/// session id (`acpmux ls --json`'s `agentSessionId`) or its name opens as acpmux's id, so the tab
+/// never records an id the chat pane cannot find ("Reconnecting…" forever, Leo 2026-11-05).
+struct AgentLocalSessionTests {
+    static let lanes = [
+        AgentActivityLane(id: "01a18641-99db-7622-a8bc-496d43d639ca", name: "claude-sr2/cloud-demo", title: "cloud-demo", peer: nil,
+                          parent: nil, state: .idle, since: nil, error: nil,
+                          agentSession: "01a18641-9a05-7c33-8cfd-055af5d4f02a", shortName: "cloud-demo"),
+        AgentActivityLane(id: "01a16b00", name: "huge-blue/cloud-demo", title: "Peer", peer: "huge-blue", parent: nil, state: .idle,
+                          since: nil, error: nil, agentSession: "peer-harness", shortName: "cloud-demo"),
+    ]
+    static let live = "01a18641-99db-7622-a8bc-496d43d639ca"
+
+    @Test func theHarnessSessionIdTheNameOrTheShortNameOpensAcpmuxsId() {
+        for given in ["01a18641-9a05-7c33-8cfd-055af5d4f02a", "claude-sr2/cloud-demo", "cloud-demo", Self.live] {
+            #expect(Self.lanes.localSession(given) == .session(Self.live))
+        }
+    }
+
+    @Test func aPeersChatNeverAnswersForThisMac() {
+        #expect(Self.lanes.localSession("peer-harness") == .unknown)
+        #expect(Self.lanes.localSession("01a16b00") == .unknown)
+    }
+
+    @Test func anUnknownSessionIdOpensAsGivenAndUnknownTextIsRefused() {
+        #expect(Self.lanes.localSession("01a1ffff-0000-7000-8000-000000000000") == .asGiven)
+        #expect(Self.lanes.localSession("no-such-lane") == .unknown)
+    }
+
+    @Test func aNameTwoChatsGoByIsAmbiguous() {
+        let twice = Self.lanes + [AgentActivityLane(id: "codex-1", name: "codex/cloud-demo", title: "Twin", peer: nil, parent: nil,
+                                                    state: .idle, since: nil, error: nil, shortName: "cloud-demo")]
+        #expect(twice.localSession("cloud-demo") == .ambiguous)
+        #expect(twice.localSession("01a18641-9a05-7c33-8cfd-055af5d4f02a") == .session(Self.live))
+    }
+
+    @Test func aSummaryCarriesTheHarnessSessionIdAndShortName() throws {
+        let lane = try #require(AgentActivityLane.of(summary: [
+            "sessionId": Self.live, "name": "claude-sr2/cloud-demo", "shortName": "cloud-demo",
+            "agentSessionId": "01a18641-9a05-7c33-8cfd-055af5d4f02a", "lane": ["state": "idle"],
+        ]))
+        #expect(lane.agentSession == "01a18641-9a05-7c33-8cfd-055af5d4f02a")
+        #expect(lane.shortName == "cloud-demo")
+    }
+}

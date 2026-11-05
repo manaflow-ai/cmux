@@ -558,6 +558,50 @@ await requireBrowserLane("agent-pane-chat-unavailable.test.ts", async () => {
     await page.close();
   });
 
+  test("a tab that recorded a chat's harness session id or its name opens that chat, even with a machine down", async () => {
+    // An agent opened the tab with the chat's harness session id (acpmux `agentSessionId`, which
+    // `acpmux ls --json` prints first), not acpmux's id. Another machine is down, so before the fix
+    // the pane guessed the chat was there and showed "Reconnecting…" forever (Leo, 2026-11-05).
+    const down = { name: "build-box", transport: "ssh", connected: false, state: "reconnecting", attempts: 5 };
+    scenario = {
+      sessions: [
+        summary("chat-other"),
+        summary("chat-lane", { name: "claude/cloud-lane", shortName: "cloud-lane", agentSessionId: "harness-lane-1" }),
+      ],
+      peers: [down],
+    };
+    const byHarnessId = await open("harness-lane-1");
+    await byHarnessId.getByText("Opened chat-lane", { exact: true }).waitFor({ timeout: 60_000 });
+    expect((await state(byHarnessId)).sessionId).toBe("chat-lane");
+    expect((await state(byHarnessId)).missingSession).toBeNull();
+    await byHarnessId.close();
+    // The same tab named by the chat's short name.
+    const byName = await open("cloud-lane");
+    await byName.getByText("Opened chat-lane", { exact: true }).waitFor({ timeout: 60_000 });
+    expect((await state(byName)).sessionId).toBe("chat-lane");
+    await byName.close();
+  });
+
+  test("a tab whose id names more than one chat says the session no longer exists, never Reconnecting", async () => {
+    scenario = {
+      sessions: [
+        summary("chat-a", { name: "claude/cloud-lane", shortName: "cloud-lane" }),
+        summary("chat-b", { name: "codex/cloud-lane", shortName: "cloud-lane" }),
+      ],
+      peers: [{ name: "build-box", transport: "ssh", connected: false, state: "reconnecting", attempts: 5 }],
+    };
+    const page = await open("cloud-lane");
+    const shown = page.locator('[data-unavailable="gone"]');
+    await shown.waitFor({ timeout: 60_000 });
+    expect(await shown.locator("h2").innerText()).toBe("This session no longer exists");
+    expect(await shown.innerText()).not.toContain("Reconnecting");
+    expect(await shown.getByRole("button", { name: "Reconnect" }).count()).toBe(0);
+    expect(await shown.getByRole("button", { name: "Resume from Transcript…" }).count()).toBe(1);
+    expect(await shown.getByRole("button", { name: "Close Tab" }).count()).toBe(1);
+    expect((await state(page)).sessionId).toBeNull();
+    await page.close();
+  });
+
   test("a chat on another machine whose tab names it by another id than acpmux's opens", async () => {
     // The machine's daemon attached the session its store records for the tab (RemoteAcpmuxWire
     // `tabSessionId`); the tab named it "lane/review", acpmux's id is "acp-review-1".
