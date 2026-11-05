@@ -189,15 +189,52 @@ async fn connect_same_uid(
     }
 }
 
+/// How a spliced stream ended: the bytes each way, or the copy's error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Spliced {
+    /// Bytes from the peer to the entry (or sshd), when the copy ended cleanly.
+    pub to_entry: Option<u64>,
+    /// Bytes from the entry (or sshd) back to the peer.
+    pub to_peer: Option<u64>,
+    /// The copy's error, when it ended on one.
+    pub error: Option<io::ErrorKind>,
+}
+
+impl Spliced {
+    pub(super) fn of(copied: io::Result<(u64, u64)>) -> Self {
+        match copied {
+            Ok((to_entry, to_peer)) => {
+                Self { to_entry: Some(to_entry), to_peer: Some(to_peer), error: None }
+            }
+            Err(error) => Self { to_entry: None, to_peer: None, error: Some(error.kind()) },
+        }
+    }
+}
+
 /// Splice `stream` into the session's remote entry with `peer` (and the
 /// `check` the link made for this stream, only after it passed) stamped as
 /// the first line, after the entry proved it is one (same user and cmux
 /// code, then the entry banner).
 pub(super) async fn hand_to_entry<S>(
+    stream: S,
+    peer: &cmux_link::stamp::LinkPeer,
+    check: Option<cmux_link::stamp::StampCheck>,
+    session_socket: &Path,
+) -> Result<(), InboundRefused>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    hand_to_entry_traced(stream, peer, check, session_socket, &mut None).await
+}
+
+/// [`hand_to_entry`], setting `spliced` once the stamp went to the entry and
+/// the copy ended.
+pub(super) async fn hand_to_entry_traced<S>(
     mut stream: S,
     peer: &cmux_link::stamp::LinkPeer,
     check: Option<cmux_link::stamp::StampCheck>,
     session_socket: &Path,
+    spliced: &mut Option<Spliced>,
 ) -> Result<(), InboundRefused>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -219,7 +256,7 @@ where
         return Err(InboundRefused::NotAnEntry);
     }
     write_stamp(&mut entry, &stamp).await.map_err(|_| InboundRefused::EntryUnavailable)?;
-    let _ = tokio::io::copy_bidirectional(&mut stream, &mut entry).await;
+    *spliced = Some(Spliced::of(tokio::io::copy_bidirectional(&mut stream, &mut entry).await));
     Ok(())
 }
 
