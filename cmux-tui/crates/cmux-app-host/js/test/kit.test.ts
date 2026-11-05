@@ -142,3 +142,91 @@ describe("the documented focus timer template", () => {
     expect(host.findNode("m1", (n) => n.type === "Slider")).toBeUndefined()
   })
 })
+
+describe("the template folders (skills/cmux-customization/templates)", () => {
+  const load = (name: string) => readFileSync(new URL(`../../../../../skills/cmux-customization/templates/${name}/main.js`, import.meta.url), "utf8")
+  const init = { app: { id: "local/customize", version: "1.0.0" }, apiVersion: "1.0.0" }
+  const ok = (value: unknown = null) => () => ({ ok: true, body: { value } })
+  const titles = (host: FakeHost, mount: string, type: string) => [...host.tree(mount).nodes.values()].filter((n) => n.type === type).map((n) => n.props.title ?? n.props.label ?? n.props.text)
+  const tap = (host: FakeHost, mount: string, type: string, title: string, payload: unknown = { gesture: "g1" }) =>
+    host.dispatch(mount, host.findNode(mount, (n) => n.type === type && (n.props.title ?? n.props.label) === title)!, "tap", payload)
+
+  test("starter: a click redraws its text and Say hi toasts", async () => {
+    const host = new FakeHost(load("starter"), init)
+    host.handlers["toast.show"] = ok()
+    expect(host.mount("m", "renderSection")).toBe("")
+    tap(host, "m", "Button", "Click")
+    await host.settle()
+    expect(titles(host, "m", "Text")).toContain("Clicked 1 times")
+    tap(host, "m", "Button", "Say hi")
+    await host.settle()
+    expect(host.calls.find((c) => c.name === "toast.show")?.params).toEqual({ title: "Hi from my section", tone: "success" })
+  })
+
+  test("sidebar-section: the focused workspace's tabs, read again on a tab change, a click focuses", async () => {
+    const host = new FakeHost(load("sidebar-section"), init)
+    let tabs = [
+      { id: "tab_1", pane_id: "pane_1", name: "zsh", index: 0, focused: true, content_kind: "terminal" },
+      { id: "tab_2", pane_id: "pane_1", name: null, index: 1, focused: false, content_kind: "browser" }
+    ]
+    host.handlers["workspace.list"] = ok([{ id: "workspace_0", name: "web", focused: false }, { id: "workspace_1", name: "api", focused: true }])
+    host.handlers["tab.list"] = (p) => ({ ok: true, body: { value: p.workspace === "workspace_1" ? tabs : [] } })
+    host.handlers["tab.focus"] = ok()
+    expect(host.mount("m", "renderWorkspace")).toBe("")
+    await host.settle()
+    expect(titles(host, "m", "Text")).toContain("api")
+    expect(titles(host, "m", "Row")).toEqual(["zsh", "browser"])
+    tabs = [...tabs, { id: "tab_3", pane_id: "pane_1", name: "logs", index: 2, focused: false, content_kind: "terminal" }]
+    host.emit("tab.changed")
+    await host.settle()
+    expect(titles(host, "m", "Row")).toEqual(["zsh", "browser", "logs"])
+    tap(host, "m", "Row", "logs", { gesture: "g7" })
+    await host.settle()
+    const focus = host.calls.find((c) => c.name === "tab.focus")!
+    expect([focus.params, focus.options.gesture]).toEqual([{ tab: "tab_3" }, "g7"])
+  })
+
+  test("command-button: a button runs the person's own action with the click's gesture", async () => {
+    const host = new FakeHost(load("command-button"), init)
+    host.handlers["action.run"] = ok()
+    expect(host.mount("m", "renderCommands")).toBe("")
+    tap(host, "m", "Button", "Run tests", { gesture: "g2" })
+    await host.settle()
+    const run = host.calls.find((c) => c.name === "action.run")!
+    expect([run.params, run.options.gesture]).toEqual([{ id: "cmuxConfig.tests", args: {} }, "g2"])
+    expect(titles(host, "m", "Row")).toEqual(["Ran Run tests"])
+  })
+
+  test("command-button: with actions:run off a click says which switch to turn on", async () => {
+    const host = new FakeHost(load("command-button"), init)
+    host.handlers["action.run"] = () => ({ ok: false, body: { code: "scope.missing", message: "actions:run is not granted", retryable: false } })
+    host.handlers["toast.show"] = ok()
+    host.mount("m", "renderCommands")
+    tap(host, "m", "Button", "Git status")
+    await host.settle()
+    expect(host.calls.find((c) => c.name === "toast.show")?.params.title).toBe("Turn on Run actions for My views")
+  })
+
+  test("pane: the checklist adds, checks and saves, and the sidebar row opens the pane", async () => {
+    const host = new FakeHost(load("pane"), init)
+    const saved: unknown[] = []
+    host.handlers["app.storage.get"] = ok([{ id: "a", text: "Ship it", done: false }])
+    host.handlers["app.storage.set"] = (p) => (saved.push(p.value), { ok: true, body: { value: null } })
+    host.handlers["action.run"] = ok()
+    expect(host.mount("p", "renderPane")).toBe("")
+    expect(host.mount("s", "renderOpener")).toBe("")
+    await host.settle()
+    expect(titles(host, "p", "Toggle")).toEqual(["Ship it"])
+    host.dispatch("p", host.findNode("p", (n) => n.type === "TextField")!, "submit", { text: "Write docs" })
+    await host.settle()
+    expect(titles(host, "p", "Toggle")).toEqual(["Ship it", "Write docs"])
+    host.dispatch("p", host.findNode("p", (n) => n.type === "Toggle" && n.props.label === "Ship it")!, "change", { value: true })
+    await host.settle()
+    expect(saved.at(-1)).toEqual([{ id: "a", text: "Ship it", done: true }, expect.objectContaining({ text: "Write docs", done: false })])
+    expect(titles(host, "s", "Row")).toEqual(["Scratchpad · 1 left"])
+    tap(host, "s", "Row", "Scratchpad · 1 left", { gesture: "g3" })
+    await host.settle()
+    const open = host.calls.find((c) => c.name === "action.run")!
+    expect([open.params, open.options.gesture]).toEqual([{ id: "app.open", args: { app: "local/customize" } }, "g3"])
+  })
+})

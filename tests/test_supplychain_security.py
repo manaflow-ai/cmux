@@ -14,6 +14,10 @@ WORKFLOWS = ROOT / ".github/workflows"
 SHA256_IMAGE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 
 
+# The Blacksmith outage failover reads a variable but only ever picks another
+# Blacksmith Linux size (an ephemeral VM, never a persistent runner).
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && fromJSON\(vars\.RUNNER_POOLS\)\.linux(?:_\d+)? \|\| ")
+
 def workflow(name: str) -> dict:
     return yaml.load((WORKFLOWS / name).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
@@ -109,6 +113,52 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
         )
         if has_merge_group:
             assert "merge_group" in environment
+
+
+def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> None:
+    jobs = workflow("cloud-vm-dogfood.yml")["jobs"]
+    smoke = jobs["public-installer-smoke"]
+    installer = jobs["installer"]
+    journey = jobs["journey"]
+
+    assert smoke.get("environment") is None
+    assert "secrets." not in yaml.dump(smoke)
+    assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", smoke["runs-on"]))
+    assert "https://cmux.com/tui/install.sh" in run_text(smoke)
+    assert "CMUX_TUI_INSTALL_MS" in run_text(smoke)
+    assert any("actions/upload-artifact@" in str(step.get("uses", "")) for step in smoke["steps"])
+
+    assert installer.get("environment") is None
+    assert installer.get("needs") == "public-installer-smoke"
+    assert (installer.get("permissions") or {}).get("attestations") == "read"
+    assert "secrets." not in yaml.dump(installer)
+    assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", installer["runs-on"]))
+    installer_script = run_text(installer)
+    assert "gh attestation verify" in installer_script
+    assert "--source-ref refs/heads/main" in installer_script
+    assert "sourceRepositoryDigest" in installer_script
+    assert "latest/manifest.json" not in installer_script
+    assert "$RUNNER_TEMP/public-cmux/cmux" in installer_script
+    assert 'cmux-tui/$commit/$artifact' not in installer_script
+    assert any("actions/download-artifact@" in str(step.get("uses", "")) for step in installer["steps"])
+    assert any("actions/upload-artifact@" in str(step.get("uses", "")) for step in installer["steps"])
+
+    assert journey.get("needs") == "installer"
+    # NEXT Cloud: the cmux VM API's own environments, never classic cloud-vm-*.
+    assert journey.get("environment") == "cmux-vm-${{ inputs.target }}"
+    assert "/api/vm" not in yaml.dump(journey)
+    assert "scripts/cmux-next/cloud-vm-dogfood-journey.ts" in run_text(journey)
+    assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", journey["runs-on"]))
+    assert "STACK_SECRET_SERVER_KEY" not in yaml.dump(journey)
+    assert "CMUX_VM_SMOKE_API_KEY" not in (journey.get("env") or {})
+    assert any("actions/download-artifact@" in str(step.get("uses", "")) for step in journey["steps"])
+    assert "CMUX_TUI_INSTALL_MS" in run_text(journey)
+    secret_steps = [
+        step for step in journey["steps"]
+        if any("secrets." in str(value) and "!= ''" not in str(value) for value in (step.get("env") or {}).values())
+    ]
+    assert len(secret_steps) == 1
+    assert secret_steps[0].get("name") == "Journey"
 
 
 def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
@@ -216,6 +266,7 @@ if __name__ == "__main__":
     test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_runners()
     test_pull_request_target_jobs_never_receive_oidc()
     test_dispatchable_jobs_with_external_credentials_use_environments()
+    test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job()
     test_environment_secret_rollout_keeps_untrusted_jobs_secretless()
     test_ci_and_deployment_container_images_are_digest_pinned()
     test_vendored_stack_auth_records_origin_patch_and_license_status()

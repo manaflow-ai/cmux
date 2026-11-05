@@ -315,7 +315,7 @@ function DeclinedLine({ row, person }: { row: AcpmuxRow; person?: Participant })
       <button type="button" className="cv-declined__line" aria-expanded={open} onClick={toggle}>
         {person && <Face person={person} size={14} />}
         <span className="cv-declined__text">{t("queue.held.declined", { preview: messagePreview(text) })}</span>
-        <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${open ? " is-open" : ""}`} />
+        <ChevronRight size={14} className={`cv-rotor${open ? " is-open" : ""}`} />
       </button>
       {open && <div className="cv-received__body cv-declined__body selectable">{text}</div>}
     </div>

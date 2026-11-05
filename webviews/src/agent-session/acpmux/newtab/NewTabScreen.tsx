@@ -6,7 +6,8 @@ import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
-import type { DictationField } from "../dictation";
+import type { CloudMachine } from "../cloudMachines";
+import { isActive, type Dictation, type DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import { acpmuxPerf } from "../perf";
 import type { AcpmuxSnapshot } from "../model";
@@ -265,6 +266,7 @@ type Props = NewTabScreenActions & {
   /// can copy it (cloud.startChat copies only the pane's own folders, AgentPaneHandOff), while the
   /// Return that sends keeps its own gesture for the start.
   onProjectPicked?(cwd: string): void;
+  onCloudMachinePicked?(machine: CloudMachine | undefined): void;
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
@@ -312,6 +314,10 @@ type Props = NewTabScreenActions & {
   dictationField?: React.MutableRefObject<DictationField | null>;
   /// A dictation session is waiting for words: the empty field reads "Listening…" in italic.
   dictating?: boolean;
+  /// The page's dictation: while a session runs, Send (or Return) ends it and sends once its last
+  /// words land, the one send while dictating (Leo 2026-11-05: "The dictate button has its own send
+  /// button. We don't need that.").
+  dictation?: Dictation;
   /// On this Mac: where the files of the person's drop or paste are, so a folder or a file no prompt
   /// block takes goes with the first prompt as a link to it (the page has no upload to save one).
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
@@ -378,6 +384,8 @@ export function NewTabScreen(props: Props) {
   const [selected, setSelected] = useState<string | undefined>(undefined);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
+  /// A dictation session runs: Send ends it and sends (submit).
+  const listening = !shell && props.dictation !== undefined && isActive(props.dictation.state);
   const [seeded, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
@@ -553,6 +561,8 @@ export function NewTabScreen(props: Props) {
   // The input card, which a file drag rings (composer/DropOverlay.tsx).
   const dropLandingTarget = useCallback(() => fieldElement()?.closest(".nt-box") ?? null, []);
   const submitNow = useRef(() => {});
+  /// Set while the send a finished dictation session waited for goes (submit, below).
+  const dictationEnded = useRef(false);
   const continueAfterSetup = useRef<(harness: string) => void>(() => {});
   const openSetup = () => {
     if (props.onSetup) props.onSetup((agent) => continueAfterSetup.current(agent));
@@ -1159,6 +1169,19 @@ export function NewTabScreen(props: Props) {
     );
   };
   const submit = () => {
+    // A dictation session still running ends first, keeping its words; this goes once they land.
+    if (listening && props.dictation && !dictationEnded.current) {
+      props.dictation.finish(() => {
+        // The session is over even if this render has not heard so yet.
+        dictationEnded.current = true;
+        try {
+          submitNow.current();
+        } finally {
+          dictationEnded.current = false;
+        }
+      });
+      return;
+    }
     const prompt = typed.trim();
     if (command.intercept(prompt, harness, attachments.length, true)) return;
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
@@ -1445,6 +1468,9 @@ export function NewTabScreen(props: Props) {
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
     setBrowseError(undefined);
+    // A folder choice starts this draft on this Mac. Drop any account Cloud target selected
+    // earlier so the next keystroke cannot wake that stale machine.
+    props.onCloudMachinePicked?.(undefined);
     // A folder picked anywhere on the page (a widget card's project) replaces a saved environment,
     // and is on this Mac.
     saved.pick(undefined);
@@ -1465,6 +1491,8 @@ export function NewTabScreen(props: Props) {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
     setBrowseError(undefined);
+    // Choosing a local or SSH machine replaces an account Cloud target for this draft.
+    props.onCloudMachinePicked?.(undefined);
     saved.pick(undefined);
     touch();
     // A machine picked with a folder there (the location row picks its first known folder) is a
@@ -1645,6 +1673,7 @@ export function NewTabScreen(props: Props) {
         {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
         {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
         onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
+        {...(props.onCloudMachinePicked ? { onCloudMachinePicked: props.onCloudMachinePicked } : {})}
         {...(props.machineName ? { localName: props.machineName } : {})}
         projectChoices={props.projects ?? []}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
@@ -1665,6 +1694,8 @@ export function NewTabScreen(props: Props) {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
                   touch();
+                  // Saved environments are local/SSH destinations, never account Cloud machines.
+                  props.onCloudMachinePicked?.(undefined);
                   // A local one starts on this Mac: a machine picked before is no longer where.
                   if (saved.list.find((other) => other.id === id)?.kind === "local") setMachine(undefined);
                   saved.pick(id);
@@ -1673,6 +1704,7 @@ export function NewTabScreen(props: Props) {
                 onClear: () => {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
+                  props.onCloudMachinePicked?.(undefined);
                   saved.pick(undefined);
                 },
                 onCreate: () => saved.edit(null),
@@ -1706,7 +1738,10 @@ export function NewTabScreen(props: Props) {
       machines={sshMachines}
       machineFolders={machineFolders}
       {...(props.onConnect ? { onConnectSSH: () => props.onConnect!("ssh") } : {})}
-      onSave={saved.save}
+      onSave={async (draft) => {
+        await saved.save(draft);
+        props.onCloudMachinePicked?.(undefined);
+      }}
       onRemove={saved.remove}
       onClose={() => {
         saved.edit(undefined);
@@ -1746,7 +1781,8 @@ export function NewTabScreen(props: Props) {
               }
               aria-label={t("composer.send")}
               title={t("composer.sendTooltip")}
-              disabled={!text.trim() && attachments.length === 0 && reading.length === 0}
+              // While dictating, Send ends the session and sends what it heard.
+              disabled={!listening && !text.trim() && attachments.length === 0 && reading.length === 0}
               data-starting={starting !== undefined ? "" : undefined}
               onClick={send}
             >

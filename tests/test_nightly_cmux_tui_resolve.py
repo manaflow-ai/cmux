@@ -65,7 +65,9 @@ outputs = re.search(r"^    outputs:\n((?:^      .*\n)+)", job, re.MULTILINE)
 for name in ("commit", "key", "source_commit"):
     check(bool(outputs) and re.search(rf"^      {name}:", outputs.group(1), re.MULTILINE) is not None,
           f"resolve-nightly-cmux-tui-client must output {name}")
-timeout = re.search(r"^    timeout-minutes: (\d+)", job, re.MULTILINE)
+# With one-mini mode off: the smaller limit (one-mini mode adds room for glaeda's capacity wait before
+# the job starts, tests/test_nightly_mini_gate_timeouts.py).
+timeout = re.search(r"^    timeout-minutes: (?:\$\{\{ vars\.CI_NIGHTLY_MINI != '' && \d+ \|\| )?(\d+)", job, re.MULTILINE)
 # It waits on nothing but GitHub's API budget: 60 of its minutes are the hour gh_budget_wait.sh may
 # wait for a rate-limit reset (tests/test_gh_budget_wait.py); its own work stays within 20.
 budget_wait = 60 if "scripts/ci/gh_budget_wait.sh --install" in job else 0
@@ -103,8 +105,9 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # visual-gate-nightly-verdict only the mode script to read the gate's job; the
 # gate itself checks out the resolved build commit.
 # The advisory attester uses workflow controls and the already-built artifact;
-# its checkout contributes no shipped bytes.
-exempt = {"attest-nightly-remote-daemon", "decide", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
+# its checkout contributes no shipped bytes. republish-nightly-next runs this
+# workflow's fetch script against another run's already-verified artifacts.
+exempt = {"republish-nightly-next", "attest-nightly-remote-daemon", "decide", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
           "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
           "sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "verify-nightly-identity-legacy-pool",
           "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}

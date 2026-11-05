@@ -250,7 +250,11 @@ public nonisolated enum DropZoneGeometry {
     /// the pane body below its tab bar inset 4 pt for center; a half for an
     /// edge, inset 4 pt on its three outer sides and meeting the midline.
     /// The half is the size the split gives the new pane (0.5).
-    public static func classicPaneHighlight(body: CGRect, zone: PaneDropZone, padding: CGFloat = 4) -> CGRect {
+    /// The inset of a pane zone's highlight inside the pane's body (classic cmux's 4 pt); its
+    /// corner is the pane's less this (`LayoutRootView` tab drops, `ConcentricCorners`).
+    public static let classicPanePadding: CGFloat = 4
+
+    public static func classicPaneHighlight(body: CGRect, zone: PaneDropZone, padding: CGFloat = classicPanePadding) -> CGRect {
         let (x, y, w, h) = (body.minX, body.minY, body.width, body.height)
         let rect: CGRect = switch zone {
         case .center: CGRect(x: x + padding, y: y + padding, width: w - padding * 2, height: h - padding * 2)

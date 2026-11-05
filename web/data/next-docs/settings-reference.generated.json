@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 567,
+  "count": 574,
   "sections": [
     {
       "id": "general",
@@ -1494,6 +1494,14 @@
           ]
         },
         {
+          "key": "updates.oneClickInstall",
+          "title": "Update in One Click",
+          "help": "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
+        },
+        {
           "key": "updates.showFeatureTips",
           "title": "Show Feature Tips",
           "help": "Now and then, a small tip points at a feature an update added. Close it or use the feature and it never comes back.",
@@ -1789,6 +1797,27 @@
           ]
         },
         {
+          "key": "agentPane.display.statusVerbs.custom",
+          "title": "Custom Working Verbs",
+          "help": "Comma-separated -ing verbs for the live status line.",
+          "kind": "text",
+          "default": null,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.statusVerbs.mode",
+          "title": "Working Status Verbs",
+          "help": "Choose whether the live status line rotates through verbs or stays on Thinking.",
+          "kind": "choice",
+          "default": "thinking",
+          "group": "Agent Chat",
+          "values": [
+            "thinking",
+            "rotate",
+            "custom"
+          ]
+        },
+        {
           "key": "agentPane.display.transcriptView",
           "title": "Transcript View",
           "help": "How much of each turn a chat shows. Normal folds thinking and tool output; Thinking opens thinking; Verbose also opens tool output. A chat's ··· menu changes its own view.",
@@ -1800,6 +1829,27 @@
             "thinking",
             "verbose"
           ]
+        },
+        {
+          "key": "agentPane.display.trayHandle",
+          "title": "Running Tray Handle",
+          "help": "Where the handle that tucks the running tray away and brings it back sits along the top of the composer.",
+          "kind": "choice",
+          "default": "middle",
+          "group": "Agent Chat",
+          "values": [
+            "left",
+            "middle",
+            "right"
+          ]
+        },
+        {
+          "key": "agentPane.display.trayTucked",
+          "title": "Tuck Away Running Tray",
+          "help": "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.vscodeMinimap",
@@ -2869,6 +2919,14 @@
           "group": "App Theme"
         },
         {
+          "key": "appearance.themeFile",
+          "title": "Theme File",
+          "help": "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
+          "kind": "text",
+          "default": null,
+          "group": "App Theme"
+        },
+        {
           "key": "appearance.wallpaperTint",
           "title": "Tint with Desktop Wallpaper",
           "help": "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
@@ -3056,6 +3114,19 @@
           }
         },
         {
+          "key": "layout.cornerPadding",
+          "title": "Corner Padding",
+          "help": "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this.",
+          "kind": "number",
+          "default": null,
+          "group": "Panes",
+          "range": {
+            "min": 0,
+            "max": 12,
+            "unit": "points"
+          }
+        },
+        {
           "key": "layout.paneBorder",
           "title": "Border",
           "help": "",
@@ -3091,7 +3162,7 @@
         {
           "key": "layout.paneCornerRadius",
           "title": "Corner Radius",
-          "help": "",
+          "help": "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
           "kind": "number",
           "default": null,
           "group": "Panes",

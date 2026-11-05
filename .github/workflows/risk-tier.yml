@@ -71,7 +71,7 @@ jobs:
           NUMBER: ${{ github.event.pull_request.number }}
         run: |
           python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" ${BASE_HISTORY:+--repo-dir "$BASE_HISTORY"} \
-            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+            --event "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
       # The label is a convenience; the check's verdict is the gate, so a label API error never fails it.
       - name: Set the risk label
         continue-on-error: true
@@ -81,18 +81,25 @@ jobs:
           NUMBER: ${{ github.event.pull_request.number }}
           LABEL: ${{ steps.grade.outputs.label }}
         run: |
-          for tier in low normal high; do
-            gh label create "risk:$tier" --repo "$REPO" --color "$(case $tier in low) echo 0E8A16;; normal) echo FBCA04;; high) echo B60205;; esac)" \
-              --description "Risk tier (docs/ci/risk-tiers.md)" 2>/dev/null || true
-          done
-          gh label create "risk:human-ok" --repo "$REPO" --color 5319E7 \
-            --description "A maintainer looked at this high-risk PR (agents never add it)" 2>/dev/null || true
+          # The tier labels exist: they are created only when adding one fails (a fork, a deleted
+          # label). Creating all four on every run cost four refused REST calls, about 400 an hour.
+          create_labels() {
+            for tier in low normal high; do
+              gh label create "risk:$tier" --repo "$REPO" --color "$(case $tier in low) echo 0E8A16;; normal) echo FBCA04;; high) echo B60205;; esac)" \
+                --description "Risk tier (docs/ci/risk-tiers.md)" 2>/dev/null || true
+            done
+            gh label create "risk:human-ok" --repo "$REPO" --color 5319E7 \
+              --description "A maintainer looked at this high-risk PR (agents never add it)" 2>/dev/null || true
+          }
           current=$(gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')
           # risk:medium is the old name for risk:normal.
           for old in $(grep -E '^risk:(low|medium|normal|high)$' <<<"$current" || true); do
             [ "$old" = "$LABEL" ] || gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old"
           done
-          grep -qx "$LABEL" <<<"$current" || gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"
+          if ! grep -qx "$LABEL" <<<"$current"; then
+            gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL" ||
+              { create_labels; gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"; }
+          fi
       # Since cmuxterm-hq#5745 only an unowned takeback keeps this check red: a squash from a stale base
       # that quietly reverts a change merged in the last week is real breakage. A BLOCK (or an unreadable
       # verdict) on a high head only warns here, since every pull request already lands only on an

@@ -10,6 +10,7 @@ Running apps can pick up edits to them without a Swift build or a relaunch, two 
 |---|---|
 | Your edits live in your app | `scripts/cmux-next/web-overlay.sh server --local` |
 | Another worktree's edits live | `scripts/cmux-next/web-overlay.sh server --local --worktree <path>` |
+| A worktree's web UI in one window of your app, the others untouched | `scripts/cmux-next/projection.sh open <worktree> [--test CMD]` ([below](#a-projection-window)) |
 | A pull request's web UI, live | `scripts/cmux-next/web-overlay.sh follow <PR>` (again after each push) |
 | Try any pull request the cheapest way | `scripts/cmux-next/try-pr.sh <PR>`: live when it can be, else it names the dev build |
 | The web UI of every merge, no checkout | Settings > Updates > Web UI Updates > **Every Merge** |
@@ -62,6 +63,27 @@ While a dev server serves, the Content Security Policy is looser. Pages also all
 server's own policy, which allows inline scripts and loopback WebSockets and frames on any port.
 An overlay keeps the shipped policy.
 
+### A projection window
+
+```sh
+scripts/cmux-next/projection.sh open ~/src/cmux-wt --test 'bun test src/settings/theme.test.ts'
+```
+
+starts the worktree's webviews dev server on a port of its own (4290-4389) and runs **Debug > Open
+Projection Window** (`debug.projection`): a new window of the running app whose pages and agent panes
+load from that server. It is a real window of your app, so it has your settings, theme, backdrop,
+keys and the live daemon's terminals; its first workspace is in the worktree and shows the New Tab
+page, which is native: pass `--page settings` (or `history`, `keybindings`, ...) to open a web page
+there too. Saving a web
+file in the worktree hot-reloads that window only (Vite HMR; React Fast Refresh keeps component
+state). Your other windows keep their pages, and `web-dev.json` is not touched. While a projection
+is open, newly opened pages use WebKit in every window, as with `web-dev.json`. Settings, theme and
+keybinding edits in `cmux-next.json` apply to every window live, the projection included.
+
+**Debug > Run Projection Test** (`debug.projection.runTest`, or `projection.sh test [CMD]`) runs the
+`--test` command in a new workspace of the projection window, in the worktree, and keeps its output.
+`projection.sh stop <worktree>` stops the server; closing the window ends the projection.
+
 ### A pull request
 
 ```sh
@@ -80,18 +102,55 @@ you have read its `webviews/` changes and add `--fork`.
 ### Try a pull request without knowing what it changed
 
 ```sh
-scripts/cmux-next/try-pr.sh <PR>            # --dry-run to only look, --build to request the dev build
+scripts/cmux-next/try-pr.sh <PR>            # --here for your own app, --dry-run to only look
+scripts/cmux-next/try-pr.sh <PR> --stop     # quit and remove its side instance
 ```
 
-reads the PR's diff with git and takes the cheapest path. A web-only PR goes straight to
-`web-overlay.sh follow`, so the running app shows it in seconds with no build. A PR that changes
-only CI, tests or docs is reported as nothing to try. A PR that changes the daemon, Swift, a
-resource or a manifest needs a new binary: the script says why (a stored property, a changed
-signature, a new file, and so on), and with `--build` it requests the fleet dev build tagged `pr-<N>`.
-The rules are in `scripts/cmux-next/live_apply.py`. Over the last 3,895 NEXT-era PRs, about half of
-the ones that touch the app changed only web code or nothing in the app, so they need no new binary.
-A Swift change confined to function bodies could be injected live once the app takes live code
-(the view shell does today); until then it takes the dev build.
+reads the PR's diff with git and takes the cheapest path, in a side instance by default: a copy
+of your cmux NEXT named "cmux PR #N" with its own bundle id, data, settings and web overlay
+(`scripts/cmux-next/side-instance.sh`), so your app's data, sessions and settings stay apart. The copy
+starts signed out with fresh settings and never updates itself; cmux links still open your app.
+Like every cmux build on the Mac, it shares two folders with your app: `agent-home` (the folder a
+chat with no folder runs in, so its Home chats see your Home chats' files) and `Chat Uploads`.
+`try-pr.sh <PR> --stop` quits it with its terminal daemon and deletes it and the data it kept.
+
+- A web-only PR is patched in: the side instance opens and `web-overlay.sh follow` serves the PR's
+  web UI to it, with no build. Later pushes and edits hot-reload.
+- A PR that changes only CI, tests or docs is reported as nothing to try.
+- A PR that changes the daemon, Swift, a resource or a manifest needs a new binary: the script says
+  why (a stored property, a changed signature, a new type in an existing file, and so on), requests the fleet dev build
+  tagged `pr-<N>`, waits for it and opens that build as the side instance. `--no-build` stops at
+  the verdict.
+
+`--here` patches your running app instead (web-only PRs) and, for a rebuild, only says where the
+build is. The rules are in `scripts/cmux-next/live_apply.py`. Over the last 3,895 NEXT-era PRs,
+about half of the ones that touch the app changed only web code or nothing in the app, so they
+need no new binary. A Swift change confined to function bodies and new files could be injected live once the
+app takes live code (the view shell does today); until then it takes the dev build.
+`scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
+loading in the side instance.
+
+### An agent's loop: apply, probe, roll back
+
+```sh
+scripts/cmux-next/live-apply.py --probe 'CMD'   # --base SHA (the app's CMUXCommit), --repo DIR, --dry-run
+```
+
+applies this checkout's working tree (tracked edits and untracked files) to the running app with the
+cheapest rung that covers it, runs `CMD` until it exits 0 or `--probe-seconds` (30) runs out, rolls
+back to the previous overlay generation when it does not, and prints one JSON line an agent reads
+before its next edit:
+
+```json
+{"rung": "R0", "applied": true, "probe": "pass", "seconds": 41.2, "rolled_back": false, "verdict": "web-live", "needs": null, ...}
+```
+
+Today the one rung is R0, web bundles (built with `web-overlay.sh build` and swapped in, same
+process). A Swift, daemon or rebuild change applies nothing and says what it needs (exit 3); Swift
+function bodies join once the app's live Swift loader lands (hq#7149 R2). The overlay must be on in
+Debug Settings (Live web reload). `scripts/measure/agent-loop.sh` runs the whole loop on the newest
+NIGHTLY: a scripted Settings change, applied, probed through the app's `errors.list` (the page logs a
+nonce), then a failed probe that must roll back, with the app the same process throughout.
 
 ### No dev server: built bundles
 

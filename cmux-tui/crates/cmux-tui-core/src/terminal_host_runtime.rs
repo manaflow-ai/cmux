@@ -644,6 +644,8 @@ mod unix {
 #[cfg(any(unix, windows))]
 pub use shared::attachment::HostAttachment;
 pub(crate) use shared::attachment::HostInputRoute;
+#[cfg(unix)]
+pub(crate) use shared::attachment::INLINE_FRAME_MAX;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::attachment::launch::adopt_terminal_host_with_kitty_limits;
 #[cfg(any(unix, windows))]
@@ -654,6 +656,8 @@ pub use shared::attachment::launch::{
 pub(crate) use shared::attachment::launch::{
     launch_terminal_host_from, launch_terminal_host_seeded,
 };
+#[cfg(all(test, target_vendor = "apple"))]
+pub(crate) use shared::attachment::room_check_queues;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::clipboard_read::ClipboardReadSignal;
 #[cfg(any(unix, windows))]

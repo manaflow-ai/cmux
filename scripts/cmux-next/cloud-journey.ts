@@ -12,7 +12,9 @@
  *     new-machine, machine-status, exec, start-session, start-chat --wait, kill-machine; cmux#35086)
  *
  * It signs in as the agent test account (Stack password sign-in; CMUX_DOGFOOD_STACK_EMAIL and
- * CMUX_DOGFOOD_STACK_PASSWORD from the environment or a KEY=value --credentials file) and walks the
+ * CMUX_DOGFOOD_STACK_PASSWORD from the environment or a KEY=value --credentials file; or, in a GitHub Actions
+ * job with `id-token: write`, --sign-in oidc: the job's OIDC token for a short session, no stored password,
+ * hq#7076) and walks the
  * same routes the app and the cmux CLI use, against the cmux API Worker (which forwards Cloud ops to
  * cmux-platform):
  *
@@ -170,6 +172,26 @@ async function http(method: string, url: string, body: unknown, headers: Record<
 
 const short = (v: unknown) => JSON.stringify(v ?? null).slice(0, 300);
 
+/**
+ * --sign-in oidc: the GitHub Actions job's OIDC token (audience: the API origin) traded at the API's
+ * POST /v1/auth/github-actions for a short Stack session of the one test account the API trusts that job
+ * with (backend/apps/api/src/ci-session.ts). Both tokens are pushed to `secrets` before anything can print.
+ */
+export async function oidcSignIn(apiOrigin: string, env: Record<string, string | undefined>, secrets: string[], fetchJson: typeof http = http): Promise<{ token: string; user: string; expiresAt: string }> {
+  const url = env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const bearer = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if (!url || !bearer) throw new Error("no GitHub Actions OIDC token: the job needs `permissions: id-token: write`");
+  secrets.push(bearer);
+  const sep = url.includes("?") ? "&" : "?";
+  const gh = await fetchJson("GET", `${url}${sep}audience=${encodeURIComponent(apiOrigin)}`, undefined, { authorization: `bearer ${bearer}` });
+  if (gh.status !== 200 || typeof gh.body.value !== "string") throw new Error(`GitHub OIDC token HTTP ${gh.status}`);
+  secrets.push(gh.body.value);
+  const r = await fetchJson("POST", `${apiOrigin}/v1/auth/github-actions`, undefined, { authorization: `Bearer ${gh.body.value}` });
+  if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`OIDC sign-in HTTP ${r.status} ${String(r.body.error ?? "")}`);
+  secrets.push(r.body.access_token);
+  return { token: r.body.access_token, user: String(r.body.user ?? "?"), expiresAt: String(r.body.session_expires_at ?? "?") };
+}
+
 class Api {
   bearer = "";
   constructor(readonly origin: string, readonly team?: string) {}
@@ -255,13 +277,22 @@ function directExec(api: Api, machine: string, journey: Journey): Exec {
   };
 }
 
-/** `cmux machine access exec` with the same credential: the journey drives the real CLI. */
+/** `cmux machine access exec` with the same credential: the journey drives the real CLI, which takes the
+ * machine exec route itself on a machine whose provider has no client sessions (a VM API machine). */
 function cliExec(cmux: string, api: Api, machine: string): Exec {
   return async (command, timeoutMs = 60_000) => {
     const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
-    const args = ["machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", "sh", "-c", command];
+    const args = ["--json", "machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", command];
     const done = spawnSync(cmux, args, { env, encoding: "utf8", timeout: timeoutMs + 30_000 });
     if (done.error) throw new Error(`${cmux}: ${done.error.message}`);
+    try {
+      const result = JSON.parse(done.stdout ?? "");
+      if (Number.isInteger(result?.exit_code)) {
+        return { code: Number(result.exit_code), stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
+      }
+    } catch {
+      // Preserve the raw CLI answer below when it did not produce its JSON contract.
+    }
     return { code: done.status ?? 1, stdout: done.stdout ?? "", stderr: done.stderr ?? "" };
   };
 }
@@ -356,6 +387,29 @@ export function loginPrograms(installerSwift: string, provider: "claude" | "code
   };
 }
 
+/** What the preflight checks, one by one, for a refusal's message: the kind record, the image's launchers, the exec user. */
+export const PREFLIGHT_PROBE =
+  `printf 'vm-kind=%s agent-auth.sh=%s user=%s' "$(head -c 64 /etc/cmux/vm-kind 2>/dev/null | tr -d '[:space:]')" ` +
+  `"$([ -f /etc/cmux/agent-auth.sh ] && echo yes || echo no)" "$(id -un)"`;
+
+/**
+ * Run the preflight until it passes or `budgetMs` runs out. On a VM API machine nothing writes /etc/cmux/vm-kind
+ * at create: the guest's cmux-host writes it once it is bound (record_owner_kind), which can land after the
+ * machine reads running and takes its first exec. A refusal that outlasts the budget names the failing check.
+ */
+export async function waitPreflight(exec: Exec, program: string, kinds: string, budgetMs = 90_000, pauseMs = 3_000, pause = sleep): Promise<{ waitedMs: number; tries: number }> {
+  const t0 = Date.now();
+  for (let tries = 1; ; tries++) {
+    const pre = await exec(program);
+    if (pre.code === 0) return { waitedMs: Date.now() - t0, tries };
+    if (Date.now() - t0 + pauseMs >= budgetMs) {
+      const seen = await exec(PREFLIGHT_PROBE).then((r) => r.stdout.trim(), (error) => `probe failed: ${(error as Error).message}`);
+      throw new Error(`preflight exit ${pre.code} after ${tries} tries in ${Math.round((Date.now() - t0) / 1000)} s: not an ${kinds} machine with the image's launchers (${seen})`);
+    }
+    await pause(pauseMs);
+  }
+}
+
 /** CloudCredentialTransfer.validate: what the app accepts as a login to copy, per provider. */
 export function validLogin(provider: "claude" | "codex", value: string): boolean {
   if (Buffer.byteLength(value) > 12_000) return false;
@@ -381,6 +435,52 @@ export function stubCodexAuth(seed = randomBytes(16).toString("hex"), now = new 
   return JSON.stringify({ OPENAI_API_KEY: null, tokens: { id_token: jwt({}), access_token: jwt({ jti: `journeystub-${seed}` }), refresh_token: `journeystub-refresh-${seed}`, account_id: "acct_journeystub" }, last_refresh: now.toISOString() });
 }
 
+/**
+ * --model stub, Codex: the Python program (argv: the stub's port, then config.toml, by default the work user's) that
+ * points Codex at the stub. A model provider on the stub's /v1 that uses the ChatGPT sign-in, and:
+ * - model "stub-model": a catalog model (the default) gets Code Mode, one JavaScript exec tool sent as an
+ *   additional_tools input item the stub cannot answer; a model Codex does not know gets the plain exec_command tool;
+ * - chatgpt_base_url on the stub, the apps, plugins and remote_plugin features off and analytics off, so the made-up
+ *   sign-in never reaches chatgpt.com (whose 401s would also send Codex to refresh it at auth.openai.com).
+ * An active profile's model and provider would win over these, so the root profile key goes (the [profiles.*] tables
+ * stay). The image's other settings stay. TOML refuses a table defined twice, so the keys go into the [features] and
+ * [analytics] tables the file already has, and a second run replaces its own provider table.
+ */
+export const CODEX_STUB_CONFIG = String.raw`import pathlib, re, sys
+port = sys.argv[1]
+p = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else '/home/cmux/.codex/config.toml')
+lines = p.read_text().splitlines() if p.exists() else []
+header = re.compile(r'\s*\[\s*([^\]]+?)\s*\]\s*(#.*)?$')
+tables = {'features': {'apps': 'false', 'plugins': 'false', 'remote_plugin': 'false'}, 'analytics': {'enabled': 'false'}}
+root = {'model': '"stub-model"', 'model_provider': '"journeystub"', 'chatgpt_base_url': '"http://127.0.0.1:' + port + '/backend-api/"'}
+def assigns(line, keys):
+    m = re.match(r'\s*([A-Za-z0-9_-]+)\s*=', line)
+    return bool(m) and m.group(1) in keys
+out, table, seen = [], None, set()
+for line in lines:
+    m = header.match(line)
+    if m:
+        table = m.group(1)
+        if table == 'model_providers.journeystub':
+            continue
+        out.append(line)
+        if table in tables and table not in seen:
+            seen.add(table)
+            out += [k + ' = ' + v for k, v in tables[table].items()]
+        continue
+    if table == 'model_providers.journeystub' or assigns(line, {**root, 'profile': ''} if table is None else tables.get(table, {})):
+        continue
+    out.append(line)
+out = [k + ' = ' + v for k, v in root.items()] + out
+for name in tables:
+    if name not in seen:
+        out += ['', '[' + name + ']'] + [k + ' = ' + v for k, v in tables[name].items()]
+out += ['', '[model_providers.journeystub]', 'name = "journey stub"', 'base_url = "http://127.0.0.1:' + port + '/v1"',
+        'wire_api = "responses"', 'requires_openai_auth = true']
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text('\n'.join(out) + '\n')
+print('stub-ready')`;
+
 /** The bearer a harness sends the model endpoint for a copied login: Claude's token, Codex's ChatGPT access token. */
 export function loginBearer(provider: "claude" | "codex", value: string): string {
   return provider === "codex" ? (JSON.parse(value).tokens.access_token as string) : value;
@@ -389,6 +489,17 @@ export function loginBearer(provider: "claude" | "codex", value: string): string
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/** The ids of `cloud list-machines --json` rows that are not deleted. */
+export function machineIds(rows: any[]): string[] {
+  return rows.filter((m) => m && m.status !== "deleted").map((m) => String(m.id ?? m.machine_id ?? "")).filter(Boolean);
+}
+
+/** The ids in `after` that `before` lacks. */
+export function newMachineIds(before: string[], after: string[]): string[] {
+  const seen = new Set(before);
+  return [...new Set(after.filter((id) => !seen.has(id)))];
+}
 
 /**
  * --app-cli PATH: the commands a person runs, through a NEXT build's own CLI (cmux#35086). The `cloud`
@@ -414,16 +525,19 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
     return r;
   };
   const where = (j: any) => j?.api_base_url ?? j?.backend ?? j?.api ?? j?.origin ?? j?.host ?? "app";
-  // A plain name (CloudMachineRequest.isPlainName refuses spaces), unique to this run, so a create that
-  // answered `pending` without an id can still be found and deleted.
-  const appName = `journey-${J.meta.tag}`;
-  const findByName = async (): Promise<string | null> => {
+  // The backend refuses a create with a name ("can't create a machine with a size, idle pause, name or
+  // bootstrap yet"), so the create takes no flags, and a `pending` answer (no id) names nothing this run
+  // could match. Only the id the create answered is ever deleted; after a `pending` answer the machines
+  // that appeared since the create are named for a person to check, never deleted (another create in the
+  // same account may be one of them).
+  // null when the list could not be read (exit code, or the app's list not loaded yet): never diffed as empty.
+  const listIds = (): string[] | null => {
     const r = run(["cloud", "list-machines", "--json"], 60_000);
-    const rows: any[] = r.json?.machines ?? r.json?.items ?? (Array.isArray(r.json) ? r.json : []);
-    // `cloud list-machines --json` rows carry `title` (the app's CloudMachine), the API's `name`.
-    const row = rows.find((m) => (m?.title ?? m?.name) === appName && m.status !== "deleted");
-    return row ? String(row.id ?? row.machine_id) : null;
+    if (r.code !== 0 || r.json?.loaded === false) return null;
+    return machineIds(r.json?.machines ?? r.json?.items ?? (Array.isArray(r.json) ? r.json : []));
   };
+  let before: string[] | null = null;
+  let createRan = false;
   let machine: string | null = null;
   try {
     await J.step("app cli: signed in (cloud list-machines)", async () => {
@@ -436,9 +550,11 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
       return { value: null, detail: `issuer ${where(r.json)}` };
     });
     machine = await J.step("app cli: cloud new-machine", async () => {
-      const r = must("cloud new-machine", run(["cloud", "new-machine", "--name", appName, "--json"], 600_000));
-      const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id ?? (await findByName());
-      if (!id) throw new Error(`no machine id in ${short(r.json)}`);
+      before = listIds();
+      createRan = true;
+      const r = must("cloud new-machine", run(["cloud", "new-machine", "--json"], 600_000));
+      const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id;
+      if (!id) throw new Error(`no machine id in ${short(r.json)}${r.json?.status === "creating" ? " (pending: the create goes on; this run deletes nothing it did not get an id for)" : ""}`);
       return { value: String(id), detail: `${id} via ${where(r.json)}` };
     });
     const target = `machine:${machine}`;
@@ -464,8 +580,17 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
       return { value: null, detail: reply.slice(0, 280) };
     });
   } finally {
-    // Creation continues after a `pending` answer: look for the machine by name for a bounded while.
-    for (let t0 = Date.now(); !machine && Date.now() - t0 < 180_000; await sleep(5000)) machine = await findByName();
+    if (!machine && createRan) {
+      const prior = before as string[] | null; // set inside the create step's closure
+      await J.step("app cli: no machine id to delete", async () => {
+        const after = listIds();
+        if (!prior || !after) throw new Error(`the machine list could not be read ${prior ? "after" : "before"} the create; check the account's machines by hand`);
+        const fresh = newMachineIds(prior, after);
+        throw new Error(fresh.length
+          ? `machines new since the create, not deleted (another create may own one): ${fresh.join(", ")}`
+          : "no machine is new since the create");
+      }).catch(() => undefined);
+    }
     if (machine) {
       const id = machine;
       await J.step("app cli: cloud kill-machine", async () => {
@@ -474,6 +599,20 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
       }).catch(() => undefined);
     }
   }
+}
+
+/** The link_token refusals that mean "this install has no Native device enrollment" (cloud-native-dial.ts details.reason). */
+const NATIVE_ENROLLMENT_REASONS = new Set(["host_missing", "host_unconfirmed", "proof_missing"]);
+
+/**
+ * The skip reason when a link_token answer refused only for want of a Native device proof (an app-only
+ * enrollment), else null: every other answer, an older backend's refusal with no reason included, is the step's own.
+ */
+export function nativeProofSkip(body: any): string | null {
+  const error = body?.ok === false ? body.error : null;
+  const reason = error?.details?.reason;
+  if (error?.code !== "auth.forbidden" || typeof reason !== "string" || !NATIVE_ENROLLMENT_REASONS.has(reason)) return null;
+  return `needs a Native device proof (app-only): link_token refused ${reason}; this journey's cli install has no Native device enrollment`;
 }
 
 /**
@@ -518,6 +657,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const email = process.env.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_UITEST_STACK_EMAIL;
   const password = process.env.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_UITEST_STACK_PASSWORD;
   const team = argValue("--team", argv) ?? process.env.CMUX_JOURNEY_TEAM ?? undefined;
+  const signIn = argValue("--sign-in", argv) ?? "password";
+  if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
   const agent = argValue("--agent", argv) ?? "claude";
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
@@ -604,13 +745,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (r.status !== 200) throw new Error(`HTTP ${r.status} ${short(r.body)}`);
       return { value: null, detail: `commit ${r.body.commit ?? r.body.version ?? "?"}` };
     });
-    if (!email || !password) {
+    if (signIn === "oidc") {
+      api.bearer = await J.step("sign in (agent test account)", async () => {
+        const s = await oidcSignIn(backend.api, process.env, J.secrets);
+        return { value: s.token, detail: `GitHub OIDC, user ${s.user}, session ends ${s.expiresAt}` };
+      });
+    } else if (!email || !password) {
       await J.step("sign in (agent test account)", async () => {
         throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
       });
     }
     const stack = STACK[backend.stack];
-    api.bearer = await J.step("sign in (agent test account)", async () => {
+    if (signIn === "password") api.bearer = await J.step("sign in (agent test account)", async () => {
       const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
         "x-stack-access-type": "client",
         "x-stack-project-id": stack.project,
@@ -681,8 +827,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // On a team machine the journey is its creator and copies as a DEV or nightly build does (Release copies
         // only to an owner machine).
         const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), provider, Boolean(team));
-        const pre = await exec(programs.preflight);
-        if (pre.code !== 0) throw new Error(`preflight exit ${pre.code}: not an ${team ? "owner or team" : "owner"} machine with the image's launchers`);
+        const pre = await waitPreflight(exec, programs.preflight, team ? "owner or team" : "owner");
         const folder = "/home/cmux/.cmux/credential-transfer";
         const made = await exec(`umask 077 && mkdir -p -- ${shq(folder)} && chmod 700 -- ${shq(folder)} && test -O ${shq(folder)} && test ! -L ${shq(folder)}`);
         if (made.code !== 0) throw new Error(`staging folder: exit ${made.code}`);
@@ -699,7 +844,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         const own = await exec(`. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login ${provider} && echo own-login`);
         if (!own.stdout.includes("own-login")) throw new Error(`installed, but the image's launcher does not see an own ${provider} login`);
-        return { value: null, detail: "the person's own login, written by the app's installer; the launcher picks it" };
+        const waited = pre.tries > 1 ? ` (preflight passed on try ${pre.tries}, after ${Math.round(pre.waitedMs / 1000)} s)` : "";
+        return { value: null, detail: `the person's own login, written by the app's installer; the launcher picks it${waited}` };
       });
     }
 
@@ -707,7 +853,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (modelStub && provider && !only.has("chat")) {
       // The stub listens on the machine's loopback only; the harness's own settings point it there, after the login
       // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub:
-      // Claude Code's settings.json ANTHROPIC_BASE_URL, or a Codex model provider that uses the ChatGPT sign-in.
+      // Claude Code's settings.json ANTHROPIC_BASE_URL, or a Codex model provider that uses the ChatGPT sign-in (CODEX_STUB_CONFIG).
       await J.step("model stub on the machine", async () => {
         const file = "/home/cmux/.cmux/journey-model-stub.py";
         const script = "/home/cmux/.cmux/journey-model-stub.json";
@@ -718,7 +864,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         // Port 0: the stub binds a free port and writes it to the ready file.
         const point = provider === "codex"
-          ? `python3 - "$port" <<'PY'\nimport pathlib, re, sys\np = pathlib.Path('/home/cmux/.codex/config.toml')\nold = p.read_text() if p.exists() else ''\nold = re.sub(r'(?m)^model_provider\\s*=.*\\n?', '', old)\np.write_text('model_provider = "journeystub"\\n' + old + '\\n[model_providers.journeystub]\\nname = "journey stub"\\nbase_url = "http://127.0.0.1:' + sys.argv[1] + '/v1"\\nwire_api = "responses"\\nrequires_openai_auth = true\\n')\nprint('stub-ready')\nPY`
+          ? `python3 - "$port" <<'PY'\n${CODEX_STUB_CONFIG}\nPY`
           : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`;
         const r = await exec(
           `rm -f ${shq(stubLog)} ${shq(ready)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 &); ` +
@@ -784,13 +930,31 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
-    await J.step("connect (connect_info + link_token)", async () => {
+    // A Native (vm-api) machine's link_token needs a Native device proof, which only an enrolled app install
+    // makes (NativeDeviceEnrollment.swift). This install never enrolled, so that refusal is a SKIP with the
+    // backend's own reason; any other refusal (a receiver that is not ready, a policy) stays red.
+    await J.step("connect (connect_info)", async () => {
       const info = await installApi.read("cloud.machine.connect_info", { machine: created.id });
-      const tok = await installApi.op("cloud.machine.link_token", { host: bound.host, services: ["daemon"] });
-      if (!tok?.expires_at) throw new Error(`link_token answered ${short(Object.keys(tok ?? {}))}`);
-      return { value: null, detail: `host ${info.host} state ${info.state} epoch ${info.epoch}; link token until ${tok.expires_at}` };
+      return { value: null, detail: `host ${info.host} state ${info.state} epoch ${info.epoch}` };
     });
-    if (headlessLink) {
+    const linkToken = await installApi.raw("POST", "/v1/ops", { op: "cloud.machine.link_token", params: { host: bound.host, services: ["daemon"] } })
+      .catch((error: Error) => error);
+    const nativeOnly = linkToken instanceof Error ? null : nativeProofSkip(linkToken.body);
+    if (nativeOnly) {
+      J.skip("connect (link_token)", nativeOnly);
+      J.skip("connect (link dial)", nativeOnly);
+    } else {
+      await J.step("connect (link_token)", async () => {
+        if (linkToken instanceof Error) throw new Error(`cloud.machine.link_token: ${linkToken.message}`);
+        if (linkToken.status !== 200 || linkToken.body?.ok !== true) throw new Error(`cloud.machine.link_token: HTTP ${linkToken.status} ${short(linkToken.body?.error ?? linkToken.body)}`);
+        const tok = linkToken.body.value;
+        if (!tok?.expires_at) throw new Error(`link_token answered ${short(Object.keys(tok ?? {}))}`);
+        return { value: null, detail: `link token until ${tok.expires_at}` };
+      });
+    }
+    if (nativeOnly) {
+      // link_token and link dial are recorded as skips above.
+    } else if (headlessLink) {
       await J.step("connect (link dial)", async () => {
         const dial = spawnSync(cmux!, ["link", "dial", "--host", bound.host, "--service", "daemon", "--socket", headlessLink!.linkSocket], {
           input: '{"id":1,"cmd":"identify"}\n', encoding: "utf8", timeout: 45_000,
@@ -816,6 +980,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     J.skip("handoff (agent move)", "headless agent move requires a local session daemon socket; the Cloud guest session has no local source socket");
 
     if (only.has("sync")) J.skip("sync push/pull (folder round trip)", "--skip sync");
+    else if (nativeOnly) J.skip("sync push/pull (folder round trip)", nativeOnly);
     else await J.step("sync push/pull (folder round trip)", async () => {
       if (!headlessLink) throw new Error("--cmux is required for link sync");
       const payload = Buffer.from(`journey ${tag} ${Date.now()}\n`.repeat(64)).toString("base64");

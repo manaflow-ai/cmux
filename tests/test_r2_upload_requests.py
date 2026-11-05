@@ -6,6 +6,7 @@ import http.server
 import json
 import os
 from pathlib import Path
+import socket
 import ssl
 import subprocess
 import sys
@@ -204,8 +205,18 @@ class R2UploadRequestsTests(unittest.TestCase):
         # write operation timed out" because one sendall() of the whole body
         # had 30 s in all. A transfer that keeps moving must finish however
         # long it takes; here it takes several idle timeouts in all.
+        # The server reads slowly only for PACED seconds, then drains the rest
+        # at once. The client must still be sending when the pacing ends, or
+        # its wait for the response holds what the kernel buffered and outlasts
+        # the idle timeout (cmuxterm-hq#7079: the client handed off 12 MiB in
+        # 1.0 s; the server read it for 4.8 s). Autotuned loopback buffers
+        # reach tens of MiB on some hosts (a CI runner took the whole 32 MiB in
+        # 0.6 s), so the server fixes its receive buffer before listen(): that
+        # turns receive autotuning off and keeps the window, and with it the
+        # client's send buffer, to a few MiB whatever the host's sysctls say.
         self.env["CMUX_R2_UPLOAD_IDLE_SECONDS"] = "2"
         self.env["CMUX_R2_UPLOAD_ATTEMPTS"] = "1"
+        paced = 5.0  # 2.5 idle timeouts
         received = []
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -213,11 +224,15 @@ class R2UploadRequestsTests(unittest.TestCase):
                 remaining = int(self.headers["Content-Length"])
                 received.append(self.headers.get("Transfer-Encoding"))
                 body = bytearray()
+                until = time.monotonic() + paced
                 while remaining:
                     piece = self.rfile.read(min(remaining, 256 << 10))
+                    if not piece:
+                        break  # the client gave up mid-body; reading on would spin and hang the cleanup
                     body += piece
                     remaining -= len(piece)
-                    time.sleep(0.1)
+                    if time.monotonic() < until:
+                        time.sleep(0.1)
                 received.append(bytes(body))
                 self.send_response(200)
                 self.send_header("Content-Length", "0")
@@ -226,15 +241,23 @@ class R2UploadRequestsTests(unittest.TestCase):
             def log_message(self, *_args):
                 pass
 
-        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler, bind_and_activate=False)
+        server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 64 << 10)
+        server.server_bind()
+        server.server_activate()
         server.socket = self.tls_context.wrap_socket(server.socket, server_side=True)
         thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         thread.start()
         self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
 
-        body = os.urandom(12 << 20)  # 48 reads of 256 KiB, 0.1 s apart: about 5 s in all
+        # 2.5 MiB/s for 5 s is 12.5 MiB; 32 MiB keeps the client sending past
+        # the paced reads with the bounded buffers, so no gap is waiting on
+        # them, and the whole upload takes more than two idle timeouts.
+        body = os.urandom(32 << 20)
+        started = time.monotonic()
         result = self.upload("cmux.dmg", endpoint=f"https://127.0.0.1:{server.server_port}", body=body)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertGreater(time.monotonic() - started, 2 * 2)
         self.assertEqual(received, [None, body])
 
     def test_a_write_once_put_that_landed_unanswered_reads_as_present(self):

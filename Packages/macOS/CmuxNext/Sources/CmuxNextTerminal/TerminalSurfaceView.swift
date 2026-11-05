@@ -147,6 +147,9 @@ public final class TerminalSurfaceView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.view = self
         createSurface(mode: mode)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        _ = Self.motionSamplerRegistration
+        #endif
     }
 
     @available(*, unavailable)
@@ -467,7 +470,13 @@ public final class TerminalSurfaceView: NSView {
         // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close) resizes this view on every
         // display frame: the surface draws each size (the reflow preview), and the grid goes to the
         // owner once the spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame.
-        let report = geometry.viewSized(desired, force: forceReport, holding: !forceReport && (isInPaneMotion || isFollowingResizeGesture))
+        // A size whose frame is not drawn yet and is no longer the one wanted (FRAME OWNER S4: the pane
+        // moved on, or its spring landed, while the frame waited) reports nothing: the wanted size
+        // reports its grid when it goes to Ghostty (`requestWantedFrame`). The landing's release sized
+        // from such a size and sent its stale grid, then the final grid again (review of #35470, F1).
+        let stale = frameOwnership.inFlight.map { $0 != frameOwnership.wanted?.size } ?? false
+        let report = geometry.viewSized(desired, force: forceReport,
+                                        holding: stale || (!forceReport && (isInPaneMotion || isFollowingResizeGesture)))
         // In the same main-thread turn as set_size: the frame of the new size
         // draws at the next display pass, already reflowed.
         // A held grid is reported when the spring lands: the preview draws it meanwhile.

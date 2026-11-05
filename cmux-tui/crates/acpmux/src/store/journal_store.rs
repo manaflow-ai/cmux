@@ -28,29 +28,45 @@
 //!   daemon's writes may be in the page cache only, and a failed sync's dropped pages still read
 //!   back). A chat whose folder is gone is not written again. A log that moved on
 //!   without the journal (a run with the switch off, or an older build, after a crash) is left as
-//!   it is, and the journal's lines for it go to `<home>/journal-unapplied/`, as do the lines of a
-//!   chat whose log cannot be read or written. A crash in the middle is repaired by the next open
-//!   the same way.
+//!   it is, and the journal's lines for it go to `<home>/journal-unapplied/`. A chat whose log
+//!   cannot be read or written now keeps its lines there in a repair file
+//!   (`<id>.<lsn>.repair.ndjson`), which the next open journals again and repairs the chat with;
+//!   the checkpoint of every other chat goes on (review of #35562: a hold of the global checkpoint
+//!   kept every chat's records). A crash in the middle is repaired by the next open the same way.
 //! - Delete: a `forget` record (the replay then drops the chat's earlier journaled lines, so a
 //!   chat made again under the same id gets only its own), then the folder's removal, off the
-//!   appends' lock and without waiting for the record.
+//!   appends' lock and without waiting for the record, then the chat's repair file.
 //! - With the switch off, [`catch_up`] runs this recovery once on a journal left by a run with it
 //!   on, so every acknowledged line is in the logs before they are written alone.
 //!
-//! Not yet (S2c): replies and events do not wait for their records to be durable, and the daemon
-//! does not stop when the journal closes (a panic on its writer). Session metadata is S3.
+//! - Durability (S2c): [`Store::durability`] gives the last acknowledged LSN and the journal's
+//!   durable LSN, for which each connection's outbound gate waits (`server/durable_gate.rs`). A
+//!   writer that ends while the store is not dropped (a panic on its thread) closes that watch
+//!   and asks the daemon to stop (DESIGN.md decision 9.8).
+//!
+//! - Chat metadata (S3a, [`meta`]): a change is a `meta` record with the chat's whole metadata
+//!   image, not a `session.json` write: reads see the newest image in an overlay, the checkpoint
+//!   writes `session.json` once the record is durable, and the replay writes the newest image of
+//!   each chat unless its `session.json` moved on without the journal. The replay never makes a
+//!   folder that is gone again: a new chat's first record is acknowledged only once its folder's
+//!   entry is synced too ([`new_folders`]), so a folder that is gone was removed, not lost.
 
 use super::*;
 use cmux_journal::{AppendError, Class, Damage, Journal, Lsn, OpenError};
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Condvar};
 use std::time::{Duration, Instant};
 
 mod checkpoint;
 mod fenced;
+mod meta;
+mod new_folders;
 mod repair;
 
 use checkpoint::{read_checkpoint, remove_checkpoint_temporaries};
 pub(super) use fenced::FencedStorage;
+#[cfg(test)]
+pub(super) use meta::SETTLE_HOLD;
 use repair::Replay;
 #[cfg(test)]
 pub(super) use repair::STOP_AFTER_CUT;
@@ -68,6 +84,12 @@ const UNAPPLIED_DIR: &str = "journal-unapplied";
 const CHECKPOINT_EVERY: Duration = Duration::from_secs(30);
 /// Journal bytes past the last checkpoint that wake the checkpointer at once.
 const CHECKPOINT_BYTES: u64 = 64 * 1024 * 1024;
+/// The end of a repair file's name in `journal-unapplied/` ([`Inner::keep_for_repair`]).
+const REPAIR_SUFFIX: &str = ".repair.ndjson";
+/// In the name of a kept file's temporary copy, before its rename (`Inner::write_kept`).
+const KEPT_TEMPORARY: &str = ".ndjson.tmp-";
+/// A repair file's first line: `{"schema": REPAIR_SCHEMA, "chat": <id>, "folder": <its identity>}`.
+const REPAIR_SCHEMA: &str = "acpmux.journal-repair.v1";
 /// Checkpoints in a row that fail before the store asks the daemon to stop: the journal past the
 /// last one (what the next open holds in memory) must not grow without end.
 const CHECKPOINT_FAILURES_TO_STOP: u32 = 10;
@@ -78,9 +100,106 @@ const LOCK_WAIT: Duration = Duration::from_secs(5);
 /// The longest a repair waits for the lines it journals before it cuts a log.
 const REPAIR_WAIT: Duration = Duration::from_secs(60);
 
+/// Tests: the seams of one store's checkpointer (`journal_store/checkpoint.rs`), by the store's
+/// home: under `cargo test` the tests are threads of one process, and each sees only its own.
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct CheckpointerSeams {
+    /// The checkpoint period in milliseconds when not 0 (`Inner::checkpoint_every`).
+    pub(crate) every_ms: u64,
+    /// How many times the checkpointer's loop woke to checkpoint.
+    pub(crate) wakes: u64,
+    /// Stops the checkpointer once, right after it marked itself idle (before its second look).
+    pub(crate) idle_hold: Option<Hold>,
+    /// Stops `Inner::touched` once, right after it took the idle flag (before the timer lock).
+    pub(crate) touch_hold: Option<Hold>,
+}
+
+/// Tests: a stop on one thread: it says so on the first channel, then waits on the second.
+#[cfg(test)]
+pub(crate) type Hold = (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+
+#[cfg(test)]
+static CHECKPOINTER_SEAMS: Mutex<BTreeMap<PathBuf, CheckpointerSeams>> =
+    Mutex::new(BTreeMap::new());
+
+/// Tests: runs `with` on the checkpointer seams of the store at `home`.
+#[cfg(test)]
+pub(crate) fn checkpointer_seams<T>(
+    home: &Path,
+    with: impl FnOnce(&mut CheckpointerSeams) -> T,
+) -> T {
+    let mut seams = CHECKPOINTER_SEAMS.lock_or_recover();
+    with(seams.entry(home.to_path_buf()).or_default())
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: the next removal of a chat's folder in `Store::delete` on this thread fails.
+    pub(crate) static FAIL_NEXT_FOLDER_REMOVAL: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+    /// Tests: a failed sync on this thread stops right before it freezes the store.
+    pub(crate) static HOLD_BEFORE_FREEZE: log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
+    /// Tests: the next sync of the store's files on this thread (`Inner::counted_sync`) stops
+    /// once it is under way, before it syncs.
+    pub(crate) static HOLD_IN_SYNC: log_sync::HoldSlot = const { std::cell::RefCell::new(None) };
+    /// Tests: a checkpoint on this thread stops right after its start, where it read `frozen`,
+    /// the LSN and the chats to sync.
+    pub(crate) static HOLD_AFTER_START: log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: the stop of [`HOLD_AFTER_START`].
+#[cfg(test)]
+fn hold_after_start() {
+    log_sync::hold(&HOLD_AFTER_START);
+}
+
+/// Tests: the stop of [`HOLD_BEFORE_FREEZE`].
+#[cfg(test)]
+fn hold_before_freeze() {
+    log_sync::hold(&HOLD_BEFORE_FREEZE);
+}
+
+/// Tests: the stop of [`HOLD_IN_SYNC`].
+#[cfg(test)]
+fn hold_in_sync() {
+    log_sync::hold(&HOLD_IN_SYNC);
+}
+
+/// Tests: the next append stops right after its log write, says so on the first channel and
+/// waits for the second (the appends' lock held, as at that point in a real append).
+#[cfg(test)]
+pub(crate) static PAUSE_AFTER_LOG_WRITE: Mutex<
+    Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
+> = Mutex::new(None);
+
+impl Inner {
+    /// Runs `read`, then waits for an append under way to end (`order` taken and let go): every
+    /// line `read` saw has its record appended by the time this returns.
+    fn fenced<T>(&self, read: impl FnOnce() -> T) -> T {
+        let out = read();
+        drop(self.order.lock_or_recover());
+        out
+    }
+}
+
+#[cfg(test)]
+fn pause_after_log_write() {
+    let pause =
+        PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    if let Some((arrived, release)) = pause {
+        let _ = arrived.send(());
+        let _ = release.recv();
+    }
+}
+
 pub struct JournalStore {
     inner: Arc<Inner>,
     checkpointer: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// `acpmux-journal-folders` ([`new_folders`]).
+    folder_syncer: Mutex<Option<std::thread::JoinHandle<()>>>,
     /// What the journal's open reported (the tests read it).
     #[cfg(test)]
     opened: cmux_journal::OpenReport,
@@ -97,6 +216,48 @@ struct Inner {
     wake: Condvar,
     /// Why the daemon must stop (`Store::stop_reason`).
     stop: tokio::sync::watch::Sender<Option<String>>,
+    /// The LSN of the last `Ack` record appended (`Store::durability`).
+    acked: Arc<AtomicU64>,
+    /// The durable LSN the outbound gate waits for: the journal's, fed by its writer, held below
+    /// a new chat's record until its folder is synced ([`new_folders`]); closed when the writer
+    /// ends.
+    durable: tokio::sync::watch::Receiver<u64>,
+    /// New chats' folders not synced yet, and the syncer's state ([`new_folders`]).
+    new_folders: Arc<new_folders::NewFolders>,
+    /// The store is being dropped: its writer's end is not a failure.
+    dropping: Arc<AtomicBool>,
+    /// Syncs of the store's files under way that freeze it when they fail
+    /// (`Inner::counted_sync`): a checkpoint waits for those under way before it writes its LSN.
+    syncs: checkpoint::SyncsUnderWay,
+    /// The checkpointer sleeps until a change (`Inner::touched`), with nothing to checkpoint.
+    idle: AtomicBool,
+    /// Held while a chat's folder is removed or its `session.json` written from the overlay
+    /// (`journal_store/meta.rs`).
+    folders: Mutex<()>,
+}
+
+/// Owned by the journal's durable listener, which the writer drops when it ends: a writer that
+/// ended while the store was not being dropped (a panic on its thread) asks the daemon to stop
+/// (DESIGN.md decision 9.8), and the durable watch it fed closes.
+struct WriterEnded {
+    stop: tokio::sync::watch::Sender<Option<String>>,
+    dropping: Arc<AtomicBool>,
+}
+
+impl Drop for WriterEnded {
+    fn drop(&mut self) {
+        if self.dropping.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        tracing::error!("the event journal's writer ended: no change can be acknowledged");
+        self.stop.send_if_modified(|reason| {
+            let unset = reason.is_none();
+            if unset {
+                *reason = Some("the event journal's writer ended".into());
+            }
+            unset
+        });
+    }
 }
 
 #[derive(Default)]
@@ -116,6 +277,19 @@ struct Order {
     failures: u32,
     /// The open reported damage: cleared (`Journal::clear_damage`) after the next checkpoint.
     damage: bool,
+    /// The repair files of the chats whose repair failed at the open (`journal-unapplied/`): a
+    /// delete removes its chat's.
+    repairs: BTreeMap<String, PathBuf>,
+    /// Each chat's newest metadata image that its `session.json` does not hold yet (S3a,
+    /// `journal_store/meta.rs`): reads see it first, the checkpoint writes it.
+    metas: BTreeMap<String, meta::Pending>,
+}
+
+impl Order {
+    /// Whether a checkpoint has anything to do.
+    fn has_work(&self) -> bool {
+        self.applied > self.checkpointed || !self.dirty.is_empty() || !self.metas.is_empty()
+    }
 }
 
 #[derive(Default)]
@@ -135,7 +309,7 @@ impl JournalStore {
         remove_checkpoint_temporaries(home);
         let local = LocalStore::new(home.join("sessions"), config.segment_bytes)?;
         let from = read_checkpoint(home)?;
-        let (journal, report, replay) =
+        let (journal, report, mut replay) =
             open_journal(storage, &home.join(JOURNAL_DIR), journal_config, from)?;
         for damage in &report.damage {
             match damage {
@@ -148,6 +322,20 @@ impl JournalStore {
             }
         }
         let (stop, _) = tokio::sync::watch::channel(None);
+        let dropping = Arc::new(AtomicBool::new(false));
+        let (durable_tx, durable) = tokio::sync::watch::channel(journal.durable_lsn());
+        // The listener owns the only strong handle: the watch closes when the writer ends.
+        let durable_tx = Arc::new(durable_tx);
+        let new_folders = Arc::new(new_folders::NewFolders::new(
+            Arc::downgrade(&durable_tx),
+            journal.durable_lsn(),
+        ));
+        let ended = WriterEnded { stop: stop.clone(), dropping: Arc::clone(&dropping) };
+        let reported = Arc::clone(&new_folders);
+        journal.on_durable(move |lsn| {
+            let _owned = &ended;
+            reported.journal_durable(lsn, &durable_tx);
+        });
         let inner = Arc::new(Inner {
             local,
             journal,
@@ -161,22 +349,48 @@ impl JournalStore {
             timer: Mutex::new(Timer::default()),
             wake: Condvar::new(),
             stop,
+            acked: Arc::new(AtomicU64::new(0)),
+            durable,
+            new_folders,
+            dropping,
+            syncs: checkpoint::SyncsUnderWay::default(),
+            folders: Mutex::new(()),
+            idle: AtomicBool::new(false),
         });
+        // The lines of chats whose repair failed at an earlier open, journaled again first.
+        inner.take_repairs(&mut replay);
         inner.apply(replay)?;
         if let Err(error) = inner.checkpoint() {
             tracing::warn!("event journal checkpoint after the replay: {error:#}");
         }
-        let worker = Arc::clone(&inner);
-        let checkpointer = std::thread::Builder::new()
-            .name("acpmux-journal-checkpoint".into())
-            .spawn(move || worker.run_checkpointer())
-            .context("start the event journal's checkpointer")?;
-        Ok(Self {
+        let store = Self {
             inner,
-            checkpointer: Mutex::new(Some(checkpointer)),
+            checkpointer: Mutex::new(None),
+            folder_syncer: Mutex::new(None),
             #[cfg(test)]
             opened: report,
-        })
+        };
+        // A thread that does not start drops `store`, which stops and joins the other.
+        let worker = Arc::clone(&store.inner);
+        let folder_syncer = std::thread::Builder::new()
+            .name("acpmux-journal-folders".into())
+            // At the daemon's disk tier, as the journal writer: a new chat's reply waits for it.
+            .spawn(move || worker.run_folder_syncer())
+            .context("start the event journal's folder syncer")?;
+        *store.folder_syncer.lock_or_recover() = Some(folder_syncer);
+        let worker = Arc::clone(&store.inner);
+        let checkpointer = std::thread::Builder::new()
+            .name("acpmux-journal-checkpoint".into())
+            .spawn(move || {
+                // Its syncs and retirements are background work: they yield the disk to the
+                // person's apps (`qos::background_thread`), while replies wait only on the
+                // journal writer, which keeps the daemon's tier.
+                crate::qos::background_thread();
+                worker.run_checkpointer()
+            })
+            .context("start the event journal's checkpointer")?;
+        *store.checkpointer.lock_or_recover() = Some(checkpointer);
+        Ok(store)
     }
 
     /// What the journal's open reported.
@@ -184,6 +398,18 @@ impl JournalStore {
     pub(super) fn opened(&self) -> &cmux_journal::OpenReport {
         &self.opened
     }
+}
+
+/// [`super::open`] with the journal on `storage` (a simulated file system in the crash tests) and
+/// its own limits, for `store.journal`.
+#[cfg(test)]
+pub(crate) fn open_with_journal(
+    config: &StoreConfig,
+    root: &Path,
+    storage: Arc<dyn cmux_journal::Storage>,
+    journal: cmux_journal::Config,
+) -> Result<Box<dyn Store>> {
+    Ok(Box::new(JournalStore::open(config, root, storage, journal)?))
 }
 
 /// Opens the journal, replaying the records after `from`; waits up to [`LOCK_WAIT`] while another
@@ -257,18 +483,6 @@ fn decode_log(payload: &[u8]) -> Option<(String, &[u8])> {
     Some((id.to_owned(), payload.get(end..)?))
 }
 
-/// A streamed agent line: synced with the next acked batch or a second later (`Class::Stream`).
-/// The hub's tap logs an ACP `session/update` under its `sessionUpdate` kind (`hub/tap.rs`), so
-/// the message's method says it, not the kind; a history replay (`*.replay`) too.
-fn streamed(record: &EventRecord) -> bool {
-    record.dir == "in"
-        && (record.msg.get("method").and_then(Value::as_str)
-            == Some(crate::rpc::method::SESSION_UPDATE)
-            || record.kind == crate::rpc::method::SESSION_UPDATE
-            || record.kind.starts_with("claude.")
-            || record.kind.starts_with("codex."))
-}
-
 /// The `seq` of a whole log line, or `None` when it does not read.
 fn line_seq(line: &[u8]) -> Option<u64> {
     record_seq(line).or_else(|| parse_record(line).ok().map(|record| record.seq))
@@ -287,16 +501,25 @@ impl JournalStore {
 
 impl Store for JournalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
-        Store::list(&self.inner.local)
+        self.inner.list_metas()
     }
+    /// The overlay's image first ([`meta`]), then `session.json`: a checkpoint drops an image
+    /// only after its file holds it.
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        Store::load(&self.inner.local, id)
+        match self.inner.pending_meta(id) {
+            Some(meta) => Ok(Some(meta)),
+            None => Store::load(&self.inner.local, id),
+        }
     }
     fn load_startup(&self, id: &str) -> Result<Option<SessionMeta>> {
-        Store::load_startup(&self.inner.local, id)
+        match self.inner.pending_meta(id) {
+            Some(meta) => Ok(Some(meta)),
+            None => Store::load_startup(&self.inner.local, id),
+        }
     }
+    /// A `meta` record and the overlay; the checkpoint writes `session.json` ([`meta`]).
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        Store::save(&self.inner.local, meta)
+        self.inner.save_meta(meta)
     }
     /// The line to the log first, then its record ([module docs](self)).
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
@@ -311,6 +534,8 @@ impl Store for JournalStore {
         inner.journal.check_append(payload.len()).map_err(JournalStore::journal_error)?;
         // Refused once the store is sealed (under the same lock, so exact).
         inner.local.append_line(id, line.as_bytes())?;
+        #[cfg(test)]
+        pause_after_log_write();
         if !order.dirty.contains(id) {
             order.dirty.insert(id.to_owned());
         }
@@ -318,6 +543,9 @@ impl Store for JournalStore {
         // record, as after a crash between the two.
         let lsn =
             inner.journal.append(KIND_LOG, class, &payload).map_err(JournalStore::journal_error)?;
+        if class == Class::Ack {
+            inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
+        }
         order.applied = lsn;
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         let full = order.bytes > CHECKPOINT_BYTES && !order.frozen;
@@ -325,22 +553,28 @@ impl Store for JournalStore {
         if full {
             inner.want_checkpoint();
         }
+        inner.touched();
         Ok(())
     }
-    /// A failed file sync here freezes the checkpoint, as one in a checkpoint or at a log's
-    /// close does: a later sync may report success for the pages it dropped.
+    /// The chat's log and metadata durable on disk: its overlay image written to `session.json`
+    /// first ([`meta`]), then the log, its folders and the sessions folder synced. A failed file
+    /// sync freezes the checkpoint, as one in a checkpoint or at a log's close does: a later sync
+    /// may report success for the pages it dropped.
     fn flush_session(&self, id: &str) -> Result<()> {
-        Store::flush_session(&self.inner.local, id).inspect_err(|error| {
-            if error.chain().any(|cause| cause.is::<SyncFailed>()) {
-                self.inner.freeze(format!("an event log failed to sync: {error:#}"));
-            }
-        })
+        let inner = &self.inner;
+        inner.settle_meta(id)?;
+        inner.counted_sync("an event log failed to sync", || Store::flush_session(&inner.local, id))
     }
+    // Every read of the logs ends with a fence on the appends' lock (`Inner::fenced`): a line
+    // the read saw has its record appended, and its acknowledged LSN set, when the read returns,
+    // so a reply built from the read raises its connection's gate past that record (review of
+    // #35400, F1). A read that sends as it reads stops at the chat's `last_seq` instead
+    // (`Hub::scan_events`).
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
-        Store::events(&self.inner.local, id, after, limit)
+        self.inner.fenced(|| Store::events(&self.inner.local, id, after, limit))
     }
     fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(EventRecord) -> bool) -> Result<()> {
-        Store::scan(&self.inner.local, id, after, visit)
+        self.inner.fenced(|| Store::scan(&self.inner.local, id, after, visit))
     }
     fn scan_strict(
         &self,
@@ -348,7 +582,7 @@ impl Store for JournalStore {
         after: u64,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        Store::scan_strict(&self.inner.local, id, after, visit)
+        self.inner.fenced(|| Store::scan_strict(&self.inner.local, id, after, visit))
     }
     fn scan_back(
         &self,
@@ -358,10 +592,10 @@ impl Store for JournalStore {
         skip: &dyn Fn(&[u8], &[u8]) -> bool,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        Store::scan_back(&self.inner.local, id, after, before, skip, visit)
+        self.inner.fenced(|| Store::scan_back(&self.inner.local, id, after, before, skip, visit))
     }
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
-        Store::tail_after(&self.inner.local, id, after)
+        self.inner.fenced(|| Store::tail_after(&self.inner.local, id, after))
     }
     fn scan_kinds(
         &self,
@@ -369,7 +603,7 @@ impl Store for JournalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        Store::scan_kinds(&self.inner.local, id, kinds, visit)
+        self.inner.fenced(|| Store::scan_kinds(&self.inner.local, id, kinds, visit))
     }
     fn scan_kinds_strict(
         &self,
@@ -377,10 +611,10 @@ impl Store for JournalStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        Store::scan_kinds_strict(&self.inner.local, id, kinds, visit)
+        self.inner.fenced(|| Store::scan_kinds_strict(&self.inner.local, id, kinds, visit))
     }
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
-        Store::scan_heads(&self.inner.local, id, visit)
+        self.inner.fenced(|| Store::scan_heads(&self.inner.local, id, visit))
     }
     /// A checkpoint: every log written so far is synced and the journal before it retired.
     fn flush(&self) -> Result<()> {
@@ -399,6 +633,18 @@ impl Store for JournalStore {
     }
     fn stop_reason(&self) -> Option<tokio::sync::watch::Receiver<Option<String>>> {
         Some(self.inner.stop.subscribe())
+    }
+    fn durability(&self) -> Option<Durability> {
+        let inner = Arc::downgrade(&self.inner);
+        Some(Durability {
+            acked: Arc::clone(&self.inner.acked),
+            durable: self.inner.durable.clone(),
+            stalled: Arc::new(move |why: String| {
+                if let Some(inner) = inner.upgrade() {
+                    inner.ask_to_stop(why);
+                }
+            }),
+        })
     }
     /// The logs refuse writes, and the journal fully syncs every record (the shutdown's `flush`
     /// then checkpoints).
@@ -424,27 +670,66 @@ impl Store for JournalStore {
     }
     /// A checkpoint first, so no journal record of the chat is past it: a replay never writes
     /// the lines a retention rewrite cut back into its log. A frozen or failed checkpoint stops
-    /// the rewrite.
+    /// the rewrite. The commit (its record before and after the renames, the renames, the folder's
+    /// sync after them) runs in `counted_sync`, so a failed sync in it freezes the store, as a
+    /// failed log sync does (#35905): a later sync of the folder may report success for the
+    /// renames a failed one dropped, so no checkpoint may go past it. The rewritten copies are
+    /// synced earlier, in `stage_compaction`, before any rename: a failure there only fails the
+    /// pass and changes no log.
     fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
-        self.inner.checkpoint()?;
-        Store::commit_compaction(&self.inner.local, id, staged)
+        let inner = &self.inner;
+        inner.checkpoint()?;
+        inner.counted_sync("a rewritten event log failed to sync", || {
+            Store::commit_compaction(&inner.local, id, staged)
+        })
     }
     /// The `forget` record under the appends' lock, then the folder's removal off it, without a
-    /// wait for the record: the replay never makes a folder that is gone again.
+    /// wait for the record: the replay never makes a folder that is gone again. Then the chat's
+    /// repair file, if its repair failed at the open (after the folder: a crash between the two
+    /// leaves the file of a folder that is gone, which no open applies; the other order could
+    /// lose the lines of a chat whose delete a crash took back). The file is the store's to
+    /// remove until that removal succeeds, so a delete that fails and is tried again still
+    /// removes it (review of #35562, D3).
     fn delete(&self, id: &str) -> Result<()> {
         let inner = &self.inner;
-        {
+        let repair = {
             let mut order = inner.order.lock_or_recover();
             drop(inner.local.writable()?);
             let lsn = inner
                 .journal
                 .append(KIND_FORGET, Class::Ack, id.as_bytes())
                 .map_err(JournalStore::journal_error)?;
+            inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
             order.applied = lsn;
+            order.metas.remove(id);
+            order.repairs.get(id).cloned()
+        };
+        inner.touched();
+        {
+            // Not while a checkpoint writes this chat's `session.json` (`journal_store/meta.rs`).
+            let _folder = inner.folders.lock_or_recover();
+            #[cfg(test)]
+            if FAIL_NEXT_FOLDER_REMOVAL.with(|fail| fail.replace(false)) {
+                anyhow::bail!("a failed folder removal (a test)");
+            }
+            Store::delete(&inner.local, id)?;
         }
-        Store::delete(&inner.local, id)
+        if let Some(path) = repair {
+            inner.remove_repair(&path)?;
+            inner.order.lock_or_recover().repairs.remove(id);
+        }
+        Ok(())
     }
+    /// The chat's folder, for code that reads or moves its files directly: its overlay image is
+    /// written to `session.json` first ([`meta`]).
     fn session_dir(&self, id: &str) -> Option<PathBuf> {
+        if let Err(error) = self.inner.settle_meta(id) {
+            tracing::warn!(session = %id, "write the chat's metadata before handing out its folder: {error:#}");
+        }
+        Store::session_dir(&self.inner.local, id)
+    }
+    /// The folder's path only: no lock, no wait, no write (review of #35483, P3 1).
+    fn session_path(&self, id: &str) -> Option<PathBuf> {
         Store::session_dir(&self.inner.local, id)
     }
     fn handoff_dir(&self) -> Option<PathBuf> {
@@ -459,11 +744,17 @@ impl Store for JournalStore {
 }
 
 impl Drop for JournalStore {
-    /// Stops the checkpointer. No checkpoint here: a drop is not a shutdown (`flush` is).
+    /// Stops the checkpointer and the folder syncer. No checkpoint here: a drop is not a shutdown
+    /// (`flush` is).
     fn drop(&mut self) {
+        self.inner.dropping.store(true, std::sync::atomic::Ordering::SeqCst);
         self.inner.timer.lock_or_recover().stop = true;
         self.inner.wake.notify_all();
+        self.inner.new_folders.stop();
         if let Some(handle) = self.checkpointer.lock_or_recover().take() {
+            let _ = handle.join();
+        }
+        if let Some(handle) = self.folder_syncer.lock_or_recover().take() {
             let _ = handle.join();
         }
     }
