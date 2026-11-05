@@ -114,7 +114,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         let live = liveOverride()
         if let devServer = devServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
-            if let (body, response) = await fetchDevServer(remote), devServer.isOwn(response.url),
+            if let (body, response) = await fetchDevServer(remote), devServer.answered(response),
                self.devServer != nil || response.statusCode < 400 {
                 let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
                     ?? Self.mimeType(forExtension: remote.pathExtension)

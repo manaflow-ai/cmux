@@ -44,7 +44,7 @@ extension AgentPaneSchemeHandler {
         // task-owner: one fetch per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
             var reply: (Data, [String: String])?
-            if let (body, response) = await PageDevServer.fetch(remote), server.isOwn(response.url), response.statusCode < 400 {
+            if let (body, response) = await PageDevServer.fetch(remote), server.answered(response), response.statusCode < 400 {
                 let type = response.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream"
                 var headers = ["Content-Type": type, "Content-Length": String(body.count), "Cache-Control": "no-store",
                                "X-Content-Type-Options": "nosniff"]

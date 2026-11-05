@@ -87,6 +87,7 @@ export const DEV_SERVER_PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT) || 420
 /// All dev-server plugins, for vite.config.ts.
 export function cmuxDevServer(): Plugin[] {
   return [
+    devServerToken(),
     appHostServer(),
     devServerShell(),
     agentPaneHost(),
@@ -99,6 +100,49 @@ export function cmuxDevServer(): Plugin[] {
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
   ];
+}
+
+/// The secret a cmux app checks before it loads its pages from this server (PageDevServer.token in
+/// CmuxNextPages): `web-dev.json` (next to cmux-next.json, 0600, written by
+/// scripts/cmux-next/web-overlay.sh) names this server and its `token`, and the app ignores any answer
+/// without that token, so a process that takes the port of a stopped server serves the app nothing.
+/// CMUX_WEB_DEV_TOKEN wins over the file (a server on another machine behind a tunnel). Read per
+/// request, so a token written after the server started still counts.
+export const DEV_TOKEN_HEADER = "X-Cmux-Dev-Token";
+
+export function devServerTokenFrom(env: NodeJS.ProcessEnv, read: (file: string) => string | undefined): string | undefined {
+  const fromEnv = env.CMUX_WEB_DEV_TOKEN?.trim();
+  if (fromEnv) return fromEnv;
+  const config = env.CMUX_NEXT_CONFIG_FILE ?? path.join(os.homedir(), ".config", "cmux", "cmux-next.json");
+  const raw = read(path.join(path.dirname(config), "web-dev.json"));
+  if (!raw) return undefined;
+  try {
+    const token = (JSON.parse(raw) as { token?: unknown }).token;
+    return typeof token === "string" && token.length > 0 ? token : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function devServerToken(): Plugin {
+  const read = (file: string) => {
+    try {
+      return fs.readFileSync(file, "utf8");
+    } catch {
+      return undefined;
+    }
+  };
+  return {
+    name: "cmux-dev-server-token",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((_request, response, next) => {
+        const token = devServerTokenFrom(process.env, read);
+        if (token) response.setHeader(DEV_TOKEN_HEADER, token);
+        next();
+      });
+    },
+  };
 }
 
 /// worker-pool.ts spawns `./diff-worker.mjs` next to itself, which the build emits; in dev that

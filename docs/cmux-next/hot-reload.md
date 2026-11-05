@@ -88,8 +88,13 @@ Chromium hands every page file to cmux, which answers it the way the WebKit page
 socket connects. Chromium pages that are already open reload onto your code; nothing moves to
 WebKit. (An app older than this change still opens such pages in WebKit, #23986.)
 
-The server listens on loopback only, and the app accepts only a loopback URL in `web-dev.json`. The
-scheme handler fetches each file from the server and answers it under the page's own
+The server listens on loopback only, and the app accepts only a loopback URL in `web-dev.json`.
+`web-overlay.sh` also writes a random `token` there (the file is 0600), and the app takes an
+answer only when it carries that token in `X-Cmux-Dev-Token`; a webviews dev server sends it,
+read from the same file. So if your server stops and another process takes its port, that process
+serves cmux nothing: pages fall back to the overlay or the bundle. A server you start some other
+way, or on another machine, needs `CMUX_WEB_DEV_TOKEN` set to that token. A `server` with no
+`token` is ignored. The scheme handler fetches each file from the server and answers it under the page's own
 `cmux-page://` or `cmux-agent://` origin, so the host bridge and page trust stay the shipped ones.
 While a dev server serves, the Content Security Policy is looser. Pages also allow inline scripts
 (React Refresh) and that server's `ws://` and `http://` origin. The agent pane uses the dev
@@ -159,7 +164,9 @@ finishes. `manifest.json` there records the commit they came from.
 
 To share one dev server, declare `"slot": {"host": "<ssh host>", "port": N}` in `web-dev.json`.
 The host must be a shared build host, never someone's personal machine. `server --slot` tunnels the same port, so HMR still connects, and falls back
-to `--local` when the slot doesn't answer.
+to `--local` when the slot doesn't answer. It copies the token from the slot's own
+`~/.config/cmux/web-dev.json` over ssh; a slot without one warns, and its server then needs
+`CMUX_WEB_DEV_TOKEN`.
 
 ## Every merge, no checkout
 
@@ -183,7 +190,7 @@ Only NIGHTLY bundles take web updates; Debug builds keep the developer's own pag
 
 | Symptom | Check |
 |---|---|
-| Nothing changes after `server --local` | `web-overlay.sh status` lists the dev server. `curl -sI http://127.0.0.1:4200/agent-pane/index.html` answers 200. The app's commit includes #22664 (above). |
+| Nothing changes after `server --local` | `web-overlay.sh status` lists the dev server. `curl -sI http://127.0.0.1:4200/agent-pane/index.html` answers 200 with an `X-Cmux-Dev-Token` equal to `web-dev.json`'s `token`. The app's commit includes #22664 (above). |
 | A page loads, then stops updating | The dev server stopped. The page falls back to the overlay, then the bundle. Run `server --local` again. |
 | `the dev server did not start` | Another process holds the port (the server won't move to another one). Use `--port N`; the app follows `web-dev.json`. |
 | You see another tree's edits | A dev server that `web-overlay.sh` didn't start already answers on the port, and `server --local` reuses it. Stop it where it was started, or use `--port N` for a free port. |

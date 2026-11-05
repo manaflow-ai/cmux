@@ -1,18 +1,20 @@
 public import Foundation
 import CmuxNextCompat
 
-/// The live web loop of a Debug, NIGHTLY or cmux NEXT DEV app (plans/cmux-next/web-live-reload.md): `web-dev.json`
+/// The live web loop of every cmux NEXT build (plans/cmux-next/web-live-reload.md): `web-dev.json`
 /// next to `cmux-next.json` points the app's web surfaces at a loopback Vite server (hot reload)
 /// or at an overlay folder of built bundles, with no app build and no relaunch.
 ///
 /// ```json
-/// {"server": "http://127.0.0.1:4181/", "overlay": "~/Library/Application Support/cmux-next/web-overlay"}
+/// {"server": "http://127.0.0.1:4200/", "token": "<48 hex>", "overlay": "~/Library/Application Support/cmux-next/web-overlay"}
 /// ```
 ///
 /// - `server`: the React pages and viewers (``PageDevServer``, the same paths `bun run dev`
 ///   serves) and the agent pane (`/agent-pane/`) load their files from it and keep their own
 ///   origins, so the host bridge and trust stay the shipped ones. A request the server cannot
 ///   answer falls back to the bundled file, so a stopped server leaves the bundled pages.
+///   `token` is required with it: only answers carrying it (``PageDevServer/token``) are the
+///   server's, so a process that takes over the port of a stopped server serves nothing.
 /// - `overlay`: built bundles in `pages/<resource>/`, `agent-pane/` and `webviews-app/`
 ///   (`scripts/cmux-next/web-overlay.sh install` swaps them in and then writes `manifest.json`).
 ///   A surface whose folder or entry is missing there keeps its bundled files.
@@ -105,14 +107,23 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
               (object["enabled"] as? Bool) ?? true
         else { return WebDevOverride() }
         var value = WebDevOverride()
-        if let server = object["server"] as? String, let root = PageDevServer.loopbackURL(server) {
-            value.server = PageDevServer(root: root)
+        // A server without its token is ignored: any local process could hold a port a stale file
+        // names (``PageDevServer/token``). `web-overlay.sh` writes one.
+        if let server = object["server"] as? String, let root = PageDevServer.loopbackURL(server),
+           let token = (object["token"] as? String).flatMap(validToken) {
+            value.server = PageDevServer(root: root, token: token)
         }
         if let overlay = object["overlay"] as? String, let url = overlayURL(overlay, home: home) {
             value.overlay = url
         }
         if let gallery = object["gallery"] as? String { value.gallery = PageDevServer.loopbackURL(gallery) }
         return value
+    }
+
+    /// `raw` as a dev server token: at least 32 characters of `[A-Za-z0-9_-]`, else nil.
+    static func validToken(_ raw: String) -> String? {
+        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+        return raw.count >= 32 && raw.allSatisfy(allowed.contains) ? raw : nil
     }
 
     /// `path` as a folder: `~/x` under `home`, an absolute path as is, else nil.

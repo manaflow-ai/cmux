@@ -37,6 +37,21 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// The server's root URL (`http://127.0.0.1:4190/`).
     public let root: URL
 
+    /// The secret the server proves itself with (``tokenHeader`` on every answer), nil for none.
+    /// `web-dev.json` servers always have one (``WebDevOverride/parse(_:home:)``): every build reads
+    /// that file, and a port named in a stale file can be bound by any local process, so only an
+    /// answer carrying the token from the 0600 file counts as the user's server. The Debug launch
+    /// variable (``variable``) has none.
+    public let token: String?
+
+    /// The answer header carrying ``token`` (`webviews/dev-server/plugins.ts` sets it).
+    public static let tokenHeader = "X-Cmux-Dev-Token"
+
+    public init(root: URL, token: String? = nil) {
+        self.root = root
+        self.token = token
+    }
+
     /// The server ``variable`` names, when `allowsDevServer` (false in Release) and it passes
     /// ``loopbackURL(_:)``.
     public static func resolve(environment: [String: String], allowsDevServer: Bool) -> PageDevServer? {
@@ -87,8 +102,9 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     /// The page's policy plus the server: the Vite client's HMR socket and its reconnect ping.
     func csp(for page: PageDescriptor) -> PageCSP {
         var csp = page.csp
-        // Vite injects React Refresh as an inline module into entry HTML. This server is available
-        // only from an explicit loopback URL in Debug; bundled page responses keep their policy.
+        // Vite injects React Refresh as an inline module into entry HTML. This server is the Debug
+        // launch variable's or web-dev.json's, whose answers carry its token (``answered(_:)``);
+        // bundled page responses keep their policy.
         csp.inlineScript = true
         // 'none' stands alone in a source list: a page that opens no connection (the agent chat)
         // gets only the server's.
@@ -101,6 +117,15 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         guard let response else { return false }
         return response.scheme?.lowercased() == "http" && response.host?.lowercased() == root.host
             && response.port == root.port
+    }
+
+    /// Whether `response` is this server's: from its origin (``isOwn(_:)``) and, when the server has
+    /// a ``token``, carrying it. Anything else (another process on the port) falls through to the
+    /// overlay or the bundled file.
+    public func answered(_ response: HTTPURLResponse) -> Bool {
+        guard isOwn(response.url) else { return false }
+        guard let token else { return true }
+        return response.value(forHTTPHeaderField: Self.tokenHeader) == token
     }
 
     /// One uncached GET from the server.

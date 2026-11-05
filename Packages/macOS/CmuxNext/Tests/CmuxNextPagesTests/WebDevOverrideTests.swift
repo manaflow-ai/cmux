@@ -26,15 +26,27 @@ struct WebDevOverrideTests {
     }
 
     @Test func parsesALoopbackServerAndAHomeOverlay() throws {
-        let value = WebDevOverride.parse(Data(#"{"server": "http://127.0.0.1:4181/", "overlay": "~/web-overlay"}"#.utf8), home: home)
+        let value = WebDevOverride.parse(Data(#"{"server": "http://127.0.0.1:4181/", "token": "0123456789abcdef0123456789abcdef01234567", "overlay": "~/web-overlay"}"#.utf8), home: home)
         #expect(value.server?.root.absoluteString == "http://127.0.0.1:4181/")
+        #expect(value.server?.token == "0123456789abcdef0123456789abcdef01234567")
         #expect(value.overlay?.path == "/Users/someone/web-overlay")
+    }
+
+    /// Every build reads the file, so a server is trusted only with its token: a stale file's port
+    /// may be held by any local process.
+    @Test func aServerWithoutAValidTokenIsIgnored() {
+        let none = WebDevOverride.parse(Data(#"{"server": "http://127.0.0.1:4181/"}"#.utf8), home: home)
+        #expect(none.server == nil)
+        let short = WebDevOverride.parse(Data(#"{"server": "http://127.0.0.1:4181/", "token": "abc"}"#.utf8), home: home)
+        #expect(short.server == nil)
+        let header = WebDevOverride.parse(Data(#"{"server": "http://127.0.0.1:4181/", "token": "0123456789abcdef0123456789abcdef01234567\r\nX: y"}"#.utf8), home: home)
+        #expect(header.server == nil)
     }
 
     @Test func dropsAnythingButALoopbackServerAndAnAbsoluteOverlay() {
         let remote = WebDevOverride.parse(Data(#"{"server": "http://10.0.0.2:4181/", "overlay": "relative/dir"}"#.utf8), home: home)
         #expect(remote == WebDevOverride())
-        let noPort = WebDevOverride.parse(Data(#"{"server": "http://127.0.0.1/"}"#.utf8), home: home)
+        let noPort = WebDevOverride.parse(Data(#"{"server": "http://127.0.0.1/", "token": "0123456789abcdef0123456789abcdef01234567"}"#.utf8), home: home)
         #expect(noPort.server == nil)
     }
 
@@ -97,13 +109,22 @@ struct WebDevOverrideTests {
         try write("bundled", to: bundled.appending(path: PageDescriptor.markdown.entry))
         let root = try #require(URL(string: "http://127.0.0.1:4181/"))
         let handler = PageSchemeHandler(page: .markdown, root: bundled, devServer: nil)
-        handler.liveOverride = { WebDevOverride(server: PageDevServer(root: root)) }
+        handler.liveOverride = { WebDevOverride(server: PageDevServer(root: root, token: "0123456789abcdef0123456789abcdef01234567")) }
 
         handler.fetchDevServer = { url in
-            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/html"])
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+                                           headerFields: ["Content-Type": "text/html", PageDevServer.tokenHeader: "0123456789abcdef0123456789abcdef01234567"])
             return response.map { (Data("served".utf8), $0) }
         }
         #expect(try await body(handler) == "served")
+
+        // Another process on the port: no token, or the wrong one, serves nothing.
+        for headers in [["Content-Type": "text/html"], ["Content-Type": "text/html", PageDevServer.tokenHeader: "wrong"]] {
+            handler.fetchDevServer = { url in
+                HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: headers).map { (Data("intruder".utf8), $0) }
+            }
+            #expect(try await body(handler) == "bundled")
+        }
 
         handler.fetchDevServer = { _ in nil }
         #expect(try await body(handler) == "bundled")
@@ -121,11 +142,12 @@ struct WebDevOverrideTests {
         defer { try? FileManager.default.removeItem(at: bundled) }
         try write("bundled", to: bundled.appending(path: PageDescriptor.markdown.entry))
         let root = try #require(URL(string: "http://127.0.0.1:4181/"))
-        let server = PageDevServer(root: root)
+        let server = PageDevServer(root: root, token: "0123456789abcdef0123456789abcdef01234567")
         let handler = PageSchemeHandler(page: .markdown, root: bundled, devServer: nil)
         handler.liveOverride = { WebDevOverride(server: server) }
         handler.fetchDevServer = { url in
-            HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/html"])
+            HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+                            headerFields: ["Content-Type": "text/html", PageDevServer.tokenHeader: "0123456789abcdef0123456789abcdef01234567"])
                 .map { (Data("served".utf8), $0) }
         }
         let url = try #require(URL(string: PageDescriptor.markdown.origin + "/"))
