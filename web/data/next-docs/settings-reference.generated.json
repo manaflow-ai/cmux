@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 571,
+  "count": 573,
   "sections": [
     {
       "id": "general",
@@ -1794,6 +1794,27 @@
           "values": [
             "push",
             "overlay"
+          ]
+        },
+        {
+          "key": "agentPane.display.statusVerbs.custom",
+          "title": "Custom Working Verbs",
+          "help": "Comma-separated -ing verbs for the live status line.",
+          "kind": "text",
+          "default": null,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.statusVerbs.mode",
+          "title": "Working Status Verbs",
+          "help": "Choose whether the live status line rotates through verbs or stays on Thinking.",
+          "kind": "choice",
+          "default": "thinking",
+          "group": "Agent Chat",
+          "values": [
+            "thinking",
+            "rotate",
+            "custom"
           ]
         },
         {
