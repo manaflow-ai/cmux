@@ -44,8 +44,12 @@ public final class MobileHostPairedStore: Sendable {
         /// count again at the next launch whose Keychain answers. A Don't Allow, new keys or a removal is
         /// still written (fail closed), which costs every stored phone one Allow at the next launch.
         var memoryOnly = false
-        /// The wait before the next read of a refused seal.
+        /// The wait before the next read of a refused seal, and the token its read carries.
         var sealRetry: Task<Void, Never>?
+        var sealRetryToken: UUID?
+        /// The person's sign-out started (``forgetForSignOut()``): no list is read or published until the
+        /// next ``select(userID:)``.
+        var signingOut = false
     }
 
     private let state = Mutex(State())
@@ -85,6 +89,7 @@ public final class MobileHostPairedStore: Sendable {
             state.revision &+= 1
             state.list = nil
             state.removals = [:]
+            state.signingOut = false
             Self.endSealWait(&state)
             return (Change(list: nil, removed: removed, generation: state.generation, switchedAccount: true), state.observers)
         }
@@ -110,6 +115,7 @@ public final class MobileHostPairedStore: Sendable {
             // No list until the account is selected again: nothing is trusted, asked about or allowed while
             // the sign-out runs (an Allow then would outlive it).
             state.list = nil
+            state.signingOut = true
             return (Change(list: nil, removed: removed, generation: state.generation), state.observers)
         }
         notify(event)
@@ -118,6 +124,7 @@ public final class MobileHostPairedStore: Sendable {
     private static func endSealWait(_ state: inout State) {
         state.sealRetry?.cancel()
         state.sealRetry = nil
+        state.sealRetryToken = nil
         state.refusedReads = 0
         state.memoryOnly = false
     }
@@ -152,18 +159,26 @@ public final class MobileHostPairedStore: Sendable {
     }
 
     public func reload() async {
-        await read(retry: false)
+        await read(retry: nil)
     }
+
+    /// Whether the seal stayed refused past the waits in this run (``State/memoryOnly``).
+    public var isMemoryOnly: Bool { state.withLock { $0.memoryOnly } }
 
     /// Reads the selected account's list. `retry`: the pending wait for a refused seal ended; any other
     /// read while that wait is pending is left to it, so one refusal never starts two chains of waits.
-    private func read(retry: Bool) async {
+    private func read(retry: UUID?) async {
         await withCheckedContinuation { continuation in
             state.withLock { state in
-                guard let file = state.file, let user = state.userID else {
+                guard let file = state.file, let user = state.userID, !state.signingOut else {
                     continuation.resume(); return
                 }
-                if retry { state.sealRetry = nil } else if state.sealRetry != nil {
+                if let retry {
+                    // Only the wait still pending may read; an older one (another account's) reads nothing.
+                    guard state.sealRetryToken == retry else { continuation.resume(); return }
+                    state.sealRetry = nil
+                    state.sealRetryToken = nil
+                } else if state.sealRetry != nil {
                     continuation.resume(); return
                 }
                 let selected = state.generation
@@ -176,7 +191,7 @@ public final class MobileHostPairedStore: Sendable {
                     // given while it refused (memory only) joins the stored list now.
                     let (removals, remembered) = self.state.withLock { state -> ([Removal: RemovalMarker], [MobileHostPairedDevice]) in
                         guard state.generation == selected else { return ([:], []) }
-                        defer { state.refusedReads = 0; state.memoryOnly = false }
+                        state.refusedReads = 0
                         return (state.removals, state.memoryOnly ? state.list?.devices ?? [] : [])
                     }
                     for device in remembered { list.approve(device.request, at: device.pairedAt) }
@@ -184,7 +199,11 @@ public final class MobileHostPairedStore: Sendable {
                     // Even an empty/untrusted load must replace its seal after a removal.
                     if !removals.isEmpty || !remembered.isEmpty {
                         do { try file.save(list) }
+                        // A Keychain that reads but refuses the write: this run stays memory only.
                         catch { continuation.resume(); return }
+                    }
+                    self.state.withLock { state in
+                        if state.generation == selected { state.memoryOnly = false }
                     }
                     publish(list, generation: selected, completed: removals.mapValues(\.id))
                     continuation.resume()
@@ -207,12 +226,14 @@ public final class MobileHostPairedStore: Sendable {
                 let wait = Self.sealWaits[state.refusedReads]
                 state.refusedReads += 1
                 let clock = clock
+                let token = UUID()
+                state.sealRetryToken = token
                 // task-owner: stored in `sealRetry`; a new account, a sign-out or the next refusal replaces it
                 state.sealRetry = Task { [weak self] in
                     var backoff = Backoff(initial: wait, maximum: wait, jitter: 0)
                     // concurrency-allow: Backoff.wait is an async sleep after a failure (a refused Keychain read), not a blocking wait.
                     do { try await backoff.wait(owner: "iphone-host.pairing-seal", clock: clock) } catch { return }
-                    await self?.read(retry: true)
+                    await self?.read(retry: token)
                 }
                 return nil
             }
@@ -239,6 +260,8 @@ public final class MobileHostPairedStore: Sendable {
         let before = Dictionary(current.devices.map { (key($0), $0) }) { $1 }
         let after = Dictionary(next.devices.map { (key($0), $0) }) { $1 }
         let kept = Dictionary((stored?.devices ?? []).map { (key($0), $0) }) { $1 }
+        // An Allow of a phone the stored list refuses must clear that refusal on disk.
+        for device in next.devices where stored?.denied.contains(where: { $0.id == device.id }) == true { return false }
         for (id, device) in before where after[id]?.sameKeys(as: device) != true { return false }
         for (id, device) in after where before[id] == nil {
             if let old = kept[id], !old.sameKeys(as: device) { return false }
@@ -341,7 +364,7 @@ public final class MobileHostPairedStore: Sendable {
     private func publish(_ list: MobileHostPairedDevices, generation: UInt64,
                          completed: [Removal: UUID] = [:]) {
         let event = state.withLock { state -> (Change, [@Sendable (Change) -> Void])? in
-            guard state.generation == generation, state.userID == list.userID else { return nil }
+            guard state.generation == generation, state.userID == list.userID, !state.signingOut else { return nil }
             for (key, marker) in completed where state.removals[key]?.id == marker { state.removals[key] = nil }
             var next = list
             for removal in state.removals.keys { next.remove(removal.id, transport: removal.transport) }

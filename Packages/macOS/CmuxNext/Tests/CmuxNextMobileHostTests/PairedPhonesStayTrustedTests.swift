@@ -180,4 +180,35 @@ import Testing
         let next = await Self.launch(directory, seal: seal)
         #expect(next.trusts(Self.phone) && next.trusts(Self.newPhone))
     }
+
+    /// Review of #36157: an Allow, while the seal is refused, of a phone the stored list refuses is
+    /// written (fail closed), so the next launch asks about it instead of refusing it silently.
+    @Test func anAllowOfAStoredRefusalWhileTheSealIsRefusedIsWritten() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let first = await Self.launch(directory, seal: seal)
+        try await first.change(for: "u") { $0.deny(Self.newPhone) }
+        let refused = try await Self.refusedPastTheWaits(directory, seal: seal)
+        try await refused.change(for: "u") { $0.approve(Self.newPhone, at: Date(timeIntervalSince1970: 7)) }
+        seal.answerAgain()
+        let next = await Self.launch(directory, seal: seal)
+        #expect(next.current?.decision(for: Self.newPhone) != .denied, "the phone allowed while the Keychain refused is refused silently")
+    }
+
+    /// Review of #36157: nothing read or removed while the person's sign-out runs brings the list back.
+    @Test func noListComesBackWhileTheSignOutRuns() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let store = await Self.launch(directory, seal: seal)
+        try await store.change(for: "u") { $0.approve(Self.phone, at: Date(timeIntervalSince1970: 5)) }
+        store.forgetForSignOut()
+        store.forget(id: Self.newPhone.phoneDeviceID)
+        await store.reload()
+        #expect(store.current == nil)
+        await #expect(throws: (any Error).self) {
+            try await store.change(for: "u") { $0.approve(Self.newPhone, at: Date()) }
+        }
+    }
 }
