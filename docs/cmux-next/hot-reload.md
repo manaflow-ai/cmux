@@ -127,6 +127,37 @@ To share one dev server, declare `"slot": {"host": "<ssh host>", "port": N}` in 
 The host must be a shared build host, never someone's personal machine. `server --slot` tunnels the same port, so HMR still connects, and falls back
 to `--local` when the slot doesn't answer.
 
+### Editing while it runs: what survives
+
+`bun run hot-reload:proof` (in `webviews/`) checks this on the real agent pane with no app: it
+starts the dev server `server --local` runs, opens `/agent-pane/?mock`, sends a prompt so a turn
+streams, types a draft, then edits source files and checks that each edit shows up in the same page
+with the draft, the transcript and the streaming turn kept. `--audit` also saves every pane
+component the page loaded, one at a time, and lists the ones that reload the page instead. It
+undoes every edit before it exits. Run it on the fleet with
+`cmux-ci test -- bash -c 'cd webviews && node scripts/hot-reload-proof.mjs --audit "$FAST_CHECKS_OUT"'`.
+
+Measured on `feat-cmux-next` (2026-11-05, fleet Linux runner, Chromium):
+
+| Edit, mid-turn | Result |
+|---|---|
+| A stylesheet (`bottomStack.css`) | Shown in 0.6 s, same page; the draft, transcript and turn are kept |
+| A component (`ComposerFoot.tsx`) | The page reloads (2.2 s); the draft and transcript are lost and the turn stops streaming |
+| Every loaded pane component (`--audit`) | 187 of 319 hot-swap in place; 132 reload the page |
+
+A component reloads the page when React Fast Refresh can't swap its module: the file also exports
+something that is not a component (a context, a constant, a helper), so Vite passes the update up
+to the files that import it. `ComposerFoot.tsx` exports the `InQuietRow` context; its importers
+`NewTabPage.tsx` (constants and helpers) and `App.tsx` (`applyPaneTheme`, `saveSnapshot` and
+others) can't take it either, and the update reaches the page root, which reloads. Vite logs
+`Could not Fast Refresh ("NAME" export is incompatible)` for each. Moving those exports into
+sibling `.ts` files makes the component edits swap in place.
+
+Beyond the web UI, Swift views take live code today only in the view shell
+(`Prototypes/ViewShell`, "Live code" in its README): function bodies and new files apply to the
+running shell with no relaunch. The app itself still needs a build for Swift; `try-pr.sh` says
+which PRs do.
+
 ## Every merge, no checkout
 
 Settings > Updates > **Web UI Updates**:
