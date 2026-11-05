@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextLayout
 import CmuxNextDesign
 
 extension ShellWindow {
@@ -63,6 +64,7 @@ extension ShellWindow {
     }
 
     override func resignKey() {
+        BenchSpans.mark(BenchTurnRecorder.keyLabel("key.resign", self))
         cursorRectHold?.windowKeyStateWillChange(self)
         super.resignKey()
     }
