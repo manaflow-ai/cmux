@@ -317,13 +317,17 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* Centred on the head's left edge, where its hover pill starts, and on the head's middle line, so the
-     grip sits on one line with the row instead of half on, half off its pill (Leo, 2026-11-03: "this is
-     an uglily placed thing. just align the draggable"). Two base steps wide: the panel's resize edge
-     (3px in) stays clear on the left, the icon or title (one grid gap in) on the right. The gallery
-     compares other centres through --acpmux-session-info-grip-center. */
-  left: calc(var(--acpmux-session-info-grip-center, 0px) - var(--grid-base));
-  width: calc(2 * var(--grid-base));
+  /* Wholly inside the head's hover pill, in its leading padding before the icon column, and on the
+     head's middle line. Centred on the room left of a row icon's ink (the padding and the 14px icon's
+     margin in its 16px box), so the grip has about the same gap to the pill's edge as to the icon
+     (Leo, 2026-11-04: "this is off", of the grip centred on the pill's edge, half in and half out).
+     The gallery compares other centres through --acpmux-session-info-grip-center. */
+  --acpmux-session-info-grip-room: calc(var(--grid-gap) + 1px);
+  left: calc(
+    var(--acpmux-session-info-grip-center, calc(var(--acpmux-session-info-grip-room) / 2)) -
+      var(--acpmux-session-info-grip-room) / 2
+  );
+  width: var(--acpmux-session-info-grip-room);
   height: var(--grid-row);
   display: flex;
   align-items: center;
