@@ -10,7 +10,8 @@ extension ThemeTokens {
     public func statusDot(_ mark: StatusDotHue) -> ThemeRGB {
         let row = windowBackground.withAlpha(1)
         let rows = [row, selectionFill.composited(over: row), pressedFill.composited(over: row)]
-        let start = mark == .attention ? attention.withAlpha(1) : mark.hue(isDark: isDark)
+        let start: ThemeRGB
+        if case .attention = mark { start = attention.withAlpha(1) } else { start = mark.hue(isDark: isDark) }
         return readableDot(start, over: rows, toward: row.relativeLuminance < 0.18 ? .white : .black)
     }
 }
