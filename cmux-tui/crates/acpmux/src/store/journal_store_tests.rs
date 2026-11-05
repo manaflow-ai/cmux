@@ -7,8 +7,11 @@
 //! in a temporary folder; an OS crash of them is modelled as the worst case: every log file goes
 //! back to its length at the last `flush` (the kernel lost every write since).
 
-use super::journal_store::{FencedStorage, JournalStore, STOP_AFTER_CUT};
-use super::log_sync::FAIL_NEXT_LOG_SYNC;
+use super::journal_store::{
+    FAIL_NEXT_FOLDER_REMOVAL, FencedStorage, HOLD_AFTER_START, HOLD_BEFORE_FREEZE, HOLD_IN_SYNC,
+    JournalStore, STOP_AFTER_CUT, checkpointer_seams,
+};
+use super::log_sync::{FAIL_NEXT_LOG_SYNC, NOTE_BEFORE_SYNCS_WAIT};
 use super::sync_model;
 use super::*;
 use cmux_journal::{Crash, SimStorage};
@@ -873,6 +876,197 @@ fn a_failed_sync_in_flush_session_freezes_the_checkpoint() {
     assert!(reason.is_some(), "the store did not ask the daemon to stop");
 }
 
+// ---------------------------------------------------------------- review 3 of #34901 (follow-ups)
+
+/// Follow-up 1: a chat whose repair fails (its log cannot be read or written now) is repaired at a
+/// later start: its lines go to its repair file in `journal-unapplied/`, which the next open
+/// journals again (review of #35562: no hold of the global checkpoint).
+#[test]
+fn a_chat_whose_repair_failed_is_repaired_at_the_next_start() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(44);
+    let store = open(home.path(), &journal);
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=3 {
+        store.append("chat-b", &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // An OS crash: the log loses lines 2 and 3; the journal keeps them.
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    // chat-b's segment becomes a link: the store never follows one, so its repair fails.
+    let events = home.path().join("sessions").join("chat-b").join("events");
+    let segment = events.join("000001.ndjson");
+    let copy = home.path().join("elsewhere.ndjson");
+    std::fs::copy(&segment, &copy).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::remove_file(&segment).unwrap_or_else(|e| panic!("{e}"));
+    std::os::unix::fs::symlink(&copy, &segment).unwrap_or_else(|e| panic!("{e}"));
+    let store = open(home.path(), &crashed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    // The cause goes; the next start repairs the chat.
+    std::fs::remove_file(&segment).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::copy(&copy, &segment).unwrap_or_else(|e| panic!("{e}"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), "chat-b"),
+        vec![1, 2, 3],
+        "the open's checkpoint retired the records of a chat it could not repair"
+    );
+}
+
+/// Overwrites `id`'s log with zeros from the middle of line `from` to the start of line `to`: a
+/// hole that ends exactly where a line starts, after a torn line.
+fn zero_log_mid_line_to_line_start(home: &Path, id: &str, from: u64, to: u64) {
+    let events = home.join("sessions").join(id).join("events");
+    for entry in std::fs::read_dir(&events).unwrap_or_else(|e| panic!("{e}")).flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "ndjson") {
+            continue;
+        }
+        let mut bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{e}"));
+        let mut lines = BTreeMap::new();
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let end = bytes
+                .get(offset..)
+                .and_then(|rest| rest.iter().position(|b| *b == b'\n'))
+                .map_or(bytes.len(), |at| offset + at + 1);
+            if let Some(seq) = bytes.get(offset..end).and_then(record_seq) {
+                lines.insert(seq, (offset, end));
+            }
+            offset = end;
+        }
+        if let (Some(&(a, a_end)), Some(&(b, _))) = (lines.get(&from), lines.get(&to)) {
+            if let Some(hole) = bytes.get_mut(a + (a_end - a) / 2..b) {
+                hole.fill(0);
+            }
+            std::fs::write(&path, bytes).unwrap_or_else(|e| panic!("{e}"));
+        }
+    }
+}
+
+/// Follow-up 2: a hole that ends exactly at a line start, after a torn line, does not swallow
+/// that line. It matters for a line only the log holds (here line 8: written, its record never
+/// made, as after a crash between the two).
+#[test]
+fn a_hole_that_ends_at_a_line_start_keeps_that_line() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(45);
+    let store = open(home.path(), &journal);
+    for seq in 1..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 6..=7 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    write_log_line(home.path(), CHAT, &record(8, "queued"));
+    zero_log_mid_line_to_line_start(home.path(), CHAT, 6, 8);
+    let store = open(home.path(), &killed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=8).collect::<Vec<_>>(),
+        "a line after a hole that ends at its start was dropped"
+    );
+}
+
+/// Follow-up 4: an idle store's checkpointer sleeps until the next change, instead of waking every
+/// period (cmux-ad m9: an idle daemon must not wake periodically); the next change still gets its
+/// checkpoint one period later.
+#[test]
+fn an_idle_store_does_not_wake_its_checkpointer() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    checkpointer_seams(home.path(), |seams| seams.every_ms = 20);
+    let wakes = || checkpointer_seams(home.path(), |seams| seams.wakes);
+    let journal = SimStorage::new(46);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    // Let the checkpointer see that nothing is left to do.
+    std::thread::sleep(Duration::from_millis(100));
+    let before = wakes();
+    std::thread::sleep(Duration::from_millis(500));
+    let woke = wakes().saturating_sub(before);
+    assert!(woke <= 1, "an idle checkpointer woke {woke} times in 500 ms (period 20 ms)");
+    // A change wakes it: its checkpoint comes about one period later.
+    store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let checkpointed = loop {
+        let bytes = std::fs::read(home.path().join("journal-projected.json")).unwrap_or_default();
+        let lsn =
+            serde_json::from_slice::<Value>(&bytes).ok().and_then(|value| value["lsn"].as_u64());
+        if lsn.is_some_and(|lsn| lsn >= 2) || std::time::Instant::now() > deadline {
+            break lsn;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(
+        checkpointed.is_some_and(|lsn| lsn >= 2),
+        "no checkpoint after a change ({checkpointed:?})"
+    );
+}
+
+/// The idle checkpointer (follow-up 4) and its period. A change whose `touched` takes the idle
+/// flag while the checkpointer holds the timer lock (between marking itself idle and its second
+/// look) notifies once it gets that lock. The second look saw the change, so the checkpointer is
+/// in its period wait by then, and that notify must not end it: else a checkpoint runs at once on
+/// the checkpointer's thread, and a burst no longer shares one. In fleet run 0577ac62 such a
+/// checkpoint took the line whose sync `a_failed_log_sync_freezes_the_checkpoint` fails (on a
+/// thread where the failure is not set), and the test's own flush had nothing to do.
+#[test]
+fn a_change_seen_by_the_idle_checkpointers_second_look_waits_one_period() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (idle_arrived, idle_seen) = std::sync::mpsc::channel();
+    let (idle_release, idle_released) = std::sync::mpsc::channel();
+    let (touch_arrived, touch_seen) = std::sync::mpsc::channel();
+    let (touch_release, touch_released) = std::sync::mpsc::channel();
+    checkpointer_seams(home.path(), |seams| {
+        seams.idle_hold = Some((idle_arrived, idle_released));
+        seams.touch_hold = Some((touch_arrived, touch_released));
+    });
+    let journal = SimStorage::new(47);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    // The checkpointer found nothing to do, marked itself idle and holds the timer lock.
+    idle_seen
+        .recv_timeout(WAIT)
+        .unwrap_or_else(|e| panic!("the checkpointer never went idle: {e}"));
+    let appender = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+        })
+    };
+    // The change took the idle flag; its notify waits for the timer lock.
+    touch_seen
+        .recv_timeout(WAIT)
+        .unwrap_or_else(|e| panic!("the change never took the idle flag: {e}"));
+    // The second look sees the change, so the checkpointer goes to its period wait (30 s), and
+    // the change's notify comes in there.
+    idle_release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    touch_release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    appender.join().unwrap_or_else(|_| panic!("the append panicked"));
+    std::thread::sleep(Duration::from_millis(300));
+    let woke = checkpointer_seams(home.path(), |seams| seams.wakes);
+    assert_eq!(
+        woke, 0,
+        "the change's notify ended the checkpointer's period: a checkpoint ran at once"
+    );
+    assert!(
+        !home.path().join("journal-projected.json").exists(),
+        "a checkpoint ran before one period after the change"
+    );
+}
+
 // ---------------------------------------------------------------- review of #35400 (S2c)
 
 /// F1: a read that shows a line returns only once that line's record is appended, so the reply
@@ -919,4 +1113,582 @@ fn a_read_that_shows_a_line_covers_its_record() {
             "a read showed line 2 before its record was appended (acked {acked_then}, then {acked_now})"
         );
     }
+}
+
+// ---------------------------------------------------------------- review of #35562 (the hold)
+
+/// Makes `id`'s first log segment a link to a copy of itself: the store never follows one, so the
+/// chat's repair fails at every open until the link goes.
+fn link_first_segment(home: &Path, id: &str) -> (PathBuf, PathBuf) {
+    let segment = home.join("sessions").join(id).join("events").join("000001.ndjson");
+    let copy = home.join(format!("{id}-elsewhere.ndjson"));
+    std::fs::copy(&segment, &copy).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::remove_file(&segment).unwrap_or_else(|e| panic!("{e}"));
+    std::os::unix::fs::symlink(&copy, &segment).unwrap_or_else(|e| panic!("{e}"));
+    (segment, copy)
+}
+
+/// A store whose open could not repair chat-b (its segment a link): chat-b's line 2 was past the
+/// checkpoint at a kill.
+fn open_with_a_failed_repair(home: &Path, journal: &SimStorage) -> (Box<dyn Store>, SimStorage) {
+    let store = open(home, journal);
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append("chat-b", &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    link_first_segment(home, "chat-b");
+    (open(home, &killed), killed)
+}
+
+fn checkpoint_lsn(home: &Path) -> u64 {
+    let bytes = std::fs::read(home.join("journal-projected.json")).unwrap_or_default();
+    serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| v["lsn"].as_u64()).unwrap_or(0)
+}
+
+/// F2 and F3 of the review of #35562, at the root: a chat whose repair failed keeps only its own
+/// lines for the next start; the checkpoint of every other chat goes on. (A hold of the global
+/// checkpoint kept every chat's records past it, so a start with the switch off replayed them
+/// again, a retention rewrite came undone, and the journal grew with each restart.)
+#[test]
+fn a_failed_repair_does_not_hold_the_checkpoint_of_other_chats() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(80);
+    let (store, _killed) = open_with_a_failed_repair(home.path(), &journal);
+    for seq in 1..=3 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let durability = store.durability().unwrap_or_else(|| panic!("no durability"));
+    let last = durability.acked.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(
+        checkpoint_lsn(home.path()) >= last,
+        "the checkpoint stayed at {} below chat-a's records (the journal ends at {last})",
+        checkpoint_lsn(home.path())
+    );
+}
+
+/// A retention rewrite of another chat after a failed repair stays: the next open writes none of
+/// the lines it cut back, and keeps no copy of them aside.
+#[test]
+fn a_retention_rewrite_after_a_failed_repair_stays_after_a_restart() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(81);
+    let (store, killed) = open_with_a_failed_repair(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    let long = EventRecord {
+        seq: 2,
+        at: 1_002,
+        dir: "in".into(),
+        kind: "claude.assistant".into(),
+        msg: json!({ "text": "x".repeat(8 * 1024) }),
+        host_seq: None,
+    };
+    store.append(CHAT, &long).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let staged = store
+        .stage_compaction(CHAT, CompactMode::Write { archive: None })
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("nothing to compact"));
+    assert!(store.commit_compaction(CHAT, staged).unwrap_or_else(|e| panic!("{e:#}")));
+    let cut = std::fs::read(home.path().join("sessions").join(CHAT).join("events/000001.ndjson"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    drop(store);
+    let store = open(home.path(), &killed);
+    let after = std::fs::read(home.path().join("sessions").join(CHAT).join("events/000001.ndjson"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(seqs(store.as_ref(), CHAT), vec![1, 2]);
+    assert!(after == cut, "the open wrote lines a retention rewrite cut back into the log");
+    let kept: Vec<String> = std::fs::read_dir(home.path().join("journal-unapplied"))
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        !kept.iter().any(|name| name.starts_with(CHAT)),
+        "the open kept a copy of a rewritten log aside: {kept:?}"
+    );
+}
+
+/// A chat whose repair failed, then deleted and made again under the same id in that run: the
+/// next start gives the new chat none of the old chat's kept lines.
+#[test]
+fn a_chat_deleted_after_its_failed_repair_does_not_get_its_old_lines() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(82);
+    let (store, killed) = open_with_a_failed_repair(home.path(), &journal);
+    store.delete("chat-b").unwrap_or_else(|e| panic!("{e:#}"));
+    store.append("chat-b", &record(1, "created-again")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    let store = open(home.path(), &killed);
+    let kinds: Vec<String> = store
+        .events("chat-b", 0, 100)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .into_iter()
+        .map(|record| record.kind)
+        .collect();
+    assert_eq!(kinds, vec!["created-again".to_owned()], "the new chat got the old chat's lines");
+}
+
+// ---------------------------------------------------------------- delta review of #35562 (D1 to D4)
+
+/// The link goes: the segment is a file again.
+fn unlink_first_segment(segment: &Path, copy: &Path) {
+    std::fs::remove_file(segment).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::copy(copy, segment).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// The seqs of every line in any file of `journal-unapplied/`.
+fn kept_seqs(home: &Path) -> BTreeSet<u64> {
+    let Ok(entries) = std::fs::read_dir(home.join("journal-unapplied")) else {
+        return BTreeSet::new();
+    };
+    let mut seqs = BTreeSet::new();
+    for entry in entries.flatten() {
+        let bytes = std::fs::read(entry.path()).unwrap_or_default();
+        seqs.extend(bytes.split(|b| *b == b'\n').filter_map(record_seq));
+    }
+    seqs
+}
+
+/// The repair files of chat `id` in `journal-unapplied/`.
+fn repair_files(home: &Path, id: &str) -> Vec<String> {
+    std::fs::read_dir(home.join("journal-unapplied"))
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .filter(|name| {
+                    name.starts_with(&format!("{id}.")) && name.ends_with(".repair.ndjson")
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// chat-b at an OS crash: its log keeps line 1, the journal lines 1 to `last`. Then its segment
+/// is a link, so the next open cannot repair it. Returns the journal after the crash and the link.
+fn crash_with_a_broken_chat(home: &Path, seed: u64, last: u64) -> (SimStorage, PathBuf, PathBuf) {
+    let journal = SimStorage::new(seed);
+    let store = open(home, &journal);
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=last {
+        store.append("chat-b", &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.join("sessions"));
+    let (segment, copy) = link_first_segment(home, "chat-b");
+    (crashed, segment, copy)
+}
+
+/// D1 (the reviewer's test): a chat whose repair failed, and whose folder is aside at the next
+/// open (a replacing transfer staged it, `hub/transfer_in.rs`, and the daemon was killed before
+/// the import committed; `Hub::recover_staged_replacements` renames it back after the store's
+/// open). Its kept lines must not be lost: in its log once the folder is back, or still kept.
+#[test]
+fn a_failed_repairs_lines_survive_a_folder_that_is_aside_at_the_open() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (crashed, segment, copy) = crash_with_a_broken_chat(home.path(), 90, 3);
+    // This open cannot repair chat-b: its lines 2 and 3 are kept.
+    let store = open(home.path(), &crashed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    // The folder is aside at the next open, and back after it.
+    let sessions = home.path().join("sessions");
+    let aside = sessions.join(".chat-b.replacement-backup");
+    std::fs::rename(sessions.join("chat-b"), &aside).unwrap_or_else(|e| panic!("{e}"));
+    let store = open(home.path(), &crashed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    std::fs::rename(&aside, sessions.join("chat-b")).unwrap_or_else(|e| panic!("{e}"));
+    unlink_first_segment(&segment, &copy);
+    let store = open(home.path(), &crashed);
+    let logged = seqs(store.as_ref(), "chat-b");
+    let kept = kept_seqs(home.path());
+    assert!(
+        logged == vec![1, 2, 3] || (kept.contains(&2) && kept.contains(&3)),
+        "chat-b's kept lines are lost: its log holds {logged:?}, journal-unapplied/ holds {kept:?}"
+    );
+}
+
+/// D1, the other half: a failed repair's lines belong to the folder they were kept for. A
+/// transfer that replaced that folder (the old one aside, another chat's in its place) must not
+/// get them, and they stay kept.
+#[test]
+fn a_failed_repairs_lines_never_go_into_a_folder_that_replaced_it() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (crashed, _segment, _copy) = crash_with_a_broken_chat(home.path(), 92, 3);
+    let store = open(home.path(), &crashed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    // A transfer replaces the folder: the old one aside, the incoming chat's in its place.
+    let sessions = home.path().join("sessions");
+    std::fs::rename(sessions.join("chat-b"), sessions.join(".chat-b.replacement-backup"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let local = LocalStore::new(sessions.clone(), 1 << 20).unwrap_or_else(|e| panic!("{e:#}"));
+    Store::append(&local, "chat-b", &record(1, "transferred")).unwrap_or_else(|e| panic!("{e:#}"));
+    Store::flush(&local).unwrap_or_else(|e| panic!("{e:#}"));
+    drop(local);
+    let store = open(home.path(), &crashed);
+    let kinds: Vec<String> = store
+        .events("chat-b", 0, 100)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .into_iter()
+        .map(|record| record.kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        vec!["transferred".to_owned()],
+        "the old chat's kept lines went into the folder that replaced it"
+    );
+    let kept = kept_seqs(home.path());
+    assert!(kept.contains(&2) && kept.contains(&3), "the old chat's kept lines are lost: {kept:?}");
+}
+
+/// D2 (the reviewer's test): an OS crash before a repair file's sync could leave its last line
+/// torn. No checkpoint ran after the file, so the journal still holds the chat's records. The
+/// next open must still repair the chat.
+#[test]
+fn a_torn_repair_file_does_not_stop_the_chats_repair() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (crashed, segment, copy) = crash_with_a_broken_chat(home.path(), 91, 3);
+    // The state of a crash right after the next open wrote its repair file: the journal and the
+    // checkpoint as before that open, the file torn in its last line.
+    let checkpoint_path = home.path().join("journal-projected.json");
+    let checkpoint = std::fs::read(&checkpoint_path).unwrap_or_else(|e| panic!("{e}"));
+    let before = crashed.snapshot(Crash::Process);
+    let store = open(home.path(), &crashed);
+    drop(store);
+    std::fs::write(&checkpoint_path, &checkpoint).unwrap_or_else(|e| panic!("{e}"));
+    let unapplied = home.path().join("journal-unapplied");
+    for entry in std::fs::read_dir(&unapplied).unwrap_or_else(|e| panic!("{e}")).flatten() {
+        let len = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(entry.path())
+            .unwrap_or_else(|e| panic!("{e}"));
+        file.set_len(len.saturating_sub(10)).unwrap_or_else(|e| panic!("{e}"));
+    }
+    // The cause goes: the chat can be repaired now.
+    unlink_first_segment(&segment, &copy);
+    let store = open(home.path(), &before);
+    assert_eq!(
+        seqs(store.as_ref(), "chat-b"),
+        vec![1, 2, 3],
+        "a torn repair file stopped the chat's repair"
+    );
+}
+
+/// D3: a delete whose folder removal fails keeps the chat's repair file in its hands, so the
+/// delete that succeeds later removes it.
+#[test]
+fn a_delete_that_succeeds_after_a_failed_one_removes_the_repair_file() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (crashed, _segment, _copy) = crash_with_a_broken_chat(home.path(), 93, 3);
+    let store = open(home.path(), &crashed);
+    assert!(!repair_files(home.path(), "chat-b").is_empty(), "no repair file");
+    FAIL_NEXT_FOLDER_REMOVAL.with(|fail| fail.set(true));
+    assert!(store.delete("chat-b").is_err(), "the folder removal did not fail");
+    FAIL_NEXT_FOLDER_REMOVAL.with(|fail| fail.set(false));
+    store.delete("chat-b").unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(
+        repair_files(home.path(), "chat-b"),
+        Vec::<String>::new(),
+        "a deleted chat's repair file was left"
+    );
+}
+
+/// D4: a repair file larger than what the journal takes at once (`max_pending_bytes`) is still
+/// applied: the open waits for the journal's writer instead of failing at its backlog.
+#[test]
+fn a_repair_file_larger_than_the_journal_queue_is_applied() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (crashed, segment, copy) = crash_with_a_broken_chat(home.path(), 94, 300);
+    // This open cannot repair chat-b: its lines 2 to 300 go to its repair file.
+    let store = open(home.path(), &crashed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    unlink_first_segment(&segment, &copy);
+    // The next open's journal takes at most 4 KiB of records at once, and its syncs are slow.
+    crashed.set_sync_delay(Duration::from_millis(20));
+    let small = cmux_journal::Config { max_pending_bytes: 4096, ..journal_config() };
+    let store = open_with_journal(&config(), home.path(), Arc::new(crashed.clone()), small)
+        .unwrap_or_else(|e| panic!("open the store: {e:#}"));
+    crashed.set_sync_delay(Duration::ZERO);
+    assert_eq!(
+        seqs(store.as_ref(), "chat-b"),
+        (1..=300).collect::<Vec<_>>(),
+        "a repair file larger than the journal's queue was not applied"
+    );
+}
+
+// ---------------------------------------------------------------- review of #35866: a checkpoint and a freeze
+
+/// The reviewer's test (review of #35866, finding 2's base part): a checkpoint in flight (past
+/// its start, where it read `frozen`) when a log sync fails on another thread (a request's
+/// `flush_session`; the store freezes). The checkpoint's own sync of that log may report success
+/// for the pages the failed sync dropped: it must not retire the line's record. The checkpoint is
+/// held right after its start (test seam `HOLD_AFTER_START`) while the sync fails: no timer.
+#[test]
+fn a_checkpoint_in_flight_does_not_go_past_a_freeze() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(95);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // A checkpoint in flight: held right after its start.
+    let (started_tx, started) = std::sync::mpsc::channel();
+    let (go, go_rx) = std::sync::mpsc::channel();
+    let flusher = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            HOLD_AFTER_START.with(|hold| *hold.borrow_mut() = Some((started_tx, go_rx)));
+            store.flush()
+        })
+    };
+    started.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the checkpoint never started: {e}"));
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    let failed = store.flush_session(CHAT);
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    let _ = go.send(());
+    let in_flight = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
+    // The daemon stops for a restart (no crash); the restart's first checkpoint runs.
+    drop(store);
+    let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        vec![1, 2],
+        "a checkpoint in flight went on past a freeze and retired the record of a line whose sync failed (it returned {})",
+        if in_flight.is_ok() { "ok" } else { "an error" }
+    );
+}
+
+/// The same race at its narrowest: another thread's log sync has failed and has not frozen the
+/// store yet when a checkpoint is about to write its LSN. The checkpoint must not retire the
+/// line's record either: it waits for that sync, which freezes the store when the test lets it
+/// go on. The test knows that the checkpoint waits from its note (test seam
+/// `NOTE_BEFORE_SYNCS_WAIT`), sent right before it blocks: no timer.
+#[test]
+fn a_checkpoint_never_goes_past_a_sync_that_is_failing_on_another_thread() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(96);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // Another thread's flush_session: its log sync fails, and it stops right before it freezes
+    // the store.
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let failing = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            HOLD_BEFORE_FREEZE.with(|hold| *hold.borrow_mut() = Some((arrived_tx, release_rx)));
+            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+            let result = store.flush_session(CHAT);
+            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+            result
+        })
+    };
+    arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the failing sync never arrived: {e}"));
+    // A checkpoint now, while that failure is not recorded yet: it says when it waits, or that it
+    // returned.
+    let (events_tx, events) = std::sync::mpsc::channel();
+    let flusher = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            NOTE_BEFORE_SYNCS_WAIT.with(|note| *note.borrow_mut() = Some(events_tx.clone()));
+            let result = store.flush();
+            let _ = events_tx.send("returned");
+            result
+        })
+    };
+    let first =
+        events.recv_timeout(WAIT).unwrap_or_else(|e| panic!("no word from the checkpoint: {e}"));
+    let waited = first != "returned";
+    if waited {
+        // Blocked on the held sync's ticket: it cannot return before the release.
+        assert!(!flusher.is_finished(), "the checkpoint returned while it waited for a sync");
+    }
+    let _ = release.send(());
+    let failed = failing.join().unwrap_or_else(|_| panic!("the failing thread panicked"));
+    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    let checkpointed = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
+    drop(store);
+    let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        vec![1, 2],
+        "a checkpoint went past a sync that was failing on another thread (it {} and returned {})",
+        if waited { "waited" } else { "did not wait" },
+        if checkpointed.is_ok() { "ok" } else { "an error" }
+    );
+    assert!(waited, "the checkpoint did not wait for the failing sync");
+}
+
+/// A checkpoint while a sync of the store's files that succeeds is under way on another thread:
+/// the checkpoint waits for it and goes on. It never fails for it: a failed checkpoint also
+/// refuses a compaction's commit and leaves the shutdown's checkpoint undone. The test knows that
+/// the checkpoint waits from its note (test seam `NOTE_BEFORE_SYNCS_WAIT`): no timer.
+#[test]
+fn a_checkpoint_waits_for_a_sync_under_way_on_another_thread() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(97);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // Another thread's flush_session: its sync is under way and stops before it syncs.
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let syncing = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            HOLD_IN_SYNC.with(|hold| *hold.borrow_mut() = Some((arrived_tx, release_rx)));
+            store.flush_session(CHAT)
+        })
+    };
+    arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the sync never began: {e}"));
+    let (events_tx, events) = std::sync::mpsc::channel();
+    let flusher = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            NOTE_BEFORE_SYNCS_WAIT.with(|note| *note.borrow_mut() = Some(events_tx.clone()));
+            let result = store.flush();
+            let _ = events_tx.send("returned");
+            result
+        })
+    };
+    let first =
+        events.recv_timeout(WAIT).unwrap_or_else(|e| panic!("no word from the checkpoint: {e}"));
+    if first == "returned" {
+        let _ = release.send(());
+        let result = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
+        panic!(
+            "a checkpoint did not wait for a sync under way on another thread: it returned {}",
+            result.map_or_else(|e| format!("{e:#}"), |()| "ok".to_owned())
+        );
+    }
+    // Blocked on the held sync's ticket: it cannot return before the release.
+    assert!(!flusher.is_finished(), "the checkpoint returned while it waited for a sync");
+    let _ = release.send(());
+    syncing
+        .join()
+        .unwrap_or_else(|_| panic!("the sync panicked"))
+        .unwrap_or_else(|e| panic!("the sync failed: {e:#}"));
+    flusher.join().unwrap_or_else(|_| panic!("the flush panicked")).unwrap_or_else(|e| {
+        panic!("a checkpoint failed for a sync under way on another thread: {e:#}")
+    });
+}
+
+// ---------------------------------------------------------------- review of #35895: a log's close
+
+/// The reviewer's test (review of #35895, finding 1): a log's close on another thread
+/// (`close_log`; an eviction, a segment's end and a retention commit use the same
+/// `SegmentWriter::close`) notes a failed sync in `sync_failed` only after its sync returned,
+/// both under the writers' lock. A checkpoint that cloned the log before the close syncs the
+/// clone after the close's failed sync and sees success (the clone shares the close's error
+/// report); it must still not retire the line's record. The close is held before its note,
+/// holding the writers' lock. The checkpoint must then wait for it, not return: it says so right
+/// before it takes the lock (test seam `NOTE_BEFORE_CLOSE_NOTE_READ`), and only then does the
+/// test let the close go on. No timer.
+#[test]
+fn a_checkpoint_never_goes_past_a_log_close_whose_sync_is_failing_on_another_thread() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(98);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // A checkpoint that cloned the chat's open log and stops before its own sync of it. It says
+    // when it is about to wait for the closes' note, or that it returned.
+    let (cloned_tx, cloned) = std::sync::mpsc::channel();
+    let (go, go_rx) = std::sync::mpsc::channel();
+    let (events_tx, events) = std::sync::mpsc::channel();
+    let checkpoint = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            super::log_sync::HOLD_AFTER_LOG_CLONE
+                .with(|hold| *hold.borrow_mut() = Some((cloned_tx, go_rx)));
+            super::log_sync::NOTE_BEFORE_CLOSE_NOTE_READ
+                .with(|note| *note.borrow_mut() = Some(events_tx.clone()));
+            let result = store.flush();
+            let _ = events_tx.send("returned");
+            result
+        })
+    };
+    cloned
+        .recv_timeout(WAIT)
+        .unwrap_or_else(|e| panic!("the checkpoint never cloned the log: {e}"));
+    // The log closes on another thread: its sync fails, and it stops before it notes that,
+    // holding the writers' lock.
+    let (failed_tx, failed) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let closing = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            super::log_sync::HOLD_BEFORE_CLOSE_NOTE
+                .with(|hold| *hold.borrow_mut() = Some((failed_tx, release_rx)));
+            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+            store.close_log(CHAT);
+            FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+        })
+    };
+    failed.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the close's sync never failed: {e}"));
+    // The checkpoint syncs its clone (success: the close's sync took the error) and goes on.
+    let _ = go.send(());
+    let first =
+        events.recv_timeout(WAIT).unwrap_or_else(|e| panic!("no word from the checkpoint: {e}"));
+    let waited = first != "returned";
+    if waited {
+        // At the writers' lock, which the held close owns: it cannot return before the release.
+        assert!(!checkpoint.is_finished(), "the checkpoint returned while the close held its lock");
+    }
+    let _ = release.send(());
+    let checkpointed = checkpoint.join().unwrap_or_else(|_| panic!("the checkpoint panicked"));
+    closing.join().unwrap_or_else(|_| panic!("the close panicked"));
+    drop(store);
+    let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        vec![1, 2],
+        "a checkpoint went past a log close whose sync was failing on another thread (it {} and returned {})",
+        if waited { "waited for the close's note" } else { "did not wait for the close's note" },
+        if checkpointed.is_ok() { "ok" } else { "an error" }
+    );
+    assert!(waited, "the checkpoint did not wait for the close's note");
 }

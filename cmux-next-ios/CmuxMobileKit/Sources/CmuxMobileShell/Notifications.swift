@@ -310,8 +310,11 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         // Reply sends what the long look's "+" attached to this notification with its text.
         let requestID = response.notification.request.identifier
         let reply = response.actionIdentifier == PushAction.reply.identifier
+        let opened = response.actionIdentifier == UNNotificationDefaultActionIdentifier
         Task { @MainActor in
             if reply { read.attachments = await PushReplies.stagedAttachments(for: requestID) }
+            // An option row, Submit or answer in the long look of a build without the App Group.
+            if opened { read.handover = await PushReplies.handedOver(for: requestID) }
             await PushReplies.shared.handle(read)
             completionHandler()
         }

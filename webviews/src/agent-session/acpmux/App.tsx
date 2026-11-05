@@ -184,6 +184,12 @@ import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessModeName, highestMode } from "./harnessModes";
+import {
+  CloudTypingPrewarm,
+  cloudIdentityKept,
+  cloudTypingMachineID,
+  type CloudIdentityView,
+} from "./cloudTypingPrewarm";
 import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
@@ -268,7 +274,13 @@ import { agentName } from "./agents";
 import { type Translate, translate, usePaneLanguage, useT } from "./i18n";
 import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
-import { cloudMachineAsleep, readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
+import {
+  cloudMachineAsleep,
+  readUntilMoved,
+  refreshCloudMachines,
+  useCloudMachines,
+  type CloudMachine,
+} from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
@@ -3940,6 +3952,8 @@ export function VirtualTranscript({
     held?: Animation[];
     /// The rows rising with the thread that would cross the line, each cut at it.
     cuts?: Map<HTMLElement, Animation>;
+    /// The scroller's offset as the stack last left it (the click, then each of its passes).
+    pinned: number;
     cleanupTimer?: ReturnType<typeof setTimeout>;
   };
   const bottomStackFold = useRef<BottomStackFold | undefined>(undefined);
@@ -3994,6 +4008,28 @@ export function VirtualTranscript({
     },
     [placeRowNow],
   );
+  /// A scroll made from code (scrollIntoView, Find, a link to a row) that moved the view off the end
+  /// during a fold at the very bottom: the view is where the code put it. The fold lands there, as for
+  /// the reader's own input (`cancelProgrammatic`), and the view stops following, or the stack's next
+  /// pass (one per frame of the fold) or the follow pass after it pinned it back to the end (#34780).
+  /// The stack's own pins and a closing body's clamp land at the end, so they never count, nor does
+  /// the clamp to 0 when a close leaves the transcript shorter than the view (nothing left to scroll).
+  const releaseBottomStackFold = (node: HTMLElement): boolean => {
+    const stack = bottomStackFold.current;
+    if (
+      !stack ||
+      Math.abs(node.scrollTop - stack.pinned) <= FOLLOW_BOTTOM_DEADBAND_PX ||
+      node.scrollHeight - node.clientHeight <= FOLLOW_BOTTOM_DEADBAND_PX ||
+      atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
+    )
+      return false;
+    stopBottomStackFold();
+    // Before the landing: it can lay out again in its own pass (placeRowNow), which must not follow.
+    if (followingRef.current) follow(false);
+    scrolledTo.current = { top: node.scrollTop, atLatest: false };
+    landForReader(stack.row);
+    return true;
+  };
   const trimFoldRoom = useCallback((node: HTMLElement) => {
     const kept = foldRoomRef.current;
     if (!kept) return;
@@ -4569,6 +4605,7 @@ export function VirtualTranscript({
     }
     // A disclosure the reader clicked stays where they clicked it while what it opens lays out: this
     // pass neither follows the latest row nor keeps the top row, it puts the clicked line back.
+    if (old && node) releaseBottomStackFold(node);
     const stack = bottomStackFold.current;
     const bottomStacking = Boolean(old && node && stack && foldAnchor.current?.toggle === stack.toggle);
     const heldFrom = node?.scrollTop ?? 0;
@@ -4627,6 +4664,7 @@ export function VirtualTranscript({
       // Every pass takes the offset it pinned as its base, a height fold's frames too: a late measure
       // after that fold ends slides only by what it adds, never by the whole fold again.
       stack.delta = delta;
+      stack.pinned = node.scrollTop;
       scrollPacer.current?.cancel();
       setScrollAt(node.scrollTop);
     } else if (folding && node) {
@@ -5412,6 +5450,8 @@ export function VirtualTranscript({
       return;
     }
     const programmatic = !userScrollIntent(node).isHeld();
+    // Its event can come before the stack's next pass does.
+    if (programmatic) releaseBottomStackFold(node);
     // The right-hand card holds what it shows until the reader's scroll settles
     // (summary/heldWhileScrolling.ts): older history paged in under the scroll lands there once.
     if (!programmatic) noteReaderScroll();
@@ -5640,6 +5680,7 @@ export function VirtualTranscript({
         delta: 0,
         from: 0,
         drawn,
+        pinned: node.scrollTop,
       };
       bottomStackFold.current = stack;
       // The gallery's shift gate reads this: the text above this row rises or falls on purpose.
@@ -6434,6 +6475,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
   const handshakenRef = useRef(false);
+  const reconnectingRef = useRef(false);
   /// The handshake named a chat acpmux still has to attach: the page draws it once the client's
   /// first frame (its rows, title and modes) is in, or the open's hold has passed.
   const [awaitsChat, setAwaitsChat] = useState(false);
@@ -6530,6 +6572,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
   const [cloudRepositoryAvailable, setCloudRepositoryAvailable] = useState(false);
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
+  // A fresh composer can select a paused Cloud machine before it has a session. Keep only that
+  // explicit picker choice; never guess a machine from the account inventory. Null records a
+  // non-Cloud destination and suppresses the previous identity while its handshake catches up.
+  const cloudDraftMachineID = useRef<string | null | undefined>(undefined);
+  // Whether `cloudChatIdentity` still names the chat shown (cloudIdentityKept): set by the
+  // handshake that gave it, cleared when the pane moves to another chat or New Tab page.
+  const cloudIdentityBound = useRef(false);
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   // A team Cloud machine its start passed no personal login to (handshake `cloudTeamMachine`): a
   // sign-in failure says so (failureCopy.ts isTeamMachineSignIn) and offers no login transfer.
@@ -6557,6 +6606,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         },
         browserSwitchClock,
       ),
+  );
+  // A Cloud chat's first keystroke is a best-effort wake hint for its machine. The native route
+  // may be unavailable in an older host; Cloud typing and send must continue either way.
+  const [cloudTypingPrewarm] = useState(
+    () =>
+      new CloudTypingPrewarm({
+        prewarm: (machineID) =>
+          callNative<unknown>("cloudMachine.prewarm", { id: machineID }).then(
+            () => true,
+            () => false,
+          ),
+      }),
   );
   const [cloudReservation] = useState(() => new CloudComposeReservation(callNative, browserSwitchClock));
   const cloudComposeEligible = useRef(false);
@@ -8929,6 +8990,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const sandboxModeRows = {
     mode: sandbox.mode,
     onMode: (mode: RunMode) => {
+      // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
+      // picker target must not survive that choice and wake the old machine on the next edit.
+      cloudDraftMachineID.current = null;
+      cloudTypingPrewarm.reset();
       runModePicked.current = true;
       sandbox.setMode(mode);
       cloudComposeEligible.current = mode === "cloud" && sandboxOffered;
@@ -9032,6 +9097,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const sandboxWake = useRef<ComposerWake | undefined>(undefined);
   /// The New Tab page handed a prompt to a Sandboxed send: its draft isn't moved again as it goes.
   const newTabSandboxSent = useRef(false);
+  const cloudShownView = useRef<CloudIdentityView>({
+    ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}),
+    generation: newTabGeneration,
+  });
   useEffect(() => {
     setSandboxDraftMoved(false);
     setSandboxViewing(false);
@@ -9040,7 +9109,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudReservation.reset();
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     setCloudStart(undefined);
-  }, [snapshot.sessionId, newTabGeneration, cloudReservation]);
+    cloudDraftMachineID.current = undefined;
+    cloudTypingPrewarm.reset();
+    const view = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
+    if (!cloudIdentityKept(cloudShownView.current, view)) cloudIdentityBound.current = false;
+    cloudShownView.current = view;
+  }, [snapshot.sessionId, newTabGeneration, cloudTypingPrewarm, cloudReservation]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
     if (sandbox.mode !== "cloud") {
@@ -9238,7 +9312,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const backgroundable = !quick && (foreground.length > 0 || foregroundAgent);
   useBackgroundKey(backgroundable, runInBackground);
   const backgroundHint = backgroundable ? runInBackground : undefined;
-  const chatTones = useMemo(() => (chatAgents.length > 0 ? agentTones(chatAgents) : undefined), [chatAgents]);
+  // The chat's subagents and the chats it started take their tones together, so up to five never
+  // share one (agentTones.ts; Leo, 2026-11-04: "Each subagent gets its own colour").
+  const chatTones = useMemo(
+    () =>
+      chatAgents.length > 0 || childSessions.length > 0
+        ? agentTones([
+            ...chatAgents,
+            ...childSessions.map((child) => ({ id: child.sessionId, startedAt: child.createdAt })),
+          ])
+        : undefined,
+    [chatAgents, childSessions],
+  );
   // A message to a subagent names it by its description, never its agentId (MessageCard.tsx).
   const chatAgentNames = useMemo(() => agentNames(chatAgents), [chatAgents]);
   // A sent message's "Sent to <subagent>" chip opens that subagent's view (MessageCard.tsx).
@@ -11175,6 +11260,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // asks again itself when it ends. A timer queued before it, or set while it runs, asks nothing.
       if (connecting || !restartGate.mayAsk()) return;
       connecting = true;
+      // Keep the existing Cloud route and destination picker alive for wake-and-send recovery
+      // while reconnecting. This separate gate blocks typing hints until the new handshake installs
+      // its identity, without unmounting ComposerContext and losing a pending machine selection.
+      reconnectingRef.current = true;
+      cloudTypingPrewarm.reset();
       try {
         acpmuxPerf.markAgent("handshakeStart");
         acpmuxPerf.markLaunch("handshakeStart");
@@ -11233,6 +11323,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setCloudMachineID(
           typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
         );
+        cloudIdentityBound.current = true;
         setCloudChatIdentity(
           typeof host.cloudMachineID === "string" &&
             Array.isArray(host.cloudAccount) &&
@@ -11271,6 +11362,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // An app that doesn't answer `sandbox.state` says nothing of it: nothing is read.
         if (host.sandboxState === true) void sandbox.read();
         handshakenRef.current = true;
+        reconnectingRef.current = false;
         // Submits made on the New Tab page before acpmux answered go now, in order.
         for (const run of pendingSubmits.current.splice(0)) run();
         if (
@@ -12650,6 +12742,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     earlyNewTab,
     restartGate,
     sandbox,
+    cloudTypingPrewarm,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
@@ -13685,6 +13778,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const onNewTabPromptTyped = useCallback(
     (text: string, target?: { harness?: string; cwd?: string }) => {
       newTabFieldEdited(text);
+      const machineID = cloudTypingMachineID(
+        cloudDraftMachineID.current,
+        cloudIdentityBound.current ? cloudChatIdentity?.id : undefined,
+      );
+      if (machineID && handshaken && !reconnectingRef.current) cloudTypingPrewarm.typed(text, { machineID });
       if (cloudComposeEligible.current) {
         cloudReservation.typed(text);
         return;
@@ -13694,8 +13792,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         target?.cwd ? { ...(target.harness ? { harness: target.harness } : {}), cwd: target.cwd } : undefined,
       );
     },
-    [newChatPrewarm, newTabFieldEdited, cloudReservation],
+    [cloudChatIdentity, cloudTypingPrewarm, handshaken, newChatPrewarm, newTabFieldEdited, cloudReservation],
   );
+  const onCloudTyping = useCallback(
+    (text: string, sessionId?: string) => {
+      // Local chats still share this callback for multiplayer typing; only a durable session has a
+      // typing presence event. A Cloud identity may temporarily be missing its session during
+      // recovery, but its authenticated machine is still safe to wake.
+      if (sessionId) postTyping(text, sessionId);
+      if (!handshaken || reconnectingRef.current) return;
+      // An explicit picker choice belongs to this draft and wins over any identity carried by a
+      // previous Cloud chat until the selected machine's own handshake arrives.
+      const machineID = cloudTypingMachineID(
+        cloudDraftMachineID.current,
+        cloudIdentityBound.current ? cloudChatIdentity?.id : undefined,
+      );
+      if (!machineID) return;
+      cloudTypingPrewarm.typed(text, { machineID, ...(sessionId ? { sessionID: sessionId } : {}) });
+    },
+    [cloudChatIdentity, cloudTypingPrewarm, handshaken],
+  );
+  const onCloudMachinePicked = useCallback((machine: CloudMachine | undefined) => {
+    cloudDraftMachineID.current = machine?.id ?? null;
+  }, []);
   const newTabSnapshot = useMemo(
     () =>
       newTabSessions === composerSnapshot.sessions
@@ -14481,7 +14600,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
-            onTyping={quick ? undefined : postTyping}
+            onTyping={quick ? undefined : onCloudTyping}
+            onCloudMachinePicked={quick ? undefined : onCloudMachinePicked}
             onPromptEdit={quick ? undefined : wakeOnTyping}
             onSuggestionTaken={() => directClient.current?.takeSuggestion()}
             keptAttachments={quick ? undefined : keptAttachments}
@@ -14752,9 +14872,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             queueImage={readQueuedImage}
             onProject={chooseProject}
             // A machine with no folder known here: the new chat starts there, in its default folder.
-            onComputer={(computer) =>
-              void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined)
-            }
+            onComputer={(computer) => {
+              // Switching away from an explicitly selected Cloud machine must not leave a stale
+              // draft target that a later keystroke could wake.
+              cloudDraftMachineID.current = null;
+              void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined);
+            }}
             // A chat on a Cloud machine whose first send has not run: another Cloud machine picked moves it
             // there and sends its first prompt again (cloudRepick.ts), instead of a new empty chat.
             {...(snapshot.summary?.hostKind === "cloud" && !quick
@@ -15277,6 +15400,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
                   {...(startFolder ? { startCwd: startFolder } : {})}
                   onPromptTyped={onNewTabPromptTyped}
+                  onCloudMachinePicked={quick ? undefined : onCloudMachinePicked}
                   // Leo, 2026-10-31: "JUST PASSING THE SELECTED FOLDER/'PROJECT' WHEN YOU PICK CLOUD THAT'S
                   // THE BEST WAY. IT JUST GOES IT JUST WORKS". A project picked here goes to the host on its
                   // click (workspace.useFolder, as the chat composer's chip does in chooseProject), so a Cloud

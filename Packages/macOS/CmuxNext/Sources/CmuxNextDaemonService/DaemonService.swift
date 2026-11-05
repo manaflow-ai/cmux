@@ -82,6 +82,10 @@ public final class DaemonService {
     @ObservationIgnored public var launchSnapshotWindows: WindowStateDocument?
     /// The sidebar document the launch snapshot saved (`LaunchSnapshot.sidebarDoc`), shown before the handshake.
     @ObservationIgnored public var launchSnapshotSidebarDoc: Data?
+    /// Takes the launch snapshot's sidebar document when the snapshot is applied after the sidebar document
+    /// started (its start reads `launchSnapshotSidebarDoc` first, about 40 ms too early on an update relaunch):
+    /// called once, and the document is its own from then on.
+    @ObservationIgnored var onLaunchSnapshotSidebarDoc: (@MainActor (Data) -> Void)?
     /// The local session whose launch snapshot path each handshake records.
     @ObservationIgnored var launchSnapshotSession: String?
     @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()

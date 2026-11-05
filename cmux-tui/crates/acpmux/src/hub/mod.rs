@@ -2066,9 +2066,9 @@ impl Hub {
         rules: Option<Value>,
     ) -> Result<(), RpcError> {
         self.permission_policy_changed(session, |m| m.permission_rules = rules.clone());
-        let saved = self.save_meta_answered(session);
+        // The line first, then the metadata (R-DURABILITY S3b, as `set_tags_answered`).
         self.append(session, "mux", "rules", json!({"rules": rules}));
-        saved
+        self.save_meta_answered(session)
     }
 
     /// Store the unsent composer text without adding it to the transcript.

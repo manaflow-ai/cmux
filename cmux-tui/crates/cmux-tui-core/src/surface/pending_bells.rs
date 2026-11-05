@@ -39,8 +39,10 @@ impl PendingBells {
             for _ in 0..rung {
                 mux.emit_terminal_bell(surface);
             }
+            // The mark is a durable notification: the terminal publisher
+            // commits it, not the reader (#35413).
             if self.notification_due(Instant::now()) {
-                mux.post_bell_notification(surface);
+                mux.queue_bell_notification(surface);
             }
         }
     }

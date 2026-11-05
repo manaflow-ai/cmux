@@ -205,6 +205,29 @@ import UserNotifications
         #expect(local.retry == reply)
     }
 
+    /// A long-look option row in a build without the App Group (2026-11-04): the open that
+    /// follows carries the answer, which is sent once Face ID signs it, not dropped.
+    @Test func anOpenWithAHandedOverAnswerSendsIt() throws {
+        let answer = try #require(PushReply(payload: question, action: .option(1, label: "B")))
+        var opened = response(UNNotificationDefaultActionIdentifier, question)
+        opened.handover = answer
+        #expect(PushReplies.outcome(opened) == .foreground(answer, open: question))
+        // Not for an untrusted push, nor another Mac's reply.
+        var untrusted = PushReplies.Response(actionIdentifier: UNNotificationDefaultActionIdentifier, text: nil, payload: question,
+                                             retry: nil, actionable: false)
+        untrusted.handover = answer
+        #expect(PushReplies.outcome(untrusted) == .open(question))
+        var otherMac = opened
+        otherMac.handover = PushReply(mac: "other", kind: .question, sessionId: "s", permissionId: "p", action: .option(1, label: "B"))
+        #expect(PushReplies.outcome(otherMac) == .open(question))
+        // Nor a reply to another request of the same Mac (review finding 2).
+        var otherRequest = opened
+        var elsewhere = answer
+        elsewhere.permissionId = "another"
+        otherRequest.handover = elsewhere
+        #expect(PushReplies.outcome(otherRequest) == .open(question))
+    }
+
     /// PR B security review H1: a push the gate won't trust only opens the app.
     @Test func anUntrustedPushOnlyOpensTheApp() {
         let untrusted = PushReplies.Response(actionIdentifier: "cmux.option.0", text: nil, payload: question, retry: nil, actionable: false)

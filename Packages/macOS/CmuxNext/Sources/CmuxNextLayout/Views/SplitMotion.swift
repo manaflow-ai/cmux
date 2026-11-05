@@ -24,7 +24,7 @@ struct SplitMotion {
     /// from rest.
     /// `moved` / `movedDividers`: the frames the release's layout change retargeted; a frame already on its way
     /// for another reason keeps its own velocity. Nil: every frame (callers that know no better).
-    /// `edges` (FRAME OWNER S2B, `motion.frameOwner.sharedEdges` latched by the drag): only the edges each frame's
+    /// `edges` (FRAME OWNER S2B, the drag's `DividerDragState.sharedEdges`): only the edges each frame's
     /// target moved get the release's velocity; an edge that did not move keeps its own spring's (`SharedEdgeMotion`).
     static func seed(velocity: CGFloat, along axis: SplitAxis, divider: AnimatedFrame,
                      panes: inout [PaneID: AnimatedFrame], dividers: inout [DividerHandleView.Kind: AnimatedFrame],
