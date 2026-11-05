@@ -41,8 +41,8 @@ const ANSWER = {
     {
       sessionId: "s-oc",
       name: "mux-rs",
-      ref: "big-red/mux-rs",
-      host: "big-red",
+      ref: "build-box/mux-rs",
+      host: "build-box",
       harness: "opencode",
       status: "idle",
       live: true,
@@ -57,7 +57,7 @@ const ANSWER = {
     },
   ],
   more: 0,
-  unreached: [{ host: "cosmic-gray", error: "no answer in 5 s" }],
+  unreached: [{ host: "studio-mac", error: "no answer in 5 s" }],
 };
 
 const activity = (tool: Partial<Tool> & { title: string }): AcpmuxActivity => ({
@@ -80,7 +80,7 @@ test("the acpmux MCP tool's answer is one who-else card, in Claude's and Codex's
   for (const item of [claude, codex]) {
     const call = whoElseCall(item);
     expect(call?.answer?.sessions.map((s) => s.name)).toEqual(["crate-split", "mux-rs"]);
-    expect(call?.answer?.unreached).toEqual(["cosmic-gray"]);
+    expect(call?.answer?.unreached).toEqual(["studio-mac"]);
     expect(toolGroups([item]).map((g) => g.type)).toEqual(["whoElse"]);
   }
 });
@@ -95,8 +95,13 @@ test("another server's who_else, even titled bare, is its own tool row", () => {
 });
 
 test("a pull request link is drawn only to an https URL", () => {
-  const session = { ...ANSWER.sessions[0]!, pullRequests: ["javascript:alert(1)", "data:text/html,x", "http://x/pull/1", "https://github.com/o/r/pull/2"] };
-  const call = whoElseCall(activity({ title: "mcp__acpmux__who_else", output: JSON.stringify({ ...ANSWER, sessions: [session] }) }));
+  const session = {
+    ...ANSWER.sessions[0]!,
+    pullRequests: ["javascript:alert(1)", "data:text/html,x", "http://x/pull/1", "https://github.com/o/r/pull/2"],
+  };
+  const call = whoElseCall(
+    activity({ title: "mcp__acpmux__who_else", output: JSON.stringify({ ...ANSWER, sessions: [session] }) }),
+  );
   expect(call?.answer?.sessions[0]?.pullRequests).toEqual(["https://github.com/o/r/pull/2"]);
 });
 
@@ -176,11 +181,11 @@ test("the card names each session as a chip that opens its chat, with its branch
   );
   expect(page.querySelector(".cv-who-else__line")?.textContent).toBe("2 other sessions work on these files");
   const chips = [...page.querySelectorAll<HTMLButtonElement>(".cv-agent-tag.is-open")];
-  expect(chips.map((c) => c.textContent)).toEqual(["crate-split", "big-red/mux-rs"]);
+  expect(chips.map((c) => c.textContent)).toEqual(["crate-split", "build-box/mux-rs"]);
   expect(page.querySelector(".cv-who-else__where")?.textContent).toBe("codex · lane/crate-split");
   expect(page.querySelector(".cv-who-else__pr")?.textContent).toBe("#36001");
   expect([...page.querySelectorAll(".cv-who-else__ago")].map((a) => a.textContent)).toEqual(["4m ago", "3h ago"]);
-  expect(page.querySelector(".cv-who-else__note")?.textContent).toBe("Not asked: cosmic-gray");
+  expect(page.querySelector(".cv-who-else__note")?.textContent).toBe("Not asked: studio-mac");
   await act(async () => chips[0]!.click());
   expect(opened).toEqual(["s-codex"]);
 });

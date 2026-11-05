@@ -86,7 +86,6 @@
   color: var(--cv-text-muted);
   font: inherit;
   font-size: var(--text-detail);
-  cursor: pointer;
 }
 .cv-who-else__more:hover,
 .cv-who-else__more:focus-visible {

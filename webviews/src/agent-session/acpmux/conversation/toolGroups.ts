@@ -291,7 +291,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       rememberMessageFiles();
       continue;
     }
-    const kind = tool && !whoElse && !send && !message && !subsession && !call && !agent ? toolGroupKind(tool) : undefined;
+    const kind =
+      tool && !whoElse && !send && !message && !subsession && !call && !agent ? toolGroupKind(tool) : undefined;
     if (kind && run?.kind === kind) {
       run.items.push(...held, item);
       held = [];

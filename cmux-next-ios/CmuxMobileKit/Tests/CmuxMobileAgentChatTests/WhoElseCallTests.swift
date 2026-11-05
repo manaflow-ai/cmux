@@ -25,14 +25,14 @@ import Testing
                 "sameWorktree": .bool(true), "sameBranch": .bool(false), "topicWords": .array([]),
             ]),
             .object([
-                "sessionId": .string("s-2"), "name": .string("mux-rs"), "ref": .string("big-red/mux-rs"), "host": .string("big-red"),
+                "sessionId": .string("s-2"), "name": .string("mux-rs"), "ref": .string("build-box/mux-rs"), "host": .string("build-box"),
                 "harness": .string("opencode"), "status": .string("idle"), "live": .bool(false),
                 "agoMs": .number(26 * 3_600_000), "filesInCommon": .number(0), "topicWords": .array([.string("crate"), .string("split")]),
             ]),
             .string("not a session"),
         ]),
         "more": .number(2),
-        "unreached": .array([.object(["host": .string("cosmic-gray"), "error": .string("no answer in 5 s")]), .object([:])]),
+        "unreached": .array([.object(["host": .string("studio-mac"), "error": .string("no answer in 5 s")]), .object([:])]),
         "lines": .array([]),
     ])
 
@@ -57,7 +57,7 @@ import Testing
         let answer = try #require(call.answer)
         #expect(answer.sessions.map(\.name) == ["crate-split", "mux-rs"])
         #expect(answer.more == 2)
-        #expect(answer.unreached == ["cosmic-gray"])
+        #expect(answer.unreached == ["studio-mac"])
         #expect(answer.files == ["src/mux.rs"])
         #expect(answer.fileCount == 1)
         #expect(answer.topic == "crate split")
@@ -66,8 +66,8 @@ import Testing
         #expect(first.files.map(\.path) == ["src/mux.rs", "src/server.rs", "Cargo.toml"])
         #expect(first.files.map(\.edited) == [true, true, false])
         #expect(first.files[0].at == 1)
-        #expect(answer.sessions[1].host == "big-red")
-        #expect(answer.sessions[1].ref == "big-red/mux-rs")
+        #expect(answer.sessions[1].host == "build-box")
+        #expect(answer.sessions[1].ref == "build-box/mux-rs")
     }
 
     @Test func codexMcpCallAndTheCmuxFoldedNameAsk() throws {
@@ -145,7 +145,7 @@ import Testing
         #expect(WhoElseCall(pending: false, answer: one).line == "1 other session works on these files")
         one.sessions = []
         #expect(WhoElseCall(pending: false, answer: one).line == "No other session works on these files")
-        #expect(WhoElseCall(pending: false, answer: full).unreachedNote == "Not asked: cosmic-gray")
+        #expect(WhoElseCall(pending: false, answer: full).unreachedNote == "Not asked: studio-mac")
         // Two shown, two more acpmux left out.
         #expect(WhoElseCall(pending: false, answer: full).hiddenCount(shown: 2) == 2)
         #expect(WhoElseCall(pending: false, answer: full).hiddenCount(shown: 1) == 3)
@@ -160,7 +160,7 @@ import Testing
         #expect(sessions[1].whatText == "topic: crate, split")
         #expect(sessions[1].whereText == "opencode")
         #expect(sessions[1].agoText == "26h ago")
-        #expect(sessions[1].displayName == "big-red/mux-rs")
+        #expect(sessions[1].displayName == "build-box/mux-rs")
         var later = sessions[1]
         later.agoMs = 3 * 86_400_000
         #expect(later.agoText == "3d ago")

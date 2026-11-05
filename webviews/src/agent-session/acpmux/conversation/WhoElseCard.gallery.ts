@@ -38,8 +38,8 @@ const ROWS = [
   {
     sessionId: "who-mux-rs",
     name: "mux-rs",
-    ref: "big-red/mux-rs",
-    host: "big-red",
+    ref: "build-box/mux-rs",
+    host: "build-box",
     title: "mux.rs refactor",
     harness: "opencode",
     status: "idle",
@@ -116,7 +116,7 @@ export default agentPaneEntry({
         const snapshot = chat(
           [
             user(ask, 3),
-            activity([mcp(answer(ROWS, [{ host: "cosmic-gray", error: "no answer in 5 s" }]))], 2.8),
+            activity([mcp(answer(ROWS, [{ host: "studio-mac", error: "no answer in 5 s" }]))], 2.8),
             assistant(
               "crate-split (Codex) is editing mux.rs and server.rs right now; I'll message it before touching them.",
               2.5,
