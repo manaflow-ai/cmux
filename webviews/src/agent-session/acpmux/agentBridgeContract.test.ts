@@ -118,6 +118,20 @@ function sentMethods(files: { path: string; text: string }[]): Sent[] {
       if (ts.isImportSpecifier(node) && senders.has(node.name.text)) inScope.add(node.name.text);
     });
     for (const name of wrappers(source, senders).keys()) inScope.add(name);
+    // A sender handed in as a callback: `send = postNative`, or a parameter typed `(method: string, ...) => ...`
+    // (attachRunTerminal's `send`, toggleRemoteControl's `call`). The literal it is called with is a method too.
+    walk(source, (node) => {
+      if (!ts.isParameter(node) || !ts.isIdentifier(node.name)) return;
+      const initial = node.initializer;
+      const type = node.type;
+      const defaultsToSender = initial && ts.isIdentifier(initial) && senders.has(initial.text);
+      const first = type && ts.isFunctionTypeNode(type) ? type.parameters[0] : undefined;
+      const typedAsSender = first && ts.isIdentifier(first.name) && (first.name.text === "method" || first.name.text === "op");
+      if (defaultsToSender || typedAsSender) {
+        inScope.add(node.name.text);
+        if (!senders.has(node.name.text)) senders.set(node.name.text, false);
+      }
+    });
     if (path.endsWith("acpmux/native.ts")) inScope.add("postNative");
     walk(source, (node) => {
       if (!ts.isCallExpression(node)) return;
@@ -248,6 +262,9 @@ describe("agent bridge contract (schemas/agent-bridge/contract.json)", () => {
         postNative("account.ad", {});
         postNative("link.inspect", { url: "u", cachd: true });
         callNative("chat.send", { text: "hi" });
+        function attach(id: string, send: (method: string, params: object) => Promise<unknown> = postNative) {
+          return send("run.atach", { id });
+        }
         const H = "cmuxNope";
         window.webkit?.messageHandlers?.[H]?.postMessage({});
       `,
@@ -256,6 +273,7 @@ describe("agent bridge contract (schemas/agent-bridge/contract.json)", () => {
     expect(refused.filter(Boolean)).toEqual([
       "webviews/src/agent-session/acpmux/fake.ts:7: the app has no method 'account.ad'",
       expect.stringContaining("link.inspect takes"),
+      "webviews/src/agent-session/acpmux/fake.ts:13: the app has no method 'run.atach'",
     ]);
     expect([...handlerNames([file]).keys()]).toEqual(["cmuxNope"]);
   });
