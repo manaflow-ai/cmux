@@ -137,8 +137,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         layoutView.syncWithModel()
     }
 
-    /// `parked`: mounted beside the shown workspace (`sidebar.multiView`), so its first apply sends the window no topology.
-    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false) {
+    /// `parked`: mounted beside the shown workspace (`sidebar.multiView`), so its first apply sends the window no topology. `mount`: shows `contentView`.
+    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false, mount: ((WorkspaceContentView) -> Void)? = nil) {
         self.workspace = workspace
         isParked = parked
         self.daemon = daemon
@@ -167,15 +167,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
             return try await fallbackCreate(key)
         }
-        emptyView = EmptyWorkspaceView(
-            onNew: { [weak self] in self?.newFromEmptyState() }
-        )
+        emptyView = EmptyWorkspaceView(onNew: { [weak self] in self?.newFromEmptyState() })
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
             self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
         }
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
+        mount?(contentView) // in the window at its size first: the apply mounts panes there, its screen lays out once (ContentMountsInTheWindowTests)
         // Observation applies the first snapshot synchronously, including the empty-state view.
         observe()
         // A Home with no pane yet is still being made (its dock, then the Chief conversation, over

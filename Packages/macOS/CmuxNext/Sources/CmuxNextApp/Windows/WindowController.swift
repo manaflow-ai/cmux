@@ -292,7 +292,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.unpark()
         } else {
             kept?.teardown()
-            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
+            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state) { [root] in root.show($0); $0.needsLayout = true; $0.layoutSubtreeIfNeeded() }
         }
         content = controller
         // Panes pan and spring per display frame: shortcut chips over them follow.
