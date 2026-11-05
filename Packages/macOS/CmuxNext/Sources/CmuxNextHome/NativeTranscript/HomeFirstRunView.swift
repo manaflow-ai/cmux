@@ -357,7 +357,7 @@ final class HomeFirstRunRow: NSView {
     }
 
     static let height: CGFloat = 28
-    static let cornerRadius: CGFloat = 8
+    static var cornerRadius: CGFloat { Metrics.controlCornerRadius }
     private var scale: CGFloat = 1
     private var fill = NSColor.clear
     private var hoverFill = NSColor.clear

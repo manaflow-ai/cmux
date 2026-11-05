@@ -64,7 +64,13 @@ struct CloudBringBack {
         let askFirst = invocation[Self.askFirstArgument] == .bool(true)
         // Only the person's "Update Machine" updates the machine first (``CloudMachineUpdate``).
         let update = CloudMachineUpdate.requested(invocation)
-        perform(tab: tab) { try await run(tab: tab, entry: entry, cli: cli, askFirst: askFirst, update: update, invocation: invocation) }
+        // The person's Bring Back updates a machine too old for it first (``CloudMove/updatingFirst(_:_:)``).
+        perform(tab: tab) {
+            try await CloudMove.updatingFirst(invocation) { invocation in
+                try await run(tab: tab, entry: entry, cli: cli, askFirst: askFirst, update: update || CloudMachineUpdate.requested(invocation),
+                              invocation: invocation)
+            }
+        }
     }
 
     /// Runs `body` (which returns the machine's name) behind the toasts. A stop records its retry
@@ -123,6 +129,8 @@ struct CloudBringBack {
     private func run(tab: TabModel, entry: CloudMovedChats.Entry, cli: CloudMoveCLI, askFirst: Bool, update: Bool, invocation: ActionInvocation) async throws -> String {
         let again = CloudMoveRetries.Retry.move(machineID: entry.machineID)
         guard let machine = services.machines.session(entry.machineID) else {
+            // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
+            if services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
             throw Failure(message: CloudMoveStrings.noSuchMachine(entry.machineID), retry: again)
         }
         let name = machine.machine.title

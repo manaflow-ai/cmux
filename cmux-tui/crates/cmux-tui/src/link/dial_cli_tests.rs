@@ -48,6 +48,10 @@ fn the_arguments_are_host_and_an_optional_service() {
         parse(&args(&["--service", "ssh", "--host", "host_a"])),
         Ok(dial("host_a", Service::Ssh, None))
     );
+    assert_eq!(
+        parse(&args(&["--host", "host_a", "--service", "desktop"])),
+        Ok(dial("host_a", Service::Desktop, None))
+    );
     for bad in [
         &["--host", "host_a", "--service", "shell"][..],
         &["--service", "ssh"],

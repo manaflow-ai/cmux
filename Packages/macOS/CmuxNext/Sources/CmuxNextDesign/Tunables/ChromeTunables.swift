@@ -91,6 +91,7 @@ public nonisolated enum DesignTunables {
         MotionTunables.all + MetricTunables.metrics.map(\.descriptor) + ChromeTunables.fixed + [Borders.tunable.descriptor] + FocusIndicatorTunables.all
             + StatusIndicatorTunables.all + [LaunchMarkStyle.tunable.descriptor, AttentionHighlightLook.tunable.descriptor, GlassLensMode.tunable.descriptor] + MotionTunables.launchDelays.map(\.descriptor)
             + ChromeTunables.mainPane + [HoverCardEscapeGeometry.escapeSlotTunable.descriptor] + TerminalDragTunables.all + frameOwnerTunables
+            + ThemeDecorations.tunables
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

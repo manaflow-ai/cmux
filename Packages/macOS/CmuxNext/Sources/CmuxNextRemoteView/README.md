@@ -29,7 +29,7 @@ A `remote_view` tab is the store browser record `cmux://remote-view?host=<host>&
 | `remoteDesktop.interactiveMaxRttMs` | `80` | above this RTT the pane is view only until "Control Anyway" |
 | `remoteDesktop.showPathBadge` | `true` | the path and RTT badge in the toolbar |
 
-Debug Settings (DEV and NIGHTLY): `remoteDesktop.debug.presenter` = `metal` (B, default), `layerContents` (A), `sampleBuffer` (C).
+Presenter: the desktop pane draws with Metal (B, `MetalFramePresenter`); where Metal is missing it uses layer contents (A, `LayerContentsPresenter`), which the remote browser pane uses too.
 
 Mouse buttons on the wire (`RemoteMouseButton`): 1 left, 2 middle, 3 right, 4 to 7 reserved for scroll, 8 back, 9 forward. Hosts map from these numbers.
 

@@ -82,6 +82,24 @@ pub(super) fn fail_dir_sync(path: &Path) -> bool {
         })
 }
 
+/// Tests: the syncs that flush the drive's cache (on macOS every `sync_all`/`sync_data` is an
+/// `F_FULLFSYNC`), counted.
+#[cfg(test)]
+pub(crate) static FULL_SYNCS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(test)]
+thread_local! {
+    /// Tests: every sync of a log segment, a folder or a store file, full or ordered, that this
+    /// thread made (the open's own syncs, not those of the checkpointer's thread).
+    pub(crate) static ALL_SYNCS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn counted(result: &std::io::Result<()>) {
+    if result.is_ok() {
+        ALL_SYNCS.with(|syncs| syncs.set(syncs.get().saturating_add(1)));
+    }
+}
+
 /// Syncs one log segment: its data, or with `all` its metadata too. The tests' crash model
 /// follows each sync (`store/sync_model.rs`).
 pub(super) fn sync_segment(file: &File, all: bool) -> std::io::Result<()> {
@@ -92,8 +110,73 @@ pub(super) fn sync_segment(file: &File, all: bool) -> std::io::Result<()> {
         return Err(std::io::Error::other("a failed sync (a test)"));
     }
     let result = if all { file.sync_all() } else { file.sync_data() };
+    #[cfg(test)]
+    counted(&result);
+    #[cfg(test)]
+    if result.is_ok() {
+        FULL_SYNCS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
     #[cfg(all(test, unix))]
     super::sync_model::synced(file, result.is_ok());
+    result
+}
+
+/// Syncs one log segment so that it survives a crash of any process and a kernel panic, in
+/// write order with every other sync (macOS `F_BARRIERFSYNC`, which does not flush the drive's
+/// cache; Linux `fdatasync`): the journal store's checkpoint and recovery, which then flush the
+/// drive once with the checkpoint file ([`sync_full`]) before they retire any journal record.
+/// The same test seams as [`sync_segment`].
+pub(super) fn sync_segment_ordered(file: &File) -> std::io::Result<()> {
+    #[cfg(test)]
+    if FAIL_NEXT_LOG_SYNC.with(|fail| fail.replace(false)) {
+        #[cfg(unix)]
+        super::sync_model::synced(file, false);
+        return Err(std::io::Error::other("a failed sync (a test)"));
+    }
+    let result = cmux_journal::sync_file(file, cmux_journal::SyncLevel::Barrier);
+    #[cfg(test)]
+    counted(&result);
+    #[cfg(all(test, unix))]
+    super::sync_model::synced(file, result.is_ok());
+    result
+}
+
+/// [`sync_segment_ordered`] for a folder's entries; a failed sync is a [`SyncFailed`].
+#[cfg(unix)]
+pub(super) fn sync_directory_ordered(path: &Path) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    #[cfg(test)]
+    if fail_dir_sync(path) {
+        return Err(SyncFailed(std::io::Error::other("a failed folder sync (a test)")).into());
+    }
+    let dir = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)?;
+    let result = cmux_journal::sync_file(&dir, cmux_journal::SyncLevel::Barrier);
+    #[cfg(test)]
+    counted(&result);
+    result.map_err(SyncFailed)?;
+    #[cfg(test)]
+    super::sync_model::folder_synced(path);
+    Ok(())
+}
+
+/// Windows has no folder sync: NTFS journals its folder changes.
+#[cfg(not(unix))]
+pub(super) fn sync_directory_ordered(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+/// `sync_all` of a file or folder (the drive's cache flushed on macOS), counted in tests.
+pub(super) fn sync_full(file: &File) -> std::io::Result<()> {
+    let result = file.sync_all();
+    #[cfg(test)]
+    counted(&result);
+    #[cfg(test)]
+    if result.is_ok() {
+        FULL_SYNCS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
     result
 }
 
@@ -126,8 +209,9 @@ impl LocalStore {
         self.sync_failed.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    /// Syncs `id`'s open log segment and its folders, without holding the writers' lock while
-    /// the disk works (the journal store's checkpoint, `store/journal_store.rs`). A segment that
+    /// Syncs `id`'s open log segment and its folders in write order ([`sync_segment_ordered`]),
+    /// without holding the writers' lock while the disk works (the journal store's checkpoint,
+    /// `store/journal_store.rs`, which flushes the drive once after every chat's). A segment that
     /// is not open was synced at its close (`SegmentWriter::close`, which notes a failure).
     pub(super) fn sync_log(&self, id: &str) -> Result<()> {
         // Debug builds only: `ACPMUX_TEST_FAIL_LOG_SYNC` fails every log sync, as a disk whose
@@ -150,10 +234,10 @@ impl LocalStore {
         if let Some(file) = open {
             #[cfg(test)]
             hold(&HOLD_AFTER_LOG_CLONE);
-            sync_segment(&file, true).map_err(SyncFailed)?;
+            sync_segment_ordered(&file).map_err(SyncFailed)?;
         }
         let session = self.dir(id);
-        sync_directory(&session.join("events"))?;
-        sync_directory(&session)
+        sync_directory_ordered(&session.join("events"))?;
+        sync_directory_ordered(&session)
     }
 }

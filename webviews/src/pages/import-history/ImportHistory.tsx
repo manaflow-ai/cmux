@@ -67,6 +67,7 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
           )}
         </div>
       )}
+      {snapshot.notice && <p className="history-note">{snapshot.notice}</p>}
       <p className="history-safety">{t("history.safety")}</p>
       <footer className="history-footer">
         <DialogButton dialogKey={null} className="history-button" onClick={() => void store.finish(false)}>

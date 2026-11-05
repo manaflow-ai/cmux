@@ -50,6 +50,15 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
                    in: home)
     }
 
+    /// The unified diff of the pull request at `url` (`gh pr diff <url>`), for the GitHub page's
+    /// diff tab; nil when gh is missing, fails or times out, or the diff is over `limit` bytes. The
+    /// same queue, deadline and environment as every other read here.
+    public func diff(url: URL, limit: Int = 16 * 1024 * 1024) async -> String? {
+        guard let data = await run(["pr", "diff", url.absoluteString, "--color", "never"], in: home, anyExit: false),
+              data.count <= limit else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
     /// Where a read with no repository runs: gh needs none when the pull request is named by URL.
     private var home: String { environment["HOME"] ?? NSHomeDirectory() }
 
@@ -130,7 +139,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             """
         let fields = """
             url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions totalCommentsCount \
-            changedFiles baseRefName headRefName author { login } labels(first: \(AgentPanePullRequest.maximumLabels)) \
+            changedFiles baseRefName headRefName baseRefOid headRefOid author { login } labels(first: \(AgentPanePullRequest.maximumLabels)) \
             { nodes { name } } files(first: 100) { nodes { path additions deletions } } \
             commits(last: 1) { nodes { commit { statusCheckRollup { \(contexts) } } } } \
             baseRef { target { ... on Commit { statusCheckRollup { \(contexts) } } } }
@@ -294,6 +303,13 @@ public final class AgentReplyPullRequests {
     private let retry: Duration
     private var entries: [URL: Entry] = [:]
     private var inflight: [URL: Task<Void, Never>] = [:]
+    /// This Mac's chat folders by the GitHub repository their `origin` names (lowercased
+    /// `owner/name`), most recent first: where a pull request's commits may already be, so its diff
+    /// is read from them before GitHub (``folders(of:)``).
+    private var folders: [String: [String]] = [:]
+    /// The most folders kept per repository, and repositories kept.
+    static let maximumFolders = 8
+    static let maximumRepositories = 32
 
     public init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(),
                 freshness: Duration = .seconds(60), retry: Duration = .seconds(300)) {
@@ -395,6 +411,26 @@ public final class AgentReplyPullRequests {
         entries[url] = entry
         inflight[url] = nil
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Puts `pullRequest` in the cache for `url` as a read that just answered (the instant-create
+    /// bench's `github_right`: the link card already read it, as in a chat). Fresh for `freshness`.
+    public func seed(_ pullRequest: AgentPanePullRequest, for url: URL) {
+        record(pullRequest, for: url, began: Date())
+    }
+    #endif
+
+    /// Records that `folder`, a chat's folder on this Mac, is a checkout of `repository`
+    /// (`owner/name`, as ``AgentPaneGitHubRepository`` reads its `origin`).
+    public func noteFolder(_ folder: String, of repository: String) {
+        guard folder.hasPrefix("/"), !folder.contains("\0") else { return }
+        let key = repository.lowercased()
+        folders[key] = Array(([folder] + (folders[key] ?? []).filter { $0 != folder }).prefix(Self.maximumFolders))
+        while folders.count > Self.maximumRepositories, let other = folders.keys.first(where: { $0 != key }) { folders[other] = nil }
+    }
+
+    /// The chat folders on this Mac that are checkouts of `repository`, most recent first.
+    public func folders(of repository: String) -> [String] { folders[repository.lowercased()] ?? [] }
 
     /// How many links the cache holds, for the test of its bound.
     var kept: Int { entries.count }

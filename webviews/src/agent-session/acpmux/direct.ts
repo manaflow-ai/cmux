@@ -101,10 +101,11 @@ import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
-import { inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
+import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
+import type { OfferPicks } from "./offer/offerChoice";
 import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
@@ -652,6 +653,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     ...(typeof toolCall?.toolCallId === "string" ? { toolCallId: toolCall.toolCallId } : {}),
     scope: permissionScopeFromMessage(raw, toolCall),
     diffs: permissionDiffs(toolCall),
+    plan: permissionPlan(toolCall, claudeMeta),
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
       id: String(option.optionId ?? option.id),
@@ -1165,6 +1167,30 @@ export function permissionDiffs(
   tool: { kind?: unknown; content?: unknown; locations?: unknown; rawInput?: unknown } | undefined,
 ): AcpmuxFileDiff[] | undefined {
   return toolDiffs(tool?.content, tool?.locations) ?? (tool?.kind === "edit" ? inputDiffs(tool.rawInput) : undefined);
+}
+
+/// The plan a plan approval asks about: one acpmux attached (`_meta.acpmux.plan.markdown`, as for
+/// Gemini's plan file), Claude Code's ExitPlanMode input `plan`, or the plan acpmux puts in a
+/// `switch_mode` ask it builds from Grok's and Cursor's own plan approvals (hub xai.rs,
+/// cursor_ext.rs), from its input or else its text content. Undefined for any other ask, and for a
+/// plan approval with no plan text.
+export function permissionPlan(
+  tool: { kind?: unknown; content?: unknown; rawInput?: unknown; _meta?: unknown } | undefined,
+  claudeMeta?: { tool?: unknown },
+): string | undefined {
+  const attached = stringValue(objectValue(objectValue(objectValue(tool?._meta)?.acpmux)?.plan)?.markdown)?.trim();
+  if (attached) return attached;
+  if (claudeMeta?.tool !== "ExitPlanMode" && tool?.kind !== "switch_mode") return undefined;
+  const input = stringValue(objectValue(tool?.rawInput)?.plan)?.trim();
+  if (input) return input;
+  const text = Array.isArray(tool?.content)
+    ? tool.content
+        .map((item: any) => (item?.type === "content" && item.content?.type === "text" ? item.content.text : ""))
+        .filter((part: unknown): part is string => typeof part === "string" && part.trim() !== "")
+        .join("\n\n")
+        .trim()
+    : "";
+  return text || undefined;
 }
 
 /// The input an earlier event of a call carried, kept as its `inputSummary` JSON.
@@ -2343,18 +2369,27 @@ export class AcpmuxDirectClient {
     this.bindToSession(sessionId);
     const listed = () => this.sessions.some((session) => session.sessionId === sessionId);
     // A chat this page's list lacks (it started after the page connected, or its row is on a page
-    // still being read) opens without waiting for the list: its attach proves it is there, as a
-    // cold open's does (`attachedBeforeList`), since a busy acpmux paces its whole list for seconds.
-    // The list is read again behind the open, and decides only when the attach fails.
-    const relisting = listed() ? undefined : this.refreshSessions().catch(() => false);
+    // still being read) opens without the list: its attach proves it is there, as a cold open's
+    // does (`attachedBeforeList`). The list is read again only when the attach fails, to tell a
+    // missing chat from a failed open: read beside the open, its pages (a busy acpmux paces the
+    // whole list for seconds) went out on the same socket as the attach and slowed it (HQ#5914).
     const generation = this.selectionGeneration + 1;
     try {
       return await this.select(sessionId);
     } catch (error) {
-      if (relisting) await relisting;
+      // Only a list that was read and lacks the chat says it is missing; a failed read says nothing.
+      const relisted = listed() ? false : await this.refreshSessions().catch(() => false);
       if (this.closed) return undefined;
-      if (relisting && !listed() && generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-        return this.adoptedMissing(sessionId);
+      // The read itself takes a chat it lacks off the screen (`selectFallbackSession`, as for a chat
+      // that left the list while shown); at open it is the tab's missing chat, said as such.
+      const stillOpen = generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+      // A selection made after the read owns the page; an older fallback must not clear it.
+      const leftByRead =
+        this.fallback?.from === sessionId &&
+        this.fallback.generation === generation + 1 &&
+        this.fallback.generation === this.selectionGeneration &&
+        this.selectedSessionId === undefined;
+      if (relisted && !listed() && (stillOpen || leftByRead)) return this.adoptedMissing(sessionId);
       // select() drops a kept tail it drew and says so itself; with nothing drawn the pane says
       // the open failed here, for the chat this adoption still shows.
       if (generation === this.selectionGeneration && this.selectedSessionId === sessionId && !this.drewKeptTail)
@@ -6787,7 +6822,7 @@ export class AcpmuxDirectClient {
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "background_task_update") {
-      const task = backgroundTask(update);
+      const task = backgroundTask(update, event.at);
       if (!task) return;
       // The shell's state goes on the call that started it: its "Ran" row turns from running in
       // the background to finished where it is, in whichever turn (Leo 2026-10-20: never a
@@ -8528,13 +8563,39 @@ export class AcpmuxDirectClient {
   /// Start on an offer's chip: starts the offered chat in `cwd` on the offer's agent and model
   /// without showing it, answers the offer with it (acpmux makes `sessionId` its parent), then
   /// sends it the offer's prompt. A refused answer ends the new chat. Returns the new chat.
-  async startOffer(sessionId: string, offer: AcpmuxSessionOffer, cwd: string): Promise<string> {
-    const params = newSessionParams({ cwd }, offer.harness);
-    if (offer.model) params.model = offer.model;
+  /// `picks`: the task's Options (offer/offerChoice.ts): its model over the offer's, and the
+  /// effort and permission mode the new chat takes before its prompt. A pick the agent refuses
+  /// leaves that one at the new chat's default; the task still starts.
+  /// `picks`: the task's Options (offer/offerChoice.ts). The agent is the offer's, else the one the
+  /// picks were made for, else the default; a picked effort or permission mode goes to the new
+  /// chat under its own gesture ticket before the prompt, and one it refuses ends the start there.
+  async startOffer(sessionId: string, offer: AcpmuxSessionOffer, cwd: string, picks: OfferPicks = {}): Promise<string> {
+    const params = newSessionParams({ cwd }, offer.harness ?? picks.harness, false, picks.model ?? offer.model);
     // A trust question routes as any new chat's does; Trust starts the offer again.
-    const again = () => void this.startOffer(sessionId, offer, cwd).catch(() => undefined);
+    const again = () => void this.startOffer(sessionId, offer, cwd, picks).catch(() => undefined);
     const child = (await this.newSession(params, again))?.sessionId;
     if (!child) throw new Error(translate("offer.failed"));
+    try {
+      await Promise.all([
+        picks.mode &&
+          this.request("session/set_mode", {
+            sessionId: String(child),
+            modeId: picks.mode,
+            ...gestureMeta(picks.modeTicket),
+          }),
+        picks.effort &&
+          this.request("session/set_config_option", {
+            sessionId: String(child),
+            configId: picks.effort.configId,
+            value: picks.effort.value,
+            ...gestureMeta(picks.effortTicket),
+          }),
+      ]);
+    } catch (error) {
+      // The task stays open: it never runs under settings other than the ones picked.
+      this.discard(String(child));
+      throw error;
+    }
     try {
       await this.request("_acpmux/offer_respond", {
         sessionId,
@@ -8606,21 +8667,7 @@ export class AcpmuxDirectClient {
     const reply = (await this.request("_acpmux/inbox_thread", { sessionId, threadId }, 15_000)) as {
       messages?: unknown;
     } | null;
-    const messages = Array.isArray(reply?.messages) ? reply.messages : [];
-    return messages
-      .flatMap((m): InboxMessage[] => {
-        const r = m as Record<string, unknown> | null;
-        if (!r || typeof r.text !== "string") return [];
-        return [
-          {
-            from: typeof r.from === "string" ? r.from : "",
-            text: r.text,
-            ...(typeof r.promptId === "string" && { promptId: r.promptId }),
-            ...(typeof r.at === "number" && { at: r.at }),
-          },
-        ];
-      })
-      .reverse();
+    return inboxMessages(Array.isArray(reply?.messages) ? reply.messages : []).reverse();
   }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {
@@ -10791,13 +10838,38 @@ type BackgroundUpdate = Omit<AcpmuxBackgroundTask, "state"> & {
   state: AcpmuxBackgroundState["state"];
 };
 
-export function backgroundTask(update: any): BackgroundUpdate | undefined {
+export function backgroundTask(update: any, at?: number): BackgroundUpdate | undefined {
   const state = update.state;
   if (typeof update.toolCallId !== "string" || !["running", "completed", "failed", "stopped"].includes(state))
     return undefined;
+  const ownerId =
+    typeof update.ownerId === "string"
+      ? update.ownerId
+      : typeof update.subagentSessionId === "string"
+        ? update.subagentSessionId
+        : typeof update.subagent === "string"
+          ? update.subagent
+          : typeof update?._meta?.acpmux?.subagent === "string"
+            ? update._meta.acpmux.subagent
+            : undefined;
+  const ownerTitle =
+    typeof update.ownerTitle === "string"
+      ? update.ownerTitle.trim()
+      : typeof update.subagentTitle === "string"
+        ? update.subagentTitle.trim()
+        : undefined;
+  const startedAt = typeof update.startedAt === "number" ? update.startedAt : undefined;
+  const endedAt = state === "running" ? undefined : typeof update.endedAt === "number" ? update.endedAt : at;
   return {
     toolCallId: update.toolCallId,
     command: typeof update.command === "string" ? update.command : "",
+    ...(ownerId ? { ownerId } : {}),
+    ...(ownerTitle ? { ownerTitle } : {}),
+    ...(typeof update.description === "string" && update.description.trim()
+      ? { description: update.description.trim() }
+      : {}),
+    ...(startedAt !== undefined ? { startedAt } : {}),
+    ...(endedAt !== undefined ? { endedAt } : {}),
     state,
     ...(typeof update.reason === "string" && update.reason ? { reason: update.reason } : {}),
     ...(typeof update.summary === "string" && update.summary ? { summary: update.summary } : {}),

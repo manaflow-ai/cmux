@@ -154,6 +154,23 @@
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
+/* A cmux deeplink in the draft (composer/deeplinkTokens.ts): the link blue and the faint underline
+   a sent prompt's link has (.cv-link), so the draft reads as it will send. Only its look changes;
+   the text is the URL. The chip arm puts it on the session chip's grey wash instead. */
+.acpmux-md .acpmux-deeplink.is-link {
+  color: var(--agent-link, var(--agent-accent));
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
+}
+.acpmux-md .acpmux-deeplink.is-chip {
+  padding: 0 4px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
+  color: var(--agent-link, var(--agent-accent));
+  box-decoration-break: clone;
+}
 .acpmux-md code {
   padding: 1px 4px;
   border-radius: 4px;

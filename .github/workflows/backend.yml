@@ -401,6 +401,9 @@ jobs:
       group: cmux-next-deploy-staging
       queue: max
       cancel-in-progress: false
+    outputs:
+      # false when the source fence skipped this push (a newer one deploys); the dashboard job follows it.
+      deployed: ${{ github.event_name != 'push' || steps.source.outputs.deploy == 'true' }}
     defaults:
       run:
         working-directory: backend
@@ -509,16 +512,11 @@ jobs:
           if [ -z "$VITESS_STAGING_URL" ]; then echo "::notice title=Vitess staging migrations not checked::no CMUX_NEXT_VITESS_STAGING_ADMIN_URL"; exit 0; fi
           bun migrate-mysql.ts --url-env VITESS_STAGING_URL --phase all
           bun migrate-mysql.ts --url-env VITESS_STAGING_URL --verify
-      - name: Deploy dashboard (console-staging.cmux.dev)
-        if: github.event_name != 'push' || steps.source.outputs.deploy == 'true'
-        working-directory: backend/apps/dashboard
-        env:
-          VERCEL_PROJECT_ID: ${{ env.DASHBOARD_PROJECT_STAGING }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: NITRO_PRESET=vercel bun run build && bunx vercel@58.8.0 deploy --prebuilt --prod --scope manaflow --token "$VERCEL_TOKEN"
+      # The dashboard (console-staging) deploys in deploy-dashboard-staging, so a Vercel failure (the team's
+      # 6000-a-day deployment cap, 2026-11-05) never turns this job, which G1 reads, red.
       - name: Smoke
         if: github.event_name != 'push' || steps.source.outputs.deploy == 'true'
-        run: curl -fsS https://cloud-api-staging.cmux.dev/v1/health && curl -fsS -o /dev/null https://console-staging.cmux.dev/
+        run: curl -fsS https://cloud-api-staging.cmux.dev/v1/health
       # cmux-platform-staging serves NEXT Cloud for staging (cmux#29488) and signs and checks the same
       # tokens as this Worker, so it needs the same JWT_PRIVATE_JWK. This environment holds the only
       # copy, so every staging deploy puts it there too (stdin, never logged); a rotation here reaches
@@ -535,6 +533,93 @@ jobs:
           set -euo pipefail
           if [ -z "$JWT_PRIVATE_JWK" ]; then echo "::error title=No JWT_PRIVATE_JWK::cmux-next-staging has no JWT_PRIVATE_JWK"; exit 1; fi
           printf '%s' "$JWT_PRIVATE_JWK" | "$WRANGLER" secret put JWT_PRIVATE_JWK --name cmux-platform-staging
+
+  # console-staging.cmux.dev, after the API it calls. A push deploys it only when its inputs changed since the
+  # commit the last successful run of this job had (not the push's BEFORE, so a superseded run's change still
+  # ships). Every Vercel deploy counts against the team's 6000-a-day cap, which also serves console.cmux.dev.
+  deploy-dashboard-staging:
+    needs: [deploy-staging]
+    if: needs.deploy-staging.result == 'success' && needs.deploy-staging.outputs.deployed == 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment: cmux-next-staging
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: cmux-next-deploy-dashboard-staging
+      queue: max
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+      - name: Dashboard inputs changed since its last deploy
+        id: changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != push ]; then echo "deploy=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          last=""
+          for row in $(gh api "repos/$REPO/actions/workflows/backend.yml/runs?branch=feat-cmux-next&event=push&per_page=15" --jq '.workflow_runs[] | "\(.id):\(.head_sha)"'); do
+            id="${row%%:*}"; [ "$id" = "$RUN_ID" ] && continue
+            ok=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --jq '[.jobs[] | select(.name == "deploy-dashboard-staging" and .conclusion == "success")] | length')
+            if [ "$ok" != 0 ]; then last="${row#*:}"; break; fi
+          done
+          if [ -z "$last" ] || ! git cat-file -e "${last}^{commit}" 2>/dev/null; then
+            echo "No earlier dashboard deploy among the last 15 runs (or its commit is gone); deploying."
+            echo "deploy=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$last" != "$GITHUB_SHA" ] && git merge-base --is-ancestor "$GITHUB_SHA" "$last"; then
+            echo "::notice::A newer push (${last:0:12}) already deployed the dashboard; skipping."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --quiet "$last" "$GITHUB_SHA" -- apps/dashboard package.json bun.lock tsconfig.base.json ../.github/workflows/backend.yml; then
+            echo "Dashboard inputs unchanged since ${last:0:12}; no Vercel deploy."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Dashboard inputs changed since ${last:0:12}; deploying."
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: steps.changed.outputs.deploy == 'true'
+        with:
+          bun-version: "1.4.4"
+      - name: Restore the Bun package cache (the test job saves it)
+        if: steps.changed.outputs.deploy == 'true'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
+          restore-keys: |
+            bun-backend-${{ runner.os }}-${{ runner.arch }}-
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: steps.changed.outputs.deploy == 'true'
+        with:
+          node-version: "24"
+      - if: steps.changed.outputs.deploy == 'true'
+        run: bun install --frozen-lockfile
+      - name: Deploy dashboard (console-staging.cmux.dev)
+        if: steps.changed.outputs.deploy == 'true'
+        working-directory: backend/apps/dashboard
+        env:
+          VERCEL_PROJECT_ID: ${{ env.DASHBOARD_PROJECT_STAGING }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: NITRO_PRESET=vercel bun run build && bunx vercel@58.8.0 deploy --prebuilt --prod --scope manaflow --token "$VERCEL_TOKEN"
+      - name: Smoke
+        if: steps.changed.outputs.deploy == 'true'
+        run: curl -fsS -o /dev/null https://console-staging.cmux.dev/
 
   # The Cloud journey as staging's smoke, as the test account and (CMUX_JOURNEY_PRODUCT_TEAM) a product team,
   # so a product-team-only bug (the idle -1 503) cannot hide behind the test team. The pair is the one
@@ -558,10 +643,21 @@ jobs:
           sudo apt-get install -y clang libclang-dev pkg-config
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
+      # The Zig is the one ghostty-next's build.zig.zon names, the libghostty-vt
+      # source cmux-tui builds from.
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Set up Zig for Ghostty
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
-          version: 0.16.0
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui

@@ -83,7 +83,7 @@ let package = Package(
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
-        ]),
+        ], resources: [.process("Resources")]),
         .target(name: "CmuxMobileFeed", dependencies: [
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileMarkdown", "CmuxMobileAgentChat",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
@@ -200,7 +200,7 @@ let package = Package(
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
         ]),
         .testTarget(name: "CmuxMobileShellTests", dependencies: ["CmuxMobileShell", "CmuxMobileNotifications", "CmuxMobileModel", "CmuxMobileLive", "CmuxMobileDesign", "CmuxMobileFeed"]),
-        .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding"]),
+        .testTarget(name: "CmuxMobileOnboardingTests", dependencies: ["CmuxMobileOnboarding", "CmuxMobileDesign"]),
         .testTarget(name: "CmuxMobileChiefTests", dependencies: [
             "CmuxMobileChief", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
