@@ -16,7 +16,7 @@
 // A reply's own images (`thumb`) wait in a glass thumbnail of a fixed shape (waiting, Load image,
 // unavailable); a shown one is the whole image in its own shape (chips.css .cv-thumb--open), and a
 // click opens it in the image viewer.
-import { useContext, useEffect, useState, type ReactNode } from "react";
+import { useContext, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
@@ -147,12 +147,23 @@ export function OpenableImage({
 }) {
   const t = useT();
   const openImage = useContext(ImageViewerContext);
+  // A thumbnail's frame takes the drawn image's own shape: its natural size once it loads (chips.css
+  // .cv-thumb--open), so a phone shot is a narrow column, not a centred column in a wide box.
+  const [natural, setNatural] = useState<{ width: number; height: number }>();
   const image = (
     <img
       className={thumb ? "cv-thumb__img" : "cv-img"}
       src={src}
       alt={alt}
       loading="lazy"
+      onLoad={
+        thumb
+          ? (event) => {
+              const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
+              if (width > 0 && height > 0) setNatural({ width, height });
+            }
+          : undefined
+      }
       // Decode the host-backed source as part of this paint so the final pixels do not arrive in a
       // second, visibly different frame.
       decoding="sync"
@@ -162,13 +173,18 @@ export function OpenableImage({
   return (
     <button
       type="button"
-      className={thumb ? "cv-thumb cv-thumb--open" : "cv-img-open"}
+      className={thumb ? `cv-thumb cv-thumb--open${natural ? " cv-thumb--sized" : ""}` : "cv-img-open"}
       data-open-image
       /* The file a reply read the image from: the context menu's Show in Finder selects it. */
       data-image-path={path || undefined}
       /* A button is not draggable by default: the image drags out as a file (conversation/dragOut.ts). */
       draggable
       title={alt || t("image.view")}
+      style={
+        thumb && natural
+          ? ({ "--thumb-w": natural.width, "--thumb-h": natural.height } as CSSProperties)
+          : undefined
+      }
       onClick={() => openImage(src, alt, path)}
     >
       {image}
