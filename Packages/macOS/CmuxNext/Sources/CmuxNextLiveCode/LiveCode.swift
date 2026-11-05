@@ -12,7 +12,7 @@
 // (cmux#13742) comes before a NIGHTLY watches.
 import CmuxNextCompat
 import Foundation
-import Observation
+public import Observation
 
 /// What the views observe: `generation` goes up after each applied patch.
 @MainActor @Observable
