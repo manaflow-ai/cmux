@@ -21,6 +21,8 @@ import Observation
     /// Keeps `model.profileAvatar` current and gives `sidebar` its menu.
     func install(model: SidebarModel, sidebar: SidebarView) {
         sidebar.profileMenuProvider = { [weak model] in model.map { menu(workspace: $0.activeWorkspaceID?.rawValue) } }
+        // The footer's spaces strip marks the spaces other windows show (design/spaces.md "The switcher (PR 3)").
+        SpaceWindowMarksWiring(services: services, state: state).install(sidebar.spaceWindowMarks)
         let control = self
         // The first value now, so the window's first frame draws the avatar at its size, never the account glyph it
         // replaced a turn later (the relaunch bench's `SidebarAvatarView shown` in every window). The window's shown
