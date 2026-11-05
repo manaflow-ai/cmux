@@ -216,7 +216,7 @@ struct NewTabWakesDoNotGrowWithSessionTests {
             let browser = try #require(pane2.pane.tabs.first { $0.kind == .browser }, "fixture: pane 2 has a browser tab")
             let chat = try #require(pane2.pane.tabs.first { $0.agentSession != nil }, "fixture: pane 2 has a chat tab")
             let names = Mutex<[String]>([])
-            func track(_ name: String, _ read: @escaping @MainActor () -> Void) {
+            @MainActor func track(_ name: String, _ read: @escaping @MainActor () -> Void) {
                 withObservationTracking { read() } onChange: { names.withLock { $0.append(name) } }
             }
             for (kind, tab) in [("browser", browser), ("chat", chat)] {
