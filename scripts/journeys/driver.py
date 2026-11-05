@@ -32,6 +32,7 @@ import random
 import re
 import shlex
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -370,6 +371,127 @@ def same_dir(got, wanted):
         return False
     norm = lambda p: re.sub(r"^/private(?=/)", "", str(p).rstrip("/") or "/")
     return norm(got) == norm(wanted)
+
+
+_THREAD_FMT = re.compile(r"^(.*?)\s+0x[0-9a-fA-F]+\s+\((.*?),\s*pid:\s*(\d+)\)")
+_OURS = re.compile(r"CmuxNext|Cmux[A-Z]|cmux|WorkspaceSpawn|ShellWindow|LayoutRootView|ScreenContentView|PaneHostView|AgentPane|FocusEffect")
+_HANDLER = re.compile(r"WorkspaceSpawner\.start|startWorkspace|AppActions\.newWorkspace|newWorkspace\(")
+
+
+def _xctrace_main_samples(path, pid):
+    """[(t_ns, weight_ns, frames leaf first)] of the main thread of process `pid` in an exported time-profile table
+    (streamed; `ref` cells resolved). Frames are names; the leaf is first."""
+    import xml.etree.ElementTree as ET
+    ids, vals, columns, out = {}, {}, [], []
+    for event, elem in ET.iterparse(str(path), events=("start", "end")):
+        if event == "start":
+            if elem.tag == "node":
+                ids.clear()
+            continue
+        tag = elem.tag
+        if tag == "schema":
+            columns = [(col.findtext("mnemonic") or "").strip() for col in elem.findall("col")]
+            continue
+        if tag == "row":
+            cells = {}
+            for index, child in enumerate(list(elem)):
+                key = columns[index] if index < len(columns) and columns[index] else child.tag
+                cells[key] = vals.get(id(child))
+                cells.setdefault(child.tag, vals.get(id(child)))
+            thread = cells.get("thread")
+            if isinstance(thread, dict) and thread.get("pid") == pid and str(thread.get("name", "")).startswith("Main Thread"):
+                t = cells.get("time") if cells.get("time") is not None else cells.get("sample-time")
+                weight = cells.get("weight")
+                stack = cells.get("stack") or cells.get("backtrace") or cells.get("tagged-backtrace") or cells.get("kperf-bt") or ()
+                if isinstance(t, int):
+                    out.append((t, weight if isinstance(weight, int) else 1_000_000, stack if isinstance(stack, tuple) else ()))
+            vals.clear()
+            elem.clear()
+            continue
+        ref = elem.get("ref")
+        if ref is not None:
+            value = ids.get(ref)
+        else:
+            if tag == "frame":
+                value = elem.get("name") or elem.get("addr") or "?"
+            elif tag == "backtrace":
+                value = tuple(vals.get(id(c)) or "?" for c in elem if c.tag == "frame")
+            elif tag in ("tagged-backtrace", "kperf-bt"):
+                value = next((vals.get(id(c)) for c in elem if c.tag == "backtrace"), ())
+            elif tag in ("tid", "pid"):
+                try:
+                    value = int(elem.text)
+                except (TypeError, ValueError):
+                    value = None
+            elif tag == "process":
+                value = {"pid": next((vals.get(id(c)) for c in elem if c.tag == "pid"), None)}
+            elif tag == "thread":
+                process = next((vals.get(id(c)) for c in elem if c.tag == "process"), None) or {}
+                m = _THREAD_FMT.match(elem.get("fmt") or "")
+                name = m.group(1).strip() if m else (elem.get("fmt") or "")
+                tpid = process.get("pid") if process.get("pid") is not None else (int(m.group(3)) if m else None)
+                value = {"name": name, "pid": tpid}
+            else:
+                try:
+                    value = int(elem.text) if elem.text is not None else None
+                except ValueError:
+                    value = elem.text
+            if elem.get("id") is not None:
+                ids[elem.get("id")] = value
+        vals[id(elem)] = value
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+def xctrace_press_profiles(xml, pid, replies, window_ms=300.0, top=30):
+    """Per press (``step_xctrace_presses``): the main thread's samples on the bench's clock and where they went."""
+    samples = _xctrace_main_samples(xml, pid)
+    # Each press's first handler sample (presses are over a second apart).
+    starts = []
+    for t, _w, stack in samples:
+        if any(_HANDLER.search(f or "") for f in stack) and (not starts or t - starts[-1] > 500_000_000):
+            starts.append(t)
+    result = {"main_samples": len(samples), "presses_found": len(starts), "presses": len(replies), "rows": []}
+    for index, reply in enumerate(replies):
+        if index >= len(starts):
+            break
+        spans = reply.get("spans") or []
+        anchor = next((sp.get("at") for sp in spans if sp.get("name") == "cmdN.start"), 0.5) or 0.5
+        t0 = starts[index] - int(anchor * 1e6)  # the bench's 0 on the trace clock
+        visible = reply.get("visible_ms") or window_ms
+        phases = {}
+        bins = {}
+        for t, weight, stack in samples:
+            at = (t - t0) / 1e6
+            if at < -2 or at > window_ms:
+                continue
+            phase = "before_visible" if at < visible else "after_visible"
+            ph = phases.setdefault(phase, {"ms": 0.0, "incl": {}, "self": {}})
+            ms = weight / 1e6
+            ph["ms"] += ms
+            leaf = stack[0] if stack else "?"
+            ph["self"][leaf] = ph["self"].get(leaf, 0.0) + ms
+            for name in set(stack):
+                ph["incl"][name] = ph["incl"].get(name, 0.0) + ms
+            key = int(at // 5) * 5
+            b = bins.setdefault(key, {"ms": 0.0, "ours": {}})
+            b["ms"] += ms
+            ours = next((f for f in stack if _OURS.search(f or "")), leaf)
+            b["ours"][ours] = b["ours"].get(ours, 0.0) + ms
+        row = {"run": index, "visible_ms": reply.get("visible_ms"), "frames_to_visible": reply.get("frames_to_visible"),
+               "key_ms": reply.get("key_ms"), "confirmed_ms": reply.get("confirmed_ms"), "frames": reply.get("frames"),
+               "spans": spans, "phases": {}, "bins": []}
+        for phase, ph in phases.items():
+            row["phases"][phase] = {
+                "ms": round(ph["ms"], 1),
+                "incl": [[round(v, 1), k[:180]] for k, v in sorted(ph["incl"].items(), key=lambda kv: -kv[1])[:top]],
+                "self": [[round(v, 1), k[:180]] for k, v in sorted(ph["self"].items(), key=lambda kv: -kv[1])[:15]],
+            }
+        for key in sorted(bins):
+            b = bins[key]
+            row["bins"].append([key, round(b["ms"], 1)] + [[round(v, 1), k[:140]] for k, v in sorted(b["ours"].items(), key=lambda kv: -kv[1])[:3]])
+        result["rows"].append(row)
+    return result
 
 
 def dig(value, path):
@@ -769,6 +891,67 @@ class Journey:
                 time.sleep(0.1)
             time.sleep(0.8)
         return {"bench": "sample", "label": step.get("label", "sample"), "rows": rows}
+
+    def step_xctrace_presses(self, step):
+        """Profile (CMD-N FIRST FRAME): `runs` Cmd-N presses under ONE Instruments Time Profiler recording of every
+        process (`xctrace record --all-processes`, 1 ms kernel sampling; the close of each press is in it too, after
+        its window). Each press's main-thread samples of the app go on the bench's own clock by the first sample
+        inside the key's handler (`WorkspaceSpawner.start`, the `cmdN.start` span at about 0.5 ms), so each is in a
+        phase (`before_visible`: the key to the first display tick that shows the workspace; `after_visible`, up
+        to `window_ms`) and a 5 ms bin. Kept per press: its timing (spans, frames), the samples per phase, the
+        heaviest frames (inclusive: ours and AppKit/QuartzCore/Chromium; self) per phase, and each bin's samples and
+        deepest frame of ours."""
+        xcrun = shutil.which("xcrun") or "/usr/bin/xcrun"
+        trace = self.out / "presses.trace"
+        shutil.rmtree(trace, ignore_errors=True)
+        log = []
+        rec = subprocess.Popen([xcrun, "xctrace", "record", "--template", "Time Profiler", "--all-processes",
+                                "--time-limit", f"{int(step.get('cap_seconds', 120))}s", "--output", str(trace), "--no-prompt"],
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        started = threading.Event()
+
+        def read():
+            for line in rec.stdout:
+                log.append(line.rstrip()[:200])
+                if "Starting recording" in line or "Ctrl-C to stop" in line:
+                    started.set()
+            started.set()
+        threading.Thread(target=read, daemon=True).start()
+        started.wait(float(step.get("start_timeout", 120)))
+        if rec.poll() is not None:
+            return {"bench": "xctrace", "label": step.get("label", "xctrace"), "error": "xctrace record ended", "log": log[-20:]}
+        time.sleep(1.0)
+        replies = []
+        for index in range(int(step.get("runs", 8))):
+            reply = self.app.rpc("debug.new_tab", {"action": "bench_create", "command": "new_workspace"}, timeout=25) or {}
+            replies.append(reply)
+            time.sleep(0.4)
+            self.app.rpc("action.run", {"action": "closeWorkspace", "args": {"confirm": True}})
+            end = now() + 10
+            while now() < end and self.focused_pane().get("kind") != "terminal":
+                time.sleep(0.1)
+            time.sleep(float(step.get("gap", 1.2)))
+        rec.send_signal(signal.SIGINT)
+        try:
+            rec.wait(timeout=float(step.get("save_timeout", 240)))
+        except subprocess.TimeoutExpired:
+            rec.kill()
+            log.append("xctrace save timed out")
+        result = {"bench": "xctrace", "label": step.get("label", "xctrace"), "log": log[-12:], "rows": []}
+        try:
+            xml = self.out / "time-profile.xml"
+            done = subprocess.run([xcrun, "xctrace", "export", "--input", str(trace), "--output", str(xml), "--xpath",
+                                   '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]'],
+                                  capture_output=True, text=True, timeout=float(step.get("export_timeout", 300)))
+            if done.returncode != 0:
+                result["error"] = f"export exit {done.returncode}: {(done.stderr or done.stdout)[-400:]}"
+            else:
+                result.update(xctrace_press_profiles(xml, self.app.pid, replies, float(step.get("window_ms", 300)), int(step.get("top", 30))))
+            xml.unlink(missing_ok=True)
+        except Exception as error:  # noqa: BLE001 (a profile read never ends the journey)
+            result["error"] = repr(error)[:400]
+        shutil.rmtree(trace, ignore_errors=True)
+        return result
 
     def step_grow_workspaces(self, step):
         """STRESS-lite set-up: script workspaces (one terminal each; the app shows each new one) until the app holds

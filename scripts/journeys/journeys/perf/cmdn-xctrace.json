@@ -1,0 +1,54 @@
+{
+ "id": "cmdn-xctrace",
+ "priority": "P2",
+ "title": "CMD-N FIRST FRAME Time Profiler: 8 light Cmd-N presses under one Instruments Time Profiler recording (xctrace --all-processes), each press's main-thread samples on the bench's clock, by phase and 5 ms bin",
+ "why": "CMD-N FIRST FRAME (2026-11-05): name the functions on the main thread between the Cmd-N key and its first frame.",
+ "source": "cmdn-profile",
+ "budget_seconds": 260,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3
+  },
+  {
+   "do": "base_terminal"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 2,
+   "label": "light-warmup",
+   "gap": 0.8
+  },
+  {
+   "do": "xctrace_presses",
+   "runs": 8,
+   "gap": 1.0,
+   "window_ms": 300,
+   "top": 60,
+   "label": "xctrace"
+  },
+  {
+   "do": "type",
+   "text": "echo cmdnxtr-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "expect",
+   "title": "the app still types",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_frame_text": "cmdnxtr-${nonce}"
+    },
+    {
+     "daemon_contains": "cmdnxtr-${nonce}"
+    },
+    {
+     "app_text_contains": "cmdnxtr-${nonce}"
+    }
+   ]
+  }
+ ]
+}
