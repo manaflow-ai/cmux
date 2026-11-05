@@ -49,6 +49,8 @@ mod handover;
 mod home_watch;
 mod notify;
 pub(crate) mod owner_exit;
+/// A process's start time, which with its pid names it (the test owner, `owner_exit.rs`).
+pub use owner_exit::process_start;
 mod persist_retry;
 #[cfg(unix)]
 mod socket_rebind;
@@ -635,6 +637,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Unused for its grace on a home of its own, or soon after its owner app quit: a normal stop
     // (`daemon/unused_exit.rs`, `daemon/owner_exit.rs`).
     let mut unused = std::pin::pin!(unused_exit::unused(Arc::downgrade(&hub)));
+    // Debug builds only: a daemon a test started stops with that test's process, mid-turn too
+    // (`daemon/owner_exit.rs`); never in a release build.
+    let mut test_owner = std::pin::pin!(owner_exit::test_owner_exit());
     // Its home and lock, re-read during the shutdown too.
     #[cfg(unix)]
     let held_home = owned_home.clone();
@@ -794,6 +799,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                     home_watch::Lost::Stop(why) => tracing::warn!("stopping: {why}"),
                 },
                 why = &mut unused => tracing::info!("stopping: {why}"),
+                // Nothing can use its agents now: they end with it, hosts and harnesses too.
+                pid = &mut test_owner => {
+                    tracing::warn!("stopping: its test process {pid} exited");
+                    let _ = hub.end_agents_at_shutdown(Default::default());
+                },
             }
             break;
         }
@@ -813,6 +823,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 },
                 Ok(lost) = &mut home_gone => tracing::warn!("stopping: {lost:?}"),
                 why = &mut unused => tracing::info!("stopping: {why}"),
+                pid = &mut test_owner => {
+                    tracing::warn!("stopping: its test process {pid} exited");
+                    let _ = hub.end_agents_at_shutdown(Default::default());
+                },
             }
         }
     };

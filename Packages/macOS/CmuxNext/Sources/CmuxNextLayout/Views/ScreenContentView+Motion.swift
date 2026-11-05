@@ -22,6 +22,7 @@ extension ScreenContentView {
         }
         let frameSpring = policy.spring(motionState.frameSpring)
         var moving = advancePaneAndDividerSprings(dt, policy: policy)
+        if let clamp = activeDrag?.clampHold { clamp.push(on: self) } // a clamp's anchor pushes its line, before this frame shows
         // A close's camera shift (strip and rows) stays on the close spring until it rests, not only while
         // the panes move: closing the last column moves no pane, and a switch to the scroll spring
         // when the panes land changes the curve mid-motion (Lawrence 2026-10-20).
@@ -143,9 +144,8 @@ extension ScreenContentView {
         return true
     }
 
-    /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)
-    /// only a frame the gesture retargets snaps (its retargeted edges move with their targets, `SharedEdgeMotion`, S2B): a
-    /// spring already running elsewhere (a close landing in another column) keeps going (M3). Reduce Motion snaps all.
+    /// Sets `frame`'s target (opaque); without animation it snaps there. During a divider drag only a frame it retargets moves
+    /// (its edges with their targets, `SharedEdgeMotion`): a spring elsewhere (a close in another column) goes on (M3). Reduce Motion snaps all.
     func place(_ frame: inout AnimatedFrame, at target: CGRect, animated: Bool) {
         guard !SharedEdgeMotion.place(&frame, at: target, animated: animated, on: self) else { return }
         let retargeted = frame.targetRect != target

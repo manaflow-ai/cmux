@@ -403,19 +403,16 @@
          default: return 0
          }
          return h.finalize()
-@@ -850,6 +1048,11 @@
+@@ -850,6 +1048,8 @@
      /// min), more than 15 min on macOS 26 (the original
      /// recording, macOS 26: "Today 12:06 PM" over "hello world" 21 min after the message above) (cx-3cb row-gap).
      static var separatorGap: TimeInterval { ComposeMetrics.macOS26 ? 15 * 60 : 60 * 60 }
 +    /// cmux: the typing row's gap under a bubble: its bubble top 14 pt under the bubble above (user, "maybe even more padding").
-+    /// cmux: the gap above a message that stands alone (Message.cmuxStandsAlone) under the same sender's bubble: the
-+    /// typing bubble's 14 pt (``typingGapUnderBubble``), so the bubble lands where Chief's dots were, with no jump.
-+    static let standAloneGap: CGFloat = 14
 +    static var typingGapUnderBubble: CGFloat { 14 - (RowDraw.typingBubble.minY - RowDraw.margin) }
  
      /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
      /// `width`: layout width (captured on main). `exact`: message indices to
-@@ -858,6 +1061,8 @@
+@@ -858,6 +1058,8 @@
                       previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
                       scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
          let me = s.me
@@ -424,10 +421,12 @@
          var rows: [RowSpec] = []
          var span = (range ?? 0..<loaded.count).clamped(to: 0..<loaded.count) // a range from an older window stays inside
          // The host's streaming bubbles with text (ask 11, HostHooks.swift) follow the newest message as the messages
-@@ -898,6 +1103,18 @@
+@@ -896,7 +1098,19 @@
+         if !threadMode {
+             for m in s.conversation.messages where m.retractedAt == nil && m.deletedAt == nil {
                  if let r = m.replyTo { liveRoots.insert(r.messageId) }
-             }
-         }
++            }
++        }
 +        // cmux: a reply's root by id, mapped once on the first quote (each quote scanned every loaded message for its root:
 +        // O(replies x messages) per re-derivation, HomeQuoteRebuildCostTests). The first message of an id wins, as `first` did.
 +        var rootIndex: [ID: Int]?
@@ -437,13 +436,12 @@
 +                map.reserveCapacity(s.conversation.messages.count)
 +                for (i, x) in s.conversation.messages.enumerated() where map[x.id] == nil { map[x.id] = i }
 +                rootIndex = map
-+            }
+             }
 +            return rootIndex?[id].flatMap { s.conversation.messages[checked: $0] } // checked
-+        }
+         }
          func thread(_ x: Message, at i: Int) -> ID? {
              if let r = x.replyTo { return r.messageId }
-             return liveRoots.contains(x.id) ? x.id : nil
-@@ -911,6 +1128,8 @@
+@@ -911,6 +1125,8 @@
              let outgoing = m.senderId == me
              var gap: CGFloat
              var connector: String?
@@ -452,18 +450,7 @@
              if prev.map({ m.date.timeIntervalSince($0.date) > separatorGap }) ?? true { // no force unwrap
                  // The time label sits 17.5 pt under a thread reply and 13.5 pt under any other bubble, and the next
                  // bubble 5 pt under the label (macOS 27, AX walk of the real transcript, 2026-10-14, cx-3cb row-gap:
-@@ -947,6 +1166,10 @@
-                 // A change of thread, for either sender: 32 pt (macOS 27, AX walk of the real transcript
-                 // 2026-10-14, cx-3cb row-gap: 32.0 to 32.5 in 35 of 35 pairs across a thread boundary).
-                 gap = 32
-+            } else if m.cmuxStandsAlone == true, let p = prev, p.senderId == m.senderId {
-+                // cmux: a message the host sets apart (Message.cmuxStandsAlone) starts its own group, with its own
-+                // tail, 14 pt under the bubble above (where its typing dots sat), so each reads as its own arrival.
-+                gap = standAloneGap
-             } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap {
-                 gap = 3      // measured 3 between parts of a group (text and media alike)
-             } else if let p = prev, p.senderId == m.senderId, thread(m, at: idx) != nil {
-@@ -971,15 +1194,24 @@
+@@ -971,15 +1187,24 @@
              // A reply whose root is not directly above (and that does not
              // continue the same thread) gets a preview of the root.
              if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
@@ -490,12 +477,10 @@
              }
  
              if m.retractedAt != nil {
-@@ -987,8 +1219,30 @@
-             } else {
+@@ -988,7 +1213,29 @@
                  // no force unwrap 
                  let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
--                    || next.retractedAt != nil || next.replyTo != m.replyTo
-+                    || next.cmuxStandsAlone == true || next.retractedAt != nil || next.replyTo != m.replyTo
+                     || next.retractedAt != nil || next.replyTo != m.replyTo
 +                    || (next.cmuxAside == true) != (m.cmuxAside == true)
                      || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
 +                // cmux: a group chat's run of another person's messages (the rule of lastOfGroup, seen from the
@@ -505,7 +490,7 @@
 +                let inGroup = group && !outgoing
 +                let sender = inGroup ? s.conversation.participants.first { $0.id == m.senderId } : nil
 +                let startsRun = prev.map { p in p.senderId != m.senderId || m.date.timeIntervalSince(p.date) >= groupGap
-+                    || m.cmuxStandsAlone == true || p.retractedAt != nil || m.replyTo != p.replyTo
++                    || p.retractedAt != nil || m.replyTo != p.replyTo
 +                    || (p.cmuxAside == true) != (m.cmuxAside == true)
 +                    || thread(m, at: idx) != thread(p, at: prevIndex) } ?? true
 +                // cmux: an aside (the Chief's agent messages, Message.cmuxAside) has no name and no avatar: they stay
@@ -522,7 +507,7 @@
                  for (pi, part) in m.parts.enumerated() {
                      // A streaming bubble (past the loaded messages) is always measured: it draws now.
                      let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale)
-@@ -1015,21 +1269,41 @@
+@@ -1015,21 +1262,41 @@
                                        tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions,
                                        myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                        size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
@@ -568,7 +553,7 @@
                  }
                  // ThreadMode.tree thread view: "N Replies" under a reply that has replies opens its
                  // branch (drill-in). `threadCounts` is nil in `.messages` mode and in the transcript.
-@@ -1043,17 +1317,37 @@
+@@ -1043,16 +1310,36 @@
              }
              prev = m; prevIndex = idx
          }
@@ -594,7 +579,7 @@
 +            // cmux: one caption row per line (the running indicator's folded steps, narration and step: HomeNoticeRows).
 +            rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: HomeNoticeRows.height(notice)))
 +            statusLine = true
-         }
++        }
 +        // cmux (user 2026-10-30, "make it just one line with shimmer text"): the status line, shimmering
 +        // (HomeNoticeShimmer), is the running indicator; no typing bubble under it.
 +        if !threadMode, span.upperBound == messages.count, s.atNewest, typists, !statusLine {
@@ -608,11 +593,10 @@
 +            default: break
 +            }
 +            rows.append(RowSpec(key: "typing", kind: .typing, gap: gap, height: 35))
-+        }
+         }
          rows = rows.map { var r = $0; r.width = width; return r } // no index writes
          return rows
-     }
-@@ -1076,7 +1370,9 @@
+@@ -1076,7 +1363,9 @@
              var row = row
              row.width = width
              if case let .threadPreview(pv) = row.kind, pv.isText {
@@ -623,7 +607,7 @@
                  row.kind = .threadPreview(again)
                  row.height = again.height(scale: scale)
              }
-@@ -1118,6 +1414,8 @@
+@@ -1118,6 +1407,8 @@
      }
  
      private static func isText(_ p: Part?) -> Bool { if case .text = p { return true } else { return false } }
@@ -632,7 +616,7 @@
  
      /// "Read <time>" under my latest read message; "Delivered" under my
      /// latest delivered message when it is newer.
-@@ -1145,7 +1443,7 @@
+@@ -1145,7 +1436,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -641,7 +625,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -1164,7 +1462,7 @@
+@@ -1164,7 +1455,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -650,7 +634,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1214,7 +1512,8 @@
+@@ -1214,7 +1505,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -660,7 +644,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -1255,7 +1554,8 @@
+@@ -1255,7 +1547,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }

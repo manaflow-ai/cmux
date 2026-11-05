@@ -81,4 +81,13 @@ extension DaemonStore {
     func adoptedStandIn(_ handle: PaneID) -> WorkspaceKey? {
         workspaces.first { $0.tookOverStandIn?.pane == handle }?.key
     }
+
+    /// The daemon's pane that took stand-in pane `handle` over (Cmd-N's first pane, a split's) once the records hold it; nil
+    /// while the stand-in still shows, and for a pane that is no stand-in. A window shows Cmd-N's daemon pane under another
+    /// layout id than its stand-in, so it hands the stand-in's selection to that pane's new controller by this.
+    public func daemonPane(takingOver handle: PaneID) -> PaneID? {
+        guard ProvisionalPane.isStandIn(handle), let origin = standInTargets[handle] ?? ProvisionalSplit.standInOrigin(of: handle, in: self),
+              let pane = ProvisionalSplit.daemonPane(of: origin, showing: handle, in: self), !ProvisionalPane.isStandIn(pane) else { return nil }
+        return pane
+    }
 }
