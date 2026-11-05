@@ -79,6 +79,13 @@ fn renames_done(events: &Path) -> bool {
     !renames_pending(events)
 }
 
+/// The rewrite's first record is in place and its renames have not run: the sync of the record's
+/// folder, and no other (a checkpoint's sync of the log's folder before the rewrite finds no
+/// record yet).
+fn record_written_renames_pending(events: &Path) -> bool {
+    renames_pending(events) && events.join(super::compact::MARKER).exists()
+}
+
 fn stop_asked(store: &dyn Store) -> bool {
     store.stop_reason().is_some_and(|reason| reason.borrow().is_some())
 }
@@ -115,7 +122,8 @@ fn a_failed_sync_of_a_rewritten_log_folder_freezes_the_store() {
 
 /// A retention rewrite whose record (`events/compacted.json`, written before the renames so that
 /// a log that may hold nothing never passes for a purged chat's) fails the sync of its folder:
-/// the rewrite must not go on to its renames, and the store freezes.
+/// the rewrite must not go on to its renames, and the store freezes. Before the fix the record's
+/// folder sync was `config::write_atomic`'s own, whose result it drops, so the rewrite went on.
 #[test]
 fn a_failed_sync_of_a_rewrite_record_folder_freezes_the_store() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -125,7 +133,8 @@ fn a_failed_sync_of_a_rewrite_record_folder_freezes_the_store() {
     let events = home.path().join("sessions").join(CHAT).join("events");
     let segment = events.join("000001.ndjson");
     let before = std::fs::read(&segment).unwrap_or_else(|e| panic!("{e}"));
-    FAIL_DIR_SYNC_WHEN.with(|fail| *fail.borrow_mut() = Some((events.clone(), renames_pending)));
+    FAIL_DIR_SYNC_WHEN
+        .with(|fail| *fail.borrow_mut() = Some((events.clone(), record_written_renames_pending)));
     let committed = store.commit_compaction(CHAT, staged);
     FAIL_DIR_SYNC_WHEN.with(|fail| *fail.borrow_mut() = None);
     assert!(committed.is_err(), "the rewrite went on past a failed sync of its record's folder");
