@@ -161,10 +161,17 @@ class Loop:
         probe = shlex.join([sys.executable, str(Path(__file__).resolve()), "probe", "--socket", str(self.sock),
                             "--word", expect])
         env = dict(os.environ, **self.overlay_env)
-        done = subprocess.run([sys.executable, str(ROOT / "scripts/cmux-next/live-apply.py"), "--repo", str(self.tree),
-                               "--base", self.commit, "--probe", probe, "--probe-seconds", str(probe_seconds)],
-                              env=env, capture_output=True, text=True)
-        (self.out / f"live-apply-{word}.log").write_text(done.stderr)  # agent-loop.sh clears live-apply-*.log
+        log = self.out / f"live-apply-{word}.log"  # agent-loop.sh clears live-apply-*.log
+        try:
+            # stderr to the log as it runs, so a hung bundle build still leaves its output.
+            with log.open("w") as stderr:
+                done = subprocess.run([sys.executable, str(ROOT / "scripts/cmux-next/live-apply.py"), "--repo",
+                                       str(self.tree), "--base", self.commit, "--probe", probe,
+                                       "--probe-seconds", str(probe_seconds)],
+                                      env=env, stdout=subprocess.PIPE, stderr=stderr, text=True, timeout=900)
+        except subprocess.TimeoutExpired:
+            return {"error": "live-apply.py ran past 900 s", "stderr": log.read_text(errors="replace")[-2000:]}
+        done.stderr = log.read_text(errors="replace")
         try:
             return json.loads(done.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):
