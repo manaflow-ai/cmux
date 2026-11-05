@@ -143,6 +143,7 @@ pub mod server;
 pub mod session_env;
 pub mod session_identity;
 pub mod session_liveness;
+pub mod name_match;
 pub mod session_name;
 mod session_scope;
 pub mod session_search;
