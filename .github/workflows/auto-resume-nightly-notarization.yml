@@ -32,13 +32,17 @@ env:
 
 jobs:
   preflight:
+    # In the one-mini mode a workflow_run from a branch other than main and rc/** (nightly-next on feat-cmux-next,
+    # whose preflight only ever answered ready=false) is skipped: cmux15 refuses it (glaeda AUTO_RESUME).
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' ||
       ((github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success') &&
-      github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+      github.event.workflow_run.head_repository.full_name == github.repository)) &&
+      (vars.CI_CLASSIC_NIGHTLY_MINI == '' || github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.head_branch == 'main' || startsWith(github.event.workflow_run.head_branch, 'rc/'))
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main') && vars.CI_CLASSIC_NIGHTLY_MINI || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Room for gh_budget_wait.sh to wait out an exhausted API budget (at most an hour).
-    timeout-minutes: 75
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 195 || 75 }}
     permissions:
       actions: read
       contents: read
@@ -190,8 +194,8 @@ jobs:
     outputs:
       all_accepted: ${{ steps.poll.outputs.all_accepted }}
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 90
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main') && 'glaeda-trusted-next-signing' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 210 || 90 }}
     concurrency:
       group: notarization-poll-${{ needs.preflight.outputs.channel }}-${{ needs.preflight.outputs.short_sha }}
       cancel-in-progress: false
@@ -207,15 +211,44 @@ jobs:
       RECOVERY_METADATA_ONLY: ${{ needs.preflight.outputs.metadata_only }}
       CHANNEL: ${{ needs.preflight.outputs.channel }}
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
-      ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-      ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
-      ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
     steps:
+      # First, before any checkout or secret: on an owned Mac this job holds the whole mini (glaeda's
+      # exclusive class) or fails here (tests/test_signing_runner_claim.py CLAIM_GATE). A no-op on Blacksmith.
+      - name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout trusted continuation tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # Before any secret: the same check again, and a signing keychain a killed job left is removed.
+      - name: Claim the whole Mac for signing
+        run: bash scripts/ci/signing-runner-claim.sh
 
       - name: Download exact polling inputs
         run: |
@@ -235,6 +268,10 @@ jobs:
 
       - name: Poll saved Apple submissions without reserving a Mac
         id: poll
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
         run: |
           set -uo pipefail
           mkdir -p poll-reports
@@ -322,8 +359,8 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 180
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main') && 'glaeda-trusted-next-signing' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 300 || 180 }}
     # Secrets and the job token are set only on the steps that use them, so the
     # steps that launch the recovered app do not inherit them.
     env:
@@ -334,6 +371,34 @@ jobs:
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
       VARIANT: ${{ matrix.variant }}
     steps:
+      # First, before any checkout or secret: on an owned Mac this job holds the whole mini (glaeda's
+      # exclusive class) or fails here (tests/test_signing_runner_claim.py CLAIM_GATE). A no-op on Blacksmith.
+      - name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set outer notarization receipt paths
         run: |
           printf '%s\n' \
@@ -345,6 +410,10 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # Before any secret: the same check again, and a signing keychain a killed job left is removed.
+      - name: Claim the whole Mac for signing
+        run: bash scripts/ci/signing-runner-claim.sh
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -619,8 +688,8 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 150
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main') && 'glaeda-trusted-next-signing' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 270 || 150 }}
     env:
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}
@@ -631,11 +700,43 @@ jobs:
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
       VARIANT: ${{ matrix.variant }}
     steps:
+      # First, before any checkout or secret: on an owned Mac this job holds the whole mini (glaeda's
+      # exclusive class) or fails here (tests/test_signing_runner_claim.py CLAIM_GATE). A no-op on Blacksmith.
+      - name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout trusted continuation tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # Before any secret: the same check again, and a signing keychain a killed job left is removed.
+      - name: Claim the whole Mac for signing
+        run: bash scripts/ci/signing-runner-claim.sh
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -891,8 +992,8 @@ jobs:
     permissions:
       actions: read
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 90
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main') && 'glaeda-trusted-next-signing' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 210 || 90 }}
     env:
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_run_attempt }}
@@ -903,11 +1004,43 @@ jobs:
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
       VARIANT: ${{ matrix.variant }}
     steps:
+      # First, before any checkout or secret: on an owned Mac this job holds the whole mini (glaeda's
+      # exclusive class) or fails here (tests/test_signing_runner_claim.py CLAIM_GATE). A no-op on Blacksmith.
+      - name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout trusted continuation tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # Before any secret: the same check again, and a signing keychain a killed job left is removed.
+      - name: Claim the whole Mac for signing
+        run: bash scripts/ci/signing-runner-claim.sh
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -1006,8 +1139,8 @@ jobs:
         variant: [arm64, x86_64, universal]
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 30
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main') && vars.CI_CLASSIC_NIGHTLY_MINI || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 150 || 30 }}
     env:
       CHANNEL: ${{ needs.preflight.outputs.channel }}
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
@@ -1482,8 +1615,8 @@ jobs:
       fail-fast: false
       matrix:
         variant: [arm64, x86_64, universal]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 45
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main') && 'glaeda-trusted-next-signing' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 165 || 45 }}
     env:
       GH_TOKEN: ${{ github.token }}
       CHANNEL: ${{ needs.preflight.outputs.channel }}
@@ -1492,14 +1625,44 @@ jobs:
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
       VARIANT: ${{ matrix.variant }}
       NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
-      SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
-      NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
     steps:
+      # First, before any checkout or secret: on an owned Mac this job holds the whole mini (glaeda's
+      # exclusive class) or fails here (tests/test_signing_runner_claim.py CLAIM_GATE). A no-op on Blacksmith.
+      - name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout trusted delta tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # Before any secret: the same check again, and a signing keychain a killed job left is removed.
+      - name: Claim the whole Mac for signing
+        run: bash scripts/ci/signing-runner-claim.sh
 
       - name: Select pinned Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -1512,6 +1675,9 @@ jobs:
           merge-multiple: true
 
       - name: Generate one from-version delta and revised appcast
+        env:
+          SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           manifest="$(find nightly-delta/input -type f -name cmux-nightly-notarization-recovery.json -print -quit)"
@@ -1572,7 +1738,9 @@ jobs:
     permissions:
       actions: read
       contents: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main') && 'glaeda-trusted-next-signing' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The default 360 minutes; the one-mini mode adds glaeda's capacity wait.
+    timeout-minutes: ${{ vars.CI_CLASSIC_NIGHTLY_MINI != '' && 480 || 360 }}
     environment: release
     env:
       # One writer at a time, newest first, without a concurrency group (a
@@ -1592,6 +1760,34 @@ jobs:
       SHORT_SHA: ${{ needs.preflight.outputs.short_sha }}
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
     steps:
+      # First, before any checkout or secret: on an owned Mac this job holds the whole mini (glaeda's
+      # exclusive class) or fails here (tests/test_signing_runner_claim.py CLAIM_GATE). A no-op on Blacksmith.
+      - name: Hold the whole Mac before any credential
+        id: claim-gate
+        shell: bash
+        run: |
+          owned=""
+          case "${RUNNER_NAME:-}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
+          if [ -d /Users/Shared/cmux-build-fleet ]; then owned=1; fi
+          if [ -n "$owned" ]; then
+            if [ "${GLAEDA_JOB_CLAIM:-}" != exclusive ]; then
+              echo "::error title=Signing runner::This owned Mac did not give the job the whole mini, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
+              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
+            hook="${GLAEDA_HOOK_SHA256:-}"
+            listed=""
+            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
+              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
+            fi
+            if [ -z "$listed" ]; then
+              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists, so this job fails before any credential is in reach."
+              exit 1
+            fi
+            echo "claim=owned" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout trusted publication tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -1601,6 +1797,11 @@ jobs:
       # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits through a GitHub API
       # rate limit (until the reset, else 60, 120, 240, then 300 s; at most an hour per job,
       # shared with the publisher's waits) instead of failing a finished, signed nightly.
+
+      # Before any secret: the same check again, and a signing keychain a killed job left is removed.
+      - name: Claim the whole Mac for signing
+        run: bash scripts/ci/signing-runner-claim.sh
+
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash scripts/ci/gh_budget_wait.sh --install
 

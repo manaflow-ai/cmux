@@ -29,3 +29,5 @@ fd14548dfbef271dc623a407f85200bbdc0a97141a6e89d499d382c9c0c9cf05 glaeda 9ceec376
 4aff27414c7a5a51735a30d31d41d8a787ac0d2b7fa52dcc2f42a268f0dde1f9 glaeda #1837: runner: cmux15 takes nightly-next signing jobs through the exclusive claim (trustedNextSigning, yieldToExclusive)
 f9666752854e93da642f0e9b517fb8c1a2f5a7fa7a9643f325d96863edf15e1b glaeda 9e654549: runner-hook: a "nightly signing: " reservation keeps a mini for cmux nightly jobs (carries #1769) (#1838)
 aff786ca089a05cef2627a80d7fe4da0393a4814fc9619aca0e7384263d37ad9 glaeda 99d1e407: runner hook: a waiting signing job goes ahead of other nightly jobs (SIGNS_FIRST) (#1847)
+ef41cbd5be20def2d90c6faa6632641fa1310e5bb55c24c281a57c27d0047ad6 glaeda #1854: runner hook: one-mini nightly signing on cmux15's trusted signing runner (ONE_MINI_NIGHTLY)
+7f286e386b14476d42b1d5d000da2e9f05cf443af7aa43c334548a8c48013f62 glaeda #1858 (stacked on #1854): runner hook: main's classic auto-resume notarization on cmux15 (AUTO_RESUME)
