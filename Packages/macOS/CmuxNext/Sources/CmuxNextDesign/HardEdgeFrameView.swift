@@ -34,7 +34,7 @@ final class HardEdgeFrameView: NSView {
     /// The outline `distance` outside a chamfered rect with `cuts`: each 45° cut stays 45° and
     /// parallel, so its cut grows by `distance × (2 − √2)`.
     static func offset(_ cuts: HardEdge.Cuts, by distance: CGFloat) -> HardEdge.Cuts {
-        let grow = distance * (2 - 2.squareRoot())
+        let grow = distance * (2 - CGFloat(2).squareRoot())
         return HardEdge.Cuts(topLeading: cuts.topLeading + grow, topTrailing: cuts.topTrailing + grow,
                              bottomTrailing: cuts.bottomTrailing + grow, bottomLeading: cuts.bottomLeading + grow)
     }

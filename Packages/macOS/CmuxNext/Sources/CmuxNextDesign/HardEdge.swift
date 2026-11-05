@@ -139,7 +139,7 @@ public nonisolated enum HardEdge: String, Sendable, CaseIterable, TunableChoice 
     @MainActor public func selectedMarks(_ rect: CGRect) -> CGPath? {
         guard self == .blade || self == .hud, rect.width > 0, rect.height > 0 else { return nil }
         let cut = min(Self.fillCut, rect.width / 2, rect.height / 2)
-        let width = Metrics.scale(1.5), step = width * 2.squareRoot() // a 45° band `width` thick
+        let width = Metrics.scale(1.5), step = width * CGFloat(2).squareRoot() // a 45° band `width` thick
         let path = CGMutablePath()
         switch self {
         case .blade:
