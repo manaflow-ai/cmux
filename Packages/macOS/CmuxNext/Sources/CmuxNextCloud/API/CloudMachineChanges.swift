@@ -43,6 +43,8 @@ public final class CloudMachineChanges {
     private var mutations: [String: [Mutation]] = [:]
     /// The machines' state sockets: each list watches the machines it shows, ``stop()`` closes them.
     public var push: CloudMachineStatePush?
+    /// The last list's refresh: what a lost push falls back to.
+    private var lastRefresh: (@MainActor () async -> Void)?
     /// Takes `push` (nil: the classic client, nothing is pushed) with the daemon connection its frames go to and where
     /// its records are shown; the next list opens its sockets.
     public func startPush(_ push: CloudMachineStatePush?, connection: @escaping @MainActor () -> DaemonConnection?,
@@ -50,6 +52,11 @@ public final class CloudMachineChanges {
         guard self.push == nil, let push else { return }
         push.connection = connection
         push.onRecord = record
+        // A dead push leaves its machine to the reads again, starting from the last list's refresh.
+        push.onLost = { [weak self] _ in
+            guard let self, let refresh = self.lastRefresh else { return }
+            self.began(refresh)
+        }
         self.push = push
     }
 
@@ -240,6 +247,7 @@ public final class CloudMachineChanges {
         // began/stop cancel the old task, including callbacks delivered from inside its refresh.
         guard !stopped, !Task.isCancelled else { return }
         listRevision += 1
+        lastRefresh = refresh
         push?.watch(list.filter { $0.status != .destroyed })
         // CloudService already reconciled these records with their read tickets. Replaying
         // settlement here without tickets could let a rejected stale response clear a mutation.
@@ -256,6 +264,7 @@ public final class CloudMachineChanges {
 
     public func stop() {
         push?.stop()
+        lastRefresh = nil
         stopped = true
         pending = false
         mutations.removeAll()

@@ -285,12 +285,6 @@ impl Revision {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-
-    /// Above every revision the platform hands out (a 64-digit number):
-    /// the tombstone of a machine removed for good.
-    pub fn final_() -> Self {
-        Self("9".repeat(64))
-    }
 }
 
 impl TryFrom<String> for Revision {

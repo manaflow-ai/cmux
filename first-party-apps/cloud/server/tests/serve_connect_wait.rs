@@ -157,7 +157,11 @@ fn a_connect_to_a_pushed_machine_answers_on_the_push_not_on_a_read() {
     pushed(&host, "starting", "2");
     connect(&host, "1");
     assert_eq!(result_within(&mut host, "1", Duration::from_millis(300)), None, "it waits");
-    assert_eq!(clock.pending_delays(), vec![Duration::from_secs(10)], "one fallback read, 10 s out");
+    assert_eq!(
+        clock.pending_delays(),
+        vec![Duration::from_secs(10)],
+        "one fallback read, 10 s out"
+    );
     host.cloud.bind_now();
     pushed(&host, "running", "3");
     let result = result_within(&mut host, "1", serve_common::WAIT).expect("connect answers");

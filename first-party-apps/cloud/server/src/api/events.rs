@@ -87,7 +87,9 @@ pub(crate) fn apply(
                     projection.mark_pushed(&frame.machine);
                     projection.remove_final(&frame.machine);
                 }
-                _ => return Err(CloudError::invalid(format!("{event}: not a machine state frame"))),
+                _ => {
+                    return Err(CloudError::invalid(format!("{event}: not a machine state frame")));
+                }
             }
         }
         "cloud.snapshot.upsert" | "cloud.snapshot.removed" | "cloud.plan.changed" => {}

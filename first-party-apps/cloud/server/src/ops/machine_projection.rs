@@ -18,6 +18,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 const TOMBSTONES: usize = 1024;
 /// Machines marked pushed at most (one per machine the app shows).
 const PUSHED_MAX: usize = 4096;
+/// Machines removed for good kept at most (a pushed removal; ids are never
+/// reused). Its own set, so evicting ordinary tombstones never revives one.
+const GONE_MAX: usize = 65_536;
 
 /// One `cloud.machine.watch` event. Events of one projection change share
 /// its revision; revisions only grow.
@@ -62,6 +65,9 @@ pub struct Projection {
     /// Machines whose state the host pushes (`cloud.machine.state`): a parked
     /// op on one of them waits for the push, and reads only as a fallback.
     pushed: BTreeSet<String>,
+    /// Machines a pushed removal ended: no record of theirs comes back.
+    gone: BTreeSet<String>,
+    gone_order: VecDeque<String>,
 }
 
 impl Projection {
@@ -107,7 +113,7 @@ impl Projection {
     fn current(&self, machine: &Machine) -> bool {
         let known = self.machines.get(&machine.id).is_none_or(|m| machine.revision >= m.revision);
         let removed = self.tombstones.get(&machine.id).is_none_or(|r| machine.revision > *r);
-        known && removed
+        known && removed && !self.gone.contains(&machine.id)
     }
 
     /// Records a removal at `revision`; an older one never lowers it.
@@ -200,6 +206,8 @@ impl Projection {
         self.apply(removed, Vec::new());
         self.tombstones.clear();
         self.tombstone_order.clear();
+        self.gone.clear();
+        self.gone_order.clear();
     }
 
     /// Writes one record unless it is older than the projection's.
@@ -214,10 +222,16 @@ impl Projection {
     }
 
     /// A pushed removal (`cloud.machine.state` `removed`): the machine is
-    /// gone for good, so it is tombstoned above any revision a stale record
-    /// or read can carry.
+    /// gone for good, so no stale record or read brings it back.
     pub(crate) fn remove_final(&mut self, id: &str) {
-        self.tombstone(id, Revision::final_());
+        if self.gone.insert(id.to_owned()) {
+            self.gone_order.push_back(id.to_owned());
+            if self.gone_order.len() > GONE_MAX
+                && let Some(oldest) = self.gone_order.pop_front()
+            {
+                self.gone.remove(&oldest);
+            }
+        }
         self.apply(vec![id.to_owned()], Vec::new());
     }
 

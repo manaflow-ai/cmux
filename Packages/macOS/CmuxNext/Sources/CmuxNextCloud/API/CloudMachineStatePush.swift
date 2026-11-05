@@ -22,6 +22,8 @@ public final class CloudMachineStatePush {
     public var connection: @MainActor () -> DaemonConnection? = { nil }
     /// A machine's record from its push.
     public var onRecord: @MainActor (CloudMachine) -> Void = { _ in }
+    /// A machine's live push closed: until a socket delivers again it is not pushed, and reads cover it.
+    public var onLost: @MainActor (String) -> Void = { _ in }
     private var last: [String: CloudMachine] = [:]
 
     private struct Watch {
@@ -86,15 +88,20 @@ public final class CloudMachineStatePush {
 
     private func run(_ machine: String) async {
         var backoff = Self.firstBackoff
+        // wakeup-allow: one pass per socket, each awaiting the socket's life and then a capped backoff; ends when unwatched
         while !Task.isCancelled, watches[machine] != nil {
             let opened = await connect(machine)
             if Task.isCancelled || watches[machine] == nil { return }
+            let wasLive = watches[machine]?.live == true
             watches[machine]?.live = false
             watches[machine]?.task = nil
-            // A socket that delivered frames closed (a token expiry, a deploy): open the next one at once.
-            if opened { backoff = Self.firstBackoff; continue }
+            // Pushes stopped: the machine's reads come back until a socket delivers again.
+            if wasLive { onLost(machine) }
+            // A socket that delivered frames closed (a token expiry, a deploy): the next waits the first backoff;
+            // one that never delivered doubles it. Every close waits, so a socket that opens and closes cannot spin.
+            if opened { backoff = Self.firstBackoff }
             // wakeup-allow: capped reconnect backoff of a closed push socket, cancelled when the machine is no longer shown
-            try? await ContinuousClock().sleep(for: backoff)
+            do { try await ContinuousClock().sleep(for: backoff) } catch { return }
             backoff = min(backoff * 2, Self.maxBackoff)
         }
     }
@@ -110,13 +117,13 @@ public final class CloudMachineStatePush {
         watches[machine]?.task = task
         task.resume()
         var delivered = false
-        while !Task.isCancelled {
-            guard let message = try? await task.receive() else { break }
+        // wakeup-allow: each pass awaits the next frame; a closed or failed socket throws and ends the loop
+        while !Task.isCancelled, let message = try? await task.receive() {
             let data: Data
             switch message {
             case .string(let text): data = Data(text.utf8)
             case .data(let bytes): data = bytes
-            @unknown default: continue
+            @unknown default: data = Data()
             }
             delivered = true
             watches[machine]?.live = true
