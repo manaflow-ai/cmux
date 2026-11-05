@@ -544,3 +544,16 @@ private nonisolated struct SpikeError: Error, CustomStringConvertible {
     let description: String
     init(_ description: String) { self.description = description }
 }
+
+/// SPIKE, headless: which fence SPI selectors and classes this OS has (no window, no display). Runs on any worker, so
+/// a macOS 26 mini without a GUI session (aws-m4pro-5..9) still answers the selector question.
+@MainActor @Suite
+struct CoreAnimationFenceProbeTests {
+    @Test func selectorsOnThisOS() {
+        var line = CoreAnimationFence.probe(layer: nil).reduce(into: [String: Any]()) { $0[$1.key] = $1.value }
+        line["case"] = "probe_headless"
+        let root = CALayer()
+        line["own_context_made_headless"] = CoreAnimationHostedContext(root: root) != nil
+        CoreAnimationFenceSpikeTests.report(line)
+    }
+}
