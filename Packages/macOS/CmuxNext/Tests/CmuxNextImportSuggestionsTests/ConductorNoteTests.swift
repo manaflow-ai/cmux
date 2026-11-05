@@ -49,6 +49,7 @@ struct ConductorNoteTests {
         let state = ImportSuggestionState.load(from: defaults)
         #expect(state.dismissed == ["agents.codex": "agents.codex|ok"])
         #expect(state.conductorNoteClosed == nil)
+        #expect(state.conductorImportRan == nil)
         #expect(state.showsConductorNote(findings: [Self.conductor], jobs: ImportJobLedger(), now: Self.now))
     }
 
@@ -68,6 +69,21 @@ struct ConductorNoteTests {
         var hidden = ImportSuggestionState()
         hidden.dismiss(Self.conductor)
         #expect(!hidden.showsConductorNote(findings: [Self.conductor], jobs: ImportJobLedger(), now: Self.now))
+    }
+
+    /// A finished import is kept in the state: once the job ledger prunes the finished job
+    /// (after 14 days) the note still stays gone, across a save and a load.
+    @Test func theNoteStaysGoneAfterTheFinishedJobIsPruned() throws {
+        var state = ImportSuggestionState()
+        state.conductorImportRan = true
+        #expect(!state.showsConductorNote(findings: [Self.conductor], jobs: ImportJobLedger(), now: Self.now))
+        let suite = "conductor-note-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        state.save(to: defaults)
+        let loaded = ImportSuggestionState.load(from: defaults)
+        #expect(loaded.conductorImportRan == true)
+        #expect(!loaded.showsConductorNote(findings: [Self.conductor], jobs: ImportJobLedger(), now: Self.now))
     }
 
     @Test func theOnboardingLineNeedsConductorAndTheDeadline() throws {

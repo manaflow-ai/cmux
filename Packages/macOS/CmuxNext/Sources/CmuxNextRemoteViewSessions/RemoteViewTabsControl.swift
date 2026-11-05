@@ -17,7 +17,8 @@ import Foundation
 /// control of someone's desktop is never an agent's to take. Control input comes only from the
 /// person's own pane (its Take over button); automation may watch and may hand control back.
 @MainActor
-public enum RemoteViewTabsControl {
+public struct RemoteViewTabsControl {
+    public init() {}
     public static func answer(_ params: [String: JSONValue], cloudOnly: Bool) async -> JSONValue {
         let only = params["tab"]?.stringValue
         let tabs = RemoteViewPageTab.live.allObjects.filter { tab in
