@@ -39,6 +39,15 @@ path = "src/main.rs"
 name = "cmux-tui"
 path = "src/bin/cmux-tui.rs"
 
+# `hotpatch` only: the whole program compiled as one binary crate, for
+# `dx serve --hot-patch --bin cmux-tui-hotpatch`. dx 0.7.10 never replays the
+# tip package's own library, so a cmux-tui binary that links the `cmux_tui`
+# library fails to patch an edit in a dependency (E0460, a stale rlib).
+[[bin]]
+name = "cmux-tui-hotpatch"
+path = "src/main.rs"
+required-features = ["hotpatch"]
+
 [[bin]]
 name = "cmux-tui-hook"
 path = "src/bin/cmux-tui-hook.rs"

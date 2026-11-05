@@ -9,7 +9,7 @@
 //!
 //! ```text
 //! dx serve --hot-patch --interactive false --platform linux \
-//!   -p cmux-tui --bin cmux-tui --features hotpatch -- --headless --socket S --state D
+//!   -p cmux-tui --bin cmux-tui-hotpatch --features hotpatch -- --headless --socket S --state D
 //! ```
 //!
 //! Every socket request runs through [`call`], so an edit anywhere below the
