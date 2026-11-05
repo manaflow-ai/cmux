@@ -55,7 +55,7 @@ def load(name: str, path: Path):
 
 smoke = load("nightly_next_launch_smoke", ROOT / "scripts" / "ci" / "nightly_next_launch_smoke.py")
 rollback = load("nightly_next_feed_rollback", ROOT / "scripts" / "ci" / "nightly_next_feed_rollback.py")
-BASE = "https://files-next.cmux.com/nightly-next/next"
+BASE = "https://files-next.cmux.com/nightly-next"
 
 
 def feed(*builds: int, channel: dict | None = None) -> str:
@@ -182,6 +182,18 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(decision["action"], "rollback")
         self.assertEqual(decision["serving"], 180)
 
+    def test_a_crash_rolls_back_on_the_one_feeds_shape(self) -> None:
+        # The cmux NIGHTLY feed (nightly-next/): every item tagged cmux-next, the new build and the
+        # one before it (publish-next-feed-keep-nightly.sh with the ring off).
+        live = feed(4191131679101, 4190094575701,
+                    channel={4191131679101: "cmux-next", 4190094575701: "cmux-next"})
+        decision = smoke.decide(live, 4191131679101, smoke.CRASH)
+        self.assertEqual(decision["action"], "rollback")
+        self.assertEqual(decision["serving"], 4190094575701)
+        # One item (the bare feed before the earlier build was kept) has nothing to serve instead.
+        alone = feed(4191131679101, channel={4191131679101: "cmux-next"})
+        self.assertEqual(smoke.decide(alone, 4191131679101, smoke.CRASH)["action"], "none")
+
     def test_the_nightly_channels_match_what_nightly_apps_accept(self) -> None:
         live_check = load("nightly_next_live_feed_check", ROOT / "scripts" / "ci" / "nightly_next_live_feed_check.py")
         self.assertEqual(set(smoke.NIGHTLY_CHANNELS) - {None}, set(live_check.NIGHTLY_ACCEPTED))
@@ -263,7 +275,7 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
     def test_the_smoke_runs_after_publication_from_the_feed(self) -> None:
         triggers = self.workflow.get("on") or self.workflow.get(True)
         self.assertEqual(set(triggers), {"schedule", "workflow_dispatch", "pull_request"})
-        self.assertIn("files-next.cmux.com/nightly-next/next/appcast-arm64.xml", self.text)
+        self.assertIn("files-next.cmux.com/nightly-next/appcast-arm64.xml", self.text)
 
     def test_a_crash_rolls_back_through_nightly_next_rollback(self) -> None:
         crashed = self.jobs["crashed"]

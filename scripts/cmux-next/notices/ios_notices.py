@@ -117,7 +117,7 @@ MUSL_INTRO = (
     "that Zig ported from musl: std.math.cbrt (musl src/math/cbrtf.c and src/math/cbrt.c), which Ghostty's "
     "terminal I/O uses to generate its 256-color palette. musl is licensed under the MIT license. The text "
     "below is the COPYRIGHT file of musl 1.2.5 (https://musl.libc.org/releases/musl-1.2.5.tar.gz), the musl "
-    "release that Zig 0.16.0 bundles."
+    "release that Zig 0.17.0 bundles."
 )
 FTL_CREDIT = """This software is based in part on the work of the FreeType Team (FreeType {version}, \
 https://freetype.org). Portions of this software are copyright \u00a9 {year} The FreeType Project \
