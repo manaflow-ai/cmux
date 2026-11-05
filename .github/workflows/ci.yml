@@ -364,9 +364,17 @@ jobs:
             # Registry edits that only register Linux guards do not change the
             # native test lanes. Missing history keeps the detector fail-open.
             registry_base_args=()
-            if grep -Fxq 'tests/test-execution.toml' /tmp/cmux-ci-changed-files.txt; then
-              registry_base="$(mktemp "${RUNNER_TEMP:-/tmp}/cmux-test-registry-base.XXXXXX")"
-              if git show "$BASE_SHA:tests/test-execution.toml" > "$registry_base"; then
+            # The registry is tests/test-execution.d/*.toml (the single tests/test-execution.toml
+            # before the split); the base's registry files go to a directory the detector reads.
+            if grep -Eq '^tests/(test-execution\.toml|test-execution\.d/[^/]+\.toml)$' /tmp/cmux-ci-changed-files.txt; then
+              registry_base="$(mktemp -d "${RUNNER_TEMP:-/tmp}/cmux-test-registry-base.XXXXXX")"
+              registry_base_files=()
+              while IFS= read -r registry_file; do
+                registry_base_files+=("$registry_file")
+              done < <(git ls-tree --name-only "$BASE_SHA" -- tests/test-execution.toml tests/test-execution.d/ 2>/dev/null \
+                | grep -E '^tests/(test-execution\.toml|test-execution\.d/[^/]+\.toml)$' || true)
+              if [ "${#registry_base_files[@]}" -gt 0 ] \
+                && git --literal-pathspecs archive "$BASE_SHA" -- "${registry_base_files[@]}" | tar -x -C "$registry_base"; then
                 registry_base_args=(--test-registry-base "$registry_base")
               fi
             fi
