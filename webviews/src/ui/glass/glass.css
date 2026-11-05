@@ -233,6 +233,20 @@
   }
 }
 
+/* A HOVER CARD BLURS WHAT IT COVERS, IN EVERY CHROMIUM PAGE (Leo 2026-11-05, on the hover previews:
+   "this awkward wannabe glass but kind of just opaque thing"). Chromium draws a backdrop-filter's
+   blurred copy over the page's pixels, so the transcript's text read crisp through a hover card's
+   tint even in an opaque page. A hover card that covers the chat (chatUnderGlass.ts hoverCardGlass)
+   makes those blocks blur themselves inside its rounded rect, as the see-through rule above does.
+   Its own filters only: another surface's kept holes (the Summary's while Find hides it) stay off. */
+@media not (prefers-reduced-transparency: reduce) {
+  @supports not (-webkit-backdrop-filter: none) {
+    :root:not([data-glass-lens], [data-reduce-transparency]) [data-glass-under~="hover-card"] {
+      filter: var(--glass-under-filter-hover-card);
+    }
+  }
+}
+
 /* TOOLTIPS AND HOVER CARDS (Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips
    and hover previews"). Every tooltip (ui/Tooltip.tsx, the title tooltip of ui/titleTooltips.ts, a
    toolbar hint) and every hover card (ui/Tooltip.tsx AnchoredCard, a chart's tooltip) is this glass:

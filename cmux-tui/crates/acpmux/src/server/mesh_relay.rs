@@ -190,7 +190,10 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     let shown = config.shown();
     tracing::info!("mesh relay: on, through {shown}");
     let ledger = hub.store.handoff_dir().map(|dir| dir.join("mesh-controls.json"));
-    let control = Arc::new(MeshControlHook::new(config.control_from, ledger));
+    let control = Arc::new(
+        MeshControlHook::new(config.control_from, ledger)
+            .with_own_user(Arc::new(crate::cli::cloud_join::machine_user_id)),
+    );
     Some(MeshRelay::start(hub, client, control, RelayOptions::default()))
 }
 
@@ -414,9 +417,14 @@ pub fn relay_connection(hub: &Arc<Hub>) -> (mpsc::Sender<String>, mpsc::Receiver
 /// Runs an owner-allowlisted hub control message through the same authenticated peer-origin
 /// request path as a connected daemon. The relay hub only selected this daemon; it does not grant
 /// ownership, and the request handlers below still apply their normal peer-origin and owner checks.
+/// The person this machine recorded at `host join`, read at each control message so a
+/// `host join --status` repair counts without a restart. None grants nothing to `sameUser`.
+pub type OwnUser = Arc<dyn Fn() -> Option<String> + Send + Sync>;
+
 pub struct MeshControlHook {
-    /// Owner-configured grants. Only the hub-stamped daemon id can match an entry.
+    /// Owner-configured grants. Only the hub-stamped daemon id or user can match an entry.
     pub allowed: Vec<MeshControlFrom>,
+    own_user: OwnUser,
     ledger: ControlLedger,
     /// Lifecycle replay requires a store-backed handoff directory. Memory-only daemons fail
     /// closed rather than acknowledging a side effect that a restart could repeat.
@@ -432,11 +440,19 @@ impl MeshControlHook {
         let durable = path.is_some();
         Self {
             allowed,
+            own_user: Arc::new(|| None),
             ledger: ControlLedger::open(path),
             durable,
             tasks: StdMutex::new(Default::default()),
             slots: Arc::new(tokio::sync::Semaphore::new(RelayOptions::default().max_in_flight)),
         }
+    }
+
+    /// Where `sameUser` entries read this machine's own person.
+    #[must_use]
+    pub fn with_own_user(mut self, own_user: OwnUser) -> Self {
+        self.own_user = own_user;
+        self
     }
 }
 
@@ -449,13 +465,26 @@ impl ControlHook for MeshControlHook {
         Box::pin(async move {
             // Authorize every delivery before consulting a cached result. Revoking an owner
             // grant takes effect even for a message whose earlier result remains in the ledger.
-            let sender = message.from.daemon_id.as_deref().filter(|id| !id.is_empty());
             let op = message.op.as_deref().unwrap_or_default();
-            if !sender
-                .is_some_and(|sender| self.allowed.iter().any(|entry| entry.allows(sender, op)))
+            // Read the recorded person only when a `sameUser` entry could use it.
+            let own_user = self
+                .allowed
+                .iter()
+                .any(|entry| entry.same_user)
+                .then(|| (self.own_user)())
+                .flatten();
+            if !self
+                .allowed
+                .iter()
+                .any(|entry| entry.allows(&message.from, own_user.as_deref(), op))
             {
                 return Some(Ack::refused("mesh.control_not_allowed"));
             }
+            // The ledger keys a result by its sender: the stamped daemon, else the stamped person.
+            let sender = match message.from.daemon_id.as_deref().filter(|id| !id.is_empty()) {
+                Some(daemon) => daemon.to_owned(),
+                None => format!("user:{}", message.from.user.as_deref().unwrap_or_default()),
+            };
             if !crate::mesh::is_message_id(&message.message_id) {
                 return None;
             }
@@ -463,7 +492,7 @@ impl ControlHook for MeshControlHook {
                 return Some(Ack::refused("mesh.control_not_durable"));
             }
             let permit = self.slots.clone().try_acquire_owned().ok();
-            let claim = self.ledger.claim(sender.unwrap_or_default(), message, permit.is_some());
+            let claim = self.ledger.claim(&sender, message, permit.is_some());
             let receiver = match claim {
                 Claim::Done(ack) => return Some(ack),
                 Claim::Unknown => return None,

@@ -19,20 +19,41 @@ protocol BrowserPagePaneMotionHolding: NSView {
 /// docked, a side panel or a fit came up, the tab was hidden mid-hold) lays out live at the chrome's page area, as a page
 /// does in a split or close spring: never the shell, the chrome's own page area is beside it. A page hidden and shown again
 /// during the hold holds again (`resumePageHold`).
+///
+/// With `motion.frameOwner.pages` on (FRAME OWNER S5, cmux-ad m14; latched when the hold begins) nothing holds: the page
+/// follows its pane's page area in every frame, at that frame's size, hosted in the window's layers, with no main-thread wait
+/// for its frame (`beginPageSync(.keyResize)`, `CEFTabContentView+PageSync`) until the hold ends. A page that places itself
+/// (docked DevTools, a side panel, a fit) follows too, with geometry only per frame: its tab container sets each view's
+/// frame once, with the occlusion set first, so each page window gets one tracker update (STATUS 13849, m18).
 extension CEFTabContentView: BrowserPagePaneMotionHolding {
-    var holdsPageInPaneMotion: Bool { pageMotionHold != nil || canStartPageHold }
+    var holdsPageInPaneMotion: Bool {
+        pageMotionHold != nil || canStartPageHold || (Self.pagesOwnedByCommit && window != nil && tab != nil)
+    }
+
+    /// This key hold's page follows its pane (S5) instead of holding its size.
+    private var pageFollowsPane: Bool { pageSyncReasons.contains(.keyResize) }
 
     /// Shown again during its pane's key hold (a tab switch away and back): it holds its page again, at the size the page
     /// has now; one that cannot lays out live, as it would at the hold's start.
     func resumePageHold() {
-        guard pageMotionHold != nil, heldPageSize == nil else { return }
+        guard pageMotionHold != nil, heldPageSize == nil, !pageFollowsPane else { return }
         if startPageHold() { needsLayout = true } else { pageMotionHold = nil }
     }
 
     func holdPage(for hold: PaneMotionHold?) {
         guard let hold else {
+            endPageSync(.keyResize)
             guard pageMotionHold != nil else { return }
             dropHold()
+            return
+        }
+        if pageMotionHold == nil, Self.pagesOwnedByCommit {
+            // S5: no hold. The page lays out at the page area in every frame (no main-thread wait for its frame).
+            beginPageSync(.keyResize)
+        }
+        if pageFollowsPane {
+            pageMotionHold = hold
+            needsLayout = true
             return
         }
         // A drag's own hold, or a page that cannot hold (DevTools docked, a side panel, a fit), lays out as before.

@@ -61,7 +61,10 @@ stop_watch() {
 case "$verb" in
   build)
     swift build -c release --package-path "$package" --product cmux-vnc-host
-    cp "$(swift build -c release --package-path "$package" --show-bin-path)/cmux-vnc-host" "$EVAL_BIN/cmux-vnc-host"
+    # Run in place: it loads WebRTC.framework from beside it (@rpath), which a copy of it would not find.
+    printf '#!/bin/sh\nexec "%s/cmux-vnc-host" "$@"\n' "$(swift build -c release --package-path "$package" --show-bin-path)" \
+      >"$EVAL_BIN/cmux-vnc-host"
+    chmod +x "$EVAL_BIN/cmux-vnc-host"
     swift build --package-path "$package" --build-tests
     ;;
   host-start) host_start ;;
@@ -135,13 +138,17 @@ EOF
     watch_encode
     log="$EVAL_STATE/window.log"
     : >"$log"
-    CMUX_EVAL_WINDOW_S=$seconds CMUX_EVAL_SNAPSHOT=$snapshot viewer StreamWindowTests "$log" &
+    # The viewer creates GO itself at its first frame: swift test holds its output back until the
+    # test ends, so a printed line would start the scene late (2026-11-05: GO 60 s late, after the
+    # wait below ran out, put typing and scrolling past the window's end).
+    CMUX_EVAL_WINDOW_S=$seconds CMUX_EVAL_SNAPSHOT=$snapshot CMUX_EVAL_GO=$go viewer StreamWindowTests "$log" &
     pid=$!
     for _ in $(seq 1 600); do
-      grep -q 'streamwindow: first frame' "$log" && break
+      [[ -e "$go" ]] && break
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.1 # bounded wait for the first frame (60 s: the test viewer starts, then connects)
     done
+    [[ -e "$go" ]] || echo "webrtc: no first frame within 60 s; the scene starts anyway" >&2
     touch "$go"
     wait "$pid" || true
     stop_watch

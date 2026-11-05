@@ -12,10 +12,11 @@ extension WorkspaceModel {
     public static let homeDockPage = "home-dock"
 
     /// A window's own Home: not the store's home workspace, and a pane's first tab is Home's page
-    /// (the pinned dock keeps its page first; before the dock it is its pane's only tab). Reads one
-    /// tab per pane, so an observer of it does not follow every tab of the workspace.
+    /// (the pinned dock keeps its page first; before the dock it is its pane's only tab). Reads each
+    /// pane's first tab only (`PaneModel.firstTab`, not its tab list), so an observer of it does not wake
+    /// for a tab added in any pane: every chat tab's strip item reads it (TERMINAL CREATE COST).
     public var isWindowHome: Bool {
-        kind != "home" && screens.contains { $0.panes.contains { $0.tabs.first?.page == Self.homeDockPage } }
+        kind != "home" && screens.contains { $0.panes.contains { $0.firstTab?.page == Self.homeDockPage } }
     }
 
     /// The store's home workspace or a window's own Home.

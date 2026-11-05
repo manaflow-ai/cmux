@@ -21,7 +21,7 @@ use cmux_link::token::{Expected, TokenRefusal, TokenRefused, TokenVerifier};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt as _};
 
 use super::inbound::{InboundRefused, Spliced, hand_to_entry_traced};
-use super::lines::read_line;
+use super::lines::read_line_within;
 
 /// This host as its link knows it.
 pub(super) struct HostIdentity<'a> {
@@ -35,9 +35,19 @@ pub(super) struct HostIdentity<'a> {
 }
 
 /// The `desktop` service's socket on a Cloud VM: `cmux-agent-rd.socket`
-/// listens here (`SocketUser=root`, `SocketMode=0600`, in a 0700 root
-/// directory), so only this root receiver can connect, never the agent.
+/// listens here (group `cmux`, 0660: this receiver runs as the work user).
+/// Who may reach it is the link's admission (an owner-only token and a
+/// creator-only policy service), not the socket mode: the agent already
+/// runs as that user on the same display.
 pub(super) const DESKTOP_SOCKET: &str = "/run/cmux-rd/desktop.sock";
+
+/// How long a dialer has to send its service hello once the stream is open.
+/// A Cloud Mac opens the stream first and only then mints the hello's link
+/// token, with up to `dial::DIAL_TIMEOUT` (5 s) for that mint, so this must
+/// be well past it: at 5 s a slow mint on a busy control plane lost the race
+/// and the stream ended "(no hello)" while the Mac was still writing it. The
+/// pre-authentication lease still ends a waiting stream when authority does.
+pub(super) const HELLO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Why a host refused a stream (beyond [`InboundRefused`]).
 #[derive(Debug, PartialEq, Eq)]
@@ -169,7 +179,7 @@ where
         HostRefused::Token
     })?;
     let read_hello = async {
-        let line = read_line(&mut *stream, MAX_HELLO_BYTES)
+        let line = read_line_within(&mut *stream, MAX_HELLO_BYTES, HELLO_TIMEOUT)
             .await
             .map_err(|_| HostRefused::Inbound(InboundRefused::BadHello))?;
         ServiceHello::parse(&line).ok_or(HostRefused::Inbound(InboundRefused::BadHello))

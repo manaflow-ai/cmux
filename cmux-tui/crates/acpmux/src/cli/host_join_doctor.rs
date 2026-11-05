@@ -243,6 +243,21 @@ fn service_step(facts: &Facts) -> JoinStep {
         )
         .with_fix("loginctl enable-linger $USER"),
         Service::Active { .. } => JoinStep::new("service", StepState::Ok, format!("{what} runs")),
+        // The daemon answers, only not under the service: this join works now and stops at the
+        // next reboot, which is a warning (a headless user with no systemd user session, or a
+        // daemon someone started by hand), never a failed join.
+        Service::Inactive { installed: true } if facts.daemon_running => JoinStep::new(
+            "service",
+            StepState::Warn,
+            format!("{what} is installed but not running; the daemon runs without it"),
+        )
+        .with_fix(start),
+        Service::Inactive { installed: false } if facts.daemon_running => JoinStep::new(
+            "service",
+            StepState::Warn,
+            format!("{what} is not installed; the daemon runs without it"),
+        )
+        .with_fix(rejoin(facts)),
         Service::Inactive { installed: true } => {
             JoinStep::fail("service", format!("{what} is installed but not running"), start)
         }
@@ -578,15 +593,28 @@ fn systemd_service(home: &Path) -> Service {
     let Some((_, state)) = output(Path::new("systemctl"), &["--user", "is-active", SERVICE]) else {
         return Service::NoManager;
     };
-    if state.trim() == "active" {
+    let installed = home.join(".config/systemd/user").join(SERVICE).is_file();
+    let service = systemd_state(&state, installed);
+    if service == (Service::Active { linger: None }) {
         let user = std::env::var("USER").unwrap_or_default();
         let linger =
             output(Path::new("loginctl"), &["show-user", &user, "--property=Linger", "--value"])
                 .map(|(_, v)| v.trim() == "yes");
         return Service::Active { linger };
     }
-    let installed = home.join(".config/systemd/user").join(SERVICE).is_file();
-    Service::Inactive { installed }
+    service
+}
+
+/// `systemctl --user is-active`'s stdout read as a service state. A user manager that answers
+/// prints a state word (`active`, `inactive`, `failed`, ...); with no systemd user session (a
+/// headless user without linger, a container) it prints nothing and fails on stderr ("Failed
+/// to connect to bus"): no manager here, not a stopped service.
+pub fn systemd_state(stdout: &str, installed: bool) -> Service {
+    match stdout.trim() {
+        "active" => Service::Active { linger: None },
+        "" => Service::NoManager,
+        _ => Service::Inactive { installed },
+    }
 }
 
 #[cfg(unix)]

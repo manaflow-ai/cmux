@@ -14,10 +14,21 @@ the app watches (CMUX_LIVE_CODE_DIR). The app repoints its functions to the patc
 commit with a pull request applied); FILE is then a path relative to the checkout's root, and the
 build's generated sources (outside the checkout) stay as built.
 
+Hot optimize: the live code build you edited, optimized while it runs, with no rebuild or relaunch.
+
+  scripts/live-code/patch.py --log LOG --live DIR --optimize --all
+
+--optimize compiles at -O instead of the build's -Onone; --all takes every file of the module, the
+edits on disk included. A file that defines stored global or static state is left out: a patch
+would bring its own copy of that state, empty, and the app's would be lost. That file's functions
+keep the code they run now (the build's, or an earlier patch's).
+
 Prints `patch.py: DIR/patch-....dylib compile_s=... link_s=...`.
 """
 import argparse
+import concurrent.futures
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -96,7 +107,51 @@ def from_tree(files, tree, root):
     return moved
 
 
-def patch_argv(frontend, files, edited, work):
+# A Swift variable's storage (`...vp`, a static's `...vpZ`): a defined data symbol of that name means
+# the object holds state of its own.
+STORAGE = re.compile(r"^_\$s\S*vpZ?$")
+
+
+def holds_state(obj):
+    """Whether the object defines storage for a global or static variable."""
+    listing = subprocess.run(["nm", "-U", obj], capture_output=True, text=True, check=True).stdout
+    for line in listing.splitlines():
+        fields = line.split()
+        if len(fields) == 3 and fields[1] not in ("T", "t") and STORAGE.match(fields[2]):
+            return True
+    return False
+
+
+def compile_all(argv, work, jobs):
+    """Runs the patch command once per chunk of its primaries, `jobs` at a time (one frontend compiles
+    its primaries one after another). Returns the failed runs' stderr."""
+    primaries = read_filelist(argv[argv.index("-primary-filelist") + 1])
+    outputs = [argv[i + 1] for i, a in enumerate(argv) if a == "-o"]
+    base, skip = [], False
+    for arg in argv:
+        if skip:
+            skip = False
+            continue
+        if arg in ("-o", "-primary-filelist"):
+            skip = True
+            continue
+        base.append(arg)
+    size = max(1, -(-len(primaries) // jobs))
+    runs = []
+    for start in range(0, len(primaries), size):
+        listing = os.path.join(work, f"primaries-{start}")
+        with open(listing, "w") as f:
+            f.write("\n".join(primaries[start:start + size]) + "\n")
+        chunk = base + ["-primary-filelist", listing]
+        for out in outputs[start:start + size]:
+            chunk += ["-o", out]
+        runs.append(chunk)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+        done = pool.map(lambda chunk: subprocess.run(chunk, capture_output=True, text=True), runs)
+        return [run.stderr for run in done if run.returncode != 0]
+
+
+def patch_argv(frontend, files, edited, work, optimize=False):
     """The build's command, rewritten to compile `edited` (inside `files`) into one object each."""
     argv, skip = [], False
     for arg in frontend:
@@ -108,14 +163,15 @@ def patch_argv(frontend, files, edited, work):
             continue
         if arg in DROP or arg.endswith(".swift"):
             continue
-        argv.append(arg)
+        argv.append("-O" if optimize and arg == "-Onone" else arg)
     listing = os.path.join(work, "sources")
     primaries = os.path.join(work, "primaries")
     with open(listing, "w") as f:
         f.write("\n".join(files) + "\n")
     with open(primaries, "w") as f:
         f.write("\n".join(edited) + "\n")
-    objects = [os.path.join(work, os.path.basename(path)[:-len(".swift")] + ".o") for path in edited]
+    # Numbered: two files of a module may share a name in different folders.
+    objects = [os.path.join(work, f"{index}-{os.path.basename(path)[:-len('.swift')]}.o") for index, path in enumerate(edited)]
     argv += ["-filelist", listing, "-primary-filelist", primaries]
     for obj in objects:
         argv += ["-o", obj]
@@ -128,8 +184,13 @@ def main():
     parser.add_argument("--module", default="CmuxNextApp")
     parser.add_argument("--live", required=True, help="the live folder the app watches")
     parser.add_argument("--tree", help="read the module's sources from this tree; FILE is relative to its root")
-    parser.add_argument("files", nargs="+")
+    parser.add_argument("--optimize", action="store_true", help="compile at -O instead of the build's -Onone")
+    parser.add_argument("--all", action="store_true", help="every file of the module, not only FILE")
+    parser.add_argument("--jobs", type=int, default=os.cpu_count() or 4, help="compiles at once")
+    parser.add_argument("files", nargs="*")
     opts = parser.parse_args()
+    if not opts.files and not opts.all:
+        parser.error("name the edited FILEs, or --all")
     started = time.time()
     frontend, filelist = module_commands(opts.log, opts.module)
     if not frontend:
@@ -147,20 +208,30 @@ def main():
     else:
         edited = [os.path.realpath(path) for path in opts.files]
     real = {path if opts.tree else os.path.realpath(path): path for path in files}
+    if opts.all:
+        edited = list(real)
     missing = [path for path in edited if path not in real]
     if missing:
         sys.exit(f"patch.py: not in {opts.module}'s build: {', '.join(missing)} (a new file needs a rebuild for now)")
     if "-Onone" not in frontend or "-enable-testing" not in frontend:
         print(f"patch.py: warning: {opts.module} was not built -Onone and testable; a patch may not show", file=sys.stderr)
     work = tempfile.mkdtemp(prefix="cmux-live-code-patch.")
-    argv, objects = patch_argv(frontend, files, [real[path] for path in edited], work)
+    argv, objects = patch_argv(frontend, files, [real[path] for path in edited], work, optimize=opts.optimize)
     with open(os.path.join(work, "command"), "w") as f:
         f.write(shlex.join(argv) + "\n")
-    compile_run = subprocess.run(argv, capture_output=True, text=True)
-    if compile_run.returncode != 0:
-        sys.stderr.write(compile_run.stderr[-6000:])
+    failed = compile_all(argv, work, max(1, opts.jobs))
+    if failed:
+        sys.stderr.write(failed[0][-6000:])
         sys.exit(f"patch.py: the compile failed (command in {work}/command)")
     compiled = time.time()
+    kept = 0
+    if opts.all:
+        # The whole module: leave out each file with state of its own (the docstring says why).
+        stateless = [obj for obj in objects if not holds_state(obj)]
+        kept = len(objects) - len(stateless)
+        objects = stateless
+        if not objects:
+            sys.exit(f"patch.py: every file of {opts.module} holds state; nothing to patch")
     target = argv[argv.index("-target") + 1]
     sdk = argv[argv.index("-sdk") + 1] if "-sdk" in argv else None
     name = f"patch-{int(time.time())}-{os.getpid()}.dylib"
@@ -183,7 +254,7 @@ def main():
     shutil.move(dylib, hidden)
     os.replace(hidden, os.path.join(opts.live, name))
     print(f"patch.py: {os.path.join(opts.live, name)} compile_s={compiled - started:.2f} link_s={linked - compiled:.2f} "
-          f"started={started:.3f}")
+          f"started={started:.3f} files={len(objects)} kept_for_state={kept} optimized={int(opts.optimize)}")
 
 
 if __name__ == "__main__":
