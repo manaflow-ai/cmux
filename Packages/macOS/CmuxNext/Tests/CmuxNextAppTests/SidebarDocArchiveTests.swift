@@ -1,4 +1,5 @@
 import Foundation
+@testable import CmuxNextApp
 @testable import CmuxNextSidebar
 import Testing
 
@@ -111,5 +112,24 @@ import Testing
         renamed.title = "renamed"
         #expect(model.patchWorkspaces([renamed]))
         #expect(Self.looks(model.sections)["ws-1"] == true)
+    }
+
+    @Test func anArchiveOnlyChangeShowsTheSameRowsAgain() {
+        // Archive Workspaces Below archives the last rows: the live rows stay as they were (same order, same rows),
+        // so a pass that lists them again must still arrange them, or the rows never draw archived (or fold).
+        let store = SidebarDocStore(remote: nil, mirror: nil)
+        store.shown = Self.projection(archived: [])
+        let model = SidebarModel(sections: [])
+        model.docDrag = SidebarDocDrag(document: store, item: { Self.drag.item($0) }, section: { id in id == .machine(.local) ? Self.machine : nil },
+                                       begin: { _ in [:] }, drop: { _, _ in })
+        let rows = SidebarRows(model: model, document: { store })
+        rows.show(Self.raw(), creating: ([], nil), unlessShown: true, elsewhere: [])
+        #expect(Self.looks(model.sections)["ws-1"] == false)
+        model.setSections([]) // a marker: a skipped pass leaves it
+        rows.show(Self.raw(), creating: ([], nil), unlessShown: true, elsewhere: [])
+        #expect(model.sections.isEmpty, "the same rows and archived items showed again")
+        store.shown = Self.projection(archived: ["itm_1"])
+        rows.show(Self.raw(), creating: ([], nil), unlessShown: true, elsewhere: [])
+        #expect(Self.looks(model.sections)["ws-1"] == true, "an archive alone did not show the rows again: \(Self.looks(model.sections))")
     }
 }
