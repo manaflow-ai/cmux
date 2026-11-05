@@ -175,6 +175,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_symlink_into_a_checkout_is_judged_by_where_it_leads() {
         let f = fixture();
