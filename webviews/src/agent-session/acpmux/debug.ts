@@ -187,6 +187,7 @@ export function createAcpmuxDebug(
       const {
         syntheticRows,
         workedTurnRows,
+        workedTurnPageRows,
         incomingRows,
         linkRows,
         LINKED_GITHUB_PULL_REQUEST,
@@ -217,6 +218,8 @@ export function createAcpmuxDebug(
           ? subagentTrayRows(trayStep(count), trayOrigin(count), agents ?? 2)
           : fixture === "worked-turn" || fixture === "goal"
             ? workedTurnRows(Date.now() - 60_000)
+            : fixture === "worked-turn-page"
+              ? workedTurnPageRows(Date.now() - 60_000)
             : fixture === "incoming"
               ? incomingRows(Date.now() - 120_000)
               : fixture === "link" || fixture === "github-link"

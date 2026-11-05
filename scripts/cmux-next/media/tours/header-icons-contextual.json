@@ -1,0 +1,21 @@
+{
+ "title": "Chat header icons, contextual direction: the top-right row in each style (Debug agentChat.headerIcons.contextual), on a new chat and after a turn that edits files and names a local page",
+ "steps": [
+  {"title": "Launch", "wait": 2, "shot": false},
+  {"title": "An agent chat in /tmp", "cmux": ["agent", "new-chat", "--cwd", "/tmp"], "wait": 5, "shot": false,
+   "optional": "agent backend unavailable on this runner"},
+  {"title": "Standard (today), new chat: panel toggle, Needs You, Terminal, Browser, menu", "wait": 1},
+  {"title": "Style: Contextual", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "agentChat.headerIcons.contextual", "value": "contextual"}},
+   "wait": 1.5, "shot": false, "optional": "debug.tunables is DEBUG only"},
+  {"title": "Contextual, new chat: panel toggle and menu only", "wait": 1},
+  {"title": "A turn that edits three files and names http://localhost:5173/", "rpc": {"method": "debug.agent_pane", "params": {"action": "seed_rows", "fixture": "worked-turn-page"}},
+   "wait": 2, "shot": false},
+  {"title": "Contextual after the turn: Changes and the globe appear", "wait": 1.5},
+  {"title": "Style: Standard", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "agentChat.headerIcons.contextual", "value": "standard"}},
+   "wait": 1.5, "shot": false, "optional": "debug.tunables is DEBUG only"},
+  {"title": "Standard (today) after the same turn", "wait": 1},
+  {"title": "Style: Contextual, the rest on hover", "rpc": {"method": "debug.tunables", "params": {"action": "set", "key": "agentChat.headerIcons.contextual", "value": "contextualPeek"}},
+   "wait": 1.5, "shot": false, "optional": "debug.tunables is DEBUG only"},
+  {"title": "Contextual, the rest on hover, at rest: Terminal and Needs You hold their room, unseen", "wait": 1}
+ ]
+}
