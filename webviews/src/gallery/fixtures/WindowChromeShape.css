@@ -25,7 +25,7 @@
   padding: calc(var(--chrome-unit) * 3);
   color: var(--chrome-ink);
   background: var(--chrome-surface);
-  font: 500 var(--chrome-font-size)/1.25 ui-sans-serif, system-ui, sans-serif;
+  font: 500 var(--chrome-font-size)/1.25 var(--font-ui);
   background-image: linear-gradient(color-mix(in srgb, var(--chrome-surface) 82%, transparent), color-mix(in srgb, var(--chrome-surface) 92%, transparent)), var(--cmux-app-background-image, url("./assets/liquid-glass-wallpaper.jpg"));
   background-size: cover;
   background-position: center;

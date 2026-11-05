@@ -8,7 +8,7 @@ import {
   type SidebarAppearance,
   type SidebarDensity,
   type SidebarVariant,
-} from "./sidebarShapes";
+} from "./sidebarShapeModel";
 import "./sidebarShapes.css";
 
 export function SidebarShapes({
