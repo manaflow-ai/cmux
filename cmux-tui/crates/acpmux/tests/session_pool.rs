@@ -1345,14 +1345,16 @@ async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() {
         .await;
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
     assert!(gone_within(host, Duration::from_secs(15)), "the dead pooled host still runs");
-    // A host killed outright ends nothing under it, and the daemon cannot prove which orphan
-    // was its harness's (#35215 made exit the only end of a live start, so the wedged-host
-    // path that ended the tree under a live host no longer runs here). The test ends what it
-    // left; the orphaned helper is tracked as its own bug.
+    // A host killed outright ends nothing under it, and its harness exits on the closed pipe, so
+    // its setsid helper is left with no parent link: the daemon finds it by the host's mark in
+    // its environment (cx-jlxm2l) and ends it with the host.
+    let ended = gone_within(helper, Duration::from_secs(10));
     end_group(harness);
-    // SAFETY: the exact helper pid the fake harness reported, still the helper while its
-    // file names it for this harness.
-    unsafe { libc::kill(helper as i32, libc::SIGKILL) };
+    if !ended {
+        // SAFETY: the exact helper pid the fake harness reported.
+        unsafe { libc::kill(helper as i32, libc::SIGKILL) };
+    }
+    assert!(ended, "a process under the dead pooled host runs on without an owner");
 }
 
 /// A pooled host whose link stopped reading (an acknowledgement failed while its socket still

@@ -41,6 +41,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod scroll;
+pub mod shown_resize;
 pub mod sidebar_face;
 pub mod sidebar_mirror;
 pub mod tab_drag;

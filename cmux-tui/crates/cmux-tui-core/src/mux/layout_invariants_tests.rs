@@ -939,3 +939,29 @@ fn a_close_after_a_replayed_move_restates_the_pane_whose_active_tab_changed() {
         check_step(&mux, &before, &outcome, rejections);
     }
 }
+
+/// A second case `layout_ops_conserve_tabs` shrank to on feat (c6be943058a, BASE RED SUITE
+/// 2026-11-04): after moves into new workspaces and back, two tab closes left a pane whose
+/// focus changed out of the scoped projection ("the scoped projection omits a changed pane":
+/// the journal states focused true, the full projection false). Debug builds run the
+/// scoped-vs-full cross-check on every step, so this replays the shrunk sequence as is.
+#[test]
+fn closes_after_moves_across_workspaces_restate_the_pane_whose_focus_changed() {
+    let mux = test_mux("layout-invariants-shrunk-focus");
+    build(&mux, &[vec![3], vec![3], vec![1, 1, 1, 1]]);
+    let mut groups = 0;
+    for op in [
+        Op::NewWorkspace { tab: 36 },
+        Op::MoveTab { tab: 0, pane: 0, index: 0, undoable: false },
+        Op::MoveTab { tab: 0, pane: 12, index: 0, undoable: false },
+        Op::NewWorkspace { tab: 0 },
+        Op::MoveTab { tab: 0, pane: 0, index: 0, undoable: false },
+        Op::Close { tab: 0 },
+        Op::Close { tab: 1 },
+    ] {
+        let mut before = mux.with_state(Clone::clone);
+        let mut rejections = rejections_on_this_thread();
+        let outcome = run(&mux, &op, &mut groups, &mut before, &mut rejections);
+        check_step(&mux, &before, &outcome, rejections);
+    }
+}

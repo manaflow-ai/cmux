@@ -21,11 +21,25 @@ enum AgentSessionTab {
         registry.bind("agent.openSessionTab", run: { try open($0, context: context) })
     }
 
+    /// acpmux's id of the chat `session` names on this Mac (``AgentLocalSession``), so a tab never
+    /// records a chat's name or its harness's session id, which the chat pane cannot find
+    /// ("Reconnecting…" forever, Leo 2026-11-05). Only for this Mac's own chats (`host` absent or
+    /// this Mac's) and only once the lane watch has every session; otherwise `session` as given.
+    static func localSession(_ session: String, host: String?, services: AppServices) throws -> String {
+        guard host == nil || host == services.agentTabs.localHost, AgentLaneStore.shared.live else { return session }
+        switch AgentLaneStore.shared.lanes.values.localSession(session) {
+        case .session(let id): return id
+        case .asGiven: return session
+        case .ambiguous: throw ActionFailure(message: MiscHandlerStrings.ambiguousLocalSession(session))
+        }
+    }
+
     private static func open(_ invocation: ActionInvocation, context: AppActionContext) throws {
         var session = (invocation["session"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !session.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.sessionRequired) }
         var host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let services = context.services
+        session = try localSession(session, host: host, services: services)
         // A peer's chat opens as the session this Mac's acpmux mirrors (the tab binds here, never there).
         if let peer = host, !peer.hasPrefix(ChiefHomeAcpmux.hostPrefix), peer != services.agentTabs.localHost {
             switch AgentLaneStore.shared.lanes.values.peerSession(session, on: peer) {
@@ -51,9 +65,7 @@ enum AgentSessionTab {
             throw ActionFailure(message: refusal.message)
         }
         let logger = daemon.logger
-        let workspace = services.machines.allWorkspaces.first { candidate, _ in
-            candidate.screens.contains { $0.panes.contains { $0 === pane } }
-        }?.0
+        let workspace = daemon.store.location(of: pane)?.workspace
         // The run answers the new tab's ids (`cmux agents chat new`, #23026), as New Agent Chat's
         // script runs do, so the caller can find the chat it put there.
         context.registry.track(result: Task { @MainActor in

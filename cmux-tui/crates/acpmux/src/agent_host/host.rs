@@ -90,6 +90,8 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     cmd.args(&spec.args)
         .env_clear()
         .envs(spec.env.iter().map(|(k, v)| (k, v)))
+        // What this host started is found by it after the host is killed (`end_left_behind`).
+        .env(super::HOST_MARK, &nonce)
         .current_dir(&spec.cwd)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

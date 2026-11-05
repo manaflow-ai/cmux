@@ -1,6 +1,7 @@
 public import Foundation
 import CmuxNextWakeups
 import CmuxNextCompat
+import os
 
 /// The in-app `cmux.rd/1` transport over the stream carrier: one ordered
 /// byte path (`RemoteRdByteCarrier`: loopback TCP, or a daemon
@@ -36,6 +37,8 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         var statuses: AsyncStream<RemoteViewStatus>.Continuation?
         var cursors: AsyncStream<RemoteCursorState>.Continuation?
         var services: AsyncStream<RemoteRdJSON>.Continuation?
+        /// Host stats reports seen (one in five is logged).
+        var statsReports = 0
         /// rb/1 popup surface streams and their buffered units.
         var surfaces = RemoteRdSurfaceStreams()
         var status = RemoteViewStatus(state: .connecting)
@@ -275,6 +278,20 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
         armTimer(now: now)
     }
 
+    /// The host's counters, every fifth report (5 s): what a slow session spends its time on.
+    private func logHostStats(_ stats: RemoteRdHostStats) {
+        let report = state.withLock { state -> Bool in
+            state.statsReports += 1
+            return state.statsReports % 5 == 1
+        }
+        guard report else { return }
+        Self.logger.info(
+            "host: \(stats.kbps, privacy: .public) kbps, encode p50 \(stats.encodeMsP50, format: .fixed(precision: 1), privacy: .public) ms, cpu \(stats.cpuPercent, format: .fixed(precision: 0), privacy: .public)%, loss \(stats.lossPercent, format: .fixed(precision: 1), privacy: .public)%, frames \(stats.frames, privacy: .public), keyframes \(stats.keyframes, privacy: .public)"
+        )
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-view-rd")
+
     /// Hands out queued control messages and datagrams.
     private func drainMessages(now: UInt64) {
         while let message = try? engine.core.popMessage() {
@@ -285,6 +302,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                     applySurfaceStreams(body)
                     _ = state.withLock { $0.services?.yield(body) }
                 }
+                if case let .stats(stats) = control { logHostStats(stats) }
                 engine.handshake.receive(control)
                 handleUpstream(control)
             case let .datagram(datagram):
