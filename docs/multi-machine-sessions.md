@@ -24,6 +24,13 @@ Leo, 2026-11-05:
 > Since we have our own rolled wireguard situation and some amount of prior
 > art… we can prob get things very fast and reliable
 
+> you can look at some of the lenses in HQ to review and think about how we
+> want to do this well. I suppose the screen sharing code, it's somewhat
+> related
+
+The HQ lens review (Tailscale, WireGuard, Signal, capabilities, Mosh, Varda,
+latency, HIG, Nielsen, local-first) shaped the parts marked "(lens review)".
+
 ## The experience
 
 The bar is ChatGPT desktop and iOS: sign in, and your devices are there.
@@ -50,6 +57,15 @@ The bar is ChatGPT desktop and iOS: sign in, and your devices are there.
    shown as one line with a button that opens the right Settings pane there.
 6. **Everything is in Activity, on both ends.** Each machine lists what other
    devices did on it and what it did on them; **Remove** on either end ends it.
+7. **You always know when you are being controlled, and Stop always wins**
+   (lens review). While any peer holds a live `control` or `screen` session,
+   the target shows "Studio is controlling this Mac" with **Stop**, in the menu
+   bar and the window. Stop and Remove travel on the link's control lane, and
+   nothing (no frame, no keystroke) follows them.
+8. **One page per device.** Settings > Devices shows each phone and machine
+   once, with everything it may do here. Today that is four switches: Allow
+   iPhone Connections, Mac Screen device access, Join consent and Computer
+   Use machine consent.
 
 ## One link for every device
 
@@ -73,12 +89,22 @@ cmux has:
   control request), so it never opens a second socket under its device id and
   every dial reuses warm signaling and cached ICE.
 
+**Machines already paired keep working when the hub is down** (lens review).
+Each side caches the peer's identity key and last endpoints (LAN address,
+STUN-reflexive address, Tailscale address when it has one). A dial tries
+those directly first, in parallel with hub signaling; the WireGuard handshake
+and `auth` against the pinned key are the proof, so a direct dial needs no
+hub. A hub outage stops only first contacts.
+
 What this replaces as the way between the person's machines: SSH as the
 default route, the `cmux link` overlay's "direct paths only, no relay" slice,
 and iroh. SSH stays as a first-contact route and a fallback; see
 [What changes](#what-changes-in-existing-code).
 
-Speed targets, measured by `cmux-mobile-dial` and the demo below: link up
+Speed targets, measured by `cmux-mobile-dial` and the demo below, as p50,
+p95 and p99 (lens review), with keypress to echo over the link, screen glass
+to glass at 30 ms p50 and 50 ms p99 (the remote desktop plan's budget), and
+sign-in to "shows in My Machines" under 2 s: link up
 under 300 ms warm on the same LAN, under 1 s across networks; ping p50 under
 5 ms on a LAN; bulk at the path's line rate (the WireGuard path is a smoltcp
 TCP stream with 256 KiB buffers; raise the window for bulk channels if the
@@ -90,7 +116,12 @@ demo shows it bound).
   that has one (as the phone's), a 0600 file key elsewhere. The device id,
   name, machine id, Tailscale name and SSH alias are labels and hints; none
   authorizes anything.
-- **My Machines** is one list: the hub's `GET /v1/me/devices` (every Mac and
+- **The hub is never the authority** (lens review). The hub stamps who sent
+  a signal; that only routes. Admission is the target's own `DeviceTrust`
+  record, checked at every channel open. First contact shows the caller's
+  key fingerprint on the card (here and on the phone, whose signed approval
+  covers the same key), so a hub that swapped keys is visible.
+- **My Machines** is one list (drawn from a local cache first, no spinner): the hub's `GET /v1/me/devices` (every Mac and
   phone of the account, with live presence) merged with what `cmux device
   list` already merges locally (acpmux peers, SSH config hosts, Cloud
   machines). One row per machine id; a machine reachable several ways shows
@@ -113,10 +144,21 @@ Each machine keeps, for every peer, a local record (`DeviceTrust`, extended):
 | `control` | Type into terminals, answer agents, open and close tabs and workspaces (today's phone lanes) | on (today) | Ask |
 | `run` | Start agents and workspaces in listed folders (typed request; no command strings) | off | Ask |
 | `install` | Install a cmux build it sends, signed by the cmux release key or by a build key enrolled here | never | Ask |
-| `move` | Move a workspace in or out, with its chats, terminals' state and folder | off | Ask |
+| `move` | Move a workspace in or out, with its chats, terminals' state and folder (a move in is also a write to its folder, so the card names both) | off | Ask |
+| `screen` | See this Mac's screen (View) or also drive its mouse and keyboard (Control) | Ask | Ask |
 
 Ask means each request shows the approval card (here and on the phone);
-**Always** on the card turns the grant on for that peer. Grants are set only
+**Always** on the card allows the same request again (this folder, this
+agent, this build key), not the whole grant (lens review). The card never
+takes focus and has no default button.
+
+**The person or an agent** (lens review: the confused deputy). `cmux machine
+NAME run|send|move` can be called by an agent on the caller. Every request
+carries its origin as the caller's app knows it: `person` (a click, a palette
+row, a command typed in a terminal the person is at) or `agent` (an agent's
+tool call or socket request). The target never trusts the claim upward: an
+`agent` request never uses `install` or `screen` Control, and `run` and
+`move` from an agent always ask, whatever "Always" says. Grants are set only
 on the machine they protect, never by the peer, the hub or the registry. A
 phone gets no `install` at all: a phone has no build to send, and installing
 from a phone is not a lane a paired phone may have
@@ -183,11 +225,25 @@ with the link in place of the Cloud socket:
 - the source keeps a "Moved to MacBook" ledger row (as `CloudMovedChats`)
   so **Continue on Studio** brings it back.
 
+### Take over (`screen`)
+
+The phone and Mac already share one screen engine for simulators and Cloud
+desktops: hostd's `surface` service (`cmux.rd/1` on a link channel, video on
+the media lane as H.264 RTP over the WireGuard UDP carrier, with frame
+skipping and NACK). **Take over** adds a display source to it, fed by the
+cmux Remote screen-sharing worker, which stays the only process holding
+Screen Recording and Accessibility. Video rides the media lane and input the
+input lane. Share This Mac's WebRTC `ScreenStream` and the device hub's
+tickets move onto this; the remote desktop plan's separate Noise_XX
+transport is not built.
+
 ## Audit and revoke
 
 One format on every machine: `~/Library/Application Support/cmux/machine-activity.jsonl`
 (Linux: `~/.local/state/cmux/`), 0600, append only, one line per request:
-time, peer device id and name, direction (in or out), service, target
+time, peer device id and name, origin (person or agent), direction (in or
+out), service, event (the device hub's names: `requested`, `approved`,
+`denied`, `started`, `ended` with its reason), target
 (build bundle id and sha256, workspace id, folder), decision (allowed,
 asked/approved, asked/denied, refused and why), and duration. Never prompt
 text, file contents or tokens. It extends the formats of acpmux
@@ -215,6 +271,7 @@ service until `auth` passes, exactly as phones are.
 | `install` | Unpacks and, with `--open`, launches an app: allowed only for a signature the receiver verifies itself (release key, or a build key the person enrolled here by card), into a tagged path that never replaces an existing app. Nothing of the sender's choosing runs before verification. | Writes only `~/Applications/cmux DEV <tag>.app` (refuses a tag whose app it did not install) and its staging folder. | No. |
 | `run` | Starts an agent: the launcher is the receiver's own, the agent an enum, the cwd in the grant's folder list; the request has no command-bearing field. | Creates a new workspace owned by this request; names no existing object. | Answers only the receipt. |
 | `move` (in) | Starts terminals in the moved workspace's folders with the receiver's own shell; recreates chats through acpmux's transfer, which carries history, not commands. | Creates new objects; a move out takes only a workspace the person picked on the source. | The source sends only that workspace. |
+| `screen` | Shows the screen (View) or injects input (Control) through the screen-sharing worker; Control never from an `agent` origin; the indicator and Stop always show. | No. | The screen, by design: that is the grant. |
 | `control` (today's phone lanes) | Unchanged: `policy.rs` allowlists, command params denied. | Unchanged ID scoping (`owned_check`). | Unchanged. |
 
 Command-bearing params (`command`, `initial_command`, `tmux_start_command`,
@@ -224,7 +281,10 @@ Command-bearing params (`command`, `initial_command`, `tmux_start_command`,
 with prompts it writes; a peer with `install` and an enrolled build key can
 install a tagged app the person may then open. That is why both default to
 Ask and both are logged. The hub operator sees which devices talk and when,
-never content (WireGuard end to end; TURN sees ciphertext).
+never content (WireGuard end to end; TURN sees ciphertext). The hub keeps
+the person's device graph (`/v1/me/devices`: ids, names, kinds, presence)
+and no audit: Activity stays on the devices, and "both ends" is a query over
+the link (lens review).
 
 **Trust policy.** The new policy (machines as link peers with per-peer grants,
 `install` with an enrolled build key) goes to cmux#13742 with a
@@ -241,6 +301,9 @@ recommendation before the code that enforces it merges.
 | Server pairing, joined machines, acpmux peers, cmux-remote enrollment, remote hosting: five pairing records | one list (My Machines) over them; new pairing is the link's `auth`; the old records stay readable and are retired one by one as their users move |
 | `acpmux host update`, `cmux link machine update` (SSH or Cloud only, sha256 pins) | `install` over the link for the person's own machines; Cloud keeps the signed channel (#36185) |
 | CloudMove / CloudBringBack (Cloud links only) | `move` uses the same pump over any link |
+| Share This Mac on the device hub (`workers/device-hub`): its own device keys, per-pair permissions (none, ask, view, full), tickets, TURN minting and server-side audit | the `screen` grant over the link; the hub's keys, permissions, tickets and audit retire as Mac Screen and the iPhone viewer move; `ApprovalBanner` and `ShareIndicator` become the one card and indicator for every grant |
+| `cmux-vnc://` room-and-secret pairing | retired (whoever holds the link gets in); the RFB client stays for compatibility |
+| Computer Use machine consent (team machines, agents) | stays agent consent, with the same card and the same Activity log |
 | `cmux remote doctor` (classic, not on NEXT) | `cmux machine NAME doctor`: the link's own path report (direct, TURN, TURN over TLS) and timings |
 
 ## CLI
@@ -276,10 +339,12 @@ cmux machine NAME remove
 4. **Run there.** `machine.session.request` with folder allowlist; **New
    Workspace on…** picks link machines.
 5. **Move.** The Cloud move pump over the link; **Continue on…** both ways.
-6. **Phones as controllers of every machine.** The phone's machine list shows
+6. **Take over.** The `screen` grant, a display source in `surface`, the
+   indicator and Stop; Share This Mac moves onto the link.
+7. **Phones as controllers of every machine.** The phone's machine list shows
    every Mac with **Continue on**, **New Workspace on**, and approval cards
    for machine requests; iOS parity rows.
-7. **Consolidation.** `cmux link` on the mobile dialer; Settings > Devices
+8. **Consolidation.** `cmux link` on the mobile dialer; Settings > Devices
    shows one list; retire the duplicate pairing records as their callers move.
 
 ## Status
