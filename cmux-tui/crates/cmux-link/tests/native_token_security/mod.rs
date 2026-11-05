@@ -313,8 +313,7 @@ fn native_token_receiver_refuses_ambiguous_stale_and_cross_mesh_snapshots() {
                 p.peers.push(other);
             }
             "long_lease" => {
-                p.expires_at_ms =
-                    p.checked_at_ms + cmux_link::native_token::MAX_POLICY_LEASE_MS + 1;
+                p.expires_at_ms = p.checked_at_ms + cmux_link::native_token::MAX_ADMIT_MS + 1;
             }
             "delayed" => p.request_started -= Duration::from_secs(30),
             "future" => p.checked_at_ms += 1,
@@ -373,4 +372,43 @@ fn native_token_receiver_full_replay_owner_never_evicts_a_live_id() {
         v.verify(token, &expected(Service::Daemon)).is_err(),
         "clock rollback cannot revive a pruned jti"
     );
+}
+
+/// Local admission: a stream admitted under a policy whose authority runs to
+/// its admission horizon keeps its lease to that horizon, not to a renewal
+/// lease edge, and a newer policy without its peer still ends it at once.
+#[test]
+fn native_token_receiver_admission_window_holds_a_stream_until_revoked() {
+    use cmux_link::native_token::MAX_ADMIT_MS;
+    let f = fixture();
+    let time = std::sync::Arc::new(std::sync::Mutex::new(cmux_link::native_token::ReceiverTime {
+        unix_ms: 1_792_000_010_000,
+        monotonic: std::time::Instant::now(),
+    }));
+    let clock = time.clone();
+    let v = cmux_link::native_token::NativeTokenVerifier::new(
+        keys(),
+        move || Some(*clock.lock().unwrap()),
+        2,
+    )
+    .unwrap();
+    let mut long = policy(&f, snapshot(&time));
+    long.expires_at_ms = long.checked_at_ms + MAX_ADMIT_MS;
+    let started = long.request_started;
+    v.replace_authority(long).unwrap();
+    let lease =
+        v.verify(f["token"].as_str().unwrap(), &expected(Service::Daemon)).unwrap().lease.unwrap();
+    assert_eq!(lease.deadline(), Some(started + Duration::from_millis(MAX_ADMIT_MS)));
+    {
+        // Ten minutes on, well past any renewal lease: the stream is still admitted.
+        let mut now = time.lock().unwrap();
+        now.unix_ms += 600_000;
+        now.monotonic += Duration::from_secs(600);
+    }
+    let mut revoked = policy(&f, snapshot(&time));
+    revoked.expires_at_ms = revoked.checked_at_ms + MAX_ADMIT_MS;
+    assert!(lease.deadline().is_some(), "the admission window ended at a lease edge");
+    revoked.peers.clear();
+    v.replace_authority(revoked).unwrap();
+    assert_eq!(lease.deadline(), None, "a read without the peer did not revoke its stream");
 }

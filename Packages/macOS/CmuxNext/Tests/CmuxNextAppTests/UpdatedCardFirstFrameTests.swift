@@ -37,13 +37,19 @@ struct UpdatedCardFirstFrameTests {
 
     static let card = SidebarUpdatedCard(title: "Updated", whatsNewTitle: "See What's New", dismissLabel: "Close")
     static let key = "cmux.sidebar.updatedCard.height"
+    static let widthsKey = "cmux.sidebar.updatedCard.heights"
+
+    static func forget() {
+        UserDefaults.standard.removeObject(forKey: key)
+        UserDefaults.standard.removeObject(forKey: widthsKey)
+    }
 
     /// One launch's sidebar with the Updated card, laid out once before its page has drawn.
-    static func launch(_ surfaces: FakeSurfaces) -> SidebarView {
+    static func launch(_ surfaces: FakeSurfaces, width: CGFloat = 260) -> SidebarView {
         let model = SidebarModel(sections: [])
         model.updatedCard = card
         let sidebar = SidebarView(model: model, design: DesignSettings())
-        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.frame = NSRect(x: 0, y: 0, width: width, height: 600)
         sidebar.updateSurfaces = surfaces
         sidebar.updatedCardView.configure(card)
         sidebar.layoutSubtreeIfNeeded()
@@ -51,8 +57,8 @@ struct UpdatedCardFirstFrameTests {
     }
 
     @Test func aRelaunchedCardHasItsRoomBeforeItsPageDraws() throws {
-        UserDefaults.standard.removeObject(forKey: Self.key)
-        defer { UserDefaults.standard.removeObject(forKey: Self.key) }
+        Self.forget()
+        defer { Self.forget() }
         // The launch before the update: the page drew the card 77 pt tall.
         let before = FakeSurfaces()
         let first = Self.launch(before)
@@ -80,7 +86,8 @@ struct UpdatedCardFirstFrameTests {
     /// remembered height (no blank glass card).
     @Test func aPageThatReportsNothingHidesTheRememberedCard() throws {
         UserDefaults.standard.set(77.0, forKey: Self.key)
-        defer { UserDefaults.standard.removeObject(forKey: Self.key) }
+        UserDefaults.standard.removeObject(forKey: Self.widthsKey)
+        defer { Self.forget() }
         let surfaces = FakeSurfaces()
         let sidebar = Self.launch(surfaces)
         #expect(sidebar.updatedCardView.height == 77)
@@ -91,8 +98,8 @@ struct UpdatedCardFirstFrameTests {
     }
 
     @Test func thePagesFirstHeightLandsWithoutTheSpring() throws {
-        UserDefaults.standard.removeObject(forKey: Self.key)
-        defer { UserDefaults.standard.removeObject(forKey: Self.key) }
+        Self.forget()
+        defer { Self.forget() }
         let surfaces = FakeSurfaces()
         let sidebar = Self.launch(surfaces)
         let window = NSWindow(contentRect: sidebar.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -111,5 +118,30 @@ struct UpdatedCardFirstFrameTests {
         sidebar.needsLayout = true
         sidebar.layoutSubtreeIfNeeded()
         #expect(sidebar.updatedCardView.frame == landed, "the card moved after the frame its page's height landed in")
+    }
+
+    /// The relaunch bench at 7ed8d1ffedd: windows with sidebars of different widths wrap the card's words
+    /// on different lines (a 196 pt card drew 77 pt, a 300 pt one 64 pt), and the one remembered height
+    /// was whichever window reported last, so the other window's card moved 64 <-> 77 pt after its first
+    /// frame. Each card width keeps its own height.
+    @Test func eachSidebarWidthRemembersItsOwnCardHeight() throws {
+        Self.forget()
+        defer { Self.forget() }
+        // The launch before the update: a narrow sidebar's card wraps to 77 pt, then a wide one's draws 64 pt.
+        let narrowBefore = FakeSurfaces(), wideBefore = FakeSurfaces()
+        let narrow = Self.launch(narrowBefore, width: 208)
+        try #require(narrowBefore.islands.first).report(77)
+        narrow.layoutSubtreeIfNeeded()
+        let wide = Self.launch(wideBefore, width: 312)
+        try #require(wideBefore.islands.first).report(64)
+        wide.layoutSubtreeIfNeeded()
+
+        // The relaunch: each window's card has its own height in its first frame.
+        let narrowAgain = Self.launch(FakeSurfaces(), width: 208)
+        let wideAgain = Self.launch(FakeSurfaces(), width: 312)
+        #expect(narrowAgain.updatedCardView.height == 77, "the narrow card took the wide card's height")
+        #expect(narrowAgain.updatedCardView.frame == narrow.updatedCardView.frame)
+        #expect(wideAgain.updatedCardView.height == 64)
+        #expect(wideAgain.updatedCardView.frame == wide.updatedCardView.frame)
     }
 }

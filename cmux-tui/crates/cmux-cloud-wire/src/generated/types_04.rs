@@ -4,6 +4,24 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    TeamRole {
+        Owner = "owner",
+        Admin = "admin",
+        Member = "member",
+        Billing = "billing",
+        Guest = "guest",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmAccountUser {
+    pub user: String,
+    pub uid: i64,
+    pub class: SshCertClass,
+    pub principals: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamVmError {
     pub code: String,

@@ -62,7 +62,7 @@ extension CloudStartChat {
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let listed = cloud.listedMachineIDs
         let ensureProject = (account.last ?? nil) == nil && !cloud.auth.configuration.isProductionAuth
-        let team = try (start.reservationKey != nil ? cloud.auth.accessTokenTeam(requested: nil) : nil)
+        let team = start.reservationKey != nil ? try await cloud.reservationTeam() : nil
         let access = try? await (ensureProject || start.reservationKey != nil ? cloud.auth.tokens().access : nil)
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
                                        machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
