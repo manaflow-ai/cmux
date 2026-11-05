@@ -175,6 +175,18 @@ pub(crate) static PAUSE_AFTER_LOG_WRITE: Mutex<
     Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
 > = Mutex::new(None);
 
+/// Tests: the next log write made on this thread stops right after the write, says so on
+/// `arrived` and waits for `release` ([`PAUSE_AFTER_LOG_WRITE`]). (#36142: the seam is still
+/// process-wide here, so another thread's log write can take this thread's pause.)
+#[cfg(test)]
+pub(crate) fn pause_next_log_write_on_this_thread(
+    arrived: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+) {
+    *PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+        Some((arrived, release));
+}
+
 impl Inner {
     /// Runs `read`, then waits for an append under way to end (`order` taken and let go): every
     /// line `read` saw has its record appended by the time this returns.
