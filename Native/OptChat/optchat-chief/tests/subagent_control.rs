@@ -335,6 +335,52 @@ fn a_tell_to_a_running_subagent_that_cannot_steer_interrupts_it() {
     assert_eq!(ids.last(), Some(&prompt_id), "{ids:?}");
 }
 
+/// Review of a69 (issue 36496): a tell that joins a pending control
+/// interrupt's message (whose follow-up no receipt named) gives the combined
+/// next prompt its own prompt id, so its receipt correlates with what is sent.
+#[test]
+fn a_tell_joined_to_a_pending_control_interrupt_names_the_combined_prompt() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["long job".into()], None)).unwrap();
+    wait_for(&mut h, |h| !sub_prompts(h).is_empty());
+    let session = sub_session(&h);
+    let a = sp.clone();
+    let interrupted = run(&mut h, move || {
+        a.control(ControlCall {
+            action: "interrupt".into(),
+            id: Some("a1".into()),
+            message: Some("check the logs first".into()),
+            ..ControlCall::default()
+        })
+    })
+    .unwrap();
+    assert!(interrupted.starts_with("outcome: done."), "{interrupted}");
+    // This agent refuses steers: the tell joins the pending interrupt.
+    h.agents.inner.lock().unwrap().steering = false;
+    let a = sp.clone();
+    let told = run(&mut h, move || a.tell("a1", "then fix the build")).unwrap();
+    let prompt_id = told
+        .split_whitespace()
+        .find(|word| word.starts_with("optchat-tell:a1:"))
+        .expect("the receipt names its prompt id")
+        .to_owned();
+    settle(&mut h);
+    h.agents.hold(false);
+    h.brain.step(Input::from(
+        optchat_chief::acpmux::AgentEvent::SessionChanged(idle(&session)),
+    ));
+    wait_for(&mut h, |h| sub_prompts(h).len() >= 2);
+    let prompts = sub_prompts(&h);
+    let next = prompts.last().unwrap();
+    assert!(next.contains("check the logs first"), "{prompts:?}");
+    assert!(next.contains("then fix the build"), "{prompts:?}");
+    let ids = h.agents.inner.lock().unwrap().prompt_ids.clone();
+    assert_eq!(ids.last(), Some(&prompt_id), "{ids:?}");
+}
+
 /// `queue: true` keeps the old behavior for a low-priority FYI: no
 /// interrupt, the message waits after the running turn.
 #[test]

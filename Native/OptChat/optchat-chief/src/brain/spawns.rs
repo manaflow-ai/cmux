@@ -2622,8 +2622,10 @@ impl Brain {
                 None => message.to_owned(),
             });
             // The first tell's prompt id carries the next prompt; one joined
-            // to it goes out under that id, which the trace records.
-            if !pending {
+            // to it goes out under that id, which the trace records. A
+            // follow-up with no id yet (a control interrupt's message or an
+            // auto-continue: no receipt named one) takes this tell's.
+            if !pending || sub.after_stop_prompt.is_none() {
                 sub.after_stop_prompt = Some(prompt_id.to_owned());
             }
         }
