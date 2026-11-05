@@ -53,4 +53,9 @@ public nonisolated struct ChiefHomeSessionHost: AgentPaneHostProviding {
     public func restartStuckAcpmux(sessionId: String?) async -> Bool {
         await resolved().restartStuckAcpmux(sessionId: sessionId)
     }
+
+    /// An outdated daemon's restart goes where the pane's handshake goes (``AcpmuxChiefSessionRouter``).
+    public func restartOutdatedAcpmux(sessionId: String?) async -> String? {
+        await resolved().restartOutdatedAcpmux(sessionId: sessionId)
+    }
 }

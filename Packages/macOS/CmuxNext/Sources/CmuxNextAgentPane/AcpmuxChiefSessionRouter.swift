@@ -120,6 +120,11 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         await host(for: sessionId).restartStuckAcpmux(sessionId: sessionId)
     }
 
+    /// An outdated daemon's restart goes where the pane's handshake goes, as Restart agent service.
+    public func restartOutdatedAcpmux(sessionId: String?) async -> String? {
+        await host(for: sessionId).restartOutdatedAcpmux(sessionId: sessionId)
+    }
+
     public func putFile(sessionId: String, name: String, data: Data) async throws -> String {
         try await host(for: sessionId).putFile(sessionId: sessionId, name: name, data: data)
     }

@@ -6,12 +6,24 @@ import Foundation
 /// The page names only a harness id; acpmux builds the command and refuses one needing sudo.
 @MainActor
 enum AgentPaneHarnessCard {
-    static func reply(to request: AgentPaneRequest, transport: AgentPaneTransport, session sessionId: String?) async -> [String: Any] {
+    static func reply(to request: AgentPaneRequest, transport: AgentPaneTransport, session sessionId: String?,
+                      host: (any AgentPaneHostProviding)? = nil) async -> [String: Any] {
         // Page script cannot make a gesture: only the person's click updates or restarts.
         guard transport.gestures.consume() else {
             return AgentPaneReply.failure(code: "harness.gesture_required", message: AgentPaneModel.shellGestureMessage)
         }
         guard let socket = transport.acpmuxSocket else { return AgentPaneReply.failure(code: "harness.unavailable", message: unavailableMessage) }
+        let first = await call(request, transport: transport, session: sessionId, socket: socket)
+        // An agent service from before this app's update lacks the request: the app restarts it on its
+        // own build (its chats kept) and asks once more, rather than asking the person to quit cmux.
+        guard first.outdated, let host, let restarted = await host.restartOutdatedAcpmux(sessionId: sessionId) else { return first.reply }
+        let again = await call(request, transport: transport, session: sessionId, socket: restarted)
+        return again.outdated ? AgentPaneReply.failure(code: "harness.failed", message: oldServiceMessage) : again.reply
+    }
+
+    /// One try of `request` on the acpmux at `socket`; `outdated` when that service lacks the method.
+    private static func call(_ request: AgentPaneRequest, transport: AgentPaneTransport, session sessionId: String?,
+                             socket: String) async -> (reply: [String: Any], outdated: Bool) {
         do {
             switch request {
             case .harnessUpdate(let id):
@@ -22,37 +34,38 @@ enum AgentPaneHarnessCard {
                 var value: [String: Any] = ["ok": row?["ok"] as? Bool ?? false]
                 if let version = row?["version"] as? String { value["version"] = version }
                 if let error = row?["error"] as? String { value["error"] = error }
-                return AgentPaneReply.success(value)
+                return (AgentPaneReply.success(value), false)
             case .harnessRestart:
                 // Only a chat this pane started or shows: the page can adopt any id (`chat.persistSession`).
                 guard let session = sessionId, transport.sessions.contains(session) else {
-                    return AgentPaneReply.failure(code: "harness.not_this_chat", message: unavailableMessage)
+                    return (AgentPaneReply.failure(code: "harness.not_this_chat", message: unavailableMessage), false)
                 }
                 let result = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/sessions/restart_harness",
                                                                params: ["sessions": [session]], deadline: .seconds(300), detailed: true)
                 var value: [String: Any] = ["restarted": result["restarted"] as? Int ?? 0, "after_turn": result["after_turn"] as? Int ?? 0,
                                             "failed": result["failed"] as? Int ?? 0]
                 if let error = (result["errors"] as? [[String: Any]])?.first?["error"] as? String { value["error"] = error }
-                return AgentPaneReply.success(value)
+                return (AgentPaneReply.success(value), false)
             default:
-                return AgentPaneModel.unsupported("harness")
+                return (AgentPaneModel.unsupported("harness"), false)
             }
         } catch AcpmuxStatusClient.Failure.rpc(let message) {
-            return AgentPaneReply.failure(code: "harness.failed", message: message)
+            return (AgentPaneReply.failure(code: "harness.failed", message: message), false)
         } catch let error as AcpmuxRPCError {
             // An agent service from before this app's update does not know the method yet.
-            return AgentPaneReply.failure(code: "harness.failed", message: error.isMethodMissing ? oldServiceMessage : error.isUnreachable ? unavailableMessage : error.message)
+            let message = error.isMethodMissing ? oldServiceMessage : error.isUnreachable ? unavailableMessage : error.message
+            return (AgentPaneReply.failure(code: "harness.failed", message: message), error.isMethodMissing)
         } catch is AgentPaneDeadlineExceeded {
-            return AgentPaneReply.failure(code: "harness.failed", message: slowMessage)
+            return (AgentPaneReply.failure(code: "harness.failed", message: slowMessage), false)
         } catch {
-            return AgentPaneReply.failure(code: "harness.failed", message: unavailableMessage)
+            return (AgentPaneReply.failure(code: "harness.failed", message: unavailableMessage), false)
         }
     }
 
-    /// The agent service still running is older than the app (it lacks the method).
+    /// The agent service is still older than the app (it lacks the method) after the app's own restart.
     static var oldServiceMessage: String {
         String(localized: "agentPane.harness.oldService",
-               defaultValue: "The agent service on this Mac is out of date. Quit and reopen cmux, then try again.", bundle: .module)
+               defaultValue: "cmux couldn't update its agent service. Quit and reopen cmux, then try again.", bundle: .module)
     }
 
     /// The update or restart outlived its deadline; it may still finish.
