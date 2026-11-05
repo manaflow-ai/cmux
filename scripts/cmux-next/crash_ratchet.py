@@ -407,6 +407,25 @@ class FileScopes:
         return None
 
 
+TRIPLE_QUOTE = '"' * 3
+
+
+def text_continues(line, inside):
+    """What is still open after LINE: "string" (a multi-line string literal), "comment" (a block
+    comment) or None, given what was open before it (INSIDE). Its "(" and ")" are not code."""
+    if inside == "string":
+        return None if line.count(TRIPLE_QUOTE) % 2 else "string"
+    if inside == "comment":
+        if "*/" not in line:
+            return "comment"
+        line, inside = line[line.rindex("*/") + 2:], None
+    code = line.split("//", 1)[0] if TRIPLE_QUOTE not in line else line
+    if code.count(TRIPLE_QUOTE) % 2:
+        return "string"
+    opened = code.rfind("/*")
+    return "comment" if opened >= 0 and code.rfind("*/") < opened else None
+
+
 def declarations(lines):
     """collection_kinds' three sets, and the file's FileScopes (which receivers have a type
     this file declares). A member chain on such a receiver (`state.tasks[id]` with `state` a
@@ -418,6 +437,8 @@ def declarations(lines):
     scopes = FileScopes(local_types)
     pending = []  # bindings for the next `{`: func parameters, for/if-let variables
     paren = 0  # "(" depth since the first pending binding: a `{` inside it is a closure's
+    saved = []  # (scope depth, pending, paren) of statements whose condition holds an open closure
+    in_text = None  # "string" or "comment" while a multi-line literal or block comment is open
     signature_params = []  # a func/init's parameters, pended once its list closes
     type_pending = False  # a type header with its `{` on a later line
     signature_depth = 0  # > 0 while a func/init parameter list continues on later lines
@@ -427,7 +448,13 @@ def declarations(lines):
         found = [(m.group(1), (m.group(2) or m.group(3) or "").strip()) for m in DECLARED_TYPE.finditer(code)]
         events = []  # (position, order, action, payload)
         declared_at = {m.start() for m in DECLARED_TYPE.finditer(code)}
-        opens_block = re.search(r"\b(?:if|guard|while|switch|catch|case)\b", code) is not None
+        # Only a statement with its own body pends a pattern binding: `if case`, `while let`,
+        # `catch let`. A switch `case let .x(v):` or `guard case` binds in the current scope.
+        opens_block = re.search(r"\b(?:if|while|catch)\b", code) is not None
+        # "(" and ")" before TEXT_END are inside a multi-line literal or comment, not code.
+        text_end = (len(code) if in_text == "string" or (in_text == "comment" and "*/" not in line)
+                    else line.index("*/") + 2 if in_text == "comment" else 0)
+        in_text = text_continues(line, in_text)
         untyped = [(m.start(), name) for m in PATTERN_NAME.finditer(code)
                    if m.start() not in declared_at for name in [m.group(1)]]
         untyped += [(m.start(), name) for pattern in (PATTERN_TUPLE, CASE_LET)
@@ -495,7 +522,7 @@ def declarations(lines):
             for name in PARAMETER_NAME.findall(match.group(1)):
                 events.append((match.start(), 1, "pend", (name, (None, None))))
         for pos, ch in enumerate(code):
-            if ch in "{}()":
+            if ch in "{}" or (ch in "()" and pos >= text_end):
                 events.append((pos, 2, ch, None))
         points = [(-1, tuple(stack))]
         for pos, _, action, payload in sorted(events, key=lambda e: (e[0], e[1])):
@@ -521,15 +548,23 @@ def declarations(lines):
                         entry = ("lock-of", entry[1], tuple(stack), entry[3])
                     scope.setdefault(name, []).append(entry)
                 if paren == 0:
-                    # The statement's own body. A `{` inside parentheses (`first(where: { })`,
-                    # `filter({ })`) is a closure in the condition: it keeps the bindings pending.
+                    # The statement's own body.
                     for name, entry in pending:
                         scope.setdefault(name, []).append(entry)
                     pending = []
-                stack.append(scope)
+                    stack.append(scope)
+                else:
+                    # A closure in the condition (`first(where: { })`, `filter({ })`): its own
+                    # statement context. The outer bindings wait until its `}`; nothing pended
+                    # inside it reaches the outer body.
+                    stack.append(scope)
+                    saved.append((len(stack), pending, paren))
+                    pending, paren = [], 0
                 points.append((pos, tuple(stack)))
             elif action == "}":
-                if paren == 0:
+                if saved and saved[-1][0] == len(stack):
+                    _, pending, paren = saved.pop()
+                elif paren == 0:
                     pending = []
                 if len(stack) > 1:
                     stack.pop()
