@@ -167,9 +167,9 @@ impl Hub {
                     // One sent now waits too: the Stop came after it.
                     (q.held, q.sent_now) = (true, false);
                     held.push(q.prompt_id.clone());
-                } else if persons && !q.held && !q.sent_now && !q.steer && !q.awaiting_owner {
+                } else if persons && !q.sent_now && !q.steer && !q.awaiting_owner {
                     // The person's own waiting prompt: it waits for them to send it. One a failed
-                    // turn or the owner holds already keeps that hold.
+                    // turn held already is the Stop's now too, so the queue says it was stopped.
                     (q.held, q.held_by_stop) = (true, true);
                     held.push(q.prompt_id.clone());
                 }
@@ -365,7 +365,9 @@ impl Hub {
 
     /// A Stop while Claude compacts ends the turn at once and withdraws the person's queued
     /// prompts, a prompt promoted with Send now included, except `replacement` (an interrupt's
-    /// own prompt); other agents' messages are held, never dropped (`hold_agent_messages`).
+    /// own prompt) and those the person's own Stop holds (`hold_queue_for_person`: they wait for
+    /// the person to send them); other agents' messages are held, never dropped
+    /// (`hold_agent_messages`).
     /// Any other Stop withdraws nothing: the queue runs on once the turn ends.
     pub(super) async fn cancel_preserving_queued(
         self: &Arc<Self>,
@@ -464,9 +466,11 @@ impl Hub {
                 .unwrap_or_else(|e| e.into_inner())
                 .iter()
                 .filter(|q| {
+                    // The person's own Stop keeps what it holds (`hold_queue_for_person`).
                     expected_prompt.is_none()
                         && replacement != Some(q.prompt_id.as_str())
                         && q.run.agent.is_none()
+                        && !q.held_by_stop
                 })
                 .map(|q| q.prompt_id.clone())
                 .collect();

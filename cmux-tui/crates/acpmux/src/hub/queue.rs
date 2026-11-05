@@ -921,6 +921,7 @@ impl Hub {
         session.stop_hold.store(0, Ordering::SeqCst);
         for q in queue.iter_mut() {
             resumed |= std::mem::take(&mut q.held);
+            q.held_by_stop = false;
         }
         drop(queue);
         if resumed {
@@ -942,6 +943,8 @@ impl Hub {
         for q in queue.iter_mut() {
             if ids.contains(&q.prompt_id)
                 && !(stop_held && q.run.agent.is_some())
+                // The person's prompt their Stop holds waits for them (`cancel.rs`).
+                && !q.held_by_stop
                 && std::mem::take(&mut q.held)
             {
                 released.push(q.prompt_id.clone());

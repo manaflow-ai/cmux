@@ -479,3 +479,36 @@ async fn workflow_runs_compaction_pause_preserves_queued_person_prompts() {
     assert_eq!(next["stopReason"], "end_turn");
     assert_eq!(written(&hub, &s, "slow"), 1);
 }
+
+/// The person's Stop while Claude compacts ends the turn at once and keeps the person's queued
+/// prompt: held by the Stop, not withdrawn, until the person sends it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_persons_stop_while_compacting_keeps_their_queued_prompt() {
+    let (hub, s) = chat(&["FAKE_RESET_CANCEL_ON_PROMPT=1"], false).await;
+    let mut events = hub.subscribe();
+    let running = {
+        let (hub, s) = (hub.clone(), s.clone());
+        tokio::spawn(async move {
+            hub.prompt(&s, vec![json!({"type":"text","text":"deaf-to-cancel"})], "test", false).await
+        })
+    };
+    tokio::time::timeout(WAIT, async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event.record.msg["params"]["update"]["content"]["text"] == "running" {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    s.compacting.store(true, Ordering::SeqCst);
+    let (queued_id, _queued) = queued_prompt(&hub, &s, "slow", false).await;
+    hub.person_stop(&s).await.unwrap();
+    let _ = tokio::time::timeout(WAIT, running).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let row = hub.session_summary(&s);
+    assert_eq!(row["queue"][0]["promptId"], json!(queued_id), "{row}");
+    assert_eq!(row["queue"][0]["heldByStop"], true, "{row}");
+    assert_eq!(written(&hub, &s, "slow"), 0, "the held prompt ran after the Stop");
+}
