@@ -89,7 +89,7 @@ type Roll = { key?: string; label: string; lead?: { lead: string; rest: string }
 /// changing tool calls at the bottom"): the old words rise and fade out above as the new rise in
 /// from below (conversation.css `cv-roll-*`). `key` names what the line says; the playful verb's
 /// own rotation keeps one key, so only a new call or state rolls. Undefined (the line waits on the
-/// person) rolls nothing, and neither does the first label.
+/// person, retries or shows a start look) rolls nothing, and neither do the first words after it.
 function useRoll(key: string | undefined, label: string, lead: Roll["lead"]): Roll {
   const [roll, setRoll] = useState<Roll>({ key, label, lead, turns: 0 });
   if (key !== roll.key) {
@@ -247,7 +247,9 @@ export function Thinking({
               : t(done ? "tools.ranUnnamed" : "tools.runningUnnamed")
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
-  const roll = useRoll(waiting ? undefined : decorative ? "" : label, label, lead);
+  // A retry or a start look draws other words in place of the line: coming back rolls nothing.
+  const away = waiting !== undefined || retry !== undefined || startLook !== "thinking";
+  const roll = useRoll(away ? undefined : decorative ? "" : label, label, lead);
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // Past the first step a finished step's own time stands beside the label, and the turn's clock
   // follows it after a dot: "Ran grep -n x 2s · 15s" (Leo, 2026-11-03: "i think the "thinking"

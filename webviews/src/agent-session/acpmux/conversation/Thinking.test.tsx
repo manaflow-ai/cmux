@@ -197,3 +197,14 @@ test("the playful verb's own rotation does not roll the live line", () => {
   expect(container.querySelector(".cv-thinking")?.textContent).toContain("Reading");
   expect(container.querySelector(".cv-roll-out")).toBeNull();
 });
+
+test("the words back after a retry roll nothing in, and no old words rise again", () => {
+  act(() => root!.render(<Thinking since={0} now={() => 1_000} />));
+  act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="Read App.tsx" doingAt={1} />));
+  expect(container.querySelector(".cv-roll-out")).not.toBeNull();
+  act(() =>
+    root!.render(<Thinking since={0} now={() => 1_000} retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }} />),
+  );
+  act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="Read App.tsx" doingAt={1} />));
+  expect(container.querySelector(".cv-roll-out")).toBeNull();
+});
