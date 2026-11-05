@@ -209,7 +209,7 @@ pub(super) async fn send(
     };
     let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
     if target.starts_with('@') {
-        super::team::remember_sender(hub, conn, &receipt.message_id, target)?;
+        super::team::remember_sender(hub, conn, &receipt.message_id, target).await?;
     }
     Ok(status_of(&receipt, target))
 }
