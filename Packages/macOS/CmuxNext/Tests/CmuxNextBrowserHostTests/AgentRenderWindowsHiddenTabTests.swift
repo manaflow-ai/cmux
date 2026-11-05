@@ -33,6 +33,20 @@ import Testing
         window.close()
     }
 
+    /// A WebKit page in a minimized or fully covered window is hidden too: no animation frame, a
+    /// timer a second, and an agent's click timed out. A window never ordered on screen draws
+    /// nothing either.
+    @Test func aTabOfAWindowThatDrawsNothingRendersInTheRenderWindow() {
+        let windows = AgentRenderWindows()
+        let chrome = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let (window, _) = windowHolding(chrome)
+        #expect(!window.isVisible)
+        #expect(windows.keepRendering(tabID: "tab_covered", chrome: chrome, webView: nil))
+        #expect(chrome.window?.identifier == NSUserInterfaceItemIdentifier("cmux.agentRenderWindow"))
+        windows.release(tabID: "tab_covered")
+        window.close()
+    }
+
     @Test func aTabAWindowShowsStaysWhereItIs() {
         let windows = AgentRenderWindows()
         let chrome = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
