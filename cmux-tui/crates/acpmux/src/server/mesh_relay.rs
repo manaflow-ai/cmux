@@ -92,15 +92,17 @@ impl MeshRelay {
         // the inbox waits for it, so no message meets a daemon that does not know its own id yet.
         let (daemon, own) = watch::channel(None);
         let halt = Halt(stop.clone());
+        let beat = Arc::new(Beat::new());
         let beats = heartbeats(
             Arc::downgrade(hub),
             client.clone(),
             options.clone(),
             daemon,
+            beat.clone(),
             halt.clone(),
             stopped.clone(),
         );
-        let inbox = inbox(Arc::downgrade(hub), client, control, options, own, halt, stopped);
+        let inbox = inbox(Arc::downgrade(hub), client, control, options, own, beat, halt, stopped);
         let tasks = vec![tokio::spawn(beats), tokio::spawn(inbox)];
         Self { stop, tasks }
     }
@@ -211,6 +213,55 @@ fn heartbeat_wait(options: &RelayOptions, ttl_seconds: u64) -> Duration {
     if third.is_zero() { options.heartbeat_every } else { third.min(options.heartbeat_every) }
 }
 
+/// How long a start's ack waits for the heartbeat that lists its new session.
+const START_LISTED_WAIT: Duration = Duration::from_secs(5);
+
+/// A heartbeat on demand. A start through the hub acks only once a heartbeat that lists the new
+/// session was taken, so the sender's next message to it finds it in the hub's address book
+/// (the hub routes a name only to a session a heartbeat listed, `mesh.unknown_recipient`
+/// otherwise); waiting for the timer left a send right after the start refused for up to 30 s.
+struct Beat {
+    nudge: tokio::sync::Notify,
+    /// Requests made; a heartbeat covers every request made before it read the sessions.
+    asked: std::sync::atomic::AtomicU64,
+    /// The last request a heartbeat the hub took covered.
+    listed: watch::Sender<u64>,
+}
+
+impl Beat {
+    fn new() -> Self {
+        Self {
+            nudge: tokio::sync::Notify::new(),
+            asked: Default::default(),
+            listed: watch::channel(0).0,
+        }
+    }
+
+    /// A heartbeat now (no sooner than the floor after the last one), and its taking, waited
+    /// for at most `within`.
+    async fn now(&self, within: Duration) {
+        let want = self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let mut listed = self.listed.subscribe();
+        self.nudge.notify_one();
+        let _ = tokio::time::timeout(within, listed.wait_for(|n| *n >= want)).await;
+    }
+
+    /// The requests a heartbeat reading the sessions now covers.
+    fn covers(&self) -> u64 {
+        self.asked.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn taken(&self, covered: u64) {
+        self.listed.send_if_modified(|n| {
+            let newer = covered > *n;
+            if newer {
+                *n = covered;
+            }
+            newer
+        });
+    }
+}
+
 /// Stops both loops: what one loop does when the mesh hub refuses it for good, so the other
 /// neither waits nor heartbeats on for a daemon that takes nothing.
 #[derive(Clone)]
@@ -227,6 +278,7 @@ async fn heartbeats(
     client: Arc<dyn MeshHub>,
     options: Arc<RelayOptions>,
     daemon: watch::Sender<Option<String>>,
+    beat: Arc<Beat>,
     halt: Halt,
     mut stop: watch::Receiver<bool>,
 ) {
@@ -240,14 +292,19 @@ async fn heartbeats(
         if hub_ended(&hub) {
             break;
         }
+        let began = tokio::time::Instant::now();
+        let covered = beat.covers();
         let sessions = match hub.upgrade() {
             Some(hub) => hub.mesh_rows().await,
             None => break,
         };
-        let beat = Heartbeat { host: host.clone(), sessions };
+        let listing = Heartbeat { host: host.clone(), sessions };
+        let mut taken = false;
         let wait = tokio::select! {
-            r = client.heartbeat(&beat) => match r {
+            r = client.heartbeat(&listing) => match r {
                 Ok(reply) => {
+                    beat.taken(covered);
+                    taken = true;
                     if std::mem::take(&mut failing) {
                         tracing::info!("mesh relay: the hub takes heartbeats again");
                     }
@@ -283,7 +340,16 @@ async fn heartbeats(
             },
             () = ended(&mut stop, &hub) => break,
         };
-        let wait = wait.max(HEARTBEAT_FLOOR.max(options.min_poll_gap));
+        let floor = HEARTBEAT_FLOOR.max(options.min_poll_gap);
+        let wait = wait.max(floor);
+        // A start's request beats sooner, never under the floor nor during a backoff.
+        let nudged = async {
+            if !taken {
+                return std::future::pending().await;
+            }
+            beat.nudge.notified().await;
+            tokio::time::sleep_until(began + floor).await;
+        };
         let read_receipts = async {
             if let Some(hub) = hub.upgrade() {
                 let budget = wait.min(Duration::from_secs(5));
@@ -292,7 +358,12 @@ async fn heartbeats(
             }
         };
         tokio::select! {
-            () = async { tokio::join!(tokio::time::sleep(wait), read_receipts); } => {}
+            () = async {
+                tokio::join!(
+                    async { tokio::select! { () = tokio::time::sleep(wait) => {}, () = nudged => {} } },
+                    read_receipts
+                );
+            } => {}
             () = ended(&mut stop, &hub) => break,
         }
     }
@@ -306,6 +377,7 @@ async fn inbox(
     control: Arc<dyn ControlHook>,
     options: Arc<RelayOptions>,
     mut own: watch::Receiver<Option<String>>,
+    beat: Arc<Beat>,
     halt: Halt,
     mut stop: watch::Receiver<bool>,
 ) {
@@ -359,12 +431,22 @@ async fn inbox(
                         continue;
                     }
                     let Some(hub) = hub.upgrade() else { return };
-                    let (client, control, in_flight) =
-                        (client.clone(), control.clone(), in_flight.clone());
+                    let (client, control, in_flight, beat) =
+                        (client.clone(), control.clone(), in_flight.clone(), beat.clone());
                     let own_id = own.borrow().clone();
                     deliveries.spawn(async move {
                         let ack =
                             deliver(&hub, &message, control.as_ref(), own_id.as_deref()).await;
+                        // A started session is in the hub's address book before its sender
+                        // hears the start went through.
+                        if message.kind == Kind::Control
+                            && message.op.as_deref() == Some("start")
+                            && ack
+                                .as_ref()
+                                .is_some_and(|a| a.state == crate::mesh::AckState::Delivered)
+                        {
+                            beat.now(START_LISTED_WAIT).await;
+                        }
                         if let Some(ack) = ack
                             && let Err(e) = client.ack(&message.message_id, &clip(ack)).await
                         {

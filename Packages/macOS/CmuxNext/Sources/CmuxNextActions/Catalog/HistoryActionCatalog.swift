@@ -100,7 +100,7 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
                 symbol: "clock.arrow.circlepath", surfaces: [.palette, .keyboard],
                 arguments: [
                     ActionArgument(name: "id", title: t("argument.history.entry", "History Entry ID"), kind: .string, isRequired: true),
-                    ActionArgument(name: "new_tab", title: t("argument.history.newTab", "In New Tab"), kind: .bool, isRequired: false),
+                    ActionArgument(name: "newTab", title: t("argument.history.newTab", "In New Tab"), kind: .bool, isRequired: false),
                 ],
                 cliName: "history open"
             ),

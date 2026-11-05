@@ -532,9 +532,9 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
         eprintln!("cmux: {message}");
         return 1;
     }
-    // The client ends the server by closing stdin, then by SIGTERM; the
-    // blocking stdin read must not hide that signal.
+    // Closed stdin, SIGTERM (not hidden by the blocking read) or the client's death end it.
     let _ = crate::restore_default_termination_signals();
+    acpmux::parent_watch::exit_with_parent();
     let output = watch::Output::new(io::stdout());
     watch::spawn(global.clone(), output.clone());
     let mut server = Server::new(LiveBackend { global }, Some(path));

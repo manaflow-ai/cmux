@@ -47,7 +47,10 @@ struct GroupNoChosenColorTests {
         #expect(Self.alpha(chip.pill.backgroundColor) == 0, "no dot")
         let band = TabGroupBandCell(color: item.tint)
         #expect(Self.alpha(band.lineLayer.backgroundColor) == 0, "no underline")
-        #expect(Self.alpha(band.washLayer.backgroundColor) == 0, "no wash")
+        // A faint neutral wash, no hue (Leo 2026-11-05: "a grouped up thing"): the theme's sidebarStep, under the hover.
+        let wash = Self.alpha(band.washLayer.backgroundColor)
+        #expect(wash > 0 && wash < 0.06, "a faint neutral wash, not \(wash)")
+        #expect(band.washLayer.backgroundColor?.components == band.themeScope.perform { Palette.sidebarStep.cgColor }.components)
         // The daemon's explicit `none` reads the same.
         #expect(Self.tabGroup(color: "none").tint == .none)
     }

@@ -353,6 +353,17 @@ pub fn apply<'c>(
     cmd.env_clear().envs(vars(scratch, agents, tools))
 }
 
+/// This test process as `ACPMUX_TEST_OWNER_PID` names it: `<pid>:<start>`, or the bare pid
+/// where its start time cannot be read.
+#[cfg(unix)]
+pub fn test_owner() -> String {
+    let pid = std::process::id();
+    match acpmux::daemon::process_start(pid) {
+        Some(start) => format!("{pid}:{start}"),
+        None => pid.to_string(),
+    }
+}
+
 /// The hermetic environment as pairs (for an agent host's `SpawnSpec.env`).
 pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, String)> {
     let mut env = platform_vars(&home(scratch), tools);
@@ -368,7 +379,8 @@ pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, Stri
     // (`daemon/owner_exit.rs`, debug builds): hosts outlive their daemon on purpose, and 34 test
     // hosts and 8 test daemons ran for days on one lane VM.
     #[cfg(unix)]
-    env.push(("ACPMUX_TEST_OWNER_PID".into(), std::process::id().to_string()));
+    // With its start time, so a reused pid never stands in for this process.
+    env.push(("ACPMUX_TEST_OWNER_PID".into(), test_owner()));
     if agents == Agents::Deny {
         env.push(("ACPMUX_AGENT_LAUNCH".into(), "deny".into()));
     }

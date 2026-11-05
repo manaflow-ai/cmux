@@ -4107,6 +4107,9 @@
 				<string>plex</string>
 				<string>source-sans</string>
 				<string>geist</string>
+				<string>cmux-sans</string>
+				<string>hanken</string>
+				<string>atkinson</string>
 				<string>system-ui</string>
 				<string>system-ui-tight</string>
 			</array>

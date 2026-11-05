@@ -560,6 +560,7 @@ impl Hub {
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
         let after_turn = opts.after_turn.clone();
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
+        let goal_mark = opts.goal_mark.clone();
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
         let slot = super::queue::Slot {
             text: &text,
@@ -611,7 +612,9 @@ impl Hub {
             std::process::exit(0);
         }
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
-        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting) {
+        if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting)
+            .and_then(|()| super::goal_tools::check_goal_mark(session, goal_mark.as_deref()))
+        {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -1561,11 +1564,20 @@ impl Hub {
                             o.insert("carriedTo".into(), to);
                         }
                     }
+                    // What the turn spent, where its harness says, for a goal's token budget.
+                    let spent = ["inputTokens", "outputTokens"]
+                        .iter()
+                        .filter_map(|k| msg.get(*k).and_then(Value::as_u64))
+                        .reduce(u64::saturating_add);
                     self.write_turn_result(session, msg, git);
                     if status == "completed"
                         && let Some(answer) = wrap_up_answer
                     {
                         self.offer_wrap_up_suggestion(session, &answer);
+                    }
+                    // A goal set with goal_set goes on, or stops at its budget (`goal_tools.rs`).
+                    if status == "completed" {
+                        self.continue_goal(session, spent);
                     }
                     // The chat works again: agent messages a failed turn held go in (`digest.rs`).
                     // Not while a person's Stop that came after this turn began holds them

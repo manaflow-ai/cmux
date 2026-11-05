@@ -245,6 +245,7 @@ public final class TerminalSurfaceView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        syncPointerTracking() // a pane's screen serves it, or it tracks the pointer itself (TerminalSurfaceView+Mouse)
         syncWindowState()
         // In another window, its last shown-size change's commit is reported by that window's presenter.
         frameOwnershipDidReveal()

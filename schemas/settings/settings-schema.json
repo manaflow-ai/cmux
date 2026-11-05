@@ -43399,6 +43399,9 @@
         "plex",
         "source-sans",
         "geist",
+        "cmux-sans",
+        "hanken",
+        "atkinson",
         "system-ui",
         "system-ui-tight"
       ],
@@ -43456,6 +43459,27 @@
         },
         {
           "title" : {
+            "key" : "settings.choice.agentChatUiFontCmuxSans",
+            "text" : "cmux Sans"
+          },
+          "value" : "cmux-sans"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontHanken",
+            "text" : "Hanken Grotesk"
+          },
+          "value" : "hanken"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontAtkinson",
+            "text" : "Atkinson Hyperlegible Next"
+          },
+          "value" : "atkinson"
+        },
+        {
+          "title" : {
             "key" : "settings.choice.agentChatUiFontSystemUi",
             "text" : "System"
           },
@@ -43499,7 +43523,10 @@
         "inter",
         "plex",
         "geist",
-        "source sans"
+        "source sans",
+        "cmux sans",
+        "hanken",
+        "atkinson"
       ],
       "kind" : "choice",
       "page_hidden" : false,

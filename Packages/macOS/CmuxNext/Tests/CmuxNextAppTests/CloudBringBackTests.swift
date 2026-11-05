@@ -51,7 +51,7 @@ struct CloudBringBackTests {
             await connection.close()
             trip.machine.machine.status = .paused
             var resumed = 0
-            trip.machine.resumer = { id in
+            trip.machine.resumer = { id, _ in
                 #expect(id == trip.machine.machineID)
                 resumed += 1
                 trip.machine.machine.status = .running

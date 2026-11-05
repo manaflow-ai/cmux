@@ -5,21 +5,23 @@
 # processes hold Screen Recording and Accessibility:
 #   cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 --script scripts/measure/screen-stream-eval.sh \
 #     --ref SHA --artifact artifacts/screen-stream-eval/results.json [--target-worker W] \
-#     [--arg=targets=rd,webrtc] [--arg=samples=200] --timeout 5400
+#     [--arg=targets=rd,webrtc] [--arg=samples=200] [--arg=repeats=3] --timeout 5400
 # Output: SCREEN-STREAM-EVAL lines, the summary table, and artifacts/screen-stream-eval/results.json
 # (also each target's raw files and the host and viewer frames under that folder). No gate: it
 # reports, and exits non-zero only when it could not measure at all (3: no grant; 4: no target ran;
 # 5: no target measured a window).
 set -uo pipefail
-targets="rd,webrtc" samples=200
+targets="rd,webrtc" samples=200 repeats=3
 for arg in "$@"; do
   case "$arg" in
     targets=*) targets="${arg#targets=}" ;;
     samples=*) samples="${arg#samples=}" ;;
+    repeats=*) repeats="${arg#repeats=}" ;;
     *) echo "screen-stream-eval.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$samples" =~ ^[0-9]+$ ]] || { echo "screen-stream-eval.sh: samples= is a number" >&2; exit 2; }
+[[ "$repeats" =~ ^[1-9][0-9]*$ ]] || { echo "screen-stream-eval.sh: repeats= is a number from 1" >&2; exit 2; }
 # From the script's place, not the cwd: inside the launcher app (below) the cwd is /.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
@@ -46,7 +48,7 @@ print(json.dumps(run))
 EOF
 }
 run=$(run_json host "$(scutil --get ComputerName 2>/dev/null || hostname)" cpu "$(sysctl -n machdep.cpu.brand_string)" \
-  macos "$(sw_vers -productVersion)" rev "$(git rev-parse HEAD)" display "$display" samples "$samples")
+  macos "$(sw_vers -productVersion)" rev "$(git rev-parse HEAD)" display "$display" samples "$samples" repeats "$repeats")
 echo "SCREEN-STREAM-EVAL-MACHINE $run"
 
 pids=()
@@ -189,30 +191,33 @@ for name in "${names[@]}"; do
   kill "$marker" 2>/dev/null || true
   wait "$marker" 2>/dev/null || true
 
-  # Window: the scene's fixed timeline under one passive viewer.
-  echo "SCREEN-STREAM-EVAL-STAGE $name window"
-  go="$EVAL_STATE/go" stop="$EVAL_STATE/stop"
-  rm -f "$go" "$stop" "$dir/host.png"
-  "$EVAL_BIN/screen-eval-scene" "$go" "$stop" "$dir/phases.jsonl" "$dir/host.png" "$dir/truth.txt" >"$EVAL_STATE/scene.log" 2>&1 &
-  scene=$!
-  pids+=("$scene")
-  sleep 2 # the scene's window is up before the host captures its first frame
-  if why=$(host_start); then
-    bash "$script" window "$window_s" "$dir/viewer-frame" "$go" "$dir/window.json" || err "window failed"
-  else
-    err "host did not start for the window: $why"
-    touch "$go" # lets the scene run out its timeline instead of waiting 120 s for GO
-  fi
-  touch "$stop"
-  wait "$scene" || err "scene exited $? ($(tail -1 "$EVAL_STATE/scene.log"))"
-  bash "$script" host-stop
+  # Window and OCR: the scene's fixed timeline under one passive viewer, $repeats times (a fresh host
+  # each time); eval.py reports each number's median and keeps every repeat's.
+  for rep in $(seq 1 "$repeats"); do
+    echo "SCREEN-STREAM-EVAL-STAGE $name window $rep/$repeats"
+    go="$EVAL_STATE/go" stop="$EVAL_STATE/stop"
+    rm -f "$go" "$stop" "$dir/host-$rep.png"
+    "$EVAL_BIN/screen-eval-scene" "$go" "$stop" "$dir/phases-$rep.jsonl" "$dir/host-$rep.png" "$dir/truth.txt" >"$EVAL_STATE/scene.log" 2>&1 &
+    scene=$!
+    pids+=("$scene")
+    sleep 2 # the scene's window is up before the host captures its first frame
+    if why=$(host_start); then
+      bash "$script" window "$window_s" "$dir/viewer-frame-$rep" "$go" "$dir/window-$rep.json" || err "window $rep failed"
+    else
+      err "host did not start for window $rep: $why"
+      touch "$go" # lets the scene run out its timeline instead of waiting 120 s for GO
+    fi
+    touch "$stop"
+    wait "$scene" || err "scene $rep exited $? ($(tail -1 "$EVAL_STATE/scene.log"))"
+    bash "$script" host-stop
 
-  echo "SCREEN-STREAM-EVAL-STAGE $name ocr"
-  if [[ -s "$dir/host.png" && -s "$dir/viewer-frame" ]]; then
-    "$EVAL_BIN/screen-eval-ocr" "$dir/host.png" "$dir/viewer-frame" "$dir/truth.txt" >"$dir/ocr.json" || err "ocr failed"
-  else
-    err "ocr: missing $( [[ -s "$dir/host.png" ]] || echo 'host screenshot ')$( [[ -s "$dir/viewer-frame" ]] || echo 'viewer frame')"
-  fi
+    echo "SCREEN-STREAM-EVAL-STAGE $name ocr $rep/$repeats"
+    if [[ -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then
+      "$EVAL_BIN/screen-eval-ocr" "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/truth.txt" >"$dir/ocr-$rep.json" || err "ocr $rep failed"
+    else
+      err "ocr $rep: missing $( [[ -s "$dir/host-$rep.png" ]] || echo 'host screenshot ')$( [[ -s "$dir/viewer-frame-$rep" ]] || echo 'viewer frame')"
+    fi
+  done
   # The logs, without the WebRTC host's pairing (its link and the QR code of it: the room secret).
   for log in "$EVAL_STATE"/*.log; do
     [[ -f "$log" ]] || continue

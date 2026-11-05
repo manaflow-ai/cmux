@@ -50,6 +50,12 @@ pub const ACTIVITY_TURNS_CAPABILITY: &str = "activity-turns";
 /// work; acpmux `daemon/cloud_activity.rs` names the phases). The Cloud sleeps a machine inside
 /// its turns only from a report that advertises this (cmux#34298).
 pub const ACTIVITY_PHASES_CAPABILITY: &str = "activity-phases";
+/// Advertised with `activity` while the agent's workload probe reads (`workload.rs`): the
+/// report's `activity.workload` counts the processes using CPU, the listening sockets and the
+/// timers that are not the system's. The Cloud reads a machine as idle only from a report that
+/// advertises this and counts none of them, so a dev server, a build or a cron job an agent left
+/// running is never paused.
+pub const ACTIVITY_WORKLOAD_CAPABILITY: &str = "activity-workload";
 /// How long acpmux's count of sessions at work holds without a new `acp_activity` line
 /// (acpmux renews it every 20 s, `daemon/cloud_activity.rs`): a
 /// daemon that died mid-turn does not keep the machine awake for good.
@@ -212,13 +218,31 @@ impl DaemonInfo {
         DaemonInfo { version: self.version.clone(), capabilities }
     }
 
+    /// The same block with `activity-workload` on (the workload is known and `activity` is on)
+    /// or off. [`Self::with_activity`] drops it: apply this after.
+    pub fn with_workload(&self, on: bool) -> DaemonInfo {
+        let mut capabilities: Vec<String> = self
+            .capabilities
+            .iter()
+            .filter(|c| *c != ACTIVITY_WORKLOAD_CAPABILITY)
+            .cloned()
+            .collect();
+        if on && capabilities.iter().any(|c| c == ACTIVITY_CAPABILITY) {
+            capabilities.push(ACTIVITY_WORKLOAD_CAPABILITY.to_owned());
+        }
+        DaemonInfo { version: self.version.clone(), capabilities }
+    }
+
     pub fn to_json(&self) -> Value {
         json!({ "version": self.version, "capabilities": self.capabilities })
     }
 }
 
 fn is_activity_capability(c: &str) -> bool {
-    c == ACTIVITY_CAPABILITY || c == ACTIVITY_TURNS_CAPABILITY || c == ACTIVITY_PHASES_CAPABILITY
+    c == ACTIVITY_CAPABILITY
+        || c == ACTIVITY_TURNS_CAPABILITY
+        || c == ACTIVITY_PHASES_CAPABILITY
+        || c == ACTIVITY_WORKLOAD_CAPABILITY
 }
 
 /// The daemon block from one `identify` answer's `data`: version plus the
@@ -263,6 +287,9 @@ pub struct Activity {
     /// the Cloud keeps the machine running for a while after it (cmux-platform `IdlePolicy.ts`,
     /// the post-chat warm window).
     pub last_person_prompt_at: Option<u64>,
+    /// The agent's workload probe (`workload.rs`), while it reads
+    /// ([`ACTIVITY_WORKLOAD_CAPABILITY`]).
+    pub workload: Option<Value>,
 }
 
 impl Activity {
@@ -280,6 +307,9 @@ impl Activity {
         }
         if let Some(at) = self.last_person_prompt_at {
             out.insert("last_person_prompt_at".to_owned(), json!(at));
+        }
+        if let Some(workload) = &self.workload {
+            out.insert("workload".to_owned(), workload.clone());
         }
         Value::Object(out)
     }
@@ -302,6 +332,7 @@ impl Activity {
             last_agent_action_at: self.last_agent_action_at.max(acp_action_at),
             phases: acp_phases,
             last_person_prompt_at: acp_prompt_at,
+            workload: self.workload.clone(),
         }
     }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # A live code build (docs/cmux-next/live-code.md): the app built with CMUX_LIVE_CODE_BUILD=1, then
-# linked again with only the CmuxNextApp symbols it exports made interposable. One pass is not
+# linked again with only the CmuxNext symbols it exports made interposable. One pass is not
 # enough: CMUX_LIVE_CODE_BUILD alone builds an app no patch can repoint, and a blanket
 # -interposable stops it at launch (a private type's symbol dyld cannot bind).
 #   scripts/live-code/build.sh OUT [TAG [CONFIG]] [ENV=VALUE...]
@@ -35,47 +35,31 @@ log="$out/xcodebuild.log"
 cp "$(sed -n 's/^==> log: //p' "$out/reload.log" | tail -n 1)" "$log"
 bin="$app/Contents/MacOS/cmux"
 [[ -f "$bin" ]] || bin="$(find "$app/Contents/MacOS" -maxdepth 1 -type f ! -name '*.dylib' | head -n 1)"
-# 2. Interposable: the CmuxNextApp symbols the app exports (what dyld can bind a call to). Then
-# link again with that list: only the link step reruns.
-# The list comes from the export trie dyld binds from, not the symbol table: nm -g also lists a
-# file's private symbols (a private type's deinit, say), and a bind to one of those fails at launch.
-list="$out/interposable.txt"
-xcrun dyld_info -exports "$bin" | grep -oE '_\$s11CmuxNextApp[^ ]*' | sort -u > "$list" || true
-nm -gUj "$bin" | grep -E '^_\$s11CmuxNextApp' | sort -u > "$out/nm-exported.txt" || true
-echo "live-code build: $(wc -l < "$list" | tr -d ' ') CmuxNextApp symbols in the export trie, $(wc -l < "$out/nm-exported.txt" | tr -d ' ') external in the symbol table"
-private_probe='_$s11CmuxNextApp11FlippedView'
-echo "live-code build: FlippedView in the trie: $(grep -c "^$private_probe" "$list" || true), in nm -g: $(grep -c "^$private_probe" "$out/nm-exported.txt" || true)"
-nm -m "$bin" | grep -F "FlippedView" > "$out/flipped-nm.txt" || true
-sed -n 1,5p "$out/flipped-nm.txt"
-[[ -s "$list" ]] || { echo "live-code build: the app exports no CmuxNextApp symbol (LD_EXPORT_SYMBOLS?)" >&2; exit 1; }
-app="$(reload "$out/reload-2.log" "$@" CMUX_LIVE_CODE_INTERPOSABLE_LIST="$list")"
+# 2. Interposable: what the app exports of the CmuxNext modules (lib/two-pass.sh). Then link again
+# with that list: only the link step reruns.
+# shellcheck source=scripts/live-code/lib/two-pass.sh
+source scripts/live-code/lib/two-pass.sh
+# shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
+source scripts/live-code/lib/xcodebuild-args.sh
+live_code_list "$bin" "$out"
+app="$(reload "$out/reload-2.log" "$@" CMUX_LIVE_CODE_INTERPOSABLE_LIST="$out/interposable.txt")"
 [[ -n "$app" && -d "$app" ]] || fail_build "$out/reload-2.log"
-# Every symbol the relinked app binds from itself must be in its own export trie, or dyld stops the
-# launch: that fails the build. dyld_info -fixups also names a rebase's target, which needs no export,
-# so only its bind lines count; the other names are printed for the record.
-xcrun dyld_info -exports "$bin" | grep -oE '_\$s11CmuxNextApp[^ ]*' | sort -u > "$out/exports-2.txt" || true
-xcrun dyld_info -fixups "$bin" > "$out/fixups-2.txt" || true
-grep -E '[[:space:]]((weak|lazy)-)?bind[[:space:]]' "$out/fixups-2.txt" | grep -oE '_\$s11CmuxNextApp[^ ]*' | sort -u > "$out/binds-2.txt" || true
-grep -oE '_\$s11CmuxNextApp[^ ]*' "$out/fixups-2.txt" | sort -u > "$out/named-2.txt" || true
-echo "live-code build: relinked: $(wc -l < "$out/binds-2.txt" | tr -d ' ') CmuxNextApp binds, $(wc -l < "$out/named-2.txt" | tr -d ' ') named by any fixup, $(wc -l < "$out/exports-2.txt" | tr -d ' ') exported"
-# The interposable list makes CmuxNextApp's calls bind through itself; none read means the bind
-# lines were not recognized, and the check below would pass blind.
-[[ -s "$out/binds-2.txt" ]] || { echo "live-code build: no CmuxNextApp bind found in dyld_info -fixups (its format?); first lines:" >&2; sed -n 1,5p "$out/fixups-2.txt" >&2; exit 1; }
-comm -23 "$out/named-2.txt" "$out/exports-2.txt" | comm -23 - "$out/binds-2.txt" > "$out/unexported-rebases-2.txt"
-if [[ -s "$out/unexported-rebases-2.txt" ]]; then
-  echo "live-code build: $(wc -l < "$out/unexported-rebases-2.txt" | tr -d ' ') unexported CmuxNextApp symbols are rebase targets only (no export needed); their fixups:"
-  grep -F -f <(sed -n 1,5p "$out/unexported-rebases-2.txt") "$out/fixups-2.txt" | head -n 10 || true
-fi
-comm -23 "$out/binds-2.txt" "$out/exports-2.txt" > "$out/missing-2.txt"
-if [[ -s "$out/missing-2.txt" ]]; then
-  echo "live-code build: the relinked app binds $(wc -l < "$out/missing-2.txt" | tr -d ' ') CmuxNextApp symbols it does not export; their fixups:" >&2
-  grep -F -f <(sed -n 1,5p "$out/missing-2.txt") "$out/fixups-2.txt" | head -n 10 >&2 || true
-  exit 1
-fi
-# Whether CmuxNextApp compiled a file at a time (reload.sh's live build) or whole-module.
-wmo="$(grep -E -- "-module-name CmuxNextApp " "$log" | grep -c -- "-whole-module-optimization" || true)"
-echo "live-code build: CmuxNextApp frontend commands: $(grep -cE -- "-module-name CmuxNextApp " "$log" || true), whole-module: $wmo"
+# Whether the CmuxNext modules compiled a file at a time, unoptimized and testable, as the live build
+# asks; printed before the check, which a whole-module module can fail.
+# One line for CmuxNextApp, and the other modules named only when one is not as asked.
+while IFS= read -r module; do
+  commands="$(grep -E -- "-module-name $module " "$log" || true)"
+  [[ -n "$commands" ]] || continue
+  total="$(grep -c . <<<"$commands")"
+  wmo="$(grep -c -- "-whole-module-optimization" <<<"$commands" || true)"
+  onone="$(grep -c -- "-Onone" <<<"$commands" || true)"
+  testing="$(grep -c -- "-enable-testing" <<<"$commands" || true)"
+  if [[ "$module" == CmuxNextApp || "$wmo" != 0 || "$onone" != "$total" || "$testing" != "$total" ]]; then
+    echo "live-code build: $module frontend commands: $total, whole-module: $wmo, -Onone: $onone, -enable-testing: $testing" >&2
+  fi
+done < <(live_code_targets)
+live_code_check "$bin" "$out" || exit 1
 echo "live-code build: built in $((SECONDS - build_start)) s"
-grep -E -- "-module-name CmuxNextApp " "$log" > "$out/cmuxnextapp-commands.log" || true
+grep -E -- "-module-name CmuxNext[A-Za-z0-9_]* " "$log" > "$out/cmuxnext-commands.log" || true
 printf '%s\n' "$app" > "$out/app-path"
 echo "$app"

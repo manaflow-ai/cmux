@@ -688,6 +688,8 @@ type ShapedTurn = {
   clockOffset: number;
   dated: boolean;
   liveRuns: boolean;
+  /// Whether the live line draws below (`liveSlot`): a prompt waiting for its turn shapes its line in that slot.
+  lineBelow: boolean;
   agentFamily?: string;
   /// The family's fold style as read for this shape (turnFoldStyle.ts): its opt-in can change
   /// without the family changing, and the cached turn must fold anew when it does.
@@ -779,6 +781,7 @@ function shapedTurn(
     cached.clockOffset === clockOffset &&
     cached.dated === dated &&
     cached.liveRuns === liveRuns &&
+    cached.lineBelow === lineBelow &&
     cached.agentFamily === agentFamily &&
     cached.foldStyle === foldStyle &&
     cached.endedByPerson === endedByPerson &&
@@ -909,6 +912,7 @@ function shapedTurn(
       clockOffset,
       dated,
       liveRuns,
+      lineBelow,
       agentFamily,
       foldStyle,
       endedByPerson,

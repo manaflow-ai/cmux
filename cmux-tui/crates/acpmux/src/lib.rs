@@ -63,6 +63,7 @@ pub mod folder_instructions;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
+pub mod generic_goal;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
@@ -104,6 +105,7 @@ pub(crate) mod opencode_ask;
 #[cfg(windows)]
 mod owner_only;
 pub mod pairing;
+pub mod parent_watch;
 pub mod path_canon;
 pub mod peer;
 pub mod peer_link;

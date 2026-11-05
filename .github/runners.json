@@ -488,7 +488,6 @@
     },
     "nightly.yml#publish-nightly": "apple-signing-release",
     "nightly.yml#publish-nightly-next-github": "apple-signing-release",
-    "nightly.yml#publish-nightly-next-github-names": "apple-signing-release",
     "nightly.yml#refresh-compilation-cache": "apple-app-build",
     "nightly.yml#refresh-test-compilation-cache": {
       "class": "apple-app-build",

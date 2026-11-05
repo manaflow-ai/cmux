@@ -1,9 +1,10 @@
+import AppKit
 import Foundation
 @testable import CmuxNextServer
 import Testing
 
-/// Add Device's "Any machine: one line" way (Labs `labs.machineJoin`): hidden while the switch is
-/// off, a line only on Make Line, joined when a listed machine carries the line's `joinTokenId`,
+/// Add Device's "Any machine" way (the default, no Labs switch): hidden when the app offers no join,
+/// first and opened on by default with ssh behind Advanced, a line only on Make Line, joined when a listed machine carries the line's `joinTokenId`,
 /// expired at `expiresAt`, the list read on a trigger (the line shown, the focus, a mesh change) and
 /// never on a timer, and the countdown and mesh watch stopped on close, on the flip and at expiry.
 @MainActor @Suite(.serialized) struct MachineJoinLineFlowTests {
@@ -43,24 +44,27 @@ import Testing
         }
     }
 
-    @Test func theWayIsHiddenWhileTheLabsSwitchIsOff() async {
+    @Test func theWayIsHiddenWhenTheAppOffersNoJoin() async {
         let devices = AddDeviceFlowTests.Fake()
         let model = AddDeviceModel(services: devices.services())
         await model.begin(way: .joinLine)
         #expect(model.joinLine == nil)
-        #expect(!model.ways.contains(.joinLine), "no fourth way without labs.machineJoin")
+        #expect(!model.ways.contains(.joinLine), "no join way without a join service")
+        #expect(model.advancedWays.isEmpty, "the ssh way stays in the switch, with no Advanced")
         #expect(model.way == .network, "asking for the hidden way opens the card as it opens on its own")
         model.choose(.joinLine)
         #expect(model.way == .network)
     }
 
-    @Test func theWayShowsWithTheSwitchAndMintsOnlyOnMakeLine() async {
+    @Test func theWayIsTheDefaultAndMintsOnlyOnMakeLine() async {
         let fake = Fake()
         let devices = AddDeviceFlowTests.Fake()
         let model = fake.deviceModel(Self.services(devices, fake))
         await model.begin()
-        #expect(model.ways == [.network, .code, .newDevice, .joinLine])
-        #expect(model.way == .network, "the default way is unchanged")
+        #expect(model.ways == [.joinLine, .code, .newDevice])
+        #expect(model.advancedWays == [.network], "ssh moves behind Advanced")
+        #expect(model.way == .joinLine, "the card opens on the no-ssh way, though the network lists a computer")
+        #expect(!model.showsAdvanced)
         model.choose(.joinLine)
         #expect(model.joinLine?.phase == .idle)
         #expect(fake.mints.isEmpty, "choosing the way mints nothing")
@@ -190,6 +194,41 @@ import Testing
         // Epoch milliseconds are not a time the platform sends: such a mint is unreadable.
         #expect(JoinLine.decode(Data(#"{"line":"l","joinTokenId":"jt","expiresAt":1793244600123}"#.utf8)) == nil)
         #expect(JoinLine.decode(Data(#"{"line":"l","expiresAt":"2026-10-29T03:30:00.123Z"}"#.utf8)) == nil)
+    }
+
+    /// ssh is not removed, only moved: Advanced opens the network way, which lists and adds as it did
+    /// when it was the default; closing Advanced goes back to the way the card was on.
+    @Test func advancedOpensTheSSHWayWhichStillAdds() async throws {
+        let fake = Fake()
+        let devices = AddDeviceFlowTests.Fake()
+        let model = fake.deviceModel(Self.services(devices, fake))
+        await model.begin()
+        model.choose(.code)
+        #expect(model.perform(.toggleAdvanced) == false, "the disclosure keeps the card open")
+        #expect(model.way == .network)
+        #expect(model.showsAdvanced)
+        #expect(model.available.map(\.name) == ["studio"])
+        #expect(model.buttons.map(\.action) == [.cancel, .newCloudMachine, .otherComputer])
+        let texts = AddDeviceFlowTests.texts(in: AddDeviceView(model: model))
+        #expect(texts.contains(AddDeviceStrings.sshKeyHint), "the ssh way's body shows under Advanced")
+        model.perform(.toggleAdvanced)
+        #expect(model.way == .code, "closing Advanced goes back to the way it was on")
+        model.perform(.toggleAdvanced)
+        let studio = try #require(model.available.first)
+        #expect(model.perform(.pick(studio)), "Add still hands off to Add Machine")
+        #expect(devices.added.map(\.0) == ["studio.tail1234.ts.net"])
+    }
+
+    /// A caller that names the ssh way (`device.add way=network`, `machine.add`) still opens on it.
+    @Test func askingForTheSSHWayOpensItUnderAdvanced() async {
+        let fake = Fake()
+        let devices = AddDeviceFlowTests.Fake()
+        let model = fake.deviceModel(Self.services(devices, fake))
+        await model.begin(way: .network)
+        #expect(model.way == .network)
+        #expect(model.showsAdvanced)
+        model.toggleAdvanced()
+        #expect(model.way == .joinLine, "closed, it falls back to the default way")
     }
 
     static func services(_ devices: AddDeviceFlowTests.Fake, _ fake: Fake) -> AddDeviceServices {

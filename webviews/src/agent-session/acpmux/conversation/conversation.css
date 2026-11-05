@@ -2369,6 +2369,83 @@ pre.cv-math-source {
   }
 }
 
+/* The live line rolls its words when they change (Thinking.tsx `useRoll`; Leo, 2026-11-05: "this is
+   quite good too how it animates the changing text!!! we need to have that!!! for changing tool
+   calls at the bottom"): the old words (`cv-roll-out`, their action in full ink as the line drew
+   them) rise, soften and fade out above while the new rise in from below. Transform, opacity and a
+   small blur only, on the agent motion token, so nothing reflows and ui.animationSpeed scales it.
+   Reduce Motion, cmux motion off or reduced, the pane's agent motion off (ui.animationSpeed) and the
+   static status look change the words at once; the old words never show. Two keyframes of one
+   roll, swapped each change, restart it on the same element, so the line's live region is never
+   remounted. The new words fill backwards only, so no filter stays on the shimmer once they land. */
+.cv-roll-out {
+  display: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out {
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    color: var(--cv-text-dim);
+    animation: cv-roll-out var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::before {
+    content: attr(data-lead);
+    color: var(--cv-text);
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::after {
+    content: attr(data-text);
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="odd"] {
+    animation: cv-roll-in-odd var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="even"] {
+    animation: cv-roll-in-even var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) backwards;
+  }
+}
+@keyframes cv-roll-out {
+  from {
+    opacity: 1;
+    translate: 0 0;
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    translate: 0 -0.6em;
+    filter: blur(2px);
+  }
+}
+@keyframes cv-roll-in-odd {
+  from {
+    opacity: 0;
+    translate: 0 0.6em;
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    filter: blur(0);
+  }
+}
+@keyframes cv-roll-in-even {
+  from {
+    opacity: 0;
+    translate: 0 0.6em;
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    filter: blur(0);
+  }
+}
+
 /* A running tool row's words shimmer (ShimmerText.tsx RowShimmer; ToolRow.tsx, CommandRow.tsx), as
    Claude desktop's and ChatGPT's running rows do, in place of a mark at the row's far edge (Leo,
    2026-11-03: "this is kinda weird looking" / "doesn't claude desktop have the thinking shimmer go
@@ -2693,9 +2770,8 @@ button.cv-worked:focus-visible {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* A long thought still streaming (ThoughtRow.tsx THOUGHT_LIVE_PX, Debug toggle
-   agentPane.debug.liveThoughtViewport): a fixed viewport of seven lines, Codex's 8.75rem, that
-   keeps its newest line at the bottom while older lines fade out at its top over 16px. */
+/* A long thought still streaming (ThoughtRow.tsx THOUGHT_LIVE_PX): a fixed viewport of seven
+   lines, Codex's 8.75rem, that keeps its newest line at the bottom while older lines fade out at its top over 16px. */
 .cv-thought.is-live .cv-thought__text {
   display: flex;
   flex-direction: column-reverse;
@@ -2704,8 +2780,7 @@ button.cv-worked:focus-visible {
   -webkit-mask-image: linear-gradient(to bottom, transparent, black 16px);
   mask-image: linear-gradient(to bottom, transparent, black 16px);
 }
-/* A finished thought folded (ThoughtRow.tsx; Debug toggle agentPane.debug.foldLongThoughts): "Thought
-   for 12s", or with agentPane.debug.thoughtHeader "preview", "Thought" and its first line, then a
+/* A finished thought folded (ThoughtRow.tsx): "Thought for 12s", or with agentPane.debug.thoughtHeader "preview", "Thought" and its first line, then a
    trailing chevron. Opened, the text sits flush under the label (above); the reader's toggle
    animates its height (ThoughtRow.tsx). */
 .cv-thought__preview {

@@ -82,7 +82,7 @@ extension WebPageTab {
         let tab = WebPageTab(.github, symbol: "arrow.triangle.pull", title: GitHubPageProvider.title) { [weak services] _, route in
             guard let services else { return nil }
             let opener = services.linkOpener
-            let provider = GitHubPageProvider(diffReader: { await AgentChatPullRequestReader().diff(url: $0) }, openWeb: { url, view in
+            let provider = GitHubPageProvider(diffReader: { await AgentChatPullRequestReader().diff(url: $0) }, localDiff: GitHubLocalDiff { [git = services.agentGit.local] in try? await git.read("git.diff", params: $0) }, openWeb: { url, view in
                 // Open on GitHub: the web page, as the chat's own card opens it (the GitHub tab of that pull request, if any).
                 opener.openWeb(url, from: view.flatMap(opener.source(containing:)), background: false, reusesTab: true)
             }, openDiff: { [weak services] text, link, file, view in

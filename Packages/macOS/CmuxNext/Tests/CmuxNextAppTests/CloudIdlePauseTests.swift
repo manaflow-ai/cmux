@@ -168,7 +168,7 @@ struct CloudIdlePauseTests {
     func attachingToAPausedMachineResumesItThroughResumeMachine() async {
         let f = Self.pausedMachine(reason: .idle)
         var resumed: [String] = []
-        f.session.resumer = { [session = f.session] id in
+        f.session.resumer = { [session = f.session] id, _ in
             resumed.append(id)
             session.machine.status = .running
         }
@@ -187,7 +187,7 @@ struct CloudIdlePauseTests {
         let f = Self.pausedMachine(reason: nil)
         f.session.machine.status = .running
         var resumed = 0
-        f.session.resumer = { _ in resumed += 1 }
+        f.session.resumer = { _, _ in resumed += 1 }
         f.session.attach(origin: .user)
         #expect(!f.session.resuming)
         #expect(resumed == 0)
@@ -197,7 +197,7 @@ struct CloudIdlePauseTests {
     @Test(.timeLimit(.minutes(1)))
     func aFailedResumeShowsItsReason() async {
         let f = Self.pausedMachine(reason: .idle)
-        f.session.resumer = { _ in throw ActionFailure(message: "no capacity") }
+        f.session.resumer = { _, _ in throw ActionFailure(message: "no capacity") }
         f.session.attach(origin: .user)
         let session = f.session
         for await busy in ObservationStream({ session.resuming }) where !busy { break }
@@ -208,7 +208,7 @@ struct CloudIdlePauseTests {
     @Test(.timeLimit(.minutes(1)))
     func aFailedResumeDoesNotOutliveTheNextPause() async {
         let f = Self.pausedMachine(reason: .idle)
-        f.session.resumer = { _ in throw ActionFailure(message: "no capacity") }
+        f.session.resumer = { _, _ in throw ActionFailure(message: "no capacity") }
         f.session.attach(origin: .user)
         let session = f.session
         for await busy in ObservationStream({ session.resuming }) where !busy { break }
@@ -234,7 +234,7 @@ struct CloudIdlePauseTests {
             session.machine.status = .paused
             session.machine.pauseReason = .idle
         }
-        f.session.resumer = { _ in
+        f.session.resumer = { _, _ in
             resumed += 1
             throw ActionFailure(message: "no capacity")
         }
@@ -252,7 +252,7 @@ struct CloudIdlePauseTests {
         let f = Self.pausedMachine(reason: .idle)
         var reads = 0
         f.session.refresher = { _ in reads += 1 }
-        f.session.resumer = { _ in throw ActionFailure(message: "quota reached") }
+        f.session.resumer = { _, _ in throw ActionFailure(message: "quota reached") }
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .machine, id: f.session.machineID), arguments: [:], origin: .cli)
         do {
             try await CloudHandlers.attached(f.session, invocation, within: .seconds(20))

@@ -23,11 +23,29 @@ if [[ "${BUILD_TRACK:-}" == nightly-next ]]; then
   source scripts/cmux-next/lib/nightly-swift-defines.sh
   swift_defines="${swift_defines:+$swift_defines }$CMUX_NIGHTLY_NEXT_SWIFT_DEFINES"
 fi
+# The live code variant (app-build-live-code.sh): every CmuxNext target unoptimized, testable and a
+# file at a time, linked with its symbols exported (and, on the relink, the listed ones interposable).
+# Its Swift defines join the nightly's in the one OTHER_SWIFT_FLAGS, so the -DCMUX_NO_* defines stay.
+live_code_args=()
+if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == 1 ]]; then
+  # shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
+  source scripts/live-code/lib/xcodebuild-args.sh
+  live_flags="$(live_code_swift_flags)"
+  swift_defines="${swift_defines:+$swift_defines }$live_flags"
+  while IFS= read -r setting; do
+    case "$setting" in
+      OTHER_SWIFT_FLAGS=*) ;;
+      ?*) live_code_args+=("$setting") ;;
+    esac
+  done < <(live_code_xcodebuild_args Release "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}")
+  echo "live code variant: ${#live_code_args[@]} xcodebuild settings${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
+fi
 if [[ -n "$swift_defines" ]]; then
   echo "OTHER_SWIFT_FLAGS defines: $swift_defines"
   # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
   notary_test_flags=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_defines" build)
 fi
+notary_test_flags=(${live_code_args[@]+"${live_code_args[@]}"} "${notary_test_flags[@]}")
 if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
   archs="arm64"
   only_active="YES"

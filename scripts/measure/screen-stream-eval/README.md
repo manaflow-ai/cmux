@@ -6,7 +6,7 @@ fixed scenarios on one Mac, and writes numbers a later run can diff key by key
 
 ```
 cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 --script scripts/measure/screen-stream-eval.sh \
-  --ref SHA --artifact artifacts/screen-stream-eval/results.json [--arg=targets=rd,webrtc] [--arg=samples=200]
+  --ref SHA --artifact artifacts/screen-stream-eval/results.json [--arg=targets=rd,webrtc] [--arg=samples=200] [--arg=repeats=3]
 ```
 
 `.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip. It
@@ -22,6 +22,12 @@ scheduled run.
 | typing | the same view, 12 characters a second typed into its second line for 20 s | kbps, fps, encode and decode ms |
 | scroll | the file scrolling at 600 pt a second for 20 s | kbps, fps |
 | ocr | the top of the file, still; the host's `screencapture -x -D 1` 3 s in | Vision OCR character error rate of the viewer's last decoded frame against the host screenshot; the host's own OCR error against the drawn text as a check of the OCR |
+
+The window (idle, typing, scroll) and OCR rows run `repeats` times (3 by default), each with a fresh
+host, and report the median; `extra.repeats` keeps every repeat's numbers and the summary lists them.
+One WebRTC run's OCR error and idle kbps move a lot from run to run (4.3 % and 12.9 %, 17 and 78
+kbps on 2026-11-05), so a single repeat is not a number to compare. Latency runs once: its p50 and
+p95 are already over `samples` inputs.
 
 Changing a scenario changes what every earlier number means: give it a new schema version
 (`SCHEMA` in `eval.py`) instead.
@@ -57,8 +63,8 @@ appear under `targets.petal` in the same schema.
 
 `artifacts/screen-stream-eval/results.json` (schema `cmux.screen-stream-eval/1`, the docstring of
 `eval.py`) and `summary.md`. Each target also leaves its raw files under
-`artifacts/screen-stream-eval/NAME/`, on the worker: the latency and window JSON, `phases.jsonl`,
-`host.png`, `viewer-frame`, `ocr.json` and its logs, with pairing links redacted.
+`artifacts/screen-stream-eval/NAME/`, on the worker: the latency JSON and, per repeat N, `window-N.json`, `phases-N.jsonl`,
+`host-N.png`, `viewer-frame-N`, `ocr-N.json`, and the logs, with pairing links redacted.
 
 What this slice does not cover yet: the viewer runs on the same Mac as the host, so the network
 leg is loopback. A second Mac on the LAN is the next row. Real networks are G2.
