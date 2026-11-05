@@ -40,7 +40,8 @@ struct CloudStartSession {
         /// A folder on the machine; nil starts in the workspace's folder there.
         var cwd: String?
         /// A folder on this Mac (`--from-folder`) the session starts in a copy of; never with ``cwd``.
-        var fromFolder: String? = nil
+        /// Nil when not given: the memberwise initializer defaults an optional `var`, so callers may leave it out.
+        var fromFolder: String?
         var login = CloudHarnessLoginAsk() // `--login` and whether a prompt may show (+Login); not in ``command``
 
         /// The command that asks for this again, every word as the shell reads it back.
