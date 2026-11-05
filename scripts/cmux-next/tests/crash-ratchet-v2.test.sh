@@ -417,4 +417,35 @@ if out="$(ratchet)"; then fail "an array member of this file, or a module-wide a
 g reset -q
 reset
 
+# 21. The receiver's TYPE must be declared in this file (coordinator, after #36143: a miss is
+#     silent, a false hit is loud). F declares `rows` only as a dictionary, in its own Local;
+#     G's Model has `rows` as an array. `model.rows[i]` on a parameter of type Model, a closure
+#     parameter of a lock from elsewhere, or an untyped local still counts; a receiver typed with
+#     F's own Local (annotated, built with Local(), or the closure parameter of a
+#     Mutex(Local()) declared here) uses F's dictionary.
+cat > "$shared/Sources/MessagesLabHome/F.swift" <<'SWIFT'
+struct Local {
+    var rows: [String: Int] = [:]
+}
+final class Reader {
+    private let guarded = Mutex(Local())
+    func read(model: Model, other: Mutex<Model>, i: Int, key: String) {
+        let a = model.rows[i]
+        other.withLock { model in model.rows[i] = 1 }
+        let made = makeModel()
+        let b = made.rows[i]
+        let local = Local()
+        let c = local.rows[key]
+        let d = guarded.withLock { local in local.rows[key] }
+        func g(_ typed: Local) -> Int? { typed.rows[key] }
+    }
+}
+SWIFT
+printf 'struct Model {\n    var rows: [Int] = []\n}\n' > "$shared/Sources/MessagesLabHome/G.swift"
+g add -A
+if out="$(ratchet)"; then fail "an index through a receiver whose type is from another file passed: $out"; fi
+[[ "$out" == *"swift MessagesLabHome: index_subscript 0 -> 3"* ]] || fail "model.rows[i], model.rows[i] = 1 (closure of a lock from elsewhere) or made.rows[i] was exempt, or a receiver typed with this file's Local counted: $out"
+g reset -q
+reset
+
 echo "crash-ratchet-v2.test.sh: ok"
