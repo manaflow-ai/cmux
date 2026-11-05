@@ -24,6 +24,11 @@ import Testing
         #expect(ACPPermissionRequest.plan(toolCall: content) == "Do it")
     }
 
+    @Test func aPlanAcpmuxAttachedIsReadFromAnyAsk() throws {
+        let call = try Self.call(#"{"toolCallId":"t","title":"Requesting plan approval","kind":"other","_meta":{"acpmux":{"plan":{"markdown":"Do it"}}}}"#)
+        #expect(ACPPermissionRequest.plan(toolCall: call) == "Do it")
+    }
+
     @Test func otherAsksCarryNoPlan() throws {
         let edit = try Self.call(#"{"toolCallId":"t","title":"Write","kind":"edit","rawInput":{"plan":"x"}}"#)
         #expect(ACPPermissionRequest.plan(toolCall: edit) == nil)

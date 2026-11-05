@@ -413,8 +413,9 @@ export function PermissionCard({
           </p>
         )}
         {plan && (
-          <div className="acpmux-permission-plan" role="document" aria-label={t("permission.plan.label")}>
-            <Markdown>{plan}</Markdown>
+          // Fences as plain code, scrolled inside the card when long.
+          <div className="acpmux-permission-plan selectable" role="document" aria-label={t("permission.plan.label")}>
+            <Markdown plainCode>{plan}</Markdown>
           </div>
         )}
         {command && (

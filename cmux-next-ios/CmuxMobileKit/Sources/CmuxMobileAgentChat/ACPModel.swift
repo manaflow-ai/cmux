@@ -352,10 +352,15 @@ public struct ACPPermissionRequest: Hashable, Sendable, Identifiable {
     }
 
     /// The plan of a `session/request_permission` tool call, as the Mac pane reads it (webviews
-    /// direct.ts `permissionPlan`): Claude Code's ExitPlanMode input `plan`, or the plan of the
+    /// direct.ts `permissionPlan`): one acpmux attached (`_meta.acpmux.plan.markdown`), Claude
+    /// Code's ExitPlanMode input `plan`, or the plan of the
     /// `switch_mode` ask acpmux builds from Grok's and Cursor's plan approvals, from its input or
     /// else its text content. Nil for any other ask and for a plan approval with no plan text.
     public static func plan(toolCall: JSONValue) -> String? {
+        if let attached = toolCall["_meta"]?["acpmux"]?["plan"]?["markdown"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !attached.isEmpty {
+            return attached
+        }
         let exitPlanMode = toolCall["_meta"]?["claude"]?["tool"]?.stringValue == "ExitPlanMode"
         guard exitPlanMode || toolCall["kind"]?.stringValue == "switch_mode" else { return nil }
         if let input = toolCall["rawInput"]?["plan"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),

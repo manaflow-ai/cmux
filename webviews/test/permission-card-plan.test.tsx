@@ -42,6 +42,17 @@ test("a switch_mode ask acpmux builds for Grok or Cursor carries its plan, from 
   ).toBe(PLAN);
 });
 
+test("a plan acpmux attached (Gemini's plan file) is read from any ask", () => {
+  expect(
+    ask({
+      toolCallId: "t",
+      title: "Requesting plan approval",
+      kind: "other",
+      _meta: { acpmux: { plan: { markdown: PLAN } } },
+    }).plan,
+  ).toBe(PLAN);
+});
+
 test("any other ask, and a plan approval with no plan text, carries none", () => {
   expect(ask({ toolCallId: "t", title: "Write notes", kind: "edit", rawInput: { plan: PLAN } }).plan).toBeUndefined();
   expect(
@@ -59,7 +70,7 @@ test("the card renders the plan as Markdown with Approve plan and Keep planning"
       _meta: { claude: { tool: "ExitPlanMode" } },
     }),
   );
-  const plan = html.match(/<div class="acpmux-permission-plan"[^>]*>.*?<\/ol>/s)?.[0] ?? "";
+  const plan = html.match(/<div class="acpmux-permission-plan[^"]*"[^>]*>.*?<\/ol>/s)?.[0] ?? "";
   expect(plan).toContain("Retry uploads</h2>");
   expect(plan).toContain("<code");
   expect(plan).toContain("withRetry");

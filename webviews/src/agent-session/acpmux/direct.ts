@@ -1168,14 +1168,17 @@ export function permissionDiffs(
   return toolDiffs(tool?.content, tool?.locations) ?? (tool?.kind === "edit" ? inputDiffs(tool.rawInput) : undefined);
 }
 
-/// The plan a plan approval asks about: Claude Code's ExitPlanMode input `plan`, or the plan acpmux
-/// puts in a `switch_mode` ask it builds from Grok's and Cursor's own plan approvals (hub xai.rs,
+/// The plan a plan approval asks about: one acpmux attached (`_meta.acpmux.plan.markdown`, as for
+/// Gemini's plan file), Claude Code's ExitPlanMode input `plan`, or the plan acpmux puts in a
+/// `switch_mode` ask it builds from Grok's and Cursor's own plan approvals (hub xai.rs,
 /// cursor_ext.rs), from its input or else its text content. Undefined for any other ask, and for a
 /// plan approval with no plan text.
 export function permissionPlan(
-  tool: { kind?: unknown; content?: unknown; rawInput?: unknown } | undefined,
+  tool: { kind?: unknown; content?: unknown; rawInput?: unknown; _meta?: unknown } | undefined,
   claudeMeta?: { tool?: unknown },
 ): string | undefined {
+  const attached = stringValue(objectValue(objectValue(objectValue(tool?._meta)?.acpmux)?.plan)?.markdown)?.trim();
+  if (attached) return attached;
   if (claudeMeta?.tool !== "ExitPlanMode" && tool?.kind !== "switch_mode") return undefined;
   const input = stringValue(objectValue(tool?.rawInput)?.plan)?.trim();
   if (input) return input;
