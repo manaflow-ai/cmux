@@ -70,10 +70,9 @@ lume_dir="$lume_home/bin/$lume_sum"
 [[ -x "$lume_dir/lume" ]] || { rm -rf "$lume_dir"; finish "could not unpack the pinned Lume"; exit 4; }
 # Foundation takes the home directory from CFFIXED_USER_HOME, not HOME, and Lume assembles a pull in
 # TMPDIR: all three point into the cache, so the image, the clones and the pull's scratch live there.
-lume() {
-  HOME="$lume_home" CFFIXED_USER_HOME="$lume_home" XDG_CONFIG_HOME="$lume_home/.config" TMPDIR="$lume_home/tmp/" \
-    LUME_TELEMETRY_ENABLED=0 LUME_LOG_LEVEL=error "$lume_dir/lume" "$@"
-}
+lume_env=(env HOME="$lume_home" CFFIXED_USER_HOME="$lume_home" XDG_CONFIG_HOME="$lume_home/.config" TMPDIR="$lume_home/tmp/"
+  LUME_TELEMETRY_ENABLED=0 LUME_LOG_LEVEL=error "$lume_dir/lume")
+lume() { "${lume_env[@]}" "$@"; }
 note "lume home $lume_home"
 
 note "STAGE image"
@@ -107,7 +106,7 @@ if [[ -n "$base_status" && "$base_status" != stopped ]]; then
   base_status=""
 fi
 if [[ -z "$base_status" ]]; then
-  rm -rf "$lume_home/tmp/"lume_vm_*
+  rm -rf "$lume_home/tmp/"* # a cut-short pull's scratch; this folder is only this script's
   started=$(date +%s)
   lume pull "${image_name#*/}:$image_tag" "$base" --organization "${image_name%%/*}" >"$out/pull.log" 2>&1 ||
     { tail -20 "$out/pull.log"; finish "lume pull failed (pull.log)"; exit 4; }
@@ -117,12 +116,13 @@ fi
 note "STAGE boot"
 # A clone an earlier run could not delete (its step was killed) is removed first.
 if [[ -s "$lume_home/leftover" ]]; then
+  still=()
   while read -r old; do
     [[ "$old" == cu-bench-* ]] || continue
     lume stop "$old" >/dev/null 2>&1 || true
-    lume delete "$old" --force >/dev/null 2>&1 || true
+    lume delete "$old" --force >/dev/null 2>&1 || still+=("$old")
   done <"$lume_home/leftover"
-  : >"$lume_home/leftover"
+  printf '%s\n' ${still[@]+"${still[@]}"} >"$lume_home/leftover"
 fi
 vm="cu-bench-$(date +%s)-$$"
 echo "$vm" >>"$lume_home/leftover"
@@ -139,7 +139,8 @@ cleanup() {
 trap cleanup EXIT
 lume clone "$base" "$vm" >"$out/clone.log" 2>&1 || { finish "lume clone failed (clone.log)"; exit 4; }
 lume set "$vm" --cpu 6 --memory 12GB --display 1920x1080 >"$out/set.log" 2>&1 || { finish "lume set failed (set.log)"; exit 4; }
-lume run "$vm" --no-display >"$out/run.log" 2>&1 &
+# exec, so $! is Lume's own process, not a subshell around it.
+( exec "${lume_env[@]}" run "$vm" --no-display ) >"$out/run.log" 2>&1 &
 run_pid=$!
 booted=0
 for _ in $(seq 1 90); do
