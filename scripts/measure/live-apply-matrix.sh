@@ -174,7 +174,9 @@ import json, os, socket, subprocess, sys, time
 from pathlib import Path
 HERE = Path(os.environ["LIVE_APPLY_HERE"])
 sys.path.insert(0, str(HERE / "scripts" / "ci"))
+sys.path.insert(0, str(HERE / "scripts" / "cmux-next"))
 import fresh_home_launch_smoke as smoke  # noqa: E402
+from tag_teardown import TagTeardown  # noqa: E402
 
 PHASE, PROBE, PR = os.environ["LIVE_APPLY_PHASE"], os.environ["LIVE_APPLY_PROBE"], os.environ["LIVE_APPLY_PR"]
 HEAD_TREE = os.environ["LIVE_APPLY_HEAD_TREE"]
@@ -422,6 +424,41 @@ def after_render(process, socket_path, env, app, out, report):
     return []
 
 
+# The smoke runs a private copy of the app (copy_app); the tag's daemons, terminal hosts and holders run from
+# that copy, which main() deletes after run() returns. So the copy is torn down here, by its own path, while it
+# and its daemon state are still there: once the app stops, and again if run() ends early.
+TEARDOWN = {}
+_copy_app, _stop_child, _run = smoke.copy_app, smoke.stop_child, smoke.run
+
+
+def copy_app(source, root):
+    app = _copy_app(source, root)
+    TEARDOWN["copy"] = TagTeardown(app, log=lambda line: print(line, file=sys.stderr, flush=True))
+    return app
+
+
+def stop_child(process, *args, **kwargs):
+    teardown = TEARDOWN.get("copy")
+    if teardown is not None:
+        teardown.remember()  # the daemon still runs: its state root is read now
+    try:
+        return _stop_child(process, *args, **kwargs)
+    finally:
+        if teardown is not None:
+            teardown.end()
+
+
+def run(args, root, report):
+    try:
+        return _run(args, root, report)
+    finally:
+        teardown = TEARDOWN.pop("copy", None)
+        if teardown is not None:
+            teardown.end()  # once only: a no-op after stop_child's
+            report["teardown_app"] = teardown.app
+
+
+smoke.copy_app, smoke.stop_child, smoke.run = copy_app, stop_child, run
 smoke.PREPARE_HOME = prepare_home
 smoke.AFTER_RENDER = after_render
 if __name__ == "__main__":
@@ -433,6 +470,7 @@ DRIVER
     LIVE_APPLY_PR="$pr" LIVE_APPLY_OUT="$out" LIVE_APPLY_PHASE=inplace LIVE_APPLY_HERE="$here" \
     LIVE_APPLY_SCRIPT_BLOB="$(git -C "$here" rev-parse HEAD:scripts/measure/live-apply-matrix.sh 2>/dev/null || echo unknown)"
   python3 "$scratch/driver.py" --app "$base_app" --out "$out/lab-$pr" >"$out/lab-$pr.log" 2>&1 || status=$?
+  # The driver tore down its copy of the app; this ends anything started from the build path itself.
   python3 "$here/scripts/cmux-next/tag_teardown.py" "$base_app" >/dev/null 2>&1 || true
   # Parity and fallback: the head built on the same tag (incremental), launched fresh, probed.
   local th0 th1
