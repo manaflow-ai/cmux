@@ -123,7 +123,7 @@ extension CloudStartSession {
     /// `work`'s answer if it comes within `wait`, else nil (the work goes on to its end). Its error is thrown.
     static func first<T: Sendable>(within wait: Duration, _ work: @escaping @MainActor () async throws -> T) async throws -> T? {
         // task-owner: the login step; it runs to its end even when the run answers without it.
-        let step = Task { @MainActor in try await work() }
+        let step = Task { try await work() } // inherits this type's main actor: the login step's own awaits leave it
         let (answers, continuation) = AsyncStream<Result<T, any Error>?>.makeStream(bufferingPolicy: .bufferingOldest(1))
         // task-owner: relays the step's answer; it ends with the step (a yield after finish is dropped).
         Task { continuation.yield(await step.result) }
