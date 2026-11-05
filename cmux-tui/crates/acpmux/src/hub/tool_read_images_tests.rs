@@ -142,17 +142,24 @@ fn anything_else_is_left_as_it_came() {
     // A Claude Read that returned its image already (`claude_stdio/result_images.rs`).
     let mut returned = codex_view(&png);
     returned["params"]["update"]["content"] = json!([{"type": "content", "content": {"type": "image", "mimeType": "image/png", "data": "AAAA"}}]);
+    let mut spoofed = codex_view("notes.txt");
+    spoofed["params"]["update"]["locations"][0]["_meta"] =
+        json!({"acpmux": {"canonicalPath": png}});
     let cases = [
         ("still running", running, "tool_call_update"),
         ("not a read", edit, "tool_call_update"),
         ("two files", two, "tool_call_update"),
         ("returned its image", returned, "tool_call_update"),
         ("the call's start", codex_view(&png), "tool_call"),
+        // A resumed chat's replayed history: not drawn, and never read again.
+        ("a replay", codex_view(&png), "tool_call_update.replay"),
         ("not an image", codex_view("notes.txt"), "tool_call_update"),
         ("an image name on other bytes", codex_view("fake.png"), "tool_call_update"),
         ("gone", codex_view("missing.png"), "tool_call_update"),
         ("too large", codex_view("big.png"), "tool_call_update"),
         ("a folder", codex_view(dir.to_str().unwrap()), "tool_call_update"),
+        // A canonicalPath the agent's own update carries never picks the file.
+        ("a canonicalPath of the agent's", spoofed, "tool_call_update"),
     ];
     for (why, msg, kind) in cases {
         let mut seen = msg.clone();
@@ -164,10 +171,32 @@ fn anything_else_is_left_as_it_came() {
     let mut text = codex_view(&png);
     text["params"]["update"]["content"] =
         json!([{"type": "content", "content": {"type": "text", "text": "ok"}}]);
-    add_read_image("tool_call_update.replay", &mut text, &dir);
+    add_read_image("tool_call_update", &mut text, &dir);
     let content = text["params"]["update"]["content"].as_array().unwrap();
     assert_eq!(content.len(), 2, "{text}");
     assert_eq!(content[0]["content"]["text"], "ok");
     assert_eq!(content[1]["content"]["type"], "image");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A FIFO with no writer is refused at once: opening it never waits on the event path.
+#[cfg(unix)]
+#[test]
+fn a_fifo_is_refused_without_waiting() {
+    let dir = scratch("fifo");
+    let fifo = dir.join("shot.png");
+    let name = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+    let (done, wait) = std::sync::mpsc::channel();
+    let path = fifo.to_str().unwrap().to_owned();
+    let dir2 = dir.clone();
+    std::thread::spawn(move || {
+        let mut msg = codex_view(&path);
+        let before = msg.clone();
+        add_read_image("tool_call_update", &mut msg, &dir2);
+        let _ = done.send(msg == before);
+    });
+    let unchanged = wait.recv_timeout(std::time::Duration::from_secs(5));
+    assert_eq!(unchanged, Ok(true), "a FIFO is left as it came, and at once");
     let _ = std::fs::remove_dir_all(&dir);
 }
