@@ -1661,8 +1661,8 @@ button.cv-subagent > :last-child {
    (or it has keyboard focus); tucked, the hat leaves only a faint up chevron at the same place on the
    composer's top edge, in the accent while something runs, which brightens on hover. No bar and no
    wide slab behind it (Leo, 2026-11-05: "the Tuck is a little bit ugly"): the buttons keep their wide
-   hit areas, and only a pill the chevron's size shows on hover, as Codex, ChatGPT and VS Code draw a
-   divider's collapse control. */
+   hit areas, and only a small wash the chevron's size shows on hover, as Codex, ChatGPT and VS Code
+   draw a divider's collapse control. */
 .acpmux-running-tray[data-tucks] {
   position: relative;
 }
@@ -1735,22 +1735,27 @@ button.cv-subagent > :last-child {
   height: 0;
   margin: 0 var(--cv-inset-end, var(--cv-inset, 0px)) 0 var(--cv-inset, 0px);
 }
-/* Its chevron sits just above the composer's edge, so the hairline runs under it unbroken. */
 .acpmux-tray-pull__tab {
-  top: -12px;
+  top: -8px;
   width: 96px;
   height: 20px;
 }
-/* The pill behind the chevron on hover or keyboard focus: the chevron's size, not the hit area's. */
+/* What the tab draws sits 4px above its strip's middle, just above the composer's edge, so the
+   hairline runs under the chevron unbroken; the strip (where it takes clicks) stays put. */
+.acpmux-tray-pull__tab {
+  --acpmux-tray-pull-lift: 4px;
+}
+/* The wash behind the chevron on hover or keyboard focus: the chevron's size, not the hit area's,
+   a small-radius rect (POLISH.md: no capsule pills). */
 .acpmux-tray-pull__tab::before {
   --acpmux-tray-pull-pill: 16px;
   content: "";
   position: absolute;
-  top: 50%;
+  top: calc(50% - var(--acpmux-tray-pull-lift));
   left: 50%;
   width: calc(var(--acpmux-tray-pull-pill) + 8px);
   height: var(--acpmux-tray-pull-pill);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control, 6px);
   background: transparent;
   transform: translate(-50%, -50%);
   transition: background-color var(--cv-actions-in) var(--cv-actions-ease);
@@ -1782,7 +1787,7 @@ button.cv-subagent > :last-child {
 .acpmux-tray-pull__dot,
 .acpmux-tray-pull__count {
   position: absolute;
-  top: 50%;
+  top: calc(50% - var(--acpmux-tray-pull-lift));
   left: calc(50% + 16px);
   transform: translateY(-50%);
 }
@@ -1802,7 +1807,7 @@ button.cv-subagent > :last-child {
 /* The up chevron, faint at rest and in the accent while something runs, full on hover or focus. */
 .acpmux-tray-pull__tab > svg {
   opacity: 0.45;
-  transform: rotate(180deg);
+  transform: translateY(calc(-1 * var(--acpmux-tray-pull-lift))) rotate(180deg);
 }
 .acpmux-tray-pull[data-running] .acpmux-tray-pull__tab {
   color: var(--agent-accent);
