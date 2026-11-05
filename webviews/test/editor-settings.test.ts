@@ -2,7 +2,7 @@
 // vscode"): the `editor.*` keys resolve to Monaco options, and `editor.keybindings` (VS Code's and
 // Zed's key strings, imported from their files) become Monaco keybinding rules. Pure: no Monaco.
 import { expect, test } from "bun:test";
-import { EDITOR_DEFAULTS, monacoOptions, resolveEditorSettings } from "../src/pages/editor/settings";
+import { EDITOR_DEFAULTS, MINIMAP_WIDE_PANE, monacoOptions, resolveEditorSettings } from "../src/pages/editor/settings";
 import {
   keybindingEntries,
   keybindingRules,
@@ -150,4 +150,29 @@ test("the editor types through its textarea, never Chromium's EditContext", () =
     ariaLabel: "x",
   });
   expect(options.editContext).toBe(false);
+});
+
+test("the minimap draws at a readable size, scaled to the pane's width", () => {
+  // Leo 2026-11-05: "this vs code minimap is pretty sh***y it isn't very useful it's so small".
+  const settings = { ...resolveEditorSettings(undefined), minimap: true };
+  const minimap = (width?: number) =>
+    monacoOptions(settings, undefined, { readOnly: false, large: false, ariaLabel: "x", width }).minimap;
+  const wide = { enabled: true, size: "proportional", renderCharacters: true, maxColumn: 80, showSlider: "always" };
+  expect(minimap(MINIMAP_WIDE_PANE)).toEqual({ ...wide, scale: 2 });
+  expect(minimap(1400)).toEqual({ ...wide, scale: 2 });
+  // A narrow pane, or one not laid out yet, keeps Monaco's scale 1 so the code keeps its room.
+  expect(minimap(MINIMAP_WIDE_PANE - 1)).toEqual({ ...wide, scale: 1 });
+  expect(minimap(undefined)).toEqual({ ...wide, scale: 1 });
+  // Still off when the setting is off, or for a large file.
+  expect(
+    monacoOptions(resolveEditorSettings(undefined), undefined, {
+      readOnly: false,
+      large: false,
+      ariaLabel: "x",
+      width: 1400,
+    }).minimap,
+  ).toMatchObject({ enabled: false });
+  expect(
+    monacoOptions(settings, undefined, { readOnly: false, large: true, ariaLabel: "x", width: 1400 }).minimap,
+  ).toMatchObject({ enabled: false });
 });

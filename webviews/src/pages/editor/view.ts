@@ -30,6 +30,7 @@ import {
   MONACO_THEME_VARIABLES,
   isLargeFile,
   modelOptions,
+  MINIMAP_WIDE_PANE,
   monacoOptions,
   settingsForLanguage,
   type EditorSettings,
@@ -308,6 +309,8 @@ export class MonacoView implements CodeView {
   private readonly scheme = matchMedia("(prefers-color-scheme: dark)");
   private themesKey = "";
   private loadToken = 0;
+  /** The width the minimap's options were last made for is at least MINIMAP_WIDE_PANE. */
+  private minimapWide = false;
 
   constructor(
     private readonly container: HTMLElement,
@@ -358,6 +361,11 @@ export class MonacoView implements CodeView {
       {
         dispose: onScrollerStyleChange(() => this.editor.updateOptions(this.editorOptions()), document.documentElement),
       },
+      // The minimap's scale follows the pane's width (settings.ts minimapOptions): a resize across
+      // MINIMAP_WIDE_PANE sends the options again, any other resize does nothing.
+      this.editor.onDidLayoutChange((layout) => {
+        if (layout.width >= MINIMAP_WIDE_PANE !== this.minimapWide) this.editor.updateOptions(this.editorOptions());
+      }),
     );
     this.scheme.addEventListener("change", this.onSchemeChange);
     this.disposables.push(
@@ -459,6 +467,13 @@ export class MonacoView implements CodeView {
     return dark ? DARK_THEME : LIGHT_THEME;
   }
 
+  /** The editor's width for the minimap's options; records which side of MINIMAP_WIDE_PANE it is on. */
+  private editorWidth(): number {
+    const width = this.container.clientWidth;
+    this.minimapWide = width >= MINIMAP_WIDE_PANE;
+    return width;
+  }
+
   private large(): boolean {
     return this.documentInfo ? isLargeFile(this.documentInfo.size, this.look.settings) : false;
   }
@@ -478,6 +493,7 @@ export class MonacoView implements CodeView {
       ariaLabel: this.callbacks.label("editor", info?.path ?? ""),
       readOnlyMessage: info?.readOnly ? this.callbacks.label("readOnly", info.path) : undefined,
       scrollers: scrollerStyle(),
+      width: this.editorWidth(),
     }) as monaco.editor.IEditorOptions;
   }
 

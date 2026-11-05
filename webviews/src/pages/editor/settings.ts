@@ -370,6 +370,29 @@ export function editorFont(
   return { family, size: settings.fontSize ?? terminalSize };
 }
 
+/** Below this editor width (CSS px) the minimap drops to Monaco's scale 1, so it never crowds the code. */
+export const MINIMAP_WIDE_PANE = 720;
+
+/**
+ * The minimap at a size you can read (Leo 2026-11-05, "this vs code minimap is pretty sh***y it isn't
+ * very useful it's so small"): Monaco's defaults draw 1px characters with the slider only on hover.
+ * In a wide pane it draws at scale 2 (2px characters, 4px lines on a Retina screen) with the slider
+ * always shown; in a narrow one (or before the first layout) at scale 1. Monaco caps its width at
+ * `maxColumn` characters and at the share of the pane its proportional layout gives it (about a fifth
+ * at scale 2), so 80 columns keep it at most 160px wide.
+ */
+export function minimapOptions(enabled: boolean, width: number | undefined): Record<string, unknown> {
+  const wide = (width ?? 0) >= MINIMAP_WIDE_PANE;
+  return {
+    enabled,
+    size: "proportional",
+    scale: wide ? 2 : 1,
+    renderCharacters: true,
+    maxColumn: 80,
+    showSlider: "always",
+  };
+}
+
 /** The Monaco editor options (IEditorOptions shape) for the resolved settings. */
 export function monacoOptions(
   settings: EditorSettings,
@@ -380,6 +403,8 @@ export function monacoOptions(
     ariaLabel: string;
     readOnlyMessage?: string;
     scrollers?: ScrollerStyle;
+    /** The editor's width in CSS pixels; the minimap's scale follows it (`minimapOptions`). */
+    width?: number;
   },
 ): Record<string, unknown> {
   const font = editorFont(settings, appearance);
@@ -394,7 +419,7 @@ export function monacoOptions(
     letterSpacing: settings.letterSpacing,
     wordWrap: settings.wordWrap,
     wordWrapColumn: settings.wordWrapColumn,
-    minimap: { enabled: settings.minimap && !large },
+    minimap: minimapOptions(settings.minimap && !large, context.width),
     lineNumbers: settings.lineNumbers,
     rulers: settings.rulers,
     renderWhitespace: settings.renderWhitespace,

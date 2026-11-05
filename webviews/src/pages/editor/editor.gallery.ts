@@ -16,6 +16,21 @@ const largeSource = Array.from(
   (_, index) => `export const generatedValue${index + 1} = ${index + 1}; // keeps the large-file note visible\n`,
 ).join("");
 
+// A file long enough that the minimap has a shape to show beside the viewport.
+const longSource = Array.from(
+  { length: 24 },
+  (_, index) => `// MARK: route ${index + 1}
+export async function handleRoute${index + 1}(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  if (!url.searchParams.has("id")) {
+    return new Response("missing id", { status: 400 });
+  }
+  const record = await loadRecord(url.searchParams.get("id") ?? "", { route: ${index + 1} });
+  return Response.json({ ok: true, record });
+}
+`,
+).join("\n");
+
 const recents = Array.from({ length: 24 }, (_, index) => ({
   path: `/Users/you/src/atlas-web/src/feature-${String(index + 1).padStart(2, "0")}/component.tsx`,
   name: `component-${String(index + 1).padStart(2, "0")}.tsx`,
@@ -64,6 +79,12 @@ export default editorPageEntry({
       text: source,
       recoveredText: `${source}\n// Local change.\n`,
       conflict: { hash: "disk-revision-2", text: `${source}\n// Changed on disk.\n` },
+    },
+    minimap: {
+      note: "A long file with the minimap on: drawn at scale 2 in a wide pane, its slider always shown.",
+      path: "/Users/you/src/atlas-web/src/routes.ts",
+      text: longSource,
+      settings: { minimap: { enabled: true } },
     },
     "large-file": {
       note: "A file above the configured threshold disables expensive editor features.",
