@@ -4892,6 +4892,19 @@ a.cv-sha:focus-visible {
   --ui-popup-open: 0s;
   --ui-dialog-open: 0s;
 }
+/* Reduce Transparency: the opaque surface with no blur, never the lighter mix above. */
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-image-viewer {
+    background: var(--cmux-surface-solid, var(--agent-page-bg));
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-image-viewer {
+  background: var(--cmux-surface-solid, var(--agent-page-bg));
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 .acpmux-image-viewer-backdrop {
   position: fixed;
   inset: 0;
