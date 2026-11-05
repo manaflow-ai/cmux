@@ -1,6 +1,6 @@
-import CmuxNextCloud
-import CmuxNextDesign
-import AppKit
+public import CmuxNextCloud
+public import CmuxNextDesign
+public import AppKit
 import CmuxNextCompat
 import os
 
