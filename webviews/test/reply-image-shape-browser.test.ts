@@ -49,6 +49,9 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
     { entry: "agent-pane.reply-thumbs", variant: "shapes", image: ".cv-thumb__img", frame: ".cv-thumb" },
     { entry: "agent-pane.sent-images", variant: "wide-strip", image: "img.cv-user__image", frame: "button" },
     { entry: "agent-pane.sent-images", variant: "pasted", image: "img.cv-user__image", frame: "button" },
+    // A tall phone shot a tool call returned (ToolRow.tsx ToolImages): its own column, no tall empty frame.
+    { entry: "agent-pane.read-image-result", variant: "returned-tall", image: ".cv-thumb__img", frame: ".cv-thumb" },
+    { entry: "agent-pane.read-image-result", variant: "returned-image", image: ".cv-thumb__img", frame: ".cv-thumb" },
     // A 400px chat: the strip above a prompt and inside one scale down to the bubble's width.
     { entry: "agent-pane.sent-images", variant: "narrow", image: "img.cv-user__image", frame: "button", width: 400 },
   ];
@@ -96,6 +99,8 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
             expect(Math.abs(box.height - drawn.height), label).toBeLessThan(2);
             // Never larger than the image: no magnified, blurry crop.
             expect(drawn.width, label).toBeLessThanOrEqual(natural.width + 0.5);
+            // At most 360px tall (chips.css .cv-thumb--open): a phone shot never stretches the transcript.
+            expect(box.height, label).toBeLessThanOrEqual(360.5);
             // Inside the prompt's bubble or image band: never past its edge in a narrow chat.
             if (bound) expect(drawn.right, label).toBeLessThanOrEqual(bound.right + 0.5);
           }
@@ -112,9 +117,7 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
       try {
         const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
         await page.goto(base + galleryFrame("agent-pane.sent-video", { variant, width: 760, height: 720 }));
-        await page.waitForFunction(() =>
-          ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
-        );
+        await page.waitForFunction(() => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""));
         expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
         if (variant === "video-only")
           await page.waitForFunction(() => {

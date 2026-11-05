@@ -2919,11 +2919,17 @@ button.cv-worked:focus-visible {
   gap: 8px;
   margin: 4px 0 8px;
 }
-/* A call's images: the reply's fixed-shape thumbnail (chips.css .cv-thumb), narrower, so its
- * height is held before the image loads and the image fits inside whole. */
+/* A call's images: the reply's thumbnail (chips.css .cv-thumb), narrower. Its waiting frame keeps the
+ * fixed shape, so its height is held before the image loads; a shown image takes its own shape
+ * (.cv-thumb--open, --sized), at most 320px wide here and 360px tall. */
 .cv-tool-images .cv-thumb {
-  width: min(100%, 320px);
   margin: 0;
+}
+.cv-tool-images .cv-thumb:not(.cv-thumb--open) {
+  width: min(100%, 320px);
+}
+.cv-tool-images .cv-thumb--open {
+  max-width: min(100%, 320px);
 }
 .cv-tool-images .cv-img {
   max-width: min(100%, 360px);
