@@ -270,29 +270,132 @@ def collection_kinds(lines):
     return dicts, arrays, others
 
 
-# Every parameter of a func/init list, whatever its type (`func f(_ s: inout State)`).
-ANY_PARAMETER = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:")
+# Every parameter of a func/init list, whatever its type (`func f(_ s: inout State)`); the
+# type text starts at the match end.
+ANY_PARAMETER = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:\s*")
 # Closure parameters: `{ state in`, `{ [weak self] a, b in`, `{ (s: State) -> Bool in`.
 CLOSURE_PARAMETERS = re.compile(r"\{\s*(?:\[[^\[\]]*\]\s*)?(\([^(){}]*\)|\w+(?:\s*,\s*\w+)*)"
                                 r"\s*(?:->\s*[^{}]+?)?\s+in\b")
 FOR_IN = re.compile(r"\bfor\s+(?:case\s+(?:let|var)\s+)?(\([^()]*\)|\w+)\s+in\b")
 PARAMETER_NAME = re.compile(r"(?:^|[(,])\s*(\w+)")
+TYPED_PARAMETER = re.compile(r"(?:^|[(,])\s*(?:\w+\s+)?(\w+)\s*:\s*([^,()]*)")
+# A type this file declares (its members are the ones this file's declarations describe).
+TYPE_DECL = re.compile(r"\b(?:struct|class|enum|actor)\s+([A-Z]\w*)")
+# A lock whose withLock closure parameter is its element: `Mutex(State())`, `Mutex<State>`,
+# `OSAllocatedUnfairLock(initialState: State())`.
+LOCK_WRAPPERS = frozenset({"Mutex", "OSAllocatedUnfairLock"})
+WITH_LOCK_BEFORE = re.compile(r"(\w+)\.withLock\s*\(?\s*$")
+TYPE_NAME = r"[A-Z]\w*(?:\.[A-Z]\w*)*"
+ANNOTATED_TYPE = re.compile(r"(?:(?:inout|any|some|borrowing|consuming)\s+|@\w+(?:\([^)]*\))?\s+)*"
+                            r"(" + TYPE_NAME + r")(?:\s*<\s*(" + TYPE_NAME + r"))?")
+CONSTRUCTED_TYPE = re.compile(r"(" + TYPE_NAME + r")\s*(?:<\s*(" + TYPE_NAME + r")[^>]*>\s*)?"
+                              r"(?:\.init\s*)?\(\s*(?:\w+\s*:\s*)?(?:(" + TYPE_NAME + r")\s*(?:\.init\s*)?\()?")
+
+
+def written_type(text, annotated):
+    """(type, element) that TEXT gives a value: a named type (dotted names kept whole) from an
+    annotation (`: inout State`, `: Mutex<State>`) or a constructor call (`= State()`,
+    `= Mutex(State())`); element is a lock's wrapped type. (None, None) when it names no type
+    (an inferred value, a call, a literal, a collection or tuple type)."""
+    if annotated:
+        match = ANNOTATED_TYPE.match(text)
+        if not match:
+            return None, None
+        element = match.group(2)
+    else:
+        match = CONSTRUCTED_TYPE.match(text)
+        if not match:
+            return None, None
+        element = match.group(2) or match.group(3)
+    return match.group(1), element
+
+
+IF_BINDING_BEFORE = re.compile(r"\b(?:if|while)\s+(?:case\s+)?$")
+
+
+class FileScopes:
+    """The value bindings of one file by brace scope, to say whether a member chain's receiver
+    at (line, position) has a type this file declares. A var/let binds in the scope it is
+    written in (`if let`/`while let` in the block it opens); func/init parameters, `for` loop
+    variables and closure parameters in the body their brace opens. A receiver resolves to the
+    innermost visible scope that binds its name (`self.name` to the outermost: the property);
+    it is local only when every binding of the name in that scope has a type named in a
+    struct, class, enum or actor declared in this file. A withLock closure parameter has the
+    lock's element type (`Mutex(State())`: State); a lock itself is not local."""
+
+    def __init__(self, local_types):
+        self.local_types = local_types
+        self.checkpoints = {}  # line index -> [(position, scope stack)], position ascending
+
+    def at(self, index):
+        """A callable (name, position, through_self) -> bool for line INDEX."""
+        points = self.checkpoints.get(index, [])
+        def local(name, position, through_self=False):
+            stack = ()
+            for start, scopes in points:
+                if start < position:
+                    stack = scopes
+            return self._local(name, stack, through_self)
+        return local
+
+    def _local(self, name, stack, through_self=False):
+        order = stack if through_self else tuple(reversed(stack))
+        for scope in order:
+            if name in scope:
+                resolved = [self._resolve(entry) for entry in scope[name]]
+                resolved = [kind for kind in resolved if kind != "lock"]
+                return bool(resolved) and all(self._declared_here(kind) for kind in resolved)
+        return False
+
+    def _declared_here(self, kind):
+        """KIND names a type of this file: every part of a dotted name (`Outer.State`) is a
+        type declared here; `Other.State` with Other from elsewhere is not."""
+        return bool(kind) and all(part in self.local_types for part in kind.split("."))
+
+    def _resolve(self, entry):
+        kind, element = entry[0], entry[1]
+        if kind == "lock-of":
+            return self._element(element, entry[2])
+        return "lock" if kind in LOCK_WRAPPERS else kind
+
+    @staticmethod
+    def _element(lock, stack):
+        """The element type of the lock named LOCK as seen from STACK, else None."""
+        for scope in reversed(stack):
+            if lock in scope:
+                entries = scope[lock]
+                elements = {element for kind, element, *_ in entries if kind in LOCK_WRAPPERS}
+                if len(elements) == 1 and all(kind in LOCK_WRAPPERS for kind, *_ in entries):
+                    return elements.pop()
+                return None
+        return None
 
 
 def declarations(lines):
-    """collection_kinds' three sets, and {every value name LINES declare}: var/let names
-    (`if let` and `guard let` too), func/init parameters of any type, closure parameters
-    and loop variables. A member chain whose receiver is one of these names (`state.tasks[id]`
-    with `state` from this file) reads the member's kind from this file's declarations."""
-    dicts, arrays, others, values = set(), set(), set(), set()
+    """collection_kinds' three sets, and the file's FileScopes (which receivers have a type
+    this file declares). A member chain on such a receiver (`state.tasks[id]` with `state` a
+    `State` and `struct State` here) reads the member's kind from this file; any other
+    receiver uses the module rule, so a same-named array on another file's type still counts."""
+    dicts, arrays, others = set(), set(), set()
+    local_types = set()
+    stack = [{}]
+    scopes = FileScopes(local_types)
+    pending = []  # bindings for the next `{`: func parameters, for/if-let variables
     signature_depth = 0  # > 0 while a func/init parameter list continues on later lines
-    for line in lines:
+    for index, line in enumerate(lines):
         code = swift_code(line)
+        local_types.update(TYPE_DECL.findall(code))
         found = [(m.group(1), (m.group(2) or m.group(3) or "").strip()) for m in DECLARED_TYPE.finditer(code)]
+        events = []  # (position, order, action, payload)
+        for m in DECLARED_TYPE.finditer(code):
+            entry = written_type((m.group(2) or m.group(3) or "").strip(), m.group(2) is not None)
+            opens = IF_BINDING_BEFORE.search(code[:m.start()])
+            events.append((m.start(), 1, "pend" if opens else "bind", (m.group(1), entry)))
         head = FUNC_OR_INIT.search(code)
         if head or signature_depth > 0:
             # Only the parameter list: up to the parenthesis that closes it.
             text = code[head.end() - 1:] if head else code
+            offset = head.end() - 1 if head else 0
             depth, stop = (0 if head else signature_depth), len(text)
             for pos, ch in enumerate(text):
                 if ch == "(":
@@ -304,15 +407,63 @@ def declarations(lines):
                         break
             params = text[:stop] if head else "(" + text[:stop]
             found += [(m.group(1), params[m.end():].strip()) for m in PARAMETER_TYPE.finditer(params)]
-            values.update(m.group(1) for m in ANY_PARAMETER.finditer(params))
+            if head:
+                events.append((head.start(), 0, "new-signature", None))
+            for m in ANY_PARAMETER.finditer(params):
+                events.append((offset + stop - 1, 1, "pend", (m.group(1), written_type(params[m.end():], True))))
             signature_depth = max(depth, 0) if stop == len(text) else 0
-        for match in list(CLOSURE_PARAMETERS.finditer(code)) + list(FOR_IN.finditer(code)):
-            values.update(PARAMETER_NAME.findall(match.group(1)))
+        closures = {}
+        for match in CLOSURE_PARAMETERS.finditer(code):
+            group, bound = match.group(1), []
+            if group.startswith("("):
+                inner = group[1:-1]
+                typed = {m.group(1): m.group(2).strip() for m in TYPED_PARAMETER.finditer(inner)}
+                for name in PARAMETER_NAME.findall(inner):
+                    bound.append((name, written_type(typed[name], True) if name in typed else (None, None)))
+            else:
+                names = PARAMETER_NAME.findall(group)
+                lock = WITH_LOCK_BEFORE.search(code[:match.start()])
+                for name in names:
+                    if lock and len(names) == 1:
+                        bound.append((name, ("lock-of", lock.group(1), tuple(stack))))
+                    else:
+                        bound.append((name, (None, None)))
+            closures[match.start()] = bound
+        for match in FOR_IN.finditer(code):
+            for name in PARAMETER_NAME.findall(match.group(1)):
+                events.append((match.start(), 1, "pend", (name, (None, None))))
+        for pos, ch in enumerate(code):
+            if ch in "{}":
+                events.append((pos, 2, ch, None))
+        points = [(-1, tuple(stack))]
+        for pos, _, action, payload in sorted(events, key=lambda e: (e[0], e[1])):
+            if action == "new-signature":
+                pending = []
+            elif action == "bind":
+                stack[-1].setdefault(payload[0], []).append(payload[1])
+            elif action == "pend":
+                pending.append(payload)
+            elif action == "{":
+                scope = {}
+                for name, entry in closures.get(pos, []):
+                    if entry[0] == "lock-of":
+                        entry = ("lock-of", entry[1], tuple(stack))
+                    scope.setdefault(name, []).append(entry)
+                for name, entry in pending:
+                    scope.setdefault(name, []).append(entry)
+                pending = []
+                stack.append(scope)
+                points.append((pos, tuple(stack)))
+            elif action == "}":
+                pending = []
+                if len(stack) > 1:
+                    stack.pop()
+                points.append((pos, tuple(stack)))
+        scopes.checkpoints[index] = points
         for name, text in found:
-            values.add(name)
             kind = bracket_kind(text)
             (dicts if kind == "dict" else arrays if kind == "array" else others).add(name)
-    return dicts, arrays, others, values
+    return dicts, arrays, others, scopes
 
 
 ASSIGNED = re.compile(r"\s*=(?!=)")
@@ -321,12 +472,13 @@ ASSIGNED = re.compile(r"\s*=(?!=)")
 def index_hits(code, dictionaries=frozenset()):
     """Computed subscripts in CODE that can trap (see index_subscript). DICTIONARIES:
     names the module declares only as dictionaries, or (file dictionaries, module
-    dictionaries[, file indexables, module indexables[, file value names]]) from
+    dictionaries[, file indexables, module indexables[, file receivers of a type
+    declared in the file]]) from
     file_dictionaries. An assignment target (`x[k] = v`) counts only on a known indexable name."""
     hits = 0
-    values = frozenset()
+    local_receiver = None  # (name, position, through_self) -> bool, from FileScopes.at
     if isinstance(dictionaries, tuple) and len(dictionaries) == 5:
-        local, module, local_arrays, module_arrays, values = dictionaries
+        local, module, local_arrays, module_arrays, local_receiver = dictionaries
     elif isinstance(dictionaries, tuple) and len(dictionaries) == 4:
         local, module, local_arrays, module_arrays = dictionaries
     else:
@@ -342,12 +494,15 @@ def index_hits(code, dictionaries=frozenset()):
         chain = re.sub(r"\(\)$", "", match.group(0)[:match.group(0).index("[")])
         base = chain.split(".")[-1]
         # A file's own declarations decide for a bare name (or self.name), and for a
-        # member of a value this file declares (`state.tasks[id]` with `state` a property,
-        # local or closure parameter here: the member is the one this file's type has).
-        # A member of a value from elsewhere (`transport.pending[i]`) uses the module rule.
+        # member of a value whose type this file declares (`state.tasks[id]` with `state`
+        # typed `State` and `struct State` here, see declarations). A member of any other
+        # value (`transport.pending[i]`, `model.rows[i]` on another file's Model) uses the
+        # module rule.
         receiver = chain[:-len(base) - 1] if chain != base else ""
-        receiver = receiver[len("self."):] if receiver.startswith("self.") else receiver
-        qualified = receiver not in ("", "self") and receiver not in values
+        through_self = receiver.startswith("self.")
+        receiver = receiver[len("self."):] if through_self else receiver
+        qualified = receiver not in ("", "self") and not (
+            local_receiver and "." not in receiver and local_receiver(receiver, match.start(), through_self))
         if base in (module if qualified else local):
             continue
         if local_arrays is not None and ASSIGNED.match(code[match.end():]) and \
@@ -597,6 +752,8 @@ def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
     if found:
         hits["objc_observer"] = found
     if module in INDEX_MODULES:
+        if isinstance(dictionaries, tuple) and len(dictionaries) == 5 and isinstance(dictionaries[4], FileScopes):
+            dictionaries = dictionaries[:4] + (dictionaries[4].at(index),)
         found = index_hits(code, dictionaries)
         if found:
             hits["index_subscript"] = found
@@ -639,13 +796,13 @@ def file_dictionaries(lines, module_dicts, module_arrays=None):
     as a dictionary (a property from the type's main file used in an extension file). A
     same-named array or inferred local in another file of the module no longer hides a
     dictionary declared in this one; one declared any other way in this file still counts."""
-    dicts, arrays, others, values = declarations(lines)
+    dicts, arrays, others, scopes = declarations(lines)
     others = others | arrays
     declared = dicts | others
     local = frozenset((dicts - others) | {name for name in module_dicts if name not in declared})
     if module_arrays is None:
         return local, frozenset(module_dicts)
-    return local, frozenset(module_dicts), frozenset(arrays), frozenset(module_arrays), frozenset(values)
+    return local, frozenset(module_dicts), frozenset(arrays), frozenset(module_arrays), scopes
 
 
 class Scan:
