@@ -547,6 +547,18 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Leo 2026-11-04: "shouldn't the nightly itself or whatever stable app be able to simply do this? Like the
+            // view if you wanna separate it out". The app's UI from your checkout's gallery dev server in a window of
+            // the running app (`ViewWindow`), no DEV or shell build; `port`, `width`, `height` and any mock app key
+            // (`fixture`, `density`, `script`, ...) as arguments (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.viewWindow",
+                title: String(localized: "action.debug.viewWindow", defaultValue: "Open View Window", bundle: .module),
+                keywords: ["view", "window", "preview", "shell", "live", "hot reload", "dev server", "gallery", "mock app", "checkout", "debug"],
+                category: .settings, symbol: "macwindow.on.rectangle", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             // Leo 2026-11-05 (HQ#7149 L10): "the view of the app that's separate ... with your actual config, your
             // actual settings": a real window of this app whose pages load from a worktree's dev server, the other
             // windows untouched (WebProjection, CmuxNextPages; Debug menu, DEV and NIGHTLY).

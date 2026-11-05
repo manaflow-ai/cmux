@@ -83,15 +83,27 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// `cmux-page://<id>`.
     public var origin: String { "\(Self.scheme)://\(id)" }
 
-    /// The page URL, with `route` as the fragment (`#/settings/appearance?focus=<key>`).
+    /// The page URL, with `route` as the fragment (`#/settings/appearance?focus=<key>`). A route's
+    /// valid escapes stay as they are (a fragment the page read from `location.hash`, where `%26`
+    /// is a `&` inside a value, not a separator); everything else the fragment may not hold is encoded.
     public func url(route: String? = nil) -> URL {
         var components = URLComponents()
         components.scheme = Self.scheme
         components.host = id
         components.path = "/"
-        if let route, !route.isEmpty { components.fragment = route.hasPrefix("#") ? String(route.dropFirst()) : route }
+        if let route, !route.isEmpty {
+            let fragment = route.hasPrefix("#") ? String(route.dropFirst()) : route
+            if fragment.removingPercentEncoding != nil, let encoded = fragment.addingPercentEncoding(withAllowedCharacters: Self.encodedFragmentCharacters) {
+                components.percentEncodedFragment = encoded
+            } else {
+                components.fragment = fragment
+            }
+        }
         return components.url ?? URL(fileURLWithPath: "/")
     }
+
+    /// What an already encoded fragment may hold as is: the fragment's characters and the escapes' `%`.
+    private static let encodedFragmentCharacters = CharacterSet.urlFragmentAllowed.union(CharacterSet(charactersIn: "%"))
 
     /// Whether `url` is a document of this page (its own origin).
     public func owns(_ url: URL?) -> Bool {

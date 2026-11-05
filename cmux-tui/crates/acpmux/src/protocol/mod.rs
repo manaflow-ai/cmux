@@ -311,6 +311,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TASK_NEW, Request),
         untyped(method::MUX_TASKS, Request),
         untyped(method::MUX_RESOLVE, Request),
+        untyped(method::MUX_WHO_ELSE, Request),
         untyped(method::MUX_MEDIA_OPEN, Request),
         untyped(method::MUX_MEDIA_RANGE, Request),
         // Permissions.
@@ -415,6 +416,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CHAT_ROUTE_SET, Request),
         untyped(method::MUX_ACCOUNTS, Request),
         untyped(method::MUX_ACCOUNT_SET, Request),
+        untyped(method::MUX_ACCOUNT_USAGE, Request),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),

@@ -8,15 +8,6 @@ public nonisolated struct BrowserResizeTunables {
     public nonisolated init() {}
     public static let section = TunableSection(id: "browserResize", title: "Browser Resize", symbol: "arrow.up.left.and.arrow.down.right", order: 48)
 
-    /// On (the default): the gap beside a Chromium page's last frame while it
-    /// lays out at a new size shows the page's own background color
-    /// (`CEFTab+ResizeBackdrop`). Off: the gap shows Chromium's white and the
-    /// pane ground, or the window backdrop over Liquid Glass.
-    public static let pageBackdrop = Tunable<Bool>.toggle(
-        "browserResize.pageBackdrop", section, "Fill resize gaps with the page color",
-        help: "While a Chromium page lays out at a new window or pane size, the gap beside its last frame shows the page's own background color. Off shows Chromium's white and the pane ground.",
-        default: true, code: "BrowserResizeTunables.pageBackdrop")
-
     /// On (the default since cmux-ad m19, 2026-11-05: perf paths ship on, no switches): the page's pixels live in the
     /// cmux window's layer tree (fork API 26, `CEFHostedPageView`); the page window stays as a transparent input
     /// target. Off: a Chromium page draws in its own child window over the pane. Applies to pages shown after the change.
@@ -112,7 +103,7 @@ public nonisolated struct BrowserResizeTunables {
     }
 
     public static var all: [TunableDescriptor] {
-        [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, dragResize.descriptor,
+        [layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, dragResize.descriptor,
          dragResizeDeadline.descriptor, keyResizeTopLeft.descriptor, framesOwnedByCommit.descriptor, pagesWait.descriptor]
     }
 }

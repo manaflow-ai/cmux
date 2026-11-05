@@ -386,8 +386,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         services.windows.recordSaver.geometryDidChange(state)
         BackdropImageStore.shared.desktop.windowDidChange()
     }
-    /// Shown, unhidden or uncovered: the desktop picture behind it may be another one now.
-    func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange() }
+    /// Shown, unhidden or uncovered: the desktop picture behind it may be another one now, and tabs an agent drove off screen come back.
+    func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange(); if let window { services.browserHost?.tabs.windowDidChangeOcclusion(window) } }
 
     var sidebarObservation: Task<Void, Never>?
 

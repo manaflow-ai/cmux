@@ -55,9 +55,10 @@ extension CloudStartChat {
             // `agent_login`, #33744) signs the machine in with one click and the provider's approve
             // page, and only the person's click starts it (Leo, 2026-11-04: "we literally said we
             // were gonna do is such that you literally dont need to log in").
+            // A Keychain that did not answer is recorded as such, never as "no cached login".
             if provider == .claude, [.install, .confirmThenInstall, .askConsent].contains(verdict.step),
-               await !CloudCredentialTransfer.hasCachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams) {
-                decision.outcome = Self.signInInChat
+               let outcome = await CloudCredentialTransfer.cachedLogin(provider: .claude, teamID: teamID, userID: userID, otherTeams: otherTeams).startOutcome {
+                decision.outcome = outcome
                 return false
             }
             switch verdict.step {
@@ -92,7 +93,4 @@ extension CloudStartChat {
             return false
         }
     }
-
-    /// The start record's outcome when no cached login exists and the chat's own sign-in card takes over.
-    static let signInInChat = "no cached login: the chat's Sign in to Claude card"
 }

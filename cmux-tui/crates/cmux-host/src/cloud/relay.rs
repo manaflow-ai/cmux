@@ -227,6 +227,12 @@ pub fn final_event(exit: Option<i32>, stdout: &str, stderr: &str) -> Value {
 
 /// [`final_event`], where `cut` says the send's output passed [`MAX_SEND_OUT`]: its object is not whole, so
 /// `done` carries no `reply` (the streamed `text` events stand) and says so with `reply_cut`.
+///
+/// A failure keeps acpmux's type: its `--json` error envelope (`cli/errors.rs`, the last stderr line) gives the
+/// `detail` (`daemon_closed`, `trust_required`, ...), acpmux's own `code`, `retryable`, the `errorKind` and a closed
+/// daemon's `cause` (`panicked`, `crashed`, `socket_left`, ...: acpmux `client::closed_cause`) and its `recovery`, so a
+/// closed daemon, a refused permission and an auth failure stay told apart past the relay (hq#7086). Only short
+/// code-shaped words go up beside acpmux's sentence; stderr with no envelope stays a plain failure.
 pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) -> Value {
     if exit == Some(0) {
         if cut {
@@ -242,6 +248,22 @@ pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) 
         }
         return done;
     }
+    let line = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+    let envelope = serde_json::from_str::<Value>(line)
+        .ok()
+        .and_then(|v| v.get("error").cloned())
+        .filter(|e| e.get("code").is_some_and(Value::is_string));
+    let word = |key: &str| {
+        envelope
+            .as_ref()
+            .and_then(|e| e.pointer(key))
+            .and_then(Value::as_str)
+            .filter(|w| code_like(w))
+    };
+    // A signal leaves no exit status: the envelope's own exit decides then.
+    let exit = exit.or_else(|| {
+        envelope.as_ref().and_then(|e| e.get("exit")).and_then(Value::as_i64).map(|x| x as i32)
+    });
     // acpmux's exit codes (cli/errors.rs `Code`).
     let code = match exit {
         Some(3) => "chat.timeout",
@@ -249,8 +271,38 @@ pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) 
         Some(5) => "chat.permission_denied",
         _ => "chat.failed",
     };
-    let line = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-    json!({"kind": "error", "code": code, "message": line.chars().take(300).collect::<String>()})
+    let message =
+        envelope.as_ref().and_then(|e| e.get("message")).and_then(Value::as_str).unwrap_or(line);
+    let mut event = json!({"kind": "error", "code": code, "message": message.chars().take(300).collect::<String>()});
+    if let (Some(e), Some(o)) = (&envelope, event.as_object_mut()) {
+        for (from, to) in [
+            ("/code", "acpmux_code"),
+            ("/detail", "detail"),
+            ("/errorKind", "error_kind"),
+            ("/data/cause", "cause"),
+        ] {
+            if let Some(w) = word(from) {
+                o.insert(to.to_owned(), json!(w));
+            }
+        }
+        if let Some(retryable) = e.get("retryable").and_then(Value::as_bool) {
+            o.insert("retryable".to_owned(), json!(retryable));
+        }
+        // What to do about it (acpmux `recovery.rs`): acpmux's own sentence, bounded as the message is.
+        if let Some(recovery) =
+            e.get("recovery").and_then(Value::as_str).filter(|r| !r.trim().is_empty())
+        {
+            o.insert("recovery".to_owned(), json!(recovery.chars().take(300).collect::<String>()));
+        }
+    }
+    event
+}
+
+/// A short code (`daemon_closed`, `auth.signed_out`): never a sentence, a path or a value.
+fn code_like(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_.-".contains(&b))
 }
 
 /// `https://x` to `wss://x/v1/cloud/machines/{machine}/relay`.
@@ -410,9 +462,17 @@ fn run<H: Http>(
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
         }
-        rt.block_on(or_stop(&mut stop, tokio::time::sleep(backoff)));
+        pause(&rt, &mut stop, backoff);
     }
     // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
+}
+
+/// Waits out `backoff` on the relay thread's own runtime, unless `stop` comes first. The timer is made inside the
+/// runtime: this thread is in none, and a `Sleep` made here panics, which ended the relay for good.
+fn pause(rt: &tokio::runtime::Runtime, stop: &mut watch::Receiver<bool>, backoff: Duration) {
+    rt.block_on(async {
+        or_stop(stop, tokio::time::sleep(backoff)).await;
+    });
 }
 
 /// One connection, until it drops. `Ok` once it was up.
@@ -567,8 +627,9 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>) {
                         .unwrap_or_else(|| session_name(&chat))
                 }
                 Ok(out) => {
+                    // The create's own exit: a `no_session` or a refused permission keeps its code.
                     let err = String::from_utf8_lossy(&out.stderr).into_owned();
-                    return send(final_event(Some(1), "", &err)).await;
+                    return send(final_event(out.status.code(), "", &err)).await;
                 }
                 Err(e) => return send(final_event(None, "", &format!("acpmux: {e}"))).await,
             }

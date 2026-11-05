@@ -320,6 +320,8 @@ fn restart_picks_units_whose_exec_start_runs_cmux_tui() {
     assert!(!role::starts_cmux_tui(""));
 }
 
+// `role` is Linux only (updater/mod.rs), the tests module every unix: on macOS this did not compile.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_log_line_shortens_a_hash_without_slicing_past_its_end() {
     assert_eq!(role::short_hex(OLD_TUI), "111111111111");
