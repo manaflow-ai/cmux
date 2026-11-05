@@ -129,7 +129,11 @@ fi
 if [[ -n "${CU_DRIVER_EVAL_GRANT:-}" ]]; then
   echo "CU-DRIVER-EVAL-STAGE grant"
   $CU_DRIVER_EVAL_GRANT "$work/bin/cu-eval-inject" "$work/bin/cu-eval-app" \
-    "$(python3 -I -c 'import os, sys; print(os.path.realpath(sys.executable))')" ${driver_bins[@]+"${driver_bins[@]}"} ||
+    $(python3 -I -c 'import os, sys
+# A framework build re-execs into Python.app, so that binary is the one running; grant both.
+exe = os.path.realpath(sys.executable)
+app = os.path.join(sys.base_prefix, "Resources/Python.app/Contents/MacOS/Python")
+print(exe, *([app] if os.path.exists(app) else []))') ${driver_bins[@]+"${driver_bins[@]}"} ||
     echo "CU-DRIVER-EVAL-ERROR the grant command exited $?"
 fi
 grants=$("$work/bin/cu-eval-inject" grants)
@@ -137,6 +141,7 @@ echo "CU-DRIVER-EVAL-GRANTS $grants"
 # Both: with Accessibility but no event posting, every per-pid post is dropped and would read as a
 # measured zero instead of a blocked run.
 if ! grep -q '"accessibility":true' <<<"$grants" || ! grep -q '"post_event":true' <<<"$grants"; then
+  [[ -n "${CU_DRIVER_EVAL_GRANT:-}" ]] && $CU_DRIVER_EVAL_GRANT --diagnose >"$out/tcc-diagnose.txt" 2>&1 && cat "$out/tcc-diagnose.txt"
   finish "the step's processes lack Accessibility or event posting on this worker ($grants)"
   exit 3
 fi

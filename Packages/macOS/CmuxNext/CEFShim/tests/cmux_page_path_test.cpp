@@ -310,6 +310,16 @@ int main() {
     Expect(std::string(cmux_shim::PageStatusText(200)) == "OK", "status text 200");
   }
 
+  // The live web loop's CSP for one answer (cmux_shim_page_resource_respond_page): kept as given,
+  // dropped when it would split a header.
+  {
+    const std::string dev = "default-src 'none'; connect-src ws://127.0.0.1:4200 http://127.0.0.1:4200";
+    Expect(cmux_shim::PageHeaderValue(dev) == dev, "live csp kept");
+    Expect(cmux_shim::PageHeaderValue("default-src *\r\nX-Frame-Options: ALLOW").empty(), "live csp with CRLF dropped");
+    Expect(cmux_shim::PageHeaderValue("default-src *\nInjected: yes").empty(), "live csp with LF dropped");
+    Expect(cmux_shim::PageHeaderValue("").empty(), "live csp empty");
+  }
+
   std::string cleanup = "rm -rf '" + made + "' '" + base + "'";
   if (system(cleanup.c_str()) != 0) std::cerr << "warning: could not remove " << base << "\n";
   std::cout << g_cases << " cases, " << g_failures << " failures\n";

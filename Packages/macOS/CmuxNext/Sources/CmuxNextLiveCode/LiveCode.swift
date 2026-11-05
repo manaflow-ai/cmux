@@ -48,8 +48,15 @@ public final class LiveCode {
     private var loaded = Set<String>()
     /// Each replaced function's newest code (Interposer.apply).
     private var current: [String: UnsafeRawPointer] = [:]
+    /// The applied patches, oldest first: a rollback undoes the last one.
+    private var applied: [Interposer.Applied] = []
+    /// Patches still loading off the main thread; a rollback waits for them, so it undoes the
+    /// newest patch, not the one before it.
+    private var loading = 0
+    private var waitingRollbacks: [String] = []
 
-    /// Watches `folder` for patch dylibs (`*.dylib`, each a new name) and applies each once. The
+    /// Watches `folder` for patch dylibs (`*.dylib`, each a new name) and applies each once; each new
+    /// `*.rollback` file undoes the newest applied patch (cmuxterm-hq#7149 L4). The
     /// folder's disk work runs off the main thread; only the patch is applied on the main actor.
     private func watch(_ folder: LiveFolder) {
         self.folder = folder
@@ -98,13 +105,37 @@ public final class LiveCode {
         guard let folder else { return }
         for name in names where !loaded.contains(name) {
             loaded.insert(name)
-            apply(folder.url.appendingPathComponent(name))
+            if name.hasSuffix(".rollback") {
+                if loading > 0 { waitingRollbacks.append(name) } else { rollBack(name) }
+            } else {
+                apply(folder.url.appendingPathComponent(name))
+            }
+        }
+    }
+
+    /// The code from before the newest patch runs again, in this process, and every window redraws.
+    private func rollBack(_ name: String) {
+        let started = Date()
+        guard let last = applied.last else {
+            say("\(name) refused: no patch to roll back")
+            return
+        }
+        do {
+            let count = try Interposer.revert(last, current: &current)
+            applied.removeLast()
+            generation += 1
+            let ms = Int((Date().timeIntervalSince(started) * 1000).rounded())
+            say("rolled back \(name) functions=\(count) rollback_ms=\(ms) at=\(Date().timeIntervalSince1970)")
+            redraw()
+        } catch {
+            say("\(name) refused: \(error)")
         }
     }
 
     private func apply(_ patch: URL) {
         let started = Date()
         let path = patch.path
+        loading += 1
         Task.detached(priority: .userInitiated) {
             let loaded = Result { try Interposer.load(path) }
             await MainActor.run { self.applyLoaded(loaded, patch: patch, started: started) }
@@ -112,8 +143,18 @@ public final class LiveCode {
     }
 
     private func applyLoaded(_ loaded: Result<Int, any Error>, patch: URL, started: Date) {
+        loading -= 1
+        defer {
+            if loading == 0 {
+                let waiting = waitingRollbacks
+                waitingRollbacks = []
+                for name in waiting { rollBack(name) }
+            }
+        }
         do {
-            let count = try Interposer.apply(handle: loaded.get(), dylib: patch.path, current: &current)
+            let patched = try Interposer.apply(handle: loaded.get(), dylib: patch.path, current: &current)
+            applied.append(patched)
+            let count = patched.after.count
             generation += 1
             let ms = Int((Date().timeIntervalSince(started) * 1000).rounded())
             say("applied \(patch.lastPathComponent) functions=\(count) load_ms=\(ms) at=\(Date().timeIntervalSince1970)")
@@ -146,7 +187,7 @@ nonisolated struct LiveFolder: Sendable {
     }
 
     func patches() -> [String] {
-        ((try? FileManager.checked.contentsOfDirectory(atPath: url.path)) ?? []).filter { $0.hasSuffix(".dylib") && !$0.hasPrefix(".") }.sorted()
+        ((try? FileManager.checked.contentsOfDirectory(atPath: url.path)) ?? []).filter { ($0.hasSuffix(".dylib") || $0.hasSuffix(".rollback")) && !$0.hasPrefix(".") }.sorted()
     }
 
     func append(_ line: String) {
