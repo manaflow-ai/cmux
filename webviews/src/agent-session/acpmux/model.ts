@@ -90,6 +90,13 @@ export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progres
 export type AcpmuxBackgroundTask = {
   toolCallId: string;
   command: string;
+  /// The helper or subagent that started this shell, when the harness identifies it.
+  ownerId?: string;
+  ownerTitle?: string;
+  /// The call's description, retained for clients that need a compact activity label.
+  description?: string;
+  startedAt?: number;
+  endedAt?: number;
   state: "completed" | "failed" | "stopped";
   reason?: string;
   /// Claude Code's own words on how it ended (its task notification's summary).

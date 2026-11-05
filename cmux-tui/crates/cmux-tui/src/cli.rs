@@ -29,8 +29,6 @@ mod apps_run;
 #[cfg(unix)]
 mod auth_token;
 #[cfg(unix)]
-mod live_code;
-#[cfg(unix)]
 mod automation;
 #[cfg(unix)]
 mod automation_cloud;
@@ -78,6 +76,8 @@ mod host_mount;
 mod internal;
 mod launch_credential;
 mod lifecycle;
+#[cfg(unix)]
+mod live_code;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod sandbox_run;

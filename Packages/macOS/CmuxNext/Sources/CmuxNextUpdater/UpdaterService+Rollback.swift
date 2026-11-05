@@ -108,6 +108,9 @@ extension UpdaterService {
 extension UpdaterService {
     /// Builds at or below this are not offered after a rollback.
     static let skipsBuildsThroughKey = "cmux.next.updates.skipsBuildsThrough"
+    /// The build a rollback or Install this version went to: while it runs, a newer build waits
+    /// for the person's click (``UpdateController/asksBeforeInstalling``); any other build clears it.
+    static let pickedBuildKey = "cmux.next.updates.pickedBuild"
 
     /// Rolls back to `build` (nil: the newest kept) when ``rollbackDecision``
     /// allows it: swaps the bundles, stops offering the build left behind,
@@ -119,6 +122,7 @@ extension UpdaterService {
         try RollbackSwap.perform(current: bundle, currentBuild: identity.build, target: target,
                                  store: keptVersions, limit: preferences.keepPreviousVersions)
         defaults.set(identity.build, forKey: Self.skipsBuildsThroughKey)
+        defaults.set(target.build, forKey: Self.pickedBuildKey)
         controller?.skipsBuildsThrough = identity.build
         log.append("rolled back \(identity.build) -> \(target.build)")
         willRelaunch?()
@@ -126,8 +130,12 @@ extension UpdaterService {
         return target
     }
 
-    /// Restores the skip after a rollback at launch.
+    /// Restores the skip after a rollback at launch, and asks before installing while the build the
+    /// person picked runs; once another build runs (they installed forward), updates install as set.
     func restoreRollbackSkip() {
         controller?.skipsBuildsThrough = defaults.string(forKey: Self.skipsBuildsThroughKey)
+        let picked = defaults.string(forKey: Self.pickedBuildKey)
+        if picked != nil && picked != identity.build { defaults.removeObject(forKey: Self.pickedBuildKey) }
+        controller?.asksBeforeInstalling = picked == identity.build
     }
 }

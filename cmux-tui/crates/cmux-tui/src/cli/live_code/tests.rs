@@ -119,6 +119,14 @@ fn status_says_whether_the_app_still_runs() {
         "executable": std::env::current_exe().expect("exe").display().to_string(), "patches": []});
     std::fs::write(live.path().join("status.json"), ours.to_string()).expect("write");
     assert_eq!(status(live.path()).expect("status").get("watching"), Some(&Value::Bool(true)));
+    // An app that watches another folder does not watch this one.
+    let elsewhere = tempfile::tempdir().expect("tempdir");
+    let moved = json!({"pid": std::process::id(), "folder": elsewhere.path().display().to_string(), "patches": []});
+    std::fs::write(live.path().join("status.json"), moved.to_string()).expect("write");
+    assert_eq!(status(live.path()).expect("status").get("watching"), Some(&Value::Bool(false)));
+    let here = json!({"pid": std::process::id(), "folder": live.path().display().to_string(), "patches": []});
+    std::fs::write(live.path().join("status.json"), here.to_string()).expect("write");
+    assert_eq!(status(live.path()).expect("status").get("watching"), Some(&Value::Bool(true)));
     // A pid that cannot exist is not running.
     let gone = json!({"pid": i32::MAX, "patches": []});
     std::fs::write(live.path().join("status.json"), gone.to_string()).expect("write");
@@ -130,10 +138,24 @@ fn status_says_whether_the_app_still_runs() {
 #[test]
 fn status_exits_3_when_no_app_watches() {
     let live = tempfile::tempdir().expect("tempdir");
-    let status = |dir: &Path| run(OutputMode::Quiet, &GlobalArgs::default(), Invocation::Status { dir: Some(dir.to_path_buf()) });
+    let status = |dir: &Path| {
+        run(
+            OutputMode::Quiet,
+            &GlobalArgs::default(),
+            Invocation::Status { dir: Some(dir.to_path_buf()) },
+        )
+    };
     assert_eq!(status(live.path()), 3, "no status.json");
-    std::fs::write(live.path().join("status.json"), json!({"pid": i32::MAX, "patches": []}).to_string()).expect("write");
+    std::fs::write(
+        live.path().join("status.json"),
+        json!({"pid": i32::MAX, "patches": []}).to_string(),
+    )
+    .expect("write");
     assert_eq!(status(live.path()), 3, "a status.json whose app no longer runs");
-    std::fs::write(live.path().join("status.json"), json!({"pid": std::process::id(), "patches": []}).to_string()).expect("write");
+    std::fs::write(
+        live.path().join("status.json"),
+        json!({"pid": std::process::id(), "patches": []}).to_string(),
+    )
+    .expect("write");
     assert_eq!(status(live.path()), 0, "a running app");
 }

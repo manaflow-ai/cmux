@@ -232,6 +232,30 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     }
   });
 
+  test("probe: acpmux's --mcp-config is a 0600 file it removes later: the recorder keeps its JSON, and code mode's upstreams count as servers", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-agent-tools-rec-"));
+    try {
+      const out = path.join(dir, "launches.txt");
+      writeFileSync(path.join(dir, "claude"), recorderScript(out));
+      chmodSync(path.join(dir, "claude"), 0o755);
+      // What acpmux writes today (agent_tools.rs folded + claude_args): one cmux server, the others in CMUX_MCP_UPSTREAMS.
+      const upstreams = [{ name: "cmux-cua", command: `${AGENT_TOOLS_BIN}/cmux-cua`, args: ["mcp"], env: { CMUX_CUA_MCP_FORCE_PROXY: "1" } }];
+      const configFile = path.join(dir, "session.json");
+      writeFileSync(configFile, JSON.stringify({ mcpServers: { cmux: { type: "stdio", command: `${AGENT_TOOLS_BIN}/cmux`, args: ["mcp", "serve"], env: { CMUX_MCP_UPSTREAMS: JSON.stringify(upstreams) } } } }, null, 2), { mode: 0o600 });
+      await runChild(path.join(dir, "claude"), ["--print", "--mcp-config", configFile, "--plugin-dir", "/p/x"], { timeout: 20_000 });
+      rmSync(configFile);
+      const launch = parseRecordedLaunch(readFileSync(out, "utf8"));
+      expect(launch.servers.map((s) => [s.name, s.command, s.args])).toEqual([
+        ["cmux", `${AGENT_TOOLS_BIN}/cmux`, ["mcp", "serve"]],
+        ["cmux-cua", `${AGENT_TOOLS_BIN}/cmux-cua`, ["mcp"]],
+      ]);
+      expect(launch.servers[1].env).toEqual({ CMUX_CUA_MCP_FORCE_PROXY: "1" });
+      expect(launch.pluginDir).toBe("/p/x");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("cua-video stays off: the computer-use driver cannot install ffmpeg (install_ffmpeg runs `sudo -n apt-get install -y ffmpeg`)", async () => {
     const cua = cuaUnit();
     expect(cua).toContain("NoNewPrivileges=yes");

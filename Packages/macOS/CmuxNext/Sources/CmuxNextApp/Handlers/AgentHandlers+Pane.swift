@@ -144,6 +144,7 @@ extension AgentHandlers {
                     return .failure(ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected))
                 }
                 let account = services.cloud.account
+                await session.refreshIfMaybePaused() // the idle auto-pause may have parked it behind the app's record
                 if session.daemon.connection == nil { session.machine.status == .paused ? session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) : session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
                 let connected = await CloudWait.holds(within: CloudStartSession.connectWait) {
                     session.resumeFailure != nil || (session.daemon.connection != nil && AgentTabStore.registryHost(of: session.daemon) != nil)
