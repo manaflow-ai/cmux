@@ -14,6 +14,7 @@ final class CEFBlankFrameProbe {
     private var left = 0
     private var index = 0
     private var lastKey: Double?
+    private var steady: [UInt8]?
     private lazy var client = FrameClient(owner: "probe.detach", isAnimation: false, on: .app) { [weak self] _ in
         self?.tick()
         return (self?.left ?? 0) > 0
@@ -66,8 +67,20 @@ final class CEFBlankFrameProbe {
             return true
         }
         guard drew else { return false }
-        let page = rgba[0] > 200 && rgba[1] < 70 && rgba[2] > 200
-        if page { CEFHostView.trackerStats.probe["probe_\(phase)_page", default: 0] += 1 }
+        let rgb = Int(rgba[0]) << 16 | Int(rgba[1]) << 8 | Int(rgba[2])
+        // The steady sample before a toggle is the reference: a frame whose centre differs from it by more than 24 in a
+        // channel is counted as not the page (a blank or pane-fill frame).
+        if phase.hasPrefix("steady_") { steady = rgba }
+        let page: Bool
+        if let steady {
+            page = zip(rgba.prefix(3), steady.prefix(3)).allSatisfy { abs(Int($0) - Int($1)) <= 24 }
+        } else {
+            page = rgba[0] > 200 && rgba[1] < 70 && rgba[2] > 200
+        }
+        if page { CEFHostView.trackerStats.probe["probe_\(phase)_page", default: 0] += 1 } else {
+            CEFHostView.trackerStats.probe["probe_\(phase)_nonpage", default: 0] += 1
+            CEFHostView.trackerStats.probe["probe_\(phase)_nonpage_rgb"] = Double(rgb)
+        }
         CEFHostView.trackerStats.probe["probe_\(phase)_last_rgb"] = Double(Int(rgba[0]) << 16 | Int(rgba[1]) << 8 | Int(rgba[2]))
         return page
     }
