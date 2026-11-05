@@ -743,7 +743,15 @@ function shapedTurn(
   const waiting = !live && last && user.pending && !user.failed && turn.length === 0 && held.length === 0;
   let shaped: AcpmuxRow[];
   if (waiting) {
-    const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING, verbKey: user.id };
+    const line: AcpmuxRow = {
+      id: LIVE_THINKING,
+      version: 1,
+      at: user.at,
+      kind: THINKING,
+      verbKey: user.id,
+      // The running turn's slot from the send (`liveSlot`): the turn opening never resizes the line.
+      ...liveSlot(lineBelow),
+    };
     // Held behind the agent's start: the line draws the start look (agentStart.experiment.ts), with
     // no time yet. The sent prompt's row is stamped when it goes, so a time here would jump from
     // "Thinking 20s" back to 0s when the turn opens (cmux#30642).
@@ -789,7 +797,7 @@ function shapedTurn(
     // IT LOOK KLIKE YOU'RE NOT RESPONDING HERE???", "this is bad. it looks like you're not working.").
     // The line is the first prompt's (`waiting` above), by id, so the turn that opens goes on with it.
     const sent = last && liveLine.length === 0 ? sentAfterTurn(held) : undefined;
-    const line = sent ? [sentLine(sent)] : liveLine;
+    const line = sent ? [sentLine(sent, lineBelow)] : liveLine;
     const emptyCompleted =
       isVisiblyEmptyMessage(user) &&
       body.length === 0 &&
@@ -843,11 +851,26 @@ function sentAfterTurn(held: readonly AcpmuxRow[]): AcpmuxRow | undefined {
 /// (`waiting` in ``shapedTurn``): the same id, so the turn that opens goes on with it, and one held
 /// behind its agent's start draws the start look with no time yet (agentStart.experiment.ts,
 /// cmux#30642).
-function sentLine(sent: AcpmuxRow): AcpmuxRow {
-  const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at: sent.at, kind: THINKING, verbKey: sent.id };
+function sentLine(sent: AcpmuxRow, lineBelow: boolean): AcpmuxRow {
+  const line: AcpmuxRow = {
+    id: LIVE_THINKING,
+    version: 1,
+    at: sent.at,
+    kind: THINKING,
+    verbKey: sent.id,
+    ...liveSlot(lineBelow),
+  };
   if (sent.queued) Object.assign(line, { queued: sent.queued, untimed: true });
   return line;
 }
+
+/// The slot a sent prompt's Thinking line takes before its turn opens: with the line drawn below
+/// (`lineBelow`), the running turn's last row, the footer's slot (model.ts `fallbackRowHeight`), as
+/// the turn's line is from then on. As a plain status row it was 28 px and became 32 when the turn
+/// opened, moving every row above it in the middle of the send (Leo, 2026-11-05: "there's the gap
+/// between when you send off a message versus otherwise, like it's like there's a one-two
+/// discontinuity. That's not good.").
+const liveSlot = (lineBelow: boolean): Partial<AcpmuxRow> => (lineBelow ? { below: true } : {});
 
 const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";
 
