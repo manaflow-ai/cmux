@@ -5,7 +5,7 @@ import Testing
 
 /// A legacy default reads `<bundle id>.auth`; a NIGHTLY that signed in again while its build read the namespaced
 /// store (4198271655001, before #36384) adopts that session once.
-@Suite struct CloudAuthNamespacedAdoptionTests {
+@MainActor @Suite struct CloudAuthNamespacedAdoptionTests {
     private func nightly(legacy: Bool, storageNamespace: String? = nil) -> CloudConfiguration {
         var configuration = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.nightly", bundled: [:], process: [:], isDebugBuild: false)
         if var selection = configuration.runtimeSelection {
