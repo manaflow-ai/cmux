@@ -18,17 +18,12 @@ extension CaptureSceneRegistry {
         guard let controller = services.windows.controller(for: windowID), let chief = TopHomePageView.chief(services.home) else {
             return .object(["error": .string("no capture window or no Chief conversation"), "scene": .string(name)])
         }
-        // Home may mount on a later frame of a capture window that just loaded: look it up each frame.
         TopPages.show(.home, services: services, in: controller.state)
         let fixture = tab == .computer
-        var page: TopHomePageView?
-        var opened = false
+        var page: TopHomePageView?, opened = false
         frames.start()
-        let settled = await frames.settled(until: {
-            if page == nil, let shown = controller.topPages.views[.home] as? TopHomePageView {
-                page = shown
-                shown.show(ConversationID(chief))
-            }
+        let settled = await frames.settled(until: { // Home may mount a frame later in a new capture window.
+            if page == nil, let shown = controller.topPages.views[.home] as? TopHomePageView { page = shown; shown.show(ConversationID(chief)) }
             guard let host = page?.host else { return false }
             if !opened { opened = host.debugShowProfile(tab, fixtureComputer: fixture) }
             return opened && host.panel.view.debugSettled(tab, fixtureComputer: fixture)
@@ -36,8 +31,7 @@ extension CaptureSceneRegistry {
         let frameStats = frames.stop()
         defer { page?.host?.closeProfile() }
         guard settled != nil else {
-            let why = page == nil ? "Home page did not open" : "the Chief's profile panel did not settle"
-            return .object(["error": .string(why), "scene": .string(name), "opened": .bool(opened), "frames": frameStats])
+            return .object(["error": .string(page == nil ? "Home page did not open" : "the Chief's profile panel did not settle"), "scene": .string(name), "opened": .bool(opened), "frames": frameStats])
         }
         var snapshotParams = params
         snapshotParams["window"] = .string(windowID)
