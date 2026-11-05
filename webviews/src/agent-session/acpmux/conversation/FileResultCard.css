@@ -53,7 +53,7 @@ button.cv-filepeek__name:focus-visible > .cv-edit-diff__name {
     --cv-mono,
     var(--cmux-diff-code-font-family, "SF Mono", ui-monospace, Menlo, monospace)
   );
-  font-size: var(--cv-codeblock-size, 12px);
+  font-size: var(--cv-codeblock-size, var(--text-detail));
   line-height: var(--cv-codeblock-line-height, 20px);
   font-variant-numeric: tabular-nums;
   text-align: right;
@@ -115,7 +115,7 @@ button.cv-filepeek__name:focus-visible > .cv-edit-diff__name {
     --cv-mono,
     var(--cmux-diff-code-font-family, "SF Mono", ui-monospace, Menlo, monospace)
   );
-  font-size: var(--cv-codeblock-size, 12px);
+  font-size: var(--cv-codeblock-size, var(--text-detail));
   line-height: var(--cv-codeblock-line-height, 20px);
 }
 :is(button.cv-filematches__path, button.cv-filematches__line):hover,

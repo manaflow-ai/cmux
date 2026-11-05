@@ -16,7 +16,7 @@ import { isDeniedPath, pathName } from "../chips/paths";
 import { PreviewMore, usePreview } from "./BlockParts";
 import { CodeLines } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
-import type { FileCard, ReadPeek, SearchResult } from "./fileResults";
+import type { FileCard, ReadPeek, SearchFile, SearchResult } from "./fileResults";
 import { useTranscriptReadOnly } from "./readOnly";
 import "./FileResultCard.css";
 
@@ -133,7 +133,7 @@ function SearchCard({
     if (all || !long) return result.files;
     // Files up to the cut, the last one's matches cut with it, so one file with thousands of matches
     // mounts no more rows than the preview shows.
-    const shown = [];
+    const shown: SearchFile[] = [];
     let left = SEARCH_PREVIEW_ROWS;
     for (const file of result.files) {
       if (left <= 0) break;

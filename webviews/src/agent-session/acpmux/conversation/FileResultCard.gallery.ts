@@ -82,14 +82,11 @@ const restyled =
   };
 
 const turn = (calls: ReturnType<typeof tool>[]) =>
-  chat(
-    [
-      user("Why does the landing page log a hydration warning?", 3),
-      ...calls.map((call) => activity([call], 2)),
-      assistant("The footer's year and the post dates render with the server's clock.", 1),
-    ],
-    { cwd: "/work/storefront" },
-  );
+  chat([
+    user("Why does the landing page log a hydration warning?", 3),
+    ...calls.map((call) => activity([call], 2)),
+    assistant("The footer's year and the post dates render with the server's clock.", 1),
+  ]);
 
 export default agentPaneEntry({
   id: "agent-pane.file-result-cards",
