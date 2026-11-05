@@ -40,7 +40,7 @@ extension WebKitTab {
     /// Reads the document's background (`pageBackdropScript`, in the isolated world: a page cannot patch what it reads)
     /// and gives it to the web view.
     func samplePageBackdrop() {
-        guard BrowserResizeTunables.pageBackdrop.value, !isClosed, !PageBackground.isBlank(webView.url),
+        guard !isClosed, !PageBackground.isBlank(webView.url),
               webView.responds(to: Self.setBackgroundColor) else { return }
         let document = pageBackdropDocument
         Task { [weak self] in
