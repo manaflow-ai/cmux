@@ -184,7 +184,10 @@ export function Thinking({
   const time = useTicking(timed, now);
   const statusVerbConfig = useStatusVerbConfig();
   const thinkingVerbs = useContext(ThinkingVerbsContext);
-  const verbs = useMemo(() => statusVerbLabels(t, language, statusVerbConfig), [t, language, statusVerbConfig]);
+  const verbs = useMemo(
+    () => thinkingVerbs ?? statusVerbLabels(t, statusVerbConfig),
+    [t, statusVerbConfig, thinkingVerbs],
+  );
   // CSS sizes both shimmer layers from these inert samples once, not by measuring on each tick.
   const verbSizes = useMemo(
     () =>
@@ -208,7 +211,8 @@ export function Thinking({
         ? t("turn.live.waitingOnSubagents", { n: liveAgents })
         : writing
           ? t("turn.live.writing")
-          : turnVerb ?? (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking"))
+          : (turnVerb ??
+            (statusVerbConfig.mode === "custom" ? statusVerbAt(elapsedMs, { mode: "custom", verbs }) : t("thinking")))
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell

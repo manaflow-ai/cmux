@@ -26,7 +26,6 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { BUBBLE } from "../src/agent-session/acpmux/transcriptSpacing";
-import { DEFAULT_STATUS_VERBS } from "../src/agent-session/acpmux/statusVerbs";
 
 await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -618,10 +617,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const page = await open(chat, 900, 700, false, true);
     // Streaming: the Codex-style turn (Debug toggle agentPane.debug.codexToolRuns, on by default)
     // draws no row for the thought yet; the turn's live line at its foot says one of the default
-    // status verbs (statusVerbs.ts), with nothing to open.
+    // The default status mode is Thinking only, with nothing to open.
     await page
       .locator(".cv-worked.is-below .cv-thinking", {
-        hasText: new RegExp(`^(?:${DEFAULT_STATUS_VERBS.join("|")})`),
+        hasText: /^Thinking/,
       })
       .waitFor();
     expect(await page.getByText("Step 60: check the retry path.", { exact: false }).count()).toBe(0);

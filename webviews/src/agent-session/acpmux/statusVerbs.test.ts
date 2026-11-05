@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
-  DEFAULT_STATUS_VERBS,
   STATUS_VERB_INTERVAL_MS,
   configureStatusVerbs,
   resolveStatusVerbConfig,
   statusVerbAt,
   statusVerbLabels,
 } from "./statusVerbs";
+import { THINKING_VERBS } from "./conversation/thinkingVerbs";
 
 import { translatorFor } from "./i18n";
 
@@ -18,12 +18,10 @@ describe("status verbs", () => {
     expect(statusVerbAt(STATUS_VERB_INTERVAL_MS * 20)).toBe("Thinking");
   });
 
-  test("rotates the opt-in list at a stable interval", () => {
+  test("recognizes the opt-in per-turn mode", () => {
     const config = resolveStatusVerbConfig({ "agentPane.display.statusVerbs.mode": "rotate" });
-    expect(statusVerbAt(0, config)).toBe(DEFAULT_STATUS_VERBS[0]);
-    expect(statusVerbAt(STATUS_VERB_INTERVAL_MS - 1, config)).toBe(DEFAULT_STATUS_VERBS[0]);
-    expect(statusVerbAt(STATUS_VERB_INTERVAL_MS, config)).toBe(DEFAULT_STATUS_VERBS[1]);
-    expect(statusVerbAt(-1, config)).toBe(DEFAULT_STATUS_VERBS[0]);
+    expect(config).toEqual({ mode: "rotate", verbs: [] });
+    expect(statusVerbAt(STATUS_VERB_INTERVAL_MS * 20, config)).toBe("Thinking");
   });
 
   test("supports thinking only mode", () => {
@@ -67,24 +65,22 @@ describe("status verbs", () => {
 test("incomplete locales keep their translated Thinking for the entire rotation", () => {
   const t = translatorFor("ja");
   const config = resolveStatusVerbConfig(undefined);
-  expect(statusVerbLabels(t, "ja", config, {})).toEqual([t("thinking")]);
-  const partial = { thinking: "考え中", "turn.live.verb.exploring": "探索中" };
-  expect(statusVerbLabels(t, "ja", config, partial)).toEqual([t("thinking")]);
+  expect(statusVerbLabels(t, config)).toEqual([t("thinking")]);
   const custom = resolveStatusVerbConfig({
     "agentPane.display.statusVerbs.mode": "custom",
     "agentPane.display.statusVerbs.custom": "Planning, Testing",
   });
-  expect(statusVerbLabels(t, "ja", custom, partial)).toEqual(["Planning", "Testing"]);
+  expect(statusVerbLabels(t, custom)).toEqual(["Planning", "Testing"]);
 });
 
-test("complete locales rotate translated labels and thinking-only stays localized", () => {
+test("the built-in list stays behind the explicit Rotate context", () => {
   const t = translatorFor("ja");
-  const words = statusVerbLabels(t, "ja", resolveStatusVerbConfig({ "agentPane.display.statusVerbs.mode": "rotate" }));
+  const words = statusVerbLabels(t, resolveStatusVerbConfig({ "agentPane.display.statusVerbs.mode": "rotate" }));
   expect(words).toEqual([t("thinking")]);
+  expect(THINKING_VERBS).toHaveLength(61);
   expect(
     statusVerbLabels(
       t,
-      "ja",
       resolveStatusVerbConfig({
         "agentPane.display.statusVerbs.mode": "thinking",
       }),

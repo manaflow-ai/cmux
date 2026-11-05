@@ -1,25 +1,12 @@
 import { createContext, useContext, useSyncExternalStore } from "react";
 import type { Translate } from "./i18n";
 
-/// The Rotate setting uses this original per-turn list from thinkingVerbs.ts rather than a second
-/// status-verb vocabulary. The conversation module re-exports it for the hash picker.
-export const DEFAULT_STATUS_VERBS = [
-  "Baking", "Brainstorming", "Brewing", "Calculating", "Caramelizing", "Channeling", "Churning", "Cmuxing",
-  "Cogitating", "Composing", "Concocting", "Conjuring", "Considering", "Contemplating", "Cooking", "Crafting",
-  "Crunching", "Daydreaming", "Deliberating", "Distilling", "Doodling", "Fermenting", "Fiddling", "Finagling",
-  "Forging", "Gallivanting", "Grooving", "Hatching", "Ideating", "Imagining", "Improvising", "Incubating",
-  "Kneading", "Marinating", "Meandering", "Mulling", "Musing", "Mustering", "Noodling", "Orbiting", "Percolating",
-  "Philosophizing", "Pondering", "Puttering", "Puzzling", "Reckoning", "Ruminating", "Scheming", "Simmering",
-  "Sketching", "Spelunking", "Steeping", "Stewing", "Synthesizing", "Tinkering", "Untangling", "Vibing", "Whirring",
-  "Whisking", "Wondering", "Wrangling",
-] as const;
-
 /// The default cadence is slow enough to read while a user scans the transcript, without making a
 /// long turn look stuck on one word.
 export const STATUS_VERB_INTERVAL_MS = 2_400;
 
 export type StatusVerbConfig =
-  | { mode: "rotate"; verbs: readonly string[] }
+  | { mode: "rotate"; verbs: readonly [] }
   | { mode: "thinking"; verbs: readonly ["Thinking"] }
   | { mode: "custom"; verbs: readonly string[] };
 
@@ -49,7 +36,7 @@ export function resolveStatusVerbConfig(values: unknown): StatusVerbConfig {
   const record = values as Record<string, unknown>;
   const mode = record["agentPane.display.statusVerbs.mode"];
   const custom = record["agentPane.display.statusVerbs.custom"];
-  if (mode === "rotate") return { mode: "rotate", verbs: DEFAULT_STATUS_VERBS };
+  if (mode === "rotate") return { mode: "rotate", verbs: [] };
   if (mode === "thinking") return THINKING_CONFIG;
   if (mode === "custom") {
     const verbs = verbsFrom(custom);
@@ -99,20 +86,9 @@ export function statusVerbAt(elapsedMs: number, config: StatusVerbConfig = DEFAU
   return config.verbs[index] ?? "Thinking";
 }
 
-/// Custom words remain verbatim. A partially translated default list keeps the existing localized
-/// Thinking label rather than switching languages during a turn.
-export function statusVerbLabels(
-  t: Translate,
-  language: string,
-  config: StatusVerbConfig,
-  table: Partial<Record<string, string>> | undefined = globalThis.__cmuxPaneStrings?.[language],
-): readonly string[] {
+/// Custom words remain verbatim. The built-in per-turn list is English wordplay and is supplied by
+/// the conversation context only when the Rotate setting is enabled.
+export function statusVerbLabels(t: Translate, config: StatusVerbConfig): readonly string[] {
   if (config.mode === "custom" && config.verbs.length > 0) return config.verbs;
-  if (config.mode === "thinking" || language !== "en")
-    return [t("thinking")];
-  // The verb catalog entries are optional until the native catalog carries them. Keep the
-  // shipped English defaults readable in the meantime, while using a translated value whenever
-  // one is present in a loaded table. Reading the table directly also keeps this fallback
-  // independent of the generated StringKey union.
-  return DEFAULT_STATUS_VERBS.map((word) => table?.[word]?.trim() || word);
+  return [t("thinking")];
 }

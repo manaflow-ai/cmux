@@ -3,7 +3,6 @@
 // snapshot the pane bridge would deliver. src/gallery/format.ts describes the format.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
-import { DEFAULT_STATUS_VERBS } from "../statusVerbs";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
 import { childRows } from "../subagents/childRows";
@@ -1654,7 +1653,7 @@ export default agentPaneEntry({
     thinking: {
       note: "A turn that started and has no output yet: Thinking alone, with no blinking dots before it; the word itself shimmers in the theme accent, as in the Codex app (still under Reduce Motion). Play: the shimmer is the line's only loop.",
       snapshot: chat([user(prompt, 0.2)], { isWorking: true }),
-      play: runningLineStill(new RegExp(`^(?:${DEFAULT_STATUS_VERBS.join("|")})`), true),
+      play: runningLineStill(/^Thinking/, true),
     },
     streaming: {
       note: "A reply still streaming (its last block still open).",
@@ -2147,7 +2146,7 @@ export default agentPaneEntry({
           turnTokenSplit: { output: 12_400, input: 18_000, cacheRead: 2_080_000, cacheWrite: 42_000 },
         },
       ),
-      play: runningLineStill(new RegExp(`^(?:${DEFAULT_STATUS_VERBS.join("|")})`), true),
+      play: runningLineStill(/^Thinking/, true),
     },
     "working-tokens-total": {
       note: "A live turn whose calls named their output but not what they read: the line says the output alone, Thinking 5m 54s · 2.1M out, in the same quieter color.",
@@ -2159,7 +2158,7 @@ export default agentPaneEntry({
         ],
         { isWorking: true, turnTokens: 2_140_000 },
       ),
-      play: runningLineStill(new RegExp(`^(?:${DEFAULT_STATUS_VERBS.join("|")})`), true),
+      play: runningLineStill(/^Thinking/, true),
     },
     "worked-tokens": {
       note: "A finished Claude turn: its Worked for line says the turn's tokens from its result, output first (↓ 9.8K out ↑ 1.4M in), with its time and tokens in the line's quieter color.",

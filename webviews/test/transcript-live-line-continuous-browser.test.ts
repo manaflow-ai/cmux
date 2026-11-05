@@ -15,7 +15,6 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import { DEFAULT_STATUS_VERBS } from "../src/agent-session/acpmux/statusVerbs";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -179,7 +178,7 @@ await requireBrowserLane("transcript-live-line-continuous-browser.test.ts", asyn
       expect(seconds[index]!).toBeGreaterThanOrEqual(seconds[index - 1]!);
     // Between calls the line holds the finished step, never "Thinking" under its row.
     const last = (step: string) => trace.filter((row) => row.step === step).at(-1)!.text;
-    expect(DEFAULT_STATUS_VERBS.some((verb) => verb === last("thinking"))).toBe(true);
+    expect(last("thinking")).toStartWith("Thinking");
     expect(last("grep running")).toStartWith("Running grep");
     expect(last("grep done")).toStartWith("Ran grep");
     expect(last("thought")).toStartWith("Ran grep");

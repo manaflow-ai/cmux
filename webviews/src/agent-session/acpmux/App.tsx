@@ -7423,8 +7423,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Leo's alternate -ing verbs stay behind the explicit Rotate setting. The normal path leaves
   // this context empty so the live line remains the bare translated Thinking label.
   const statusVerbConfig = useStatusVerbConfig();
-  const thinkingVerbs =
-    statusVerbConfig.mode === "rotate" ? thinkingVerbsFor(usePaneLanguage()) : undefined;
+  const language = usePaneLanguage();
+  const thinkingVerbs = statusVerbConfig.mode === "rotate" ? thinkingVerbsFor(language) : undefined;
   const chatView = useTranscriptView(shownSessionId);
   const chatViewRef = useRef(chatView);
   chatViewRef.current = chatView;
