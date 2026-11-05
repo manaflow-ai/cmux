@@ -63,12 +63,22 @@ export function isStripeBillingConfigured(): boolean {
   return Boolean(env.STRIPE_SECRET_KEY);
 }
 
+/**
+ * Every billing route and cron is a 60 s function, and the SDK default is
+ * 80 s, so a stalled Stripe call outlived the function that made it.
+ */
+const STRIPE_CLIENT_TIMEOUT_MS = 30_000;
+
+/** Per-call bound for cron reconcilers, which run many calls in one budget. */
+export const STRIPE_CALL_TIMEOUT_MS = 15_000;
+
 export function stripe(): Stripe {
   if (!env.STRIPE_SECRET_KEY) {
     throw new Error("Stripe billing is not configured");
   }
   stripeClient ??= new Stripe(env.STRIPE_SECRET_KEY, {
     apiVersion: "2026-06-24.dahlia",
+    timeout: STRIPE_CLIENT_TIMEOUT_MS,
   });
   return stripeClient;
 }

@@ -8,6 +8,7 @@ const reconcileStripeSubscriptions = mock(async () => {
     drifted: 1,
     repaired: 1,
     failed: 0,
+    deferred: 0,
     truncated: false,
   };
 });
@@ -50,6 +51,7 @@ describe("billing reconciliation cron", () => {
       drifted: 1,
       repaired: 1,
       failed: 0,
+      deferred: 0,
       truncated: false,
     });
   });

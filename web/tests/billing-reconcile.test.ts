@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 
 import { reconcileStripeSubscriptions } from "../services/billing/reconcile";
 
-const withoutLease = async <T>(task: () => Promise<T>): Promise<T> => task();
+const claimAll = async () => true;
 
 function subscription(
   id: string,
@@ -42,19 +42,20 @@ describe("Stripe subscription reconciliation", () => {
     });
     const applied: string[] = [];
     const result = await reconcileStripeSubscriptions({}, {
-      withLease: withoutLease,
       list: async () => [
         {
           id: "sub_equal",
           status: "active",
           cancelAtPeriodEnd: false,
           currentPeriodEnd: new Date(1_800_000_000_000),
+          claimToken: null,
         },
         {
           id: "sub_drift",
           status: "active",
           cancelAtPeriodEnd: false,
           currentPeriodEnd: new Date(1_800_000_000_000),
+          claimToken: null,
         },
       ],
       concurrency: 2,
@@ -73,7 +74,7 @@ describe("Stripe subscription reconciliation", () => {
         applied.push(remote.id);
         return { scope: "user", stackUserId: "ignored", isActive: false };
       },
-      markChecked: async () => {},
+      claim: claimAll,
     });
 
     expect(peak).toBe(2);
@@ -83,6 +84,7 @@ describe("Stripe subscription reconciliation", () => {
       drifted: 1,
       repaired: 1,
       failed: 0,
+      deferred: 0,
       truncated: false,
     });
   });
@@ -91,19 +93,20 @@ describe("Stripe subscription reconciliation", () => {
     let applied = false;
     let marked = false;
     const result = await reconcileStripeSubscriptions({ dryRun: true }, {
-      withLease: withoutLease,
       list: async () => [{
         id: "sub_drift",
         status: "active",
         cancelAtPeriodEnd: false,
         currentPeriodEnd: null,
+        claimToken: null,
       }],
       retrieve: async () => subscription("sub_drift", "canceled"),
       apply: async () => {
         applied = true;
       },
-      markChecked: async () => {
+      claim: async () => {
         marked = true;
+        return true;
       },
     });
     expect(applied).toBe(false);
@@ -115,18 +118,18 @@ describe("Stripe subscription reconciliation", () => {
   test("isolates failures and never includes identifiers in error context", async () => {
     const contexts: Record<string, unknown>[] = [];
     const result = await reconcileStripeSubscriptions({}, {
-      withLease: withoutLease,
       list: async () => [{
         id: "sub_secret",
         status: "active",
         cancelAtPeriodEnd: false,
         currentPeriodEnd: null,
+        claimToken: null,
       }],
       retrieve: async () => {
         throw new Error("provider unavailable");
       },
       captureError: (_error, context) => contexts.push(context),
-      markChecked: async () => {},
+      claim: claimAll,
     });
     expect(result.failed).toBe(1);
     expect(contexts).toEqual([{
@@ -138,23 +141,24 @@ describe("Stripe subscription reconciliation", () => {
 
   test("bounds each run and reports truncation", async () => {
     const result = await reconcileStripeSubscriptions({ limit: 1 }, {
-      withLease: withoutLease,
       list: async () => [
         {
           id: "sub_one",
           status: "active",
           cancelAtPeriodEnd: false,
           currentPeriodEnd: new Date(1_800_000_000_000),
+          claimToken: null,
         },
         {
           id: "sub_two",
           status: "active",
           cancelAtPeriodEnd: false,
           currentPeriodEnd: new Date(1_800_000_000_000),
+          claimToken: null,
         },
       ],
       retrieve: async (id) => subscription(id),
-      markChecked: async () => {},
+      claim: claimAll,
     });
     expect(result.checked).toBe(1);
     expect(result.truncated).toBe(true);
@@ -163,22 +167,14 @@ describe("Stripe subscription reconciliation", () => {
   test("advances every checked row so a later batch can rotate in", async () => {
     const remaining = ["sub_one", "sub_two"];
     const checked: string[] = [];
-    const list = async (limit: number) =>
-      remaining.slice(0, limit).map((id) => ({
-        id,
-        status: "active",
-        cancelAtPeriodEnd: false,
-        currentPeriodEnd: new Date(1_800_000_000_000),
-      }));
-    const markChecked = async (ids: readonly string[]) => {
-      checked.push(...ids);
-      for (const id of ids) remaining.splice(remaining.indexOf(id), 1);
-    };
     const dependencies = {
-      withLease: withoutLease,
-      list,
+      list: async (limit: number) => remaining.slice(0, limit).map(snapshot),
       retrieve: async (id: string) => subscription(id),
-      markChecked,
+      claim: async (row: { readonly id: string }) => {
+        checked.push(row.id);
+        remaining.splice(remaining.indexOf(row.id), 1);
+        return true;
+      },
     };
 
     expect((await reconcileStripeSubscriptions({ limit: 1 }, dependencies)).truncated)
@@ -188,63 +184,32 @@ describe("Stripe subscription reconciliation", () => {
     expect(checked).toEqual(["sub_one", "sub_two"]);
   });
 
-  test("serializes concurrent cron and operator runs with one shared lease", async () => {
-    let releaseFirst!: () => void;
-    let signalFirstStarted!: () => void;
-    const firstMayFinish = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
-    const firstStarted = new Promise<void>((resolve) => {
-      signalFirstStarted = resolve;
-    });
-    let leaseTail = Promise.resolve();
-    let activeLeases = 0;
-    let peakLeases = 0;
-    const withLease = async <T>(task: () => Promise<T>): Promise<T> => {
-      const previous = leaseTail;
-      let release!: () => void;
-      leaseTail = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      await previous;
-      activeLeases += 1;
-      peakLeases = Math.max(peakLeases, activeLeases);
-      try {
-        return await task();
-      } finally {
-        activeLeases -= 1;
-        release();
-      }
-    };
-    let listCalls = 0;
-    const dependencies = {
-      withLease,
-      list: async () => {
-        listCalls += 1;
-        if (listCalls === 1) {
-          signalFirstStarted();
-          await firstMayFinish;
-        }
-        return [];
+  test("overlapping cron and operator runs split the rows instead of checking one twice", async () => {
+    const claimedBy = new Map<string, number>();
+    const retrieved: string[] = [];
+    const run = (runId: number) => reconcileStripeSubscriptions({}, {
+      list: async () => ["sub_a", "sub_b", "sub_c"].map(snapshot),
+      concurrency: 1,
+      claim: async (row: { readonly id: string }) => {
+        await Promise.resolve();
+        if (claimedBy.has(row.id)) return false;
+        claimedBy.set(row.id, runId);
+        return true;
       },
-      markChecked: async () => {},
-    };
-    const first = reconcileStripeSubscriptions({}, dependencies);
-    const second = reconcileStripeSubscriptions({}, dependencies);
-    await firstStarted;
-    expect(listCalls).toBe(1);
-    releaseFirst();
-    await Promise.all([first, second]);
-    expect(listCalls).toBe(2);
-    expect(peakLeases).toBe(1);
+      retrieve: async (id: string) => {
+        retrieved.push(id);
+        return subscription(id);
+      },
+    });
+    const [first, second] = await Promise.all([run(1), run(2)]);
+    expect([...retrieved].sort()).toEqual(["sub_a", "sub_b", "sub_c"]);
+    expect(first.checked + second.checked).toBe(3);
   });
 
   test("claims each row as it starts and stops starting rows once its time budget is spent", async () => {
     let clock = 0;
     const claimed: string[] = [];
     const result = await reconcileStripeSubscriptions({}, {
-      withLease: withoutLease,
-      markChecked: async () => {},
       list: async () => ["sub_a", "sub_b", "sub_c"].map(snapshot),
       concurrency: 1,
       budgetMs: 1_000,
@@ -265,8 +230,6 @@ describe("Stripe subscription reconciliation", () => {
   test("skips a row another run claimed first", async () => {
     const retrieved: string[] = [];
     const result = await reconcileStripeSubscriptions({}, {
-      withLease: withoutLease,
-      markChecked: async () => {},
       list: async () => [snapshot("sub_mine"), snapshot("sub_theirs")],
       claim: async (row: { readonly id: string }) => row.id === "sub_mine",
       retrieve: async (id: string) => {

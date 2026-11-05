@@ -6,7 +6,7 @@ import { captureCoderouterError } from "../errors";
 import { defaultTeamStackApp, withStackDeadline, type TeamStackApp } from "../teams/stack";
 import { ACTIVE_STRIPE_PRO_STATUSES, MAX_PLAN_ID, PRO_PLAN_ID, TEAM_PLAN_ID } from "./pro";
 import { applySubscriptionUpdate } from "./purchase";
-import { stripe } from "./stripe";
+import { STRIPE_CALL_TIMEOUT_MS, stripe } from "./stripe";
 import { databaseTeamSeatQueue, TEAM_SEATS_BUSY, type TeamSeatQueue } from "./teamSeatQueue";
 import { billingPlanIdFromMetadata } from "./teamResolution";
 import { planItem } from "./subscriptionItems";
@@ -60,6 +60,7 @@ export type TeamSeatReconcileDependencies = {
   /** Mirrors the updated subscription into our rows and Stack `cmuxSeats`. */
   readonly apply?: (subscription: Stripe.Subscription) => Promise<unknown>;
   readonly captureError?: (error: unknown, context: Record<string, string | number | boolean>) => void;
+  readonly now?: () => number;
 };
 
 export type TeamSeatReconcileResult = {
@@ -68,25 +69,38 @@ export type TeamSeatReconcileResult = {
   readonly skipped: number;
   readonly failed: number;
   readonly busy: number;
+  /** Dirty teams left for the next pass because the time budget ran out. */
+  readonly deferred: number;
 };
 
 export type TeamSeatOutcomeKind = "updated" | "noop" | "skipped" | "failed" | "busy";
 
 const DEFAULT_LIMIT = 200;
+// The cron function is killed at 60 s; a team takes up to two 10 s Stack
+// calls and two Stripe calls, so stop starting teams with room to finish one.
+const DEFAULT_BUDGET_MS = 25_000;
 
 /**
  * Bring every dirty team's Stripe quantity to its member count. Safe to run
  * from several workers at once: each team is taken under a try-lock, and a
- * failure keeps the team dirty for the next cron pass.
+ * failure keeps the team dirty for the next cron pass. A run stops starting
+ * teams after its time budget, and the teams it leaves stay oldest-dirty.
  */
 export async function reconcileTeamSeats(
-  options: { readonly teamIds?: readonly string[]; readonly limit?: number } = {},
+  options: { readonly teamIds?: readonly string[]; readonly limit?: number; readonly budgetMs?: number } = {},
   dependencies: TeamSeatReconcileDependencies = {},
 ): Promise<TeamSeatReconcileResult> {
   const queue = dependencies.queue ?? databaseTeamSeatQueue;
+  const now = dependencies.now ?? Date.now;
+  const deadline = now() + (options.budgetMs ?? DEFAULT_BUDGET_MS);
   const rows = await queue.listDirty(options.limit ?? DEFAULT_LIMIT, options.teamIds);
-  const result = { checked: rows.length, updated: 0, skipped: 0, failed: 0, busy: 0 };
+  const result = { checked: 0, updated: 0, skipped: 0, failed: 0, busy: 0, deferred: 0 };
   for (const row of rows) {
+    if (now() >= deadline) {
+      result.deferred = rows.length - result.checked;
+      break;
+    }
+    result.checked += 1;
     const kind = await reconcileTeam(row.stackTeamId, row.dirtyAt, queue, dependencies);
     if (kind === "updated") result.updated += 1;
     else if (kind === "skipped") result.skipped += 1;
@@ -96,30 +110,36 @@ export async function reconcileTeamSeats(
   return result;
 }
 
+/**
+ * The outcome is written after the lock's transaction ends, so a team holds
+ * one pool connection at a time; the pool is shared with request traffic.
+ */
 async function reconcileTeam(
   stackTeamId: string,
   dirtyAt: Date,
   queue: TeamSeatQueue,
   dependencies: TeamSeatReconcileDependencies,
 ): Promise<TeamSeatOutcomeKind> {
-  const locked = await queue.withTeamLock(stackTeamId, async () => {
-    try {
-      const { kind, outcome } = await reconcileTeamUnlocked(stackTeamId, dependencies);
-      await queue.recordOutcome(stackTeamId, dirtyAt, outcome);
-      return kind;
-    } catch (error) {
-      (dependencies.captureError ?? captureCoderouterError)(error, {
-        operation: "team_seat_reconcile",
-        stackTeamId,
-        recoverable: true,
-      });
-      await queue
-        .recordOutcome(stackTeamId, dirtyAt, { memberCount: null, stripeQuantity: null, error: errorText(error) })
-        .catch(() => console.error("team seat outcome write failed", { stackTeamId }));
-      return "failed" as const;
-    }
-  });
-  return locked === TEAM_SEATS_BUSY ? "busy" : locked;
+  try {
+    // An unsubscribed team needs no Stack calls and no lock: nothing to bill.
+    const subscription = await (dependencies.activeSubscription ?? activeTeamSubscriptionRow)(stackTeamId);
+    const locked = subscription === null
+      ? NO_SUBSCRIPTION
+      : await queue.withTeamLock(stackTeamId, () => reconcileTeamUnlocked(stackTeamId, subscription, dependencies));
+    if (locked === TEAM_SEATS_BUSY) return "busy";
+    await queue.recordOutcome(stackTeamId, dirtyAt, locked.outcome);
+    return locked.kind;
+  } catch (error) {
+    (dependencies.captureError ?? captureCoderouterError)(error, {
+      operation: "team_seat_reconcile",
+      stackTeamId,
+      recoverable: true,
+    });
+    await queue
+      .recordOutcome(stackTeamId, dirtyAt, { memberCount: null, stripeQuantity: null, error: errorText(error) })
+      .catch(() => console.error("team seat outcome write failed", { stackTeamId }));
+    return "failed";
+  }
 }
 
 type Reconciled = {
@@ -127,27 +147,30 @@ type Reconciled = {
   readonly outcome: { memberCount: number | null; stripeQuantity: number | null; error: null };
 };
 
+const NO_SUBSCRIPTION: Reconciled = {
+  kind: "skipped",
+  outcome: { memberCount: null, stripeQuantity: null, error: null },
+};
+
 async function reconcileTeamUnlocked(
   stackTeamId: string,
+  subscription: ActiveTeamSubscriptionRow,
   dependencies: TeamSeatReconcileDependencies,
 ): Promise<Reconciled> {
   const stack = dependencies.stack ?? defaultTeamStackApp();
   const team = await withStackDeadline(() => stack.getTeam(stackTeamId));
-  if (!team) return { kind: "skipped", outcome: { memberCount: null, stripeQuantity: null, error: null } };
-  const [members, subscription] = await Promise.all([
-    withStackDeadline(() => team.listUsers()),
-    (dependencies.activeSubscription ?? activeTeamSubscriptionRow)(stackTeamId),
-  ]);
+  if (!team) return NO_SUBSCRIPTION;
+  const members = await withStackDeadline(() => team.listUsers());
   const memberCount = members.length;
   const decision = seatDecision({
     planId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
-    hasTeamSubscription: subscription !== null,
+    hasTeamSubscription: true,
     memberCount,
-    quantity: subscription?.seats ?? null,
+    quantity: subscription.seats,
   });
   if (decision.action === "skip") return { kind: "skipped", outcome: { memberCount, stripeQuantity: null, error: null } };
   if (decision.action === "noop") return { kind: "noop", outcome: { memberCount, stripeQuantity: decision.quantity, error: null } };
-  const quantity = await updateStripeQuantity(subscription!.id, decision.to, dependencies);
+  const quantity = await updateStripeQuantity(subscription.id, decision.to, dependencies);
   return { kind: quantity.changed ? "updated" : "noop", outcome: { memberCount, stripeQuantity: quantity.value, error: null } };
 }
 
@@ -190,12 +213,13 @@ async function activeTeamSubscriptionRow(stackTeamId: string): Promise<ActiveTea
 
 function defaultTeamSeatStripeClient(): TeamSeatStripeClient {
   return {
-    retrieve: (subscriptionId) => stripe().subscriptions.retrieve(subscriptionId),
+    retrieve: (subscriptionId) =>
+      stripe().subscriptions.retrieve(subscriptionId, {}, { timeout: STRIPE_CALL_TIMEOUT_MS }),
     updateQuantity: (subscriptionId, itemId, quantity) =>
       stripe().subscriptions.update(subscriptionId, {
         items: [{ id: itemId, quantity }],
         proration_behavior: "create_prorations",
-      }),
+      }, { timeout: STRIPE_CALL_TIMEOUT_MS }),
   };
 }
 

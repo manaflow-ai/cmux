@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
-import { asc, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 
 import { cloudDb } from "../../db/client";
@@ -10,17 +10,24 @@ import {
   revokeRouteTokensForUser,
 } from "../coderouter/repository";
 import { applySubscriptionUpdate } from "./purchase";
-import { stripe } from "./stripe";
+import { STRIPE_CALL_TIMEOUT_MS, stripe } from "./stripe";
 import { planItem } from "./subscriptionItems";
 
 const DEFAULT_LIMIT = 1_000;
-const DEFAULT_CONCURRENCY = 8;
+// Each worker can hold a pool connection inside `apply`; the pool is shared
+// with request traffic on the same instance (CMUX_DB_POOL_MAX, default 5).
+const DEFAULT_CONCURRENCY = 3;
+// The cron function is killed at 60 s. Stop starting rows well before that so
+// the run answers, and the rows left over lead the next run.
+const DEFAULT_BUDGET_MS = 35_000;
 
 type SubscriptionSnapshot = {
   readonly id: string;
   readonly status: string;
   readonly cancelAtPeriodEnd: boolean;
   readonly currentPeriodEnd: Date | null;
+  /** `last_reconciled_at` as read, so a claim can tell another run moved it. */
+  readonly claimToken: string | null;
 };
 
 export type BillingReconcileResult = {
@@ -28,6 +35,8 @@ export type BillingReconcileResult = {
   readonly drifted: number;
   readonly repaired: number;
   readonly failed: number;
+  /** Rows listed but not started because the time budget ran out. */
+  readonly deferred: number;
   readonly truncated: boolean;
 };
 
@@ -35,13 +44,15 @@ type BillingReconcileDependencies = {
   readonly list?: (limit: number) => Promise<readonly SubscriptionSnapshot[]>;
   readonly retrieve?: (id: string) => Promise<Stripe.Subscription>;
   readonly apply?: (subscription: Stripe.Subscription) => Promise<unknown>;
-  readonly markChecked?: (ids: readonly string[]) => Promise<void>;
+  /** Stamp the row checked unless another run already did; false skips it. */
+  readonly claim?: (snapshot: SubscriptionSnapshot) => Promise<boolean>;
   readonly captureError?: (
     error: unknown,
     context: Record<string, string | number | boolean>,
   ) => void;
   readonly concurrency?: number;
-  readonly withLease?: <T>(task: () => Promise<T>) => Promise<T>;
+  readonly budgetMs?: number;
+  readonly now?: () => number;
 };
 
 /**
@@ -51,6 +62,11 @@ type BillingReconcileDependencies = {
  * goes through the same per-principal advisory lock, Stack metadata update,
  * and route-token revocation path as a signed webhook. Retrievals fan out with
  * bounded concurrency; mutations retain their existing principal locks.
+ *
+ * No connection is held for the whole run. Each row is claimed with a
+ * compare-and-set on `last_reconciled_at` just before it is checked, so
+ * overlapping cron and operator runs split the rows instead of queueing on a
+ * lock, and a run cut short keeps the progress it made.
  */
 export async function reconcileStripeSubscriptions(
   options: {
@@ -59,35 +75,34 @@ export async function reconcileStripeSubscriptions(
   } = {},
   dependencies: BillingReconcileDependencies = {},
 ): Promise<BillingReconcileResult> {
-  const withLease = dependencies.withLease ?? withReconciliationLease;
-  return withLease(() => reconcileStripeSubscriptionsLocked(options, dependencies));
-}
-
-async function reconcileStripeSubscriptionsLocked(
-  options: {
-    readonly limit?: number;
-    readonly dryRun?: boolean;
-  },
-  dependencies: BillingReconcileDependencies,
-): Promise<BillingReconcileResult> {
   const limit = clampInteger(options.limit ?? DEFAULT_LIMIT, 1, DEFAULT_LIMIT);
   const list = dependencies.list ?? listSubscriptionSnapshots;
   const retrieve = dependencies.retrieve ??
-    ((id) => stripe().subscriptions.retrieve(id));
+    ((id) => stripe().subscriptions.retrieve(id, {}, { timeout: STRIPE_CALL_TIMEOUT_MS }));
   const apply = dependencies.apply ?? applySubscriptionUpdateAndRevokeRoutes;
-  const markChecked = dependencies.markChecked ?? markSubscriptionsChecked;
+  const claim = dependencies.claim ?? claimSubscriptionCheck;
   const captureError = dependencies.captureError ?? captureCoderouterError;
+  const now = dependencies.now ?? Date.now;
+  const deadline = now() + (dependencies.budgetMs ?? DEFAULT_BUDGET_MS);
   const rows = await list(limit + 1);
   const snapshots = rows.slice(0, limit);
 
+  let checked = 0;
   let drifted = 0;
   let repaired = 0;
   let failed = 0;
+  let deferred = 0;
   await mapConcurrent(
     snapshots,
     dependencies.concurrency ?? DEFAULT_CONCURRENCY,
     async (snapshot) => {
+      if (now() >= deadline) {
+        deferred += 1;
+        return;
+      }
       try {
+        if (!options.dryRun && !(await claim(snapshot))) return;
+        checked += 1;
         const remote = await retrieve(snapshot.id);
         if (!hasDrift(snapshot, remote)) return;
         drifted += 1;
@@ -107,16 +122,14 @@ async function reconcileStripeSubscriptionsLocked(
       }
     },
   );
-  if (!options.dryRun && snapshots.length > 0) {
-    await markChecked(snapshots.map((snapshot) => snapshot.id));
-  }
 
   const result = {
-    checked: snapshots.length,
+    checked,
     drifted,
     repaired,
     failed,
-    truncated: rows.length > limit,
+    deferred,
+    truncated: rows.length > limit || deferred > 0,
   };
   Sentry.addBreadcrumb({
     category: "billing.reconcile",
@@ -141,17 +154,6 @@ async function applySubscriptionUpdateAndRevokeRoutes(
   return result;
 }
 
-async function withReconciliationLease<T>(
-  task: () => Promise<T>,
-): Promise<T> {
-  return cloudDb().transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:billing-reconcile"}, 0))`,
-    );
-    return task();
-  });
-}
-
 async function listSubscriptionSnapshots(
   limit: number,
 ): Promise<readonly SubscriptionSnapshot[]> {
@@ -161,6 +163,7 @@ async function listSubscriptionSnapshots(
       status: stripeSubscriptions.status,
       cancelAtPeriodEnd: stripeSubscriptions.cancelAtPeriodEnd,
       currentPeriodEnd: stripeSubscriptions.currentPeriodEnd,
+      claimToken: sql<string | null>`${stripeSubscriptions.lastReconciledAt}::text`,
     })
     .from(stripeSubscriptions)
     .orderBy(
@@ -170,12 +173,17 @@ async function listSubscriptionSnapshots(
     .limit(limit);
 }
 
-async function markSubscriptionsChecked(ids: readonly string[]): Promise<void> {
-  if (ids.length === 0) return;
-  await cloudDb()
+async function claimSubscriptionCheck(snapshot: SubscriptionSnapshot): Promise<boolean> {
+  // Compared as text: a JS Date would drop the microseconds Postgres keeps.
+  const claimed = await cloudDb()
     .update(stripeSubscriptions)
     .set({ lastReconciledAt: sql`now()` })
-    .where(inArray(stripeSubscriptions.id, [...ids]));
+    .where(and(
+      eq(stripeSubscriptions.id, snapshot.id),
+      sql`${stripeSubscriptions.lastReconciledAt}::text is not distinct from ${snapshot.claimToken}`,
+    ))
+    .returning({ id: stripeSubscriptions.id });
+  return claimed.length > 0;
 }
 
 function hasDrift(
