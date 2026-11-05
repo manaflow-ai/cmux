@@ -28,7 +28,7 @@
 # names one.
 #
 # --live-code LOG: APP is a live code build (docs/cmux-next/live-code.md) and LOG its reload.sh log.
-# A swift-live PR whose changes are edits to CmuxNextApp's existing Swift files is then applied with
+# A swift-live PR whose changes are edits to existing Swift files of the CmuxNext modules is then applied with
 # no build: the PR's diff goes onto APP's commit (CMUXCommit, else the HEAD of the checkout LOG built,
 # when it has not changed since) in a scratch worktree, is sorted again
 # there, and scripts/live-code/patch.py compiles those files against the build into the copy's
@@ -179,7 +179,7 @@ await_line() {
 
 # The commit a live code build came from when the app records none (a reload or DEV build carries no
 # CMUXCommit): the HEAD of the checkout the build's log compiled, found from its file list, when that
-# checkout's CmuxNextApp sources are as committed and its HEAD has not moved since the log was written.
+# checkout's CmuxNext sources are as committed and its HEAD has not moved since the log was written.
 built_from() {
   local log="$1" root head moved built
   root="$(python3 - "$ROOT/scripts/live-code" "$log" <<'PY'
@@ -194,8 +194,8 @@ PY
   if [[ -z "$root" ]] || ! head="$(git -C "$root" rev-parse HEAD 2>/dev/null)"; then
     echo "live code: the app records no commit (CMUXCommit) and the log names no git checkout it was built from" >&2; return 1
   fi
-  if [[ -n "$(git -C "$root" status --porcelain -- Packages/macOS/CmuxNext/Sources/CmuxNextApp)" ]]; then
-    echo "live code: $root has uncommitted CmuxNextApp changes, so the build's commit is unknown" >&2; return 1
+  if [[ -n "$(git -C "$root" status --porcelain -- Packages/macOS/CmuxNext/Sources)" ]]; then
+    echo "live code: $root has uncommitted CmuxNext changes, so the build's commit is unknown" >&2; return 1
   fi
   # When HEAD last moved (its reflog), else its commit time.
   moved="$(git -C "$root" log -g -1 --format=%gd --date=unix HEAD 2>/dev/null | sed -n 's/.*@{\([0-9]*\)}.*/\1/p')"
@@ -236,9 +236,11 @@ live_swift() {
   if ! git -C "$src" add -A || ! changed="$(git -C "$src" diff --cached --name-status "$commit")"; then
     drop; echo "live code: the PR's change could not be read in the scratch worktree"; return 1
   fi
-  bad="$(awk -F'\t' '$1 != "M" || $2 !~ /^Packages\/macOS\/CmuxNext\/Sources\/CmuxNextApp\/.*\.swift$/ { print $NF }' <<<"$changed")"
+  # Every CmuxNext module is patchable in a live code build (scripts/live-code/lib/xcodebuild-args.sh);
+  # patch.py compiles each file with its own module's command.
+  bad="$(awk -F'\t' '$1 != "M" || $2 !~ /^Packages\/macOS\/CmuxNext\/Sources\/CmuxNext[A-Za-z0-9_]*\/.*\.swift$/ { print $NF }' <<<"$changed")"
   if [[ -n "$bad" ]]; then
-    drop; echo "live code takes only edits to CmuxNextApp's existing Swift files; not: $(tr '\n' ' ' <<<"$bad")"; return 1
+    drop; echo "live code takes only edits to the CmuxNext modules' existing Swift files; not: $(tr '\n' ' ' <<<"$bad")"; return 1
   fi
   # Sorted again against the build's own commit (the PR's base may be newer or older).
   if ! tree_id="$(git -C "$src" write-tree)" ||
@@ -261,7 +263,7 @@ live_swift() {
     fi
   fi
   log="$live_dir/live-code.log"; offset="$(stat -c %s "$log" 2>/dev/null || stat -f %z "$log" 2>/dev/null || echo 0)"
-  if ! patch="$(python3 "$ROOT/scripts/live-code/patch.py" --log "$live_log" --module CmuxNextApp --live "$live_dir" --tree "$src" "${files[@]}")"; then
+  if ! patch="$(python3 "$ROOT/scripts/live-code/patch.py" --log "$live_log" --live "$live_dir" --tree "$src" "${files[@]}")"; then
     drop; echo "live code: the patch did not compile against the build"; return 1
   fi
   drop

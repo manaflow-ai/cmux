@@ -39,15 +39,25 @@ bin="$app/Contents/MacOS/cmux"
 # with that list: only the link step reruns.
 # shellcheck source=scripts/live-code/lib/two-pass.sh
 source scripts/live-code/lib/two-pass.sh
+# shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
+source scripts/live-code/lib/xcodebuild-args.sh
 live_code_list "$bin" "$out"
 app="$(reload "$out/reload-2.log" "$@" CMUX_LIVE_CODE_INTERPOSABLE_LIST="$out/interposable.txt")"
 [[ -n "$app" && -d "$app" ]] || fail_build "$out/reload-2.log"
 # Whether the CmuxNext modules compiled a file at a time, unoptimized and testable, as the live build
 # asks; printed before the check, which a whole-module module can fail.
-for module in CmuxNextApp CmuxNextDesign; do
+# One line for CmuxNextApp, and the other modules named only when one is not as asked.
+while IFS= read -r module; do
   commands="$(grep -E -- "-module-name $module " "$log" || true)"
-  echo "live-code build: $module frontend commands: $(grep -c . <<<"$commands" || true), whole-module: $(grep -c -- "-whole-module-optimization" <<<"$commands" || true), -Onone: $(grep -c -- "-Onone" <<<"$commands" || true), -enable-testing: $(grep -c -- "-enable-testing" <<<"$commands" || true)" >&2
-done
+  [[ -n "$commands" ]] || continue
+  total="$(grep -c . <<<"$commands")"
+  wmo="$(grep -c -- "-whole-module-optimization" <<<"$commands" || true)"
+  onone="$(grep -c -- "-Onone" <<<"$commands" || true)"
+  testing="$(grep -c -- "-enable-testing" <<<"$commands" || true)"
+  if [[ "$module" == CmuxNextApp || "$wmo" != 0 || "$onone" != "$total" || "$testing" != "$total" ]]; then
+    echo "live-code build: $module frontend commands: $total, whole-module: $wmo, -Onone: $onone, -enable-testing: $testing" >&2
+  fi
+done < <(live_code_targets)
 live_code_check "$bin" "$out" || exit 1
 echo "live-code build: built in $((SECONDS - build_start)) s"
 grep -E -- "-module-name CmuxNext[A-Za-z0-9_]* " "$log" > "$out/cmuxnext-commands.log" || true
