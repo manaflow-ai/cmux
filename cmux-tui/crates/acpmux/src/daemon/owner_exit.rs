@@ -319,7 +319,7 @@ mod tests {
         let pid = child.id();
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let _ = tx.send(imp::wait_exit(pid).is_ok());
+            let _ = tx.send(imp::wait_exit(pid, || true).is_ok());
         });
         assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "returned while it runs");
         let _ = child.kill();
@@ -333,6 +333,17 @@ mod tests {
         let mut child = std::process::Command::new("true").spawn().expect("true");
         let pid = child.id();
         let _ = child.wait();
-        assert!(imp::wait_exit(pid).is_ok());
+        assert!(imp::wait_exit(pid, || true).is_ok());
+    }
+
+    /// A pid that names another process once the watch holds it counts as an exit at once.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_watch_whose_process_is_not_ours_returns_at_once() {
+        let mut child = std::process::Command::new("sleep").arg("600").spawn().expect("sleep");
+        let returned = imp::wait_exit(child.id(), || false).is_ok();
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(returned);
     }
 }
