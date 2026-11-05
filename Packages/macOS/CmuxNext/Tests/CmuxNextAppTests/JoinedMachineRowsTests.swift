@@ -180,6 +180,7 @@ import CmuxNextWakeups
     /// stops following or goes away (no observer of its own).
     @Test func aSightFollowerHearsItsWindowUntilItStops() async throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false // the test holds it; close must not release it a second time
         defer { window.close() }
         var heard = 0
         var owner: NSObject? = NSObject()
