@@ -80,9 +80,9 @@ impl<S, F: FnMut(LinkRefusal)> RefusalWatch<S, F> {
             return;
         }
         let room = MAX_FIRST_LINE.saturating_sub(first.len());
-        first.extend_from_slice(&bytes[..bytes.len().min(room)]);
+        first.extend(bytes.iter().take(room));
         if let Some(end) = first.iter().position(|byte| *byte == b'\n') {
-            let refusal = parse_refusal(&first[..end]);
+            let refusal = first.get(..end).and_then(parse_refusal);
             self.first = None;
             if let Some(refusal) = refusal {
                 (self.report)(refusal);
@@ -103,7 +103,7 @@ impl<S: AsyncRead + Unpin, F: FnMut(LinkRefusal) + Unpin> AsyncRead for RefusalW
         let before = buf.filled().len();
         let polled = Pin::new(&mut this.inner).poll_read(cx, buf);
         if let Poll::Ready(Ok(())) = polled {
-            let filled = &buf.filled()[before..];
+            let filled = buf.filled().get(before..).unwrap_or_default();
             if filled.is_empty() {
                 this.first = None;
             } else {

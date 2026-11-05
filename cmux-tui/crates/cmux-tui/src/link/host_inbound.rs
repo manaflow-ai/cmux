@@ -72,19 +72,19 @@ pub(super) fn refusal_line(why: &HostRefused, trace: &StreamTrace) -> Option<Str
     if trace.serving && matches!(why, HostRefused::Authority) {
         return None;
     }
-    let mut line = serde_json::json!({
-        "type": "refused",
-        "code": super::refusal_watch::REFUSED_CODE,
-        "reason": format!("{why:?}"),
-    });
+    let mut line = serde_json::Map::new();
+    line.insert("type".into(), "refused".into());
+    line.insert("code".into(), super::refusal_watch::REFUSED_CODE.into());
+    line.insert("reason".into(), format!("{why:?}").into());
     if let Some(check) = &trace.check {
-        line["check"] = check.reason.into();
+        line.insert("check".into(), check.reason.into());
         if let Some(detail) = &check.detail {
-            line["detail"] = detail.as_str().into();
+            line.insert("detail".into(), detail.as_str().into());
         }
     } else if let Some(token) = trace.token {
-        line["check"] = token.name().into();
+        line.insert("check".into(), token.name().into());
     }
+    let line = serde_json::Value::Object(line);
     Some(format!("{line}\n"))
 }
 

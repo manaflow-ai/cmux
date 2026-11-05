@@ -154,8 +154,12 @@ concurrency:
   # nightly always finishes. nightly-next has its own group: sharing main's (#18150) let every
   # main push replace the pending nightly-next run (run 37579667979), so it starved. Scheduled
   # and manual cache seeds use different groups, so a tick never cancels a manual refresh.
-  # NEXT runs are run-scoped; the release/feed writers keep their own groups below.
-  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.ref == 'refs/heads/nightly-next' && format('run-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  # A nightly-next push shares one group (nightly-build-nightly-next-push): one run builds and the newest
+  # pushed head waits, and GitHub replaces a waiting run (never a started one) with a newer push, so only
+  # the newest head is built and signed. Leo, 2026-11-05, when 25 run-scoped nightlies queued behind the
+  # one signer: "why do multiple merges even build the f***ing nightlies anyway?". Other nightly-next
+  # runs (dispatches) stay run-scoped; the release/feed writers keep their own groups below.
+  group: nightly-build-${{ github.ref_name == 'main' && 'nightly-shared' || github.ref_name }}-${{ github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' && 'push' || format('run-{0}', github.run_id)) || github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && format('nightly-next-promote-{0}', github.run_id) || github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && inputs.nightly_next_continue_only && format('continue-{0}', github.run_id) || github.event_name == 'workflow_dispatch' && (inputs.notary_test_without_password_import || inputs.notary_test_without_browser_data_import || inputs.notary_probe_production_identity || (inputs.notary_test_import_part || 'none') != 'none') && format('notary-test-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: false
 
 permissions: {}
@@ -3498,7 +3502,7 @@ jobs:
     # A cx-f58x notary test waits up to 160 minutes for Apple (52c6c12d took
     # over 90) because it has no recovery hand-off.
     # nightly-next adds the cmux NIGHTLY identity's steps (their own step timeouts, 145 min at most, Apple's two
-    # 20 min waits then pending inside the notarize step's 50) to the 160: a slow copy fails its step, never cmux NEXT's job.
+    # 15 min waits then pending inside the notarize step's 45) to the 160: a slow copy fails its step, never cmux NEXT's job.
     timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 235 || needs.decide.outputs.track == 'nightly-next' && 305 || 160 }}
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
@@ -3567,6 +3571,8 @@ jobs:
           submodules: false
 
       # This run's own signing controls: the claim below and, for an unsigned resume, the keychain controls.
+      # Only scripts/ and the workflow are read from it, so it is sparse: a fresh full clone into this path took
+      # about 3 min of the one signer on every sign and every yield (run 41948676510, 04:42:55-04:46:05Z).
       - name: Checkout trusted signing controls
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -3574,6 +3580,10 @@ jobs:
           ref: ${{ github.sha }}
           path: .nightly-signing-control
           submodules: false
+          filter: blob:none
+          sparse-checkout: |
+            scripts
+            .github/workflows
 
       # Before any secret: the same check again, and a signing keychain a killed job left is removed.
       - name: Claim the whole Mac for signing
@@ -4362,9 +4372,13 @@ jobs:
       - name: "cmux NIGHTLY identity: notarize the cmux NIGHTLY DMG"
         id: legacy-notarize
         if: steps.legacy-build-src.outcome == 'success'
-        timeout-minutes: 50
+        # Apple's two waits (the app, then the DMG around it) end as submission_pending at 15 min each, 15 min inside
+        # the 45: a slow Apple day hands the submission to a later run instead of this step being killed. 45, not 50,
+        # pays for the upload steps' 5 min each, so the copy still fits the 145 min the job budget gives it.
+        timeout-minutes: 45
         continue-on-error: true
         env:
+          LEGACY_NOTARY_WAIT: 15m
           NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -4390,6 +4404,7 @@ jobs:
       - name: "cmux NIGHTLY identity: upload the pending submission bundle"
         id: legacy-pending-bundle
         if: steps.legacy-keep-pending.outcome == 'success'
+        timeout-minutes: 5
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -4402,6 +4417,7 @@ jobs:
       - name: "cmux NIGHTLY identity: upload the pending submission metadata"
         id: legacy-pending-meta
         if: steps.legacy-pending-bundle.outcome == 'success'
+        timeout-minutes: 5
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -4423,6 +4439,7 @@ jobs:
       - name: "cmux NIGHTLY identity: upload the stapled DMG"
         id: legacy-signed-upload
         if: steps.legacy-handoff.outcome == 'success'
+        timeout-minutes: 5
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

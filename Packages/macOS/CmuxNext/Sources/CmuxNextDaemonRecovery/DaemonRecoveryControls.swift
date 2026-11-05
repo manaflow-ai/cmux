@@ -7,7 +7,7 @@ import CmuxNextDesign
 /// Strings of the launch window's connecting and failure screen and the
 /// daemon recovery controls (Resources/Localizable.xcstrings).
 enum DaemonRecoveryStrings {
-    static var connecting: String { String(localized: "daemon.connecting", defaultValue: "Connecting to cmux-tui…", bundle: .module) }
+    static var connecting: String { String(localized: "daemon.connecting", defaultValue: "Starting cmux…", bundle: .module) }
     static var serviceUnavailable: String {
         String(localized: "daemon.serviceUnavailable", defaultValue: "cmux couldn’t start its background service.", bundle: .module)
     }
@@ -15,29 +15,29 @@ enum DaemonRecoveryStrings {
     static var copyDetails: String { String(localized: "daemon.copyDetails", defaultValue: "Copy Details", bundle: .module) }
     static var retrying: String { String(localized: "daemon.retrying", defaultValue: "Still retrying in the background.", bundle: .module) }
     static var retryNow: String { String(localized: "daemon.recovery.retryNow", defaultValue: "Retry Now", bundle: .module) }
-    static var restart: String { String(localized: "daemon.recovery.restart", defaultValue: "Restart cmux-tui", bundle: .module) }
-    static var confirmTitle: String { String(localized: "daemon.recovery.confirmTitle", defaultValue: "Restart cmux-tui?", bundle: .module) }
+    static var restart: String { String(localized: "daemon.recovery.restart", defaultValue: "Restart Background Service", bundle: .module) }
+    static var confirmTitle: String { String(localized: "daemon.recovery.confirmTitle", defaultValue: "Restart cmux's background service?", bundle: .module) }
     static var confirmBody: String {
         String(localized: "daemon.recovery.confirmBody",
-               defaultValue: "cmux-tui is not responding. Restarting it stops the stuck process and starts a new one. Terminals running in it may be lost.",
+               defaultValue: "cmux's background service isn't responding. Restarting it stops the stuck process and starts a new one. Terminals running in it may be lost.",
                bundle: .module)
     }
     static var confirmButton: String { String(localized: "daemon.recovery.confirmButton", defaultValue: "Restart", bundle: .module) }
-    static var restarting: String { String(localized: "daemon.recovery.restarting", defaultValue: "Restarting cmux-tui…", bundle: .module) }
+    static var restarting: String { String(localized: "daemon.recovery.restarting", defaultValue: "Restarting the background service…", bundle: .module) }
     static var failed: String {
-        String(localized: "daemon.recovery.failed", defaultValue: "cmux-tui could not be restarted. Try again in a moment.", bundle: .module)
+        String(localized: "daemon.recovery.failed", defaultValue: "Couldn't restart the background service. Try again in a moment.", bundle: .module)
     }
     /// Why cmux-tui is not running, when its start failed because the disk is full (restore fuzz h2): the one
     /// disk-full reason a refused change also shows (`RefusalStrings.diskFull`, restore fuzz h3).
     static var diskFull: String {
         String(format: String(localized: "daemon.recovery.diskFull",
-                              defaultValue: "cmux-tui could not start: %@. Free some space and cmux starts it again by itself.",
+                              defaultValue: "cmux's background service couldn't start: %@. Free some space and cmux starts it again by itself.",
                               bundle: .module), RefusalStrings.diskFull)
     }
     /// Why cmux-tui is not running, when its start failed for any other reason.
     static var stopped: String {
         String(localized: "daemon.recovery.stopped",
-               defaultValue: "cmux-tui stopped and could not start again. cmux keeps trying.", bundle: .module)
+               defaultValue: "cmux's background service stopped and couldn't start again. cmux keeps trying.", bundle: .module)
     }
 
     /// What the person reads about a failed start: the full disk, or the short generic reason.

@@ -179,7 +179,8 @@ extension CloudHandlers {
                 }
                 guard await CloudStartChat.loginCopyGate(services).copyAllowed() else { return } // the transfer checks it again last
                 let transfer = CloudCredentialTransfer(provider: .claude,
-                    machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
+                    machineID: session.machineID, teamID: teamID, userID: userID,
+                    otherTeams: CloudStartChat.loginScopes(cloud), openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },

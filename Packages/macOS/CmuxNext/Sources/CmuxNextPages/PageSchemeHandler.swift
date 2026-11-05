@@ -42,6 +42,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     var fetchDevServer: @Sendable (URL) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
     /// The live override (``WebDevOverride/current``; tests replace it).
     var liveOverride: @Sendable () -> WebDevOverride = { WebDevOverride.current }
+    /// The projection windows (``WebProjection/shared``; tests replace it).
+    var projection = WebProjection.shared
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
 
@@ -72,6 +74,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
+        projection.served(webView, isDocument: task.request.mainDocumentURL == task.request.url) // a projection window's pages load from its server
         let request = task.request
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = request.url, let served = served(url),
@@ -104,7 +107,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// page file comes from that server instead. The live override (``WebDevOverride``) is read
     /// per request: its server's answers, else (a stopped server, a 4xx or 5xx) its overlay
     /// folder's file, else, with an active web update (``WebBundleOverlay``), the update's copy
-    /// of the page's folder, else the bundled one. `range` is the request's `Range` header, which
+    /// of the page's folder, else the bundled one. A view in a projection window (``WebProjection``)
+    /// reads that window's server in place of the override's. `range` is the request's `Range` header, which
     /// only a ranged dynamic source (``PageRangedResourceSource``) reads. `webView`'s request reads
     /// the update that page loaded with (``WebBundleServedViews``), any other the active one.
     func reply(to url: URL, range: String? = nil, webView: WKWebView? = nil) async -> Reply? {
@@ -112,7 +116,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         if served.page.id.lowercased() == PageArtifactFrame.pageID, PageArtifactFrame.isFrame(url) {
             return Self.artifactReply(url: url)
         }
-        let live = liveOverride()
+        var live = liveOverride()
+        if let projected = projection.server(for: webView) { live.server = projected }
         if let devServer = devServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
             if let (body, response) = await fetchDevServer(remote), devServer.isOwn(response.url),
                self.devServer != nil || response.statusCode < 400 {

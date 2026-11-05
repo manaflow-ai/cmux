@@ -369,3 +369,29 @@ impl Drop for AdoptionReady<'_> {
         self.0.send_replace(true);
     }
 }
+
+/// Tests: a one-shot note a thread sends when it reaches a point of the catch-up
+/// (`Hub::catch_up`): a test knows from it where that thread is, with no timer.
+#[cfg(test)]
+pub(crate) type CatchUpNote = std::cell::RefCell<Option<std::sync::mpsc::Sender<&'static str>>>;
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: this thread says so, once, when its catch-up of a chat is under way (past the check
+    /// that the chat is not caught up yet, before it counts the tail).
+    pub(crate) static NOTE_IN_CATCH_UP: CatchUpNote = const { std::cell::RefCell::new(None) };
+    /// Tests: this thread says so, once, right before its catch-up takes the chat's append lock.
+    pub(crate) static NOTE_BEFORE_CATCH_UP_LOCK: CatchUpNote =
+        const { std::cell::RefCell::new(None) };
+    /// Tests: this thread's replay (`Hub::scan_events`) says so, once, right before it reads the
+    /// log, past its catch-up or its skip of it.
+    pub(crate) static NOTE_BEFORE_REPLAY_SCAN: CatchUpNote = const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: sends `what` on the note in `slot`, if this thread has one, and drops the note.
+#[cfg(test)]
+pub(super) fn catch_up_note(slot: &'static std::thread::LocalKey<CatchUpNote>, what: &'static str) {
+    if let Some(note) = slot.with(|note| note.borrow_mut().take()) {
+        let _ = note.send(what);
+    }
+}

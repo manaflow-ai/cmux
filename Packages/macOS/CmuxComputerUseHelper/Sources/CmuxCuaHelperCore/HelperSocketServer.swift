@@ -25,6 +25,9 @@ private let socketLogger = Logger(subsystem: "com.cmuxterm.cua", category: "sock
 /// when the helper could not verify the cmux app that started it, never for
 /// a person's refusal), and the connection stays open. A call refused
 /// because the person is using the Mac carries `"code":"person_in_control"`.
+/// `tools/call` and `tools/list` go through `Perception`, with one
+/// `PerceptionSession` per connection: an agent is told "unchanged" only
+/// about a screenshot it was itself shown.
 public final class HelperSocketServer: Sendable {
     public let path: String
     private let admission: AdmissionState
@@ -146,6 +149,12 @@ public final class HelperSocketServer: Sendable {
             return connection.refuse(refusal)
         }
         guard let config else { return connection.refuse(.notConfigured) }
+        // What this connection's agent has been shown (unchanged screenshots, zoom).
+        let perception = PerceptionSession()
+        // Tool calls run and reply in the order they came: each reply is
+        // measured against the one before it (an "unchanged" screenshot
+        // assumes the agent has the last one), so none may overtake another.
+        var lastCall: Task<Void, Never>?
         var buffer = HelperWire.LineBuffer()
         var admitted = false
         var bytes = [UInt8](repeating: 0, count: 64 * 1024)
@@ -164,7 +173,9 @@ public final class HelperSocketServer: Sendable {
                     connection.write(Self.admittedReply)
                     continue
                 }
-                handle(line, connection: connection)
+                if let call = handle(line, connection: connection, perception: perception, after: lastCall) {
+                    lastCall = call
+                }
             }
         }
         connection.close()
@@ -181,9 +192,13 @@ public final class HelperSocketServer: Sendable {
         return getpeereid(descriptor, &uid, &gid) == 0 ? uid : nil
     }
 
-    private func handle(_ line: Data, connection: Connection) {
+    /// Runs one request; a `tools/call` waits for `after` (the connection's
+    /// previous call) and is returned, so the next one waits for it.
+    private func handle(_ line: Data, connection: Connection, perception: PerceptionSession,
+                        after previous: Task<Void, Never>?) -> Task<Void, Never>? {
         guard let request = HelperWire.object(line) else {
-            return connection.write(HelperWire.line(["ok": false, "error": "invalid request"]))
+            connection.write(HelperWire.line(["ok": false, "error": "invalid request"]))
+            return nil
         }
         let id = HelperWire.json(request["id"] ?? NSNull())
         let method = request["method"] as? String ?? ""
@@ -191,15 +206,18 @@ public final class HelperSocketServer: Sendable {
         let arguments = HelperWire.json(request["arguments"] ?? [String: Any]())
         let tools = self.tools
         let consent = self.consent
-        Task.detached {
+        let view = Perception(tools: tools, session: perception)
+        let ordered = method == "tools/call"
+        let task = Task.detached {
+            if ordered { await previous?.value }
             do {
                 let result: Data
                 switch method {
-                case "tools/list": result = try await tools.listTools()
+                case "tools/list": result = Perception.listing(try await tools.listTools())
                 case "machine/consent": result = await consent.current().wire
                 case "tools/call":
                     guard let name, !name.isEmpty else { throw ToolError("tools/call needs a name") }
-                    result = try await tools.invoke(name: name, arguments: arguments)
+                    result = try await view.call(name: name, arguments: arguments)
                 default: throw ToolError("unknown method \(method)")
                 }
                 connection.write(HelperWire.line(["ok": true], raw: ["id": id, "result": result]))
@@ -216,6 +234,7 @@ public final class HelperSocketServer: Sendable {
                                                  raw: ["id": id]))
             }
         }
+        return ordered ? task : nil
     }
 
     /// One client socket; writes are serialized, close happens once.

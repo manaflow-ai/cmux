@@ -85,9 +85,12 @@ struct CloudMove {
         let toastID = "cloud-move-" + tab.id
         let tabID = tab.id
         let retries = services.cloud.moveRetries
-        toast(toastID, CloudMoveStrings.moving, duration: Self.working)
-        // An agent's ask in the chat shows the move too (``CloudMoveAsks``).
+        // An agent's ask in the chat shows the move on its card (``CloudMoveAsks``): then the card
+        // alone says its progress and failure, never a toast as well. Success still toasts, since
+        // the card goes when the chat moved.
         let asks = services.cloud.moveAsks
+        let carded = asks.hasCard(tabID)
+        if !carded { toast(toastID, CloudMoveStrings.moving, duration: Self.working) }
         asks.moveStarted(tabID, services: services)
         let work: ActionWork = Task { @MainActor in
             do {
@@ -97,7 +100,7 @@ struct CloudMove {
                 asks.moveEnded(tabID, failure: nil, services: services)
                 return nil
             } catch {
-                let failure = stopped(error, tab: tabID, toast: toastID, invocation: invocation)
+                let failure = stopped(error, tab: tabID, toast: carded ? nil : toastID, invocation: invocation)
                 asks.moveEnded(tabID, failure: failure.message, services: services)
                 return failure
             }
@@ -105,8 +108,9 @@ struct CloudMove {
         services.registry.track(work)
     }
 
-    /// A stop: records what Retry does for tab `tabID` and offers it on the toast.
-    private func stopped(_ error: any Error, tab tabID: String, toast toastID: String, invocation: ActionInvocation) -> ActionWorkFailure {
+    /// A stop: records what Retry does for tab `tabID` and offers it on the toast (none when
+    /// `toastID` is nil: the chat's card says it).
+    private func stopped(_ error: any Error, tab tabID: String, toast toastID: String?, invocation: ActionInvocation) -> ActionWorkFailure {
         // Any other error keeps the Retry a stop saved before (a move pinned to its machine).
         let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error)),
                                                      retry: services.cloud.moveRetries[tabID])
@@ -124,7 +128,7 @@ struct CloudMove {
         }
         var title = CloudMoveStrings.retry
         if case .update = failure.retry { title = CloudMachineUpdateStrings.button }
-        Self.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title)
+        if let toastID { Self.toast(services, toastID, failure.message, duration: .seconds(retry == nil ? 12 : 60), retry: retry, retryTitle: title) }
         return ActionWorkFailure(failure.message)
     }
 
