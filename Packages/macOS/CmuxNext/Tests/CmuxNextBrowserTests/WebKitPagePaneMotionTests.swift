@@ -193,3 +193,52 @@ import WebKit
         return condition()
     }
 }
+
+/// PROBE (scratch branch, never merged): which in-process layer of a WKWebView shows where the page has not drawn
+/// yet, and which color path sets it. CALayer.render(in:) draws the app's own layers and not the page's remote
+/// content, so the sampled pixel is what a gap shows before WebKit draws the new size.
+@MainActor @Suite(.serialized, .closesItsWindows) struct WebKitGapColorProbe {
+    @Test func probe() async throws {
+        for arm in ["none", "underPage", "spi", "underPage+drawsBackgroundOff"] {
+            let pane = WebKitPagePaneMotionTests.Pane(frame: NSRect(x: 200, y: 0, width: 600, height: 500))
+            defer { pane.tearDown() }
+            let webView = pane.page.webView
+            webView.loadHTMLString("<html style=\"background: rgb(16, 48, 80)\"><body>page</body></html>",
+                                   baseURL: URL(string: "https://probe.example/"))
+            _ = await WebKitPagePaneMotionTests.poll { !webView.isLoading && webView.url?.host == "probe.example" }
+            let page = NSColor(srgbRed: 16 / 255, green: 48 / 255, blue: 80 / 255, alpha: 1)
+            // Drop the color the tab's own read gave, so each arm starts from WebKit's default.
+            webView.perform(NSSelectorFromString("_setBackgroundColor:"), with: nil)
+            switch arm {
+            case "underPage": webView.underPageBackgroundColor = page
+            case "spi": webView.perform(NSSelectorFromString("_setBackgroundColor:"), with: page)
+            case "underPage+drawsBackgroundOff":
+                webView.underPageBackgroundColor = page
+                webView.setValue(false, forKey: "drawsBackground")
+            default: break
+            }
+            pane.area.hold = PaneMotionHold(trailing: true, bottom: false)
+            pane.area.frame = NSRect(x: 0, y: 0, width: 800, height: 500)
+            pane.area.layoutSubtreeIfNeeded()
+            CATransaction.flush()
+            guard let layer = webView.layer else { print("PROBE arm=\(arm) no layer"); continue }
+            let size = layer.bounds.size
+            let width = Int(size.width), height = Int(size.height)
+            let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                    space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            layer.render(in: context)
+            let data = context.data!.assumingMemoryBound(to: UInt8.self)
+            func pixel(_ x: Int, _ y: Int) -> String {
+                let i = (y * width + x) * 4
+                return "\(data[i]),\(data[i + 1]),\(data[i + 2]),\(data[i + 3])"
+            }
+            print("PROBE arm=\(arm) size=\(size) right-edge=\(pixel(width - 10, height / 2)) center=\(pixel(width / 2, height / 2))")
+            func dump(_ layer: CALayer, _ depth: Int) {
+                let color = layer.backgroundColor.flatMap { $0.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components }
+                print("PROBE arm=\(arm) \(String(repeating: "  ", count: depth))\(type(of: layer)) frame=\(layer.frame) bg=\(color.map { $0.map { Int(($0 * 255).rounded()) } } as Any)")
+                for sub in layer.sublayers ?? [] where depth < 4 { dump(sub, depth + 1) }
+            }
+            dump(layer, 0)
+        }
+    }
+}
