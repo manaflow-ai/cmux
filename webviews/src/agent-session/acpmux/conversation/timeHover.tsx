@@ -16,7 +16,7 @@ const CLOCK_TIME = "(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?";
 const CLOCK_JOIN = "(?:\\s*,\\s*(?:(?:and|or)\\s+)?|\\s+(?:and|or|to|through|until)\\s+|\\s*[\u2013\u2014-]\\s*)";
 const CLOCK_LIST = `${CLOCK_TIME}(?:${CLOCK_JOIN}${CLOCK_TIME})+(?: UTC|Z)`;
 const DETECT = new RegExp(
-  `\\b(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})|${CLOCK_LIST}|${CLOCK_TIME}Z|${CLOCK_TIME} UTC)\\b`,
+  `\\b(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})|(?<![\\d.:])(?:${CLOCK_LIST}|${CLOCK_TIME}Z|${CLOCK_TIME} UTC))\\b`,
   "g",
 );
 const CLOCK_TIMES = new RegExp(CLOCK_TIME, "g");
