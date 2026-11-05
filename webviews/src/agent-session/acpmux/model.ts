@@ -522,6 +522,8 @@ export type AcpmuxRow = {
   foldOpen?: boolean;
   /// The disclosure key of the live tool activity, independent of its stable status row id.
   activityFold?: string;
+  /// The T3 presentation keeps a turn-level timer above its activity rows.
+  workingHeader?: boolean;
   /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
   /// A reply to the person (not a short note) shown inside an open "Worked for": settled, yet it

@@ -79,7 +79,8 @@ export const WorkingCountsContext = createContext<WorkingCounts | undefined>(und
 
 export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
-  const counts = useContext(WorkingCountsContext);
+  const workCounts = useContext(WorkingCountsContext);
+  const counts = row.workingHeader ? undefined : workCounts;
   const waiting = useContext(WaitingOnContext);
   const held = !row.below && row.durationMs !== undefined;
   // No tick while the line waits on the person: it shows no time.

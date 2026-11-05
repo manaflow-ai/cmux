@@ -755,7 +755,7 @@ function shapedTurn(
     // no time yet. The sent prompt's row is stamped when it goes, so a time here would jump from
     // "Thinking 20s" back to 0s when the turn opens (cmux#30642).
     if (user.queued) Object.assign(line, { queued: user.queued, untimed: true });
-    shaped = [...date, ...drawnUser, line];
+    shaped = [...date, ...drawnUser, ...(usesT3Activity() ? [t3WorkingHeader(user)] : []), line];
   } else {
     // The person's prompt after the turn, which answers a tagged ask its answer ended on: one sent
     // and still held in the turn, else the prompt that opens the next turn.
@@ -1601,6 +1601,10 @@ export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[]): Acpm
   return [...shaped.slice(0, at), next];
 }
 
+function t3WorkingHeader(user: AcpmuxRow, clockOffset = 0): AcpmuxRow {
+  return { id: `t3-working-${user.id}`, kind: WORKING, version: 1, at: user.at + clockOffset, workingHeader: true };
+}
+
 function shapeLiveTurn(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
@@ -1621,6 +1625,7 @@ function shapeLiveTurn(
   // (a parallel `cp` while the agent messages others) leaves its run for the line too.
   const named = lineBelow && liveRuns && last ? lineCall(drawn, last) : undefined;
   if (usesT3Activity()) {
+    const header = t3WorkingHeader(user, clockOffset);
     let from = drawn.length;
     while (from > 0 && drawn[from - 1]!.kind === "activity") {
       const items = drawn[from - 1]!.items ?? [];
@@ -1642,6 +1647,7 @@ function shapeLiveTurn(
         trayAgents,
       ).at(-1)!;
       return [
+        header,
         ...drawn.slice(0, from),
         {
           ...status,
@@ -1654,17 +1660,10 @@ function shapeLiveTurn(
       ];
     }
     // Assistant messages keep their exact text and source order while streaming.
-    return codexLiveTurn(
-      user,
-      drawn,
-      drawn,
-      last,
-      named,
-      user.at + clockOffset,
-      clockOffset,
-      sessionStatus,
-      trayAgents,
-    );
+    return [
+      header,
+      ...codexLiveTurn(user, drawn, drawn, last, named, user.at + clockOffset, clockOffset, sessionStatus, trayAgents),
+    ];
   }
   // A reply before a steer never joins a run, as in the ended turn (steerDialogueIn).
   const rows = liveRuns ? codexRuns(mergeShortNotes(drawn, steerDialogueIn(drawn)), named?.tool.id) : drawn;
