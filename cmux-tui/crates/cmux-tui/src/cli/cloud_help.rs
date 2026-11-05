@@ -534,7 +534,7 @@ The chat opens as a tab in the machine's workspace in the cmux app.
 
   --prompt TEXT      What to send (`-` reads it from stdin)
   --agent AGENT      claude (default), codex, ...
-  --cwd DIR          A folder on the machine (default: the workspace's folder)
+  --cwd DIR          A folder on the machine (default: a new one under ~/chats)
   --name MACHINE     Use the machine with this name, or create it
   --target machine:MACHINE_ID
                      Use this machine (`cmux cloud list-machines`)
