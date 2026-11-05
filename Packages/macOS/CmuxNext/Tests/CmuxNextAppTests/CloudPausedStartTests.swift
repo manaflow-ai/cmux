@@ -62,10 +62,9 @@ struct CloudPausedStartTests {
             session.applyRecord(live)
         }
         session.attach(origin: .user)
-        let linked = await session.linkUp(within: .seconds(8))
+        #expect(await CloudWait.holds(within: .seconds(10)) { dials.answered > 0 }, "the resumed machine was never dialed")
         #expect(origins == [.user], "a person's attach on a paused machine never resumed it through Resume Machine")
         #expect(session.resumeFailure == nil)
-        #expect(linked && dials.answered > 0, "the resumed machine was never dialed")
     }
 
     /// The idle auto-pause parked the machine while the app's copy still read running: a start reads the record
