@@ -3,9 +3,10 @@ The gallery font study's faces (fontStudy/candidates.ts): Latin subsets from Fon
 files/<name>-latin-<weight>-normal.woff2 for IBM Plex Serif, IBM Plex Mono and Fira Sans), unmodified.
 Gallery only: none ships in the app. Each is under the SIL Open Font License 1.1; the notices follow.
 
-cmux-sans-a.woff2, cmux-sans-b.woff2 and cmux-sans-c.woff2 are cmux Sans study builds: Modified Versions of
+The cmux-sans-*.woff2 files are cmux Sans study builds: Modified Versions of
 Source Sans 3 3.052R (Adobe, https://github.com/adobe-fonts/source-sans), made by
-scripts/fonts/cmux-sans/build.py (a larger optical size and a taller x-height; Latin subset). Under the OFL they
+scripts/fonts/cmux-sans/build.py (a taller x-height; for B also a larger optical size; for C l, C g and C lg, Source's own tailed l and
+single-storey g as the default forms; Latin subset). Under the OFL they
 do not use the Reserved Font Name "Source": the family is "cmux Sans". The Source Sans 3 notice follows.
 
 ==== cmux-sans (from Source Sans 3)

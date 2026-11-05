@@ -27,9 +27,11 @@ import publicSans from "./fonts/public-sans.woff2";
 import recursive from "./fonts/recursive.woff2";
 import schibsted from "./fonts/schibsted-grotesk.woff2";
 import sourceSerif from "./fonts/source-serif-4.woff2";
-import cmuxSansA from "./fonts/cmux-sans-a.woff2";
 import cmuxSansB from "./fonts/cmux-sans-b.woff2";
 import cmuxSansC from "./fonts/cmux-sans-c.woff2";
+import cmuxSansCG from "./fonts/cmux-sans-c-g.woff2";
+import cmuxSansCL from "./fonts/cmux-sans-c-l.woff2";
+import cmuxSansCLG from "./fonts/cmux-sans-c-lg.woff2";
 import geist from "../../agent-session/acpmux/chatFonts/Geist-latin-wght.woff2";
 import plexSans from "../../agent-session/acpmux/chatFonts/IBMPlexSans-latin-wght.woff2";
 import roboto from "../../agent-session/acpmux/chatFonts/Roboto-latin-wght.woff2";
@@ -41,9 +43,11 @@ const variable = (family: string, url: string): Face => ({ family, files: [{ url
 
 export const FACES = {
   atkinson: variable("Study Atkinson Hyperlegible Next", atkinson),
-  cmuxSansA: variable("Study cmux Sans A", cmuxSansA),
   cmuxSansB: variable("Study cmux Sans B", cmuxSansB),
   cmuxSansC: variable("Study cmux Sans C", cmuxSansC),
+  cmuxSansCG: variable("Study cmux Sans C g", cmuxSansCG),
+  cmuxSansCL: variable("Study cmux Sans C l", cmuxSansCL),
+  cmuxSansCLG: variable("Study cmux Sans C lg", cmuxSansCLG),
   bricolage: variable("Study Bricolage Grotesque", bricolage),
   dmSans: variable("Study DM Sans", dmSans),
   figtree: variable("Study Figtree", figtree),
@@ -178,13 +182,6 @@ export const PAIRINGS: readonly Pairing[] = [
   { id: "plex-sans", label: "IBM Plex Sans", why: "Engineered grotesque with humanist details.", ui: "plexSans" },
   { id: "source-sans", label: "Source Sans 3", why: "Adobe's humanist sans: calm and compact.", ui: "sourceSans" },
   {
-    id: "cmux-sans-a",
-    label: "cmux Sans A (+1 px optical size)",
-    why: "Source Sans 3, every outline 8 % larger at the same em: 12 px draws as Source at 13 px.",
-    ui: "cmuxSansA",
-    tracking: CMUX_SANS_TRACKING,
-  },
-  {
     id: "cmux-sans-b",
     label: "cmux Sans B (+½ px, x-height +5 %)",
     why: "Source Sans 3, 4 % larger and its lowercase 5 % taller, ascenders unchanged.",
@@ -196,6 +193,27 @@ export const PAIRINGS: readonly Pairing[] = [
     label: "cmux Sans C (x-height +8 %)",
     why: "Source Sans 3 at its own size, its lowercase 8 % taller: Inter's legibility at Source's width.",
     ui: "cmuxSansC",
+    tracking: CMUX_SANS_TRACKING,
+  },
+  {
+    id: "cmux-sans-c-l",
+    label: "cmux Sans C, tailed l",
+    why: "C with Source's tailed l (its ss05) as the default form: I, l and 1 apart at a glance.",
+    ui: "cmuxSansCL",
+    tracking: CMUX_SANS_TRACKING,
+  },
+  {
+    id: "cmux-sans-c-g",
+    label: "cmux Sans C, single-storey g",
+    why: "C with Source's single-storey g (its ss04) as the default form: a rounder, quieter descender.",
+    ui: "cmuxSansCG",
+    tracking: CMUX_SANS_TRACKING,
+  },
+  {
+    id: "cmux-sans-c-lg",
+    label: "cmux Sans C, tailed l and single-storey g",
+    why: "Both forms: the most distinct cmux Sans, still Source's own drawings.",
+    ui: "cmuxSansCLG",
     tracking: CMUX_SANS_TRACKING,
   },
   { id: "fira-sans", label: "Fira Sans", why: "Mozilla's humanist sans, Meta's lineage.", ui: "fira" },

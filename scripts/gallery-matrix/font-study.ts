@@ -63,11 +63,15 @@ try {
       });
       await page.goto(`${base}/mock-app.html?${query}`, { waitUntil: "domcontentloaded" });
       await page.waitForFunction(() => document.documentElement.dataset.mockAppReady === "1", null, { timeout: 30_000 });
-      // Each pane is its own stage frame; wait until it has painted and gone still.
-      for (const frame of page.frames().slice(1))
-        await frame
-          .waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined, null, { timeout: 30_000 })
-          .catch(() => undefined);
+      // Each pane is its own stage frame; wait until it has painted and gone still. A pane that errors or
+      // never settles fails the run, so no capture of a broken pane is judged.
+      for (const frame of page.frames().slice(1)) {
+        await frame.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined, null, {
+          timeout: 30_000,
+        });
+        const ready = await frame.evaluate(() => document.documentElement.dataset.galleryReady);
+        if (ready !== "1") throw new Error(`${id}-${scheme}: pane ${frame.url()} is not ready (galleryReady=${ready})`);
+      }
       const applied = await page.evaluate(() => ({
         chrome: getComputedStyle(document.querySelector(".app-sidebar-title") ?? document.body).fontFamily,
       }));

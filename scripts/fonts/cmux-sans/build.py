@@ -4,13 +4,15 @@
 Leo, 2026-11-05: "I'm actually saying we should make our own font." The font study (webviews/src/gallery/fontStudy)
 picked Source Sans 3 as the base: densest, calm, humanist. Its one fault at UI sizes is a small x-height (478 of
 1000, against Inter's 546), so at the same pixel size it reads a size smaller. This build keeps its outlines and
-spacing and changes three things, each a parameter of a preset:
+spacing and changes up to four things, each a parameter of a preset:
 
 - the optical size (`scale`): every outline and metric grows by this factor at the same em, so 12 px text
   draws as Source Sans 3 would at 12 px times `scale`;
 - the x-height (`xheight`): lowercase letters are stretched between the baseline and the x-height to this
   height, and from there to the ascender, so ascenders, descenders and capitals keep their heights; marks over
   lowercase letters (composite accents and the GPOS mark anchors) move up with them;
+- the default forms (`sets`): Source's own alternates, such as the tailed l and the single-storey g, drawn
+  without a feature;
 - the name: the OFL reserves "Source", so the family is "cmux Sans" and the copyright line names both.
 
 Spacing at each UI size is the type scale's tracking table, not the font's (candidates.ts, `tracking`).
@@ -58,11 +60,15 @@ DESCRIPTION = (
     "x-height for small interface text. It is not Source Sans and is not endorsed by Adobe."
 )
 
-# x-height in the source's units (478), before `scale`. Scale is the optical-size factor.
-PRESETS: dict[str, dict[str, float]] = {
-    "a": {"scale": 1.083, "xheight": 478},  # the literal +1 px at 12 px, outlines as drawn
+# x-height in the source's units (478), before `scale`. Scale is the optical-size factor. `sets` are Source's
+# own stylistic sets made the default forms: ss05 is the tailed l (Il1 apart), ss04 the single-storey g.
+# Round 3 dropped a +1 px optical size (scale 1.083): it cost the density that made Source win.
+PRESETS: dict[str, dict] = {
     "b": {"scale": 1.04, "xheight": 502},  # half a pixel larger, x-height +5 %
     "c": {"scale": 1.0, "xheight": 516},  # Source's size, x-height +8 %
+    "c-l": {"scale": 1.0, "xheight": 516, "sets": ["ss05"]},
+    "c-g": {"scale": 1.0, "xheight": 516, "sets": ["ss04"]},
+    "c-lg": {"scale": 1.0, "xheight": 516, "sets": ["ss05", "ss04"]},
 }
 
 # Glyph-name suffixes of lowercase forms that do not sit on the x-height.
@@ -79,7 +85,7 @@ def source_font() -> TTFont:
     if hashlib.sha256(data).hexdigest() != SOURCE_SHA256:
         raise SystemExit(f"{cache}: sha256 does not match {SOURCE_SHA256}")
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
-        return TTFont(io.BytesIO(archive.read(SOURCE_MEMBER)))
+        return TTFont(io.BytesIO(archive.read(SOURCE_MEMBER)), recalcTimestamp=False)  # reproducible files
 
 
 def lowercase_glyphs(font: TTFont) -> set[str]:
@@ -199,6 +205,27 @@ def raise_x_height(font: TTFont, target: float) -> None:
     font["OS/2"].sxHeight = otRound(target)
 
 
+def make_default(font: TTFont, sets: list[str]) -> None:
+    """Points every character a stylistic set changes at the set's form, so the face draws it without the feature
+    (natively too, where NSFont applies no feature). The plain form stays in the font for the other features."""
+    gsub = font["GSUB"].table
+    mapping: dict[str, str] = {}
+    for record in gsub.FeatureList.FeatureRecord:
+        if record.FeatureTag not in sets:
+            continue
+        for index in record.Feature.LookupListIndex:
+            lookup = gsub.LookupList.Lookup[index]
+            for table in lookup.SubTable:
+                table = table.ExtSubTable if lookup.LookupType == 7 else table
+                mapping.update(getattr(table, "mapping", {}))
+    if not mapping:
+        raise SystemExit(f"no single substitutions in {sets}")
+    for table in font["cmap"].tables:
+        for code, name in list(table.cmap.items()):
+            if name in mapping:
+                table.cmap[code] = mapping[name]
+
+
 def rename(font: TTFont, preset: str | None) -> None:
     family = FAMILY if preset is None else f"{FAMILY} {preset.upper()}"
     ps = PS_FAMILY if preset is None else f"{PS_FAMILY}{preset.upper()}"
@@ -233,7 +260,9 @@ def rename(font: TTFont, preset: str | None) -> None:
 def build(preset: str, subset: str | None, out: Path, release: bool) -> list[Path]:
     params = PRESETS[preset]
     font = source_font()
-    raise_x_height(font, params["xheight"])
+    raise_x_height(font, params["xheight"])  # first, while the plain forms are still the ones the cmap names
+    if params.get("sets"):
+        make_default(font, params["sets"])
     if params["scale"] != 1:
         scale_upem(font, otRound(1000 * params["scale"]))
         font["head"].unitsPerEm = 1000
