@@ -536,10 +536,15 @@ public final class TerminalSurfaceView: NSView {
         // frame: the surface draws each size (the reflow preview), and the grid goes to the owner once the
         // spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame. A key resize whose host
         // follows its pane (cmux-ad m18) is live instead: its grid goes through the coalescer, at most once per
-        // 25 ms and the newest, so the PTY follows the pane and ends at the landing's grid.
-        let live = ((superview as? TerminalHostView)?.surfaceFollowsArea ?? false) || isFollowingResizeGesture
+        // 25 ms and the newest, so the PTY follows the pane and ends at the landing's grid. A divider drag keeps its
+        // grid held to the release (feat's path; #36631 owns the drag grid path).
+        let live = (superview as? TerminalHostView)?.surfaceFollowsArea ?? false
+        // A size whose frame is not drawn yet and is no longer the one wanted (the pane moved on, or its spring landed,
+        // while the frame waited) reports nothing: the wanted size reports its grid when its frame lands (review of #35470,
+        // F1). Kept from feat as a guard: the grid here is the committed bounds' (`shownGrid`), never the in-flight size's.
+        let stale = frameOwnership.inFlight.map { $0 != frameOwnership.wanted?.size } ?? false
         let report = geometry.viewSized(desired, force: forceReport,
-                                        holding: !forceReport && ((isInPaneMotion && !live) || isFollowingResizeGesture))
+                                        holding: stale || (!forceReport && ((isInPaneMotion && !live) || isFollowingResizeGesture)))
         // In the same main-thread turn as set_size: the frame of the new size
         // draws at the next display pass, already reflowed.
         // A held or coalesced grid is reported later: the preview draws it meanwhile.
