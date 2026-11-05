@@ -68,7 +68,11 @@ pub(super) fn add_read_image(kind: &str, msg: &mut Value, cwd: &std::path::Path)
         json!({"type": "content", "content": {"type": "image", "mimeType": mime, "data": data}});
     match update.get_mut("content").and_then(Value::as_array_mut) {
         Some(blocks) => blocks.push(image),
-        None => update["content"] = json!([image]),
+        None => {
+            if let Some(fields) = update.as_object_mut() {
+                fields.insert("content".into(), json!([image]));
+            }
+        }
     }
 }
 
@@ -93,20 +97,12 @@ fn image_file(path: &str) -> Option<(&'static str, Vec<u8>)> {
     if !meta.is_file() || meta.len() > MAX_READ_IMAGE_BYTES {
         return None;
     }
-    let mut head = [0u8; 12];
-    let mut got = 0;
-    while got < head.len() {
-        match file.read(&mut head[got..]) {
-            Ok(0) => break,
-            Ok(n) => got += n,
-            Err(_) => return None,
-        }
-    }
-    let mime = image_mime(&head[..got])?;
+    // Its first 12 bytes (fewer for a smaller file), then the rest only for an image's.
     let mut bytes = Vec::with_capacity(meta.len() as usize);
-    bytes.extend_from_slice(&head[..got]);
+    (&mut file).take(12).read_to_end(&mut bytes).ok()?;
+    let mime = image_mime(&bytes)?;
     // A file that grew since its size was read is cut off one byte past the limit, and refused.
-    file.take(MAX_READ_IMAGE_BYTES + 1 - got as u64).read_to_end(&mut bytes).ok()?;
+    file.take(MAX_READ_IMAGE_BYTES + 1).read_to_end(&mut bytes).ok()?;
     if bytes.len() as u64 > MAX_READ_IMAGE_BYTES {
         return None;
     }
@@ -121,7 +117,7 @@ fn image_mime(bytes: &[u8]) -> Option<&'static str> {
         Some("image/jpeg")
     } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
         Some("image/gif")
-    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP".as_slice()) {
         Some("image/webp")
     } else {
         None
