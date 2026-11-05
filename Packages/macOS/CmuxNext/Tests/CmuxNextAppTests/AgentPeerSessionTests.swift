@@ -98,9 +98,17 @@ struct AgentSessionOpenTargetTests {
         return store
     }
 
-    /// The refusal `body` throws, nil when it throws none.
-    static func refusal(_ body: () throws(AgentSessionOpenRefusal) -> Void) -> String? {
-        do { try body(); return nil } catch { return error.description }
+    /// The refusal `body` throws, nil when it throws none (any other error fails the test).
+    static func refusal(_ body: () throws -> Void) -> String? {
+        do {
+            try body()
+            return nil
+        } catch let refusal as AgentSessionOpenRefusal {
+            return refusal.description
+        } catch {
+            Issue.record("not a refusal: \(error)")
+            return nil
+        }
     }
 
     @Test func thisMacsChatNamedByItsHarnessIdOrNameOpensAcpmuxsId() throws {
