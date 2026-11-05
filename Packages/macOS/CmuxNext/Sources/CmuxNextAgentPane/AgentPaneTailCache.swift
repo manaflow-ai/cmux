@@ -125,6 +125,11 @@ public final class AgentPaneTailCache {
         (tail["events"]?.arrayValue ?? []).compactMap { $0["seq"]?.doubleValue }.max() ?? 0
     }
 
+    /// Returns, holding no thread, once the hand-overs made before this call are saved.
+    func settled() async {
+        await disk?.settled()
+    }
+
     /// Forgets every tail: the session's chats are no longer this person's.
     public func clear() {
         generation &+= 1

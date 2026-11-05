@@ -27,11 +27,15 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
     private let counter = Mutex<UInt64>(0)
     private let limitFiles: Int
     private let limitBytes: Int
+    /// Told each time a ``read(_:)`` is queued, before it runs (a test holds the queue there).
+    private let readQueued: @Sendable () -> Void
 
-    public init(directory: URL, files: Int = AgentPaneTailCache.chats, bytes: Int = AgentPaneTailCache.bytes) {
+    public init(directory: URL, files: Int = AgentPaneTailCache.chats, bytes: Int = AgentPaneTailCache.bytes,
+                readQueued: @escaping @Sendable () -> Void = {}) {
         self.directory = directory
         limitFiles = files
         limitBytes = bytes
+        self.readQueued = readQueued
     }
 
     /// The file chat `sessionId`'s tail is kept in.
@@ -75,6 +79,7 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
             queue.async {
                 done.resume(returning: Self.load(file, limit: limit))
             }
+            readQueued()
         }
     }
 
@@ -87,6 +92,11 @@ public nonisolated final class AgentPaneTailDisk: Sendable {
     /// Returns, holding no thread, once the work queued before this call has run.
     public func settled() async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
+    }
+
+    /// Runs `work` on the queue after the work queued before it (a test holds the queue with it).
+    func afterQueued(_ work: @escaping @Sendable () -> Void) {
+        queue.async(execute: work)
     }
 
     private static func load(_ file: URL, limit: Int) -> JSONValue? {

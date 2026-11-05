@@ -97,6 +97,11 @@ public nonisolated final class AgentPaneStateFiles: Sendable {
         }
     }
 
+    /// The writer for the chat tails kept in `directory` (``AgentPaneTailDisk``).
+    public func tails(in directory: URL) -> AgentPaneTailDisk {
+        AgentPaneTailDisk(directory: directory)
+    }
+
     /// Returns, holding no thread, once every file's saves queued before this call have run. It has no
     /// limit of its own: the quit awaits it only after its deadline is armed (`QuitCoordinator`'s
     /// engine stop, `ForcedQuitExit`), and that deadline records what was still queued
