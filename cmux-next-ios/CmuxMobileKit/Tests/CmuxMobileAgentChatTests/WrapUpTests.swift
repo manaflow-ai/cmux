@@ -12,14 +12,15 @@ import Testing
         ACPToolCall(id: "w1", title: title, kind: .other, status: status, rawInput: .object(args))
     }
 
-    static func rows(answer: String, call: ACPToolCall, then next: String? = nil) -> [ChatTurnRows] {
+    static func rows(answer: String, call: ACPToolCall, then next: String? = nil,
+                     ended status: AgentTurn.Status = .completed) -> [ChatTurnRows] {
         let store = AgentChatStore(source: PromptResendTests.Recorder())
         var events: [AgentSessionEvent] = [
             .userMessage(text: "refactor it", promptId: "p1", turnId: "t1", attachments: [], at: at),
             .turnStarted(turnId: "t1", at: at),
             .update(.agentMessageChunk(text: answer, messageId: "m1")),
             .update(.toolCall(call)),
-            .turnResult(turnId: "t1", status: .completed, errorText: nil, at: at),
+            .turnResult(turnId: "t1", status: status, errorText: nil, at: at),
         ]
         if let next {
             events += [.userMessage(text: next, promptId: "p2", turnId: "t2", attachments: [], at: at), .turnStarted(turnId: "t2", at: at)]
@@ -123,5 +124,13 @@ import Testing
         let rows = Self.rows(answer: "Done.", call: Self.wrapUpCall(["recap": .string("Fixed it.")], status: .failed))
         #expect(NewMacRowsTests.nextStep(rows) == nil)
         #expect(Self.hasToolRow(rows))
+    }
+
+    @Test func aStoppedOrFailedTurnKeepsTheCallsRow() {
+        for status in [AgentTurn.Status.cancelled, .failed] {
+            let rows = Self.rows(answer: "Done.", call: Self.wrapUpCall(["recap": .string("Fixed it.")]), ended: status)
+            #expect(NewMacRowsTests.nextStep(rows) == nil)
+            #expect(Self.hasToolRow(rows), "no card draws, so the call's row stays")
+        }
     }
 }
