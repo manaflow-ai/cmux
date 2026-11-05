@@ -30,11 +30,19 @@ def on_the_mini(job: dict) -> bool:
     return "vars.CI_NIGHTLY_MINI" in text
 
 
-def timeout(value: object, context: dict, rng: random.Random) -> object:
+def timeout(value: object, context: dict, rng: random.Random, base: dict | None = None) -> object:
     if not isinstance(value, str) or not value.startswith("${{"):
         return value
     expression = value.removeprefix("${{").removesuffix("}}")
-    return evaluate(parse_expression(expression), {**sample(expression, rng), **context})
+    result = evaluate(parse_expression(expression), {**(base if base is not None else sample(expression, rng)), **context})
+    # GitHub reads a number literal of the expression as a number; the test evaluator keeps its text.
+    return int(result) if isinstance(result, str) and result.isdigit() else result
+
+
+# A limit that is an expression of its own, at least SIGNING_DRAIN_MINUTES above glaeda's bounded signing drain
+# (SIGNING_DRAIN_WAIT_S = 3600): build-sign-notarize-nightly's shortest limit is 160 minutes.
+OWN_LIMIT = {"build-sign-notarize-nightly"}
+SIGNING_DRAIN_MINUTES = 60
 
 
 class MiniGateTimeouts(unittest.TestCase):
@@ -46,7 +54,12 @@ class MiniGateTimeouts(unittest.TestCase):
                 continue
             raw = job["timeout-minutes"]
             for _ in range(50):
-                off, on = timeout(raw, OFF, rng), timeout(raw, ON, rng)
+                base = sample(raw.removeprefix("${{").removesuffix("}}"), rng) if isinstance(raw, str) else {}
+                off, on = timeout(raw, OFF, rng, base), timeout(raw, ON, rng, base)
+                if name in OWN_LIMIT:
+                    if min(off, on) < 100 + SIGNING_DRAIN_MINUTES:
+                        short[name] = (off, on)
+                    continue
                 if not isinstance(off, (int, float)) or off >= 6 * 60:
                     break  # an expression limit of its own (the signing job) or GitHub's default already
                 if on != off + GATE_MINUTES:
