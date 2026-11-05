@@ -9,7 +9,7 @@
   (`CornerMorph`, `MainPaneChromeShadeView`), with the separate look's tint while on; no view moves, nothing animates.
   It works on the default flat chrome (`flatSidebarLine`: the content area is the square, flush card, so no space is
   added) and on the curved card; while a morph is on, the sidebar's edge hairline steps aside (the tint parts them).
-  The bridge joins the selected list row, else the active band row (Home, a pin).
+  The bridge joins the selected list row, else the active band row (Home, a pin; one the titlebar row clips at its top joins whole).
   Comfortable and expanded sidebar density only: compact (Lawrence's) keeps the plain card. Regression:
   `CornerMorphShapeTests`.
 - 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
