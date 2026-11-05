@@ -357,6 +357,16 @@ def rerun_lost(api: Api, tip: str, log: Callable[[str], None], warn: Callable[[s
              f"{MAX_ATTEMPTS} because {names} never got a runner; not re-run again")
         return
     try:
+        # A push can land while the tick reads; the old tip's jobs must not be re-run over the newer
+        # nightly, so the tip is read again right before the write.
+        current = api.tip()
+    except Unreadable as why:
+        log(f"nightly-next tip could not be read again ({why}); run {newest.id} not re-run")
+        return
+    if current != tip:
+        log(f"nightly-next moved from {tip[:12]} to {current[:12]}; run {newest.id} not re-run")
+        return
+    try:
         api.rerun_failed_jobs(newest.id)
     except Unreadable as error:
         warn(f"run {newest.id}: the re-run of {names} was refused ({error}); the next tick reads it again")
