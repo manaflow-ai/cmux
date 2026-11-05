@@ -309,12 +309,14 @@ export function Thinking({
     <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}`} data-find-skip>
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
-          <span className="cv-needs-input-dot" aria-hidden="true" />
+          <span className="cv-needs-input-glyph" aria-hidden="true" />
           <span className="cv-waiting__pill">{t(WAITING_LABEL[waiting])}</span>
         </output>
       ) : (
         <span className="cv-shimmer__row">
-          {answered && <span className="cv-needs-input-dot is-answered" aria-hidden="true" onAnimationEnd={settled} />}
+          {answered && (
+            <span className="cv-needs-input-glyph is-answered" aria-hidden="true" onAnimationEnd={settled} />
+          )}
           <output className="cv-thinking is-shimmer">
             <ShimmerText
               text={label}

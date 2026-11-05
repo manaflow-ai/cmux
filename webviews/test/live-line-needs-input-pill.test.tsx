@@ -48,37 +48,37 @@ test("the waiting line is a pill with the dot; once answered the dot shrinks bef
     );
   // Thinking before any ask: no dot.
   await draw(undefined);
-  expect(host.querySelector(".cv-needs-input-dot")).toBeNull();
+  expect(host.querySelector(".cv-needs-input-glyph")).toBeNull();
 
   await draw("permission");
   const pill = host.querySelector(".cv-waiting")!;
   expect(pill.textContent).toBe("Waiting for you: allow this?");
-  expect(pill.querySelector(".cv-needs-input-dot:not(.is-answered)")).not.toBeNull();
+  expect(pill.querySelector(".cv-needs-input-glyph:not(.is-answered)")).not.toBeNull();
   // The ringed dot sits before the pill, outside it, as Claude desktop's "Needs your input".
   expect(pill.querySelector(".cv-waiting__pill")?.textContent).toBe("Waiting for you: allow this?");
-  expect(pill.querySelector(".cv-waiting__pill .cv-needs-input-dot")).toBeNull();
+  expect(pill.querySelector(".cv-waiting__pill .cv-needs-input-glyph")).toBeNull();
 
   // Answered: Thinking, led by the shrinking dot.
   await draw(undefined);
   expect(host.querySelector(".cv-waiting")).toBeNull();
-  const dot = host.querySelector(".cv-shimmer__row > .cv-needs-input-dot.is-answered")!;
+  const dot = host.querySelector(".cv-shimmer__row > .cv-needs-input-glyph.is-answered")!;
   expect(dot).not.toBeNull();
   expect(dot.getAttribute("aria-hidden")).toBe("true");
   expect(host.textContent).toContain("Thinking");
   // The shrink's end takes it away.
   await act(async () => void dot.dispatchEvent(new dom.window.Event("animationend", { bubbles: true })));
-  expect(host.querySelector(".cv-needs-input-dot")).toBeNull();
+  expect(host.querySelector(".cv-needs-input-glyph")).toBeNull();
 
   // With no animation (motion off) it still goes, within its fallback time (SETTLE_MS, 400 ms).
   jest.useFakeTimers();
   try {
     await draw("question");
     await draw(undefined);
-    expect(host.querySelector(".cv-needs-input-dot.is-answered")).not.toBeNull();
+    expect(host.querySelector(".cv-needs-input-glyph.is-answered")).not.toBeNull();
     await act(async () => void jest.advanceTimersByTime(399));
-    expect(host.querySelector(".cv-needs-input-dot.is-answered")).not.toBeNull();
+    expect(host.querySelector(".cv-needs-input-glyph.is-answered")).not.toBeNull();
     await act(async () => void jest.advanceTimersByTime(1));
-    expect(host.querySelector(".cv-needs-input-dot")).toBeNull();
+    expect(host.querySelector(".cv-needs-input-glyph")).toBeNull();
   } finally {
     jest.useRealTimers();
   }

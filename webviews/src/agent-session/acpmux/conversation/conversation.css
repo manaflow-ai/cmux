@@ -6179,30 +6179,33 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  height: 22px;
-  padding: 0 9px;
+  height: var(--ds-control-icon);
+  padding: 0 var(--ds-space-2);
   box-sizing: border-box;
   border-radius: 999px;
   background: color-mix(in srgb, var(--acpmux-needs-you-mark) 16%, transparent);
-  line-height: 22px;
+  line-height: var(--ds-control-icon);
 }
-.cv-needs-input-dot {
+/* The ringed dot on the 12px glyph step: an 8px dot in the mark's colour inside a 2px ring of it. */
+.cv-needs-input-glyph {
   flex: none;
-  width: 8px;
-  height: 8px;
-  margin: 3px;
+  width: var(--grid-glyph);
+  height: var(--grid-glyph);
   border-radius: 50%;
-  background: var(--acpmux-needs-you-mark);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--acpmux-needs-you-mark) 30%, transparent);
+  background: radial-gradient(
+    circle closest-side,
+    var(--acpmux-needs-you-mark) 66%,
+    color-mix(in srgb, var(--acpmux-needs-you-mark) 30%, transparent) 67%
+  );
 }
 /* Once answered the dot stays a moment before the Thinking words and shrinks into them, its room
    closing with it, so the words slide back to the line's start (Leo, 2026-11-05: "it, like, shrinks
    the thing, the circle into the Thinking... portion afterwards which is cute"). The motion's
    standard step; with motion off or reduced it is not drawn at all. */
-.cv-needs-input-dot.is-answered {
+.cv-needs-input-glyph.is-answered {
   align-self: center;
-  margin-inline-end: 11px;
-  animation: cv-needs-input-answered var(--cmux-motion-standard, 180ms) cubic-bezier(0.3, 0, 0.2, 1) both;
+  margin-inline-end: var(--ds-space-2);
+  animation: cv-needs-input-answered var(--cmux-motion-standard, 180ms) var(--cmux-ease-out) both;
 }
 @keyframes cv-needs-input-answered {
   from {
@@ -6216,11 +6219,11 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .cv-needs-input-dot.is-answered {
+  .cv-needs-input-glyph.is-answered {
     display: none;
   }
 }
-:root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-needs-input-dot.is-answered {
+:root:is([data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .cv-needs-input-glyph.is-answered {
   display: none;
 }
 

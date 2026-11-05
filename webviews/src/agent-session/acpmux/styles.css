@@ -964,8 +964,8 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary{background:var(--agent-text);color:var(--acpmux-base,var(--agent-accent-text,Canvas))}
 .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary:hover{background:color-mix(in srgb,var(--agent-text) 88%,var(--acpmux-base,Canvas))}
 /* A card key (Esc, ⌘ ↩) is an outlined keycap per key after the label, as Claude desktop's buttons draw it. */
-.acpmux-permission-ask .acpmux-permission-keys{display:inline-flex;align-items:center;gap:2px;margin-inline-start:var(--ds-space-2)}
-.acpmux-permission-ask .acpmux-permission-keys .acpmux-keycap{min-width:18px;height:18px;margin:0;padding:0 4px;border-radius:4px;background:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 35%,transparent);color:color-mix(in srgb,currentColor 75%,transparent);font:var(--text-caption)/18px var(--font-ui)}
+.acpmux-permission-ask .acpmux-permission-keys{display:inline-flex;align-items:center;gap:var(--grid-half-step);margin-inline-start:var(--ds-space-2)}
+.acpmux-permission-ask .acpmux-permission-keys .acpmux-keycap{display:inline-flex;align-items:center;justify-content:center;min-width:var(--ds-control-icon);height:var(--ds-control-icon);margin:0;padding:0 4px;border-radius:4px;background:none;box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 35%,transparent);color:color-mix(in srgb,currentColor 75%,transparent);font-family:var(--font-ui);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
 .acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* The key hint (KeyHint): smaller and fainter than the label, on its baseline, a fixed step after it;
    the modifiers fainter still so the digit leads. No box: a keycap crowds a 24px button. */
