@@ -788,6 +788,14 @@ def journey(case, jid, speeds, part_note, switch_key=None):
     for n, spec in enumerate(speeds):
         label, speed = spec[0], spec[1]
         film, cost = case.recording(jid, label, speed, last=n == len(speeds) - 1, switch=spec[2] if len(spec) > 2 else None)
+        if switch_key == "motion.frameOwner.pages" and "page" in case.layout.kinds():
+            # S5 (cmux-ad m16 item 4): whether the page is hosted in cmux's layer tree, before and after each film
+            # (debug.cef tracker.hosted_pages, hosting_refused), next to the pixels that show it follows its pane.
+            film["steps"].insert(0, {"do": "rpc", "method": "debug.cef", "params": {}, "keep": "cef-before",
+                                     "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"})
+            film["steps"].append({"do": "rpc", "method": "debug.cef", "params": {}, "keep": "cef-after",
+                                  "title": "debug.cef after the film (tracker.hosted_pages, hosting_refused)"})
+            cost += 0.2
         steps.append(film)
         seconds += cost
         names.append(film["name"])

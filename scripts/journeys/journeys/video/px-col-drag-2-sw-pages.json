@@ -4,8 +4,8 @@
  "title": "PIXEL: divider 0 dragged 150 pt right slowly and back fast (p0 T | p1 P), at x1 OFF, x1 ON, Reduce Motion OFF, Reduce Motion ON (motion.frameOwner.pages OFF and ON)",
  "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
  "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
- "budget_seconds": 101,
- "estimate_seconds": 84,
+ "budget_seconds": 102,
+ "estimate_seconds": 85,
  "recordings": [
   "px-col-drag-2-sw-pages-off-s1",
   "px-col-drag-2-sw-pages-on-s1",
@@ -168,6 +168,13 @@
    "name": "px-col-drag-2-sw-pages-off-s1",
    "steps": [
     {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-before",
+     "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"
+    },
+    {
      "do": "wait",
      "seconds": 0.8,
      "title": "the layout and the load settle (nothing observable to wait on)"
@@ -233,6 +240,13 @@
      "name": "px-col-drag-2-sw-pages-off-s1",
      "tail": 0.4,
      "title": "the motion ends; stop the recording (px-col-drag-2-sw-pages-off-s1)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-after",
+     "title": "debug.cef after the film (tracker.hosted_pages, hosting_refused)"
     }
    ],
    "after": [],
@@ -247,6 +261,13 @@
    "do": "px_film",
    "name": "px-col-drag-2-sw-pages-on-s1",
    "steps": [
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-before",
+     "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"
+    },
     {
      "do": "wait",
      "seconds": 0.8,
@@ -313,6 +334,13 @@
      "name": "px-col-drag-2-sw-pages-on-s1",
      "tail": 0.4,
      "title": "the motion ends; stop the recording (px-col-drag-2-sw-pages-on-s1)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-after",
+     "title": "debug.cef after the film (tracker.hosted_pages, hosting_refused)"
     }
    ],
    "after": [],
@@ -327,6 +355,13 @@
    "do": "px_film",
    "name": "px-col-drag-2-sw-pages-off-reduce",
    "steps": [
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-before",
+     "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"
+    },
     {
      "do": "wait",
      "seconds": 0.8,
@@ -393,6 +428,13 @@
      "name": "px-col-drag-2-sw-pages-off-reduce",
      "tail": 0.4,
      "title": "the motion ends; stop the recording (px-col-drag-2-sw-pages-off-reduce)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-after",
+     "title": "debug.cef after the film (tracker.hosted_pages, hosting_refused)"
     }
    ],
    "after": [],
@@ -407,6 +449,13 @@
    "do": "px_film",
    "name": "px-col-drag-2-sw-pages-on-reduce",
    "steps": [
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-before",
+     "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"
+    },
     {
      "do": "wait",
      "seconds": 0.8,
@@ -473,6 +522,13 @@
      "name": "px-col-drag-2-sw-pages-on-reduce",
      "tail": 0.4,
      "title": "the motion ends; stop the recording (px-col-drag-2-sw-pages-on-reduce)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-after",
+     "title": "debug.cef after the film (tracker.hosted_pages, hosting_refused)"
     }
    ],
    "after": [],

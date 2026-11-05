@@ -4,8 +4,8 @@
  "title": "PIXEL: Ctrl-Shift-L held, then Ctrl-Shift-H x30 every 33 ms, on p0 (p0 T | p1 P), at x1 OFF, x1 ON, Reduce Motion OFF, Reduce Motion ON (motion.frameOwner.pages OFF and ON)",
  "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines.",
  "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
- "budget_seconds": 109,
- "estimate_seconds": 91,
+ "budget_seconds": 110,
+ "estimate_seconds": 92,
  "recordings": [
   "px-keys-held-2-sw-pages-off-s1",
   "px-keys-held-2-sw-pages-on-s1",
@@ -168,6 +168,13 @@
    "name": "px-keys-held-2-sw-pages-off-s1",
    "steps": [
     {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-before",
+     "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"
+    },
+    {
      "do": "rk_focus",
      "pane": "p0",
      "title": "set-up: focus p0 (cmux pane focus)"
@@ -248,6 +255,13 @@
      "name": "px-keys-held-2-sw-pages-off-s1",
      "tail": 0.4,
      "title": "the motion ends; stop the recording (px-keys-held-2-sw-pages-off-s1)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-after",
+     "title": "debug.cef after the film (tracker.hosted_pages, hosting_refused)"
     }
    ],
    "after": [],
@@ -262,6 +276,13 @@
    "do": "px_film",
    "name": "px-keys-held-2-sw-pages-on-s1",
    "steps": [
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-before",
+     "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"
+    },
     {
      "do": "rk_focus",
      "pane": "p0",
@@ -343,6 +364,13 @@
      "name": "px-keys-held-2-sw-pages-on-s1",
      "tail": 0.4,
      "title": "the motion ends; stop the recording (px-keys-held-2-sw-pages-on-s1)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-after",
+     "title": "debug.cef after the film (tracker.hosted_pages, hosting_refused)"
     }
    ],
    "after": [],
@@ -357,6 +385,13 @@
    "do": "px_film",
    "name": "px-keys-held-2-sw-pages-off-reduce",
    "steps": [
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-before",
+     "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"
+    },
     {
      "do": "rk_focus",
      "pane": "p0",
@@ -438,6 +473,13 @@
      "name": "px-keys-held-2-sw-pages-off-reduce",
      "tail": 0.4,
      "title": "the motion ends; stop the recording (px-keys-held-2-sw-pages-off-reduce)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-after",
+     "title": "debug.cef after the film (tracker.hosted_pages, hosting_refused)"
     }
    ],
    "after": [],
@@ -452,6 +494,13 @@
    "do": "px_film",
    "name": "px-keys-held-2-sw-pages-on-reduce",
    "steps": [
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-before",
+     "title": "debug.cef before the film (tracker.hosted_pages, hosting_refused)"
+    },
     {
      "do": "rk_focus",
      "pane": "p0",
@@ -533,6 +582,13 @@
      "name": "px-keys-held-2-sw-pages-on-reduce",
      "tail": 0.4,
      "title": "the motion ends; stop the recording (px-keys-held-2-sw-pages-on-reduce)"
+    },
+    {
+     "do": "rpc",
+     "method": "debug.cef",
+     "params": {},
+     "keep": "cef-after",
+     "title": "debug.cef after the film (tracker.hosted_pages, hosting_refused)"
     }
    ],
    "after": [],
