@@ -131,3 +131,12 @@ success-output = "final"
 filter = 'binary_id(acpmux::fuzz_crash_durable)'
 success-output = "final"
 slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+
+# Never merge (#35413 coordinator request): each stress50_ wrapper runs one
+# test 50 times in its process beside synthetic load (one test took up to 5 s
+# alone, so 50 runs can pass the 120 s default). 20 min bounds a wrapper (a
+# hang still fails), and a passing wrapper keeps its per-run lines in the log.
+[[profile.ci.overrides]]
+filter = 'test(/(^|::)stress50_/)'
+slow-timeout = { period = "60s", terminate-after = 20, grace-period = "5s" }
+success-output = "final"
