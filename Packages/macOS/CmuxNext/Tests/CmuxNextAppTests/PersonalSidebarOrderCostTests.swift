@@ -6,14 +6,14 @@ import Testing
 /// Personal order is a hot path of every sidebar projection. It must retain daemon order for
 /// unranked workspaces while walking the store's already-sorted personal projection once.
 @MainActor @Suite(.serialized) struct PersonalSidebarOrderCostTests {
-    private static func workspace(_ key: String) throws -> WorkspaceModel {
-        let object: [String: Any] = ["id": key, "key": key, "name": key, "screens": []]
-        let data = try JSONSerialization.data(withJSONObject: object)
-        return WorkspaceModel(try JSONDecoder().decode(WorkspaceSnapshot.self, from: data))
+    private static func workspace(_ key: String, id: UInt64) -> WorkspaceModel {
+        WorkspaceModel(WorkspaceSnapshot(id: WorkspaceHandle(rawValue: id), key: WorkspaceKey(rawValue: key), name: key))
     }
 
     @Test func rankedRowsPrecedeUnrankedRowsAndTiesKeepDaemonOrder() throws {
-        let models = try ["k3", "k-unranked", "k1", "k2", "k4"].map(Self.workspace)
+        let models = ["k3", "k-unranked", "k1", "k2", "k4"].enumerated().map {
+            Self.workspace($1, id: UInt64($0 + 1))
+        }
         let rows = [
             PersonalWorkspace(sessionID: "local", workspaceKey: WorkspaceKey(rawValue: "k1"), index: 1),
             PersonalWorkspace(sessionID: "local", workspaceKey: WorkspaceKey(rawValue: "k4"), index: 1),
@@ -31,7 +31,7 @@ import Testing
     /// A same-harness timing row for the PR's Performance table. The test deliberately repeats the
     /// 1,000-workspace projection so the before/after comparison uses one runner and one operation.
     @Test func oneThousandWorkspaceProjectionTiming() throws {
-        let models = Array(try (0..<1_000).map { try Self.workspace("k\($0)") }.reversed())
+        let models = Array((0..<1_000).map { Self.workspace("k\($0)", id: UInt64($0 + 1)) }.reversed())
         let rows = models.enumerated().map { index, model in
             PersonalWorkspace(sessionID: "local", workspaceKey: WorkspaceKey(rawValue: model.id), index: index)
         }
