@@ -32,6 +32,14 @@ struct CloudStartSessionFolderTests {
         #expect(try CloudStartSession.fromFolder(CloudStartSessionTests.invocation([:], origin: .mcp), cwd: nil, home: Self.home) == nil)
     }
 
+    /// The copy waits on the machine's owner answer: a machine whose link has not said this account owns it (a
+    /// teammate's, or no link yet) is not one a Mac folder goes to, so it would keep no copy after refusing the chat.
+    @Test func aMachineNotSaidToBeTheAccountsOwnGetsNoCopy() async {
+        let f = CloudStartSessionTests.fixture()
+        #expect(await CloudMove.ownerAnswer(f.session).vmKind != "owner")
+        #expect(CloudStartSessionStrings.fromFolderNotOwned("teammate-box").contains("teammate-box"))
+    }
+
     @Test func theFolderIsAnAbsolutePathOfThisMacWrittenPlain() throws {
         #expect(try Self.fromFolder("/Users/me/code/app/") == "/Users/me/code/app")
         #expect(try Self.fromFolder("/Users/me/code/./app/../web") == "/Users/me/code/web")

@@ -233,7 +233,8 @@ struct CloudStartSession {
         try still(name)
         // The folder's copy on the machine, before the session starts in it.
         var copy: (chat: String, trusted: Bool)?
-        if let local = request.fromFolder { copy = try await copied(local, to: session, request, account: account) }
+        // A Mac folder goes only to a machine this account owns: a teammate's machine would keep the copy after refusing the chat.
+        if let local = request.fromFolder { guard await CloudMove.ownerAnswer(session).vmKind == "owner" else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderNotOwned(name)) }; copy = try await copied(local, to: session, request, account: account) }
         let cwd = copy?.chat ?? request.cwd
         try still(name)
         try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }

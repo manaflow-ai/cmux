@@ -27,9 +27,7 @@ extension CloudStartSession {
                 // The agent and the folder, checked as `cloud start-session` checks them.
                 started = try request(invocation)
                 prompt = invocation["prompt"]?.stringValue ?? ""
-                guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw ActionFailure(message: CloudStartSessionStrings.relayPromptRequired)
-                }
+                guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ActionFailure(message: CloudStartSessionStrings.relayPromptRequired) }
             } catch let refusal as ActionFailure {
                 // A person's own run (the palette) sees the refusal; a CLI or MCP run gets it as an undelivered answer.
                 if CloudHandlers.origin(of: invocation) == .user { throw refusal }

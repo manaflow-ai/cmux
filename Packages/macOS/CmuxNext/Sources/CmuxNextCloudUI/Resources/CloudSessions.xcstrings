@@ -325,6 +325,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Tác tử không thể sao chép thư mục từ máy Mac này lên máy Cloud. Người dùng tự bắt đầu việc đó: bằng nút khởi động Cloud trong khung soạn hoặc `cmux cloud start-chat --from-folder` trong terminal của mình."}}
       }
     },
+    "cloud.startSession.fromFolderNotOwned": {
+      "comment": "cmux cloud start-session --from-folder on a machine this account does not own (a teammate's). %@ is the machine name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%@ isn't your own machine, so no folder from this Mac was copied to it. Copy a folder only to a Cloud machine you own."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@ はあなた自身のマシンではないため、この Mac のフォルダはコピーされませんでした。フォルダは自分が所有する Cloud マシンにだけコピーしてください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "%@ ist nicht deine eigene Maschine, daher wurde kein Ordner von diesem Mac dorthin kopiert. Kopiere Ordner nur auf eine Cloud-Maschine, die dir gehört."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "%@ n'est pas votre propre machine : aucun dossier de ce Mac n'y a été copié. Copiez un dossier uniquement vers une machine Cloud qui vous appartient."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "%@ no es tu propia máquina, así que no se copió ninguna carpeta de este Mac. Copia carpetas solo a una máquina Cloud que sea tuya."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "%@ ليس جهازك الخاص، لذلك لم يُنسخ إليه أي مجلد من هذا الـ Mac. انسخ المجلدات فقط إلى جهاز Cloud تملكه."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%@은(는) 내 머신이 아니어서 이 Mac의 폴더를 복사하지 않았습니다. 폴더는 내가 소유한 Cloud 머신에만 복사하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%@ 不是你自己的机器，因此没有把此 Mac 上的文件夹复制过去。请只把文件夹复制到你自己拥有的 Cloud 机器。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%@ 不是你自己的機器，因此沒有把這台 Mac 上的資料夾複製過去。請只把資料夾複製到你自己擁有的 Cloud 機器。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "%@ nije tvoja mašina, pa nijedan folder s ovog Maca nije kopiran na nju. Kopiraj foldere samo na Cloud mašinu koja je tvoja."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "%@ er ikke din egen maskine, så ingen mappe fra denne Mac blev kopieret dertil. Kopiér kun mapper til en Cloud-maskine, du ejer."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "%@ non è una tua macchina, quindi nessuna cartella di questo Mac vi è stata copiata. Copia le cartelle solo su una macchina Cloud di tua proprietà."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "%@ មិនមែនជាម៉ាស៊ីនផ្ទាល់ខ្លួនរបស់អ្នកទេ ដូច្នេះគ្មានថតពី Mac នេះត្រូវបានចម្លងទៅវាទេ។ ចម្លងថតតែទៅម៉ាស៊ីន Cloud ដែលអ្នកជាម្ចាស់ប៉ុណ្ណោះ។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "%@ er ikke din egen maskin, så ingen mappe fra denne Macen ble kopiert dit. Kopier mapper bare til en Cloud-maskin du eier."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "%@ nie jest Twoją maszyną, więc żaden folder z tego Maca nie został na nią skopiowany. Kopiuj foldery tylko na maszynę Cloud, której jesteś właścicielem."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "%@ não é sua própria máquina, então nenhuma pasta deste Mac foi copiada para ela. Copie pastas só para uma máquina Cloud que seja sua."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "%@ — не ваша машина, поэтому папка с этого Mac на неё не копировалась. Копируйте папки только на свою машину Cloud."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "%@ ไม่ใช่เครื่องของคุณเอง จึงไม่ได้คัดลอกโฟลเดอร์จาก Mac นี้ไป คัดลอกโฟลเดอร์ไปยังเครื่อง Cloud ที่คุณเป็นเจ้าของเท่านั้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%@ sizin makineniz değil, bu yüzden bu Mac'ten oraya klasör kopyalanmadı. Klasörleri yalnızca size ait bir Cloud makinesine kopyalayın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "%@ — не ваша машина, тому папку з цього Mac на неї не скопійовано. Копіюйте папки лише на власну машину Cloud."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "%@ không phải máy của bạn nên không có thư mục nào từ máy Mac này được sao chép sang. Chỉ sao chép thư mục lên máy Cloud do bạn sở hữu."}}
+      }
+    },
     "cloud.startSession.fromFolderWithCwd": {
       "comment": "cmux cloud start-session with both --from-folder and --cwd. Keep the flags as written.",
       "extractionState": "manual",
