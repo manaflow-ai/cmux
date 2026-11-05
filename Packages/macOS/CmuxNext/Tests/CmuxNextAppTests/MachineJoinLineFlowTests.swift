@@ -186,6 +186,22 @@ import Testing
         #expect(JoinedMachine.list(from: Data("{}".utf8)) == nil)
     }
 
+    /// Online is the machine's own heartbeat within the hub's 90 s row TTL, read at `now`, whatever
+    /// window the CLI used; RFC 3339 text and epoch milliseconds both read. No heartbeat: the CLI's word.
+    @Test func aJoinedRowIsOnlineWhenItsHeartbeatIsWithinNinetySeconds() throws {
+        let now = try #require(JoinLine.date("2026-11-05T12:00:00.000Z"))
+        let ms = Int(now.timeIntervalSince1970 * 1000) - 30_000
+        let json = """
+        [{"kind":"joined","id":"m_1","state":"offline","lastHeartbeat":"2026-11-05T11:58:31.000Z"},
+         {"kind":"joined","id":"m_2","state":"online","lastHeartbeat":"2026-11-05T11:58:29.000Z"},
+         {"kind":"joined","id":"m_3","state":"offline","lastHeartbeat":\(ms)},
+         {"kind":"joined","id":"m_4","state":"online"},
+         {"kind":"joined","id":"m_5","lastHeartbeat":"2026-11-05T11:59:59Z","revoked":true}]
+        """
+        let rows = try #require(JoinedMachine.list(from: Data(json.utf8), now: now))
+        #expect(rows.map(\.state) == [.online, .offline, .online, .online, .revoked])
+    }
+
     @Test func aMintDecodesThePlatformsISOExpiry() throws {
         // The platform's exact shape: `Date.toISOString()`, milliseconds and Z.
         let mint = try #require(JoinLine.decode(Data(#"{"line":" curl x | CMUX_JOIN=cmj_A sh","token":"cmj_A","joinTokenId":"jt","expiresAt":"2026-10-29T03:30:00.123Z"}"#.utf8)))

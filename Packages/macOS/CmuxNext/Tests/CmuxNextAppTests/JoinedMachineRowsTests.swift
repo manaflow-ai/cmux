@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemonService
 @testable import CmuxNextApp
 import CmuxNextRemote
 @testable import CmuxNextServer
@@ -7,8 +8,8 @@ import Foundation
 import Testing
 import CmuxNextTestSupport
 
-/// The Machines section's joined machines (Labs `labs.machineJoin`): rows from `cmux machine list`
-/// (none while the switch is off), Revoke and Rotate through the CLI and a fresh read after, Check
+/// The Machines section's machines joined through the hub: rows from `cmux machine list` (none
+/// while the store has no service), online by a heartbeat within 90 s, revoked ones dropped, Revoke and Rotate through the CLI and a fresh read after, Check
 /// as the Check Machine checklist on `machine doctor ID`, and the "…" menu's items.
 @MainActor @Suite(.closesItsWindows, .serialized) struct JoinedMachineRowsTests {
     // The service's closures are @Sendable and run off the main actor: the fakes are not isolated to it.
@@ -100,7 +101,7 @@ import CmuxNextTestSupport
         #expect(row.id == "joined:m_1")
         #expect(row.isConnected)
         #expect(row.joined?.mintedBy == "you@example.com")
-        #expect(JoinedMachineStrings.caption(online, failed: nil) == "Online · added by you@example.com")
+        #expect(JoinedMachineStrings.caption(online, failed: nil) == "Online · Linux · added by you@example.com")
         #expect(!MachineSectionRow.joined(revoked, health: nil).isConnected)
         #expect(JoinedMachineStrings.caption(revoked, failed: nil).hasPrefix("Revoked"))
     }
@@ -292,6 +293,20 @@ import CmuxNextTestSupport
         #expect(store.machines.isEmpty, "a read that started before the switch turned off is older than its emptying")
     }
 
+    /// Each row shows its name, platform and online state; a revoked machine drops out of the section.
+    @Test func theSectionListsHubMachinesWithTheirPlatformAndDropsRevokedOnes() {
+        let store = JoinedMachineStore(service: { nil })
+        store.apply([Fake.machine("m_1", "lane-vm-3"), Fake.machine("m_2", "gpu-west", state: .offline),
+                     Fake.machine("m_3", "old-box", state: .revoked)])
+        let rows = MachineSectionRow.rows(MachineRegistry(local: DaemonService()), health: MachineHealthStore(), joined: store)
+            .filter { $0.kind == .joined }
+        #expect(rows.map(\.name) == ["lane-vm-3", "gpu-west"], "the revoked machine has no row")
+        #expect(rows.map(\.isConnected) == [true, false])
+        #expect(JoinedMachineStrings.caption(store.machines[1], failed: nil) == "Offline · Linux · added by you@example.com")
+        #expect(JoinedMachineStrings.platform("macos") == "macOS")
+        #expect(JoinedMachineStrings.platform("freebsd") == "freebsd")
+    }
+
     @Test func aJoinedMachineTheAppConnectsToStaysOneLinkedRow() {
         let machine = Fake.machine("m_1", "lane-vm-3", mesh: "ssh-7")
         let linked = MachineSectionRow(id: "ssh-7", name: "lane-vm-3", isConnected: true, isLocal: false, joined: machine)
@@ -430,6 +445,30 @@ import CmuxNextTestSupport
     }
 
     /// The rows as a picture: `Packages/macOS/CmuxNext/.build/machines-joined-rows.png`.
+    /// The section as the sidebar shows it: This Mac, then the hub's machines (an online Linux box, an
+    /// offline Mac) with the revoked one gone: `Packages/macOS/CmuxNext/.build/machines-section-hub.png`.
+    @Test func theSectionWithHubMachinesRenders() throws {
+        _ = NSApplication.shared
+        let store = JoinedMachineStore(service: { nil })
+        store.apply([Fake.machine("m_1", "lane-vm-3"),
+                     JoinedMachine(id: "m_2", name: "studio-mini", state: .offline, platform: "macos", mintedBy: "you@example.com"),
+                     Fake.machine("m_3", "old-box", state: .revoked)])
+        let hub = MachineSectionRow.rows(MachineRegistry(local: DaemonService()), health: MachineHealthStore(), joined: store)
+            .filter { $0.kind == .joined }
+        let section = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: { _ in }, addMachine: {}))
+        section.update([MachineSectionRow(id: "local", name: "This Mac", isConnected: true, isLocal: true)] + hub, style: .compact)
+        #expect(section.shownLines.contains("lane-vm-3 · Online · Linux · added by you@example.com"))
+        #expect(section.shownLines.contains("studio-mini · Offline · macOS · added by you@example.com"))
+        #expect(!section.shownLines.contains { $0.contains("old-box") }, "a revoked machine has no row")
+        section.frame = NSRect(x: 0, y: 0, width: 300, height: 220)
+        section.layoutSubtreeIfNeeded()
+        let image = try AddMachineShotsTests.render(section)
+        let data = try AddServerShotsTests.png(AddServerShotsTests.contactSheet([("Machines: hub machines", image)]))
+        let out = AddServerShotsTests.packageRoot.appending(path: ".build/machines-section-hub.png")
+        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: out)
+    }
+
     @Test func theJoinedRowsRender() throws {
         _ = NSApplication.shared
         let rows = [Self.rowView(Fake.machine("m_1", "lane-vm-3"), menuOpen: true),
