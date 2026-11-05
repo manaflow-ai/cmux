@@ -33,7 +33,7 @@ const pointAtOld =
   (tick: number): Play =>
   async (ctx) => {
     const list = ctx.find({ selector: ".acpmux-minimap__list" });
-    list.dispatchEvent(new (ctx.document.defaultView!.WheelEvent)("wheel", { deltaY: -1, bubbles: true }));
+    list.dispatchEvent(new ctx.document.defaultView!.WheelEvent("wheel", { deltaY: -1, bubbles: true }));
     await ctx.scroll({ selector: ".acpmux-minimap__list" }, "top");
     await ctx.hover({ selector: `[data-tick="${tick}"]` });
   };
