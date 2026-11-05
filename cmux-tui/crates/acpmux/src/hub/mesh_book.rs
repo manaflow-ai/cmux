@@ -72,7 +72,12 @@ fn row_of(s: &BookSession) -> Value {
 impl Hub {
     /// Read the address book's rows of this person's other machines into the list
     /// (`mesh_book::mine`).
-    pub(crate) fn apply_mesh_book(&self, book: AddressBook, own_user: &str, own_daemon: Option<&str>) {
+    pub(crate) fn apply_mesh_book(
+        &self,
+        book: AddressBook,
+        own_user: &str,
+        own_daemon: Option<&str>,
+    ) {
         let ssh: std::collections::HashSet<String> =
             self.peers.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         let (hosts, sessions) = mine(book, own_user, own_daemon, &|host| ssh.contains(host));
@@ -130,7 +135,10 @@ impl Hub {
     }
 
     /// The hub rows `keep` takes, cloning no other.
-    pub(super) fn mesh_book_rows(&self, keep: impl Fn(&RemoteSession) -> bool) -> Vec<Arc<RemoteSession>> {
+    pub(super) fn mesh_book_rows(
+        &self,
+        keep: impl Fn(&RemoteSession) -> bool,
+    ) -> Vec<Arc<RemoteSession>> {
         let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
         book.rows.values().map(|(_, r)| r).filter(|r| keep(r)).cloned().collect()
     }

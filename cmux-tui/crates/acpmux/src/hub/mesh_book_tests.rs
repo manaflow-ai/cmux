@@ -84,6 +84,17 @@ async fn a_hub_machines_chat_is_listed_resolved_and_its_machine_is_a_peer() {
     assert_eq!(hub.remote_matches("machine-b/fix-login"), 0);
 }
 
+/// The hub's row notices `events` holds now, as `(kind, row)`; other notices are skipped.
+fn notices(events: &mut tokio::sync::broadcast::Receiver<HubEvent>) -> Vec<(String, Value)> {
+    let mut out = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        if let Some(remote) = event.remote {
+            out.push((event.record.kind.clone(), remote.summary));
+        }
+    }
+    out
+}
+
 /// A heartbeat that changes nothing tells no client anything; a state change and a machine
 /// leaving do, and stopping the relay empties the list.
 #[tokio::test]
@@ -91,23 +102,25 @@ async fn only_a_change_is_announced_and_a_stop_empties_the_list() {
     let hub = hub();
     let mut events = hub.events.subscribe();
     hub.apply_mesh_book(book(), "person-1", Some("d-a"));
-    let first = events.try_recv().expect("the new row");
-    assert_eq!(first.record.kind, "status");
+    let first = notices(&mut events);
+    assert_eq!(first.len(), 1, "{first:?}");
+    assert_eq!(first[0].0, "status");
     let writes = hub.remote_sessions.lock().unwrap().writes;
 
     hub.apply_mesh_book(book(), "person-1", Some("d-a"));
-    assert!(events.try_recv().is_err(), "an unchanged book announces nothing");
+    assert_eq!(notices(&mut events), [], "an unchanged book announces nothing");
     assert_eq!(hub.remote_sessions.lock().unwrap().writes, writes, "nor rebuilds the list");
 
     let mut waiting = book();
     waiting.sessions[1].state = "waiting".into();
     hub.apply_mesh_book(waiting, "person-1", Some("d-a"));
-    let changed = events.try_recv().expect("the change");
-    let summary = changed.remote.expect("a remote row").summary;
-    assert_eq!(summary["status"], "waiting");
+    let changed = notices(&mut events);
+    assert_eq!(changed.len(), 1, "{changed:?}");
+    assert_eq!(changed[0].1["status"], "waiting");
 
     hub.set_mesh_book(Default::default(), Vec::new());
-    assert_eq!(events.try_recv().expect("the row left").record.kind, "purged");
+    let gone = notices(&mut events);
+    assert_eq!(gone.iter().map(|(kind, _)| kind.as_str()).collect::<Vec<_>>(), ["purged"]);
     assert!(hub.all_session_summaries().is_empty());
     assert!(hub.peers().is_empty());
 }

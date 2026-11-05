@@ -216,7 +216,12 @@ fn heartbeat_wait(options: &RelayOptions, ttl_seconds: u64) -> Duration {
 
 /// Read the hub's address book into the hub's rows of this person's machines, within `budget`.
 /// Kept as it was when the read fails; nothing is listed before this machine knows its person.
-async fn read_book(hub: &Weak<Hub>, client: &dyn MeshHub, own_daemon: Option<&str>, budget: Duration) {
+async fn read_book(
+    hub: &Weak<Hub>,
+    client: &dyn MeshHub,
+    own_daemon: Option<&str>,
+    budget: Duration,
+) {
     let Some(own_user) = crate::cli::cloud_join::machine_user_id() else {
         return;
     };
