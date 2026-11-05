@@ -10,6 +10,9 @@ public final class FollowedViews {
     private var views: [ObjectIdentifier: Weak] = [:]
     /// The views whose frame notices are held now (nil: no hold).
     private var heldViews: [NSView]?
+    /// ``endHold()`` is letting the held notices go: AppKit posts each inside it, so their observers run then. No hold
+    /// begins and no post is held until it is done.
+    private var isReleasing = false
     /// The followed views' own geometry posts held now, one per view in the order they came (``holdsGeometryPost(of:_:)``).
     private var heldPosts: [HeldPost] = []
 
@@ -42,17 +45,19 @@ public final class FollowedViews {
     /// never at the in-between places an ancestor had before the views under it were laid out (FRAME OWNER REFACTOR S7).
     /// AppKit posts the held notice when a view posts frame notices again (`postsFrameChangedNotifications`).
     public func holdingFrameNotices(_ apply: () -> Void) { // perf-hot: 4ms motion-frame
-        guard !isHolding else { return apply() }
+        guard heldViews == nil else { return apply() } // held already, or the release of a hold runs `apply`
         beginHold()
         apply()
         endHold()
     }
 
-    /// Whether the followed views' frame notices are held now.
-    public var isHolding: Bool { heldViews != nil }
+    /// Whether the followed views' frame notices are held now (not while a hold's notices go).
+    public var isHolding: Bool { heldViews != nil && !isReleasing }
 
     /// Holds the frame notices of every followed view and its ancestors up to the window's frame view (the follower
-    /// observes all of them) until ``endHold()`` (no effect while held).
+    /// observes all of them) until ``endHold()``. No effect while held, nor while a hold's notices go (an observer of
+    /// one asks): a frame change made then posts as with no hold (a view the release has not turned on yet posts it
+    /// when it does), and the caller's ``endHold()`` does nothing.
     public func beginHold() { // perf-hot: 4ms motion-frame
         guard heldViews == nil else { return }
         var held: [NSView] = [], seen: Set<ObjectIdentifier> = []
@@ -82,11 +87,14 @@ public final class FollowedViews {
     }
 
     /// Lets the held views post again: each that changed since ``beginHold()`` posts one notice, deepest first; then
-    /// the held geometry posts go.
+    /// the held geometry posts go. The observers of those notices run inside: until the last view posts again, a
+    /// geometry post goes at once and no hold begins; the held posts go after that, each once.
     public func endHold() {
-        guard let held = heldViews else { return }
-        heldViews = nil
+        guard let held = heldViews, !isReleasing else { return }
+        isReleasing = true
         for view in held { view.postsFrameChangedNotifications = true }
+        heldViews = nil
+        isReleasing = false
         let posts = heldPosts
         heldPosts = []
         for held in posts { held.post() }
