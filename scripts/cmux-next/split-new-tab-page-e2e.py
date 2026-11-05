@@ -2,7 +2,9 @@
 """Live check of splits that open the New Tab page (cmuxterm-hq#1829, cx-jfo7) on a running tagged cmux-next build.
 
 A person's Split Right or Down (Cmd-D) from a browser tab, the New Tab page, an agent chat or Home's
-Chief pane (cmux#36300: NEXT is GUI-first) opens the New Tab page in the new pane, with an Open Tabs list of the workspace's tabs; picking one moves
+Chief pane (cmux#36300: NEXT is GUI-first) opens the New Tab page in the new pane. The user's default
+decides: with `tabs.newTabTemplate` set to Terminal, the Chief's split opens a terminal instead. Launch
+the app on a scratch config file (`--args --config-file PATH`): the script sets that key and restores it., with an Open Tabs list of the workspace's tabs; picking one moves
 that tab into the new pane in the page's place. A terminal's split keeps the terminal.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
@@ -187,6 +189,28 @@ def chief_splits():
             f"home {bool(home)}; tabs {before} -> {sum(len(labels(s)) for s in strips())}; New Tab page {shown}",
             bool(home) and shown is not None)
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"chief-split-{name.lower()}.png")})
+    chief_split_follows_terminal_default()
+
+
+def chief_split_follows_terminal_default():
+    """With the user's default set to Terminal (`tabs.newTabTemplate`), the Chief's Cmd-D opens a terminal, not the page."""
+    path = "tabs.newTabTemplate"
+    previous = (rpc("settings.get", {"path": path}) or {}).get("value")
+    print("settings.set terminal:", rpc("settings.set", {"path": path, "value": "terminal"}), flush=True)
+    try:
+        home = chief_on_screen()
+        time.sleep(1)  # test harness: the dock tab settles
+        before = sum(len(labels(s)) for s in strips())
+        print("Cmd-D:", key("d", "command"), flush=True)
+        grew = wait(lambda: sum(len(labels(s)) for s in strips()) > before, 15)
+        time.sleep(1.5)  # test harness: the new tab takes focus
+        shown = page()
+        row("Cmd-D on the Chief pane with the Terminal default opens a terminal", "Home's Chief focused; a new tab; not the New Tab page",
+            f"home {bool(home)}; tabs {before} -> {sum(len(labels(s)) for s in strips())}; New Tab page {shown}",
+            bool(home) and bool(grew) and shown is None)
+    finally:
+        restore = rpc("settings.unset", {"path": path}) if previous is None else rpc("settings.set", {"path": path, "value": previous})
+        print("settings restore:", restore, flush=True)
 
 
 main()
