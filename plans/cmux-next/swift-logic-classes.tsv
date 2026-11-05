@@ -1501,7 +1501,6 @@ CmuxNextApp	extension	CloudStartSessionRuns.Key	0	LOGIC	100	0	Packages/macOS/Cmu
 CmuxNextApp	struct	CloudStartSession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSession.swift	from struct CloudStartSession:20: `cmux cloud start-session`: machine take/create and session start
 CmuxNextApp	class	CloudStartSessionAsks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSessionAsks.swift	from class CloudStartSessionAsks:12: Agent start-session ask card lifecycle with timeout
 CmuxNextApp	class	CloudStartSessionRuns	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSessionAsks.swift	from class CloudStartSessionAsks:12: Agent start-session ask card lifecycle with timeout
-CmuxNextApp	enum	CloudStartSessionStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSessionStrings.swift	Localized string accessors
 CmuxNextApp	extension	CloudStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStrings+CLI.swift	Localized string accessors
 CmuxNextApp	extension	CloudStrings	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStrings+CLI.swift	Localized string accessors
 CmuxNextApp	extension	CloudStrings	2	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStrings+CLI.swift	Localized string accessors
@@ -4915,6 +4914,7 @@ CmuxNextCloudUI	struct	CloudPortStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/S
 CmuxNextCloudUI	enum	CloudWorkspaceSetupWizardSizeStrings	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudWorkspaceSetupWizard+Size.swift	from extension CloudWorkspaceSetupWizard:9: Machine size options from plan limits
 CmuxNextCloudUI	extension	CloudWorkspaceSetupWizard	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudWorkspaceSetupWizard+Size.swift	Machine size options from plan limits
 CmuxNextCloudUI	enum	CloudWorkspaceSetupWizardStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudWorkspaceSetupWizard.swift	from struct CloudWorkspaceSetupWizard:8: SwiftUI/AppKit view, strings or settings page glue
+CmuxNextCloudUI	struct	CloudStartSessionStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudStartSessionStrings.swift	Localized string accessors (moved from the App)
 CmuxNextCloudUI	struct	CloudWorkspaceSetupWizard	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudWorkspaceSetupWizard.swift	from struct CloudWorkspaceSetupWizard:8: SwiftUI/AppKit view, strings or settings page glue
 CmuxNextCodeRouter	enum	AIProvider	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCodeRouter/AIProvider.swift	CodeRouter account/provider detection, labels, client logic
 CmuxNextCodeRouter	extension	CloudAuth	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCodeRouter/API/CodeRouterAccountSource.swift	from protocol CodeRouterAccountSource:5: CodeRouter account/provider detection, labels, client logic

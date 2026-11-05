@@ -25,6 +25,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             prompt: "hi there".into(),
             agent: "claude".into(),
             cwd: None,
+            from_folder: None,
             machine: Machine::New,
             wait: false,
             timeout: Duration::from_secs(900),
@@ -898,4 +899,105 @@ fn a_timeout_shorter_than_the_relay_window_goes_the_link_way() {
     let _ = run(&mut fake, &asked);
     assert_eq!(fake.ran[1][1], "start-session", "{:?}", fake.ran);
     assert!(fake.ran.iter().all(|step| step.get(1).map(String::as_str) != Some("relay-chat")));
+}
+
+#[test]
+fn from_folder_is_an_existing_folder_of_this_mac_answered_canonical() {
+    let dir = tempfile::tempdir().unwrap();
+    let canonical = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    // A spelling with `.` and `..` parts is the folder's canonical path.
+    let spelled = format!("{}/./sub/..", dir.path().display());
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    let parsed = request(&["--prompt", "x", "--from-folder", spelled.as_str()]);
+    assert_eq!(parsed.from_folder.as_deref(), Some(canonical.as_str()));
+    assert_eq!(parsed.cwd, None);
+    let inline = format!("--from-folder={canonical}");
+    assert_eq!(
+        request(&["--prompt", "x", inline.as_str()]).from_folder.as_deref(),
+        Some(canonical.as_str())
+    );
+    let file = dir.path().join("file.txt");
+    std::fs::write(&file, "x").unwrap();
+    let missing = dir.path().join("gone");
+    for words in [
+        vec!["--prompt", "x", "--from-folder", "relative/app"],
+        vec!["--prompt", "x", "--from-folder", missing.to_str().unwrap()],
+        vec!["--prompt", "x", "--from-folder", file.to_str().unwrap()],
+        vec!["--prompt", "x", "--from-folder"],
+        // `--cwd` is a folder on the machine; `--from-folder` already names where the chat starts.
+        vec!["--prompt", "x", "--from-folder", canonical.as_str(), "--cwd", "/home/cmux/work"],
+        vec!["--prompt", "x", "--cwd", "/home/cmux/work", "--from-folder", canonical.as_str()],
+    ] {
+        assert!(parse(&strings(&words), || Ok(String::new())).is_err(), "{words:?}");
+    }
+    // `--from-folder --json`: the output flag is never taken as its value.
+    let mut output = OutputMode::Human;
+    let words = lift_output(&strings(&["--from-folder", "--json"]), &mut output);
+    assert_eq!((words.len(), output), (2, OutputMode::Human));
+}
+
+#[test]
+fn from_folder_goes_to_start_session_and_skips_the_relay_chat() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":1,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"done\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let asked = request(&[
+        "--prompt",
+        "Run the tests",
+        "--from-folder",
+        folder.as_str(),
+        "--name",
+        "dev",
+        "--wait",
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "done");
+    // No relay chat: it copies no folder. The start names the folder as its own argument.
+    assert!(fake.ran.iter().all(|step| step.get(1).map(String::as_str) != Some("relay-chat")));
+    assert_eq!(
+        fake.ran[1],
+        strings(&[
+            "cloud",
+            "start-session",
+            "--name",
+            "dev",
+            "--agent",
+            "claude",
+            "--from-folder",
+            folder.as_str(),
+            "--json"
+        ])
+    );
+    assert_eq!(
+        again_command(&asked, &asked.machine),
+        format!(
+            "cmux cloud start-chat --name dev --from-folder {} --prompt 'Run the tests' --wait --json",
+            shell_quote(&folder)
+        )
+    );
+}
+
+#[test]
+fn a_pending_start_from_a_folder_says_the_copy_may_still_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "machine_id": "vm-9", "text": "still starting"})),
+        ok(json!({"machines": [{"title": "dev", "machine_id": "vm-9", "status": "running"}]})),
+    ]);
+    let asked =
+        request(&["--prompt", "x", "--target", "machine:vm-9", "--from-folder", folder.as_str()]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
+    assert_eq!(exit, 75);
+    assert!(error["message"].as_str().unwrap().contains(&format!("or copying {folder} to it")));
+    assert!(error["details"]["again"].as_str().unwrap().contains("--from-folder"));
 }

@@ -149,7 +149,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "start-session",
-                "({target} | --name NAME) --agent AGENT [--cwd DIR]",
+                "({target} | --name NAME) --agent AGENT [--cwd DIR | --from-folder PATH]",
                 "Start an agent session (claude, codex, ...) there",
                 "エージェントセッション（claude、codex など）を開始",
             ),
@@ -525,7 +525,8 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
 
 /// `cmux cloud start-chat --help` (cloud_start_chat.rs runs it).
 pub(super) const START_CHAT_USAGE: &str = "\
-usage: cmux cloud start-chat --prompt TEXT [--agent AGENT] [--cwd DIR]
+usage: cmux cloud start-chat --prompt TEXT [--agent AGENT]
+                             [--cwd DIR | --from-folder PATH]
                              [--name MACHINE | --target machine:MACHINE_ID]
                              [--wait] [--timeout SECONDS] [--json]
 
@@ -535,6 +536,11 @@ The chat opens as a tab in the machine's workspace in the cmux app.
   --prompt TEXT      What to send (`-` reads it from stdin)
   --agent AGENT      claude (default), codex, ...
   --cwd DIR          A folder on the machine (default: the workspace's folder)
+  --from-folder PATH A folder on this Mac (absolute), copied to the machine as
+                     the composer's Cloud start copies one; the chat starts
+                     in the copy. Never home, the disk's root or a credential
+                     folder; not with --cwd. The same command again on the
+                     same machine reuses the finished copy.
   --name MACHINE     Use the machine with this name, or create it
   --target machine:MACHINE_ID
                      Use this machine (`cmux cloud list-machines`)

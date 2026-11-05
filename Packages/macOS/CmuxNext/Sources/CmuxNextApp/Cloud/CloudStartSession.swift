@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
+import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -14,7 +15,8 @@ import Foundation
 /// The session starts the way a new chat in that machine's workspace starts at its first send: a
 /// chat tab on the machine's store (`registry:<id>` host), then `agent-session-start` through the
 /// machine's daemon, with this app's key when the machine takes it (``AgentTabRemoteHost/startNow``).
-/// The chat's tab stays in the machine's first workspace, so the person can open it.
+/// The chat's tab stays in the machine's first workspace, so the person can open it. With `--from-folder`,
+/// it starts in a copy of that folder on this Mac, copied as the composer's Cloud start copies one (``copied(_:to:_:account:)``).
 ///
 /// An agent's run (the cmux MCP server, or a shell naming its chat) starts the machine and the
 /// session as the person's own would, asking nobody (`cloud.agentsStartWithoutAsking`, on by
@@ -37,6 +39,8 @@ struct CloudStartSession {
         var agent: String
         /// A folder on the machine; nil starts in the workspace's folder there.
         var cwd: String?
+        /// A folder on this Mac (`--from-folder`) the session starts in a copy of; never with ``cwd``.
+        var fromFolder: String?
         var login = CloudHarnessLoginAsk() // `--login` and whether a prompt may show (+Login); not in ``command``
 
         /// The command that asks for this again, every word as the shell reads it back.
@@ -45,6 +49,7 @@ struct CloudStartSession {
             if let machineID { words.append("--target machine:" + CloudStartCore.shellQuoted(machineID)) } else { words.append("--name " + CloudStartCore.shellQuoted(name ?? "")) }
             words.append("--agent " + agent)
             if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
+            if let fromFolder { words.append("--from-folder " + CloudStartCore.shellQuoted(fromFolder)) }
             if let choice = login.requested { words.append("--login " + choice.rawValue) }
             return words.joined(separator: " ")
         }
@@ -191,7 +196,7 @@ struct CloudStartSession {
         return nil
     }
 
-    /// The run's arguments, checked: `--agent` is a harness id, `--cwd` an absolute folder.
+    /// The run's arguments, checked: `--agent` is a harness id, `--cwd` an absolute folder, `--from-folder` one on this Mac.
     static func request(_ invocation: ActionInvocation) throws -> Request {
         let agent = invocation["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789._-")
@@ -207,7 +212,8 @@ struct CloudStartSession {
         let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespaces)
         let login: CloudHarnessLoginAsk
         do { login = try .init(word: invocation["login"]?.stringValue, agent: !isPersons(invocation), prompts: isPersons(invocation)) } catch { throw ActionFailure(message: CloudStartSessionStrings.loginInvalid) }
-        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, login: login)
+        let fromFolder = try Self.fromFolder(invocation, cwd: cwd)
+        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: fromFolder, login: login)
     }
 
     /// Takes or creates the machine, connects, opens the chat's tab there and starts the session.
@@ -225,8 +231,16 @@ struct CloudStartSession {
         try still(name)
         try await connected(session, request, account: account, byPerson: byPerson)
         try still(name)
+        // The folder's copy on the machine, before the session starts in it.
+        var copy: (chat: String, trusted: Bool)?
+        if let local = request.fromFolder { copy = try await copied(local, to: session, request, account: account) }
+        let cwd = copy?.chat ?? request.cwd
+        try still(name)
         try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
-        if let refusal = session.harnessLogin?.refusal { throw ActionFailure(message: CloudStartSessionStrings.loginRefused(refusal, request.asked(machine: name))) }
+        if let refusal = session.harnessLogin?.refusal {
+            let reason: CloudStartSessionStrings.LoginRefusal = refusal == .machineLoginMissing ? .machineLoginMissing : refusal == .consentFirst ? .consentFirst : .loginNeeded
+            throw ActionFailure(message: CloudStartSessionStrings.loginRefused(reason, request.asked(machine: name)))
+        }
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
@@ -246,7 +260,7 @@ struct CloudStartSession {
         let started: AgentTabRemoteStart.Started, tabKey: String
         do {
             let tabs = services.agentTabs
-            let pending = try tabs.open(in: anchor.pane.handle, of: session.daemon, seed: request.cwd.map { AgentPaneSeedSource(AgentPaneSeed(cwd: $0)) })
+            let pending = try tabs.open(in: anchor.pane.handle, of: session.daemon, seed: cwd.map { AgentPaneSeedSource(AgentPaneSeed(cwd: $0)) })
             tabKey = try await Self.created(pending, name: name, id: id, agent: agent).key
             // The start reads the tab as the machine's tree lists it (`tabKey` is the store's id).
             let listed = await CloudWait.holds(within: .seconds(10)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
@@ -257,7 +271,7 @@ struct CloudStartSession {
                 // Each restart and start try is for the account that asked, checked right before it.
                 let command = request.command
                 started = try await Self.starting(name: name, id: id, agent: agent, account: account, now: { services.cloud.account }, asked: request.asked(machine: name)) {
-                    try await remote.startNow(cwd: request.cwd, harness: agent) { @MainActor [services] in
+                    try await remote.startNow(cwd: cwd, harness: agent) { @MainActor [services] in
                         try Self.check(account, now: services.cloud.account, CloudStartSessionStrings.Asked(machine: name, agent: agent, command: command))
                     }
                 }
@@ -271,6 +285,10 @@ struct CloudStartSession {
         } catch {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), Self.startFailure(error, name: name, id: id, agent: agent))
         }
+        // A copy of a folder this Mac trusts is trusted there too, as the composer's start trusts it.
+        await AgentSessionAttachClient.trustCopiedFolder(copy?.chat, sourceTrusted: copy?.trusted == true, surface: started.surface,
+                                                         ownerLink: CloudMachineLinks(appLink: session.appLink, link: session.link).ownerLink,
+                                                         endpoint: AgentTabRemoteHost.endpoint(on: session.daemon))
         // The session runs now; the result reports it. A switch during the start shows nothing. (A trajectory hook, hq#4381, goes here.)
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
         return [
@@ -412,6 +430,56 @@ struct CloudStartSession {
         _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false, ask: login) // a scripted run never waits on a device code
         try still()
     }
+    /// `--from-folder`, checked from its words before anything starts: absolute, never with `--cwd`, never home, above
+    /// it or a credential folder as written. ``copied(_:to:_:account:)`` checks it on disk again.
+    static func fromFolder(_ invocation: ActionInvocation, cwd: String?, home: String = NSHomeDirectory()) throws -> String? {
+        guard let text = invocation["fromFolder"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
+        guard cwd == nil else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderWithCwd) }
+        guard text.utf8.count <= 4096, !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }),
+              let folder = CloudMoveFolder.normalized(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
+        if let refusal = AgentPaneCloudFolderRefusal.written(folder, home: home) { throw ActionFailure(message: Self.message(refusal, folder: folder)) }
+        return folder
+    }
+
+    static func message(_ refusal: AgentPaneCloudFolderRefusal, folder: String) -> String {
+        switch refusal {
+        case .missing: CloudStartSessionStrings.fromFolderMissing(folder)
+        case .homeOrAbove: CloudStartSessionStrings.fromFolderTooBroad(folder)
+        case .secret(let secret): CloudStartSessionStrings.fromFolderSecret(folder, secret: secret)
+        }
+    }
+
+    /// Copies `local` to `session` exactly as the composer's Cloud start copies its chat's folder (the same check,
+    /// ``AgentPaneCloudStart/checkedFolder(_:home:)``, and copy, ``CloudStartChat/copyFolder(_:key:account:to:cli:progress:)``),
+    /// under a key of the machine and the folder, so the same command again reuses the finished copy and never pushes over
+    /// what a chat changed there. Answers the chat's folder there and whether this Mac trusts the source.
+    func copied(_ local: String, to session: CloudMachineSession, _ request: Request, account: [String?]) async throws -> (chat: String, trusted: Bool) {
+        let name = session.machine.title, home = NSHomeDirectory()
+        let checked: (folder: String, root: String)
+        switch await AgentPaneCloudStart.checkedFolder(local, home: home) {
+        case .success(let found): checked = found
+        case .failure(let refusal): throw ActionFailure(message: Self.message(refusal, folder: local))
+        }
+        guard let folder = await CloudMoveFolder.read(chat: checked.folder) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderMissing(local)) }
+        guard !folder.isTooBroad else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderTooBroad(folder.root)) }
+        // Only the working copy the check covered, as the composer's Send: a `.git` found above it since then is refused.
+        let key = CloudMoveFolder.copyKey(machine: session.machineID, folder: checked.folder)
+        var start = AgentPaneCloudStart(task: "", cwd: checked.folder, key: key)
+        start.uploadRoot = checked.root
+        guard start.uploads(folder) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderMissing(local)) }
+        guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
+        try Self.checked(account, now: services.cloud.account, request.asked(machine: name))
+        let copy: CloudStartChat.Copied
+        do {
+            copy = try await CloudStartChat(services: services).copyFolder(folder, key: key, account: account, to: session,
+                                                                          cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)) { _ in }
+        } catch {
+            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)))
+        }
+        guard copy.0.ok else { throw ActionFailure(message: CloudMove.failure(syncing: copy.0, machine: name, retry: .move(machineID: session.machineID)).message) }
+        return (copy.1.chat, copy.1.sourceTrusted)
+    }
+
     /// How long a machine has to come up (Move to Cloud's own wait).
     static let connectWait: Duration = .seconds(180)
 }
@@ -420,77 +488,6 @@ extension CloudStartRunKey {
     /// The run of `request` asked by chat `caller` (nil: a person's or a script's) in `account`.
     init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
         self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd,
-                  caller: caller, account: account, login: request.login.requested?.rawValue)
-    }
-}
-
-/// `cmux cloud relay-chat` (cmuxterm-hq#7086; Leo: "it should take <30 seconds from starting a thing to having a
-/// response on cloud"): sends a prompt to an agent on a Cloud machine over the machine's relay (``CloudRelayChat``),
-/// with no link from this Mac to the machine, and answers when the turn ends with the machine's acpmux session,
-/// the reply and how long the first text took, or within ``CloudHandlers/answerWithin`` with what came so far
-/// (``CloudRelayChat/answer(_:agent:prompt:cwd:promptID:within:)``). `delivered` false means the prompt certainly
-/// never reached the machine. `cmux cloud start-chat` uses it first. A turn still running when this answers keeps
-/// its stream until it ends; quitting the app closes it, which cancels that turn on the machine.
-///
-/// The person's own run only: an agent starts a Cloud chat with `cloud start-session`, which asks the person
-/// first (``CloudStartSession``).
-extension CloudStartSession {
-    static func bindRelayChat(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
-        let cloud = context.services.cloud
-        // action-wait-allow: the reply comes from the machine over the network; nothing local can stand in for it.
-        CloudHandlers.bind("cloudRelayChat", registry, reason: reason) { invocation in
-            // A refusal here sent nothing: it answers undelivered, so `cloud start-chat` goes the start-session way,
-            // which asks an agent's person and words the same refusals.
-            let machineID: String, started: Request, prompt: String
-            do {
-                guard !isAgent(invocation) else { throw ActionFailure(message: CloudStartSessionStrings.relayAgentRun) }
-                machineID = try CloudHandlers.machine(invocation, context).machineID
-                // The agent and the folder, checked as `cloud start-session` checks them.
-                started = try request(invocation)
-                prompt = invocation["prompt"]?.stringValue ?? ""
-                guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    throw ActionFailure(message: CloudStartSessionStrings.relayPromptRequired)
-                }
-            } catch let refusal as ActionFailure {
-                // A person's own run (the palette) sees the refusal; a CLI or MCP run gets it as an undelivered answer.
-                if CloudHandlers.origin(of: invocation) == .user { throw refusal }
-                let code = isAgent(invocation) ? "cloud.relay.agent_run" : "cloud.relay.refused"
-                return CloudHandlers.result("cloud relay chat", context) { notSent(code, refusal.message) }
-            }
-            let promptID = (invocation["promptId"]?.stringValue?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 }
-            // A person's run waits for the whole turn and shows the reply, or why there is none.
-            guard CloudHandlers.origin(of: invocation) != .user else {
-                return CloudHandlers.runTracked("cloud relay chat", context) {
-                    guard let relay = cloud.relayChat else { throw ActionFailure(message: CloudStartSessionStrings.relayUnavailable) }
-                    let answer = try await relay.chat(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd, promptID: promptID)
-                    let text = answer.errorMessage.map { answer.reply.isEmpty ? $0 : answer.reply + "\n\n" + $0 } ?? answer.reply
-                    CloudPresenter.show(CloudStartSessionStrings.relayReplyTitle, text, copyable: true, in: CloudHandlers.window(context))
-                }
-            }
-            CloudHandlers.result("cloud relay chat", context) {
-                guard let relay = cloud.relayChat else { return notSent("cloud.relay.unavailable", CloudStartSessionStrings.relayUnavailable) }
-                let answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,
-                                                    promptID: promptID, within: CloudHandlers.answerWithin)
-                return relayFields(answer, machineID: machineID)
-            }
-        }
-    }
-
-    /// A relay chat refused before anything was sent.
-    static func notSent(_ code: String, _ message: String) -> [String: ActionResultValue] {
-        ["delivered": .bool(false), "ended": .bool(true), "error_code": .string(code), "error_message": .string(message)]
-    }
-
-    /// The answer's fields: what the CLI prints with `--json`.
-    static func relayFields(_ answer: CloudRelayChat.Answer, machineID: String) -> [String: ActionResultValue] {
-        var fields: [String: ActionResultValue] = ["machine_id": .string(machineID), "reply": .string(answer.reply),
-                                                   "queued": .bool(answer.queued), "ended": .bool(answer.ended),
-                                                   "delivered": .bool(answer.delivered)]
-        let texts = ["session_id": answer.session, "prompt_id": answer.promptID, "stop_reason": answer.stopReason,
-                     "error_code": answer.errorCode, "error_message": answer.errorMessage]
-        for case let (key, text?) in texts { fields[key] = .string(text) }
-        if let first = answer.firstText { fields["first_text_ms"] = .int(Int(first / .milliseconds(1))) }
-        if let total = answer.total { fields["total_ms"] = .int(Int(total / .milliseconds(1))) }
-        return fields
+                  caller: caller, account: account, login: request.login.requested?.rawValue, fromFolder: request.fromFolder)
     }
 }

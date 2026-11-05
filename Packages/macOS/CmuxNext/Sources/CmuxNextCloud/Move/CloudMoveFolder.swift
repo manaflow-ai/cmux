@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CryptoKit
 import Foundation
 
 /// The folder a chat moves with: the git working copy that holds the chat's
@@ -14,6 +15,11 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable {
     @concurrent nonisolated public static func isFolder(_ path: String) async -> Bool {
         var isFolder: ObjCBool = false
         return FileManager.checked.fileExists(atPath: path, isDirectory: &isFolder) && isFolder.boolValue
+    }
+
+    /// ``init(chat:)`` read off the main thread (it looks for `.git` above the folder).
+    @concurrent nonisolated public static func read(chat folder: String) async -> CloudMoveFolder? {
+        CloudMoveFolder(chat: folder)
     }
 
     /// Nil for a relative folder, or one whose `..` parts climb above the disk's root.
@@ -56,6 +62,19 @@ public nonisolated struct CloudMoveFolder: Sendable, Equatable {
     public var isTooBroad: Bool {
         CloudStartCore().isTooBroad(root: URL(fileURLWithPath: root).standardizedFileURL.path,
                                     home: URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path)
+    }
+
+    /// A start's copy key (`cmux link start-chat copy` takes a UUID's spelling) made of `machine` and `folder` (canonical):
+    /// the same start again on the same machine is the same copy, which its ledger reuses (`cmux cloud start-session
+    /// --from-folder`).
+    public static func copyKey(machine: String, folder: String) -> String {
+        let digest = SHA256.hash(data: Data("cmux cloud start-session --from-folder\u{0}\(machine)\u{0}\(folder)".utf8))
+        var key = ""
+        for (offset, character) in digest.prefix(16).map({ String(format: "%02x", $0) }).joined().enumerated() {
+            if [8, 12, 16, 20].contains(offset) { key.append("-") }
+            key.append(character)
+        }
+        return key
     }
 
     /// The folder's name on a machine: its own name and a short hash of where it
