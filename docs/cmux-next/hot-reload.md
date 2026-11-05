@@ -39,6 +39,7 @@ below are for slots, pull requests and built bundles. Agents in cmux learn all o
 | The web UI of every merge, no checkout | Settings > Updates > Web UI Updates > **Every Merge** |
 | Stop your dev server | `cmux live stop`, or **Stop Editing cmux Live** (an installed overlay, if any, still serves) |
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
+| Your Rust edits to the daemon live, terminals kept | `cmux live start --rust [--build-host HOST]` ([below](#the-daemons-rust-live)) |
 | What's running | `cmux live status` |
 | Turn the feature off | Settings > General > **Live Web Reload**, or `cmux settings set updates.liveWebReload false` |
 
@@ -222,6 +223,45 @@ to `--local` when the slot doesn't answer. It copies the token from the slot's o
 `~/.config/cmux/web-dev.json` over ssh; a slot without one warns, and its server then needs
 `CMUX_WEB_DEV_TOKEN`. If the slot's server restarts with a new token, run `server --slot` again;
 until then pages fall back to the bundle.
+
+## The daemon's Rust, live
+
+The terminal daemon (`cmux-tui`) and the agent daemon (acpmux, `cmux-tui-acpmux`) are Rust. Edit them
+in a checkout and the running daemon becomes your build a few seconds after each save, with every
+terminal, its scrollback and its shell process, and every agent session kept:
+
+```sh
+cmux live start --rust --build-host HOST     # or no --build-host to build on this machine
+cmux live status                             # the last swap: when, which save, each step's time
+cmux live stop --rust                        # stop watching; the daemon keeps the last build
+```
+
+On each saved `.rs`, `Cargo.toml` or `Cargo.lock` under `cmux-tui/`, the loop
+(`scripts/cmux-next/rust-live.py`):
+
+1. builds only the daemons the changed crates reach (`cargo metadata`), incrementally. With
+   `--build-host` the changed files go to a tree kept for this checkout on that host (rsync over one
+   kept ssh connection), which keeps its own warm `target/` and uses sccache when the host has it;
+2. brings the binaries back (rsync, compressed) into a new folder per build, so the running daemon's
+   file is never written over;
+3. swaps the daemon the way `scripts/cmux-next/daemon-swap-check.py` measures it: the old owner
+   stops and leaves its terminal hosts running, the new one adopts them (`server restart` when the
+   build has it, else `server stop` and `server ensure`; `daemon restart` for acpmux).
+
+The build host builds for the daemon's platform: a Mac build box for the app's daemon on a Mac, any
+Linux box for a daemon on Linux. Pass `--session NAME` for a daemon other than the default session
+(`cmux-app-<tag>` for a tagged build). A build error is logged (`cmux live status` shows it) and the
+running daemon stays as it was. The next app launch hands the session back to the daemon bundled in
+the app.
+
+Measured with `scripts/measure/rust-live-swap.sh OUT` (a scratch daemon with three shells, then
+one-line edits to `identify` in cmux-tui-core, each timed from the save to the swapped daemon
+answering with the edit; every shell checked to be the same process, with its screen, still echoing):
+
+MEASUREMENT_TABLE
+
+The in-place patch (`hotpatch` feature, `scripts/cmux-next/daemon-hotpatch-check.py`) keeps even the
+daemon's process and its client connections, but on the same edit it HOTPATCH_SENTENCE
 
 ## Every merge, no checkout
 

@@ -227,6 +227,13 @@ class Builder:
             result = run(argv)
             if result.returncode != 0:
                 raise RuntimeError(f"rsync to {self.host}: {result.stderr.strip()}")
+            # ghostty-vt-sys builds libghostty-vt from the repo root's ghostty-next submodule.
+            ghostty = self.tree / "ghostty-next"
+            if not self.synced and (ghostty / "build.zig").is_file():
+                result = run(["rsync", "-a", "--delete", "-e", rsh, "--exclude=.git", "--exclude=zig-out/",
+                              "--exclude=.zig-cache/", f"{ghostty}/", f"{self.host}:{self.remote}/ghostty-next/"])
+                if result.returncode != 0:
+                    raise RuntimeError(f"rsync ghostty-next to {self.host}: {result.stderr.strip()}")
             self.synced = True
             return
         result = subprocess.run(["rsync", "-a", "-e", rsh, "--files-from=-", source, dest],
@@ -622,7 +629,7 @@ def command_measure(args) -> int:
                 s := request(sock, {"cmd": "read-screen", "surface": t_["surface"]}).get("text") or "")
                 and t_["marker"] in s and shell_pid(s, "PID0") and s)
             t_["shell_pid"] = shell_pid(screen, "PID0")
-        started_hosts.update(host_pids(work / "sessions"))
+        started_hosts.update(host_pids(work))
 
         watcher = threading.Thread(target=loop.run, daemon=True)
         watcher.start()
@@ -676,7 +683,7 @@ def command_measure(args) -> int:
                            "generation": ident.get("generation"), "end_terminals": True})
         except (OSError, RuntimeError, ValueError):
             pass
-        started_hosts.update(host_pids(work / "sessions"))
+        started_hosts.update(host_pids(work))
         time.sleep(0.5)
         for pid in started_hosts.values():  # only the hosts this measurement started
             try:
