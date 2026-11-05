@@ -319,18 +319,21 @@ export function measure(
   }
   const first = (test: (frame: Frame) => boolean) => frames.find(test);
   const live = first((frame) => frame.rows.some((row) => row.id === LIVE));
-  const user = first((frame) => frame.rows.some((row) => !rows0.has(row.id) && row.id !== LIVE && row.id !== "composer"));
+  const user = first((frame) =>
+    frame.rows.some((row) => !rows0.has(row.id) && row.id !== LIVE && row.id !== "composer"),
+  );
   // The thought's row: the first row after the send that is neither the sent prompt nor the line (a live thought
   // draws as its one-line row, its words inside it).
   const sentRow = user?.rows.find((row) => !rows0.has(row.id) && row.id !== LIVE && row.id !== "composer")?.id;
   const shown = first(
     (frame) =>
       frame.at >= thoughtAt &&
-      (frame.thought ||
-        frame.rows.some((row) => !rows0.has(row.id) && ![LIVE, "composer", sentRow].includes(row.id))),
+      (frame.thought || frame.rows.some((row) => !rows0.has(row.id) && ![LIVE, "composer", sentRow].includes(row.id))),
   );
   const liveHeights = [
-    ...new Set(frames.flatMap((frame) => frame.rows.filter((row) => row.id === LIVE).map((row) => Math.round(row.height)))),
+    ...new Set(
+      frames.flatMap((frame) => frame.rows.filter((row) => row.id === LIVE).map((row) => Math.round(row.height))),
+    ),
   ];
   return {
     jumps,
@@ -348,7 +351,10 @@ export function measure(
       return heights.filter((height, index) => index > 0 && height !== heights[index - 1]).length;
     })(),
     frameP95: (() => {
-      const gaps = frames.slice(1).map((frame, index) => frame.at - frames[index]!.at).sort((a, b) => a - b);
+      const gaps = frames
+        .slice(1)
+        .map((frame, index) => frame.at - frames[index]!.at)
+        .sort((a, b) => a - b);
       return gaps.length ? gaps[Math.floor(0.95 * (gaps.length - 1))]! : 0;
     })(),
     // Up to 800 ms past the first thought, the frames that differ from the one before.
@@ -380,7 +386,9 @@ async function round(browser: Browser, url: string): Promise<Round> {
     await rest(page);
     await page.waitForTimeout(400);
     const rows0 = new Set(
-      await page.locator("[data-row-id]").evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.rowId!)),
+      await page
+        .locator("[data-row-id]")
+        .evaluateAll((nodes) => nodes.map((node) => (node as HTMLElement).dataset.rowId!)),
     );
     await startSampling(page, THOUGHT.split(" ").slice(0, 4).join(" "));
     const sentAt = Date.now();
@@ -489,8 +497,12 @@ if (import.meta.main) {
       report[engine] = rounds;
       const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor((values.length - 1) / 2)]!;
       const stat = (values: number[]) => ({ p50: median(values), p95: Math.max(...values) });
-      console.log(`send-status-shift: ${engine}, ${rounds.length} rounds, think ${THINK_MS} ms (p50 median, p95 worst)`);
-      console.log("round | jumps | slot resizes | box cls | user ms | live ms | thought ms | live heights | frame p95 ms");
+      console.log(
+        `send-status-shift: ${engine}, ${rounds.length} rounds, think ${THINK_MS} ms (p50 median, p95 worst)`,
+      );
+      console.log(
+        "round | jumps | slot resizes | box cls | user ms | live ms | thought ms | live heights | frame p95 ms",
+      );
       for (const [index, r] of rounds.entries())
         console.log(
           `${index + 1} | ${r.jumps.length} | ${r.slotResizes} | ${r.boxCls.toFixed(4)} | ${r.userMs} | ${r.liveMs} | ${r.thoughtMs} | ${r.liveHeights.join(",")} | ${r.frameP95}`,
@@ -501,7 +513,13 @@ if (import.meta.main) {
         );
       if (process.env.SEND_SHIFT_TRACE) for (const line of rounds.at(-1)!.trace) console.log(`  ${line}`);
       const name = `ui.transcript.send${isChromium ? "" : ".webkit"}`;
-      perfRow({ name: `${name}.jumps`, ...stat(rounds.map((r) => r.jumps.length)), unit: "count", target: 0, floor: 0.5 });
+      perfRow({
+        name: `${name}.jumps`,
+        ...stat(rounds.map((r) => r.jumps.length)),
+        unit: "count",
+        target: 0,
+        floor: 0.5,
+      });
       perfRow({
         name: `${name}.slot_resizes`,
         ...stat(rounds.map((r) => r.slotResizes)),
@@ -516,7 +534,13 @@ if (import.meta.main) {
         target: 0.01,
         floor: 0.001,
       });
-      perfRow({ name: `${name}.live_ms`, ...stat(rounds.map((r) => r.liveMs ?? 9999)), unit: "ms", target: 17, floor: 17 });
+      perfRow({
+        name: `${name}.live_ms`,
+        ...stat(rounds.map((r) => r.liveMs ?? 9999)),
+        unit: "ms",
+        target: 17,
+        floor: 17,
+      });
       perfRow({
         name: `${name}.thought_ms`,
         ...stat(rounds.map((r) => r.thoughtMs ?? 9999)),
