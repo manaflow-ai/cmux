@@ -66,7 +66,8 @@ side="$fx/checkout/scripts/cmux-next/side-instance.sh"
 # The copy draws its own main window (debug.window_snapshot, as live-code-app.py does): a fleet Mac's step
 # has no Screen Recording grant, so screencapture fails there with "could not create image from display".
 # lsof does not show the copy's control socket, so every cmux control socket is asked system.identify, and
-# the one whose pid is the copy's recorded pid answers. copy_rpc METHOD PARAMS prints its reply as JSON.
+# the one whose pid is the copy's recorded pid answers. copy_rpc METHOD PARAMS prints its reply as JSON,
+# and exits 2 when the reply is an error.
 copy_rpc() {
   python3 - "$CMUX_SIDE_ROOT/pr-1/pid" "$1" "$2" <<'PY'
 import glob, json, os, sys, time
@@ -83,20 +84,29 @@ while time.time() < deadline:
         reply = rpc_at(sock, "system.identify", timeout=5)
         seen[sock] = reply.get("pid") if isinstance(reply, dict) else None
         if seen[sock] == pid:
-            print(json.dumps(rpc_at(sock, method, params, timeout=60)))
-            sys.exit(0)
+            reply = rpc_at(sock, method, params, timeout=60)
+            print(json.dumps(reply))
+            sys.exit(2 if isinstance(reply, dict) and "error" in reply else 0)
     time.sleep(1)
 sys.exit(f"try-pr-live-code: no control socket answers as the copy (pid {pid}); sockets and their pids: {seen}")
 PY
 }
 # The copy starts with fresh settings, so it may open on something other than Home; Home is what the
-# patch paints. The reply is kept, since a run with no red is read from it.
-show_home() { copy_rpc action.run '{"action": "home.show"}' >"$out/home-show.json"; }
+# patch paints. While the app still starts, home.show can be refused, so it is asked again for up to
+# 30 s; the last reply is kept, since a run with no red is read from it.
+show_home() {
+  for _ in $(seq 1 30); do
+    copy_rpc action.run '{"action": "home.show"}' >"$out/home-show.json" && return 0
+    sleep 1
+  done
+  echo "try-pr-live-code: the copy did not show Home: $(cat "$out/home-show.json")" >&2
+  exit 1
+}
 # A still: an old PNG is removed first, so only a new one counts; the window list beside it says what
 # the window showed.
 capture() {
   rm -f "$out/$1.png"
-  copy_rpc debug.window_snapshot "{\"kind\": \"main\", \"path\": \"$out/$1.png\"}" >"$out/$1-snapshot.json"
+  copy_rpc debug.window_snapshot "{\"kind\": \"main\", \"path\": \"$out/$1.png\"}" >"$out/$1-snapshot.json" || true
   copy_rpc debug.window_list '{}' >"$out/$1-windows.json" || true
   [[ -f "$out/$1.png" ]] || { echo "try-pr-live-code: the copy wrote no $1 still: $(cat "$out/$1-snapshot.json")" >&2; exit 1; }
 }
