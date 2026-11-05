@@ -141,6 +141,7 @@ import { callNative } from "./callNative";
 import { type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { NoticeRow } from "./rows/NoticeRow";
 import { defaultRegistry, readOnlyRegistry } from "./rows/registry";
+import { workEnds } from "./conversation/waterfallSpans";
 
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
@@ -269,7 +270,7 @@ function sameFields(previous: AcpmuxRow, next: AcpmuxRow): boolean {
   return keys.length === Object.keys(before).length && keys.every((key) => Object.is(before[key], after[key]));
 }
 
-function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
+export function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
   const keys = Object.keys(next);
   if (keys.length !== Object.keys(previous).length) return false;
   return keys.every((key) => {
@@ -289,7 +290,10 @@ function sameRowFrame(previous: Record<string, unknown>, next: Record<string, un
         before.id === after.id &&
         before.version === after.version &&
         before.below === after.below &&
-        before.ended === after.ended
+        before.ended === after.ended &&
+        // A turn footer's Timeline also redraws when a background shell ends after the turn, which
+        // leaves its version as it was (conversation/waterfallSpans.ts workEnds, cached per array).
+        (after.kind !== "turnSummary" || workEnds(before.turnWork) === workEnds(after.turnWork))
       );
     }
     if (key === "referenceScope")
