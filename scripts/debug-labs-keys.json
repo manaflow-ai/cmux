@@ -80,7 +80,7 @@
   "home.richTables": {"case": "delete", "why": "On since Leo asked for it on 10-20; deleting the switch keeps table cards and plan cards and drops the plain-text table path."},
   "home.topFadeStyle": {"case": "keep", "why": "A look comparison of eight top-fade styles; the background tint default is the chosen one."},
   "home.turnProgress": {"case": "keep", "why": "A look comparison for the Chief's running indicator; the default (steps plus thought, Leo 10-20) is the chosen one."},
-  "home.voiceInput": {"case": "delete", "why": "On by default (Leo 10-20); the off path only shows a drawn waveform that does nothing, so delete it and its Settings row."},
+  "home.voiceInput": {"case": "keep", "why": "Also drives Settings > Chief > Voice input, a row from Leo's list (#23781) people see in DEV and NIGHTLY; not a Debug-only switch."},
   "hostPressure.banner": {"case": "keep", "why": "A new dev surface kept off on purpose (cmux#22662); the indicator alone ships first and the banner is unfinished."},
   "hostPressure.enabled": {"case": "keep", "why": "Off on purpose (Lawrence 11-02); the palette's Show Host Pressure Warning turns it on, and off means no timer or reads."},
   "hostPressure.force": {"case": "keep", "why": "A test hook that shows the host pressure indicator at a forced level with sample numbers."},
