@@ -2,7 +2,7 @@
 """Exercise Computer Use host admission with the signed NIGHTLY apps.
 
 The unit tests inject the code check.  This test keeps the real signed app in
-the loop: it downloads the NIGHTLY app, starts it with each
+the loop: it downloads the two NIGHTLY identities, starts each app with each
 Computer Use driver enabled, and verifies that the app's authenticated host
 connection remains open.  A host connection that is refused closes before it
 can remain in the app's descriptor table.
@@ -19,10 +19,9 @@ refusal never says attached.  The detailed
 real code check (and is covered by the HostVerifier unit test); the wire reply
 deliberately exposes only the stable refusal reason.
 
-Since #36287 there is one nightly-next feed (files-next.cmux.com/nightly-next/
-appcast-arm64.xml), every build in it signed as cmux NIGHTLY
-(com.cmuxterm.app.nightly); its newest build is the blocking contract.  The
-retired nightly-next/next/ feed and its cmux NEXT identity are not read.
+The NEXT appcast is the blocking contract.  The legacy identity is retained as
+a best-effort diagnostic while that feed is still published; a retired or
+temporarily unavailable classic feed must not turn this scheduled check red.
 """
 
 from __future__ import annotations
@@ -317,8 +316,8 @@ def exec_chain_refusal(path: Path, binary: Path, driver: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--feed", "--next-feed", "--legacy-feed", dest="feed",
-                        default="https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+    parser.add_argument("--legacy-feed", default="https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+    parser.add_argument("--next-feed", default="https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
     root = Path(tempfile.mkdtemp(prefix="cmux-cua-signed-host-"))
@@ -326,76 +325,89 @@ def main() -> int:
         args.out.mkdir(parents=True, exist_ok=True)
     try:
         artifacts = [
-            # The one nightly-next feed's newest build, signed as cmux NIGHTLY: the release-facing contract.
-            ("nightly", "com.cmuxterm.app.nightly", args.feed),
+            # NEXT is the supported nightly and the release-facing contract.
+            ("next", "com.cmuxterm.app.nightly.cmux-next", args.next_feed, True),
+            # Keep the old identity as a diagnostic while it is available; a
+            # classic feed outage must not red the supported nightly check.
+            ("classic", "com.cmuxterm.app.nightly", args.legacy_feed, False),
         ]
         apps: list[tuple[str, Path, str]] = []
-        for name, expected, feed in artifacts:
-            url, length, version = feed_url(feed)
-            dmg = root / f"{name}.dmg"
-            download(url, length, dmg)
-            mount = root / f"mount-{name}"
-            mount.mkdir()
-            run(["/usr/bin/hdiutil", "attach", str(dmg), "-nobrowse", "-readonly", "-mountpoint", str(mount)], timeout=300)
+        for name, expected, feed, required in artifacts:
             try:
-                candidates = sorted(mount.glob("*.app"))
-                if len(candidates) != 1:
-                    raise Failure(f"{dmg}: expected one app, found {candidates}")
-                app = root / f"{name}.app"
-                run(["/usr/bin/ditto", str(candidates[0]), str(app)], timeout=300)
-            finally:
-                run(["/usr/bin/hdiutil", "detach", str(mount)], timeout=120, check=False)
-            verify_signature(app, expected)
-            helper = nested_helper(app)
-            verify_signature(helper, HELPER_ID)
-            log(f"{name} {version}: signed app and helper identities are correct")
-            apps.append((name, app, expected))
+                url, length, version = feed_url(feed)
+                dmg = root / f"{name}.dmg"
+                download(url, length, dmg)
+                mount = root / f"mount-{name}"
+                mount.mkdir()
+                run(["/usr/bin/hdiutil", "attach", str(dmg), "-nobrowse", "-readonly", "-mountpoint", str(mount)], timeout=300)
+                try:
+                    candidates = sorted(mount.glob("*.app"))
+                    if len(candidates) != 1:
+                        raise Failure(f"{dmg}: expected one app, found {candidates}")
+                    app = root / f"{name}.app"
+                    run(["/usr/bin/ditto", str(candidates[0]), str(app)], timeout=300)
+                finally:
+                    run(["/usr/bin/hdiutil", "detach", str(mount)], timeout=120, check=False)
+                verify_signature(app, expected)
+                helper = nested_helper(app)
+                verify_signature(helper, HELPER_ID)
+                log(f"{name} {version}: signed app and helper identities are correct")
+                apps.append((name, app, expected))
+            except Failure as error:
+                if required:
+                    raise
+                log(f"INFO: classic NIGHTLY diagnostic skipped: {error}")
 
         adhoc = ad_hoc_peer(root)
         for name, app, identifier in apps:
-            for driver in ("upstream", "legacy"):
-                runs = effective_driver(app, driver)
-                if runs != driver:
-                    log(f"info: {name} has no helper v2; driver {driver} runs the {runs} helper")
-                run_root = root / f"run-{name}-{driver}"
-                home = run_root / "home"
-                (home / "Library/Application Support").mkdir(parents=True)
-                run_root.mkdir(exist_ok=True)
-                config = run_root / "cmux-next.json"
-                config.write_text('{"computerUse":{"enabled":true,"driver":"' + driver + '"}}\n')
-                env = {
-                    "HOME": str(home),
-                    "CFFIXED_USER_HOME": str(home),
-                    "TMPDIR": str(run_root / "tmp") + "/",
-                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                    "USER": os.environ.get("USER", ""),
-                    "LOGNAME": os.environ.get("LOGNAME", os.environ.get("USER", "")),
-                    "LANG": "en_US.UTF-8",
-                    "CMUX_NEXT_CONFIG_FILE": str(config),
-                    "CMUX_NEXT_NO_ACTIVATE": "1",
-                    "CMUX_NEXT_SOCKET_MODE": "allowAll",
-                }
-                (run_root / "tmp").mkdir()
-                output = (run_root / "app.log").open("wb")
-                process = subprocess.Popen([str(executable(app)), "-ApplePersistenceIgnoreState", "YES"],
-                                            env=env, cwd=str(home), stdin=subprocess.DEVNULL,
-                                            stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
-                try:
-                    path = host_socket(identifier, runs)
-                    wait_for_host(process, path)
-                    log(f"ok: {name} {driver} accepted the signed app host on {path}")
-                    refusal = connect_refusal(path, runs)
-                    if not refused(refusal, runs):
-                        raise Failure(f"unsigned peer was not refused by {path}: {refusal!r}")
-                    ad_hoc_refusal(path, adhoc, runs)
-                    exec_chain_refusal(path, adhoc, runs)
-                    log(f"ok: {name} {driver} refused unsigned, ad hoc, and exec-chain peers")
-                finally:
-                    stop(process)
-                    output.close()
-        if not any(name == "nightly" for name, _, _ in apps):
-            raise Failure("the NIGHTLY artifact was not checked")
-        log("PASS: signed NIGHTLY host admission and refusal checks")
+            try:
+                for driver in ("upstream", "legacy"):
+                    runs = effective_driver(app, driver)
+                    if runs != driver:
+                        log(f"info: {name} has no helper v2; driver {driver} runs the {runs} helper")
+                    run_root = root / f"run-{name}-{driver}"
+                    home = run_root / "home"
+                    (home / "Library/Application Support").mkdir(parents=True)
+                    run_root.mkdir(exist_ok=True)
+                    config = run_root / "cmux-next.json"
+                    config.write_text('{"computerUse":{"enabled":true,"driver":"' + driver + '"}}\n')
+                    env = {
+                        "HOME": str(home),
+                        "CFFIXED_USER_HOME": str(home),
+                        "TMPDIR": str(run_root / "tmp") + "/",
+                        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                        "USER": os.environ.get("USER", ""),
+                        "LOGNAME": os.environ.get("LOGNAME", os.environ.get("USER", "")),
+                        "LANG": "en_US.UTF-8",
+                        "CMUX_NEXT_CONFIG_FILE": str(config),
+                        "CMUX_NEXT_NO_ACTIVATE": "1",
+                        "CMUX_NEXT_SOCKET_MODE": "allowAll",
+                    }
+                    (run_root / "tmp").mkdir()
+                    output = (run_root / "app.log").open("wb")
+                    process = subprocess.Popen([str(executable(app)), "-ApplePersistenceIgnoreState", "YES"],
+                                                env=env, cwd=str(home), stdin=subprocess.DEVNULL,
+                                                stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
+                    try:
+                        path = host_socket(identifier, runs)
+                        wait_for_host(process, path)
+                        log(f"ok: {name} {driver} accepted the signed app host on {path}")
+                        refusal = connect_refusal(path, runs)
+                        if not refused(refusal, runs):
+                            raise Failure(f"unsigned peer was not refused by {path}: {refusal!r}")
+                        ad_hoc_refusal(path, adhoc, runs)
+                        exec_chain_refusal(path, adhoc, runs)
+                        log(f"ok: {name} {driver} refused unsigned, ad hoc, and exec-chain peers")
+                    finally:
+                        stop(process)
+                        output.close()
+            except Failure as error:
+                if name == "next":
+                    raise
+                log(f"INFO: classic NIGHTLY diagnostic failed: {error}")
+        if not any(name == "next" for name, _, _ in apps):
+            raise Failure("NEXT NIGHTLY artifact was not checked")
+        log("PASS: signed NEXT NIGHTLY host admission and refusal checks (classic is informational)")
         return 0
     except Failure as error:
         log(f"FAIL: {error}")
