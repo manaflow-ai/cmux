@@ -29,7 +29,8 @@
 #
 # --live-code LOG: APP is a live code build (docs/cmux-next/live-code.md) and LOG its reload.sh log.
 # A swift-live PR whose changes are edits to CmuxNextApp's existing Swift files is then applied with
-# no build: the PR's diff goes onto APP's commit (CMUXCommit) in a scratch worktree, is sorted again
+# no build: the PR's diff goes onto APP's commit (CMUXCommit, else the HEAD of the checkout LOG built,
+# when it has not changed since) in a scratch worktree, is sorted again
 # there, and scripts/live-code/patch.py compiles those files against the build into the copy's
 # live-code/ folder, which the running copy loads (with --here, your app's live folder, Labs > Live
 # Code). Anything else takes the dev build, saying why. The verdict is a hint (live_apply.py), so
@@ -133,12 +134,43 @@ await_line() {
   return 1
 }
 
+# The commit a live code build came from when the app records none (a reload or DEV build carries no
+# CMUXCommit): the HEAD of the checkout the build's log compiled, found from its file list, when that
+# checkout's CmuxNextApp sources are as committed and its HEAD has not moved since the log was written.
+built_from() {
+  local log="$1" root head moved built
+  root="$(python3 - "$ROOT/scripts/live-code" "$log" <<'PY'
+import os, sys
+sys.path.insert(0, sys.argv[1])
+import patch
+_, filelist = patch.module_commands(sys.argv[2], "CmuxNextApp")
+files = patch.read_filelist(filelist) if filelist and os.path.exists(filelist) else []
+print(patch.checkout_root(files, "CmuxNextApp") or "")
+PY
+)" || root=""
+  if [[ -z "$root" ]] || ! head="$(git -C "$root" rev-parse HEAD 2>/dev/null)"; then
+    echo "live code: the app records no commit (CMUXCommit) and the log names no git checkout it was built from" >&2; return 1
+  fi
+  if [[ -n "$(git -C "$root" status --porcelain -- Packages/macOS/CmuxNext/Sources/CmuxNextApp)" ]]; then
+    echo "live code: $root has uncommitted CmuxNextApp changes, so the build's commit is unknown" >&2; return 1
+  fi
+  # When HEAD last moved (its reflog), else its commit time.
+  moved="$(git -C "$root" log -g -1 --format=%gd --date=unix HEAD 2>/dev/null | sed -n 's/.*@{\([0-9]*\)}.*/\1/p')"
+  [[ -n "$moved" ]] || moved="$(git -C "$root" log -1 --format=%ct HEAD)"
+  built="$(stat -c %Y "$log" 2>/dev/null || stat -f %m "$log")"
+  if [[ "$moved" -gt "$built" ]]; then
+    echo "live code: $root moved to another commit after the build, so the build's commit is unknown" >&2; return 1
+  fi
+  echo "$head"
+}
+
 # The PR applied as a live code patch to a live code build (--live-code). Returns 1, saying why,
 # when it cannot be; the caller then takes the dev build.
 live_swift() {
   local recorded commit src made changed bad tree_id apply_id again live_dir log offset patch line
   [[ -f "$live_log" ]] || { echo "live code: no reload log at $live_log"; return 1; }
   recorded="$("$buddy" -c 'Print :CMUXCommit' "$from/Contents/Info.plist" 2>/dev/null || true)"
+  if [[ -z "$recorded" ]] && ! recorded="$(built_from "$live_log" 2>&1)"; then echo "$recorded"; return 1; fi
   commit="$(git -C "$ROOT" rev-parse --verify -q "${recorded:-none}^{commit}" 2>/dev/null || true)"
   [[ -n "$commit" ]] || { echo "live code: $from's commit '${recorded}' is not in this checkout (a dirty build, or git fetch first)"; return 1; }
   if [[ -n "$dry" ]]; then
@@ -147,21 +179,30 @@ live_swift() {
   fi
   made="$(mktemp -d "${TMPDIR:-/tmp}/try-pr-live.XXXXXX")"; src="$made/src"
   # The build's commit with the PR's change on it: what the patch is compiled from.
-  git -C "$ROOT" worktree add -q --detach "$src" "$commit"
-  drop() { git -C "$ROOT" worktree remove --force "$src" 2>/dev/null || true; rm -rf "$made"; }
+  drop() { trap - EXIT INT TERM; git -C "$ROOT" worktree remove --force "$src" 2>/dev/null || true; rm -rf "$made"; }
+  # Gone on every way out, Ctrl-C and a kill included. (live_swift runs as an if condition, so set -e
+  # is off in it: each step's failure is checked.)
+  trap drop EXIT
+  trap 'drop; exit 130' INT TERM
+  if ! git -C "$ROOT" worktree add -q --detach "$src" "$commit"; then
+    drop; echo "live code: no scratch worktree of $commit"; return 1
+  fi
   if ! git -C "$ROOT" diff --binary "$base" "$head" | git -C "$src" apply --3way -q 2>/dev/null; then
     drop; echo "live code: #$pr does not apply cleanly on the build's commit $commit"; return 1
   fi
-  git -C "$src" add -A
-  changed="$(git -C "$src" diff --cached --name-status "$commit")"
+  if ! git -C "$src" add -A || ! changed="$(git -C "$src" diff --cached --name-status "$commit")"; then
+    drop; echo "live code: the PR's change could not be read in the scratch worktree"; return 1
+  fi
   bad="$(awk -F'\t' '$1 != "M" || $2 !~ /^Packages\/macOS\/CmuxNext\/Sources\/CmuxNextApp\/.*\.swift$/ { print $NF }' <<<"$changed")"
   if [[ -n "$bad" ]]; then
     drop; echo "live code takes only edits to CmuxNextApp's existing Swift files; not: $(tr '\n' ' ' <<<"$bad")"; return 1
   fi
   # Sorted again against the build's own commit (the PR's base may be newer or older).
-  tree_id="$(git -C "$src" write-tree)"
-  apply_id="$(git -C "$src" -c user.name=try-pr -c user.email=try-pr@localhost commit-tree "$tree_id" -p "$commit" -m "try-pr #$pr on $commit")"
-  again="$(python3 "$ROOT/scripts/cmux-next/live_apply.py" --repo "$ROOT" --json "$commit" "$apply_id" | python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])')"
+  if ! tree_id="$(git -C "$src" write-tree)" ||
+    ! apply_id="$(git -C "$src" -c user.name=try-pr -c user.email=try-pr@localhost commit-tree "$tree_id" -p "$commit" -m "try-pr #$pr on $commit")" ||
+    ! again="$(python3 "$ROOT/scripts/cmux-next/live_apply.py" --repo "$ROOT" --json "$commit" "$apply_id" | python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])')"; then
+    drop; echo "live code: the change could not be sorted on the build's commit"; return 1
+  fi
   if [[ "$again" != swift-live ]]; then drop; echo "live code: on the build's commit the change is $again"; return 1; fi
   local files=() file
   while IFS=$'\t' read -r _ file; do files+=("$file"); done <<<"$changed"
