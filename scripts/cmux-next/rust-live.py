@@ -44,6 +44,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -184,6 +185,38 @@ class Graph:
 # ---------------------------------------------------------------- building
 
 
+def outside_path_deps(workspace: Path) -> list[str]:
+    """Folders of path dependencies outside cmux-tui/ (relative to the repo root), which a
+    build host needs too: cmux-tui depends on workers/cmux-vm, for one."""
+    out = subprocess.run(["cargo", "metadata", "--format-version", "1", "--offline"],
+                         cwd=workspace, capture_output=True, text=True)
+    if out.returncode != 0:
+        out = subprocess.run(["cargo", "metadata", "--format-version", "1"],
+                             cwd=workspace, capture_output=True, text=True, check=True)
+    root = workspace.parent.resolve()
+    folders = set()
+    for package in json.loads(out.stdout)["packages"]:
+        if package.get("source") is not None:
+            continue  # crates.io or git: cargo fetches those itself
+        folder = Path(package["manifest_path"]).parent.resolve()
+        if workspace.resolve() in folder.parents or folder == workspace.resolve():
+            continue
+        if root not in folder.parents:
+            continue
+        # A crate that inherits from its own workspace (`edition.workspace = true`) needs that
+        # workspace's Cargo.toml too, so send the workspace folder.
+        for parent in [folder, *folder.parents]:
+            if parent == root:
+                break
+            manifest = parent / "Cargo.toml"
+            if manifest.is_file() and "[workspace]" in manifest.read_text(errors="replace"):
+                folder = parent
+                break
+        folders.add(str(folder.relative_to(root)))
+    # Keep only the outermost folders.
+    return sorted(f for f in folders if not any(f.startswith(o + "/") for o in folders if o != f))
+
+
 def ssh_options(state: Path) -> list[str]:
     # One connection kept open: each step after the first costs one round trip.
     # CMUX_RUST_LIVE_SSH_OPTS: more ssh options (a port, a jump host, a known-hosts file).
@@ -235,13 +268,20 @@ class Builder:
             result = run(argv)
             if result.returncode != 0:
                 raise RuntimeError(f"rsync to {self.host}: {result.stderr.strip()}")
-            # ghostty-vt-sys builds libghostty-vt from the repo root's ghostty-next submodule.
-            ghostty = self.tree / "ghostty-next"
-            if not self.synced and (ghostty / "build.zig").is_file():
+            # ghostty-vt-sys builds libghostty-vt from the repo root's ghostty-next submodule, and
+            # some path dependencies live outside cmux-tui/ (workers/cmux-vm).
+            outside = outside_path_deps(self.tree / "cmux-tui")
+            if (self.tree / "ghostty-next/build.zig").is_file():
+                outside.append("ghostty-next")
+            for folder in outside:
+                if self.synced and folder == "ghostty-next":
+                    continue
+                run(["ssh", *ssh_options(self.state), self.host, f"mkdir -p {self.remote}/{folder}"], check=True)
                 result = run(["rsync", "-a", "--delete", "-e", rsh, "--exclude=.git", "--exclude=zig-out/",
-                              "--exclude=.zig-cache/", f"{ghostty}/", f"{self.host}:{self.remote}/ghostty-next/"])
+                              "--exclude=.zig-cache/", "--exclude=/target/", "--exclude=node_modules/",
+                              f"{self.tree / folder}/", f"{self.host}:{self.remote}/{folder}/"])
                 if result.returncode != 0:
-                    raise RuntimeError(f"rsync ghostty-next to {self.host}: {result.stderr.strip()}")
+                    raise RuntimeError(f"rsync {folder} to {self.host}: {result.stderr.strip()}")
             self.synced = True
             return
         result = subprocess.run(["rsync", "-a", "-e", rsh, "--files-from=-", source, dest],
@@ -319,11 +359,28 @@ class Swapper:
     def cli(self, binary: Path, *words: str, timeout: float = 60) -> subprocess.CompletedProcess:
         return run([str(binary), *self.selector, *words], env=self.env, timeout=timeout)
 
+    def running_binary(self, cli: Path) -> Path | None:
+        """The executable of the daemon running before the first swap, so a failed swap can
+        put it back (`server status` names its pid)."""
+        status = self.cli(cli, "server", "status")
+        match = re.search(r'"pid"\s*:\s*(\d+)', status.stdout) or re.search(r"pid\D{0,3}(\d+)", status.stdout)
+        if not match:
+            return None
+        pid = match.group(1)
+        try:
+            exe = Path(os.readlink(f"/proc/{pid}/exe"))
+        except OSError:
+            out = run(["ps", "-o", "comm=", "-p", pid])  # macOS: the full path it was started by
+            exe = Path(out.stdout.strip())
+        return exe if exe.is_absolute() and exe.is_file() else None
+
     def swap(self, built: dict[str, Path]) -> dict:
         steps: dict = {}
         if "cmux-tui" in built:
             new = built["cmux-tui"]
             t0 = time.monotonic()
+            if self.previous is None:
+                self.previous = self.running_binary(new)
             restart = self.cli(new, "server", "restart")
             if restart.returncode == 0:
                 steps["cmux-tui"] = "server restart"
@@ -428,8 +485,8 @@ class Loop:
 
     def run(self) -> None:
         log(f"watching {self.root} (build: {self.builder.host or 'here'})")
+        files = scan(self.root)  # before the sync: a save during a slow first sync is still seen
         self.builder.sync([], [])
-        files = scan(self.root)
         self.watching.set()
         while not self.stop_event.is_set():
             time.sleep(POLL_SECS)
@@ -530,6 +587,10 @@ def command_stop(_args) -> int:
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline and running_pid(state) == pid:
         time.sleep(0.1)
+    if running_pid(state) == pid:
+        # Still finishing a build; it swaps nothing more. Its pid file stays, so no second loop starts.
+        print(f"rust-live: pid {pid} is finishing its build and then ends; it will swap nothing more")
+        return 0
     pid_file(state).unlink(missing_ok=True)
     print(f"rust-live: stopped watching (pid {pid}); the daemon keeps the last build it swapped in")
     return 0
