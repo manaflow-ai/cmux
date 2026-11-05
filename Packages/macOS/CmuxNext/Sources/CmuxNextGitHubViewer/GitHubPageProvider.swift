@@ -133,7 +133,12 @@ public extension GitHubPageProvider {
     /// A pull request's Files tab (Session Info's View diff, a `/pull/N/files` link in a reply): its
     /// diff (`gh pr diff`) opens through `openDiff`, no page in between (Leo, 2026-11-05: "you want to
     /// see the diff? Boom, here's a diff"); a diff that could not be read opens the Files tab's web page.
-    static func openFiles(_ link: GitHubLink, read: @escaping @Sendable (URL) async -> String? = { await AgentChatPullRequestReader().diff(url: $0) },
+    static func openFiles(_ link: GitHubLink, openDiff: @escaping @MainActor (String) -> Void, openWeb: @escaping @MainActor (URL) -> Void) {
+        openFiles(link, read: { await AgentChatPullRequestReader().diff(url: $0) }, openDiff: openDiff, openWeb: openWeb)
+    }
+
+    /// ``openFiles(_:openDiff:openWeb:)`` with its diff read by `read` (tests).
+    static func openFiles(_ link: GitHubLink, read: @escaping @Sendable (URL) async -> String?,
                           openDiff: @escaping @MainActor (String) -> Void, openWeb: @escaping @MainActor (URL) -> Void) {
         // task-owner: one gh diff read per click; it opens the diff, or the web page when the read fails.
         Task { @MainActor in
