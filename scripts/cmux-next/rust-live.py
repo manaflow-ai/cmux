@@ -193,8 +193,12 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(argv, capture_output=True, text=True, **kwargs)
 
 
+# cmux-tui/Cargo.toml's [profile.live]: our crates at opt-level 0 for the edit loop.
+PROFILE = os.environ.get("CMUX_RUST_LIVE_PROFILE") or "live"
+
+
 def cargo_args(daemons: list[str], target: str | None) -> list[str]:
-    argv = ["cargo", "build", "--message-format=short"]
+    argv = ["cargo", "build", "--message-format=short", "--profile", PROFILE]
     if target:
         argv += ["--target", target]
     for package in daemons:
@@ -257,7 +261,8 @@ class Builder:
         return result.returncode == 0, output
 
     def out_dir(self) -> str:
-        return f"{self.target}/debug" if self.target else "debug"
+        folder = "debug" if PROFILE == "dev" else PROFILE
+        return f"{self.target}/{folder}" if self.target else folder
 
     def fetch(self, daemons: list[str], generation: Path) -> dict[str, Path]:
         """Copy each built daemon into its own folder for this build."""
@@ -276,7 +281,11 @@ class Builder:
                 target = Path(os.environ.get("CARGO_TARGET_DIR") or self.tree / "cmux-tui/target")
                 staged = target / self.out_dir() / binary
             dest = generation / shipped
-            shutil.copy2(staged, dest)
+            try:
+                # cargo replaces its output with a new file on the next build, so a link keeps this one.
+                os.link(staged, dest)
+            except OSError:
+                shutil.copy2(staged, dest)
             dest.chmod(0o755)
             built[package] = dest
         return built

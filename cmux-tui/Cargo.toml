@@ -435,6 +435,18 @@ debug = "line-tables-only"
 opt-level = 3
 debug = false
 
+# `cmux live start --rust` (scripts/cmux-next/rust-live.py): a dev build for the save-to-swapped
+# loop. Our crates at opt-level 0, since an edit recompiles cmux-tui-core and every crate above it
+# up to the binary (18 s + 3 s + 15 s + 5 s link at opt-level 1, huge-blue, 2026-11-05).
+# Dependencies stay optimized. Its own target/live/, so the warm dev build is untouched.
+[profile.live]
+inherits = "dev"
+opt-level = 0
+
+[profile.live.package."*"]
+opt-level = 3
+debug = false
+
 # acpmux's own code does not make its tests faster when optimized (rbx,
 # 2026-10-17: cargo nextest -p acpmux 16.2 s at opt-level 1, 16.5 s at 0), but
 # optimizing it is most of the edit loop: an edit in acpmux rebuilt its test
