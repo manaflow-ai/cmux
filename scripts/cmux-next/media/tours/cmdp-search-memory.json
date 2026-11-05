@@ -1,0 +1,201 @@
+{
+  "title": "Cmd-P search memory and sidebar place",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace api client",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "api client"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "New workspace api worker",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "api worker"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "New workspace api server",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "api server"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Show api server",
+      "cmux": [
+        "workspace",
+        "name:api server",
+        "focus"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Open Go to Workspace (Cmd-P)",
+      "cmux": [
+        "action",
+        "run",
+        "goToWorkspace"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Type 'a'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "a",
+          "target": "palette"
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "Type 'p'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "p",
+          "target": "palette"
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "Type 'i'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "i",
+          "target": "palette"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Cmd-P \"api\": three equal matches, in sidebar order",
+      "wait": 0.5
+    },
+    {
+      "title": "Type ' '",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "space",
+          "target": "palette"
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "Type 'c'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "c",
+          "target": "palette"
+        }
+      },
+      "wait": 0.8,
+      "shot": false
+    },
+    {
+      "title": "Pick api client",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "return",
+          "target": "palette"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Open Go to Workspace again",
+      "cmux": [
+        "action",
+        "run",
+        "goToWorkspace"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Type 'a'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "a",
+          "target": "palette"
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "Type 'p'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "p",
+          "target": "palette"
+        }
+      },
+      "wait": 0.2,
+      "shot": false
+    },
+    {
+      "title": "Type 'i'",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "i",
+          "target": "palette"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Cmd-P \"api\" again: the row picked for this query comes first",
+      "wait": 0.5
+    },
+    {
+      "title": "Close the palette",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "escape",
+          "target": "palette"
+        }
+      },
+      "wait": 0.5,
+      "shot": false
+    }
+  ]
+}
