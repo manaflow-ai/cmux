@@ -73,10 +73,7 @@ let url = "";
 async function open(browser: Browser, arm: string): Promise<Page> {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await page.addInitScript((seeThrough) => {
-    localStorage.setItem(
-      "cmux.experiments",
-      JSON.stringify({ "thread-minimap-layout": "compact" }),
-    );
+    localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": "compact" }));
     if (seeThrough) document.documentElement.setAttribute("data-cmux-see-through", "");
   }, arm === "seethrough");
   const said: string[] = [];
@@ -132,16 +129,12 @@ const overlapOf = (a: [number, number], within: [number, number][]) => {
 };
 
 function analyze(file: string) {
-  const all = (JSON.parse(fs.readFileSync(file, "utf8")) as { traceEvents: TraceEvent[] })
-    .traceEvents;
-  const mark = (message: string) =>
-    all.find((e) => e.name === "TimeStamp" && e.args?.data?.message === message);
+  const all = (JSON.parse(fs.readFileSync(file, "utf8")) as { traceEvents: TraceEvent[] }).traceEvents;
+  const mark = (message: string) => all.find((e) => e.name === "TimeStamp" && e.args?.data?.message === message);
   const begin = mark("bench-begin");
   const end = mark("bench-end");
   if (!begin || !end) throw new Error("no bench marks in the trace");
-  const on = all.filter(
-    (e) => e.pid === begin.pid && e.tid === begin.tid && e.ph === "X" && e.dur !== undefined,
-  );
+  const on = all.filter((e) => e.pid === begin.pid && e.tid === begin.tid && e.ph === "X" && e.dur !== undefined);
   const start = begin.ts / 1000;
   const stop = end.ts / 1000;
   const edges = all
@@ -151,10 +144,8 @@ function analyze(file: string) {
     .sort((x, y) => x - y);
   const inside = (e: TraceEvent) => e.ts / 1000 < stop && (e.ts + e.dur!) / 1000 > start;
   const span = (e: TraceEvent) => [e.ts / 1000, (e.ts + e.dur!) / 1000] as [number, number];
-  const pick = (test: (e: TraceEvent) => boolean) =>
-    on.filter((e) => test(e) && inside(e)).map(span);
-  const isTask = (e: TraceEvent) =>
-    e.name === "ThreadControllerImpl::RunTask" || e.name === "RunTask";
+  const pick = (test: (e: TraceEvent) => boolean) => on.filter((e) => test(e) && inside(e)).map(span);
+  const isTask = (e: TraceEvent) => e.name === "ThreadControllerImpl::RunTask" || e.name === "RunTask";
   const busy = binned(pick(isTask), edges);
   const script = binned(
     pick((e) => SCRIPTING.has(e.name)),
@@ -166,9 +157,7 @@ function analyze(file: string) {
   );
   // Layout and style recalcs that run inside script are forced (a read after a write).
   const scriptSpans = merge(pick((e) => SCRIPTING.has(e.name)));
-  const layouts = on.filter(
-    (e) => (e.name === "Layout" || e.name === "UpdateLayoutTree") && inside(e),
-  );
+  const layouts = on.filter((e) => (e.name === "Layout" || e.name === "UpdateLayoutTree") && inside(e));
   let forcedMs = 0;
   let forcedCount = 0;
   let layoutMs = 0;
@@ -222,7 +211,7 @@ async function probe(page: Page) {
     w.benchRows = [] as { row: number; at: number; seen?: number }[];
     w.benchEnters = [] as number[];
     let last = -1;
-    addEventListener(
+    window.addEventListener(
       "pointermove",
       (event) => {
         if (event.clientX < box.left || event.clientX > box.right) return;
@@ -236,8 +225,7 @@ async function probe(page: Page) {
     // Event Timing: input to the next paint, for durations of 16 ms and up (its floor).
     new PerformanceObserver((entries) => {
       for (const entry of entries.getEntries())
-        if (entry.name === "pointerover" || entry.name === "pointerenter")
-          w.benchEnters.push(entry.duration);
+        if (entry.name === "pointerover" || entry.name === "pointerenter") w.benchEnters.push(entry.duration);
     }).observe({
       type: "event",
       durationThreshold: 16,
@@ -249,20 +237,14 @@ async function probe(page: Page) {
       if (!w.benchFrames) return;
       const pending = w.benchRows.filter((r: { seen?: number }) => r.seen === undefined);
       if (pending.length) {
-        const activeTick = document.querySelector<HTMLElement>(
-          '.acpmux-minimap__tick[data-tone="active"]',
-        );
+        const activeTick = document.querySelector<HTMLElement>('.acpmux-minimap__tick[data-tone="active"]');
         const active = activeTick ? Number(activeTick.dataset.tick) : -1;
-        const card =
-          document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt")?.textContent ??
-          "";
+        const card = document.querySelector(".acpmux-minimap__card .acpmux-minimap__prompt")?.textContent ?? "";
         const prompt = activeTick?.getAttribute("aria-label") ?? "";
         for (const r of pending) {
           // A row the pointer passed and left before any frame showed it counts as reached by the
           // frame that shows a later row.
-          const later = w.benchRows.some(
-            (o: { row: number; at: number }) => o.at > r.at && o.row === active,
-          );
+          const later = w.benchRows.some((o: { row: number; at: number }) => o.at > r.at && o.row === active);
           if ((active === r.row && card && prompt.includes(card)) || later) r.seen = now;
         }
       }
@@ -273,9 +255,7 @@ async function probe(page: Page) {
 
 async function sweep(page: Page) {
   const ticks = await page.evaluate(() => {
-    const rail = document
-      .querySelector<HTMLElement>(".acpmux-minimap__list")!
-      .getBoundingClientRect();
+    const rail = document.querySelector<HTMLElement>(".acpmux-minimap__list")!.getBoundingClientRect();
     const drawn = [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")]
       .map((t) => t.getBoundingClientRect())
       .filter((r) => r.bottom > rail.top && r.top < rail.bottom && r.height > 0);
@@ -317,8 +297,7 @@ async function sweep(page: Page) {
     const rows = w.benchRows as { row: number; at: number; seen?: number }[];
     const seen = rows.filter((r) => r.seen !== undefined).map((r) => r.seen! - r.at);
     const sorted = [...seen].sort((a, b) => a - b);
-    const at = (p: number) =>
-      sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? 0;
+    const at = (p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? 0;
     const enters = (w.benchEnters as number[]).sort((a, b) => a - b);
     return {
       rows: rows.length,
@@ -326,9 +305,7 @@ async function sweep(page: Page) {
       p50: at(0.5),
       p95: at(0.95),
       max: sorted.at(-1) ?? 0,
-      enterP95: enters.length
-        ? enters[Math.min(enters.length - 1, Math.floor(0.95 * enters.length))]!
-        : 0,
+      enterP95: enters.length ? enters[Math.min(enters.length - 1, Math.floor(0.95 * enters.length))]! : 0,
       enterMax: enters.at(-1) ?? 0,
       slowEnters: enters.length,
       enters: w.benchEnterCount as number,
@@ -345,9 +322,7 @@ type Node = { id: number; callFrame: { functionName: string; url: string; lineNu
 function selfTimes(profile: { nodes: Node[]; samples: number[]; timeDeltas: number[] }) {
   const byId = new Map(profile.nodes.map((n) => [n.id, n]));
   const self = new Map<number, number>();
-  profile.samples.forEach((id, i) =>
-    self.set(id, (self.get(id) ?? 0) + (profile.timeDeltas[i] ?? 0) / 1000),
-  );
+  profile.samples.forEach((id, i) => self.set(id, (self.get(id) ?? 0) + (profile.timeDeltas[i] ?? 0) / 1000));
   const out = new Map<string, number>();
   for (const [id, ms] of self) {
     const f = byId.get(id)!.callFrame;
@@ -369,33 +344,26 @@ try {
     port: 0,
     hostname: "127.0.0.1",
     fetch(request, server) {
-      return server.upgrade(request, { data: undefined })
-        ? undefined
-        : new Response("acpmux", { status: 426 });
+      return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
     },
     websocket: {
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string };
         if (message.id !== undefined)
-          ws.send(
-            JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }),
-          );
+          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
       },
     },
   });
   releases.push(["stand-in acpmux", () => daemon.stop(true)]);
   prodDir = await buildPane();
-  if (!PROD_DIR)
-    releases.push(["pane build", () => fs.rmSync(prodDir, { recursive: true, force: true })]);
+  if (!PROD_DIR) releases.push(["pane build", () => fs.rmSync(prodDir, { recursive: true, force: true })]);
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
     async fetch(request) {
       const pathname = new URL(request.url).pathname;
       const file = Bun.file(path.join(prodDir, pathname === "/" ? "index.html" : pathname));
-      return (await file.exists())
-        ? new Response(file)
-        : new Response("not found", { status: 404 });
+      return (await file.exists()) ? new Response(file) : new Response("not found", { status: 404 });
     },
   });
   releases.push(["static server", () => statics.stop(true)]);
@@ -414,12 +382,7 @@ try {
       const file = path.join(tmp, `${arm}-${round}.json`);
       await browser.startTracing(page, {
         path: file,
-        categories: [
-          "devtools.timeline",
-          "toplevel",
-          "blink.console",
-          ...(process.env.TRACE_CATS?.split(",") ?? []),
-        ],
+        categories: ["devtools.timeline", "toplevel", "blink.console", ...(process.env.TRACE_CATS?.split(",") ?? [])],
       });
       const cdp = PROFILE ? await page.context().newCDPSession(page) : undefined;
       if (cdp) {
@@ -462,15 +425,12 @@ console.log(
   "arm         busy p50 busy p95 busy max scr p95 rnd p95 frame p95 frames >16ms long | forced(n/ms) layout ms style ms paint ms styleEls p95/max",
 );
 for (const [arm, runs] of Object.entries(results)) {
-  const m = (pick: (r: ReturnType<typeof analyze>) => number) =>
-    median(runs.map((r) => pick(r.trace)));
+  const m = (pick: (r: ReturnType<typeof analyze>) => number) => median(runs.map((r) => pick(r.trace)));
   console.log(
     `${arm.padEnd(11)} ${fmt(m((r) => r.p50))} ${fmt(m((r) => r.p95))} ${fmt(m((r) => r.max))} ${fmt(m((r) => r.scriptP95))} ${fmt(m((r) => r.renderP95))} ${fmt(m((r) => r.frameP95))} ${String(m((r) => r.frames)).padStart(6)} ${String(m((r) => r.over16)).padStart(5)} ${runs.map((r) => r.trace.longTasks).join(",")} | ${m((r) => r.forcedCount)}/${m((r) => r.forcedMs).toFixed(1)} ${fmt(m((r) => r.layoutMs))} ${fmt(m((r) => r.styleMs))} ${fmt(m((r) => r.paintMs))} ${m((r) => r.styleElementsP95)}/${m((r) => r.styleElementsMax)}`,
   );
 }
-console.log(
-  "row latency (pointermove into a row -> first frame showing it active with its card), ms:",
-);
+console.log("row latency (pointermove into a row -> first frame showing it active with its card), ms:");
 for (const [arm, runs] of Object.entries(results)) {
   const m = (pick: (r: Latency) => number) => median(runs.map((r) => pick(r.latency)));
   console.log(
@@ -479,9 +439,7 @@ for (const [arm, runs] of Object.entries(results)) {
 }
 for (const [arm, times] of Object.entries(profiles)) {
   const total = sum([...times.values()]);
-  console.log(
-    `top self time, ${arm} (mean ms per ${SECONDS}s sweep; total sampled ${total.toFixed(0)} ms):`,
-  );
+  console.log(`top self time, ${arm} (mean ms per ${SECONDS}s sweep; total sampled ${total.toFixed(0)} ms):`);
   for (const [key, ms] of [...times].sort((a, b) => b[1] - a[1]).slice(0, 30))
     console.log(`  ${ms.toFixed(1).padStart(7)}  ${key}`);
 }
