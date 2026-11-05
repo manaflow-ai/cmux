@@ -298,6 +298,14 @@ def encode_image(path: str, model: dict, max_pixels: int | None) -> tuple[str, i
     return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode(), w, h, width, height
 
 
+def blank_image(width: int, height: int) -> str:
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), (128, 128, 128)).save(buffer, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
+
+
 def post(endpoint: str, body: dict, timeout: float) -> dict:
     request = urllib.request.Request(endpoint.rstrip("/") + "/chat/completions", data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
@@ -392,9 +400,12 @@ def run(args: argparse.Namespace) -> int:
                 body = request_body(model, served, build_messages(model["family"], sample["instruction"], url, w, h),
                                     args.structured)
                 if not warmed:
-                    # One discarded request: graph capture and kernel compiles stay out of the latency.
+                    # One discarded request on a blank image of the same size: graph capture and kernel
+                    # compiles stay out of the latency, and no measured image is in a server cache.
+                    warm = request_body(model, served, build_messages(model["family"], sample["instruction"],
+                                                                      blank_image(w, h), w, h), args.structured)
                     try:
-                        post(args.endpoint, body, args.timeout)
+                        post(args.endpoint, warm, args.timeout)
                     except (urllib.error.URLError, TimeoutError, ConnectionError, ValueError):
                         pass
                     warmed = True
@@ -430,6 +441,7 @@ def run(args: argparse.Namespace) -> int:
                 if failed_in_a_row >= 10:
                     print(f"10 requests in a row failed (last: {record['error']}); stopping. "
                           "Rerun with --resume once the server is back.", file=sys.stderr)
+                    out.unlink(missing_ok=True)  # never leave an earlier run's result to be summarized
                     return 1
                 if i % 50 == 0:
                     right = sum(1 for r in records if r["correct"])

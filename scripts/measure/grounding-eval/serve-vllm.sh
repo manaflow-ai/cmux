@@ -46,7 +46,7 @@ peak_file="$out/$model_id.gpu-peak"
 (
   peak=0
   while kill -0 "$pid" 2>/dev/null; do
-    used="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '{s+=$1} END {print s+0}')"
+    used="$(nvidia-smi ${CUDA_VISIBLE_DEVICES:+--id="$CUDA_VISIBLE_DEVICES"} --query-gpu=memory.used --format=csv,noheader,nounits | awk '{s+=$1} END {print s+0}')"
     if [[ "$used" -gt "$peak" ]]; then peak="$used"; awk -v m="$peak" 'BEGIN {printf "%.2f\n", m/1024}' >"$peak_file"; fi
     sleep 1
   done

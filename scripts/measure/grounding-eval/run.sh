@@ -48,7 +48,7 @@ stop_server() {
   kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
   if [[ "$server" == vllm ]]; then
     for _ in $(seq 1 60); do
-      used="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '{s+=$1} END {print s+0}')"
+      used="$(nvidia-smi ${CUDA_VISIBLE_DEVICES:+--id="$CUDA_VISIBLE_DEVICES"} --query-gpu=memory.used --format=csv,noheader,nounits | awk '{s+=$1} END {print s+0}')"
       [[ "$used" -le $((baseline + 512)) ]] && break
       sleep 1
     done
@@ -56,7 +56,7 @@ stop_server() {
 }
 baseline=0
 if [[ "$server" == vllm ]]; then
-  baseline="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '{s+=$1} END {print s+0}')"
+  baseline="$(nvidia-smi ${CUDA_VISIBLE_DEVICES:+--id="$CUDA_VISIBLE_DEVICES"} --query-gpu=memory.used --format=csv,noheader,nounits | awk '{s+=$1} END {print s+0}')"
 fi
 IFS=',' read -r -a ids <<<"$models"
 for id in "${ids[@]}"; do

@@ -11,7 +11,7 @@ one point out. A point inside the target box counts as right.
 | [OSWorld-G](https://huggingface.co/datasets/MMInstruction/OSWorld-G) | 510 | desktop Linux apps, element types (icon, slider, dropdown...) |
 
 `canvas` in each result is the subset where AX is thinnest: ScreenSpot-Pro's Creative and CAD groups,
-and OSWorld-G's icons, images, sliders, colour pickers, grids and toolbars.
+and OSWorld-G's icons without a text label, images, sliders, colour pickers and grids.
 
 ## Candidates
 
@@ -54,7 +54,7 @@ own processor would (`smart_resize` with the card's pixel bounds), so the coordi
 map back exactly. Prompts are the ones on each model card. Samples run in a fixed shuffled order, and
 the servers run without prefix or image caches, so a screenshot asked about twice is not answered from
 cache. Latency is the client's wall time from sending a request to reading its answer (upload, prefill,
-decode; the PNG encode is excluded), after one discarded warm-up request. Memory is mlx-vlm's reported
+decode; the PNG encode is excluded), after one discarded warm-up request on a blank image. Memory is mlx-vlm's reported
 peak, or the GPU memory `serve-vllm.sh` samples with nvidia-smi, marked "reserved" in the summary:
 vLLM reserves 90% of the GPU up front, so that number is the reservation, not the need (the weights'
 size is the floor). Holo on vLLM runs with structured outputs (its card's recommendation) and is marked
