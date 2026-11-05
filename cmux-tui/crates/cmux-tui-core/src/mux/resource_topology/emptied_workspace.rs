@@ -116,11 +116,17 @@ impl Mux {
             .workspaces
             .iter()
             .enumerate()
-            .filter(|(_, workspace)| !workspace.screens.is_empty() || bare.contains(&workspace.id))
             .filter(|(_, workspace)| {
-                projected
-                    .workspace_index(workspace.id)
-                    .is_some_and(|index| projected.workspaces[index].screens.is_empty())
+                // A chosen workspace with no tab closes whatever screens it
+                // still lists (`layout.bulk`, a space delete): it has nothing
+                // to close but itself.
+                let still_listed = projected.workspace_index(workspace.id);
+                if bare.contains(&workspace.id) {
+                    return still_listed.is_some();
+                }
+                !workspace.screens.is_empty()
+                    && still_listed
+                        .is_some_and(|index| projected.workspaces[index].screens.is_empty())
             })
             .collect::<Vec<_>>();
         let mut closed = Vec::new();
