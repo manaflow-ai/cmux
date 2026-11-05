@@ -40,7 +40,6 @@ struct CloudStartSession {
         /// A folder on the machine; nil starts in the workspace's folder there.
         var cwd: String?
         /// A folder on this Mac (`--from-folder`) the session starts in a copy of; never with ``cwd``.
-        /// Nil when not given: the memberwise initializer defaults an optional `var`, so callers may leave it out.
         var fromFolder: String?
         var login = CloudHarnessLoginAsk() // `--login` and whether a prompt may show (+Login); not in ``command``
 
@@ -65,10 +64,7 @@ struct CloudStartSession {
         CloudHandlers.bind(action, registry, reason: reason) { invocation in
             var request = try Self.request(invocation)
             let start = CloudStartSession(services: services), runs = services.cloud.startSessionRuns
-            guard !Self.isAgent(invocation) else {
-                try Self.refuseAgentFolder(request)
-                return try Self.agentAsk(request, invocation, context)
-            }
+            guard !Self.isAgent(invocation) else { return try Self.agentAsk(request, invocation, context) }
             // A person's palette or menu run without a machine means the one they look at.
             if request.machineID == nil, request.name == nil, CloudHandlers.origin(of: invocation) == .user {
                 request.machineID = try CloudHandlers.machine(invocation, context).machineID
@@ -90,13 +86,6 @@ struct CloudStartSession {
     /// or one naming the agent chat that sent it.
     static func isAgent(_ invocation: ActionInvocation) -> Bool {
         CloudMoveAsks.isAgent(invocation) || CloudHandlers.origin(of: invocation) == .mcp
-    }
-
-    /// An agent's run never copies a folder from this Mac: with the person's delegated starts it would go without a
-    /// card, and a card names only the machine. The person copies a folder themselves (the composer's Cloud start, or
-    /// `--from-folder` in their own terminal).
-    static func refuseAgentFolder(_ request: Request) throws {
-        if request.fromFolder != nil { throw ActionFailure(message: CloudStartSessionStrings.fromFolderAgent) }
     }
 
     /// Whether the run is the person's own, the only kind whose `--login` is kept or counts as their
@@ -223,8 +212,7 @@ struct CloudStartSession {
         let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespaces)
         let login: CloudHarnessLoginAsk
         do { login = try .init(word: invocation["login"]?.stringValue, agent: !isPersons(invocation), prompts: isPersons(invocation)) } catch { throw ActionFailure(message: CloudStartSessionStrings.loginInvalid) }
-        let fromFolder = try Self.fromFolder(invocation, cwd: cwd)
-        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: fromFolder, login: login)
+        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try Self.fromFolder(invocation, cwd: cwd), login: login)
     }
 
     /// Takes or creates the machine, connects, opens the chat's tab there and starts the session.
@@ -237,10 +225,7 @@ struct CloudStartSession {
              revealing: Bool = true) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         try still(request.name ?? request.machineID ?? "")
-        // The folder is checked on disk before any machine is created or connected; ``copied`` checks it again.
-        if let local = request.fromFolder, case .failure(let refusal) = await AgentPaneCloudStart.checkedFolder(local, home: NSHomeDirectory()) {
-            throw ActionFailure(message: Self.message(refusal, folder: local))
-        }
+        if let local = request.fromFolder, case .failure(let r) = await AgentPaneCloudStart.checkedFolder(local, home: NSHomeDirectory()) { throw ActionFailure(message: Self.message(r, folder: local)) } // before any machine
         let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         let name = session.machine.title, id = session.machineID, agent = request.agent
         try still(name)
@@ -445,13 +430,13 @@ struct CloudStartSession {
         _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false, ask: login) // a scripted run never waits on a device code
         try still()
     }
-    /// `--from-folder`, checked from its words before anything starts: absolute, never with `--cwd`, never home, above
-    /// it or a credential folder as written. ``copied(_:to:_:account:)`` checks it on disk again.
+    /// `--from-folder`, checked from its words before anything starts: never an agent's (with delegated starts it would
+    /// copy without a card), absolute, never with `--cwd`, never home, above it or a credential folder as written.
     static func fromFolder(_ invocation: ActionInvocation, cwd: String?, home: String = NSHomeDirectory()) throws -> String? {
         guard let text = invocation["fromFolder"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
+        guard !isAgent(invocation) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderAgent) }
         guard cwd == nil else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderWithCwd) }
-        guard text.utf8.count <= 4096, !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }),
-              let folder = CloudMoveFolder.normalized(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
+        guard text.utf8.count <= 4096, !text.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }), let folder = CloudMoveFolder.normalized(text) else { throw ActionFailure(message: CloudStartSessionStrings.fromFolderInvalid) }
         if let refusal = AgentPaneCloudFolderRefusal.written(folder, home: home) { throw ActionFailure(message: Self.message(refusal, folder: folder)) }
         return folder
     }

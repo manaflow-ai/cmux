@@ -22,13 +22,14 @@ struct CloudStartSessionFolderTests {
     }
 
     @Test func anAgentsRunNeverCopiesAFolderFromThisMac() throws {
-        let request = try Self.request(["fromFolder": .string("/Users/me/code/app")])
-        let mcp = CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .mcp)
-        let chat = CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], agent: "chat-1")
-        #expect(CloudStartSession.isAgent(mcp) && CloudStartSession.isAgent(chat))
-        #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderAgent)) { try CloudStartSession.refuseAgentFolder(request) }
+        for invocation in [CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], origin: .mcp),
+                           CloudStartSessionTests.invocation(["fromFolder": .string("/Users/me/code/app")], agent: "chat-1")] {
+            #expect(throws: ActionFailure(message: CloudStartSessionStrings.fromFolderAgent)) {
+                try CloudStartSession.fromFolder(invocation, cwd: nil, home: Self.home)
+            }
+        }
         // Without a folder an agent's start is asked as before.
-        try CloudStartSession.refuseAgentFolder(try Self.request([:]))
+        #expect(try CloudStartSession.fromFolder(CloudStartSessionTests.invocation([:], origin: .mcp), cwd: nil, home: Self.home) == nil)
     }
 
     @Test func theFolderIsAnAbsolutePathOfThisMacWrittenPlain() throws {
