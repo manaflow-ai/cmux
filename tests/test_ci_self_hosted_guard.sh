@@ -1625,6 +1625,12 @@ check_no_self_hosted_fleet_runners() {
   # Capability is accepted only as the complete NEXT trusted selector.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # The classic one-mini switch (vars.CI_CLASSIC_NIGHTLY_MINI on main; tests/test_classic_nightly_one_mini.py)
+  # names cmux15's nightly builder and its trusted signing runner literally: a variable must not choose where the
+  # signing secrets go. A rule change for the switch-on branch only, accepted as these exact selectors in
+  # nightly.yml: unset, each job falls through to its route from before. The nightly is not a required check.
+  local classic_mini_builder="vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && 'glaeda-nightly-mini-builder' || "
+  local classic_mini_signer="vars.CI_CLASSIC_NIGHTLY_MINI != '' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule') && 'glaeda-trusted-next-signing' || "
   # The main metadata bootstrap has no preceding picker. Accept its complete
   # main-only selector in this job alone, without exempting other fleet labels
   # or allowing secrets onto the shared nightly pool. RC and forks keep their
@@ -1704,6 +1710,8 @@ PYTHON
     if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
       content="${content/"$next_trusted_selector"/}"
       content="${content/"$next_repository_guard"/}"
+      content="${content/"$classic_mini_builder"/}"
+      content="${content/"$classic_mini_signer"/}"
     fi
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label
