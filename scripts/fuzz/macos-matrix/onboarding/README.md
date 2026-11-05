@@ -20,7 +20,7 @@ scripts/cmux-next/os-matrix.sh --nightly newest --os 26 --suite onboarding
 frames read with OCR (`vmeye.swift`, Apple Vision, compiled on the Tart host and never copied into the
 guest). SSH is for the harness's own part: it puts the DMG in Downloads with a browser's quarantine,
 registers the scripted agent's harness, starts the agent's turn and reads the results. It never turns
-anything on. `agent.py` is the agent. It is an ACP agent with no model, so a run passes or fails on cmux
+anything on. `agent.swift` is the agent, compiled on the host and copied into the guest as a binary (the images have no python3). It is an ACP agent with no model, so a run passes or fails on cmux
 and not on a model. It reaches the cmux Computer Use helper through the `cmux-cua` MCP server that acpmux
 gives every agent session.
 

@@ -147,6 +147,16 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
   done
   local vnc; vnc=$(grep -Eo 'vnc://[^ ]+' "$out/tart-run.log" | head -1)
   local vncarg; vncarg=$(python3 -I -c 'import sys,urllib.parse as u;p=u.urlparse(sys.argv[1]);print("%s:%s:%s"%(p.hostname,p.port,u.unquote(p.password or "")))' "$vnc")
+  if [[ "$SUITE" == onboarding ]]; then
+    # The person installs the DMG: the suite copies it into the guest itself, unopened.
+    ssh "${SSHB[@]}" "admin@$ip" 'pkill -x "System Settings" || true; pkill -x Terminal || true' </dev/null || true
+    python3 -I "$HERE/onboarding/onboarding.py" --ssh "admin@$ip" --vnc "$vncarg" --dmg "$BUILD_DMG" --vmeye "$VMEYE_BIN" \
+      --agent "$AGENT_BIN" --nightly-build "${NIGHTLY_BUILD:-}" --out "$out" --ssh-opt=-oPubkeyAuthentication=no \
+      --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive --ssh-opt=-oNumberOfPasswordPrompts=1 \
+      >"$out/onboarding.log" 2>&1 || echo "onboarding exit $?" >"$out/failure"
+    grep -E '^(ONBOARDING|[a-z_]+ +(ok|FAIL)) ' "$out/onboarding.log" | cut -c1-400 >&2 || true
+    return 0
+  fi
   scp "${SSHB[@]}" -q "$BUILD_ZIP" "admin@$ip:/Users/admin/build.zip" </dev/null
   local app; app=$(ssh "${SSHB[@]}" "admin@$ip" 'set -e; pkill -x "System Settings" || true; pkill -x Terminal || true; rm -rf ~/fuzzapp; mkdir ~/fuzzapp;
     ditto -x -k ~/build.zip ~/fuzzapp; ls -d ~/fuzzapp/*.app | head -1' </dev/null)
@@ -154,15 +164,6 @@ print(next((i.get("host_os_min", "") for i in json.load(open(sys.argv[1]))["imag
     --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive --ssh-opt=-oNumberOfPasswordPrompts=1)
   if [[ "$SUITE" == exec ]]; then
     exec_probe "$ip" "$out" "$app"
-    return 0
-  fi
-  if [[ "$SUITE" == onboarding ]]; then
-    # The person installs the DMG: the suite gets the DMG itself, not the build.zip copied above.
-    ssh "${SSHB[@]}" "admin@$ip" 'rm -rf ~/fuzzapp ~/build.zip' </dev/null || true
-    python3 -I "$HERE/onboarding/onboarding.py" --ssh "admin@$ip" --vnc "$vncarg" --dmg "$BUILD_DMG" --vmeye "$VMEYE_BIN" \
-      --out "$out" --ssh-opt=-oPubkeyAuthentication=no --ssh-opt=-oPreferredAuthentications=password,keyboard-interactive \
-      --ssh-opt=-oNumberOfPasswordPrompts=1 >"$out/onboarding.log" 2>&1 || echo "onboarding exit $?" >"$out/failure"
-    grep -E '^(ONBOARDING|[a-z_]+ +(ok|FAIL)) ' "$out/onboarding.log" | cut -c1-400 >&2 || true
     return 0
   fi
   if [[ "$SUITE" == smoke ]]; then
@@ -260,18 +261,28 @@ unlock_keychain() {  # unlock_keychain OUT
 }
 relock_keychain() { if [[ "$RELOCK" == 1 ]]; then security lock-keychain "$KEYCHAIN" || true; RELOCK=0; fi; }
 
-# onboarding: vmeye (OCR and the video) is compiled on the host like a probe and never enters the guest.
-VMEYE_BIN=""
-compile_vmeye() {  # compile_vmeye OUTDIR
-  mkdir -p "$1"; VMEYE_BIN="$1/vmeye"
-  local src; src=$(cd "$HERE/onboarding" && pwd -P)/vmeye.swift
-  (cd "$1" && bounded "$PROBE_COMPILE_SECONDS" xcrun swiftc -O -module-cache-path "$1/module-cache" -o "$VMEYE_BIN" "$src" \
-     >"$1/vmeye-compile.log" 2>&1) || { VMEYE_BIN=""; tail -c 3000 "$1/vmeye-compile.log" >&2; return 1; }
+# onboarding: both tools are compiled on the host like a probe, from this reviewed runner directory.
+# vmeye (OCR and the video) runs on the host and never enters the guest; the agent is copied into the
+# guest as a binary (the pinned images have no Command Line Tools, so no python3).
+VMEYE_BIN="" AGENT_BIN=""
+compile_onboarding() {  # compile_onboarding OUTDIR
+  mkdir -p "$1"
+  local dir; dir=$(cd "$HERE/onboarding" && pwd -P)
+  if (cd "$1" && bounded "$PROBE_COMPILE_SECONDS" xcrun swiftc -O -module-cache-path "$1/module-cache" -o "$1/vmeye" "$dir/vmeye.swift" &&
+      bounded "$PROBE_COMPILE_SECONDS" xcrun swiftc -O -target arm64-apple-macos14.0 -module-cache-path "$1/module-cache" \
+        -o "$1/onbagent" "$dir/agent.swift" && bounded 60 /usr/bin/codesign --force --sign - "$1/onbagent") >"$1/compile.log" 2>&1; then
+    VMEYE_BIN="$1/vmeye" AGENT_BIN="$1/onbagent"
+  else
+    tail -c 3000 "$1/compile.log" >&2; return 1
+  fi
 }
 
 BUILD_DMG=""
 [[ "$BUILD" == *.dmg ]] && BUILD_DMG=$(cd "$(dirname "$BUILD")" && pwd)/$(basename "$BUILD")
+# The onboarding suite never opens the DMG on the host: it goes into the guest as downloaded.
+[[ "$SUITE" == onboarding ]] && BUILD=onboarding-skip
 case "$BUILD" in
+  onboarding-skip) BUILD_ZIP="" ;;
   *.zip) BUILD_ZIP=$(cd "$(dirname "$BUILD")" && pwd)/$(basename "$BUILD") ;;
   *.app|*.app/) BUILD_ZIP="$RUN/build.zip"; ditto -c -k --keepParent "$BUILD" "$BUILD_ZIP" ;;
   *.dmg) mnt=$(mktemp -d); hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$BUILD" >/dev/null
@@ -289,9 +300,9 @@ if [[ "$SUITE" == exec ]] && ! compile_probe "$RUN/probe-bin"; then
   done
   majors=()
 fi
-if [[ "$SUITE" == onboarding ]] && ! compile_vmeye "$RUN/vmeye-bin"; then
+if [[ "$SUITE" == onboarding ]] && ! compile_onboarding "$RUN/onboarding-bin"; then
   for major in "${majors[@]}"; do
-    mkdir -p "$RUN/$major"; echo "vmeye did not compile (vmeye-bin/vmeye-compile.log)" >"$RUN/$major/failure"
+    mkdir -p "$RUN/$major"; echo "the onboarding tools did not compile (onboarding-bin/compile.log)" >"$RUN/$major/failure"
   done
   majors=()
 fi
@@ -326,8 +337,8 @@ for m in majors:
     elif suite == "onboarding":
         s = load("result.json")
         verdict = "NO-VERDICT" if not s else ("PASS" if s.get("ok") and not fail else "FAIL")
-        line = "%-4s %-8s onboarding %-10s failed=%s actions=%s/%s findings=%d %s" % (
-            m, s.get("os", "?"), verdict, ",".join(s.get("failed_steps", [])) or "-",
+        line = "%-4s %-8s onboarding %-10s nightly=%s failed=%s actions=%s/%s findings=%d %s" % (
+            m, s.get("os", "?"), verdict, s.get("nightly_build") or "-", ",".join(s.get("failed_steps", [])) or "-",
             s.get("person_actions_to_ready", "-"), s.get("reference_actions_to_ready", "-"), len(s.get("findings", [])), fail)
     elif suite == "smoke":
         s = load("result.json")
@@ -354,10 +365,15 @@ if results:
     fd = os.open(results, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "wb") as out, tarfile.open(fileobj=out, mode="w:gz") as tar:
         for name in sorted(os.listdir(run)):
-            if name not in ("build.zip", "askpass.sh", "vmeye-bin"):
-                # The probe's compiler module cache is not a result, nor are the onboarding frames (the video has them).
-                tar.add(os.path.join(run, name), arcname=name,
-                        filter=lambda info: None if "/module-cache" in "/" + info.name or "/frames" in "/" + info.name else info)
+            if name not in ("build.zip", "askpass.sh"):
+                # Not results: the compiler module cache, the onboarding tools' binaries and its raw frames
+                # (onboarding.mp4 has them; frames.txt stays).
+                def keep(info):
+                    parts = info.name.split("/")
+                    if "module-cache" in parts or (len(parts) > 1 and parts[-2] == "onboarding-bin" and parts[-1] in ("vmeye", "onbagent")):
+                        return None
+                    return None if "frames" in parts[:-1] or (parts[-1] == "frames" and info.isdir()) else info
+                tar.add(os.path.join(run, name), arcname=name, filter=keep)
     print("results:", results)
     # With --results the verdict is data, NO-VERDICT included: the results upload either way.
     sys.exit(0)

@@ -93,6 +93,10 @@ if len(set(majors)) != len(majors): sys.exit("--os names a major twice")
 for m in majors:
     if m not in pins: sys.exit("macOS %s has no pinned image in images.json (have %s)" % (m, ",".join(sorted(pins))))
     print("--label=tart-" + pins[m][len("sha256:"):][:32])' "$images" "$OS") || exit 2
+if [[ "$NIGHTLY" == newest ]]; then
+  # The step key names the build: a key for "newest" would return yesterday's step tomorrow.
+  NIGHTLY=$(python3 -I "$ROOT/scripts/fuzz/macos-matrix/onboarding/nightly.py" --resolve) || { echo "os-matrix: cannot read the NIGHTLY feed" >&2; exit 75; }
+fi
 what=${BUILD:0:12}; [[ -n "$NIGHTLY" ]] && what="nightly-$NIGHTLY"
 OUT=${OUT:-$ROOT/artifacts/os-matrix/$what-${SUITE//:/-}-$(date -u +%Y%m%dT%H%M%SZ)}
 mkdir -p "$OUT"

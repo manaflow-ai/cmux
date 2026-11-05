@@ -23,7 +23,7 @@ Steps (each one ok/FAIL in result.json with its person actions, seconds and a st
   cu_ready     the window says "Computer Use is ready." and Done closes it
   screen_sharing  the palette's "Screen Sharing" page turns on sharing this Mac (needs a signed-in
                cmux account: without one the step fails and says so)
-  agent        a scripted agent (onboarding/agent.py, no model) clicks Calculator to 6 x 7 = 42,
+  agent        a scripted agent (onboarding/agent.swift, no model) clicks Calculator to 6 x 7 = 42,
                types into TextEdit and drag-selects that line, both apps in the background: no
                focus steal
   no_relaunch  cmux's pid is the one that first opened (it never quit or relaunched)
@@ -68,6 +68,8 @@ p.add_argument("--ssh-opt", action="append", default=[])
 p.add_argument("--vnc", required=True)
 p.add_argument("--dmg", required=True)
 p.add_argument("--vmeye", required=True)
+p.add_argument("--agent", required=True, help="the agent binary (agent.swift, compiled on the host)")
+p.add_argument("--nightly-build", default="")
 p.add_argument("--out", required=True)
 opts = p.parse_args()
 SSH = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
@@ -78,6 +80,15 @@ SCP = ["scp", "-q", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=
 
 def guest(cmd: str, timeout: float = 60) -> subprocess.CompletedProcess:
     return subprocess.run([*SSH, cmd], capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+
+
+def app_pid() -> int | None:
+    """cmux's pid, by its executable's path (its CFBundleExecutable, not the bundle's name)."""
+    exe = guest(f"/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' /Applications/{shlex.quote(APP)}.app/Contents/Info.plist").stdout.strip()
+    if not exe:
+        return None
+    out = guest(f"pgrep -nf {shlex.quote('^/Applications/' + APP + '.app/Contents/MacOS/' + exe + '( |$)')} || true").stdout.strip()
+    return int(out) if out.isdigit() else None
 
 
 host, port, password = opts.vnc.split(":", 2)
@@ -94,7 +105,7 @@ def step(name: str):
         try:
             fn(row)
             row["ok"] = True
-        except (NotSeen, RuntimeError, subprocess.SubprocessError, OSError) as error:
+        except (NotSeen, RuntimeError, ValueError, subprocess.SubprocessError, OSError, ConnectionError, TimeoutError) as error:
             row["ok"], row["error"] = False, str(error)
         row["actions"] = eyes.actions - before
         row["seconds"] = round(time.monotonic() - started, 1)
@@ -106,7 +117,7 @@ def step(name: str):
                                  "actions": row["actions"], "reference": ref, "extra": row.get("extra", [])})
         try:
             row["shot"] = os.path.basename(eyes.shot(name))
-        except (OSError, ConnectionError, TimeoutError):
+        except (OSError, ConnectionError, TimeoutError, subprocess.SubprocessError):
             pass
         steps.append(row)
         print("%-12s %s actions=%d%s %ss %s" % (name, "ok" if row["ok"] else "FAIL", row["actions"],
@@ -126,6 +137,8 @@ def answer_macos_prompts(row: dict, seconds: float = 4) -> None:
                 eyes.click(r"Use Password")
             eyes.type(PASSWORD + "\n")
             row.setdefault("extra", []).append("password")
+            # One password per sheet: wait for the sheet to go before looking again.
+            eyes.wait(r"enter your password|Use Password", 15, gone=True)
         elif eyes.find(r"would like to record this computer", lines):
             eyes.click(r"^Open System Settings$")
             row.setdefault("extra", []).append("macOS Screen Recording prompt")
@@ -174,10 +187,9 @@ def main() -> int:
     os.makedirs(opts.out, exist_ok=True)
     # Harness part (SSH): the DMG as a browser download leaves it, and the agent's harness.
     subprocess.run([*SCP, opts.dmg, f"{opts.ssh}:/Users/admin/Downloads/cmux-NEXT.dmg"], check=True, timeout=600)
-    agent_files = [os.path.join(HERE, "agent.py")]
     guest(f"mkdir -p {GUEST_WORK} {shlex.quote(ACPMUX_HOME)}")
-    subprocess.run([*SCP, *agent_files, f"{opts.ssh}:{GUEST_WORK}/"], check=True, timeout=60)
-    config = {"harnesses": {HARNESS: {"argv": ["/usr/bin/python3", f"{GUEST_WORK}/agent.py"],
+    subprocess.run([*SCP, opts.agent, f"{opts.ssh}:{GUEST_WORK}/onbagent"], check=True, timeout=60)
+    config = {"harnesses": {HARNESS: {"argv": [f"{GUEST_WORK}/onbagent"],
                                       "env": {"ONB_OUT": GUEST_WORK}, "description": "onboarding check's scripted agent"}}}
     quarantine = "0081;%08x;Safari;" % int(time.time())
     guest(f"xattr -w com.apple.quarantine '{quarantine}' ~/Downloads/cmux-NEXT.dmg && "
@@ -192,36 +204,46 @@ def main() -> int:
         line = eyes.find(r"cmux-NEXT")
         vnc.click(*eyes.center(line), count=2)
         eyes.actions += 1
-        eyes.wait(r"^Applications$", 120)
-        app, apps = eyes.find(rf"^{APP}(\.app)?$"), eyes.find(r"^Applications$")
-        if not app:
-            raise RuntimeError("the DMG window shows no cmux NEXT")
+        # The DMG's window: the app's label and an "Applications" label on the same row, right of it
+        # (Finder's sidebar has an "Applications" too, never beside the app).
+        deadline = time.monotonic() + 120
+        while True:
+            lines = eyes.look()
+            app = eyes.find(rf"^{APP}(\.app)?$", lines)
+            apps = app and min((l for l in lines if l["text"].strip() == "Applications" and l["x"] > app["x"] + app["w"]
+                                and abs(l["y"] - app["y"]) < 40), key=lambda l: l["x"], default=None)
+            if app and apps:
+                break
+            if time.monotonic() > deadline:
+                raise RuntimeError("the DMG window never showed cmux NEXT beside Applications")
+            time.sleep(1)
         # Drag the icon (above its label) onto the Applications alias's icon.
         eyes.drag(eyes.center(app)[0], app["y"] - 40, eyes.center(apps)[0], apps["y"] - 40)
         answer_macos_prompts(row, 3)
         # The harness waits for Finder's copy to finish (a person watches its progress bar).
         for _ in range(180):
-            # Done when the copy is as big as the DMG's own bundle.
+            # Done when the copy has as many files as the DMG's bundle (block sizes differ between the
+            # DMG's filesystem and APFS, file counts do not).
             if guest(f'src=$(ls -d /Volumes/*/{shlex.quote(APP)}.app | head -1); dst=/Applications/{shlex.quote(APP)}.app; '
-                     f'[ -d "$dst" ] && [ "$(du -sk "$src" | cut -f1)" = "$(du -sk "$dst" | cut -f1)" ]').returncode == 0:
+                     f'[ -n "$src" ] && [ -f "$dst/Contents/Info.plist" ] && '
+                     f'[ "$(find "$src" | wc -l)" = "$(find "$dst" | wc -l)" ]').returncode == 0:
                 break
             time.sleep(1)
         else:
             raise RuntimeError("cmux NEXT never reached /Applications")
         eyes.press("cmd+space")
         eyes.type(APP + "\n")
-        hit = eyes.wait(r"downloaded from the Internet|Are you sure you want to open|^Open$|Bring your history|cmux", 120)
+        # Gatekeeper's first-open question, or (once answered) the app's own first window.
+        eyes.wait(r"downloaded from the Internet|Are you sure you want to open|Bring your history", 120)
         if eyes.find(r"downloaded from the Internet|Are you sure you want to open"):
             eyes.click(r"^Open$")
         for _ in range(60):
-            out = guest(f"pgrep -nx {shlex.quote(APP)} || true").stdout.strip()
-            if out:
-                row["pid"] = int(out)
+            row["pid"] = app_pid()
+            if row["pid"]:
                 break
             time.sleep(1)
         else:
             raise RuntimeError("cmux NEXT never started")
-        del hit
 
     if not steps[-1]["ok"]:
         return finish()
@@ -229,9 +251,12 @@ def main() -> int:
 
     @step("first_run")
     def _(row):
-        eyes.wait(r"Bring your history|history|New Chat|Home", 90)
-        if eyes.find(r"Bring your history|history"):
+        # The first-run page, if this build shows one; Escape leaves it (nothing there is required).
+        try:
+            eyes.wait(r"Bring your history", 60)
             eyes.press("esc")
+        except NotSeen:
+            row["note"] = "no first-run page"
 
     @step("cu_open")
     def _(row):
@@ -277,7 +302,10 @@ def main() -> int:
                     timeout=300)
         row["exec_exit"] = res.returncode
         out = guest(f"cat {GUEST_WORK}/agent-result.json").stdout
-        result = json.loads(out) if out.strip().startswith("{") else {}
+        try:
+            result = json.loads(out)
+        except ValueError:
+            result = {}
         with open(os.path.join(opts.out, "agent-result.json"), "w") as f:
             json.dump(result or {"exec_stdout": res.stdout[-3000:], "exec_stderr": res.stderr[-3000:]}, f, indent=1)
         row["checks"], row["focus_steals"] = result.get("checks"), result.get("focus_steals")
@@ -286,28 +314,46 @@ def main() -> int:
 
     @step("no_relaunch")
     def _(row):
-        now = guest(f"pgrep -nx {shlex.quote(APP)} || true").stdout.strip()
-        row["pid"] = int(now) if now else None
+        row["pid"] = app_pid()
         if row["pid"] != first_pid:
             raise RuntimeError(f"cmux's pid went from {first_pid} to {row['pid']}: it quit or relaunched")
 
     return finish()
 
 
+def write(result: dict) -> None:
+    tmp = os.path.join(opts.out, "result.json.tmp")
+    with open(tmp, "w") as f:
+        json.dump(result, f, indent=1)
+    os.replace(tmp, os.path.join(opts.out, "result.json"))
+
+
 def finish() -> int:
     eyes.close()
-    video = os.path.join(opts.out, "onboarding.mp4")
-    has_video = eyes.video(video)
-    os_version = guest("sw_vers -productVersion").stdout.strip()
     person = sum(s["actions"] for s in steps if s["step"] in REFERENCE)
+    ok = {s["step"]: s["ok"] for s in steps}
+    cu = ("install", "first_run", "cu_open", "cu_ax", "cu_screen", "cu_ready", "agent", "no_relaunch")
     result = {
-        "suite": "onboarding", "os": os_version, "ok": all(s["ok"] for s in steps) and len(steps) == 9,
+        "suite": "onboarding", "nightly_build": opts.nightly_build or None,
+        "ok": all(s["ok"] for s in steps) and len(steps) == 9,
+        # ON1 needs both; each part has its own verdict, so a Screen Sharing FAIL (no account yet)
+        # does not hide whether Computer Use got there.
+        "parts": {"computer_use": all(ok.get(n) for n in cu), "screen_sharing": bool(ok.get("screen_sharing"))},
         "steps": steps, "failed_steps": [s["step"] for s in steps if not s["ok"]],
         "person_actions_to_ready": person, "reference_actions_to_ready": sum(REFERENCE.values()),
-        "findings": findings, "video": "onboarding.mp4" if has_video else None,
+        "findings": findings, "video": None,
     }
-    with open(os.path.join(opts.out, "result.json"), "w") as f:
-        json.dump(result, f, indent=1)
+    write(result)  # before the slow parts below: a timeout there keeps every step's verdict
+    try:
+        result["os"] = guest("sw_vers -productVersion").stdout.strip()
+    except subprocess.SubprocessError:
+        result["os"] = None
+    try:
+        if eyes.video(os.path.join(opts.out, "onboarding.mp4")):
+            result["video"] = "onboarding.mp4"
+    except subprocess.SubprocessError:
+        pass
+    write(result)
     print("ONBOARDING %s actions=%d/%d failed=%s" % ("PASS" if result["ok"] else "FAIL", person,
           result["reference_actions_to_ready"], ",".join(result["failed_steps"]) or "-"), flush=True)
     vnc.close()
