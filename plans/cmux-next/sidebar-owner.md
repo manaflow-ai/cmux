@@ -1,5 +1,16 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: every sidebar group draws a visible background, glass or solid. Lawrence, verbatim: "invariant: groups
+  must always have a visible bg color, groups should support both glassy and solid bgs too". New setting
+  `sidebar.groupHeader.background`: Automatic (default: glass where the sidebar is see-through, else solid), Glass,
+  Solid. Glass is Leo's tinted pane with its rim (#36225, Debug `sidebar.groupGlass`; Debug solid still forces the
+  solid band), and a group with no color is the same pane untinted. Every header, at rest, hovered and dropped, keeps
+  at least 1.2:1 against the sidebar (`GroupBackground.minimumVisibleContrast`): a too-faint pane is pushed away
+  from the sidebar at its own opacity (`GroupGlassPaint`); the solid band with no color is a neutral step of the
+  theme's text (`GroupBackground`). Under glass the rail stays the pane's vivid tint (Leo's
+  `theRailIsThePanesTint`); under the solid band it is the bar's rest color, no color too. The no-color block behind
+  the members is unchanged. Gallery: Sidebar States Playground > Group backgrounds. Regression:
+  `GroupHeaderAlwaysVisibleTests`, `GroupBackgroundEveryThemeTests`. Capture tour: `sidebar-group-background`.
 - 2026-11-05: a collapsing group's text fades out fast. Leo, verbatim: "when you're collapsing a group, the text needs to
   fade faster. Otherwise, you just get a ton of text like just jumbled up inside ... you still see like overlapping text
   sometimes". The rows a collapse hides faded over the whole `.move` spring, as long as their slot takes to close; they

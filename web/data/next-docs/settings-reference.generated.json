@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 578,
+  "count": 580,
   "sections": [
     {
       "id": "general",
@@ -1483,6 +1483,14 @@
             "max": 5,
             "unit": "count"
           }
+        },
+        {
+          "key": "updates.liveWebReload",
+          "title": "Live Web Reload",
+          "help": "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Updates"
         },
         {
           "key": "updates.meteredNetwork",
@@ -3443,6 +3451,19 @@
           "values": [
             "none",
             "folder"
+          ]
+        },
+        {
+          "key": "sidebar.groupHeader.background",
+          "title": "Group Background",
+          "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses glass when the sidebar is see-through. A group always has a visible background, also when it has no color.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Sidebar",
+          "values": [
+            "auto",
+            "glass",
+            "solid"
           ]
         },
         {

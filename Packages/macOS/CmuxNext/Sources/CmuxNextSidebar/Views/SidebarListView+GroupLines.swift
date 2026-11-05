@@ -7,6 +7,8 @@ struct SidebarGroupLine: Equatable {
     var group: GroupID
     var frame: CGRect
     var color: GroupTint
+    /// The header bar's `sidebar.groupHeader.background` look: under glass the line takes the bar's translucent paint.
+    var background: SidebarGroupBackgroundStyle = .auto
     /// The group's tree level: a nested group's rail is fainter, so stacked rails stay quiet.
     var level = 0
     /// A group with no color: `frame` is its block, the header and its members (`SidebarNoColorGroupLook`), not a rail.
@@ -26,8 +28,13 @@ extension SidebarListViewComponents {
     /// each row where its view is now, the animation's start, so a new line
     /// starts over its rows and moves with them (cx-ai79).
     func groupLines(_ layout: SidebarLayout, current: Bool = false) -> [SidebarGroupLine] {
+        let background = model.groupHeaderDetails.background
         let lines = SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: lineColors, nested: !legacyNestedRails) { row in
             current ? rowViews[row.key]?.frame ?? frame(for: row) : frame(for: row)
+        }.map { line in
+            var line = line
+            line.background = background
+            return line
         }
         // `sidebar.showColors` off: every group draws as one with no color, its line unseen.
         guard !model.showsColors else { return lines }
