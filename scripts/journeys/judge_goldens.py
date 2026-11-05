@@ -450,20 +450,23 @@ def store_pins(store):
 
 def stored_folder(store, folder, recorded, pins):
     """(held, problems): what the store holds in FOLDER, whatever manifest stored it: RECORDED (this manifest's table
-    entry) and each other file of the store's folder that a table pins (PINS, store_pins), with the size and sha256 that
-    the table pins (one store serves every manifest; the bytes on disk never decide what a new manifest records). A
-    pinned file whose bytes on disk differ from its pin changed after it was stored: a problem, and the folder is
-    refused. A file no table pins is no stored film's: its film is planned as new, and the copy's link takes the same
-    bytes as this folder's file or refuses other bytes."""
+    entry) and every other file of FOLDER that a table pins (PINS, store_pins), with the size and sha256 that the table
+    pins (one store serves every manifest; the bytes on disk never decide what a new manifest records). A file another
+    table pins whose store copy is changed or gone was changed by hand: a problem, and the folder is refused (a film
+    deleted by hand is never stored again under its pinned name with other bytes: two tables would then pin one name
+    with other bytes). This manifest's own pinned files are checked by run and bless. A file no table pins is no stored
+    film's: its film is planned as new, and the copy's link takes the same bytes as this folder's file or refuses other
+    bytes."""
     held, problems = dict(recorded or {}), []
     folder_dir = Path(store) / "films" / folder
-    pinned = pins.get(folder, {})
-    for path in sorted(folder_dir.iterdir()) if folder_dir.is_dir() else []:
-        if path.is_file() and not path.name.startswith(".") and path.name not in held and path.name in pinned:
-            held[path.name] = list(pinned[path.name])
-            if [path.stat().st_size, sha256_file(path)] != held[path.name]:
-                problems.append(f"{folder}/{path.name}: the stored file changed after a table pinned it; the store is "
-                                "immutable (it was changed by hand)")
+    for name, pin in sorted(pins.get(folder, {}).items()):
+        if name in held:
+            continue
+        held[name] = list(pin)
+        problem = verify_file(folder_dir / name, *pin)
+        if problem:
+            problems.append(f"{folder}/{name}: a table pins it, and the store's copy is changed or gone ({problem}); the "
+                            "store is immutable (it was changed by hand)")
     return held, problems
 
 

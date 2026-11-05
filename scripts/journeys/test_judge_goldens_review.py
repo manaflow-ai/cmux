@@ -1563,7 +1563,7 @@ class TenthReviewTests(unittest.TestCase):
             second = w.root / "manifest-2"
             code, out = SixthReviewTests.cli(w, second, "snapshot", "--source", str(w.gallery), "--settled-minutes", "0")
             self.assertEqual(code, 2, out)
-            self.assertIn("build-a-120x2/col-drag.trace.json: the stored file changed after a table pinned it", out)
+            self.assertIn("build-a-120x2/col-drag.trace.json: a table pins it, and the store's copy is changed or gone", out)
             doc = json.loads((second / "films.json").read_text()) if (second / "films.json").exists() else {}
             table = jg.files_table(w.store, doc) if doc.get("files_table") else {}
             self.assertNotIn("col-drag.trace.json", table.get("build-a-120x2", {}))

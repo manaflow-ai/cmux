@@ -424,8 +424,9 @@ $PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests 
   it. A snapshot plans a folder against the files some files table in `<store>/tables` pins, with the size and sha256
   that the table pins (never the bytes on disk), so the files of a snapshot killed in its copy are taken again as the
   same bytes or refused; a file is linked into place, never replaced. A table that does not hash to its name, two
-  tables that pin one file with other bytes, or a pinned file whose bytes changed refuse the snapshot: the store was
-  changed by hand. A new film whose name has a dot, or is a folder file's name (`display`, `diag-tiers`), is refused.
+  tables that pin one file with other bytes, or a file another manifest's table pins whose store copy is changed or
+  gone refuse the snapshot: the store was changed by hand (a manifest's own pinned files are checked by `run` and
+  `bless`). A new film whose name has a dot, or is a folder file's name (`display`, `diag-tiers`), is refused.
   A result file is written through a part file of its own, so two writes of one result at once both succeed, and the
   part file a killed write leaves never blocks a later write. The judges' unit tests read the store by name
   (`JUDGE_GOLDENS_STORE`): a test reads only the pinned files of the film it names.
