@@ -14,8 +14,10 @@
 // Stop conditions: no timer and no frame loop. The drift ends after DRIFT_S and is paused while the
 // page is hidden (one visibilitychange listener). The parallax runs only on pointer events over the
 // surface and settles within 240 ms of the last one. Both listeners are removed on unmount. Motion off
-// or Reduce Motion: still (CSS `prefers-reduced-motion` and the root's motion attributes), and no
-// pointer listener.
+// or Reduce Motion: still, and no pointer listener. The drift runs only while the layer's
+// `data-motion` reads "full": `motionMode()`, the one reading every primitive here shares (so a zero
+// `--agent-motion-in` stills it too), taken at mount and each time the page shows; the root's motion
+// attributes and `prefers-reduced-motion` also still it in CSS, as they change.
 import { type RefObject, useEffect, useRef } from "react";
 import { cx } from "../cx";
 import { motionMode } from "./motionMode";
@@ -38,14 +40,19 @@ export type DepthLayerProps = {
 export function DepthLayer({ look = "parallax", surface, className }: DepthLayerProps) {
   const layer = useRef<HTMLDivElement>(null);
 
-  // Pause the drift while the page is hidden.
+  // Let the drift run only when motion is full, and pause it while the page is hidden. A layer that
+  // mounts hidden gets its reading when the page shows, so its drift starts then.
   useEffect(() => {
     const element = layer.current;
     if (!element || (look !== "drift" && look !== "drift-parallax")) return;
     const doc = element.ownerDocument;
     const sync = () => {
-      if (doc.visibilityState === "hidden") element.dataset.paused = "";
-      else delete element.dataset.paused;
+      if (doc.visibilityState === "hidden") {
+        element.dataset.paused = "";
+        return;
+      }
+      delete element.dataset.paused;
+      element.dataset.motion = motionMode(doc);
     };
     sync();
     doc.addEventListener("visibilitychange", sync);

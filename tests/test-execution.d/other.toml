@@ -509,6 +509,11 @@ path = "tests/test_repair_nightly_appcast_content_types.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_report_debug_labs_keys.py"
+lane = "manual"
+reason = "Run by the lane that changes the Debug and Labs key report or its case ledger (no new CI tests): python3 tests/test_report_debug_labs_keys.py; needs only git and python3."
+
+[[test]]
 path = "tests/test_resources_plist_unique_keys.py"
 lane = "linux-guard"
 

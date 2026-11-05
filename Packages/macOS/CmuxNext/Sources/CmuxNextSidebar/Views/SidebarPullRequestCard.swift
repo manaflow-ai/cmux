@@ -206,7 +206,7 @@ final class SidebarPullRequestCardRow: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = Metrics.space1
+        layer?.cornerRadius = Metrics.controlCornerRadius
         pill.wantsLayer = true
         pill.addSubview(pillLabel)
         [title, pill, place, additions, deletions].forEach(addSubview)
