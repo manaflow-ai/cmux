@@ -24,7 +24,7 @@ import { type AccessGrant } from "./EnvironmentSection";
 import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { SUBAGENT_HEADER } from "./subagentScopeHeaderModel";
 import { subagentBackLabel, subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
-import { bindSessionInfoPane, sessionInfoPaneKey, setSessionInfoOpen, setSessionInfoSection, useSessionInfoOpen, useSessionInfoState, type SessionInfoSectionId, type SessionInfoSections } from "./sessionInfoState";
+import { bindSessionInfoPane, sessionInfoPaneKey, setSessionInfoOpen, setSessionInfoSection, useSessionInfoOpen, useSessionInfoState, type SessionInfoSectionId } from "./sessionInfoState";
 import { outputArtifacts, outputLinks } from "./outputsSectionModel";
 import { type ProcessRegistry } from "./processes";
 import { currentPlan, type SessionInfoPlan } from "./progressSectionModel";
