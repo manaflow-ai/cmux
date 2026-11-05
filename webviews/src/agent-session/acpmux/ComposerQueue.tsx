@@ -44,7 +44,7 @@
 import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
-import { QueuedImages } from "./QueuedImages";
+import { QueuedImages, type QueuedVideo } from "./QueuedImages";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
@@ -139,12 +139,14 @@ function reveal(list: HTMLElement, row: HTMLElement) {
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
 }
 
-/// The lengths of a prompt's videos by name, as its parts carry them, for their tiles (QueuedImages.tsx).
-function videoLengths(entry: QueuedEntry): ReadonlyMap<string, number> | undefined {
-  const videos = (entry.inlineParts ?? []).flatMap((part) =>
-    part.kind !== "image" && part.kind !== "text" && part.video ? [[part.name, part.video.durationMs] as const] : [],
+/// A prompt's videos in order, as its parts carry them, for their tiles (QueuedImages.tsx).
+function promptVideos(entry: QueuedEntry): QueuedVideo[] | undefined {
+  const videos = (entry.inlineParts ?? []).flatMap((part): QueuedVideo[] =>
+    part.kind !== "image" && part.kind !== "text" && part.video
+      ? [{ name: part.name, durationMs: part.video.durationMs, frames: part.video.frames.length }]
+      : [],
   );
-  return videos.length ? new Map(videos) : undefined;
+  return videos.length ? videos : undefined;
 }
 
 /// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
@@ -1035,7 +1037,7 @@ export function ComposerQueue({
       {editing !== entry.id && actions(entry)}
       {/* Under the text, in its column. */}
       <QueuedImages
-        lengths={videoLengths(entry)}
+        videos={promptVideos(entry)}
         images={
           editing === entry.id ? (entry.images ?? []).filter((image) => !dropped.has(image.id)) : (entry.images ?? [])
         }

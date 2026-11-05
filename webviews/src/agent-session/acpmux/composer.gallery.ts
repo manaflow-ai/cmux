@@ -256,7 +256,7 @@ const recording = (name: string, seconds: number, count: number) => ({
   frames: Array.from({ length: count }, (_, at) => ({
     id: `${name}-${at}`.padEnd(64, "0"),
     mimeType: "image/jpeg",
-    name: `${name} frame at 0:${String(at * 2).padStart(2, "0")}.0`,
+    name: `${name} frame at 0:0${at}.0`,
     src: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
   })),
   part: {
@@ -268,7 +268,7 @@ const recording = (name: string, seconds: number, count: number) => ({
       width: 320,
       height: 180,
       poster: `data:image/jpeg;base64,${SCREEN_RECORDING_POSTER_JPEG}`,
-      frames: [],
+      frames: Array.from({ length: count }, (_, at) => ({ atMs: at * 1000, data: SCREEN_RECORDING_POSTER_JPEG })),
     },
   },
 });

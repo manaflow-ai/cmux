@@ -27,14 +27,22 @@ export type QueuedTile =
   | { kind: "image"; image: QueuedPromptImage }
   | { kind: "video"; name: string; poster: QueuedPromptImage; ids: string[]; durationMs?: number };
 
+/// One video the prompt carries, as its file part says (`video`): its name, length and how many
+/// frames it sent, for its tile.
+export type QueuedVideo = { name: string; durationMs?: number; frames?: number };
+
 /// `images` as tiles, in order: a video's frames go in one tile, at its first frame. A video's frames
 /// come together and in time order (composer/videoPrompt.ts `videoFrameBlocks`), so a frame joins
-/// the tile just before it only when that tile is its video's and the time goes on; two videos of
-/// one name stay two tiles. `lengths` gives a video's length by its name, where the prompt's parts
-/// name it.
-export function queuedTiles(images: readonly QueuedPromptImage[], lengths?: ReadonlyMap<string, number>): QueuedTile[] {
+/// the tile just before it when that tile is its video's and has frames left. `videos`, the prompt's
+/// videos in order, gives each tile its own video's length and frame count, so two videos of one
+/// name stay two tiles even when the times go on across them; a video the parts don't describe (a
+/// record from before a reload) ends where the time stops going on or passes its length (a frame's name rounds it to a tenth).
+export function queuedTiles(images: readonly QueuedPromptImage[], videos?: readonly QueuedVideo[]): QueuedTile[] {
   const tiles: QueuedTile[] = [];
+  const unused = [...(videos ?? [])];
   let lastAt = -1;
+  let left: number | undefined;
+  let lengthMs: number | undefined;
   for (const image of images) {
     const frame = isVideoFrameName(image.name) ? image.name!.match(/^(.+) frame at ([\d:.]+)$/) : null;
     if (!frame) {
@@ -44,10 +52,18 @@ export function queuedTiles(images: readonly QueuedPromptImage[], lengths?: Read
     const name = frame[1]!;
     const at = frame[2]!.split(":").reduce((total, part) => total * 60 + Number(part), 0);
     const last = tiles.at(-1);
-    if (last?.kind === "video" && last.name === name && at > lastAt) last.ids.push(image.id);
-    else {
-      const durationMs = lengths?.get(name);
+    const goesOn =
+      left === undefined ? at > lastAt && (lengthMs === undefined || at * 1000 <= lengthMs + 50) : left > 0;
+    if (last?.kind === "video" && last.name === name && goesOn) {
+      last.ids.push(image.id);
+      if (left !== undefined) left--;
+    } else {
+      const index = unused.findIndex((video) => video.name === name);
+      const video = index < 0 ? undefined : unused.splice(index, 1)[0];
+      const durationMs = video?.durationMs;
       tiles.push({ kind: "video", name, poster: image, ids: [image.id], ...(durationMs ? { durationMs } : {}) });
+      left = video?.frames ? video.frames - 1 : undefined;
+      lengthMs = durationMs;
     }
     lastAt = at;
   }
@@ -56,7 +72,7 @@ export function queuedTiles(images: readonly QueuedPromptImage[], lengths?: Read
 
 export function QueuedImages({
   images,
-  lengths,
+  videos,
   t,
   read,
   onRemove,
@@ -64,8 +80,8 @@ export function QueuedImages({
   onCancel,
 }: {
   images: readonly QueuedPromptImage[];
-  /// The prompt's videos' lengths by name (its parts' `video`), for their tiles.
-  lengths?: ReadonlyMap<string, number>;
+  /// The prompt's videos in order (its parts' `video`), for their tiles.
+  videos?: readonly QueuedVideo[];
   t: Translate;
   /// Reads an image acpmux keeps by its id (`_acpmux/attachment`), for one the pane has no bytes for.
   read?(id: string): Promise<string | undefined>;
@@ -92,7 +108,7 @@ export function QueuedImages({
       }
     : undefined;
   if (images.length === 0) return null;
-  const tiles = queuedTiles(images, lengths);
+  const tiles = queuedTiles(images, videos);
   // While edited, every tile shows, so each can be removed.
   const capped = !editing && tiles.length > QUEUED_TILES_SHOWN;
   const shown = capped ? tiles.slice(0, QUEUED_TILES_SHOWN - 1) : tiles;
