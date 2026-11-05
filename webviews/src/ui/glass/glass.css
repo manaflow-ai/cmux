@@ -237,11 +237,12 @@
    "this awkward wannabe glass but kind of just opaque thing"). Chromium draws a backdrop-filter's
    blurred copy over the page's pixels, so the transcript's text read crisp through a hover card's
    tint even in an opaque page. A hover card that covers the chat (chatUnderGlass.ts hoverCardGlass)
-   makes those blocks blur themselves inside its rounded rect, as the see-through rule above does. */
+   makes those blocks blur themselves inside its rounded rect, as the see-through rule above does.
+   Its own filters only: another surface's kept holes (the Summary's while Find hides it) stay off. */
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
     :root:not([data-glass-lens], [data-reduce-transparency]) [data-glass-under~="hover-card"] {
-      filter: var(--glass-under-filter);
+      filter: var(--glass-under-filter-hover-card);
     }
   }
 }

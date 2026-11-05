@@ -28,6 +28,9 @@ const STABLE_FRAMES = 3;
 export const UNDER_ATTRIBUTE = "data-glass-under";
 /** The custom property holding the element's own filter, `url(#…)`. */
 export const UNDER_FILTER_PROPERTY = "--glass-under-filter";
+/** One owner's filters alone on a covered element (`--glass-under-filter-hover-card`), for a rule
+ * that blurs under one surface while another's holes stay kept (glass.css's hover card rule). */
+export const ownerFilterProperty = (owner: string) => `${UNDER_FILTER_PROPERTY}-${owner}`;
 /** On the surface while it blurs what is under it: glass.css drops its underlay. */
 export const OVER_ATTRIBUTE = "data-glass-over";
 /** The blur when the surface's own backdrop names none, CSS px (the plain glass blur). */
@@ -157,6 +160,8 @@ const holesOn = new WeakMap<HTMLElement, Map<number, { owner: string; filter: st
 /** Writes `target`'s filter list and owners from its holes, or clears both when it has none. */
 function writeHoles(target: HTMLElement): void {
   const holes = [...(holesOn.get(target)?.values() ?? [])];
+  for (const owner of target.getAttribute(UNDER_ATTRIBUTE)?.split(" ") ?? [])
+    if (owner) target.style.removeProperty(ownerFilterProperty(owner));
   if (holes.length === 0) {
     holesOn.delete(target);
     target.removeAttribute(UNDER_ATTRIBUTE);
@@ -165,6 +170,9 @@ function writeHoles(target: HTMLElement): void {
   }
   target.setAttribute(UNDER_ATTRIBUTE, [...new Set(holes.map((hole) => hole.owner))].join(" ").trim());
   target.style.setProperty(UNDER_FILTER_PROPERTY, holes.map((hole) => `url(#${hole.filter})`).join(" "));
+  const owned = new Map<string, string[]>();
+  for (const { owner, filter } of holes) if (owner) owned.set(owner, [...(owned.get(owner) ?? []), `url(#${filter})`]);
+  for (const [owner, filters] of owned) target.style.setProperty(ownerFilterProperty(owner), filters.join(" "));
 }
 
 /** The elements a surface may cover: by default its siblings. */
