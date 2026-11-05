@@ -10,6 +10,14 @@ import Testing
 @MainActor @Suite(.serialized) struct OnboardingAgentsStepTests {
     @MainActor final class Terminal {
         var lines: [String] = []
+        /// False: no terminal tab opens (only remote panes, a disconnected daemon).
+        var opens = true
+    }
+
+    /// The daemon's `_acpmux/harness/health` answer; nil fails the call.
+    @MainActor final class Health {
+        var answer: String?
+        init(_ answer: String?) { self.answer = answer }
     }
 
     private static func until(_ condition: () -> Bool) async {
@@ -26,6 +34,10 @@ import Testing
     /// `_acpmux/harnesses` rows joined with `_acpmux/harness/health`: a terminal profile, a
     /// harness that cannot start and one the check did not find on this Mac stay out.
     private func make(health: String?) async -> (SettingsHarnesses, Terminal) {
+        await make(health: Health(health))
+    }
+
+    private func make(health: Health) async -> (SettingsHarnesses, Terminal) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-onboarding-agents-\(UUID().uuidString)")
         let environment = AcpmuxEnvironment(executable: directory.appending(path: "acpmux"), home: directory,
                                             socketPath: directory.appending(path: "a.sock").path, daemonArguments: [], childEnvironment: [:])
@@ -41,10 +53,14 @@ import Testing
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in rows },
             fetchHealth: { _, _ in
-                guard let health else { throw AcpmuxRPCError(code: -32601, message: "method not found") }
-                return Data(health.utf8)
+                guard let answer = await health.answer else { throw AcpmuxRPCError(code: -32601, message: "method not found") }
+                return Data(answer.utf8)
             },
-            openTerminal: { terminal.lines.append($0) },
+            openTerminal: { line in
+                guard terminal.opens else { return false }
+                terminal.lines.append(line)
+                return true
+            },
             accountsCall: { _, _, _ in throw AcpmuxRPCError(code: -32601, message: "method not found") })
         return (harnesses, terminal)
     }
@@ -70,6 +86,47 @@ import Testing
         let rows = await harnesses.agentSignIns(recheck: false)
         #expect(rows.map(\.id) == ["claude", "codex", "gemini", "mine"])
         #expect(rows.allSatisfy { $0.auth == .unknown })
+    }
+
+    /// A check that answered with no row for a harness did not find it: an answer, even an empty
+    /// one, is not "no health".
+    @Test func aHealthAnswerWithoutAHarnessLeavesItOut() async {
+        let (harnesses, _) = await make(health: """
+        {"harnesses":[{"id":"codex","path":"/opt/homebrew/bin/codex","version":"0.50.0","auth":"signedIn"}]}
+        """)
+        let rows = await harnesses.agentSignIns(recheck: false)
+        #expect(rows.map(\.id) == ["codex"])
+        #expect(rows.map(\.auth) == [.signedIn])
+
+        let (none, _) = await make(health: #"{"harnesses":[]}"#)
+        #expect(await none.agentSignIns(recheck: false).isEmpty, "the check found no agent CLI")
+    }
+
+    /// A recheck with no answer shows sign-in as not checked, never the last check's states; a
+    /// plain read with no answer keeps them.
+    @Test func aFailedRecheckForgetsTheLastHealth() async {
+        let health = Health("""
+        {"harnesses":[
+          {"id":"claude","path":"/opt/homebrew/bin/claude","version":"2.1.0","auth":"expired"},
+          {"id":"codex","path":"/opt/homebrew/bin/codex","version":"0.50.0","auth":"signedIn"}
+        ]}
+        """)
+        let (harnesses, _) = await make(health: health)
+        #expect(await harnesses.agentSignIns(recheck: false).map(\.auth) == [.expired, .signedIn])
+        health.answer = nil
+        #expect(await harnesses.agentSignIns(recheck: false).map(\.auth) == [.expired, .signedIn])
+        let rechecked = await harnesses.agentSignIns(recheck: true)
+        #expect(rechecked.map(\.id) == ["claude", "codex", "gemini", "mine"])
+        #expect(rechecked.allSatisfy { $0.auth == .unknown })
+        #expect(harnesses.health.isEmpty)
+    }
+
+    @Test func aSignInThatOpensNoTerminalFails() async {
+        let (harnesses, terminal) = await make(health: nil)
+        _ = await harnesses.agentSignIns(recheck: false)
+        terminal.opens = false
+        #expect(!(await harnesses.signInAgent("codex")), "no terminal tab: the step must not say to finish signing in")
+        #expect(terminal.lines.isEmpty)
     }
 
     @Test func signInTypesTheHarnessLoginAndRefusesATerminalProfile() async {

@@ -26,6 +26,9 @@ public final class SettingsHarnesses {
     private(set) var rows: [AcpmuxHarnessRow] = []
     /// `_acpmux/harness/health` rows by harness id; empty from a daemon without it.
     private(set) var health: [String: JSONValue] = [:]
+    /// Whether `health` is a check's answer: an answer can hold no row for a harness, which then
+    /// was not found; with none (an older daemon, a failed recheck) every harness's state is unknown.
+    private(set) var healthAnswered = false
     private(set) var loading = false
     /// `unavailable` (no acpmux here) or `unreachable` (the daemon did not answer).
     private(set) var problem: String?
@@ -36,7 +39,8 @@ public final class SettingsHarnesses {
     @ObservationIgnored let environment: @MainActor () -> AcpmuxEnvironment?
     @ObservationIgnored private let fetch: @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow]
     @ObservationIgnored private let fetchHealth: @Sendable (AcpmuxEnvironment, Bool) async throws -> Data
-    @ObservationIgnored let openTerminal: @MainActor (String) -> Void
+    /// Types a line into a new terminal tab on this Mac; false when no tab opened.
+    @ObservationIgnored let openTerminal: @MainActor (String) async -> Bool
     @ObservationIgnored private let runUpdate: (@MainActor (JSONValue, PageCallContext) async throws -> JSONValue)?
     @ObservationIgnored private let updateState: @MainActor () -> JSONValue
     @ObservationIgnored private let refreshUpdates: (@MainActor () async -> Void)?
@@ -53,7 +57,7 @@ public final class SettingsHarnesses {
     public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
          fetch: @escaping @Sendable (AcpmuxEnvironment) async throws -> [AcpmuxHarnessRow] = AcpmuxEnvironment.settingsHarnessRows,
          fetchHealth: @escaping @Sendable (AcpmuxEnvironment, Bool) async throws -> Data = AcpmuxEnvironment.harnessHealth,
-         openTerminal: @escaping @MainActor (String) -> Void,
+         openTerminal: @escaping @MainActor (String) async -> Bool,
          runUpdate: (@MainActor (JSONValue, PageCallContext) async throws -> JSONValue)? = nil,
          updateState: @escaping @MainActor () -> JSONValue = { .array([]) },
          refreshUpdates: (@MainActor () async -> Void)? = nil,
@@ -134,19 +138,34 @@ public final class SettingsHarnesses {
         // Accounts first: they answer from the daemon's state, a health check may take a while.
         await readAccounts(environment, generation: mine)
         guard mine == generation else { return }
-        // The rows show first: a check can take a while. A failed one (an older daemon without
-        // the method, a timeout) keeps the health already shown.
-        guard let checked = try? await fetchHealth(environment, recheck),
-              mine == generation, let read = AgentCLIUpdateActions.healthRows(checked) else { return }
+        // The rows show first: a check can take a while. A failed read (an older daemon without
+        // the method, a timeout) keeps the health already shown; a failed recheck clears it, so
+        // the states it would have replaced do not show as current.
+        let checked = try? await fetchHealth(environment, recheck)
+        guard mine == generation else { return }
+        guard let checked, let read = AgentCLIUpdateActions.healthRows(checked) else {
+            if recheck {
+                health = [:]
+                healthAnswered = false
+            }
+            return
+        }
         health = read
+        healthAnswered = true
         // The health check names the `claude` it found; each Claude login's plan comes from it.
         await readClaudePlans(generation: mine)
     }
 
-    /// Types `line` into a new terminal tab; refuses a line that could not be typed safely.
-    private func type(_ line: String?) throws {
+    /// Types `line` into a new terminal tab; refuses a line that could not be typed safely, and
+    /// fails when no terminal tab opened.
+    private func type(_ line: String?) async throws {
         guard let line else { throw PageError.invalidParams("this acpmux path cannot be typed into a shell") }
-        openTerminal(line)
+        try await typeLine(line)
+    }
+
+    /// `line` in a new terminal tab on this Mac; fails when none opened (no local pane, no daemon).
+    func typeLine(_ line: String) async throws {
+        guard await openTerminal(line) else { throw PageError.unavailable("no terminal tab could be opened on this Mac") }
     }
 
     /// One page gesture (`cmux.settings.harnesses.run`): `refresh` (`recheck`: the daemon checks
@@ -171,12 +190,15 @@ public final class SettingsHarnesses {
             }
             guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
             let answer = try await environment.harness(.health, params: ["autoUpdate": ["id": id, "on": on] as [String: any Sendable]])
-            if let read = AgentCLIUpdateActions.healthRows(answer) { health = read }
+            if let read = AgentCLIUpdateActions.healthRows(answer) {
+                health = read
+                healthAnswered = true
+            }
         case "signIn", "check":
             guard let id = params["id"]?.stringValue, rows.contains(where: { $0.id == id && $0.kind != "terminal" }) else { throw PageError.invalidParams("id must be a listed harness") }
             guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
             // `--`: an id is never taken for a flag.
-            try type(environment.shellLine(["harness", "login"] + (action == "check" ? ["--status"] : []) + ["--", id]))
+            try await type(environment.shellLine(["harness", "login"] + (action == "check" ? ["--status"] : []) + ["--", id]))
         case "accountEnable", "accountAdd", "accountSignIn":
             // A switch that lets routing move chats, a new login folder, or a sign-in: the person's.
             guard context?.userGesture == true || context?.isConfirmedUser == true else {
@@ -185,7 +207,7 @@ public final class SettingsHarnesses {
             return try await runAccount(action, params)
         case "registry":
             guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
-            try type(environment.shellLine(["harness", "registry"]))
+            try await type(environment.shellLine(["harness", "registry"]))
         default:
             throw PageError.invalidParams("unknown harnesses action \(action)")
         }

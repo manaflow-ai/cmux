@@ -28,7 +28,7 @@ import Testing
         let health = Data(#"{"harnesses":[{"id":"codex","channel":"\#(channel)","outdated":true,"update":{"argv":["npm","install","-g","@openai/codex@latest"],"elevated":false}}]}"#.utf8)
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "codex", kind: "acp", source: "path")] },
-            fetchHealth: { _, _ in health }, openTerminal: { recorder.lines.append($0) },
+            fetchHealth: { _, _ in health }, openTerminal: { recorder.lines.append($0); return true },
             runUpdate: { params, context in
                 let action = params["action"]?.stringValue
                 recorder.lines.append(action == "resumeUpdate" ? "resume:" + (params["intent"]?.stringValue ?? "") + ":" + (context.opid ?? "")

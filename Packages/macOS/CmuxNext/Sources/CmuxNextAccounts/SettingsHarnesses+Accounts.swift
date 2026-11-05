@@ -143,12 +143,12 @@ extension SettingsHarnesses {
                 "id": made.id, "name": made.name, "kind": "direct-subscription", "families": [family],
                 "accountHome": home, "shadow": true,
             ] as [String: any Sendable])
-            try signIn(family: family, home: home, environment: environment)
+            try await signIn(family: family, home: home, environment: environment)
         case "accountSignIn":
             guard let id = params["account"]?.stringValue, let account = accounts?.first(where: { $0.id == id }) else {
                 throw PageError.invalidParams("accountSignIn needs a listed account")
             }
-            try signIn(family: account.family, home: account.home, environment: environment)
+            try await signIn(family: account.family, home: account.home, environment: environment)
         default:
             throw PageError.invalidParams("unknown harnesses action \(action)")
         }
@@ -158,15 +158,15 @@ extension SettingsHarnesses {
 
     /// `acpmux harness login -- <family>` in a new terminal tab, with the family's home variable set
     /// for an account in a folder of its own (acpmux `route_account::login_command`'s shape).
-    private func signIn(family: String, home: String?, environment: AcpmuxEnvironment) throws {
+    private func signIn(family: String, home: String?, environment: AcpmuxEnvironment) async throws {
         guard let line = environment.shellLine(["harness", "login", "--", family]) else {
             throw PageError.invalidParams("this acpmux path cannot be typed into a shell")
         }
-        guard let home else { return openTerminal(line) }
+        guard let home else { return try await typeLine(line) }
         guard let variable = SettingsProviderAccount.homeVariable(family),
               !home.contains(where: { $0 == "'" || $0 == "\\" || $0.isNewline }) else {
             throw PageError.invalidParams("this account folder cannot be typed into a shell")
         }
-        openTerminal("\(variable)='\(home)' " + line)
+        try await typeLine("\(variable)='\(home)' " + line)
     }
 }

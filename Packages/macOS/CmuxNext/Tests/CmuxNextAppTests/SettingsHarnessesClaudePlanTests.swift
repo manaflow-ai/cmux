@@ -34,7 +34,7 @@ import Testing
         let harnesses = SettingsHarnesses(environment: { environment },
             fetch: { _ in [.init(id: "claude", kind: "claude-stdio", source: "path")] },
             fetchHealth: { _, _ in Data(health.utf8) },
-            openTerminal: { _ in },
+            openTerminal: { _ in true },
             accountsCall: { _, method, _ in method == .accounts ? Self.accountsReply : Data("{}".utf8) },
             claudeStatus: { program, home in
                 asked.withLock { $0.append(Asked(program: program, home: home)) }

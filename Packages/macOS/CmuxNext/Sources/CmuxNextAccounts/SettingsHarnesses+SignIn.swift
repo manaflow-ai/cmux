@@ -8,14 +8,15 @@ import CmuxNextPages
 /// and its Sign In gesture. No credential is read; acpmux reports only the state.
 extension SettingsHarnesses: AgentSignInSource {
     /// The harnesses a person can sign in to: listed, not a terminal profile, with no launch
-    /// problem, and found on this Mac by the health check (a path or a version). A daemon that
-    /// answered no health lists them all, their sign-in unknown. Named by the profile's display
-    /// name, else the name cmux lists for the id ("Claude Code"), else the id.
+    /// problem, and found on this Mac by the health check (a path or a version; a check that
+    /// answered with no row for it did not find it). A daemon that answered no health lists them
+    /// all, their sign-in unknown. Named by the profile's display name, else the name cmux lists
+    /// for the id ("Claude Code"), else the id.
     var signInRows: [OnboardingAgent] {
         rows.compactMap { row in
             guard row.kind != "terminal", row.problem == nil else { return nil }
             let health = health[row.id]
-            if let health, health["path"]?.stringValue == nil, health["version"]?.stringValue == nil { return nil }
+            if healthAnswered, health?["path"]?.stringValue == nil, health?["version"]?.stringValue == nil { return nil }
             let known = AgentBrandCatalog.agents.first { $0.id == row.id.lowercased() }
             return OnboardingAgent(id: row.id, name: row.name ?? known?.name ?? row.id,
                                    brand: AgentBrandCatalog.brand(for: row.id)?.rawValue,

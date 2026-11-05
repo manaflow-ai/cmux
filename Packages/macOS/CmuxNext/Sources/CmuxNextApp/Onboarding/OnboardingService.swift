@@ -71,7 +71,7 @@ final class OnboardingService {
 
     /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-                                                              openTerminal: { [weak self] line in self?.openSignIn(line) })
+                                                              openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
     /// The top page a Sign In left (Bring your history at first run); it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 
@@ -177,10 +177,10 @@ final class OnboardingService {
         defaults.set(true, forKey: key)
     }
 
-    /// A Sign In's login in a terminal tab. A top page covers the workspace, so the tab shows only once it is left.
-    private func openSignIn(_ line: String) {
+    /// A Sign In's login in a local terminal tab (false: none opened). A top page covers it, so it shows once the page is left.
+    private func openSignIn(_ line: String) async -> Bool {
         if let window = services.windows.active, let page = window.shownTopPage, window.leaveTopPage() { pageLeftForSignIn = pageLeftForSignIn ?? page }
-        _ = services.inFrontPane { $0.newTerminalTab(typing: line + "\r") }
+        return await services.openLocalProviderLogin(line)
     }
 
     /// The first-run Agents step over Bring your history (``OnboardingWindowPresenter/showAgentsAtFirstRun``); never under showcase.
