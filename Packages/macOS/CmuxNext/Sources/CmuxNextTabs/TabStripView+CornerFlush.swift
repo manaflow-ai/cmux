@@ -9,20 +9,25 @@ extension TabStripView: TabStripCorner {
 
     public var selectsLeadingTab: Bool { leadsWithSelection }
 
-    /// Gives every cell the foot below its pill (the selected one draws it) and reports a change of
-    /// whether the selected tab is the first.
+    /// Gives every cell the foot below its pill (the selected one draws it) and reports whether the
+    /// selected tab is the first. A layout pass: a selection alone calls ``reportCornerLead()``.
     func updateCornerFlush(tabY: CGFloat, tabHeight: CGFloat) {
+        let foot = CornerFlush.current.isOn ? max(0, bounds.height - (tabY + tabHeight)) : 0
+        for cell in cells.values { cell.cornerFoot = foot }
+        reportCornerLead()
+    }
+
+    /// Reports to the window root whether the selected tab is the strip's first, on its leading edge,
+    /// so the card's corner under it squares or rounds in the same pass as the tab's fill. O(1): only
+    /// the selected tab is read, so a selection change costs the same at any tab count.
+    func reportCornerLead() {
         let on = CornerFlush.current.isOn
-        let foot = on ? max(0, bounds.height - (tabY + tabHeight)) : 0
         var leads = false
         if on, tabsClip.frame.minX <= 0.5, let id = model.selectedID, let cell = cells[id], let place = placed[id] {
             let frame = cellFrame(place, isPinned: cell.item.isPinned)
             leads = frame.minX <= 0.5 && frame.maxX > 0.5
         }
-        for (id, cell) in cells {
-            cell.cornerFeetSkipsLeading = leads && id == model.selectedID
-            cell.cornerFoot = foot
-        }
+        if let id = model.selectedID { cells[id]?.cornerFeetSkipsLeading = leads }
         // While it leads, every layout reports too: the strip may have reached the card's corner since.
         guard leads != leadsWithSelection || leads || (on && !reportedCornerFlush) else { return }
         leadsWithSelection = leads
