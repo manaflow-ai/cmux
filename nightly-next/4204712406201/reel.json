@@ -1,0 +1,287 @@
+{
+  "version": 1,
+  "build": "4204712406201",
+  "notes": "notes/4204712406201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 36266,
+      "title": "perf(new-tab): a pane resize lays out no parked New Tab spare; the Cmd-T that takes it lays it out once",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36462,
+      "title": "acpmux: a joined home copied to another box is marked cloned and never uses the original's credential",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36618,
+      "title": "ci(journey): install the Zig ghostty-next names, not a pinned 0.16.0",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36635,
+      "title": "ci(warm-sources): list backend deploy-dashboard-staging and mark cloud-vm-image-bake warm (actions-cache)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36445,
+      "title": "cmux-next: CEF engine cef-157.0.0-cmux.45 (Chromium 157.0.8103.66)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36616,
+      "title": "iPhone agent cards: signed senders, notice title and links, unknown agent kinds, hidden empty inbox notices",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36522,
+      "title": "live code build: every CmuxNext module patchable, shared libs for the nightly variant, and the build's cost",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36408,
+      "title": "Agent chat: a Skill call reads with the skill it loads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36608,
+      "title": "base red: rust workspaces (optchat-chief undo test waits for the rebuild; tui-kit beacon clippy)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36606,
+      "title": "perf flags cleanup: the remote desktop pane always draws with Metal; delete remoteDesktop.debug.presenter and the sample buffer presenter",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36589,
+      "title": "perf flags cleanup: hibernated pages always keep a compressed picture (delete hibernation.compressedSnapshots)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36619,
+      "title": "ci: ensure-system-chrome.sh retries only on apt's hash-mismatch text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36609,
+      "title": "rust-live: one watcher per state folder (a lock held while it lives), measurement ends its build and joins its watcher before cleanup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36591,
+      "title": "Debug and Labs key report: a case for a deleted key is listed as stale, not a red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36595,
+      "title": "ci: ensure-system-chrome.sh tries the Chrome install once more after an apt hash mismatch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36601,
+      "title": "ci(cmux-next): route skills/cmux-live through the cmux-next workflow paths",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36413,
+      "title": "acpmux: goal_set, goal_update and goal_get keep a chat's goal on any harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36573,
+      "title": "cmux-api: forward the platform's client config, so the app sees the backend's create capabilities",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36463,
+      "title": "acpmux: machine leave revokes the joined machine with its own credential and removes the join",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36363,
+      "title": "Agent pane: move the transcript rows out of App.tsx into rows/ (pure move)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36568,
+      "title": "fix(chat): a shaped turn is reshaped when its live line's slot changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36456,
+      "title": "Cloud: a NIGHTLY that signed in again on the namespaced store stays signed in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36538,
+      "title": "Machines: log every pairing attempt, agent-origin link socket, bounded Activity",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36349,
+      "title": "cmux NEXT: a hand-drawn \"you're on ...!\" doodle on the Updated card (Debug toggle, off by default)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36548,
+      "title": "cmux NEXT iOS: the Mac's invite QR opens Pair Another Machine with the code",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36602,
+      "title": "cmux-vm: approve cloud-native-0cda689 (cmux-tui 0cda6896) for development, staging and production",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36597,
+      "title": "cmux-tui: add the missing semicolon in the action argument contract test (base clippy red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36612,
+      "title": "cu-driver eval VM: switch the guest to 1920x1080 points, and record the screen size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36485,
+      "title": "perf(layout): pane content takes its pointer from the screen's one tracking area; a moving pane costs AppKit no cursor-rect walk",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36200,
+      "title": "Agent pane: say the versions differ instead of 'Invalid checkpoint attestation.'; plainer dropped and timed-out lines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36320,
+      "title": "Settings: each Claude login's plan from claude auth status; organizationName is no plan",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36264,
+      "title": "perf(bench): debug.mouse moves walk no window views and build no control topology",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36582,
+      "title": "Pages: a projection trace in the app log; L10 check saves it with the app's page and window reports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36465,
+      "title": "cmux live --rust: save Rust, the running daemon swaps to the build, terminals kept",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36593,
+      "title": "prepush-gate: rustfmt layer for changed cmux-tui Rust files (class fix for tip rust-fmt reds)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36536,
+      "title": "structural-rebuild: end the reload's whole process group on an early stop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36427,
+      "title": "acpmux: hot-swappable wasm modules in the daemon (dev-only prototype)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36438,
+      "title": "cmux NEXT iOS: another agent's message is its card in the chat, not your bubble with its raw envelope",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36225,
+      "title": "sidebar: group headers are vivid tinted glass with a rim; no color is untinted glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36402,
+      "title": "Agent pane: a message the lane-gh broker relayed is its sender's card, not the raw label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36551,
+      "title": "cloud receiver: log whether a policy read grants local admission (admit_until) and how long it took",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36566,
+      "title": "right-pane-open bench: seed an edit turn so Changes shows; a focus miss is that row's record",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36369,
+      "title": "Resume a paused Cloud machine on start; list-machines rows carry error and created_at",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36440,
+      "title": "Agent pane: the live line rolls its words when the tool call changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36517,
+      "title": "measure: live-mode-swift.sh, Swift live mode end to end on a fleet Mac",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36549,
+      "title": "acpmux: a native fork into another folder says the old folder's instructions no longer apply",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
