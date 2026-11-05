@@ -1958,6 +1958,7 @@ dependencies = [
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-bookmarks-core",
+ "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
