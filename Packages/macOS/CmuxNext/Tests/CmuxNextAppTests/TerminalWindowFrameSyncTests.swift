@@ -106,7 +106,6 @@ struct TerminalWindowFrameSyncTests {
 
         try #require(motion.moved, "Ctrl-Shift-L on p2 moved nothing")
         let ahead = TerminalFramePresenter.forWindow(screen.window).stats.drawnAhead
-        try #require(ahead > 0, "no size was drawn ahead in the spring: the draw-ahead path did not run")
         // Held, not discarded (m26): the frame drawn at the size asked ahead in refresh n is the one its commit n+1
         // presents with those bounds, so no committed turn after the spring's first frame has a terminal still waiting
         // for its frame (a discarded ahead frame makes every spring frame wait one refresh).
@@ -127,6 +126,9 @@ struct TerminalWindowFrameSyncTests {
                 "bounds check (a) failed in \(found.boundsTurns) of \(turns.count) committed turns of the spring (a terminal's layer is not its pane's area; turns per terminal: \(found.kept)): \(found.bounds.prefix(8))")
         #expect(found.frame.isEmpty,
                 "frame check (b) failed in \(found.frameTurns) of \(turns.count) committed turns of the spring (the shown frame is not the layer's size): \(found.frame.prefix(8))")
+        // B5 (a): the draw-ahead count is a final check, so the case fails on its own assertions (bounds = drawn size in
+        // every commit) first, not on setup.
+        #expect(ahead > 0, "no size was drawn ahead in the spring: the draw-ahead path did not run")
     }
 
     /// Case 4, the spring's end (m26): the last 3 spring frames and the commit after the landing each present a frame at

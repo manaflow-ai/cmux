@@ -111,6 +111,9 @@ extension TerminalSurfaceView {
     /// preview re-wraps the text at it; the PTY's grid follows through the coalescer when the size shows). Not while a size
     /// still waits for its frame: the newer size would drop it, and the next refresh asks for its own size then.
     func applyAhead() { // perf-hot: 1ms motion-frame (each frame of a key resize, after the pass)
+        // RED CONTROL (never merge): no draw ahead.
+        frameOwnership.pendingAhead = nil
+        return
         guard let size = frameOwnership.pendingAhead else { return }
         frameOwnership.pendingAhead = nil
         guard let surface, isShown, frameOwnership.inFlight == nil, size != bounds.size,
