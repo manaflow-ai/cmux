@@ -17,14 +17,15 @@ public nonisolated struct BrowserResizeTunables {
         help: "While a Chromium page lays out at a new window or pane size, the gap beside its last frame shows the page's own background color. Off shows Chromium's white and the pane ground.",
         default: true, code: "BrowserResizeTunables.pageBackdrop")
 
-    /// Off (the default): a Chromium page draws in its own child window over
+    /// On (the default since cmux-ad m19, 2026-11-05: perf paths ship on, no switches). Off: a Chromium page draws in
+    /// its own child window over
     /// the pane. On: the page's pixels live in the cmux window's layer tree
     /// (fork API 26, `CEFHostedPageView`); the page window stays as a
     /// transparent input target. Applies to pages shown after the change.
     public static let layerHosting = Tunable<Bool>.toggle(
         "browserResize.layerHosting", section, "Host Chromium pages in the window's layers",
         help: "A Chromium page draws inside the cmux window's own layer tree, so it moves, clips and shows with the panes in one frame. Its page window stays on top only to take input. Needs Chromium fork API 26; applies when a page is shown next.",
-        default: false, code: "BrowserResizeTunables.layerHosting")
+        default: true, code: "BrowserResizeTunables.layerHosting")
 
     /// While a page is layer hosted (`layerHosting`), how long a resize of
     /// its pane may hold the window's frame for Chromium's frame at the new
@@ -36,7 +37,7 @@ public nonisolated struct BrowserResizeTunables {
     public static let syncDeadline = Tunable<Double>.number(
         "browserResize.syncDeadline", section, "Hosted page resize wait",
         help: "How long a pane resize waits for a layer-hosted Chromium page to draw at the new size, so the page and the pane change in the same frame. Never more than half the shortest display frame (4 ms with a 120 Hz display). Applies at the page's next show. 0 never waits.",
-        default: 0.008, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.syncDeadline")
+        default: 0, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.syncDeadline")
 
     /// During the window's live resize, how long each Chromium page (hosted or
     /// not) may hold the window's frame for its frame at the new size (fork
@@ -45,7 +46,7 @@ public nonisolated struct BrowserResizeTunables {
     public static let liveResizeDeadline = Tunable<Double>.number(
         "browserResize.liveResizeDeadline", section, "Page wait during window resize",
         help: "While the window is resized, how long each Chromium page may hold a frame to draw at the new size, so it resizes with the window. Never more than half the shortest display frame. 0 never waits; the page then shows its last frame until it draws.",
-        default: 0.016, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.liveResizeDeadline")
+        default: 0, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.liveResizeDeadline")
 
     /// With `dragResize` at `resizeSync`, how long each Chromium page over a dragged pane (hosted or not) may hold the
     /// window's frame for its frame at the new size, from the drag's first move until its release landed (fork API 27),
@@ -54,7 +55,7 @@ public nonisolated struct BrowserResizeTunables {
     public static let dragResizeDeadline = Tunable<Double>.number(
         "browserResize.dragResizeDeadline", section, "Page wait during a divider drag",
         help: "With the Resize sync drag mode, how long each Chromium page beside a dragged divider may hold a frame to draw at the pane's new size, so the page and its pane change in the same frame. Never more than half the shortest display frame. Needs Chromium fork API 27. 0 never waits.",
-        default: 0.016, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.dragResizeDeadline")
+        default: 0, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.dragResizeDeadline")
 
     /// How a Chromium page follows a pane divider or a column or row edge a person drags
     /// (Leo, 2026-10-26: "resizing the panes it propagates so fucking slowly to the right side browser tab
