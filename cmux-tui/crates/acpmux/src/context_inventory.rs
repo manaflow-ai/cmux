@@ -268,7 +268,7 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 /// Capture preset bytes as well as the injected addition so later config edits do not
 /// change the effective text reported for an existing chat.
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
-    let mut parts = snapshot(cfg, &meta.cwd);
+    let mut parts = snapshot_for(cfg, &meta.cwd, &meta.harness);
     // A folder set up for another harness: its instructions, which this one does not read itself.
     let family = family_for_folder(cfg, &meta.harness);
     parts.extend(crate::folder_instructions::part(&family, &meta.cwd));
@@ -331,7 +331,11 @@ pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
         p.included
             && matches!(
                 p.source.as_str(),
-                "cmux-default" | "cmux-user" | "cmux-project" | crate::folder_instructions::SOURCE
+                "cmux-default"
+                    | "cmux-user"
+                    | "cmux-project"
+                    | GUIDANCE_SOURCE
+                    | crate::folder_instructions::SOURCE
             )
             && p.channel.as_deref().is_none_or(|channel| channel == "user-context")
     }) {
@@ -347,6 +351,34 @@ pub fn record_tool_sources(meta: &mut SessionMeta, parts: Vec<ContextPart>) {
     let snapshot = meta.cmux_context.get_or_insert_with(Vec::new);
     snapshot.retain(|part| !part.id.starts_with("cmux-source-"));
     snapshot.extend(parts);
+}
+
+/// The source of cmux's built-in chat guidance and the person's skill index
+/// (`agent_guidance.rs`), sent as `<cmux-guidance-context>`.
+pub const GUIDANCE_SOURCE: &str = "cmux-guidance";
+
+/// [`snapshot`] plus the chat guidance for a session of profile `harness`. The guidance is
+/// its own part, so a person's guidance override (which replaces the default rule) keeps it;
+/// the `agents.guidance.*` settings turn it off.
+pub fn snapshot_for(cfg: &Config, cwd: &Path, harness: &str) -> Vec<ContextPart> {
+    let mut parts = snapshot(cfg, cwd);
+    parts.extend(crate::agent_guidance::for_session(cfg, harness).map(guidance_part));
+    parts
+}
+
+pub fn guidance_part(text: String) -> ContextPart {
+    ContextPart {
+        id: "cmux-guidance".into(),
+        source: GUIDANCE_SOURCE.into(),
+        label: "cmux chat guidance and your skills (first-turn context)".into(),
+        tokens: estimated_tokens(&text),
+        included: true,
+        editable: false,
+        measurement: "estimated".into(),
+        source_bytes: Some(text.len() as u64),
+        channel: Some("user-context".into()),
+        text: Some(text),
+    }
 }
 
 /// The family whose own instruction files a profile reads: a Claude Code
@@ -488,6 +520,24 @@ mod tests {
         let mut blocks = Vec::new();
         append_snapshot(Some(&captured), &mut blocks);
         assert!(blocks.is_empty());
+    }
+
+    #[test]
+    fn chat_guidance_is_its_own_first_turn_block_beside_a_persons_override() {
+        let mut cfg = Config::default();
+        cfg.context_overrides.user = Some("my rule".into());
+        let mut parts = snapshot(&cfg, Path::new("/repo"));
+        parts.push(guidance_part(crate::agent_guidance::AGENT_GUIDANCE.into()));
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&parts), &mut blocks);
+        assert_eq!(blocks.len(), 2, "{blocks:?}");
+        let text = blocks[1]["text"].as_str().unwrap();
+        assert!(
+            text.starts_with("<cmux-guidance-context>") && text.contains("update_plan"),
+            "{text}"
+        );
+        assert_eq!(blocks[1]["_meta"]["acpmux"]["contextSource"], "cmux-guidance");
+        assert!(blocks[0]["text"].as_str().unwrap().contains("my rule"));
     }
 
     #[test]

@@ -442,4 +442,55 @@ struct HomeAgentMessagesTests {
         #expect(thread.title == "Bubble tail last only")
         #expect(thread.task?.hasPrefix("Title: Bubble tail last only") == true)
     }
+
+    /// The Chief's own post of the turn that started `peer`: a `send` (key `send-<conversation>-<turn>-<16 hex>`).
+    func chiefSend(_ turn: String, hash: String = "000000000000000a", thread: String? = nil) -> TranscriptItem {
+        .init(key: IdempotencyKey("send-\(conversation.rawValue)-\(turn)-\(hash)"), seq: 2, author: chief,
+              parts: [.text("Started a1002 on Cmd+P memory.")], createdAt: date.addingTimeInterval(5), delivery: .committed,
+              replyTo: thread.map { PartRef(message: MessageID($0), partIndex: 0) }, threadRoot: thread.map { MessageID($0) },
+              messageID: MessageID("send-\(hash)"))
+    }
+
+    func spawnRun(turn: String) -> HomeAgentRun {
+        HomeAgentRun(conversation: conversation, id: "run-\(turn)", author: chief, turn: IdempotencyKey(turn),
+                     answers: [MessageID("question")], threadRoot: nil, revision: 1, messages: [
+            .init(id: "spawn:a1002", sequence: 1, revision: 1, peer: "a1002", outgoing: true,
+                  text: "Title: Cmd+P search memory\n\nUser (Nov 5): the whole raw task.", date: date.addingTimeInterval(1)),
+        ])
+    }
+
+    /// User 2026-11-05 (msg 22013): a spawn turn's pills show beside the Chief's words of that turn, not alone
+    /// under the person's message while the words went into its thread.
+    @Test func spawnPillsFollowTheChiefsTextOfTheirTurn() throws {
+        var book = HomeAgentMessages()
+        _ = book.apply(spawnRun(turn: "turn-7"))
+        let rows = book.inserting(into: [question(), chiefSend("turn-7", thread: "question")], summary: nil)
+        #expect(rows.count == 3)
+        #expect(rows[1].key.rawValue.hasPrefix("send-"))
+        let fold = try #require(rows.last)
+        #expect(fold.agentMessage?.peerTitles == ["Cmd+P search memory"])
+        #expect(fold.threadRoot == MessageID("question"))
+        #expect(fold.replyTo?.message == MessageID("question"))
+    }
+
+    /// A send of another turn is no anchor: the pills stay under the message they answer.
+    @Test func anotherTurnsSendIsNoAnchor() {
+        var book = HomeAgentMessages()
+        _ = book.apply(spawnRun(turn: "turn-7"))
+        let rows = book.inserting(into: [question(), chiefSend("turn-70")], summary: nil)
+        #expect(rows.count == 3)
+        #expect(rows[1].agentMessage != nil)
+        #expect(rows[1].threadRoot == nil)
+    }
+
+    /// Of several sends in the turn, the one on the main line (no thread) carries the pills.
+    @Test func aMainLineSendWinsOverAThreadedOne() {
+        var book = HomeAgentMessages()
+        _ = book.apply(spawnRun(turn: "turn-7"))
+        let rows = book.inserting(into: [question(), chiefSend("turn-7", hash: "000000000000000a", thread: "question"),
+                                         chiefSend("turn-7", hash: "000000000000000b")], summary: nil)
+        #expect(rows.count == 4)
+        #expect(rows[3].agentMessage != nil)
+        #expect(rows[3].threadRoot == nil)
+    }
 }

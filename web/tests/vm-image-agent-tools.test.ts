@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, recorderScript, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -31,12 +31,48 @@ import {
   daemonEnvLines,
   DISPLAY_UNIT,
   A11Y_UNIT,
+  RD_HOST_DIR,
+  RD_OPENH264_UNIT,
+  RD_PEER_UID,
+  RD_RUN_DIR,
+  RD_SOCKET,
+  RD_SOCKET_UNIT,
+  RD_TMPFILES,
+  RD_UNIT,
+  RD_USER,
+  RD_XAUTHORITY,
+  rdCookieCopy,
+  rdHostPath,
+  rdOpenh264Unit,
+  rdSetupCommand,
+  rdSocketUnit,
+  rdTmpfiles,
+  rdUnit,
 } from "../scripts/cmux-vm-image/agent-tools";
-import { bakeOptionsFromArgv, daemonUnit } from "../scripts/cmux-vm-image/bake";
-import { CURRENT_BIN, readInputsLock, rolesManifest } from "../scripts/cmux-vm-image/lock";
+import { bakeOptionsFromArgv, daemonUnit, desktopRecord } from "../scripts/cmux-vm-image/bake";
+import { CURRENT_BIN, type InputsLock, type LockedProgram, readInputsLock, rolesManifest, storeEntry } from "../scripts/cmux-vm-image/lock";
+import { DEVBOX_WORK_UID } from "../services/vms/images/workUser";
 import { runChild } from "./helpers/run-child";
 
 const lock = readInputsLock();
+/**
+ * The lock with a cmux-rd entry: the pinned one once it exists, until then a stand-in written out
+ * from the release archive's real layout (scripts/release.py: bin/cmux-rd, LICENSE and
+ * THIRD_PARTY_LICENSES.md at the root), not from lock.ts's own shape.
+ */
+const RD_STAND_IN: LockedProgram = {
+  name: "cmux-rd",
+  version: "0.1.0",
+  url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.1.0/cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+  sha256: "ab".repeat(32),
+  size: 1,
+  format: "tar.gz",
+  bin: { "cmux-rd": "bin/cmux-rd" },
+  versionArgs: [],
+  roles: ["desktop"],
+};
+const rdLock: InputsLock = lock.programs.some((p) => p.name === "cmux-rd") ? lock : { ...lock, programs: [...lock.programs, RD_STAND_IN] };
+const withoutRd: InputsLock = { ...lock, programs: lock.programs.filter((p) => p.name !== "cmux-rd") };
 
 async function bashSyntax(script: string): Promise<void> {
   const result = await runChild("bash", ["-n"], { input: script, timeout: 20_000 });
@@ -118,7 +154,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(link).toContain(`systemctl is-active --quiet ${DISPLAY_UNIT}`);
     await bashSyntax(link);
     await bashSyntax(agentToolsProfileScript());
-    for (const file of agentToolsFiles().filter((f) => f.path.endsWith("cmux-cua"))) await bashSyntax(file.text);
+    for (const file of agentToolsFiles(rdLock).filter((f) => f.path.endsWith("cmux-cua"))) await bashSyntax(file.text);
     const phases = browserRoleBakePhases(lock);
     expect(phases.map((p) => p.name)).toEqual(["agent-tools-browser-apt-update", "agent-tools-browser-apt-install", "agent-tools-browser-program-chrome-for-testing", "agent-tools-browser-program-cmux-browser-host", "agent-tools-browser-lists"]);
     for (const phase of phases) await bashSyntax(phase.command);
@@ -130,7 +166,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(DISPLAY_UNIT).toBe("cmux-agent-display@99.service");
     expect(A11Y_UNIT).toBe("cmux-agent-a11y@99.service");
     expect(AGENT_XAUTHORITY).toBe(agentXauthority("99"));
-    const paths = agentToolsFiles().map((f) => f.path);
+    const paths = agentToolsFiles(rdLock).map((f) => f.path);
     expect(paths).not.toContain("/etc/systemd/system/cmux-agent-display.service");
     const cua = cuaUnit();
     expect(cua).toContain(`Requires=${DISPLAY_UNIT}`);
@@ -198,7 +234,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     const cua = cuaUnit();
     expect(cua).toContain("NoNewPrivileges=yes");
     expect(cua).toMatch(new RegExp(`Environment=PATH=${CUA_REFUSE_DIR}:`));
-    const files = agentToolsFiles().filter((f) => f.path.startsWith(`${CUA_REFUSE_DIR}/`));
+    const files = agentToolsFiles(rdLock).filter((f) => f.path.startsWith(`${CUA_REFUSE_DIR}/`));
     expect(files.map((f) => path.basename(f.path)).sort()).toEqual(["apt", "apt-get", "sudo"]);
     const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-cua-refuse-"));
     try {
@@ -241,7 +277,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(a11y).toContain(`${a11yRuntimeDir("%i")}/at-spi-bus`);
     expect(a11y).toContain("User=cmux");
     for (const unit of [display, a11y]) expect(unit).not.toContain("[Install]");
-    const files = new Map(agentToolsFiles().map((f) => [f.path, f]));
+    const files = new Map(agentToolsFiles(rdLock).map((f) => [f.path, f]));
     expect(files.get(`/etc/systemd/system/${DISPLAY_TEMPLATE_UNIT}`)?.text).toBe(display);
     expect(files.get(`/etc/systemd/system/${A11Y_TEMPLATE_UNIT}`)?.text).toBe(a11y);
     expect(files.get(A11Y_SCRIPT)?.mode).toBe(0o755);
@@ -283,7 +319,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
   });
 
   test("the root property writer sets AT_SPI_BUS as xprop would, with the display's cookie", async () => {
-    const files = new Map(agentToolsFiles().map((f) => [f.path, f]));
+    const files = new Map(agentToolsFiles(rdLock).map((f) => [f.path, f]));
     expect(files.get(ROOT_PROPERTY_SCRIPT)?.text).toBe(rootPropertyScript());
     expect(files.get(ROOT_PROPERTY_SCRIPT)?.mode).toBe(0o755);
     const parsed = await runChild("python3", ["-I", "-c", "import ast, sys; ast.parse(sys.stdin.read())"], { input: rootPropertyScript(), timeout: 20_000 });
@@ -316,6 +352,217 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       xvfb.kill();
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  describe("desktop (cmux.rd/1 on the agent display over the owner's Native link, service desktop)", () => {
+    const rd = rdLock.programs.find((p) => p.name === "cmux-rd")!;
+    const hostBin = `${storeEntry(rd.sha256)}/bin/cmux-rd`;
+
+    test("without a cmux-rd lock entry in role desktop the agent tools bake fails, naming the release to pin", () => {
+      expect(() => agentToolsFiles(withoutRd)).toThrow(/cmux-rd-v<version>.*cmux-rd-<version>-x86_64-unknown-linux-gnu\.tar\.gz and checksums\.txt/);
+      const noRole: InputsLock = { ...withoutRd, programs: [...withoutRd.programs, { ...rd, roles: ["cua"] }] };
+      expect(() => rdHostPath(noRole)).toThrow(/role desktop/);
+      expect(rdHostPath(rdLock)).toBe(hostBin);
+    });
+
+    test("the bake records role desktop from the lock (so a layered bake with a cached agents layer records it too)", () => {
+      expect(desktopRecord(rdLock)).toEqual({ role: "desktop", program: "cmux-rd", version: rd.version, socketUnit: RD_SOCKET_UNIT, socket: RD_SOCKET });
+      expect(() => desktopRecord(withoutRd)).toThrow(/cmux-rd-v<version>/);
+    });
+
+    test("the socket is root:cmux 0660 (the link receiver runs as cmux) in a 0711 root dir, enabled at boot, and starts the host service", () => {
+      const socket = rdSocketUnit();
+      expect(RD_SOCKET).toBe("/run/cmux-rd/desktop.sock");
+      expect(socket).toContain(`ListenStream=${RD_SOCKET}\n`);
+      expect(socket).toContain("SocketUser=root\n");
+      expect(socket).toContain("SocketGroup=cmux\n");
+      expect(socket).toContain("SocketMode=0660\n");
+      expect(socket).toContain("DirectoryMode=0711\n");
+      expect(socket).toContain("Accept=no\n");
+      expect(socket).toContain(`Service=${RD_UNIT}\n`);
+      expect(socket).toContain("[Install]\nWantedBy=sockets.target\n");
+      expect(socket).not.toMatch(/ListenStream=.*:\d+|ListenStream=\d/);
+      // The socket dir: anyone may traverse to the socket by name, nobody but root lists or writes it.
+      expect(rdTmpfiles()).toContain(`d ${RD_RUN_DIR} 0711 root root -\n`);
+    });
+
+    test("the host runs as cmux-rd on :99, socket-activated, accepting only the work user's uid, with no TCP or token", () => {
+      const unit = rdUnit(hostBin);
+      expect(RD_UNIT).toBe("cmux-agent-rd.service");
+      expect(RD_PEER_UID).toBe(DEVBOX_WORK_UID);
+      expect(unit).toContain(`ExecStart=${hostBin} host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264\n`);
+      // The cookie copy lives in the host's own runtime dir, not in the socket dir the work user can traverse.
+      expect(RD_HOST_DIR).toBe("/run/cmux-rd-host");
+      expect(RD_XAUTHORITY).toBe("/run/cmux-rd-host/Xauthority-99");
+      expect(unit).toContain("RuntimeDirectory=cmux-rd-host\nRuntimeDirectoryMode=0700\n");
+      expect(unit).toContain("User=cmux-rd\n");
+      expect(unit).toContain("Group=cmux-rd\n");
+      expect(unit).not.toContain("User=cmux\n");
+      expect(unit).toContain(`BindsTo=${DISPLAY_UNIT}\n`);
+      expect(unit).toContain(`After=${DISPLAY_UNIT} ${RD_SOCKET_UNIT}\n`);
+      expect(unit).toContain("StateDirectory=cmux-rd\n");
+      expect(unit).toContain("Environment=XDG_DATA_HOME=/var/lib/cmux-rd\n");
+      for (const line of ["NoNewPrivileges=yes", "CapabilityBoundingSet=", "AmbientCapabilities=", "ProtectHome=yes", "ProtectSystem=strict", "PrivateTmp=yes", "BindReadOnlyPaths=/tmp/.X11-unix", "PrivateDevices=yes", "RestrictSUIDSGID=yes"]) expect(unit).toContain(`\n${line}\n`);
+      // The activated socket and the X display are Unix sockets: no network family at all.
+      expect(unit).toContain("\nRestrictAddressFamilies=AF_UNIX\n");
+      expect(unit).toContain(`Requires=${RD_OPENH264_UNIT}\n`);
+      expect(unit).toContain(`After=${RD_OPENH264_UNIT}\n`);
+      // A run of failed starts never leaves the socket failed.
+      expect(unit).toContain("\nStartLimitIntervalSec=0\n");
+      expect(unit).not.toContain("StartLimitBurst");
+      expect(unit).not.toContain("openh264-install");
+      // Only the socket starts it; nothing listens on TCP and no token reaches it.
+      expect(unit).not.toContain("[Install]");
+      for (const word of ["--port", "--bind", "--token-fd", "--owner", "start-rd.sh", "token"]) expect(unit).not.toContain(word);
+    });
+
+    test("OpenH264 is its own oneshot unit as cmux-rd, first start only, the only cmux-rd unit with network families", () => {
+      const unit = rdOpenh264Unit(hostBin);
+      expect(unit).toContain(`ExecStart=${hostBin} openh264-install\n`);
+      expect(unit).toContain("ConditionPathExists=!/var/lib/cmux-rd/openh264-installed\n");
+      expect(unit).toContain("ExecStartPost=/usr/bin/touch /var/lib/cmux-rd/openh264-installed\n");
+      expect(unit).toContain("Type=oneshot\n");
+      expect(unit).toContain("User=cmux-rd\n");
+      expect(unit).toContain("StateDirectory=cmux-rd\n");
+      expect(unit).toContain("\nCapabilityBoundingSet=\n");
+      expect(unit).toContain("\nRestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK\n");
+      expect(unit).not.toContain("[Install]");
+    });
+
+    test("ExecStartPre: root never opens the agent's cookie; it is read as cmux (no groups, no caps), regular files only, size-capped", async () => {
+      const unit = rdUnit(hostBin);
+      const pre = unit.split("\n").filter((l) => l.startsWith("ExecStartPre="));
+      expect(pre).toEqual([`ExecStartPre=+/bin/sh -c '${rdCookieCopy()}'`]);
+      const copy = rdCookieCopy();
+      expect(copy).toContain(`timeout 5 setpriv --reuid=cmux --regid=cmux --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs /bin/sh -c "test -f ${AGENT_XAUTHORITY} && test ! -L ${AGENT_XAUTHORITY} && head -c 4097 ${AGENT_XAUTHORITY}" > ${RD_XAUTHORITY}.new`);
+      expect(copy).toContain(`test "$(wc -c < ${RD_XAUTHORITY}.new)" -le 4096`);
+      expect(copy).toContain(`chown -h cmux-rd:cmux-rd ${RD_XAUTHORITY}.new && mv -f ${RD_XAUTHORITY}.new ${RD_XAUTHORITY}`);
+      // The host dir belongs to cmux-rd: root creates the temp file exclusively and never chmods through a link.
+      expect(copy.startsWith("umask 077; set -C; ")).toBe(true);
+      expect(copy).not.toContain("chmod");
+      // systemd expands % specifiers in Exec lines: the script has none.
+      expect(copy).not.toContain("%");
+      // Root never names the source outside the work user's reader.
+      expect(copy.replace(/setpriv [^"]*"[^"]*"/, "")).not.toContain(AGENT_XAUTHORITY);
+      expect(copy).not.toMatch(/(^|; )(install|cp|cat) [^;]*\/home\//);
+      // systemd expands $NAME in Exec lines: the script uses none, and no single quote ends it early.
+      expect(copy).not.toMatch(/\$\{?[A-Za-z_]/);
+      expect(copy).not.toContain("'");
+      await bashSyntax(copy);
+      const r = await runChild("sh", ["-n"], { input: copy, timeout: 20_000 });
+      expect(r.status).toBe(0);
+    });
+
+    test("the cookie copy, run with the work user's reader stubbed: a regular file is copied; a symlink, a FIFO, an empty or an oversized file are refused", async () => {
+      const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-rd-cookie-"));
+      try {
+        const src = path.join(dir, "home", "Xauthority-99");
+        const run = path.join(dir, "run");
+        const x11 = path.join(dir, "X99");
+        mkdirSync(path.dirname(src));
+        writeFileSync(x11, "");
+        // As the probe would on the machine, minus what needs root: the reader runs as this user, no chown.
+        const local = rdCookieCopy()
+          .replace(/setpriv [^/]*\/bin\/sh/, "/bin/sh")
+          .replace(/test -d \/run\/cmux-rd-host [^|]*\|\| \{[^}]*\}/, `mkdir -p ${run}`)
+          .replace(/chown -h [^;\s]+ [^;\s]+ && /, "")
+          .replace("[ -S /tmp/.X11-unix/X99 ]", `[ -e ${x11} ]`)
+          .replace("[ -S /tmp/.X11-unix/X99 ]", `[ -e ${x11} ]`)
+          .replaceAll(AGENT_XAUTHORITY, src)
+          .replaceAll(RD_HOST_DIR, run);
+        expect(local).not.toContain("setpriv");
+        expect(local).not.toContain("chown");
+        expect(local).toContain(`mkdir -p ${run}; for i in`);
+        const copy = () => runChild("sh", ["-c", local], { timeout: 20_000 });
+        const dest = path.join(run, "Xauthority-99");
+        writeFileSync(src, "cookie-bytes");
+        expect((await copy()).status).toBe(0);
+        expect(readFileSync(dest, "utf8")).toBe("cookie-bytes");
+        rmSync(dest);
+        for (const [what, make] of [
+          ["symlink", () => { writeFileSync(path.join(dir, "secret"), "root-only"); symlinkSync(path.join(dir, "secret"), src); }],
+          ["fifo", async () => { await runChild("mkfifo", [src]); }],
+          ["empty", () => writeFileSync(src, "")],
+          ["oversized", () => writeFileSync(src, "x".repeat(4097))],
+        ] as const) {
+          rmSync(src, { force: true });
+          await make();
+          const r = await copy();
+          expect({ what, status: r.status }).toEqual({ what, status: 1 });
+          expect(existsSync(dest)).toBe(false);
+          expect(existsSync(`${dest}.new`)).toBe(false);
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    test("the bake makes cmux-rd a system user in no other group, with no shell, home or sudo, and leaves the socket listening and the host off", async () => {
+      const setup = rdSetupCommand();
+      expect(setup).toContain("useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin cmux-rd");
+      expect(setup).toContain(`test "$(id -nG ${RD_USER})" = ${RD_USER}`);
+      expect(setup).toContain(`sudo -l -U ${RD_USER}`);
+      expect(setup).toContain(`systemctl enable --now --quiet ${RD_SOCKET_UNIT}`);
+      expect(setup).toContain(`! systemctl is-active --quiet ${RD_UNIT}`);
+      expect(setup).toContain(`test "$(stat -c '%a %U %G' ${RD_RUN_DIR})" = '711 root root'`);
+      expect(setup).toContain(`test "$(stat -c '%a %U %G' ${RD_SOCKET})" = '660 root cmux'`);
+      expect(setup).toContain(`test "$(id -u cmux)" = ${DEVBOX_WORK_UID}`);
+      expect(setup).not.toMatch(/usermod|-G cmux|sudoers/);
+      await bashSyntax(setup);
+      const files = new Map(agentToolsFiles(rdLock).map((f) => [f.path, f]));
+      expect(files.get(`/etc/systemd/system/${RD_SOCKET_UNIT}`)).toEqual({ path: `/etc/systemd/system/${RD_SOCKET_UNIT}`, text: rdSocketUnit(), mode: 0o644 });
+      expect(files.get(`/etc/systemd/system/${RD_UNIT}`)).toEqual({ path: `/etc/systemd/system/${RD_UNIT}`, text: rdUnit(hostBin), mode: 0o644 });
+      expect(files.get(RD_TMPFILES)?.text).toBe(rdTmpfiles());
+      expect(files.get(`/etc/systemd/system/${RD_OPENH264_UNIT}`)?.text).toBe(rdOpenh264Unit(hostBin));
+      expect(setup).toContain(`/etc/systemd/system/${RD_OPENH264_UNIT}`);
+      // No token file and no start script anywhere in the image's agent tools.
+      for (const f of files.values()) expect(f.path).not.toMatch(/start-rd|token/);
+    });
+
+    test("probe: every desktop command parses, and the connect helper reports connected or the errno name", async () => {
+      for (const command of [rdStaticCheckCommand(), rdActivateCommand(), rdOtherUserCommand(), rdReadCommand(RD_XAUTHORITY), rdConnectCommand(0)]) await bashSyntax(command);
+      // The cookie read runs while the connection is held: before the kill, after the host's dir exists.
+      const activate = rdActivateCommand();
+      const read = activate.indexOf(`setpriv --reuid=cmux --regid=cmux --init-groups ${rdReadCommand(RD_XAUTHORITY)}`);
+      expect(read).toBeGreaterThan(activate.indexOf("rd-host-dir="));
+      expect(read).toBeLessThan(activate.indexOf('kill "$held"'));
+      // The host is started by a connection as the work user, the link receiver's uid; another user is refused.
+      expect(rdActivateCommand()).toContain(`setpriv --reuid=cmux --regid=cmux --init-groups python3`);
+      expect(rdOtherUserCommand()).toContain("setpriv --reuid=nobody --regid=nogroup --clear-groups python3");
+      const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-rd-connect-"));
+      try {
+        const sock = path.join(dir, "s.sock");
+        const missing = await runChild("sh", ["-c", rdConnectCommand(0).replace(RD_SOCKET, sock)], { timeout: 20_000 });
+        expect(missing.stdout.trim()).toBe("connect=ENOENT");
+        const server = spawn("python3", ["-c", "import socket,sys,time; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); s.listen(); time.sleep(20)", sock], { stdio: "ignore" });
+        try {
+          for (let i = 0; i < 100 && !existsSync(sock); i++) await new Promise((resolve) => setTimeout(resolve, 50));
+          const ok = await runChild("sh", ["-c", rdConnectCommand(0).replace(RD_SOCKET, sock)], { timeout: 20_000 });
+          expect(ok.stdout.trim()).toBe("connect=connected");
+        } finally {
+          server.kill();
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    test("probe: the read helper names the errno, so a missing cookie copy (ENOENT) never passes as unreadable (EACCES)", async () => {
+      const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-rd-read-"));
+      try {
+        const file = path.join(dir, "Xauthority-99");
+        const read = (f: string) => runChild("sh", ["-c", rdReadCommand(f)], { timeout: 20_000 });
+        expect((await read(file)).stdout.trim()).toBe("read=ENOENT");
+        writeFileSync(file, "c");
+        expect((await read(file)).stdout.trim()).toBe("read=readable");
+        if (process.getuid?.() !== 0) {
+          chmodSync(file, 0o000);
+          expect((await read(file)).stdout.trim()).toBe("read=EACCES");
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
   });
 
   test("the agent tools bake installs only the browser role, never cua-video", () => {
