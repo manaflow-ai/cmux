@@ -229,7 +229,8 @@ pub fn final_event(exit: Option<i32>, stdout: &str, stderr: &str) -> Value {
 /// `done` carries no `reply` (the streamed `text` events stand) and says so with `reply_cut`.
 ///
 /// A failure keeps acpmux's type: its `--json` error envelope (`cli/errors.rs`, the last stderr line) gives the
-/// `detail` (`daemon_closed`, `trust_required`, ...), acpmux's own `code`, `retryable` and the `errorKind`, so a
+/// `detail` (`daemon_closed`, `trust_required`, ...), acpmux's own `code`, `retryable`, the `errorKind` and a closed
+/// daemon's `cause` (`panicked`, `crashed`, `socket_left`, ...: acpmux `client::closed_cause`), so a
 /// closed daemon, a refused permission and an auth failure stay told apart past the relay (hq#7086). Only short
 /// code-shaped words go up beside acpmux's sentence; stderr with no envelope stays a plain failure.
 pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) -> Value {
@@ -253,7 +254,11 @@ pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) 
         .and_then(|v| v.get("error").cloned())
         .filter(|e| e.get("code").is_some_and(Value::is_string));
     let word = |key: &str| {
-        envelope.as_ref().and_then(|e| e.get(key)).and_then(Value::as_str).filter(|w| code_like(w))
+        envelope
+            .as_ref()
+            .and_then(|e| e.pointer(key))
+            .and_then(Value::as_str)
+            .filter(|w| code_like(w))
     };
     // A signal leaves no exit status: the envelope's own exit decides then.
     let exit = exit.or_else(|| {
@@ -270,9 +275,12 @@ pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) 
         envelope.as_ref().and_then(|e| e.get("message")).and_then(Value::as_str).unwrap_or(line);
     let mut event = json!({"kind": "error", "code": code, "message": message.chars().take(300).collect::<String>()});
     if let (Some(e), Some(o)) = (&envelope, event.as_object_mut()) {
-        for (from, to) in
-            [("code", "acpmux_code"), ("detail", "detail"), ("errorKind", "error_kind")]
-        {
+        for (from, to) in [
+            ("/code", "acpmux_code"),
+            ("/detail", "detail"),
+            ("/errorKind", "error_kind"),
+            ("/data/cause", "cause"),
+        ] {
             if let Some(w) = word(from) {
                 o.insert(to.to_owned(), json!(w));
             }

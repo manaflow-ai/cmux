@@ -340,6 +340,20 @@ fn an_acpmux_error_keeps_its_type_up_the_relay() {
     assert_eq!(e["retryable"], true);
     // The message is acpmux's own sentence, never the envelope's raw JSON.
     assert_eq!(e["message"], "acpmux: daemon_closed");
+    // A closed daemon's cause goes up with it: a panic is told apart from a restart.
+    let e = final_event(
+        Some(1),
+        "",
+        &envelope(
+            "runtime",
+            1,
+            "daemon_closed",
+            true,
+            json!({"data": {"cause": "panicked", "panic": {"location": "src/a.rs:1:1"}}}),
+        ),
+    );
+    assert_eq!(e["cause"], "panicked");
+    assert!(e.get("panic").is_none(), "{e}");
     // The exit codes acpmux names keep their relay code, with the detail beside it.
     let e = final_event(
         Some(5),
