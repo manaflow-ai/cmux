@@ -22,10 +22,17 @@
 //!   names the process that WROTE each reply it reads (not only the one that called `listen`, which a
 //!   squatter can fork away from). Before it writes the key, every reply so far must come from the
 //!   socket's listener, and that process must be the real daemon ([`check_daemon`]): not root, the
-//!   owner of the acpmux home, this same executable file, every executable mapping a root-owned file
-//!   (no preloaded library of the user's), not dumpable (its /proc files are root's) and not traced.
-//!   A squatter, a relay, or a daemon too old to have made itself not dumpable gets nothing, and the
+//!   owner of the acpmux home, this same executable file, holding the home's daemon lock, not
+//!   dumpable (its /proc files are root's), not traced, and every executable mapping an unwritten
+//!   page of a root-owned file (no preloaded library of the user's, no patched or anonymous code). A
+//!   squatter, a relay, or a daemon too old to have made itself not dumpable gets nothing, and the
 //!   exec falls back to the keyed restart.
+//!
+//! The threat model is `_acpmux/person_holds`'s (docs/acpmux-schema.json): it stops agents and
+//! scripts of the daemon's user that cannot write that user's home or binary. One that can, on a
+//! kernel that lets it ptrace its own processes, could still tamper with the data of a daemon it
+//! started before that daemon made itself not dumpable; so could it with the keyed restart this
+//! replaces, which a same-user process can race the same way.
 
 #[cfg(target_os = "linux")]
 use anyhow::{Context, Result, anyhow};
@@ -66,7 +73,9 @@ pub(crate) fn at_start() {
         match super::not_dumpable() {
             Ok(()) => true,
             Err(e) => {
-                tracing::warn!("this daemon takes no provisioned person key: not dumpable failed: {e}");
+                tracing::warn!(
+                    "this daemon takes no provisioned person key: not dumpable failed: {e}"
+                );
                 false
             }
         }
@@ -103,7 +112,8 @@ pub async fn enroll_running(fd: i32) -> Result<Value> {
         unsafe { libc::geteuid() } == 0,
         "`daemon enroll` is the VM provisioning exec's and runs as root; the app's own exec uses `daemon start --person-key-fd`"
     );
-    super::not_dumpable().context("make the provisioner not dumpable before it reads the person key")?;
+    super::not_dumpable()
+        .context("make the provisioner not dumpable before it reads the person key")?;
     let key = super::read_key_line(fd)?;
     let home = crate::config::home();
     let path = crate::config::socket_path();
@@ -116,8 +126,11 @@ pub async fn enroll_running(fd: i32) -> Result<Value> {
 fn enroll_blocking(key: &str, home: &std::path::Path, path: &std::path::Path) -> Result<Value> {
     use std::fmt::Write as _;
     let mut conn = Conn::connect(path)?;
-    conn.call(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}"#, 1)
-        .context("initialize")?;
+    conn.call(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}"#,
+        1,
+    )
+    .context("initialize")?;
     let daemon = conn.daemon()?;
     check_daemon(daemon, home, path)?;
     let mut line = zeroize::Zeroizing::new(String::with_capacity(160));
@@ -131,7 +144,10 @@ fn enroll_blocking(key: &str, home: &std::path::Path, path: &std::path::Path) ->
     let enrolled = conn.call(&line, 2).context("person_enroll")?;
     drop(line);
     if enrolled.get("via").and_then(Value::as_str) != Some("provisioner") {
-        return Err(anyhow!("the daemon at {} did not take the key from the provisioner", path.display()));
+        return Err(anyhow!(
+            "the daemon at {} did not take the key from the provisioner",
+            path.display()
+        ));
     }
     let status = format!(
         r#"{{"jsonrpc":"2.0","id":3,"method":"{}","params":{{}}}}"#,
@@ -177,15 +193,42 @@ fn check_daemon(peer: Peer, home: &std::path::Path, socket: &std::path::Path) ->
     );
     let text = std::fs::read_to_string(&status).context("read the daemon's status")?;
     anyhow::ensure!(not_traced(&text), "the daemon at {at} (pid {pid}) is being traced");
-    let maps = std::fs::read_to_string(proc.join("maps")).context("read the daemon's mappings")?;
-    for file in executable_files(&maps) {
-        let ok = !file.ends_with(" (deleted)")
-            && std::fs::metadata(file).is_ok_and(|m| m.uid() == 0 && m.mode() & 0o022 == 0);
+    // Its code: every executable mapping an unmodified page of a root-owned file.
+    let smaps =
+        std::fs::read_to_string(proc.join("smaps")).context("read the daemon's mappings")?;
+    for code in executable_mappings(&smaps) {
+        let file = code.path;
+        anyhow::ensure!(
+            code.unmodified,
+            "the daemon at {at} (pid {pid}) runs modified or anonymous code ({file})"
+        );
+        if code.kernel() {
+            continue;
+        }
+        let ok = std::fs::metadata(file).is_ok_and(|m| {
+            m.uid() == 0
+                && m.mode() & 0o022 == 0
+                && Some((libc::major(m.dev()), libc::minor(m.dev()), m.ino())) == code.file
+        });
         anyhow::ensure!(
             ok,
-            "the daemon at {at} (pid {pid}) runs code from {file}, which is not a root-owned file"
+            "the daemon at {at} (pid {pid}) runs code from {file}, which is not that root-owned file"
         );
     }
+    // It serves this home: it holds the home's daemon lock.
+    let lock =
+        std::fs::metadata(home.join("daemon.lock")).context("read the home's daemon lock")?;
+    let holds =
+        std::fs::read_dir(proc.join("fd")).context("read the daemon's descriptors")?.any(|fd| {
+            fd.ok()
+                .and_then(|fd| std::fs::metadata(fd.path()).ok())
+                .is_some_and(|m| (m.dev(), m.ino()) == (lock.dev(), lock.ino()))
+        });
+    anyhow::ensure!(
+        holds,
+        "the daemon at {at} (pid {pid}) does not hold the lock of {}",
+        home.display()
+    );
     Ok(())
 }
 
@@ -194,21 +237,72 @@ pub(crate) fn not_traced(status: &str) -> bool {
     status.lines().find_map(|l| l.strip_prefix("TracerPid:")).is_some_and(|v| v.trim() == "0")
 }
 
-/// The files a /proc maps text maps executable (`r-xp ... /path`): not the kernel's `[vdso]` and the
-/// like, nor anonymous mappings.
-pub(crate) fn executable_files(maps: &str) -> Vec<&str> {
-    let mut files: Vec<&str> = maps
-        .lines()
-        .filter_map(|line| {
-            let mut fields = line.splitn(6, ' ');
-            let perms = fields.nth(1)?;
-            let path = fields.nth(3)?.trim_start();
-            (perms.contains('x') && !path.is_empty() && !path.starts_with('[')).then_some(path)
-        })
-        .collect();
-    files.sort_unstable();
-    files.dedup();
-    files
+/// One executable mapping of a /proc smaps text.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Code<'a> {
+    /// Its path field (empty for an anonymous mapping).
+    pub path: &'a str,
+    /// (major, minor, inode) of the file it maps.
+    pub file: Option<(u32, u32, u64)>,
+    /// A file mapping (or the kernel's `[vdso]`/`[vsyscall]`) with no private or anonymous page:
+    /// nothing wrote to its code.
+    pub unmodified: bool,
+}
+
+impl Code<'_> {
+    /// The kernel's own code pages, not a file.
+    pub fn kernel(&self) -> bool {
+        matches!(self.path, "[vdso]" | "[vsyscall]")
+    }
+}
+
+/// The executable mappings of a /proc smaps text: each header line (`start-end perms offset dev
+/// inode path`) whose perms hold `x`, with whether its block says no page was written.
+pub(crate) fn executable_mappings(smaps: &str) -> Vec<Code<'_>> {
+    let mut out: Vec<Code<'_>> = Vec::new();
+    let mut current: Option<Code<'_>> = None;
+    for line in smaps.lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(first), Some(second)) = (fields.next(), fields.next()) else { continue };
+        let header = first.contains('-') && !first.ends_with(':') && second.len() == 4;
+        if header {
+            out.extend(current.take());
+            let (Some(dev), Some(inode)) = (fields.nth(1), fields.next()) else { continue };
+            if second.contains('x') {
+                let path = path_field(line);
+                let file = dev.split_once(':').and_then(|(major, minor)| {
+                    Some((
+                        u32::from_str_radix(major, 16).ok()?,
+                        u32::from_str_radix(minor, 16).ok()?,
+                        inode.parse::<u64>().ok()?,
+                    ))
+                });
+                let named = !path.is_empty()
+                    && !path.ends_with(" (deleted)")
+                    && (!path.starts_with('[') || matches!(path, "[vdso]" | "[vsyscall]"));
+                current = Some(Code { path, file, unmodified: named });
+            }
+            continue;
+        }
+        if let Some(code) = current.as_mut()
+            && matches!(first, "Private_Dirty:" | "Anonymous:")
+            && second != "0"
+        {
+            code.unmodified = false;
+        }
+    }
+    out.extend(current);
+    out
+}
+
+/// The path field of a /proc maps or smaps header line: everything after the inode, trimmed.
+fn path_field(line: &str) -> &str {
+    let mut rest = line;
+    for _ in 0..5 {
+        rest = rest.trim_start();
+        rest = rest.find(char::is_whitespace).and_then(|at| rest.get(at..)).unwrap_or("");
+    }
+    rest.trim()
 }
 
 /// Newline-delimited JSON-RPC over the provisioner's one connection, reading each reply with the
@@ -315,11 +409,14 @@ impl Conn {
         let n = unsafe { libc::recvmsg(self.stream.as_raw_fd(), &mut msg, libc::MSG_CMSG_CLOEXEC) };
         if n < 0 {
             let e = std::io::Error::last_os_error();
-            return Err(if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) {
-                anyhow!("the daemon did not answer within {REPLY_WAIT:?}")
-            } else {
-                anyhow!("read the daemon's reply: {e}")
-            });
+            return Err(
+                if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
+                {
+                    anyhow!("the daemon did not answer within {REPLY_WAIT:?}")
+                } else {
+                    anyhow!("read the daemon's reply: {e}")
+                },
+            );
         }
         anyhow::ensure!(n > 0, "the daemon closed the connection");
         let mut writer = None;
@@ -327,8 +424,11 @@ impl Conn {
         unsafe {
             let mut cmsg = libc::CMSG_FIRSTHDR(&msg);
             while !cmsg.is_null() {
-                if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_CREDENTIALS {
-                    let cred = std::ptr::read_unaligned(libc::CMSG_DATA(cmsg).cast::<libc::ucred>());
+                if (*cmsg).cmsg_level == libc::SOL_SOCKET
+                    && (*cmsg).cmsg_type == libc::SCM_CREDENTIALS
+                {
+                    let cred =
+                        std::ptr::read_unaligned(libc::CMSG_DATA(cmsg).cast::<libc::ucred>());
                     writer = Some(Peer { uid: cred.uid, pid: cred.pid });
                 }
                 cmsg = libc::CMSG_NXTHDR(&msg, cmsg);
@@ -349,7 +449,13 @@ fn peer_cred(fd: std::os::fd::RawFd) -> Result<Peer> {
     let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
     // SAFETY: a valid socket descriptor and an output buffer of `len` bytes.
     let got = unsafe {
-        libc::getsockopt(fd, libc::SOL_SOCKET, libc::SO_PEERCRED, (&mut cred as *mut libc::ucred).cast(), &mut len)
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&mut cred as *mut libc::ucred).cast(),
+            &mut len,
+        )
     };
     anyhow::ensure!(got == 0, "SO_PEERCRED: {}", std::io::Error::last_os_error());
     Ok(Peer { uid: cred.uid, pid: cred.pid })
@@ -357,7 +463,7 @@ fn peer_cred(fd: std::os::fd::RawFd) -> Result<Peer> {
 
 #[cfg(test)]
 mod tests {
-    use super::{executable_files, not_traced, provisionable};
+    use super::{Code, executable_mappings, not_traced, provisionable};
 
     #[test]
     fn only_an_unsigned_user_daemon_on_a_cloud_machine_takes_a_provisioned_key() {
@@ -378,24 +484,48 @@ mod tests {
     }
 
     #[test]
-    fn executable_mappings_are_the_files_that_run_code() {
-        let maps = "\
-55d0c0000000-55d0c1000000 r--p 00000000 fd:01 123  /opt/cmux/store/abc/cmux-tui
-55d0c1000000-55d0c2000000 r-xp 01000000 fd:01 123  /opt/cmux/store/abc/cmux-tui
-7f0000000000-7f0000100000 r-xp 00000000 fd:01 456  /home/cmux/evil.so
-7f0000200000-7f0000300000 r-xp 00000000 fd:01 789  /usr/lib/x86_64-linux-gnu/libc.so.6
+    fn executable_mappings_say_what_runs_and_whether_its_code_was_written() {
+        let smaps = "\
+55d0c0000000-55d0c1000000 r--p 00000000 fd:01 123                        /opt/cmux/store/abc/cmux-tui
+Size:               4096 kB
+Private_Dirty:         8 kB
+55d0c1000000-55d0c2000000 r-xp 01000000 fd:01 123                        /opt/cmux/store/abc/cmux-tui
+Size:              16384 kB
+Private_Dirty:         0 kB
+Anonymous:             0 kB
+7f0000000000-7f0000100000 r-xp 00000000 fd:01 456                        /usr/lib/x86_64-linux-gnu/libc.so.6
+Private_Dirty:         4 kB
+Anonymous:             4 kB
 7f0000400000-7f0000500000 rwxp 00000000 00:00 0
+Private_Dirty:         0 kB
 7ffc00000000-7ffc00002000 r-xp 00000000 00:00 0                          [vdso]
-7f0000600000-7f0000700000 r-xp 00000000 00:01 99   /memfd:x (deleted)
+Private_Dirty:         0 kB
+Anonymous:             0 kB
+7f0000600000-7f0000700000 r-xp 00000000 00:01 99                         /memfd:x (deleted)
+Private_Dirty:         0 kB
 ";
+        let code = executable_mappings(smaps);
         assert_eq!(
-            executable_files(maps),
+            code,
             vec![
-                "/home/cmux/evil.so",
-                "/memfd:x (deleted)",
-                "/opt/cmux/store/abc/cmux-tui",
-                "/usr/lib/x86_64-linux-gnu/libc.so.6",
+                Code {
+                    path: "/opt/cmux/store/abc/cmux-tui",
+                    file: Some((0xfd, 1, 123)),
+                    unmodified: true
+                },
+                // A patched copy-on-write page of a real file.
+                Code {
+                    path: "/usr/lib/x86_64-linux-gnu/libc.so.6",
+                    file: Some((0xfd, 1, 456)),
+                    unmodified: false
+                },
+                // Anonymous executable memory.
+                Code { path: "", file: Some((0, 0, 0)), unmodified: false },
+                Code { path: "[vdso]", file: Some((0, 0, 0)), unmodified: true },
+                Code { path: "/memfd:x (deleted)", file: Some((0, 1, 99)), unmodified: false },
             ]
         );
+        assert!(code[3].kernel());
+        assert!(!code[0].kernel());
     }
 }
