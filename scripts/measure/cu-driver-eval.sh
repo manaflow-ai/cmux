@@ -227,6 +227,11 @@ if [[ -n "$bench" ]]; then
       version=${label#cua-driver-}
       app_binary="$(dirname "$binary")/CuaDriver.app/Contents/MacOS/cua-driver"
       [[ -x "$app_binary" ]] || bench_fail "no CuaDriver.app in the $label release"
+      # The release signs its app; keep that signature when it verifies, else sign the bundle ad hoc
+      # (an unsigned arm64 executable does not run), and stop if it still does not verify.
+      app_bundle="$(dirname "$binary")/CuaDriver.app"
+      codesign -v "$app_bundle" 2>/dev/null || codesign --force --deep -s - "$app_bundle" >/dev/null 2>&1
+      codesign -v "$app_bundle" 2>/dev/null || bench_fail "the $label CuaDriver.app does not verify"
       [[ "$(pin bench_v2 cua_driver_skills version)" == "$version" ]] || bench_fail "no skills pinned for $label"
       file=$(fetch skills "$(pin bench_v2 cua_driver_skills url)" "$(pin bench_v2 cua_driver_skills sha256)") || bench_fail "could not fetch the $label skills"
       tar -xzf "$file" -C "$bench_dir/skills" || bench_fail "could not unpack the $label skills"
