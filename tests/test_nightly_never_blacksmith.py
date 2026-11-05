@@ -50,6 +50,8 @@ OWNED_OUTPUTS = {
     "needs.pick-nightly-build-runner.outputs.helper", "needs.pick-nightly-build-runner.outputs.dedicated",
     "needs.pick-nightly-sign-runner.outputs.owned", "needs.pick-nightly-sign-runner.outputs.sign_owned",
     "needs.pick-nightly-sign-runner.outputs.sign_owned_pool",
+    # One glaeda-runner-<name> label per post-sign verify job (nightly_build_runner.off_signing_verify_route()).
+    "needs.pick-nightly-sign-runner.outputs.verify_signed", "needs.pick-nightly-sign-runner.outputs.verify_dmg",
     "needs.decide.outputs.early_mini_runner", "needs.build-nightly-app.outputs.light_mini_runner",
 }
 # decide's early placement (nightly_linux_admission.py: a fleet receipt's runner, hosted-light, or its owned

@@ -44,7 +44,8 @@ extension StateResourceClient {
     /// `bound` (opt-in, a person's workspace close): the close ends on the
     /// daemon's reply or refusal, the connection's end, or `bound` with no
     /// answer (`DaemonError.timedOut`; the caller then decides it from the
-    /// store), never on the 2 s client deadline: a busy daemon commits a close
+    /// store), never on the client request deadline (2 s then, 30 s since
+    /// #35075): a busy daemon commits a close
     /// it answers late, and one that gave up first reported a done close as
     /// failed. Nil keeps the control deadline.
     ///

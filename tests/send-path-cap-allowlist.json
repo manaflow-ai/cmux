@@ -91,6 +91,7 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/VideoControl.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatUploads.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserAutomation/WebKitClipboard.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudRelayChat.swift": {"count": 1, "reason": "safe: reads at most 64 KiB of a refusal's (non-2xx) body to word the error; the prompt went out whole and nothing is refused by it"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Autosize/CloudAutosize.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Bootstrap/CloudMachineBootstrap.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Bootstrap/CloudMachineConfig.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

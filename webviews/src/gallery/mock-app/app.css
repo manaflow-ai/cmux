@@ -1,0 +1,198 @@
+/* The mock app's approximated native chrome (app/main.ts). Colors are the theme's tokens, set on
+   the root; sizes are the app's metrics, set inline per window. Nothing animates. */
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  color: var(--app-text);
+}
+#app {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  justify-content: center;
+  padding: 16px;
+}
+.app-stage {
+  position: relative;
+  contain: layout paint;
+}
+.app-stage-label {
+  height: 24px;
+  font-size: var(--text-caption);
+  color: var(--app-text-2);
+}
+.app-window {
+  position: absolute;
+  top: 24px;
+  left: 0;
+  transform: scale(var(--app-scale, 1));
+  transform-origin: 0 0;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--app-window);
+  box-shadow:
+    0 0 0 0.5px var(--app-separator),
+    var(--elevation-2);
+  contain: strict;
+}
+.app-sidebar {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--app-sidebar);
+  overflow: hidden;
+}
+.app-lights {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  padding-left: 12px;
+}
+.app-light {
+  /* The system's traffic lights: their 12 pt size and colours, as AppKit draws them. */
+  --app-light-size: 12px;
+  --app-light-rim: rgb(0 0 0 / 0.2);
+  --app-light-close: #ff5f57;
+  --app-light-minimize: #febc2e;
+  --app-light-zoom: #28c840;
+  width: var(--app-light-size);
+  height: var(--app-light-size);
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px var(--app-light-rim);
+}
+.app-light-close {
+  background: var(--app-light-close);
+}
+.app-light-minimize {
+  background: var(--app-light-minimize);
+}
+.app-light-zoom {
+  background: var(--app-light-zoom);
+}
+.app-sidebar-list {
+  flex: 1;
+  overflow: hidden;
+  padding: 4px 8px;
+}
+.app-sidebar-group {
+  padding: 12px 8px 4px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--app-text-3);
+}
+.app-sidebar-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--app-text-2);
+}
+[data-density="compact"] .app-sidebar-row {
+  height: 24px;
+}
+.app-sidebar-row[data-selected] {
+  background: var(--app-selection);
+  color: var(--app-text);
+}
+.app-sidebar-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.app-sidebar-mark {
+  /* The sidebar row's 6 pt status dot. */
+  --app-mark-size: 6px;
+  flex: none;
+  width: var(--app-mark-size);
+  height: var(--app-mark-size);
+  border-radius: 50%;
+}
+.app-mark-running {
+  box-shadow: inset 0 0 0 1.5px var(--app-text-2);
+}
+.app-mark-input {
+  background: var(--app-attention);
+}
+.app-mark-error {
+  background: var(--app-danger);
+}
+.app-mark-unread {
+  background: var(--app-accent);
+}
+.app-sidebar-empty {
+  padding: 12px 8px;
+  color: var(--app-text-3);
+}
+.app-pane {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--app-radius, 8px);
+  background: var(--app-content);
+  box-shadow: 0 0 0 0.5px var(--app-pane-border);
+}
+[data-glass] .app-pane {
+  background: transparent;
+}
+.app-strip {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  align-items: center;
+  padding: 0 8px;
+  background: var(--app-strip);
+  box-shadow: inset 0 -0.5px 0 var(--app-separator);
+}
+.app-tab {
+  display: flex;
+  align-items: center;
+  max-width: 240px;
+  padding: 0 12px;
+  border-radius: 6px;
+  background: var(--app-tab);
+  color: var(--app-text);
+}
+.app-tab-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.app-strip-plus {
+  padding: 0 8px;
+  color: var(--app-text-3);
+}
+.app-pane-frame {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+/* `chrome=native`: the native preview window draws the frame, traffic lights and glass. */
+[data-chrome="native"],
+[data-chrome="native"] body {
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+[data-chrome="native"] #app {
+  display: block;
+  padding: 0;
+}
+[data-chrome="native"] .app-window {
+  top: 0;
+  transform: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+[data-chrome="native"] .app-sidebar {
+  background: transparent;
+}

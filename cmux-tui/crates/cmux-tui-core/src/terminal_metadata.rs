@@ -667,6 +667,12 @@ impl TerminalMetadata {
         self.activity.take_change()
     }
 
+    /// Whether `take_progress_change` or `take_busy_change` would report a
+    /// change now; marks nothing.
+    pub(crate) fn has_publication_change(&self) -> bool {
+        self.progress() != self.published_progress || self.activity.has_change()
+    }
+
     /// Restore a progress value carried by an authenticated terminal-host
     /// snapshot. Reject malformed values instead of silently changing the
     /// host's state at a reconnect boundary.

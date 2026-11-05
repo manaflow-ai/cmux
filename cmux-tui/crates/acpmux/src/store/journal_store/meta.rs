@@ -62,8 +62,9 @@ fn hold_settle(id: &str) {
 }
 
 /// One chat folder: its file id and birth time (0 where the file system has none). A folder
-/// renamed away and back keeps it; another folder made under the same path does not.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// renamed away and back keeps it; another folder made under the same path does not. A repair
+/// file keeps it too (`journal_store/repair.rs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub(super) struct FolderId {
     ino: u64,
     birth_ns: u64,
@@ -89,7 +90,7 @@ fn nanos(at: std::io::Result<std::time::SystemTime>) -> u64 {
 }
 
 /// The identity of the folder at `dir`; `None` when there is none.
-fn folder_id(dir: &Path) -> std::io::Result<Option<FolderId>> {
+pub(super) fn folder_id(dir: &Path) -> std::io::Result<Option<FolderId>> {
     match std::fs::symlink_metadata(dir) {
         Ok(meta) => Ok(Some(FolderId { ino: file_id(&meta), birth_ns: nanos(meta.created()) })),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
