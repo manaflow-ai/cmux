@@ -249,6 +249,18 @@ jobs:
 
       # Content-addressed and write-once; the second call reads the object back
       # and checks its sha256 (an identical object is accepted, any other refused).
+      # Before publishing, so a failed upload still leaves the signed helper here.
+      - name: Upload the pin and the signed helper
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cua-helper-dev-signed
+          path: |
+            ${{ runner.temp }}/signed/cua-helper-dev.pin.json
+            ${{ runner.temp }}/signed/cmux-computer-use-dev-macos-arm64.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
       # CMUX_CEF_R2_ACCESS_KEY_ID is the cmux-cef-read token (403 on a write,
       # run 42028170328); the release environment's CMUX_CEF_R2_WRITE_* is the
       # cmux-cef-write token (Object Read & Write, bucket cmux-cef only).
@@ -273,17 +285,6 @@ jobs:
               --content-type application/zip --cache-control 'private, max-age=31536000, immutable' \
               --write-once
           done
-
-      - name: Upload the pin and the signed helper
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cua-helper-dev-signed
-          path: |
-            ${{ runner.temp }}/signed/cua-helper-dev.pin.json
-            ${{ runner.temp }}/signed/cmux-computer-use-dev-macos-arm64.zip
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 14
 
   pin-pr:
     name: Open the pin bump
