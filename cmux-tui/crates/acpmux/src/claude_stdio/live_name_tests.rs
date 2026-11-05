@@ -6,7 +6,7 @@
 use super::*;
 
 /// A translator whose Claude Code lists `/rename` among its commands, as 2.1.310's `initialize` does.
-async fn translator() -> Translator {
+async fn translator() -> Arc<Translator> {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     *t.slash_commands.lock().await = vec![json!({"name": "compact"}), json!({"name": "rename"})];
     t
