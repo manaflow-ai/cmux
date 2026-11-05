@@ -4,7 +4,7 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use cmux_link::dial::Service;
 use cmux_link::keyset::Keyset;
-use cmux_link::native_token::receiver::Owner;
+use cmux_link::native_token::receiver::{Owner, Refresh};
 use cmux_link::native_token::{NativeBinding, NativePeer, NativePolicy, ReceiverTime};
 use cmux_link::token::{Expected, TokenVerifier};
 use serde_json::Value;
@@ -71,7 +71,7 @@ fn leased() -> (Owner, Arc<Mutex<Instant>>) {
     (owner, now)
 }
 
-fn renewal(owner: &Owner) -> cmux_link::native_token::receiver::Refresh {
+fn renewal(owner: &Owner) -> Refresh {
     let mut read = owner.begin().unwrap();
     read.retain_installed();
     read
@@ -143,9 +143,20 @@ fn a_superseded_renewal_cannot_install_late_and_keeps_the_lease() {
     let late = owner.install(
         detached,
         keys(),
-        cmux_link::native_token::NativePolicy { checked_at_ms: NOW + 1_000, ..policy(start) },
+        NativePolicy { checked_at_ms: NOW + 1_000, ..policy(start) },
         ReceiverTime { unix_ms: NOW + 1_000, monotonic: start },
     );
     assert!(late.is_err(), "a detached renewal installed a policy the receiver never got");
     assert!(stream.deadline().is_some());
+}
+
+#[test]
+fn a_rejected_renewal_reply_closes_at_once() {
+    let (owner, _) = leased();
+    let stream = owner.verifier().verify(&token(), &expected()).unwrap().lease.unwrap();
+    // An authenticated reply that fails validation is not a transport
+    // failure: it must not leave the old peers authorized.
+    assert!(owner.reject(renewal(&owner)));
+    assert!(stream.deadline().is_none(), "a rejected snapshot kept an old stream");
+    assert!(owner.verifier().verify(&token(), &expected()).is_err());
 }

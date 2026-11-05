@@ -153,10 +153,16 @@ impl ReceiverSnapshot {
     /// Atomically publish one validated snapshot, retaining the owner's replay
     /// state. Errors or cancellation retire only this read's current intent.
     pub fn install(&self, owner: &Owner, refresh: Refresh, now: Instant) -> Result<(), String> {
+        // A snapshot that cannot install is rejected, never a transport
+        // failure: a retained renewal must not keep the old lease over it.
         if self.started > refresh.started() {
+            owner.reject(refresh);
             return Err(UNAVAILABLE.into());
         }
-        let time = self.time(now).ok_or(UNAVAILABLE)?;
+        let Some(time) = self.time(now) else {
+            owner.reject(refresh);
+            return Err(UNAVAILABLE.into());
+        };
         owner
             .install(refresh, self.keys.clone(), self.native_policy(), time)
             .map_err(|_| UNAVAILABLE.into())

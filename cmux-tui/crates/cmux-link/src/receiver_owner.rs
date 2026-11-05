@@ -335,6 +335,14 @@ impl Owner {
         Ok(())
     }
 
+    /// The read returned a reply that failed validation: close at once,
+    /// whatever lease the installed policy has left. Only a transport
+    /// failure (no reply, timeout) may keep a retained lease.
+    pub fn reject(&self, mut refresh: Refresh) -> bool {
+        refresh.retain = false;
+        self.fail(refresh)
+    }
+
     pub fn fail(&self, mut refresh: Refresh) -> bool {
         let applied = cancel(&self.verifier, &refresh);
         refresh.done = true;

@@ -117,12 +117,20 @@ impl AgentReceiver {
         let mut stream = connect(path, deadline).map_err(|_| UNAVAILABLE)?;
         check_peer(&stream, uid).map_err(|_| UNAVAILABLE)?;
         let bytes = exchange(&mut stream, deadline).map_err(|_| UNAVAILABLE)?;
-        let snapshot = ReceiverSnapshot::from_public_reply_for_refresh(
+        let snapshot = match ReceiverSnapshot::from_public_reply_for_refresh(
             &bytes,
             &self.binding,
             &refresh,
             Instant::now(),
-        )?;
+        ) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                // A reply that fails validation is a rejected snapshot, not
+                // a transport failure: it never keeps a retained lease.
+                self.owner.reject(refresh);
+                return Err(error);
+            }
+        };
         if refresh.elapsed(Instant::now()).ok_or(UNAVAILABLE)? >= budget {
             return Err(UNAVAILABLE.into());
         }
