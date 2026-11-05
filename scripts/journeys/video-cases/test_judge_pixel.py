@@ -1996,13 +1996,13 @@ class ViewWiderThanPaneTests(unittest.TestCase):
 
 
 class HeldSurfaceTests(unittest.TestCase):
-    """m18 (Lead 2026-11-05, STATUS 13889) and m14 held and stale (pixel-perfect, STATUS 13764): the pixels cannot see a HELD
+    """m18 held and stale (Lead 2026-11-05, STATUS 13889; pixel-perfect, STATUS 13764): the pixels cannot see a HELD
     terminal surface when the host paints the terminal's ground beside it (a surface kept at its old size looks like a live
     one padded by its own ground: the drag hold terminalDrag.holdSurface and the S4-OFF key hold pass m14 in pixels while
     the terminal is frozen). The trace's `terminal` rows tell: per sample, the surface layer's rect and the shown
     IOSurface's size. A terminal frame (the film's clock) is `held` when the committed surface's width or height differs
     from its pane's area (its rect less the tab strip's header) by more than 0.5 pt, `stale` when the shown IOSurface
-    differs from the surface's size x scale by more than 1 px; both fail m18 and m14 (m6 does not change). A surface at its
+    differs from the surface's size x scale by more than 1 px; both fail m18 (m6 and m14 do not change). A surface at its
     pane's size with an old grid inside it is not held (only the surface rect and the shown IOSurface count: STATUS 13624).
     An owned row (the frame owner) whose present request waits (host frame pending or ready) is sampled before the window's
     present pass of the same turn: the bounds that turn commits are the next row's when the film's rows say so (the phase
@@ -2025,12 +2025,12 @@ class HeldSurfaceTests(unittest.TestCase):
 
     def test_a_held_surface_fails_while_its_pixels_pass(self):
         held = set(range(MOVE[0] + 1, MOVE[0] + 15))  # the frames that show samples 10-23
-        for contract in ("m18", "m14"):
-            row = self.row("strip-held", contract)
-            self.assertEqual(jp_frames(row["held_ranges"]), held, (contract, row))
-            self.assertLessEqual(held, jp_frames(row["fail_ranges"]), (contract, row))
-            self.assertEqual(row["held_worst_pt"], 14.0, contract)  # 28 device px at scale 2: the growth it missed
+        row = self.row("strip-held")
+        self.assertEqual(jp_frames(row["held_ranges"]), held, row)
+        self.assertLessEqual(held, jp_frames(row["fail_ranges"]), row)
+        self.assertEqual(row["held_worst_pt"], 14.0)  # 28 device px at scale 2: the growth it missed
         self.assertEqual(self.reports["strip-held"]["m6"]["kinds"]["terminal"]["fail"], 0)  # the pixels pass (padded)
+        self.assertEqual(self.row("strip-held", "m14")["fail"], 0)  # m14 stays the pixel contract of the m14 tables
 
     def test_a_stale_iosurface_fails(self):
         stale = set(range(MOVE[0] + 5, MOVE[0] + 9))  # the frames that show samples 14-17

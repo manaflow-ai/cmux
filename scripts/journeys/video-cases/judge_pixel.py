@@ -67,6 +67,14 @@ m14 (cmux-ad m14, Lead 2026-11-05): from the same edges as the m6 check, per kin
 the first class of scaled (E5, or all three rings narrower by one scale: squeezed), gap (E4), edge (E2, E3, page early 1),
 allowed (m6 late: the previous size, anchored top-left, clipped), page_late (m6 page late 1), pass (`m14` in the JSON,
 information lines here; the verdict is judge_m14.py's). Per kind also the worst edge offset from its pane edge.
+m18 (cmux-ad m18, Lead 2026-11-05, STATUS 13889; `m18` in the JSON, judge_m14.py's default verdict): m14 with its terminal
+and page rules replaced. Terminals: m14's pixel classes, a grid its view cuts while its pane grows too (no grid once per
+gesture), and from the trace's `terminal` rows (judge_surfaces) held (the committed surface not its pane's area by more
+than 0.5 pt) and stale (the shown IOSurface not the surface's size x scale by more than 1 px; not judged with stale=False);
+an owned row whose present request waits is read with the next row when the film's moving samples fit that phase. A
+terminal's program grid that lags its view on the hi side (the alternate screen is not re-wrapped) is named
+(program_grid_lag), not failed. Pages (and agents): never past their pane edge (protrude), and on a frame at most 2
+refreshes old (lag_1_2, a pass), else lag.
 Motions (an edge of the trace that moves, then rests 3 samples): settle_frames (from the first frame that shows the
 landed sample until the content is within 1 px of it for good) and, for a spring input with a declared spring, the
 trace and the film against that spring's step response (omega0 = 2 pi / response; t0 fitted). A motion is input-driven
@@ -107,6 +115,10 @@ SHELL_TOL = 4               # an exact shell pixel: every channel this close to 
 CUE_WIDEN_PT = 40.0         # the cue counts this far from a divider's rect (it trails the divider in a fast drag)
 GLOW_HALF_PT = 4.0          # 3e.7: a pressed divider's glow band, each side of its line (DividerGlowBand: 1 pt of the
                             # 2 pt core and the 3 pt halo)
+SURFACE_TOL_PT = 0.5        # m18/m14 held: a terminal surface's width or height this far from its pane's area (points)
+STALE_TOL_PX = 1.0          # m18/m14 stale: the shown IOSurface this far from the surface's size x scale (device px)
+PRE_COMMIT_HOST = ("pending", "ready")  # an owned terminal row whose present request waits (its host frame)
+PAGE_LAG_REFRESHES = 2      # m18: a page may show its last frame for at most this many refreshes
 PILL_TOL = 6                # a strip pixel this far (max channel) from the strip's ground is not ground: the pill, text
 PILL_BRIDGE = 2             # ground gaps this narrow inside a run (between glyphs) are bridged
 PILL_MIN_PX = 12            # the selected tab's pill: the longest run of non-ground pixels, at least this long
@@ -204,6 +216,13 @@ class Film:
                                                                    if isinstance(r, list) and len(r) >= 5])
                           for x in trace.get("samples") or [] if isinstance(x, dict)), key=lambda e: e[0])
         self.closing_rows = [rows for _, rows in closing] if len(closing) == len(self.samples) else [[] for _ in self.samples]
+        # Terminal surfaces per sample (TerminalSurfaceView+MotionSample `terminal`: [x, y, width, height] of the surface
+        # layer in window points, top-left origin; the shown IOSurface's width and height in device px; render counters;
+        # owned; presenter; host frame), in the samples' order.
+        terms = sorted(((t0 + float(x.get("t", 0.0)) / 1000.0, [r for r in x.get("terminal") or []
+                                                               if isinstance(r, list) and len(r) >= 6])
+                        for x in trace.get("samples") or [] if isinstance(x, dict)), key=lambda e: e[0])
+        self.terminal_rows = [rows for _, rows in terms] if len(terms) == len(self.samples) else [[] for _ in self.samples]
         frame = self.note.get("window_frame") or ((meta.get("window") or {}).get("frame"))
         self.window_x = float(frame[0]) if frame else None
         self.strip_rows = {str(k): int(v) for k, v in ((self.note.get("lines") or {}).get("strip_rows") or {}).items()}
@@ -496,6 +515,7 @@ def walk_side(codes, start, step, kind, roles, fill, skip_px, stop=None):
             "clip_edge": (boundary(pos) if 0 <= pos < L else None) if clipped else None}
 
 
+GROUND_MERGED = "its ground strip runs on into a neighbour's ground"
 TOUCH_NOT_JUDGED = ("its ground strip runs on into another pane's ground past its own edge (two grounds of one color: "
                     "the edge between them is not in the pixels)")
 
@@ -547,7 +567,7 @@ def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip, stop=None)
         if w["clipped"]:
             return touched(w)  # 3e.2: the nearest walk to the pane edge reaches the window's edge before its rings end
         if w["found"] >= 2 and w["merged"]:
-            return {"status": "not found", "why": "its ground strip runs on into a neighbour's ground"}
+            return {"status": "not found", "why": GROUND_MERGED}
         if w["found"] >= 2:
             return touched(w) or dict(w, status="found")
         if w["cue_px"] > 0:
@@ -1247,7 +1267,7 @@ def hold_repeats(clock, held):
     return out
 
 
-def judge(base, all_frames=False):
+def judge(base, all_frames=False, stale=True):
     film = Film(base)
     report = {"case": film.name, "base": str(film.base), "scale": film.scale, "period_ms": round(film.period * 1000, 3),
               "frames": film.n, "rows": film.rows, "columns": film.cols, "notes": [], "findings": [], "info": [],
@@ -1275,6 +1295,9 @@ def judge(base, all_frames=False):
     # reads and judges it so. The fixed clock is not held: E7 (late as a whole) reads it, and so do the late repeats.
     repeats = find_repeats(film, fixed, shown)
     report["repeats"] = repeats["report"]
+    # The trace check (judge_surfaces) reads each frame's own commit: a repeat's held sample would carry a held or stale
+    # surface of one tick over every frame that repeats it (at rest every frame repeats the one before).
+    clock_shown = list(shown)
     if offset or repeats["held"]:
         shown = hold_repeats(shown, repeats["held"])
         measured, inside, line_codes = measure_lines(film, lines, shown)
@@ -1414,8 +1437,10 @@ def judge(base, all_frames=False):
     judge_divider_rects(film, dividers, summary)
     strips = judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes, strip_x, strip_y, fixed)
     judge_page_windows(film, shown, measured, summary, add_frame)
-    report["m6"] = judge_m6(film, shown, measured, side_rest, strips, repeats["late"])
+    surfaces = judge_surfaces(film, clock_shown, stale)  # m18 terminals from the trace: held and stale
+    report["m6"] = judge_m6(film, shown, measured, side_rest, strips, repeats["late"], surfaces)
     report["m14"] = report["m6"].pop("m14")  # cmux-ad m14: the same edges, m6's allowances failed (judge_m14.py)
+    report["m18"] = report["m6"].pop("m18")  # cmux-ad m18: m14 with its page and terminal rules replaced
     if film.main_pane_source and film.main_pane_source != "note" and film.main_pane[0] > 0:
         report["notes"].append(f"the panes' visible area {film.main_pane} is from {film.main_pane_source}")
     if film.note.get("page_backdrop") is not False and any(i["kind"] == "page" for i in film.panes.values()):
@@ -1427,7 +1452,7 @@ def judge(base, all_frames=False):
     report["findings"], report["info"] = findings_of(report)
     m6_findings, m6_info = m6_findings_of(report["m6"])
     report["findings"] += m6_findings
-    report["info"] += m6_info + m14_info_of(report["m14"])
+    report["info"] += m6_info + m14_info_of(report["m14"]) + m14_info_of(report["m18"], "m18", M18_FAIL_CLASSES)
     report["info"].insert(0, {"check": "clock", "where": "film", "detail": f"offset {offset:+d} ({clock['status']}): "
                                                                           f"{clock['why']}"})
     if "page_window_offset" in clock:
@@ -1553,7 +1578,100 @@ M6_RULES = ("E2", "E3", "E4", "E5", "page early 1")
 # cmux-ad m14 (Lead 2026-11-05): a frame of a kind takes the first class that applies; every class but pass fails.
 M14_FAIL_CLASSES = ("scaled", "gap", "edge", "allowed", "page_late")
 M14_ORDER = M14_FAIL_CLASSES + ("pass", "not judged")
+# m18 (Lead 2026-11-05, STATUS 13889): replaces m14's terminal and page rules where they differ. held and stale come from
+# the trace (judge_surfaces; m14 stays the pixel contract of the m14 tables). lag_ok (a page on the frame of at most
+# PAGE_LAG_REFRESHES refreshes before) passes; it is counted (lag_1_2).
+M18_FAIL_CLASSES = ("held", "stale", "scaled", "protrude", "gap", "edge", "allowed", "lag")
+M18_ORDER = M18_FAIL_CLASSES + ("lag_ok", "pass", "not judged")
 M14_OF_M6 = {"pass": "pass", "late": "allowed", "page late 1": "page_late", "not judged": "not judged"}
+
+
+def _surface_matches(film):
+    """Per trace sample, {terminal pane id: its trace row}: each `terminal` row matched one to one to the terminal pane its
+    rect overlaps most (a held surface can reach into a neighbour; the larger overlap wins)."""
+    tui = [pid for pid, info in film.panes.items() if info["kind"] == "tui" and not info["agent"]]
+    out = []
+    for k, smp in enumerate(film.samples):
+        rows, pairs = film.terminal_rows[k], []
+        for i, r in enumerate(rows):
+            x, y, w, h = (float(v) for v in r[:4])
+            for pid in tui:
+                p = smp.panes.get(pid)
+                if p is None or len(p) < 5:
+                    continue
+                px, py, pw, ph = (float(v) for v in p[1:5])
+                area = max(0.0, min(x + w, px + pw) - max(x, px)) * max(0.0, min(y + h, py + ph) - max(y, py))
+                if area > 0:
+                    pairs.append((area, i, pid))
+        used, matched = set(), {}
+        for _, i, pid in sorted(pairs, key=lambda e: -e[0]):
+            if i not in used and pid not in matched:
+                used.add(i)
+                matched[pid] = rows[i]
+        out.append((matched, len(rows) - len(used)))
+    return out
+
+
+def _pre_commit(row):
+    """An owned terminal row whose present request waits (host frame pending or ready): the window's present pass of the
+    same turn may take new bounds after the trace's sampler read the row."""
+    return len(row) >= 15 and row[12] == 1 and row[14] in PRE_COMMIT_HOST
+
+
+def _pane_area(film, pid, pane, row):
+    """(width, height) in points of pane PID's content area in its trace row PANE: its rect less its tab strip's header
+    (the note's chrome; without one, the row's own top inset in the pane)."""
+    py, pw, ph = float(pane[2]), float(pane[3]), float(pane[4])
+    header = film.headers.get(pid)
+    if header is None:
+        header = float(row[1]) - py
+    return pw, ph - header
+
+
+def _size_off(row, area):
+    return max(abs(float(row[2]) - area[0]), abs(float(row[3]) - area[1]))
+
+
+def judge_surfaces(film, shown, stale=True):
+    """m18 terminals from the trace (pixel-perfect's m14_surface.py, STATUS 13764): per film frame (the film's clock SHOWN,
+    its repeats not held: each frame's own commit) and terminal pane, the surface the frame shows against its pane's area. {"frames": {f: {pid: (held pt, stale px
+    or None)}}, "phase", "votes", "unmatched"}. held: the committed surface's width or height off its pane's area (pane
+    rect less its header; points); stale: the shown IOSurface off the surface's size x scale (device px; None when STALE
+    is False, a build whose IOSurface is a render-target capacity, or before the first frame).
+    The committed surface: an owned row whose present request waits is read by the trace's sampler before the window's
+    present pass of the same turn (a run-loop observer just before Core Animation's commit) when the sampler runs after the
+    layout's motion step, and the next row then holds the bounds that turn committed. The two run in one display-link
+    callback, in an order the film does not name; the phase is the one the film's moving samples fit (votes: pre-commit
+    rows of a moving pane on their pane's area in the same sample, and in the next): 1 reads the next row."""
+    matched = _surface_matches(film)
+    votes = [0, 0]
+    for k in range(1, len(matched) - 1):
+        for pid, row in matched[k][0].items():
+            if not _pre_commit(row):
+                continue
+            pane, before = film.samples[k].panes.get(pid), film.samples[k - 1].panes.get(pid)
+            if before is None or max(abs(float(pane[3]) - float(before[3])), abs(float(pane[4]) - float(before[4]))) <= SURFACE_TOL_PT:
+                continue  # the pane rests: both phases read one size
+            area = _pane_area(film, pid, pane, row)
+            votes[0] += _size_off(row, area) <= SURFACE_TOL_PT
+            nxt = matched[k + 1][0].get(pid)
+            votes[1] += nxt is not None and _size_off(nxt, area) <= SURFACE_TOL_PT
+    phase = 1 if votes[1] > votes[0] else 0
+    per_sample = []
+    for k, (rows, _) in enumerate(matched):
+        out = {}
+        for pid, row in rows.items():
+            use = row
+            if phase and _pre_commit(row) and k + 1 < len(matched) and pid in matched[k + 1][0]:
+                use = matched[k + 1][0][pid]
+            area = _pane_area(film, pid, film.samples[k].panes[pid], row)
+            off_px = None
+            if stale and float(use[4]) > 0 and float(use[5]) > 0:
+                off_px = max(abs(float(use[4]) - float(use[2]) * film.scale), abs(float(use[5]) - float(use[3]) * film.scale))
+            out[pid] = (round(_size_off(use, area), 2), None if off_px is None else round(off_px, 1))
+        per_sample.append(out)
+    frames = {f: per_sample[shown[f]] for f in range(film.n) if shown[f] is not None and per_sample[shown[f]]}
+    return {"frames": frames, "phase": phase, "votes": votes, "unmatched": sum(u for _, u in matched), "stale": stale}
 
 
 def m6_kind(info):
@@ -1619,7 +1737,7 @@ def _next_distinct(values):
     return out
 
 
-def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
+def judge_m6(film, shown, measured, side_rest, strips, late_repeats=(), surfaces=None):
     """3e, the judge part of cmux-ad m6 1d (FRAME OWNER): per film frame and content kind (terminal, page, agent), each
     content edge against its pane edge as cmux's own layer shows it in the same film frame (3e.1: never the trace): the
     pane's tab strip on its strip row (x edges) and the strip's top on each scan column that crosses it (the pane's top
@@ -1657,6 +1775,8 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
     clipped_edges = collections.Counter()  # kind -> edges whose rings the window clips (3e.2: a fail, offset a lower bound)
     clipped_grid = collections.Counter()  # kind -> terminal edges the window cuts while the pane grows (not judged)
     m14_frames = {kind: collections.defaultdict(list) for kind in M6_KINDS}  # kind -> frame -> [(class, dev px, edge)]
+    m18_frames = {kind: collections.defaultdict(list) for kind in M6_KINDS}  # the same for m18
+    grid_lag = set()  # m18: frames where a terminal's program grid lags its view on the hi side (information)
     for key, per in sorted(measured.items()):
         if key not in side_rest:
             continue  # a side the pane loop does not judge (no fill on the line at rest)
@@ -1727,18 +1847,25 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
                         if now is not None and before is not None and len(now) >= 5 and len(before) >= 5:
                             wi = 3 if axis == "row" else 4
                             grows = (float(now[wi]) - float(before[wi])) * film.scale >= TOL_PX
-                if m.get("clip_edge") is None or grows:
+                step = 1 if side == "hi" else -1
+                bound = None
+                if m.get("clip_edge") is not None:
+                    pane_edge = cur[si] if cur is not None and cur[si] is not None else m["clip_edge"]
+                    hidden = sum(rings_rest[r] or 0.0 for r, role in enumerate(("ring1", "ring2", "ring3"))
+                                 if role in (m.get("unseen") or ()))
+                    bound = max(TOL_PX, (m["clip_edge"] - pane_edge) * step + hidden)
+                # m18: the text is re-wrapped at every frame's pane size, so a grid its view cuts fails while its pane
+                # grows too (no grid once per gesture); a page past its pane edge protrudes.
+                m18_frames[kind][f].append(("not judged", None, edge_name) if bound is None else
+                                           ("edge" if kind == "terminal" else "protrude", round(float(bound) * step, 2),
+                                            edge_name + " (clipped: offset >=)"))
+                if bound is None or grows:
                     frames[kind][f].append("not judged")
                     edge_counts[kind]["not judged"] += 1
                     m14_frames[kind][f].append(("not judged", None, edge_name))
                     if grows:
                         clipped_grid[kind] += 1
                     continue
-                pane_edge = cur[si] if cur is not None and cur[si] is not None else m["clip_edge"]
-                hidden = sum(rings_rest[r] or 0.0 for r, role in enumerate(("ring1", "ring2", "ring3"))
-                             if role in (m.get("unseen") or ()))
-                step = 1 if side == "hi" else -1
-                bound = max(TOL_PX, (m["clip_edge"] - pane_edge) * step + hidden)
                 rule = "E3" if side == "hi" else "E2"
                 rules[kind][rule] += 1
                 rule_frames[kind][rule].add(f)
@@ -1747,6 +1874,12 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
                 m14_frames[kind][f].append(("edge", round(float(bound) * step, 2), edge_name + " (clipped: offset >=)"))
                 clipped_edges[kind] += 1
                 continue
+            if kind == "terminal" and side == "hi" and m is not None and \
+                    (m.get("status") == "cut" or m.get("why") == GROUND_MERGED):
+                # m18 (pixel-perfect): the alternate screen is not re-wrapped (Ghostty.app's limit), so a program's grid
+                # lags its view by the coalesced PTY size: cut by the renderer's grid in a shrinking pane, a ground run
+                # longer than a cell in a growing one. Not a pixel fail: its frames are named (the view: the trace's held)
+                grid_lag.add(f)
             if m is None or m.get("status") not in ("found", "cut"):
                 continue
             cur, prev, nxt = pane_at(f)
@@ -1783,6 +1916,15 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
             else:
                 m14_class = M14_OF_M6[verdict]
             m14_frames[kind][f].append((m14_class, dev, edge_name))
+            # m18: a terminal as m14; a page (an agent too) never past its pane edge, and at most PAGE_LAG_REFRESHES late
+            if kind == "terminal" or m14_class in ("scaled", "not judged"):
+                m18_class = m14_class
+            elif values[f] is None or cur is None or cur[si] is None or not rest:
+                m18_class = "not judged"  # a shell gap with no edge read: how late the page is does not show
+            else:
+                m18_class = m18_page_class(side, values[f] - offset, cur, [pane_at(g)[0] for g in
+                                                                          range(f - 1, f - 1 - PAGE_LAG_REFRESHES, -1) if g >= 0])
+            m18_frames[kind][f].append((m18_class, dev, edge_name))
     out = {"kinds": {}}
     order = ("fail", "late", "page late 1", "pass")
     for kind in M6_KINDS:
@@ -1806,8 +1948,63 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
     late = sorted(set(f for f, lags in (strips.get("lags_fixed") or {}).items() if lags and all(v == 1 for v in lags))
                   | set(late_repeats))
     out["late_as_a_whole"], out["late_as_a_whole_ranges"] = len(late), ranges(late)
+    surface = surface_rows(film, surfaces, m18_frames)
+    if surface is not None:
+        surface.update(program_grid_lag=len(grid_lag), program_grid_lag_ranges=ranges(grid_lag))
     out["m14"] = m14_rows(m14_frames, touch_edges, touch_frames, out)
+    out["m18"] = contract_rows(m18_frames, M18_FAIL_CLASSES, M18_ORDER, touch_edges, touch_frames, out, surface)
     return out
+
+
+def m18_page_class(side, c, cur, olds):
+    """m18's class of a page's SIDE edge at C (device px, its rest offset taken off) against its pane's edges CUR (lo, hi)
+    in this frame and OLDS, its pane's edges in each of the PAGE_LAG_REFRESHES frames before (nearest first; None where
+    not shown): protrude when past the current pane edge by more than TOL_PX (outward: below lo, above hi), in any frame;
+    pass on it; lag_ok on the edge of one of the frames before (the page shows its last frame, which may be smaller than
+    its pane: on the hi side also that size anchored at the current lo edge and clipped at the current hi edge); else lag
+    (a frame older than that, or a size none of them had)."""
+    lo_i, hi_i = 0, 1
+    si = lo_i if side == "lo" else hi_i
+    d = c - cur[si]
+    if (side == "lo" and d < -TOL_PX) or (side == "hi" and d > TOL_PX):
+        return "protrude"
+    if abs(d) <= TOL_PX:
+        return "pass"
+    for old in olds:
+        if old is None or old[si] is None:
+            continue
+        if abs(c - old[si]) <= TOL_PX:
+            return "lag_ok"
+        if side == "hi" and None not in (old[lo_i], cur[lo_i], cur[hi_i]) and \
+                abs(c - min(cur[lo_i] + (old[hi_i] - old[lo_i]), cur[hi_i])) <= TOL_PX:
+            return "lag_ok"
+    return "lag"
+
+
+def surface_rows(film, surfaces, m18_frames):
+    """Adds each film frame's held and stale terminals (judge_surfaces) to the terminal frames of m18 (a frame with a held
+    or stale terminal fails, whatever its pixels show) and gives the terminal row's surface fields: held and stale
+    (frames, ranges, the worst offset), stale_judged, surface_frames (frames with a terminal row on the film's clock),
+    surface_phase and surface_votes (judge_surfaces), surface_unmatched (rows over no terminal pane). None without
+    SURFACES."""
+    if surfaces is None:
+        return None
+    held, stale, worst_pt, worst_px = set(), set(), 0.0, 0.0
+    for f, per in surfaces["frames"].items():
+        for pid, (off_pt, off_px) in per.items():
+            where = f"{film.panes[pid].get('label') or pid} surface"
+            if off_pt > SURFACE_TOL_PT:
+                held.add(f)
+                worst_pt = max(worst_pt, off_pt)
+                m18_frames["terminal"][f].append(("held", None, where))
+            if off_px is not None and off_px > STALE_TOL_PX:
+                stale.add(f)
+                worst_px = max(worst_px, off_px)
+                m18_frames["terminal"][f].append(("stale", None, where))
+    return {"held": len(held), "held_ranges": ranges(held), "held_worst_pt": worst_pt, "stale": len(stale),
+            "stale_ranges": ranges(stale), "stale_worst_px": worst_px, "stale_judged": bool(surfaces["stale"]),
+            "surface_frames": len(surfaces["frames"]), "surface_phase": surfaces["phase"], "surface_votes": surfaces["votes"],
+            "surface_unmatched": surfaces["unmatched"]}
 
 
 def m14_squeezed(m, rings_rest):
@@ -1824,42 +2021,54 @@ def m14_squeezed(m, rings_rest):
     return rings[0] <= rings_rest[0] * scale + TOL_PX
 
 
-def m14_rows(m14_frames, touch_edges, touch_frames, m6):
-    """cmux-ad m14 per kind, from the edges judge_m6 judged (the same rest offsets and pane edges): frames (with an edge
-    measured), judged (with a judged edge), pass, fail (+ ranges), a count and ranges per fail class, not judged,
-    touch_not_judged (3e.3), and the worst edge offset from its pane edge (device px; its frame and edge). Late as a
-    whole (E7 and 3e.5's repeats: the window presented a whole old frame) is m6's, information, not a content class."""
+def contract_rows(m_frames, fail_classes, order, touch_edges, touch_frames, m6, surface=None):
+    """A contract's rows per kind (m14, m18), from the classes judge_m6 gave each edge (the same rest offsets and pane
+    edges): frames (with an edge measured or a held or stale terminal), judged, pass, fail (+ ranges), a count and ranges
+    per fail class, not judged, touch_not_judged (3e.3), and the worst edge offset from its pane edge (device px; its frame
+    and edge; an allowed lag is not counted). m18 also lag_1_2 (frames a page passes on a frame 1 or 2 refreshes old);
+    the terminal row also its surface fields (surface_rows: held and stale count every frame where the trace check fired).
+    Late as a whole (E7 and 3e.5's repeats: the window presented a whole old frame) is m6's, information, not a class."""
     kinds = {}
     for kind in M6_KINDS:
-        frames = m14_frames[kind]
+        frames = m_frames[kind]
         if not frames:
             continue
         per_frame, worst = {}, (0.0, None, None)
         for f, edges in frames.items():
             classes = {c for c, _, _ in edges}
-            per_frame[f] = next(c for c in M14_ORDER if c in classes)
-            for _, dev, where in edges:
-                if dev is not None and abs(dev) > abs(worst[0]):
+            per_frame[f] = next(c for c in order if c in classes)
+            for c, dev, where in edges:
+                if c != "lag_ok" and dev is not None and abs(dev) > abs(worst[0]):
                     worst = (dev, f, where)
-        by = {c: sorted(f for f, w in per_frame.items() if w == c) for c in M14_ORDER}
-        fail = sorted(f for c in M14_FAIL_CLASSES for f in by[c])
-        kinds[kind] = {"frames": len(per_frame), "judged": len(per_frame) - len(by["not judged"]), "pass": len(by["pass"]),
-                       "fail": len(fail), "fail_ranges": ranges(fail),
-                       **{c: len(by[c]) for c in M14_FAIL_CLASSES}, **{f"{c}_ranges": ranges(by[c]) for c in M14_FAIL_CLASSES},
-                       "not_judged": len(by["not judged"]), "not_judged_ranges": ranges(by["not judged"]),
-                       "touch_not_judged": touch_edges[kind], "touch_not_judged_ranges": ranges(touch_frames[kind]),
-                       "worst_px": abs(worst[0]), "worst_signed_px": worst[0], "worst_frame": worst[1], "worst_edge": worst[2]}
+        by = {c: sorted(f for f, w in per_frame.items() if w == c) for c in order}
+        fail = sorted(f for c in fail_classes for f in by[c])
+        row = {"frames": len(per_frame), "judged": len(per_frame) - len(by["not judged"]),
+               "pass": len(by["pass"]) + len(by.get("lag_ok", ())), "fail": len(fail), "fail_ranges": ranges(fail),
+               **{c: len(by[c]) for c in fail_classes}, **{f"{c}_ranges": ranges(by[c]) for c in fail_classes},
+               "not_judged": len(by["not judged"]), "not_judged_ranges": ranges(by["not judged"]),
+               "touch_not_judged": touch_edges[kind], "touch_not_judged_ranges": ranges(touch_frames[kind]),
+               "worst_px": abs(worst[0]), "worst_signed_px": worst[0], "worst_frame": worst[1], "worst_edge": worst[2]}
+        if "lag_ok" in order:
+            row.update(lag_1_2=len(by["lag_ok"]), lag_1_2_ranges=ranges(by["lag_ok"]))
+        if kind == "terminal" and surface:
+            row.update(surface)
+        kinds[kind] = row
     return {"kinds": kinds, "late_as_a_whole": m6["late_as_a_whole"], "late_as_a_whole_ranges": m6["late_as_a_whole_ranges"]}
 
 
-def m14_info_of(m14):
-    """Information lines of the m14 contract per kind (never a defect: the judge's exit stays m6's; judge_m14.py gives the
-    m14 verdict)."""
+def m14_rows(m14_frames, touch_edges, touch_frames, m6, surface=None):
+    """cmux-ad m14 per kind (contract_rows with M14_FAIL_CLASSES)."""
+    return contract_rows(m14_frames, M14_FAIL_CLASSES, M14_ORDER, touch_edges, touch_frames, m6, surface)
+
+
+def m14_info_of(m14, contract="m14", classes=M14_FAIL_CLASSES):
+    """Information lines of the m14 (or m18) contract per kind (never a defect: the judge's exit stays m6's; judge_m14.py
+    gives the contract's verdict)."""
     info = []
     for kind, row in (m14.get("kinds") or {}).items():
-        classes = ", ".join(f"{c} {row[c]}" for c in M14_FAIL_CLASSES if row[c])
-        info.append({"check": "m14 contract", "where": f"{kind} content",
-                     "detail": f"{row['fail']} of {row['judged']} judged frames fail" + (f" ({classes}; frames {row['fail_ranges']})"
+        by = ", ".join(f"{c} {row[c]}" for c in classes if row[c])
+        info.append({"check": f"{contract} contract", "where": f"{kind} content",
+                     "detail": f"{row['fail']} of {row['judged']} judged frames fail" + (f" ({by}; frames {row['fail_ranges']})"
                                                                                       if row["fail"] else "")
                                + f"; worst edge {row['worst_px']:g} px" + (f" (frame {row['worst_frame']}, {row['worst_edge']})"
                                                                            if row["worst_frame"] is not None else "")
