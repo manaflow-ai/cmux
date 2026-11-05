@@ -508,6 +508,12 @@ button.cv-thumb:focus-visible {
   width: 100%;
   margin: 0;
 }
+/* A shown image in a row keeps its own shape inside its share, centred over its caption: never a
+   frame as wide as the share with the image capped inside it. */
+.cv-thumbs.is-row button.cv-thumb--sized {
+  width: min(100%, calc(var(--thumb-w) * 1px), calc(360px * var(--thumb-w) / var(--thumb-h)));
+  align-self: center;
+}
 .cv-thumbs__item {
   display: flex;
   flex-direction: column;

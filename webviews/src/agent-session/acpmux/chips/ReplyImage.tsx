@@ -181,9 +181,7 @@ export function OpenableImage({
       draggable
       title={alt || t("image.view")}
       style={
-        thumb && natural
-          ? ({ "--thumb-w": natural.width, "--thumb-h": natural.height } as CSSProperties)
-          : undefined
+        thumb && natural ? ({ "--thumb-w": natural.width, "--thumb-h": natural.height } as CSSProperties) : undefined
       }
       onClick={() => openImage(src, alt, path)}
     >
