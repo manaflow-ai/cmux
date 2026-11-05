@@ -55,6 +55,11 @@ use crate::mux::AgentState;
 use crate::resource::{ResourceError, TerminalPublicId};
 use crate::state::agent_message_store::{self as messages, AgentMessageFilter};
 
+/// The setting that turns idle wakes off (Settings > Agents > Agent Messages;
+/// schemas/settings/source/agent-messages.json). A wait with a poller is a
+/// wake hook's; prompt hooks (no poller) hand messages over either way.
+pub(crate) const WAKE_SETTING: &str = "agents.messages.claudeWake";
+
 /// How long a claim keeps its messages from other claimers.
 pub(crate) const LEASE: Duration = Duration::from_secs(30);
 /// The longest one wait may block; a hook re-arms after it.
@@ -457,6 +462,16 @@ impl Mux {
         let recipient = terminal.as_str();
         let waits = self.agent_message_waits();
         let fences = self.agent_hook_fences.lock().unwrap_or_else(PoisonError::into_inner);
+        // The effective setting, read from the settings owner inside this
+        // section (fences, then the settings store; a settings change takes
+        // the store, then only the waits' leaf state to wake them). Managed
+        // (MDM, team) values outrank the person's file, so a policy that
+        // forces it off holds whatever the file says. Absent: on.
+        if request.poller.is_some()
+            && self.effective_setting(WAKE_SETTING).and_then(|value| value.as_bool()) == Some(false)
+        {
+            return Ok(Attempt::Answer(json!({"status":"disabled","reason":"setting_off"})));
+        }
         let fence = fences.get(terminal);
         if let Some(session) = request.agent_session_id.as_deref()
             && fence.is_none_or(|fence| fence.session_id != session)

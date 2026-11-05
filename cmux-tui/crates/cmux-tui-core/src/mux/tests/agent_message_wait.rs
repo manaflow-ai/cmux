@@ -113,18 +113,24 @@ fn until(what: &str, done: impl Fn() -> bool) {
 fn an_idle_wake_wakes_on_the_send_and_claims_it() {
     let mux = test_mux();
     let (_, terminal) = terminal_of(&mux);
-    let waiter = {
+    // The wait's own deadline is far past the test's bounded receive below, so
+    // an answer within it can only come from the send waking the wait.
+    let (answered, answer_rx) = std::sync::mpsc::sync_channel(1);
+    {
         let (mux, terminal) = (mux.clone(), terminal.clone());
-        std::thread::spawn(move || wait(&mux, &waiting(&terminal, "p1", true, 60_000)))
-    };
+        std::thread::spawn(move || {
+            let _ = answered.send(wait(&mux, &waiting(&terminal, "p1", true, 600_000)));
+        });
+    }
     until("the wait did not subscribe", || {
         mux.agent_message_waits().waiter_count_for_test(&terminal) == 1
     });
+    // Nothing is queued: the subscribed wait has no answer before the send.
+    assert!(answer_rx.try_recv().is_err(), "the wait answered with nothing queued");
     let id = send(&mux, "send-1", &terminal, "rebase when free");
-    let started = Instant::now();
-    let answer = waiter.join().unwrap();
-    assert!(started.elapsed() < Duration::from_secs(5), "the send did not wake the wait");
-    assert_eq!(claimed_ids(&answer), [id.clone()]);
+    let answer =
+        answer_rx.recv_timeout(Duration::from_secs(60)).expect("the send did not wake the wait");
+    assert_eq!(claimed_ids(&answer), std::slice::from_ref(&id));
     // A claim is not a delivery: it stays queued until the hook marks it.
     assert_eq!(state_of(&mux, &terminal, &id), "queued");
 }
@@ -137,14 +143,14 @@ fn a_prompt_claim_and_a_wake_claim_never_take_the_same_message() {
     let (_, terminal) = terminal_of(&mux);
     let first = send(&mux, "send-1", &terminal, "one");
     let prompt = wait(&mux, &once(&terminal));
-    assert_eq!(claimed_ids(&prompt), [first.clone()]);
+    assert_eq!(claimed_ids(&prompt), std::slice::from_ref(&first));
     // The wake hook finds nothing free while the prompt's claim is out.
     let wake = wait(&mux, &waiting(&terminal, "p1", true, 0));
     assert_eq!(wake["status"], "timeout", "{wake}");
     let second = send(&mux, "send-2", &terminal, "two");
     let wake = wait(&mux, &waiting(&terminal, "p1", false, 0));
     assert_eq!(claimed_ids(&wake), [second]);
-    mark_delivered(&mux, "mark-1", &terminal, &[first.clone()]);
+    mark_delivered(&mux, "mark-1", &terminal, std::slice::from_ref(&first));
     assert_eq!(state_of(&mux, &terminal, &first), "delivered");
     // Marking ends the prompt's claim; the wake's is still out.
     assert_eq!(mux.agent_message_waits().lease_count_for_test(&terminal), 1);
@@ -160,7 +166,10 @@ fn a_wait_holds_while_the_agent_waits_on_the_person_and_resumes_after() {
     mux.report_agent(surface, AgentState::Working, AgentSource::Hook, Some("hook-session".into()))
         .unwrap();
     let id = send(&mux, "send-1", &terminal, "busy is fine");
-    assert_eq!(claimed_ids(&wait(&mux, &waiting(&terminal, "p1", true, 0))), [id.clone()]);
+    assert_eq!(
+        claimed_ids(&wait(&mux, &waiting(&terminal, "p1", true, 0))),
+        std::slice::from_ref(&id)
+    );
     mark_delivered(&mux, "mark-1", &terminal, &[id]);
 
     mux.report_agent(surface, AgentState::Blocked, AgentSource::Hook, Some("hook-session".into()))
@@ -171,7 +180,7 @@ fn a_wait_holds_while_the_agent_waits_on_the_person_and_resumes_after() {
     assert_eq!(answer["held"], "waiting_on_person", "{answer}");
     // The person submitting a prompt is not the hold: their prompt carries it.
     let prompt = AgentMessageWait { respect_hold: false, ..once(&terminal) };
-    assert_eq!(claimed_ids(&wait(&mux, &prompt)), [held.clone()]);
+    assert_eq!(claimed_ids(&wait(&mux, &prompt)), std::slice::from_ref(&held));
     mux.agent_message_waits().release(&terminal, &[held]);
 
     let waiter = {
@@ -217,11 +226,14 @@ fn a_re_arming_poller_takes_a_vacant_place_after_a_restart() {
     let (_, terminal) = terminal_of(&mux);
     let id = send(&mux, "send-1", &terminal, "survives");
     // Before the restart: a claim is out to the poller.
-    assert_eq!(claimed_ids(&wait(&mux, &waiting(&terminal, "p1", true, 0))), [id.clone()]);
+    assert_eq!(
+        claimed_ids(&wait(&mux, &waiting(&terminal, "p1", true, 0))),
+        std::slice::from_ref(&id)
+    );
     // The restart: the daemon's memory of pollers and leases is gone.
     mux.agent_message_waits().forget_recipient(&terminal);
     let answer = wait(&mux, &waiting(&terminal, "p1", false, 0));
-    assert_eq!(claimed_ids(&answer), [id.clone()]);
+    assert_eq!(claimed_ids(&answer), std::slice::from_ref(&id));
     assert_eq!(state_of(&mux, &terminal, &id), "queued");
 }
 
@@ -232,10 +244,10 @@ fn a_lapsed_claim_offers_its_messages_again() {
     let mux = test_mux();
     let (_, terminal) = terminal_of(&mux);
     let id = send(&mux, "send-1", &terminal, "not lost");
-    assert_eq!(claimed_ids(&wait(&mux, &once(&terminal))), [id.clone()]);
+    assert_eq!(claimed_ids(&wait(&mux, &once(&terminal))), std::slice::from_ref(&id));
     assert_eq!(wait(&mux, &once(&terminal))["status"], "timeout");
     mux.agent_message_waits().expire_for_test(&terminal);
-    assert_eq!(claimed_ids(&wait(&mux, &once(&terminal))), [id.clone()]);
+    assert_eq!(claimed_ids(&wait(&mux, &once(&terminal))), std::slice::from_ref(&id));
     assert_eq!(state_of(&mux, &terminal, &id), "queued");
 }
 
@@ -243,7 +255,7 @@ fn fence(mux: &Arc<Mux>, terminal: &str, session: &str, ended: bool) {
     let terminal_id = TerminalPublicId::parse(terminal).unwrap();
     mux.agent_hook_fences.lock().unwrap().insert(
         terminal_id,
-        crate::journal_reducers::HookFence {
+        HookFence {
             session_id: session.into(),
             sequence: 7,
             ended,
@@ -486,4 +498,75 @@ fn a_fence_or_hold_change_cannot_commit_between_a_claims_checks_and_its_lease() 
         (Some("stale"), Some("session_replaced"))
     );
     assert_eq!(claimed_ids(&wait(&mux, &bound(waiting(&terminal, "p2", true, 0), "s2"))), [second]);
+}
+
+/// A mux whose settings owner reads `file` (None: no file) with `forced` as
+/// the MDM profile's forced values.
+fn with_settings(
+    file: Option<&str>,
+    forced: &[(&str, Value)],
+) -> (Arc<Mux>, cmux_unix_socket::TestDir) {
+    let dir = cmux_unix_socket::short_test_dir("amw-settings");
+    let config = dir.path().join("cmux-next.json");
+    if let Some(text) = file {
+        std::fs::write(&config, text).unwrap();
+    }
+    let mut managed = cmux_config::managed::ManagedPreferences::default();
+    for (key, value) in forced {
+        managed.forced.insert((*key).to_owned(), value.clone());
+    }
+    let mux = test_mux();
+    assert!(mux.start_settings_owner(crate::mux::settings::SettingsPaths {
+        config,
+        seed: None,
+        state_dir: None,
+        reader: Box::new(cmux_config::managed::FixedManagedReader(managed)),
+        watch: false,
+    }));
+    (mux, dir)
+}
+
+/// Review P1 (settings): the wake follows the effective setting the daemon's
+/// settings owner merges, so an MDM profile that forces it off holds against
+/// the person's file saying on and against no file at all. Off, a wake hook's
+/// wait answers disabled and claims nothing; the prompt hook still claims.
+#[test]
+fn a_wake_follows_the_effective_setting_and_a_forced_off_beats_the_users_file() {
+    let off = json!(false);
+    let user_on = r#"{"agents": {"messages": {"claudeWake": true}}}"#;
+    let user_off = r#"{"agents": {"messages": {"claudeWake": false}}}"#;
+    for (file, forced, enabled) in [
+        (None, vec![], true),
+        (Some(user_on), vec![], true),
+        (Some(user_off), vec![], false),
+        (Some(user_on), vec![("agents.messages.claudeWake", off.clone())], false),
+        (None, vec![("agents.messages.claudeWake", off.clone())], false),
+    ] {
+        let (mux, _dir) = with_settings(file, &forced);
+        let (_, terminal) = terminal_of(&mux);
+        let id = send(&mux, "send-1", &terminal, "hi");
+        let answer = wait(&mux, &waiting(&terminal, "p1", true, 0));
+        if enabled {
+            assert_eq!(claimed_ids(&answer), std::slice::from_ref(&id), "{file:?} {forced:?}");
+        } else {
+            assert_eq!(answer["status"], "disabled", "{file:?} {forced:?}: {answer}");
+            assert_eq!(mux.agent_message_waits().lease_count_for_test(&terminal), 0);
+            assert!(!mux.agent_message_waits().is_current_poller(&terminal, "p1"));
+            // The person's next prompt carries it either way.
+            assert_eq!(claimed_ids(&wait(&mux, &once(&terminal))), std::slice::from_ref(&id));
+        }
+    }
+}
+
+/// The daemon reads the key and default the settings source declares.
+#[test]
+fn the_wake_setting_matches_its_settings_source() {
+    let source: Value = serde_json::from_str(include_str!(
+        "../../../../../../schemas/settings/source/agent-messages.json"
+    ))
+    .unwrap();
+    let row = &source["lists"][0]["rows"][0];
+    assert_eq!(row["key"], crate::mux::agent_message_wait::WAKE_SETTING);
+    assert_eq!(row["kind"], "toggle");
+    assert_eq!(row["default"], true, "an absent key must mean on");
 }

@@ -187,27 +187,6 @@ fn claude_owns_terminal(getenv: impl Fn(&str) -> Option<std::ffi::OsString>) -> 
 /// wrapper execs Claude, so they share it) and whether it runs headless.
 pub(super) const CLAUDE_PID_ENV: &str = "CMUX_TUI_CLAUDE_PID";
 pub(super) const CLAUDE_HEADLESS_ENV: &str = "CMUX_TUI_CLAUDE_HEADLESS";
-/// The setting that turns the idle wake off (Settings > Agents > Agent Messages;
-/// schemas/settings/source/agent-messages.json). Prompt hooks hand messages over either way.
-pub(super) const CLAUDE_WAKE_SETTING: &str = "agents.messages.claudeWake";
-
-/// Whether the settings file leaves Claude's idle wake on. No file, or no
-/// key, is the default (on); a file that cannot be read or parsed turns it
-/// off: a wake starts turns, so it never runs on a guess.
-fn claude_wake_enabled(getenv: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> bool {
-    let path = cmux_config::location::config_path_from(getenv);
-    let text = match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return true,
-        Err(_) => return false,
-    };
-    let Ok(settings) = cmux_config::jsonc::parse(&text) else { return false };
-    let value = CLAUDE_WAKE_SETTING
-        .split('.')
-        .try_fold(&settings, |value, key| value.get(key))
-        .and_then(Value::as_bool);
-    value.unwrap_or(true)
-}
 /// The second argument that runs [`wake`] (`cmux-tui-hook claude inbox-wait`).
 pub(super) const WAKE_MODE: &str = "inbox-wait";
 
@@ -310,10 +289,9 @@ fn wake_with(
     const NOTHING: u8 = 0;
     let getenv = |name: &str| getenv(name).filter(|value| !value.is_empty());
     let text = |name: &str| getenv(name).and_then(|value| value.into_string().ok());
-    if getenv(CLAUDE_PID_ENV).is_none()
-        || !claude_owns_terminal(getenv)
-        || !claude_wake_enabled(&getenv)
-    {
+    // Settings > Agents > Agent Messages is the daemon's to apply (its
+    // effective value, managed layers included): a wait answers `disabled`.
+    if getenv(CLAUDE_PID_ENV).is_none() || !claude_owns_terminal(getenv) {
         return NOTHING;
     }
     let (Some(socket), Some(terminal), Some(pid)) = (
@@ -351,9 +329,6 @@ fn wake_with(
             Ok(Ok(answer)) => {
                 register = false;
                 match answer["status"].as_str() {
-                    // Turned off while it waited: hand nothing over; the
-                    // claim lapses and the next prompt carries the messages.
-                    Some("claimed") if !claude_wake_enabled(&getenv) => return NOTHING,
                     Some("claimed") => return hand_over(&socket, &terminal, &answer, err),
                     Some("timeout") => {
                         unreachable_since = None;
@@ -363,7 +338,9 @@ fn wake_with(
                     // The terminal is not there (yet): a restarted daemon
                     // brings it back; a closed one ends Claude too.
                     Some("gone") => {}
-                    // Superseded, stale or unknown: another hook or nobody.
+                    // Superseded, stale, disabled (the setting is off) or
+                    // unknown: another hook or nobody. A wake that ended
+                    // re-arms at Claude's next start or stop.
                     _ => return NOTHING,
                 }
             }
@@ -594,11 +571,6 @@ mod tests {
         fn requests(&self) -> Vec<Value> {
             self.log.lock().unwrap().clone()
         }
-
-        /// A settings file path beside the socket; it exists only once a test writes it.
-        fn settings_path(&self) -> String {
-            self._dir.path().join("cmux-next.json").to_str().unwrap().to_owned()
-        }
     }
 
     fn ok(result: Value) -> Option<Value> {
@@ -709,12 +681,10 @@ mod tests {
         });
         let parent = std::os::unix::process::parent_id().to_string();
         let socket = daemon.socket.to_str().unwrap().to_owned();
-        let settings = daemon.settings_path();
         let getenv = env(&[
             ("CMUX_TUI_SOCKET", socket.as_str()),
             ("CMUX_TUI_TERMINAL_ID", TERMINAL),
             (CLAUDE_PID_ENV, parent.as_str()),
-            (cmux_config::CONFIG_OVERRIDE, settings.as_str()),
         ]);
         let payload = json!({"hook_event_name": "Stop", "session_id": "s1"});
         let mut err = Vec::new();
@@ -741,67 +711,35 @@ mod tests {
         });
         let parent = std::os::unix::process::parent_id().to_string();
         let socket = daemon.socket.to_str().unwrap().to_owned();
-        let settings = daemon.settings_path();
         let getenv = env(&[
             ("CMUX_TUI_SOCKET", socket.as_str()),
             ("CMUX_TUI_TERMINAL_ID", TERMINAL),
             (CLAUDE_PID_ENV, parent.as_str()),
-            (cmux_config::CONFIG_OVERRIDE, settings.as_str()),
         ]);
         let payload = json!({"hook_event_name": "SessionStart", "session_id": "s1"});
         assert_eq!(wake_with(&getenv, &payload, &mut FailingWriter), 0);
         assert_eq!(daemon.operations(), ["agent.message.wait"]);
     }
 
-    /// The hook reads the key and default the settings source declares.
-    #[test]
-    fn the_wake_setting_matches_its_settings_source() {
-        let source: Value = serde_json::from_str(include_str!(
-            "../../../../../../schemas/settings/source/agent-messages.json"
-        ))
-        .unwrap();
-        let row = &source["lists"][0]["rows"][0];
-        assert_eq!(row["key"], CLAUDE_WAKE_SETTING);
-        assert_eq!(row["kind"], "toggle");
-        assert_eq!(row["default"], true);
-    }
-
-    /// Settings > Agents > Agent Messages off: the wake hook asks the daemon
-    /// for nothing and exits 0. No file is the default (on); a file that
-    /// cannot be parsed keeps the wake off.
+    /// A daemon that answers `disabled` (Settings > Agents > Agent Messages
+    /// is off, managed layers included) ends the wake hook: it hands nothing
+    /// over and asks for nothing more.
     #[cfg(unix)]
     #[test]
-    fn the_wake_setting_turns_the_wake_hook_off() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("cmux-next.json");
-        let path_text = path.to_str().unwrap().to_owned();
-        let getenv = env(&[(cmux_config::CONFIG_OVERRIDE, path_text.as_str())]);
-        assert!(claude_wake_enabled(&getenv), "no settings file is the default");
-        std::fs::write(&path, r#"{"agents": {"messages": {"claudeWake": false}}}"#).unwrap();
-        assert!(!claude_wake_enabled(&getenv));
-        std::fs::write(&path, "// on\n{\"agents\": {\"messages\": {\"claudeWake\": true}}}")
-            .unwrap();
-        assert!(claude_wake_enabled(&getenv));
-        std::fs::write(&path, "{\"agents\": ").unwrap();
-        assert!(!claude_wake_enabled(&getenv), "an unparsable file must not wake");
-
-        let daemon = FakeDaemon::start(|_| ok(json!({"status": "timeout"})));
-        std::fs::write(
-            daemon.settings_path(),
-            r#"{"agents": {"messages": {"claudeWake": false}}}"#,
-        )
-        .unwrap();
+    fn a_disabled_answer_ends_the_wake_hook() {
+        let daemon =
+            FakeDaemon::start(|_| ok(json!({"status": "disabled", "reason": "setting_off"})));
         let parent = std::os::unix::process::parent_id().to_string();
         let socket = daemon.socket.to_str().unwrap().to_owned();
-        let settings = daemon.settings_path();
         let getenv = env(&[
             ("CMUX_TUI_SOCKET", socket.as_str()),
             ("CMUX_TUI_TERMINAL_ID", TERMINAL),
             (CLAUDE_PID_ENV, parent.as_str()),
-            (cmux_config::CONFIG_OVERRIDE, settings.as_str()),
         ]);
         let payload = json!({"hook_event_name": "Stop", "session_id": "s1"});
-        assert_eq!(wake_with(&getenv, &payload, &mut Vec::new()), 0);
-        assert!(daemon.operations().is_empty(), "{:?}", daemon.operations());
+        let mut err = Vec::new();
+        assert_eq!(wake_with(&getenv, &payload, &mut err), 0);
+        assert!(err.is_empty());
+        assert_eq!(daemon.operations(), ["agent.message.wait"]);
     }
 }

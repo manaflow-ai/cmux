@@ -543,8 +543,14 @@ fn request_cancel_and_completion_have_one_atomic_winner() {
     let client = mux.control_clients.register(ClientTransport::Unix, writer);
     for index in 0..128 {
         let request_id = ResourceRequestId::parse(format!("request-race-{index}")).unwrap();
-        let (canceled, worker_permit) =
-            mux.control_clients.install_resource_wait(client, &request_id).unwrap();
+        let (canceled, worker_permit) = mux
+            .control_clients
+            .install_resource_wait_in(
+                client,
+                &request_id,
+                &mux.control_clients.resource_wait_admission,
+            )
+            .unwrap();
         let barrier = Arc::new(std::sync::Barrier::new(2));
         let completion = std::thread::scope(|scope| {
             let completion_barrier = barrier.clone();

@@ -103,6 +103,19 @@ impl Mux {
         let store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         read(store.state())
     }
+
+    /// The effective value at dotted `key` (MDM forced, team enforced, the
+    /// user's file, MDM recommended, team default) from the running settings
+    /// owner. `None` when the key is absent (its product default applies) or
+    /// no owner runs (the daemon starts one at launch; a daemon without one
+    /// applies no settings at all). Never starts the owner.
+    pub(crate) fn effective_setting(&self, key: &str) -> Option<serde_json::Value> {
+        let owner = self.settings.0.get()?;
+        let store = owner.store.lock().unwrap_or_else(|poison| poison.into_inner());
+        key.split('.')
+            .try_fold(&store.state().effective().root, |value, part| value.get(part))
+            .cloned()
+    }
 }
 
 /// The host sizing policy the store now holds, when `changes` touched it.
@@ -121,6 +134,10 @@ fn emit_changes(mux: &Mux, changes: impl IntoIterator<Item = Change>) {
             key == "notifications.agentIdleTimers"
                 || key.starts_with("notifications.agentIdleTimers.")
         });
+        // A wake waiting in agent.message.wait rechecks its setting.
+        if change.keys.iter().any(|key| key.starts_with("agents.messages")) {
+            mux.agent_message_waits().notify_all();
+        }
         mux.emit(MuxEvent::SettingsChanged(change));
     }
     // The idle reminders live in agent_chat_notices, which is unix only.

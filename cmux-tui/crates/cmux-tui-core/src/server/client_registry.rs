@@ -615,16 +615,8 @@ impl ClientRegistry {
         }
     }
 
-    pub(super) fn install_resource_wait(
-        &self,
-        client: u64,
-        request_id: &ResourceRequestId,
-    ) -> Result<(Arc<ResourceWaitCancellation>, ResourceWorkerPermit), ResourceWaitInstallError>
-    {
-        self.install_resource_wait_in(client, request_id, &self.resource_wait_admission)
-    }
-
-    /// [`Self::install_resource_wait`] with the permit taken from `admission`.
+    /// Registers a detached wait of `client` under `request_id`, its worker
+    /// permit taken from `admission` (terminal waits, or agent message waits).
     pub(super) fn install_resource_wait_in(
         &self,
         client: u64,

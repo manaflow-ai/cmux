@@ -2,7 +2,7 @@
 // schemas/settings/source/agent-messages.json. Do not edit; edit the JSON and rerun.
 
 extension AgentMessageSettings {
-    /// `agents.messages.claudeWake`: On: Claude Code in a cmux terminal, started through cmux's claude wrapper, runs a background asyncRewake hook after its start and each turn that waits in the daemon (agent.message.wait) and wakes an idle session with its messages as a system reminder. Off: the hook exits at once; messages wait for the session's next prompt. Read when the hook starts and again before it hands messages over.
+    /// `agents.messages.claudeWake`: On: Claude Code in a cmux terminal, started through cmux's claude wrapper, runs a background asyncRewake hook after its start and each turn that waits in the daemon (agent.message.wait) and wakes an idle session with its messages as a system reminder. Off (the effective value, so an MDM or team value that forces it off wins): the daemon answers the wake hook's wait disabled and the hook exits; messages wait for the session's next prompt. A change wakes waiting hooks to recheck; turned on again, the wake re-arms at Claude's next start or turn end.
     public nonisolated static let claudeWakePath = ["agents", "messages", "claudeWake"]
     public nonisolated static let claudeWakeDefault = true
 }
