@@ -30,5 +30,9 @@ cat >"$tree/agent.plist" <<EOF
 EOF
 # bash runs the A/B, so bash is the responsible process TCC asks about; grant it before it starts.
 bash "$tree/scripts/measure/cu-driver-eval/tcc-grant.sh" /bin/bash
-launchctl bootout "gui/$(id -u)/com.cmux.cu-eval" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$tree/agent.plist"
+# A non-root SSH session may not bootstrap into the gui domain ("125: Domain does not support
+# specified action"); root may, directly or from inside the user's bootstrap namespace.
+uid=$(id -u)
+sudo -n launchctl bootout "gui/$uid/com.cmux.cu-eval" 2>/dev/null || true
+sudo -n launchctl bootstrap "gui/$uid" "$tree/agent.plist" ||
+  sudo -n launchctl asuser "$uid" launchctl bootstrap "gui/$uid" "$tree/agent.plist"

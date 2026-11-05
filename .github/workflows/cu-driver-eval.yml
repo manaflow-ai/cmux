@@ -101,7 +101,8 @@ jobs:
             python3 scripts/measure/cu-driver-eval/eval.py summary "$out/results.json" "$out/summary.md" ${previous[@]+"${previous[@]}"}
             cat "$out/summary.md" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::error title=cu driver eval::no results came back (step ${step:-none}, exit $status)"
+            blocked=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("blocked", ""))' "$out/vm.json" 2>/dev/null || true)
+            echo "::error title=cu driver eval::no results came back (step ${step:-none}, exit $status)${blocked:+: $blocked}"
             # A run with no report is never green, whatever the step's own exit.
             [[ $status == 0 ]] && status=1
           fi
@@ -114,5 +115,7 @@ jobs:
             artifacts/cu-driver-eval/results.json
             artifacts/cu-driver-eval/summary.md
             artifacts/cu-driver-eval/input-ab/trials.jsonl
+            artifacts/cu-driver-eval/vm.json
+            artifacts/cu-driver-eval/eval.log
           if-no-files-found: ignore
           retention-days: 90
