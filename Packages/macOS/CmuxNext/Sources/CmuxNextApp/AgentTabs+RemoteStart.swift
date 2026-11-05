@@ -100,12 +100,12 @@ extension AgentTabStore {
         switch result {
         case .success(let session):
             // The daemon bound the session on its tab (it is the record's writer); this is the view mirror.
-            if record(for: scopedKey) != nil { sessions[scopedKey] = session }
+            if self.record(for: scopedKey) != nil { sessions[scopedKey] = session }
             onRemoteChatStarted?(record.host, session, fallback, harness)
             return .init(surface: surface, session: session)
         case .failure(let error as AgentSessionAttachError):
             // A start whose answer was lost already bound the tab: show that chat.
-            if error.code == "agent_session.bound", let session = record(for: scopedKey)?.record.session {
+            if error.code == "agent_session.bound", let session = self.record(for: scopedKey)?.record.session {
                 onRemoteChatStarted?(record.host, session, fallback, harness)
                 return .init(surface: surface, session: session)
             }

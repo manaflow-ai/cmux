@@ -578,8 +578,8 @@ final class AgentTabStore {
                 guard let self else { return [] }
                 let listed = remoteFoldersScoped?(resolvedKey(tabKey)) ?? remoteFolders?(resolveRemote(key)) ?? []
                 let machine: [String]
-                if let scopedFolders = remoteMachineFoldersScoped?(resolvedKey(tabKey)) {
-                    machine = await scopedFolders
+                if let scopedFolders = remoteMachineFoldersScoped {
+                    machine = await scopedFolders(resolvedKey(tabKey))
                 } else {
                     machine = remoteMachineFolders?(resolveRemote(key)) ?? []
                 }
@@ -589,8 +589,8 @@ final class AgentTabStore {
             }
             model.onShareMachineWithMe = { [weak self] in
                 guard let self, let shareMachineWithMe else { return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine) }
-                if let scopedShare = shareMachineWithMeScoped?(resolvedKey(tabKey)) {
-                    return await scopedShare
+                if let scopedShare = shareMachineWithMeScoped {
+                    return await scopedShare(resolvedKey(tabKey))
                 }
                 return await shareMachineWithMe(resolveRemote(key))
             }

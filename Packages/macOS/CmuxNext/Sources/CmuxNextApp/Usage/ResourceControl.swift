@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextTabs
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextResources
 import CmuxNextWakeups
