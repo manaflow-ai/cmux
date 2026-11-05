@@ -103,7 +103,14 @@ export function useSlidingIndicator(
     element.style.width = `${target.w}px`;
     element.style.height = `${target.h}px`;
     element.style.transform = `translate(${target.x}px, ${target.y}px)`;
-    if (!from || same(from, target) || travel === "none" || motionMode(element.ownerDocument) !== "full") return;
+    if (
+      !from ||
+      same(from, target) ||
+      travel === "none" ||
+      motionMode(element.ownerDocument) !== "full" ||
+      typeof element.animate !== "function"
+    )
+      return;
     const scaleX = target.w > 0 ? from.w / target.w : 1;
     const scaleY = target.h > 0 ? from.h / target.h : 1;
     slide.current = element.animate(

@@ -433,6 +433,7 @@
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
 }
+.acpmux-quick-rail.ui-slide-host > .ui-slide-item[aria-pressed="true"] { background: transparent; }
 .acpmux-quick-rail-add { justify-content: center; color: var(--agent-muted); }
 .acpmux-quick-rail-add-icon {
   display: grid;
@@ -496,6 +497,9 @@
   height: calc(var(--ds-space-1) / 2);
   border-radius: 1px;
   background: var(--agent-accent, var(--agent-text));
+}
+.acpmux-quick-placement-symbols .acpmux-quick-rail.ui-slide-host > .ui-slide-item[aria-pressed="true"]::after {
+  display: none;
 }
 .acpmux-quick-placement-symbols .acpmux-quick-rail-tab {
   justify-content: center;

@@ -10,6 +10,7 @@ import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
+import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
@@ -1108,10 +1109,11 @@ function Columns({
               ref={railList}
               kind="tablist"
               label={t("picker.harness")}
-              className="acpmux-cols-list acpmux-cols-rail"
+              className="acpmux-cols-list acpmux-cols-rail ui-slide-host"
               onScroll={(event) => markFades(event.currentTarget)}
               data-col-focus={col === 0 && railKeys ? "" : undefined}
             >
+              <SlidingIndicator selected={!query && shownTab ? shownTab.key : undefined} look="plate" travel="spring" />
               {tabs.map((entry, index) => {
                 const family = entry === shownTab && shown ? shown : leadRoute(entry, families.current);
                 const selected = !query && entry === shownTab;
@@ -1126,7 +1128,7 @@ function Columns({
                     }
                     // tooltip-allow: the rail tab draws only the family's mark; the title names it.
                     title={family.note ? `${entry.name} · ${family.note}` : entry.name}
-                    className="acpmux-cols-tab"
+                    className="acpmux-cols-tab ui-slide-item"
                     data-hl={selected ? "" : undefined}
                     data-off={family.setUp ? "" : undefined}
                     onPick={() => {

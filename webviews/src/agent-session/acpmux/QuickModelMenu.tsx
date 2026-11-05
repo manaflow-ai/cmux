@@ -26,6 +26,7 @@ import { CHAT_COLUMN } from "./modelPickerLayout";
 import { useOpenSide } from "../../ui/openSide";
 import { OnNewTab } from "./newTabComposer";
 import { useScrollEdges } from "../../ui/scrollEdges";
+import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import {
   Menu,
   MenuButton,
@@ -1363,9 +1364,14 @@ export function QuickModelMenu({
               {/* One harness strip at the chip-facing edge: its position stays put as rows change. */}
               <fieldset
                 ref={railRef}
-                className="acpmux-quick-rail ui-scroll-edge-fade"
+                className="acpmux-quick-rail ui-scroll-edge-fade ui-slide-host"
                 aria-label={t("picker.harness")}
               >
+                <SlidingIndicator
+                  selected={!query && shownTab ? shownTab.key : undefined}
+                  look={placement === "symbols" ? "underline" : "plate"}
+                  travel="spring"
+                />
                 {tabs.map((entry) => {
                   const family = entry === shownTab ? shown! : leadRoute(entry, families.current);
                   const name = entry.name;
@@ -1381,7 +1387,7 @@ export function QuickModelMenu({
                       // name's initial), never a machine or session initial; its accessible name and
                       // title identify the harness.
                       title={family.note ? `${name} · ${family.note}` : name}
-                      className="acpmux-quick-rail-tab"
+                      className="acpmux-quick-rail-tab ui-slide-item"
                       // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
                       tabIndex={-1}
                       onClick={() => {
