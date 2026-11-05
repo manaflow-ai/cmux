@@ -3464,8 +3464,9 @@ jobs:
     # track uses `release-next`, whose policy allows only branch nightly-next.
     environment: ${{ needs.decide.outputs.environment }}
     # The only nightly signer: the Linux release-signer pool is retired (nightlies run on our own minis).
-    # legacy-identity-target too: this job signs the cmux NIGHTLY identity of its own build (the legacy steps below).
-    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, pick-nightly-sign-runner, legacy-identity-target]
+    # Not legacy-identity-target: its feed reads can take its full 65 minutes in a GitHub API outage, and cmux NEXT's
+    # publication waits on this job. The cmux NIGHTLY copy below decides for itself (legacy-target, 10 minutes).
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant, pick-nightly-sign-runner]
     if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
     outputs:
       # nightly-next is arm64 only, so its one matrix leg sets this; publish
@@ -3478,6 +3479,12 @@ jobs:
       # The cmux NIGHTLY identity, signed here (the legacy steps): the same outputs sign-nightly-identity-legacy
       # gives, which the verify, publish and report jobs read from whichever job signed. legacy_ran: this job took it.
       legacy_ran: ${{ steps.legacy-order.outcome == 'success' && 'true' || '' }}
+      # The copy's own decision (legacy-target), read in place of legacy-identity-target's when legacy_ran.
+      legacy_target_action: ${{ steps.legacy-target.outputs.action }}
+      legacy_target_build: ${{ steps.legacy-target.outputs.build }}
+      legacy_target_source_run: ${{ steps.legacy-target.outputs.source_run }}
+      legacy_target_source_sha: ${{ steps.legacy-target.outputs.source_sha }}
+      legacy_target_decided: ${{ steps.legacy-target.outputs.decided }}
       legacy_skip: ${{ steps.legacy-order.outputs.skip }}
       legacy_pending: ${{ steps.legacy-notarize.outputs.submission_pending }}
       legacy_notarize: ${{ steps.legacy-attempt.outputs.notarize }}
@@ -3490,9 +3497,11 @@ jobs:
       legacy_stapled_app_fallback_id: ${{ steps.legacy-notarize.outputs.stapled_app_fallback == 'true' && steps.legacy-notarize.outputs.stapled_app_pending_id || '' }}
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     # actions:read lets the parallel artifact download resolve the blob URL.
+    # issues:read: the copy's legacy-target step counts the failures on the cmux NIGHTLY failure issue.
     permissions:
       contents: read
       actions: read
+      issues: read
     # Secret-bearing signing and notarization stay on the trusted Blacksmith
     # macOS pool; credentials remain in this protected environment and never
     # move through an artifact or worker disk.
@@ -3504,9 +3513,10 @@ jobs:
     # best-effort lane, so it cannot delay the first update users can install.
     # A cx-f58x notary test waits up to 160 minutes for Apple (52c6c12d took
     # over 90) because it has no recovery hand-off.
-    # nightly-next adds the cmux NIGHTLY identity's steps (their own step timeouts, 145 min at most, Apple's two
-    # 15 min waits then pending inside the notarize step's 45) to the 160: a slow copy fails its step, never cmux NEXT's job.
-    timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 235 || needs.decide.outputs.track == 'nightly-next' && 305 || 160 }}
+    # nightly-next adds the cmux NIGHTLY identity's steps to the 160: their longest path is 155 min (the feed
+    # comparison's 10, then Apple's two 15 min waits then pending inside the notarize step's 45; the pending and signed
+    # branches never both run), each step its own timeout: a slow copy fails its step, never cmux NEXT's job.
+    timeout-minutes: ${{ needs.decide.outputs.notary_test == 'true' && 235 || needs.decide.outputs.track == 'nightly-next' && 320 || 160 }}
     # One universal Xcode build feeds every variant: the thin variants are cut
     # from it with lipo, so each user downloads only their architecture.
     strategy:
@@ -3519,13 +3529,13 @@ jobs:
       # Leo, 2026-11-05: "JUST POINT ME TO THE ONE APP/THE ONE FEED", "THERE SHOULDN'T BE 2". His cmux NIGHTLY
       # (com.cmuxterm.app.nightly) gets this run's build here, on this runner, right after cmux NEXT's: one queue,
       # not a later sign-nightly-identity-legacy waiting for the signer. Only this run's own build at the workflow's
-      # commit (legacy-identity-target: action new, source run this run); a continue, a recovered build or another
+      # commit (the legacy-target step: action new, source run this run); a continue, a recovered build or another
       # commit stays with sign-nightly-identity-legacy.
-      LEGACY_HERE: ${{ needs.decide.outputs.track == 'nightly-next' && matrix.variant == 'arm64' && needs.decide.outputs.environment == 'release-next' && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.action == 'new' && needs.legacy-identity-target.outputs.source_run == format('{0}', github.run_id) && needs.legacy-identity-target.outputs.build == needs.build-nightly-app.outputs.daemon_build && needs.resolve-nightly-cmux-tui-client.outputs.build_sha == github.sha && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off' && 'true' || 'false' }}
-      LEGACY_ACTION: ${{ needs.legacy-identity-target.outputs.action }}
+      LEGACY_HERE: ${{ needs.decide.outputs.track == 'nightly-next' && matrix.variant == 'arm64' && needs.decide.outputs.environment == 'release-next' && needs.decide.outputs.notary_probe != 'true' && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.build_sha == github.sha && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off' && 'true' || 'false' }}
+      LEGACY_ACTION: new
       PENDING_RUN: ""
       BUNDLE_RUN: ""
-      SOURCE_RUN: ${{ needs.legacy-identity-target.outputs.source_run }}
+      SOURCE_RUN: ${{ github.run_id }}
       REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
       LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
       LEGACY_APPCAST: appcast-arm64.xml
@@ -4284,13 +4294,35 @@ jobs:
       # NEXT's DMG is final (create replaces the keychain), so nothing of cmux NEXT waits on them but the time. Each step
       # continues on error and checks the one before it, so a failed copy never fails cmux NEXT; the attempt is
       # recorded for the verify, publish and report jobs exactly as the separate job records it.
+      # legacy-identity-target's comparison, run here so cmux NEXT never waits on that job: 10 minutes at most (the
+      # job has 65 for GitHub API waits), and on any failure the copy stays with sign-nightly-identity-legacy. It
+      # leaves the failure issue and the pending artifacts to legacy-identity-target (LEGACY_TARGET_RECORD off).
+      - name: "cmux NIGHTLY identity: compare the cmux NEXT feed with the old feed"
+        id: legacy-target
+        if: env.LEGACY_HERE == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.notary_test != 'true' && steps.notarize-nightly.outcome == 'success' && steps.notarize-nightly.outputs.submission_pending != 'true'
+        timeout-minutes: 10
+        continue-on-error: true
+        env:
+          DMG_PREFIX: cmux-nightly-next-macos-arm64-
+          GH_TOKEN: ${{ github.token }}
+          DEV_RING: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'on' || 'off' }}
+          CURRENT_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+          CURRENT_BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          CURRENT_BUILD_READY: "true"
+          CURRENT_RUN: ${{ github.run_id }}
+          LEGACY_TARGET_RECORD: "off"
+        run: |
+          # Its scratch files sit in the checkout; pending/ is also the copy's keep-pending folder.
+          trap 'rm -rf pending next-all.xml old-all.xml next.xml old.xml failures.txt' EXIT
+          bash scripts/ci/nightly-steps/legacy-identity-compare-feeds.sh
+
       - name: "cmux NIGHTLY identity: skip a build the old feed already has"
         id: legacy-order
-        if: env.LEGACY_HERE == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.decide.outputs.notary_test != 'true' && steps.notarize-nightly.outcome == 'success' && steps.notarize-nightly.outputs.submission_pending != 'true'
+        if: steps.legacy-target.outcome == 'success' && steps.legacy-target.outputs.decided == 'true' && steps.legacy-target.outputs.action == 'new' && steps.legacy-target.outputs.source_run == format('{0}', github.run_id) && steps.legacy-target.outputs.build == needs.build-nightly-app.outputs.daemon_build
         timeout-minutes: 5
         continue-on-error: true
         env:
-          NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+          NIGHTLY_BUILD: ${{ steps.legacy-target.outputs.build }}
         run: bash scripts/ci/nightly-steps/legacy-identity-sign-skip-published.sh
 
       # The copy unpacks this run's prepared app into prepared-app/, where cmux NEXT's signed app is.
@@ -4318,7 +4350,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+          NIGHTLY_BUILD: ${{ steps.legacy-target.outputs.build }}
           CHANNEL_DMG_PREFIX: cmux-nightly-next-macos
           CHANNEL_RELEASE_TAG: nightly-next
         run: bash scripts/ci/nightly-steps/legacy-identity-sign-download-next-dmg.sh
@@ -4339,7 +4371,7 @@ jobs:
         timeout-minutes: 15
         continue-on-error: true
         env:
-          NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+          NIGHTLY_BUILD: ${{ steps.legacy-target.outputs.build }}
           CHANNEL_DMG_PREFIX: cmux-nightly-next-macos
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           NEXT_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
@@ -4347,7 +4379,7 @@ jobs:
           NEXT_URL_SCHEME: ${{ needs.decide.outputs.url_scheme }}
           NEXT_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
           NEXT_MARKETING_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
-          NEXT_COMMIT_SHORT: ${{ needs.legacy-identity-target.outputs.source_sha }}
+          NEXT_COMMIT_SHORT: ${{ steps.legacy-target.outputs.source_sha }}
         run: bash scripts/ci/nightly-steps/legacy-identity-prepare-dmg.sh
 
       - name: "cmux NIGHTLY identity: sign the build as cmux NIGHTLY"
@@ -4356,7 +4388,7 @@ jobs:
         timeout-minutes: 15
         continue-on-error: true
         env:
-          NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+          NIGHTLY_BUILD: ${{ steps.legacy-target.outputs.build }}
           CHANNEL_DMG_PREFIX: cmux-nightly-next-macos
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 }}
@@ -4369,7 +4401,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+          NIGHTLY_BUILD: ${{ steps.legacy-target.outputs.build }}
         run: bash scripts/ci/nightly-steps/legacy-identity-sign-build-source.sh
 
       - name: "cmux NIGHTLY identity: notarize the cmux NIGHTLY DMG"
@@ -4382,7 +4414,7 @@ jobs:
         continue-on-error: true
         env:
           LEGACY_NOTARY_WAIT: 15m
-          NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+          NIGHTLY_BUILD: ${{ steps.legacy-target.outputs.build }}
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
@@ -4400,7 +4432,7 @@ jobs:
         timeout-minutes: 5
         continue-on-error: true
         env:
-          NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+          NIGHTLY_BUILD: ${{ steps.legacy-target.outputs.build }}
         run: bash scripts/ci/nightly-steps/legacy-identity-sign-keep-pending.sh
 
       # The bundle first: a meta artifact always has its bundle.
@@ -4436,7 +4468,7 @@ jobs:
         timeout-minutes: 10
         continue-on-error: true
         env:
-          NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+          NIGHTLY_BUILD: ${{ steps.legacy-target.outputs.build }}
         run: bash scripts/ci/nightly-steps/legacy-identity-sign-hand-to-verify.sh
 
       - name: "cmux NIGHTLY identity: upload the stapled DMG"
@@ -4461,7 +4493,7 @@ jobs:
         timeout-minutes: 5
         continue-on-error: true
         env:
-          NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+          NIGHTLY_BUILD: ${{ steps.legacy-target.outputs.build }}
           NOTARIZE: ${{ steps.legacy-notarize.outcome }}
           JOB_STATUS: ${{ steps.legacy-notarize.outcome == 'success' && (steps.legacy-notarize.outputs.submission_pending == 'true' && steps.legacy-pending-meta.outcome == 'success' || steps.legacy-notarize.outputs.submission_pending != 'true' && steps.legacy-signed-upload.outcome == 'success') && 'success' || 'failure' }}
         run: bash scripts/ci/nightly-steps/legacy-identity-sign-record-attempt.sh
@@ -6449,7 +6481,7 @@ jobs:
       # An owned Mac has the PR lane's Xcode pin (as verify-signed-nightly); Blacksmith the macOS 26 one.
       CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
-      NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+      NIGHTLY_BUILD: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_build || needs.legacy-identity-target.outputs.build) }}
       SIGNED_SHA256: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_dmg_sha256 || needs.sign-nightly-identity-legacy.outputs.dmg_sha256) }}
       BUILD_SHA: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_build_sha || needs.sign-nightly-identity-legacy.outputs.build_sha) }}
       LEGACY_DMG_PREFIX: cmux-nightly-next-macos-nightlyid-arm64-
@@ -6498,7 +6530,7 @@ jobs:
     # submission without another NEXT write. Any target not this run's own
     # build (source_run empty) is on the live NEXT feed, so any run (a
     # rescue's re-run included) publishes it.
-    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || needs.legacy-identity-target.outputs.action == 'continue') && ((needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build) || (needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue') || needs.legacy-identity-target.outputs.source_run == '') && needs.legacy-identity-target.result == 'success' && needs.legacy-identity-target.outputs.build != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off' && needs.sign-nightly-identity-legacy.result != 'cancelled'"
+    if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.environment == 'release-next' && (needs.decide.outputs.notary_paused != 'true' || (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_action || needs.legacy-identity-target.outputs.action) == 'continue') && ((needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.build == (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_build || needs.legacy-identity-target.outputs.build)) || (needs.publish-nightly.result == 'skipped' && (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_action || needs.legacy-identity-target.outputs.action) == 'continue') || (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_source_run || needs.legacy-identity-target.outputs.source_run) == '') && (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' || needs.legacy-identity-target.result == 'success') && (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_build || needs.legacy-identity-target.outputs.build) != '' && vars.NIGHTLY_NEXT_LEGACY_IDENTITY != 'off' && needs.sign-nightly-identity-legacy.result != 'cancelled'"
     continue-on-error: true
     environment: release-next
     # One old-feed writer at a time across runs through an R2 lease (below), not a
@@ -6523,14 +6555,14 @@ jobs:
     # 90 for the work (an hour of it for API rate-limit waits) plus the lease's 60-minute wait.
     timeout-minutes: 150
     env:
-      NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+      NIGHTLY_BUILD: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_build || needs.legacy-identity-target.outputs.build) }}
       # new: sign and submit this build; continue: ask Apple about the pending
       # submission of run PENDING_RUN (the same signed DMG, no new upload).
-      LEGACY_ACTION: ${{ needs.legacy-identity-target.outputs.action }}
-      PENDING_RUN: ${{ needs.legacy-identity-target.outputs.pending_run }}
+      LEGACY_ACTION: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_action || needs.legacy-identity-target.outputs.action) }}
+      PENDING_RUN: ${{ needs.build-sign-notarize-nightly.outputs.legacy_ran != 'true' && needs.legacy-identity-target.outputs.pending_run || '' }}
       # The run that holds the continued submission's bundle (the metadata of
       # an accepted submission is re-stored by a later run).
-      BUNDLE_RUN: ${{ needs.legacy-identity-target.outputs.bundle_run }}
+      BUNDLE_RUN: ${{ needs.build-sign-notarize-nightly.outputs.legacy_ran != 'true' && needs.legacy-identity-target.outputs.bundle_run || '' }}
       # Checked again on the app's own commit before anything is submitted to
       # Apple (legacy-identity-target checks the build first).
       REQUIRED: ${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}
@@ -6608,7 +6640,7 @@ jobs:
         if: env.SIGN_SKIP == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILD_SHA: ${{ needs.legacy-identity-target.outputs.source_sha }}
+          BUILD_SHA: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_source_sha || needs.legacy-identity-target.outputs.source_sha) }}
           NOTES_BASE: ${{ env.NIGHTLY_NEXT_FEED_BASE }}/notes
         run: python3 scripts/ci/nightly_publish_guard.py known-bad --sha "$BUILD_SHA" --build "$NIGHTLY_BUILD" --github-output "$GITHUB_OUTPUT"
 
@@ -6720,7 +6752,7 @@ jobs:
         if: always() && steps.failed.outputs.failed == 'true' && steps.resolve.outputs.real != 'false'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+          BUILD: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_build || needs.legacy-identity-target.outputs.build) }}
           ISSUE_NUMBER: ${{ steps.failure-issue.outputs.number }}
           ISSUE_SEARCH: ${{ steps.failure-issue.outcome }}
         with:
@@ -6777,12 +6809,12 @@ jobs:
     permissions: {}
     env:
       # Outputs only: continue-on-error reports a failed legacy job as success.
-      DECIDED: ${{ needs.legacy-identity-target.outputs.decided }}
-      ACTION: ${{ needs.legacy-identity-target.outputs.action }}
-      BUILD: ${{ needs.legacy-identity-target.outputs.build }}
+      DECIDED: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_decided || needs.legacy-identity-target.outputs.decided) }}
+      ACTION: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_action || needs.legacy-identity-target.outputs.action) }}
+      BUILD: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_build || needs.legacy-identity-target.outputs.build) }}
       NEXT_BUILD: ${{ needs.publish-nightly.outputs.build }}
       NEXT_OK: ${{ needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' }}
-      SOURCE_RUN: ${{ needs.legacy-identity-target.outputs.source_run }}
+      SOURCE_RUN: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_source_run || needs.legacy-identity-target.outputs.source_run) }}
       SIGN_SKIP: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_skip || needs.sign-nightly-identity-legacy.outputs.skip) }}
       SIGN_PENDING: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_pending || needs.sign-nightly-identity-legacy.outputs.pending) }}
       SIGN_OK: ${{ (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_signed_ok || needs.sign-nightly-identity-legacy.outputs.signed_ok) }}
