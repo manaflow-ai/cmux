@@ -333,6 +333,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextLiveCode",
                 "CmuxNextAgentLanes",
                 "CmuxNextChiefViews",
+                "CmuxNextGitHubViewer",
                 "CmuxNextAgentCursor",
                 .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 "CmuxNextAgentCursorVisibility",
@@ -1004,6 +1005,27 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextChiefMemoryTests",
             dependencies: ["CmuxNextChiefMemory"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The GitHub page (webviews/src/pages/github): a pull request link clicked in a chat shows
+        // natively from the app's pull request cache, with its diff in the diff viewer. The App
+        // places its tab and opens what it asks to (GitHubPageTab).
+        .target(
+            name: "CmuxNextGitHubViewer",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextAgentPane",
+                "CmuxNextDesign",
+                "CmuxNextPages",
+                "CmuxNextSettings",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextGitHubViewerTests",
+            dependencies: ["CmuxNextAgentPane", "CmuxNextGitHubViewer", "CmuxNextPages", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // The Chief view gallery (webviews/src/pages/chief-views): the page's provider over the

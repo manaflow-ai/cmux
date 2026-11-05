@@ -27,7 +27,9 @@ final class HomeTablePictures: Sendable {
     static let maxPixel = 1280
 
     private struct State {
-        var ready: [String: String] = [:]
+        /// Each source's thumbnail path, once made. Not `ready`: this module also has a `ready` array,
+        /// so the crash ratchet would count a `ready[...]` here as an index that can trap.
+        var thumbnailPaths: [String: String] = [:]
         var loading: Set<String> = []
         var failed: Set<String> = []
         var onReady: @MainActor @Sendable (String) -> Void = { _ in }
@@ -68,21 +70,21 @@ final class HomeTablePictures: Sendable {
     func asset(_ source: String) -> String? {
         guard Self.handles(source) else { return nil }
         let start: Bool = state.withLock { s in
-            if s.ready[source] != nil || s.loading.contains(source) || s.failed.contains(source) { return false }
+            if s.thumbnailPaths[source] != nil || s.loading.contains(source) || s.failed.contains(source) { return false }
             s.loading.insert(source)
             return true
         }
         if start { Task.detached(priority: .utility) { [self] in await self.make(source) } }
-        return state.withLock { $0.ready[source] }
+        return state.withLock { $0.thumbnailPaths[source] }
     }
 
     /// Makes `source`'s thumbnail now and returns its path (nil when it is not a picture it may draw).
     @discardableResult
     func prepare(_ source: String) async -> String? {
-        if let ready = state.withLock({ $0.ready[source] }) { return ready }
+        if let ready = state.withLock({ $0.thumbnailPaths[source] }) { return ready }
         state.withLock { _ = $0.loading.insert(source) }
         await make(source)
-        return state.withLock { $0.ready[source] }
+        return state.withLock { $0.thumbnailPaths[source] }
     }
 
     private func make(_ source: String) async {
@@ -90,7 +92,7 @@ final class HomeTablePictures: Sendable {
         let notify: (@MainActor @Sendable (String) -> Void)? = state.withLock { s in
             s.loading.remove(source)
             guard let file else { s.failed.insert(source); return nil }
-            s.ready[source] = file
+            s.thumbnailPaths[source] = file
             return s.onReady
         }
         if let notify { await MainActor.run { notify(source) } }

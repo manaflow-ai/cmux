@@ -4,7 +4,6 @@
     "backend/apps/api",
     "backend/apps/home-server",
     "backend/db",
-    "backend/packages/cloud-env",
     "backend/packages/ownership",
     "backend/packages/saml",
     "backend/scripts",

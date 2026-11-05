@@ -9,8 +9,11 @@ Chromium, and it's on by default.
 
 ```sh
 git clone https://github.com/manaflow-ai/cmux && cd cmux      # or any checkout you already have
-scripts/cmux-next/web-overlay.sh server --local
+cmux live start
 ```
+
+Or, without a terminal: press Cmd-Shift-P, run **Edit cmux Live…** and pick the checkout. The same
+button is at the end of Settings > General.
 
 Now edit anything under `webviews/src/` and save. Open pages and chats reload once onto your
 code, then every save shows up in about a second, keeping each page's state (React Fast Refresh).
@@ -18,20 +21,26 @@ code, then every save shows up in about a second, keeping each page's state (Rea
 Done for now?
 
 ```sh
-scripts/cmux-next/web-overlay.sh off      # the web UI the app shipped with; your files stay
+cmux live stop      # the web UI the app shipped with; your files stay
 ```
+
+Or run **Stop Editing cmux Live**. `cmux live` runs this checkout's `scripts/cmux-next/web-overlay.sh`
+(`start` is `server --local`, `stop` is `server off`, `status` is `status`); the script's other modes
+below are for slots, pull requests and built bundles. Agents in cmux learn all of this from the
+`cmux-live` skill.
 
 | You want | Do this |
 |---|---|
-| Your edits live in your app | `scripts/cmux-next/web-overlay.sh server --local` |
-| Another worktree's edits live | `scripts/cmux-next/web-overlay.sh server --local --worktree <path>` |
+| Your edits live in your app | `cmux live start`, or Cmd-Shift-P > **Edit cmux Live…** |
+| Another worktree's edits live | `cmux live start --worktree <path>` |
 | A worktree's web UI in one window of your app, the others untouched | `scripts/cmux-next/projection.sh open <worktree> [--test CMD]` ([below](#a-projection-window)) |
+| Several versions of one change live side by side, keep the best | `scripts/cmux-next/live-copies.sh start 3 [--from <PR\|branch>]...` ([below](#live-copies-side-by-side)) |
 | A pull request's web UI, live | `scripts/cmux-next/web-overlay.sh follow <PR>` (again after each push) |
 | Try any pull request the cheapest way | `scripts/cmux-next/try-pr.sh <PR>`: live when it can be, else it names the dev build |
 | The web UI of every merge, no checkout | Settings > Updates > Web UI Updates > **Every Merge** |
-| Stop your dev server | `scripts/cmux-next/web-overlay.sh server off` (an installed overlay, if any, still serves) |
+| Stop your dev server | `cmux live stop`, or **Stop Editing cmux Live** (an installed overlay, if any, still serves) |
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
-| What's running | `scripts/cmux-next/web-overlay.sh status` |
+| What's running | `cmux live status` |
 | Turn the feature off | Settings > General > **Live Web Reload**, or `cmux settings set updates.liveWebReload false` |
 
 ## On and off
@@ -124,6 +133,32 @@ keybinding edits in `cmux-next.json` apply to every window live, the projection 
 **Debug > Run Projection Test** (`debug.projection.runTest`, or `projection.sh test [CMD]`) runs the
 `--test` command in a new workspace of the projection window, in the worktree, and keeps its output.
 `projection.sh stop <worktree>` stops the server; closing the window ends the projection.
+`projection.sh serve <worktree>` starts only the server and prints its URL.
+
+### Live copies, side by side
+
+Try several versions of one web change at once (one per agent, say) and keep the best:
+
+```sh
+scripts/cmux-next/live-copies.sh start 3                     # 3 copies of origin/feat-cmux-next
+scripts/cmux-next/live-copies.sh start 3 --from my-branch    # 3 copies of one branch
+scripts/cmux-next/live-copies.sh start --from 36378 --from 36340 --from lane/x --open
+```
+
+Each copy is a worktree of its own on a branch of its own (`live-copy/<set>/<n>`), with its own
+webviews dev server (`projection.sh serve`, ports 4290-4389) and its own state folder, so the agent
+pane's git and file reads see that copy. `start` prints each worktree: point one agent at each.
+Saving a web file in a copy hot-reloads only that copy. node_modules is a copy-on-write clone of
+this checkout's, so a copy starts in seconds.
+
+The compare page (`--open` puts it in a cmux browser tab; `live-copies.sh compare` rewrites it with
+each copy's changed files) shows every copy side by side, live, on one path (`--page`, default
+`/agent-pane/?mock`; edit the path box to switch them all). `--windows` also opens each copy as a
+projection window of your running app, with your glass and settings. **Keep this one** opens the
+copy's pull request, or the form that opens one; `live-copies.sh keep [SET] N [--push]
+[--stop-others]` does the same from a terminal and pushes the copy's branch. A copy made from a
+PR is on a branch of its own, so keeping it never pushes onto that PR. `stop` ends the servers,
+`rm` the worktrees (it refuses unsaved or unpushed work without `--force`).
 
 ### A pull request
 

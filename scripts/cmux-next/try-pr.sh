@@ -107,6 +107,45 @@ for reason, paths in sorted(json.load(sys.stdin)["reasons"].items()):
     print("  " + reason + ": " + ", ".join(paths[:5]) + (" …" if len(paths) > 5 else ""))
 ' <<<"$result"
 
+# The verdict above sorts the PR against its own base. A web-live verdict must also hold for the app
+# it patches: the PR's web UI can lean on Swift that came into the base after APP was built, and
+# that Swift is not in APP. So the change is sorted again from APP's commit (CMUXCommit) when APP is
+# older than the PR's base; anything but web UI from there means the PR's Swift side is not in that
+# build, and the live apply is refused for the dev build. An APP at or after the PR's base has all
+# the Swift the PR was written against.
+if [[ "$verdict" == web-live && -f "$from/Contents/Info.plist" ]]; then
+  recorded="$("$buddy" -c 'Print :CMUXCommit' "$from/Contents/Info.plist" 2>/dev/null || true)"
+  app_commit="$(git -C "$ROOT" rev-parse --verify -q "${recorded:-none}^{commit}" 2>/dev/null || true)"
+  # A reload build stamps CMUXCommitDirty when tracked files had local edits. Those are not in the
+  # commit and may change or remove Swift the PR leans on, so no sort from the commit vouches for it.
+  dirty="$("$buddy" -c 'Print :CMUXCommitDirty' "$from/Contents/Info.plist" 2>/dev/null || true)"
+  if [[ -n "$app_commit" && "$dirty" == true ]]; then
+    echo "web-live, but $from was built at ${app_commit:0:12} with local edits, so whether it has the PR's Swift side is unknown: the dev build instead (rebuild it from a clean checkout to apply web PRs live)"
+    verdict=rebuild
+  elif [[ -z "$app_commit" ]]; then
+    echo "web-live, but $from's commit '${recorded}' is not in this checkout, so whether it has the PR's Swift side is unknown: the dev build instead (git fetch first, or --from another app)"
+    verdict=rebuild
+  elif git -C "$ROOT" merge-base --is-ancestor "$base" "$app_commit"; then
+    :
+  elif git -C "$ROOT" merge-base --is-ancestor "$app_commit" "$base"; then
+    against="$(python3 "$ROOT/scripts/cmux-next/live_apply.py" --repo "$ROOT" --json "$app_commit" "$head")"
+    again="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["verdict"])' <<<"$against")"
+    if [[ "$again" != web-live && "$again" != no-app ]]; then
+      echo "web-live against its base, but $from was built at ${app_commit:0:12}, before it: from there the change is $again, so the PR's Swift side is not in that build. No live apply: the dev build instead"
+      python3 -c '
+import json, sys
+for kind, paths in sorted(json.load(sys.stdin)["files"].items()):
+    if kind not in ("web-live", "no-app"):
+        print("  " + kind + ": " + ", ".join(paths[:5]) + (" …" if len(paths) > 5 else ""))
+' <<<"$against"
+      verdict=rebuild
+    fi
+  else
+    echo "web-live, but $from was built at ${app_commit:0:12}, on another line than the PR's base: whether it has the PR's Swift side is unknown, so the dev build instead"
+    verdict=rebuild
+  fi
+fi
+
 # Makes the side instance from APP (again when it was made from another app, APP updated since, or
 # it was made with another --live-code), then opens it.
 open_side() {
@@ -293,9 +332,17 @@ case "$verdict" in
     [[ -n "$dry" || -x "$ci" ]] || { echo "no cmux-ci client at $ci (CMUX_CI names another)" >&2; exit 1; }
     # A later push with the same tag and workspace supersedes a queued build of an older head.
     build=(build cmux --ref "$head" --tag "pr-$pr" --backend-mode local --workspace "try-pr:$pr:$(id -un)")
+    # Build ahead (cmuxterm-hq build_ahead.go): the fleet may already have built this head's tree
+    # (a prebuild, or anyone's equal build under another tag). Take it: the side instance opens
+    # whatever .app the job holds. An older client without --any-tag still matches tag pr-N.
+    build_help="$([[ -n "$dry" ]] || "$ci" build --help 2>/dev/null || true)"
+    if [[ -n "$dry" || "$build_help" == *--any-tag* ]]; then build+=(--any-tag); fi
     if [[ -n "$dry" ]]; then run "$ci" "${build[@]}"; if [[ -n "$here" ]]; then echo "would wait for it and print where it is"; else echo "would wait for it and open it as cmux PR #$pr"; fi; exit 0; fi
     job="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$("$ci" "${build[@]}")")"
     echo "fleet job $job"
+    # Done already means a build of this tree was ready: no build waited on.
+    state="$("$ci" status "$job" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))' 2>/dev/null || true)"
+    if [[ "$state" == done ]]; then echo "built ahead: job $job already holds this tree's app"; fi
     "$ci" wait "$job" >&2 || { echo "job $job is not done; \`try-pr.sh $pr\` again picks up the same build" >&2; exit 1; }
     out="$side_root/builds/pr-$pr-${head:0:12}"
     if [[ ! -d "$out/bundle" ]]; then

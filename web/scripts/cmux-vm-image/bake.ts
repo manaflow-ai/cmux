@@ -87,7 +87,7 @@ import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFile
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
 import { aptUpdateCommand } from "./apt-update";
 import { baseInputTree, cachedInstallCommand, imagePackagesCommand, isAppProgram, layerKeys, layerName, overlayPrepareCommand, overlayPruneCommand, type LayerName } from "./layers";
-import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
+import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, SELF_UPDATE_OFF, hostConfig, hostUnit } from "./host-agent";
 import {
   METADATA_GUARD_FILE,
   METADATA_GUARD_UNIT,
@@ -324,6 +324,8 @@ function parkCommand(): string {
     'rm -rf "$CMUX_TUI_HOME/.local/state/cmux-tui" "$CMUX_TUI_HOME/.local/state/cmux" /etc/cmux/daemon-instance-id /etc/cmux/first-terminal.json /etc/cmux/daemon-layout /tmp/cmux-tui-websocket-smoke',
     "mkdir -p /run/cmux && find /run/cmux -mindepth 1 -delete",
     "! grep -qi ':0539 ' /proc/net/tcp6",
+    // The roles are parked now; a clone of this snapshot updates itself.
+    `rm -f ${SELF_UPDATE_OFF}`,
     "echo daemon-parked",
   ].join(" && ");
 }
@@ -702,7 +704,9 @@ async function startDaemon(ctx: Ctx): Promise<void> {
     ctx.result.nativeReceiver = true;
   }
   await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(ctx.options.agentTools ? agentToolsDaemonEnv(ctx.lock) : {}, ctx.options.nativeReceiver), 0o644);
-  await L.step(vm, "daemon-unit", `systemd-analyze verify /etc/systemd/system/${DAEMON_UNIT} && rm -f /etc/cmux/bake-instance-id && systemctl daemon-reload && systemctl enable ${DAEMON_UNIT} >/dev/null 2>&1 && systemctl restart ${DAEMON_UNIT} && systemctl is-active ${DAEMON_UNIT}`);
+  // The builder never updates itself (cmux host update): the snapshot carries the lock's
+  // cmux-tui, and parkCommand removes the marker so every clone does update.
+  await L.step(vm, "daemon-unit", `systemd-analyze verify /etc/systemd/system/${DAEMON_UNIT} && mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF} && rm -f /etc/cmux/bake-instance-id && systemctl daemon-reload && systemctl enable ${DAEMON_UNIT} >/dev/null 2>&1 && systemctl restart ${DAEMON_UNIT} && systemctl is-active ${DAEMON_UNIT}`);
   await L.step(vm, "daemon-ready", devboxWaitForDaemonCommand(120));
   await L.step(vm, "daemon-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
   await recordDaemonInfo(ctx);
@@ -835,6 +839,17 @@ export function layerFlags(options: BakeOptions): string[] {
   return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree", options.nativeReceiver && "native-receiver"].filter((f): f is string => Boolean(f));
 }
 
+/** Every snapshot on the account, page by page (one default page can miss a cached layer's slug). */
+async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<Array<{ id: string; slug?: string | null }>> {
+  const all: Array<{ id: string; slug?: string | null }> = [];
+  for (let offset = 0; ; offset += SNAPSHOT_PAGE) {
+    const page = await fs.vms.snapshots.list({ limit: SNAPSHOT_PAGE, offset });
+    all.push(...page.snapshots);
+    if (page.snapshots.length < SNAPSHOT_PAGE || all.length >= (page.totalCount ?? Infinity)) return all;
+  }
+}
+const SNAPSHOT_PAGE = 100;
+
 /** One builder from `from`, `steps` on it, its snapshot slugged `name`; the builder is deleted unless kept. */
 async function bakeOn(
   fs: ReturnType<typeof freestyleClient>,
@@ -884,7 +899,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       // parent and kept (its builder is on a ledger of its own, which the run's cleanup never reads).
       const keys = layerKeys(lockText, layerFlags(options), baseInputTree(REPO_ROOT));
       const layerLedger = new Ledger(path.join(options.outDir, "layers", "resources.tsv"));
-      const { snapshots } = await fs.vms.snapshots.list();
+      const snapshots = await allSnapshots(fs);
       const layers: Array<Record<string, unknown>> = [];
       result.layers = layers;
       let parent = lock.base.snapshot;

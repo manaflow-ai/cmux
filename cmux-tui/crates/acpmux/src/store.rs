@@ -1058,7 +1058,7 @@ mod journal_store;
 pub(crate) use journal_store::open_with_journal;
 mod log_sync;
 #[cfg(test)]
-pub(crate) use journal_store::PAUSE_AFTER_LOG_WRITE;
+pub(crate) use journal_store::pause_next_log_write_on_this_thread;
 pub(crate) use log_sync::SyncFailed;
 #[cfg(all(test, unix))]
 mod sync_model;
@@ -2135,6 +2135,8 @@ mod head_tests;
 
 #[cfg(all(test, unix))]
 mod journal_meta_tests;
+#[cfg(all(test, unix))]
+mod journal_pause_tests;
 #[cfg(all(test, unix))]
 mod journal_store_tests;
 #[cfg(all(test, unix))]
