@@ -1,6 +1,6 @@
 public import CmuxNextAgentPane
 public import CmuxNextSettings
-import Foundation
+public import Foundation
 
 /// A pull request's diff from commits already on this Mac, before GitHub's: the session host's
 /// `git.diff` in the `commits` scope (head against its merge base with base, as GitHub's diff is)
