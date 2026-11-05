@@ -1,3 +1,4 @@
+import { revokeServerPairing } from "./pair-invite-routes.ts"
 import type { EventFrame, OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { ServerNetworkReservation } from "@cmux/protocol"
 import { teamEventVisible, teamSubscriberView } from "./domains/team-visibility.ts"
@@ -5,7 +6,7 @@ import { aiLimitViewOf, codeRunLimit, teamDomain, type TeamState } from "./domai
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
-import { can, firstOwner, homeCoMembersOf, hostOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import { can, firstOwner, homeCoMembersOf, hostByInstall, hostOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
@@ -107,6 +108,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (!state.team) return stackAt
     if (Object.keys(state.member_cleanup ?? {}).length > 0) return Math.max(now, this.cleanupRetryAt ?? now)
     if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
+    if (Object.keys(state.pairing_spends ?? {}).length > 0) return Math.max(now, this.spendRetryAt ?? now)
     const times = [
       this.personalTenantWakeAt(),
       nextRecheckAt(state),
@@ -160,6 +162,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (this.boundEngine) await this.stackSync.wake(now)
     if (this.cleanupRetryAt === null || now >= this.cleanupRetryAt) this.cleanupMembers()
     if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
+    if (this.spendRetryAt === null || now >= this.spendRetryAt) await this.flushPairingSpends()
     await this.recheckDomains(now)
     try {
       await this.syncIntegration(now)
@@ -370,6 +373,11 @@ export class TeamDO extends OwnerDO<TeamState> {
       this.ctx.waitUntil(this.replicaDrops.flush(Date.now()).finally(() => this.scheduleAlarm()))
     }
     if (op === "team.member.remove") this.cleanupMembers()
+    // A removed server's pairing is spent after whichever path committed the removal (HTTP or a socket); the alarm retries.
+    if (Object.keys(this.boundEngine?.currentState.pairing_spends ?? {}).length > 0) {
+      this.scheduleAlarm()
+      this.ctx.waitUntil(this.flushPairingSpends().finally(() => this.scheduleAlarm()))
+    }
     // A member who left (or a team Stack deleted) loses its sockets here now; CloudDO closes its own from the outbox (review P1-2).
     const v = (frames.find((f) => f.t === "result") as { value?: { user?: string; removed?: boolean; deleted?: boolean } } | undefined)?.value
     if (op === "team.member.remove" && v?.removed && v.user) this.closeSockets((p) => p.user === v.user, "left the team")
@@ -531,7 +539,15 @@ export class TeamDO extends OwnerDO<TeamState> {
   async revokeInstallCerts(entity: string, user: string, install: string): Promise<{ ok: boolean; revoked: Array<number> }> {
     // A team that never existed here issued nothing; never create its storage for a notice (cx-44j.50).
     if (!this.isBound(entity)) return { ok: true, revoked: [] }
-    return revokeInstallCerts(this.sshDeps(entity), user, install)
+    const certs = await revokeInstallCerts(this.sshDeps(entity), user, install)
+    // UserDO revoked this install, by any path (a server's own `install.sign_out` from `cmux server unpair`
+    // included), and retries this notice until it is confirmed: a server host it enrolled leaves too.
+    const engine = this.bind(entity)
+    if (hostByInstall(engine.currentState, engine.rows, install)?.kind === "server") {
+      const res = this.submitSystem("server.signed_out", { install }, `server-signed-out:${install}`)
+      if (!res.frames.some((f) => f.t === "result")) return { ok: false, revoked: certs.revoked }
+    }
+    return certs
   }
 
   /**
@@ -621,17 +637,35 @@ export class TeamDO extends OwnerDO<TeamState> {
     return { ok: true, host: value.id }
   }
 
+  /** Backoff after a failed pairing spend (in memory: a restart retries at once). */
+  private spendRetryAt: number | null = null
+  private spendAttempts = 0
+
   /**
-   * RPC from the Worker after a server's own install signed itself out (`install.sign_out`, already
-   * committed by UserDO): its host leaves the directory (`server.signed_out`). Answers the host and
-   * the pairing that made it, if it is still live, so the Worker can spend that code and invite.
+   * Spends every queued pairing of a removed server (its PairingDO record is refused `revoked`, its
+   * invite voided `revoked`; both idempotent), then records it. Run after the removal's commit and by
+   * the alarm until it succeeds, whichever path (HTTP or a socket) committed the removal.
    */
-  async serverSignedOut(entity: string, install: string): Promise<{ host: string | null; pairing?: { pairing_object: string; invite_object: string | null } }> {
-    this.bind(entity)
-    const res = this.submitSystem("server.signed_out", { install }, `server-signed-out:${install}`)
-    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
-    if (!reply || reply.t !== "result") throw new Error(reply && reply.t === "reject" ? `${reply.code}: ${reply.message}` : "server.signed_out: no reply")
-    return reply.value as { host: string | null; pairing?: { pairing_object: string; invite_object: string | null } }
+  async flushPairingSpends(entity?: string): Promise<void> {
+    if (entity) this.bind(entity)
+    const spends = Object.entries(this.boundEngine?.currentState.pairing_spends ?? {})
+    let failed = false
+    for (const [host, ref] of spends) {
+      try {
+        await revokeServerPairing(this.env, ref)
+        this.requireCommitted(this.submitSystem("server.pairing.spent", { host }, `server-pairing-spent:${host}`))
+      } catch (e) {
+        failed = true
+        console.error(JSON.stringify({ msg: "server pairing spend failed", host, error: String(e) }))
+      }
+    }
+    if (failed) {
+      this.spendAttempts += 1
+      this.spendRetryAt = Date.now() + Math.min(5 * 60_000, 1000 * 2 ** this.spendAttempts)
+    } else {
+      this.spendAttempts = 0
+      this.spendRetryAt = null
+    }
   }
 
   /** The owner's UserDO for revocation pushes; tests replace it to fail the RPC. */

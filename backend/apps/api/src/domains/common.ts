@@ -458,6 +458,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
     } as CloudOpDef
   ],
   [
+    "server.pairing.spent",
+    {
+      name: "server.pairing.spent",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({ host: HostId }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: TeamDO spent a removed server's pairing record and invite.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "server.signed_out",
     {
       name: "server.signed_out",

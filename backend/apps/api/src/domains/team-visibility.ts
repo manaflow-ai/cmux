@@ -13,7 +13,7 @@ const canManageBilling = (state: TeamState, p: Principal, rows?: RowReader) => c
 
 export const teamSubscriberView = (state: TeamState, principal: Principal, rows?: RowReader): TeamState => {
   // A server's pairing objects (team-servers.ts) are for the revoke path only, never a subscriber.
-  if (isAdmin(state, principal, rows)) return (({ server_pairings: _pairings, ...admin }) => admin)(state)
+  if (isAdmin(state, principal, rows)) return (({ server_pairings: _pairings, pairing_spends: _spends, ...admin }) => admin)(state)
   const {
     policy_history: _history,
     enrollment_tokens: _tokens,
@@ -25,6 +25,7 @@ export const teamSubscriberView = (state: TeamState, principal: Principal, rows?
     sso_connections: _sso,
     domains: _domains,
     server_pairings: _pairings,
+    pairing_spends: _spends,
     ...rest
   } = state
   const own = Object.fromEntries(Object.entries(state.managed_devices ?? {}).filter(([, d]) => d.user === principal.user))

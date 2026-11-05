@@ -17,7 +17,7 @@ import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type Tea
 import { reduceMemberProvision, reduceOwnerCountInit, reduceStackMirror, seatsOf, teamDeleted, withOwnerDelta } from "./team-stack.ts"
 import { removeGrantFor, roleHas, usesSeat } from "./team-roles.ts"
 import { withAuditRows } from "./team-audit-rows.ts"
-import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerPairingRecorded, reduceServerRevoke, reduceServerSignedOut, type ServerPairing, type ServerRevocation } from "./team-servers.ts"
+import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerPairingRecorded, reduceServerPairingSpent, reduceServerRevoke, reduceServerSignedOut, type ServerPairing, type ServerRevocation } from "./team-servers.ts"
 import { reduceHostNetworkBound } from "./team-host-network.ts"
 import { GROUP_OPS, reduceGroup } from "./team-groups.ts"
 import { memberAuthorityWrites } from "./team-authority.ts"
@@ -36,6 +36,8 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
   /** Recently paired servers (host -> the pairing code and invite that made them), so a revoke can spend them (team-servers.ts). */
   readonly server_pairings?: Readonly<Record<string, ServerPairing>>
+  /** Pairings of removed servers that TeamDO still has to spend (host -> objects; team-do.ts flushPairingSpends). */
+  readonly pairing_spends?: Readonly<Record<string, { readonly pairing_object: string; readonly invite_object: string | null }>>
   /** Removed members (user -> removal time) whose SSH certificates and hosts TeamDO still has to settle (team-member-cleanup.ts). */
   readonly member_cleanup?: Readonly<Record<string, number>>
   /** Team default monthly AI spending limit per member in USD (team-ai-limit.ts); absent or null = the cmux default. */
@@ -264,6 +266,10 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
       case "server.pairing.recorded": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
         return reduceServerPairingRecorded(state, params, ctx)
+      }
+      case "server.pairing.spent": {
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        return reduceServerPairingSpent(state, params)
       }
       case "server.signed_out": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")

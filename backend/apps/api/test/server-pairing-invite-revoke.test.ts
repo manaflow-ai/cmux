@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { b64u, beginPairing, call, op, read, sessionToken, testEnv, waitFor, worker } from "./pairing-harness.ts"
+import { b64u, beginPairing, call, op, read, runAlarm, sessionPrincipal, sessionToken, testEnv, waitFor, worker } from "./pairing-harness.ts"
 
 /**
  * Unpair and revoke for servers paired through an invite (workerd): `server.revoke` (the inviter,
@@ -142,6 +142,18 @@ describe("server.revoke of a server paired through an invite", { timeout: 60_000
   })
 })
 
+describe("a removal committed outside the HTTP route (a TeamDO socket frame)", { timeout: 60_000 }, () => {
+  it("still spends the pairing: TeamDO does it after the commit, the alarm retries", async () => {
+    const p = await pairedThroughInvite("stack-invite-revoke-socket")
+    const team = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(p.owner.team)) as any
+    const res = await team.submit(p.owner.team, sessionPrincipal(p.owner.user, p.owner.team), { t: "op", op: "server.revoke", params: { host: p.result.host }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(res.frames.some((f: { t: string }) => f.t === "result")).toBe(true)
+    await runAlarm(team)
+    await expectSpent(p)
+    expect((await team.debug(p.owner.team)).state.pairing_spends ?? {}).toEqual({})
+  })
+})
+
 describe("the box unpairs itself (install.sign_out from the server's install)", { timeout: 60_000 }, () => {
   it("a sign-out UserDO refuses (a reused key) leaves the host, the code and the invite as they were", async () => {
     const p = await pairedThroughInvite("stack-invite-self-unpair-refused")
@@ -164,6 +176,9 @@ describe("the box unpairs itself (install.sign_out from the server's install)", 
     const out = await call("/v1/ops", token, { op: "install.sign_out", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })
     expect(out.json).toMatchObject({ ok: true, value: { id: p.result.install } })
     expect(typeof out.json.value.revoked_at).toBe("number")
+    // UserDO's retried revocation notice tells the team (its alarm), which removes the host and spends the pairing.
+    await runAlarm(testEnv.USER_DO.get(testEnv.USER_DO.idFromName(p.result.user)))
+    await runAlarm(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(p.owner.team)))
     await expectSpent(p)
     expect((await read(token, "install.list", {})).status).toBe(403)
     expect((await call("/v1/auth/challenge", undefined, { user: p.result.user, install: p.result.install })).status).toBe(403)

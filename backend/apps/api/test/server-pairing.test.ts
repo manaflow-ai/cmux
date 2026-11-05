@@ -71,8 +71,14 @@ describe("servers in the team directory (TeamDO reducer)", () => {
     expect(reduce(demoted, "server.revoke", { host }, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })
     const gone = reduce(demoted, "server.revoke", { host }, ctx(ADMIN))
     if (!gone.ok) throw new Error(gone.message)
-    expect(gone.value).toEqual({ host, install: INSTALL, owner_user: ADMIN, pairing })
+    // The pairing is queued to be spent in the revoke's own commit (never in its public result).
+    expect(gone.value).toEqual({ host, install: INSTALL, owner_user: ADMIN })
     expect((gone.state as TeamState).server_pairings?.[host]).toBeUndefined()
+    expect((gone.state as TeamState).pairing_spends?.[host]).toEqual(pairing)
+    const spent = reduce(gone.state as TeamState, "server.pairing.spent", { host }, ctx(null))
+    if (!spent.ok) throw new Error(spent.message)
+    expect((spent.state as TeamState).pairing_spends?.[host]).toBeUndefined()
+    expect(reduce(gone.state as TeamState, "server.pairing.spent", { host }, ctx(ADMIN))).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 
   it("forgets a pairing once its code and invite have ended, and ignores a malformed one", () => {
@@ -109,7 +115,8 @@ describe("servers in the team directory (TeamDO reducer)", () => {
     expect(reduce(r.state as TeamState, "server.signed_out", { install: INSTALL }, ctx(OWNER))).toMatchObject({ ok: false, code: "auth.forbidden" })
     const out = reduce(r.state as TeamState, "server.signed_out", { install: INSTALL }, ctx(null))
     if (!out.ok) throw new Error(out.message)
-    expect(out.value).toEqual({ host, install: INSTALL, owner_user: OWNER, pairing })
+    expect(out.value).toEqual({ host, install: INSTALL, owner_user: OWNER })
+    expect((out.state as TeamState).pairing_spends?.[host]).toEqual(pairing)
     expect(rows.get("host", host)).toBeUndefined()
     expect((out.state as TeamState).server_revocations?.[INSTALL]).toBeUndefined()
     expect((out.state as TeamState).host_count).toBe(0)
