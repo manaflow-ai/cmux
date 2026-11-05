@@ -1,6 +1,6 @@
 // Calls to one MCP tool, drawn as one line that says what they did ("Sent 4 messages to
-// Coordination hub"). Several calls open to a row each; a call opens to its request and response,
-// pretty-printed (mcpCalls.ts). Nothing of a call's JSON is drawn until it is opened; opening and
+// Coordination hub"). Several calls open to a row each; a call opens to its arguments as labeled
+// fields and its response (ToolDetail.tsx), or to its request and response pretty-printed (mcpCalls.ts). Nothing of a call's JSON is drawn until it is opened; opening and
 // closing play the transcript's fold (fold.ts).
 import { useFindReveal } from "./chatFind";
 import { type ReactNode, useContext, useId, useMemo, useState } from "react";
@@ -28,6 +28,8 @@ import { CODE_ROLE_COLOR, jsTokens, type CodeToken } from "./jsHighlight";
 import { RawToggle } from "./SentMessageLine";
 import { isFailed, isRunning } from "./toolGroups";
 import { ToolOutput } from "./ToolOutputBody";
+import { ToolDetail } from "./ToolDetail";
+import { inputFields, type InputField } from "./toolInputFields";
 import { ToolImages } from "./ToolRow";
 import { ToolVisualRow } from "./ToolVisualPreview";
 import { VideoFramesCard } from "./VideoFramesCard";
@@ -143,6 +145,9 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
   const images = useMemo(() => (video ? [] : toolImages(tool)), [video, tool]);
   // An MCP server's error is often JSON: its message, in one line (toolFailure.ts).
   const failure = useMemo(() => (tool.status === "failed" ? toolFailure(tool) : undefined), [tool]);
+  // An object of arguments opens as one labeled field each (ToolDetail.tsx); any other shape, and a
+  // hook's refusal, as the request and response it came as.
+  const fields = useMemo(() => (fold.present ? inputFields(call.args) : undefined), [fold.present, call]);
   return (
     <>
       <ToolVisualRow sources={images} label={label}>
@@ -183,6 +188,17 @@ function McpCallRow({ item }: { item: AcpmuxActivity; grouped?: boolean }) {
         <div {...fold.bodyProps}>
           {exec && failure?.kind !== "hook" ? (
             <CmuxExecDetails id={detailsId} tool={tool} call={call} raw={raw} reveal={reveal} />
+          ) : fields && failure?.kind !== "hook" ? (
+            <McpCallFields
+              id={detailsId}
+              call={call}
+              raw={raw}
+              fields={fields}
+              output={video ? video.text : tool.output}
+              tool={tool}
+              strip={stripsEnvelopeImages(tool)}
+              reveal={reveal}
+            />
           ) : (
             <McpCallDetails
               id={detailsId}
@@ -280,6 +296,68 @@ export function McpCallDetails({
         </div>
       )}
     </div>
+  );
+}
+
+/// An opened call whose arguments are an object: its machine name, then Input as one labeled field
+/// per argument and Output with its copy button (ToolDetail.tsx); the request and response as they
+/// came stay behind Raw.
+function McpCallFields({
+  id,
+  call,
+  raw,
+  fields,
+  output,
+  tool,
+  strip,
+  reveal,
+}: {
+  id: string;
+  call: McpCall;
+  raw: string;
+  fields: readonly InputField[];
+  output?: string;
+  tool: NonNullable<AcpmuxActivity["tool"]>;
+  strip: boolean;
+  reveal: number;
+}) {
+  const response = useMemo(() => mcpOutputResult(output, strip, call.tool), [output, strip, call.tool]);
+  const [rawOpen, setRawOpen] = useState(false);
+  return (
+    <ToolDetail
+      id={id}
+      fields={fields}
+      result={response}
+      reveal={reveal}
+      head={
+        <code className="cv-mcp-call__name selectable" data-find-skip>
+          {raw}
+        </code>
+      }
+      after={
+        <div className="cv-cmux-exec__raw" data-find-skip>
+          <RawToggle
+            open={rawOpen}
+            onOpenChange={setRawOpen}
+            icon={
+              <span className="cv-tool__icon">
+                <CodeBrackets size={16} />
+              </span>
+            }
+          >
+            <McpCallDetails
+              id={`${id}-raw`}
+              call={call}
+              raw={raw}
+              output={output}
+              tool={tool}
+              strip={strip}
+              reveal={reveal}
+            />
+          </RawToggle>
+        </div>
+      }
+    />
   );
 }
 

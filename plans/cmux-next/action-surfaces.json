@@ -1613,6 +1613,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 9,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -6637,6 +6639,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 99,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -6770,6 +6774,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 9,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -8093,6 +8099,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 9,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -10686,6 +10694,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 9,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -12884,6 +12894,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 9,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -13686,6 +13698,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 32,
+          "min" : 0,
           "name" : "style",
           "required" : false
         },
@@ -13701,6 +13715,8 @@
         },
         {
           "kind" : "int",
+          "max" : 6,
+          "min" : 0,
           "name" : "open",
           "required" : false
         },
@@ -13746,16 +13762,22 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 6,
+          "min" : 1,
           "name" : "style",
           "required" : false
         },
         {
           "kind" : "int",
+          "max" : 5,
+          "min" : 0,
           "name" : "fixture",
           "required" : false
         },
         {
           "kind" : "int",
+          "max" : 6,
+          "min" : 0,
           "name" : "phase",
           "required" : false
         }
@@ -13791,6 +13813,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 7,
+          "min" : 0,
           "name" : "state",
           "required" : false
         }
@@ -15382,6 +15406,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 9,
+          "min" : 1,
           "name" : "index",
           "required" : true
         }
@@ -23842,6 +23868,8 @@
         },
         {
           "kind" : "int",
+          "max" : 63,
+          "min" : 0,
           "name" : "index",
           "required" : true
         }
@@ -26823,6 +26851,8 @@
         },
         {
           "kind" : "int",
+          "max" : 100,
+          "min" : 0,
           "name" : "volume",
           "required" : false
         },
@@ -26881,6 +26911,8 @@
         },
         {
           "kind" : "int",
+          "max" : 100,
+          "min" : 0,
           "name" : "volume",
           "required" : false
         },
@@ -26944,6 +26976,8 @@
         },
         {
           "kind" : "int",
+          "max" : 100,
+          "min" : 0,
           "name" : "volume",
           "required" : false
         },
@@ -30286,6 +30320,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 2147483647,
+          "min" : 1,
           "name" : "surface",
           "required" : false
         },
@@ -30296,6 +30332,8 @@
         },
         {
           "kind" : "int",
+          "max" : 8,
+          "min" : 1,
           "name" : "uses",
           "required" : false
         }
@@ -30331,6 +30369,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 2147483647,
+          "min" : 1,
           "name" : "surface",
           "required" : false
         }
@@ -30455,6 +30495,8 @@
         },
         {
           "kind" : "int",
+          "max" : 2147483647,
+          "min" : 1,
           "name" : "surface",
           "required" : false
         },
@@ -30500,6 +30542,8 @@
         },
         {
           "kind" : "int",
+          "max" : 2147483647,
+          "min" : 1,
           "name" : "surface",
           "required" : false
         },
@@ -32314,6 +32358,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         },
@@ -32743,6 +32789,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         }
@@ -32778,6 +32826,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         }
@@ -32855,6 +32905,8 @@
         },
         {
           "kind" : "int",
+          "max" : 256,
+          "min" : 4,
           "name" : "disk",
           "required" : false
         }
@@ -33293,6 +33345,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         },
@@ -33364,6 +33418,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         }
@@ -33399,6 +33455,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         }
@@ -33434,6 +33492,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         }
@@ -33469,6 +33529,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : true
         },
@@ -33509,6 +33571,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 65535,
+          "min" : 1,
           "name" : "port",
           "required" : false
         }
@@ -41493,6 +41557,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 10000,
+          "min" : 0,
           "name" : "index",
           "required" : true
         }
@@ -42838,6 +42904,8 @@
         },
         {
           "kind" : "int",
+          "max" : 100000,
+          "min" : 0,
           "name" : "index",
           "required" : false
         }
@@ -43797,6 +43865,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 32,
+          "min" : 0,
           "name" : "gap",
           "required" : true
         }
@@ -43832,6 +43902,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 12,
+          "min" : 0,
           "name" : "columns",
           "required" : true
         }
@@ -43929,6 +44001,8 @@
       "args" : [
         {
           "kind" : "int",
+          "max" : 50,
+          "min" : 0,
           "name" : "rows",
           "required" : true
         }
@@ -44829,6 +44903,78 @@
       "palette_suggested" : null,
       "title" : "Snooze Chat for 1 Hour…",
       "title_key" : "action.sidebar.priority.snooze",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "target",
+          "name" : "chat",
+          "required" : true,
+          "target_kind" : "agent-chat"
+        }
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-priority-move-earlier",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.priority.moveEarlier",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Chat Earlier in Priority…",
+      "title_key" : "action.sidebar.priority.moveEarlier",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "target",
+          "name" : "chat",
+          "required" : true,
+          "target_kind" : "agent-chat"
+        }
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-priority-move-later",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.priority.moveLater",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Chat Later in Priority…",
+      "title_key" : "action.sidebar.priority.moveLater",
       "title_table" : "SidebarSectionActions"
     },
     {

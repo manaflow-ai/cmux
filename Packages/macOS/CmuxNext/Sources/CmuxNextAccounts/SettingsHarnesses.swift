@@ -31,6 +31,10 @@ public final class SettingsHarnesses {
     private(set) var problem: String?
     /// `_acpmux/accounts` (SettingsHarnesses+Accounts.swift); nil from a daemon without it.
     var accounts: [SettingsProviderAccount]?
+    /// Each account's plan usage limits read at rest, by id (SettingsHarnesses+AccountUsage.swift).
+    var accountUsage: [String: JSONValue] = [:]
+    /// Accounts whose usage read is running: a refresh meanwhile starts no second Codex for one.
+    @ObservationIgnored var usageReading: Set<String> = []
     /// Claude logins' plans by account id, from `claude auth status` (SettingsHarnesses+ClaudePlan.swift).
     var claudePlans: [String: String] = [:]
     @ObservationIgnored let environment: @MainActor () -> AcpmuxEnvironment?
@@ -134,8 +138,15 @@ public final class SettingsHarnesses {
         // Accounts first: they answer from the daemon's state, a health check may take a while.
         await readAccounts(environment, generation: mine)
         guard mine == generation else { return }
-        // The rows show first: a check can take a while. A failed one (an older daemon without
-        // the method, a timeout) keeps the health already shown.
+        // Usage beside health: each starts a process of its own and either may take a while.
+        async let usage: Void = readAccountUsage(environment, generation: mine)
+        await readHealth(environment, recheck: recheck, generation: mine)
+        await usage
+    }
+
+    /// The rows show first: a check can take a while. A failed one (an older daemon without the
+    /// method, a timeout) keeps the health already shown.
+    private func readHealth(_ environment: AcpmuxEnvironment, recheck: Bool, generation mine: Int) async {
         guard let checked = try? await fetchHealth(environment, recheck),
               mine == generation, let read = AgentCLIUpdateActions.healthRows(checked) else { return }
         health = read

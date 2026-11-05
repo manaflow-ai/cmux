@@ -170,7 +170,7 @@ export function UserBubble({
       const video = sentVideoOf(part, videos);
       return video ? (
         <span className="cv-user__inline-image">
-          <SentVideoTile video={video} width={sentImageWidth(video)} />
+          <SentVideoTile video={video} width={sentImageWidth(video)} height={SENT_IMAGE_HEIGHT} />
         </span>
       ) : undefined;
     },
@@ -395,23 +395,43 @@ export const SentImages = memo(function SentImages({
 /// A prompt's videos, each at a sent image's height in its own shape.
 function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
   return videos.map((video) => (
-    <SentVideoTile key={`${video.name}\n${video.path}`} video={video} width={sentImageWidth(video)} />
+    <SentVideoTile
+      key={`${video.name}\n${video.path}`}
+      video={video}
+      width={sentImageWidth(video)}
+      height={SENT_IMAGE_HEIGHT}
+    />
   ));
 }
 
 /// The sent thumbnail's height (conversation.css), and the narrowest and
-/// widest it draws as a share of that: a tall phone shot or a wide screenshot is cropped to fill
-/// past those bounds rather than drawn as a sliver.
+/// widest a video's tile draws as a share of that: a tall phone recording or a wide screen
+/// recording is cropped to fill past those bounds rather than drawn as a sliver.
 export const SENT_IMAGE_HEIGHT = 120;
 const SENT_IMAGE_RATIO = { min: 0.75, max: 1.6 };
+/// The widest a sent image draws: a wider one shrinks to it, whole.
+const SENT_IMAGE_MAX_WIDTH = 320;
 
-/// A thumbnail's width at SENT_IMAGE_HEIGHT for an image of `size`: square only while no size is known.
+/// A video tile's width at SENT_IMAGE_HEIGHT for a video of `size`: square only while no size is known.
 export function sentImageWidth(size: { width?: number; height?: number }): number {
   const ratio =
     size.width && size.height
       ? Math.min(SENT_IMAGE_RATIO.max, Math.max(SENT_IMAGE_RATIO.min, size.width / size.height))
       : 1;
   return Math.round(SENT_IMAGE_HEIGHT * ratio);
+}
+
+/// A sent image's thumbnail box for an image of `size`: the whole image in its own shape, at most
+/// SENT_IMAGE_HEIGHT tall and SENT_IMAGE_MAX_WIDTH wide and never larger than the image, so a wide
+/// screenshot is a whole strip, never a magnified crop of its middle (Leo, 2026-11-05: "I don't
+/// think we have good enough looking previews for these"). Square while no size is known.
+export function sentImageSize(size: { width?: number; height?: number }): { width: number; height: number } {
+  if (!size.width || !size.height) return { width: SENT_IMAGE_HEIGHT, height: SENT_IMAGE_HEIGHT };
+  const scale = Math.min(1, SENT_IMAGE_HEIGHT / size.height, SENT_IMAGE_MAX_WIDTH / size.width);
+  return {
+    width: Math.max(1, Math.round(size.width * scale)),
+    height: Math.max(1, Math.round(size.height * scale)),
+  };
 }
 
 /// One sent image, read from acpmux by its id (conversation/imageEntries.ts keeps it, so a
@@ -429,11 +449,14 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // The app it came from, at the thumbnail's top-right corner (composer/SourceBadge.tsx).
   const from = useSourceLabel(image.source);
   if (shown.status === "missing") return null;
-  const width = sentImageWidth(shown);
+  const { width, height } = sentImageSize(shown);
+  // Its shape, at most `width` wide: in a narrow chat the bubble's width scales it down whole
+  // (conversation.css), never past the bubble's edge.
+  const shape = { width, aspectRatio: `${width} / ${height}` };
   // The failed slot keeps the image's known shape, so the row does not reflow when it fails.
   if (shown.src !== undefined && failed === shown.src)
     return (
-      <span className="cv-user__image-failed" style={{ width }}>
+      <span className="cv-user__image-failed" style={shape}>
         <ImageIcon size={16} />
         <span>{t("image.failed")}</span>
       </span>
@@ -442,7 +465,7 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
   // sent-image band appears after the transcript row has already been placed and pushes the
   // prompt and everything below it down by a frame.
   if (shown.src === undefined)
-    return <span className="cv-user__image-placeholder" aria-hidden="true" style={{ width, flexBasis: width }} />;
+    return <span className="cv-user__image-placeholder" aria-hidden="true" style={{ ...shape, flexBasis: width }} />;
   const src = shown.src;
   // A pasted image's name is WebKit's "image.png": name it by its size instead (imageLabel.ts).
   const label = imageLabel(t, { name: image.name, width: shown.width, height: shown.height });
@@ -455,7 +478,7 @@ export const SentImage = memo(function SentImage({ image }: { image: PromptImage
       decoding={shown.decoded ? "sync" : "async"}
       width={shown.width}
       height={shown.height}
-      style={{ width }}
+      style={shape}
       onError={() => setFailed(src)}
       onLoad={(event) => {
         // An image that decodes to no pixels draws nothing: it failed too.

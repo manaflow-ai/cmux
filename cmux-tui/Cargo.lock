@@ -1567,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-rd-host"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "cc",
  "cmux-encode",
@@ -1706,6 +1706,7 @@ name = "cmux-server"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-environment",
  "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
@@ -1958,6 +1959,7 @@ dependencies = [
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-bookmarks-core",
+ "cmux-conductor-import",
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
