@@ -42,12 +42,25 @@ bin="$app/Contents/MacOS/cmux"
 [[ -f "$bin" ]] || bin="$(find "$app/Contents/MacOS" -maxdepth 1 -type f ! -name '*.dylib' | head -n 1)"
 # 2. Interposable: the CmuxNextApp symbols the app exports (what dyld can bind a call to). Then
 # link again with that list: only the link step reruns.
+# The list comes from the export trie dyld binds from, not the symbol table: nm -g also lists a
+# file's private symbols (a private type's deinit, say), and a bind to one of those fails at launch.
 list="$out/interposable.txt"
-nm -gUj "$bin" | grep -E '^_\$s11CmuxNextApp' > "$list" || true
-echo "live-code-app: $(wc -l < "$list" | tr -d ' ') exported CmuxNextApp symbols of $(nm -gUj "$bin" | wc -l | tr -d ' ') exported in all"
+xcrun dyld_info -exports "$bin" | grep -oE '_\$s11CmuxNextApp[^ ]*' | sort -u > "$list" || true
+nm -gUj "$bin" | grep -E '^_\$s11CmuxNextApp' | sort -u > "$out/nm-exported.txt" || true
+echo "live-code-app: $(wc -l < "$list" | tr -d ' ') CmuxNextApp symbols in the export trie, $(wc -l < "$out/nm-exported.txt" | tr -d ' ') external in the symbol table"
+private_probe='_$s11CmuxNextApp11FlippedView'
+echo "live-code-app: FlippedView in the trie: $(grep -c "^$private_probe" "$list" || true), in nm -g: $(grep -c "^$private_probe" "$out/nm-exported.txt" || true)"
+nm -m "$bin" | grep -F "FlippedView" | head -n 5 || true
 [[ -s "$list" ]] || { echo "live-code-app: the app exports no CmuxNextApp symbol (LD_EXPORT_SYMBOLS?)" >&2; exit 1; }
 app="$(reload "$out/reload-2.log" CMUX_LIVE_CODE_INTERPOSABLE_LIST="$list")"
 [[ -n "$app" && -d "$app" ]] || fail_build "$out/reload-2.log"
+# Every symbol the relinked app binds from itself must be in its own export trie, or dyld stops the
+# launch; name the first few that are not.
+xcrun dyld_info -exports "$bin" | grep -oE '_\$s11CmuxNextApp[^ ]*' | sort -u > "$out/exports-2.txt" || true
+xcrun dyld_info -fixups "$bin" | grep -oE '_\$s11CmuxNextApp[^ ]*' | sort -u > "$out/binds-2.txt" || true
+missing="$(comm -23 "$out/binds-2.txt" "$out/exports-2.txt" | head -n 5)"
+echo "live-code-app: relinked: $(wc -l < "$out/binds-2.txt" | tr -d ' ') CmuxNextApp binds, $(wc -l < "$out/exports-2.txt" | tr -d ' ') exported"
+[[ -z "$missing" ]] || { echo "live-code-app: the relinked app binds CmuxNextApp symbols it does not export:" >&2; echo "$missing" >&2; exit 1; }
 echo "live-code-app: built in $((SECONDS - build_start)) s"
 # The patch compiles from this log; keep CmuxNextApp's lines with the results.
 grep -E -- "-module-name CmuxNextApp " "$log" > "$out/cmuxnextapp-commands.log" || true
