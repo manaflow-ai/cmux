@@ -187,6 +187,9 @@ export async function oidcSignIn(apiOrigin: string, env: Record<string, string |
   if (gh.status !== 200 || typeof gh.body.value !== "string") throw new Error(`GitHub OIDC token HTTP ${gh.status}`);
   secrets.push(gh.body.value);
   const r = await fetchJson("POST", `${apiOrigin}/v1/auth/github-actions`, undefined, { authorization: `Bearer ${gh.body.value}` });
+  // Name the two ways a correct job is refused, so a red run says what to change (cmux#35703).
+  if (r.status === 404) throw new Error(`OIDC sign-in HTTP 404: ${apiOrigin} has no POST /v1/auth/github-actions yet (deploy a cmux-api commit with ci-session.ts)`);
+  if (r.status === 401) throw new Error(`OIDC sign-in HTTP 401: no CI_SESSION_TRUST row of ${apiOrigin} trusts this job (repository, ref, workflow_ref, event_name and sub must equal a row's)`);
   if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`OIDC sign-in HTTP ${r.status} ${String(r.body.error ?? "")}`);
   secrets.push(r.body.access_token);
   return { token: r.body.access_token, user: String(r.body.user ?? "?"), expiresAt: String(r.body.session_expires_at ?? "?") };
@@ -762,7 +765,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         "x-stack-project-id": stack.project,
         ...(stack.clientKey ? { "x-stack-publishable-client-key": stack.clientKey } : {}),
       });
-      if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`Stack sign-in HTTP ${r.status} ${String(r.body.code ?? "")}`);
+      if (r.status !== 200 || typeof r.body.access_token !== "string") {
+        const code = String(r.body.code ?? "");
+        // A pair from another Stack project (the repository's dev pair against prod) fails this way (cmux#35703).
+        const hint = code === "EMAIL_PASSWORD_MISMATCH" ? `: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD is not an account of Stack project ${stack.project.slice(0, 8)} (${backend.name}); use that backend's own test account, or --sign-in oidc in a trusted job` : "";
+        throw new Error(`Stack sign-in HTTP ${r.status} ${code}${hint}`);
+      }
       J.secrets.push(r.body.access_token, r.body.refresh_token ?? "");
       return { value: r.body.access_token as string, detail: `Stack project ${stack.project.slice(0, 8)}` };
     });
