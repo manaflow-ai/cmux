@@ -392,7 +392,7 @@ await requireBrowserLane("chat-scroll-nightly.test.ts", async () => {
       }, 80);
       await startWatch(page);
       // A trackpad's uneven steps, in rounds so older pages land while the wheel is moving.
-      const traces = [];
+      const traces: Awaited<ReturnType<typeof traceUpwardAnchors>>[] = [];
       const driftLog: string[] = [];
       const roundLog: string[] = [];
       try {
