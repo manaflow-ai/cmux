@@ -110,6 +110,25 @@ fn one_edit_in_common_outranks_any_number_of_reads() {
 }
 
 #[test]
+fn a_peer_row_ranks_by_its_counts_whatever_score_it_carries() {
+    let mut rows = vec![
+        json!({"name": "local-reader", "filesInCommon": 3, "editedInCommon": 0, "score": 1u64 << 40}),
+        json!({"name": "peer-editor", "filesInCommon": 1, "editedInCommon": 1, "score": 100}),
+    ];
+    rank(&mut rows);
+    assert_eq!(rows[0]["name"], "peer-editor");
+}
+
+#[test]
+fn a_read_after_an_edit_kept_before_edit_times_is_not_a_recent_edit() {
+    let mut files = vec![TouchedFile { edited_at: 0, ..file(REPO, "a", true, 5) }];
+    merge(&mut files, file(REPO, "a", false, 900));
+    assert_eq!(files[0].at, 900);
+    assert!(files[0].edited_since(5));
+    assert!(!files[0].edited_since(100), "{:?}", files[0]);
+}
+
+#[test]
 fn the_asker_and_its_own_sub_sessions_are_not_someone_else() {
     let q = Query {
         files: vec![file(REPO, "a", false, 0)],
