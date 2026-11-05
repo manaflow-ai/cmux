@@ -166,6 +166,18 @@ impl Hub {
             .collect()
     }
 
+    /// The session id of the one hub row `key` names: its bare id, `HOST/ID` or `HOST/name`.
+    pub(crate) fn mesh_book_resolve(&self, key: &str) -> Option<String> {
+        let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+        let mut found = book.rows.iter().filter_map(|(qualified, (_, r))| {
+            let id = r.receipt.mux_session_id.as_str();
+            let name = r.summary.get("name").and_then(Value::as_str);
+            (key == id || key == qualified || name == Some(key)).then(|| id.to_owned())
+        });
+        let id = found.next()?;
+        found.next().is_none().then_some(id)
+    }
+
     /// Whether the hub lists machine `host` for this person.
     pub(crate) fn mesh_book_has_host(&self, host: &str) -> bool {
         self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).hosts.contains_key(host)

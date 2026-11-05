@@ -86,6 +86,11 @@ async fn a_hub_machines_chat_is_listed_resolved_and_its_machine_is_a_peer() {
     assert_eq!((b["via"].clone(), b["sessions"].clone()), (json!("hub"), json!(1)));
 
     assert!(hub.mesh_may_route(&format!("machine-b/{B_ID}")), "still the hub's to route");
+    // `acpmux wait` names it by id, `HOST/ID` or `HOST/name`.
+    for key in [B_ID.to_owned(), format!("machine-b/{B_ID}"), "machine-b/fix-login".into()] {
+        assert_eq!(hub.mesh_book_resolve(&key).as_deref(), Some(B_ID), "{key}");
+    }
+    assert_eq!(hub.mesh_book_resolve("machine-b/nobody"), None);
     assert_eq!(hub.mesh_book_host(B_ID).as_deref(), Some("machine-b"));
     assert_eq!(hub.remote_matches("machine-b/fix-login"), 0);
 }
