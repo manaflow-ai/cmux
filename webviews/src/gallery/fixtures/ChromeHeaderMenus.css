@@ -24,7 +24,7 @@
 [data-tab-treatment="strip"] .chrome-header-menu-title { padding-inline: var(--chrome-menu-gap); flex: 1; }
 [data-tab-treatment="strip"] .chrome-header-menu-title[data-selected] { background: var(--chrome-menu-hover); border-radius: var(--chrome-menu-radius); }
 .chrome-header-menu-tools { display: flex; flex: none; align-items: center; }
-.chrome-header-menu-trigger { display: grid; place-items: center; width: var(--chrome-action-size); height: var(--chrome-action-size); flex: none; padding: 0; border: 0; border-radius: var(--chrome-menu-radius); color: inherit; background: transparent; cursor: pointer; }
+.chrome-header-menu-trigger { display: grid; place-items: center; width: var(--chrome-action-size); height: var(--chrome-action-size); flex: none; padding: 0; border: 0; border-radius: var(--chrome-menu-radius); color: inherit; background: transparent; }
 .chrome-header-menu-add { width: var(--chrome-add-size); }
 .chrome-header-menu-title-chevron { opacity: .45; }
 .chrome-header-menu-trigger:is(:hover, :focus-visible, [aria-expanded="true"]),
@@ -49,7 +49,7 @@
 .chrome-header-menu-position[data-menu-side="pane"] { left: auto; right: 0; }
 .chrome-header-menu { position: relative; box-sizing: border-box; width: var(--chrome-menu-width); padding: var(--chrome-menu-padding); background: var(--chrome-menu-fill); border: thin solid var(--chrome-menu-edge); border-radius: var(--chrome-menu-radius); color: var(--chrome-menu-ink); box-shadow: 0 var(--chrome-menu-gap) var(--chrome-action-size) color-mix(in srgb, black 18%, transparent); }
 .chrome-header-menu-rows { max-height: calc(100dvh - var(--chrome-action-size) * 3); overflow-y: auto; }
-.chrome-header-menu-item { box-sizing: border-box; display: flex; align-items: center; gap: var(--chrome-menu-gap); width: 100%; min-height: var(--chrome-menu-row); margin: 0; padding: var(--chrome-menu-padding) var(--chrome-menu-gap); border: 0; border-radius: calc(var(--chrome-menu-radius) / 2); background: transparent; color: inherit; text-align: start; white-space: nowrap; font: inherit; cursor: pointer; }
+.chrome-header-menu-item { box-sizing: border-box; display: flex; align-items: center; gap: var(--chrome-menu-gap); width: 100%; min-height: var(--chrome-menu-row); margin: 0; padding: var(--chrome-menu-padding) var(--chrome-menu-gap); border: 0; border-radius: calc(var(--chrome-menu-radius) / 2); background: transparent; color: inherit; text-align: start; white-space: nowrap; font: inherit; }
 .chrome-header-menu-item > span:not(.chrome-header-menu-arrow) { flex: 1; }
 .chrome-header-menu-item:is(:hover, :focus-visible, [aria-expanded="true"]),
 .chrome-header-menu-item:is(:has([data-popup-open]), :focus-visible, [aria-expanded="true"]) { background: var(--chrome-menu-hover); outline: none; }

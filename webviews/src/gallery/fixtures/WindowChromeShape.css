@@ -38,7 +38,7 @@
 .chrome-window-agent-title,
 .chrome-window-browser-title { min-width: 0; }
 .chrome-window-sidebar-title { display: flex; align-items: center; gap: calc(var(--chrome-unit) * 2); padding-inline: calc(var(--chrome-unit) * 2); min-height: calc(var(--chrome-action-slot) * 1.5); }
-.chrome-sidebar-toggle { border: 0; background: transparent; color: var(--chrome-muted); font: inherit; cursor: pointer; }
+.chrome-sidebar-toggle { border: 0; background: transparent; color: var(--chrome-muted); font: inherit; }
 .chrome-sidebar-toggle:hover { color: var(--chrome-ink); }
 .chrome-traffic-lights { --chrome-light-close: #ff5f57; --chrome-light-minimize: #febc2e; --chrome-light-zoom: #28c840; display: flex; gap: var(--chrome-unit); }
 .chrome-traffic-lights i { width: var(--chrome-icon-size); height: var(--chrome-icon-size); border-radius: 50%; background: var(--chrome-light-close); }
