@@ -81,12 +81,12 @@ final class ChiefComputerPageService: InternalPageProvider {
         return routes.first { $0.value == conversation }?.key
     }
 
-    /// Whether the workspace `window` names shows this Chief's page: the chat's popup then stays away.
-    func shows(_ conversation: String, in window: WindowController) -> Bool {
-        guard let content = window.workspaceContent, let services else { return false }
-        return content.modelPanes.contains { model in
-            let keys = services.pages.tabIDs(in: model.id) + model.tabs.compactMap { services.pages.storeKey(of: $0.id) }
-            return keys.contains { routes[$0] == conversation }
+    /// Whether `window` has this Chief's page on screen: the chat's popup then stays away. A page
+    /// parked behind another tab does not count, so the chat keeps its live view.
+    func shows(_ conversation: String, in window: NSWindow?) -> Bool {
+        routes.contains { key, route in
+            guard route == conversation, let view = views[key], let window else { return false }
+            return view.window === window && !view.isHiddenOrHasHiddenAncestor
         }
     }
 
@@ -140,6 +140,11 @@ final class ChiefComputerPageService: InternalPageProvider {
             Task { await services?.paidPlanUpgrade().start(plan: "pro", source: .cloudRefusal, fallback: nil) }
         }
         view.onMoveToCloud = { [weak services] in
+            // The move runs on the app's Chief; another Chief's page goes to the settings instead.
+            guard services?.home.defaultChiefConversation == conversation else {
+                try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
+                return
+            }
             _ = services?.registry.perform(ChiefMoveHandlers.actionID, invocation: ActionInvocation(arguments: ["target": .string(ChiefMoveTargets.cloudID)], origin: .user))
         }
         view.onSettings = { [weak services] in

@@ -112,9 +112,8 @@ final class HomeHostView: NSView {
         // The live view that pops up in the chat while this Chief uses its computer (cmux issue 31488).
         computerPopup.section.source = ChiefComputerPageService.source(services: services, conversation: conversation)
         computerPopup.isSuppressed = { [weak self] in
-            guard let self, let window = window.flatMap({ services.windows.owner(of: $0) }),
-                  let page = services.pages.provider(.chiefComputer) as? ChiefComputerPageService else { return false }
-            return page.shows(conversation, in: window)
+            guard let self, let page = services.pages.provider(.chiefComputer) as? ChiefComputerPageService else { return false }
+            return page.shows(conversation, in: self.window)
         }
         computerPopup.onOpen = { [weak services] in
             _ = services?.registry.perform(ChiefComputerPageService.toggleActionID,
