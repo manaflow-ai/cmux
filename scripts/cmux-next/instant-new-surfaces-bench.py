@@ -233,7 +233,7 @@ def timed(command, phase, index, arm=None):
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
           f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} marks={marks} "
-          f"err={result.get('error')}", flush=True)
+          f"err={result.get('error')}" + (f" github={result['github']}" if 'github' in result else ""), flush=True)
     return result
 
 

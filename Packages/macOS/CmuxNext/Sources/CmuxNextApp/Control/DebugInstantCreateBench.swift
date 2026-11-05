@@ -62,10 +62,10 @@ enum DebugInstantCreateBench {
         BenchSpans.begin()
         services.cache.cef.benchMarks.arm { name, milliseconds in BenchSpans.mark(name, milliseconds: milliseconds) }
         defer { services.cache.cef.benchMarks.arm(nil) }
-        // The GitHub page's `shown` mark for this open's link with its pull request drawn.
-        let githubShown = OSAllocatedUnfairLock(initialState: false), githubURL = params["url"]?.stringValue
+        // The GitHub page's `shown` marks (`content` when it drew its pull request) and the open's answer, reported as `github`.
+        let githubShown = OSAllocatedUnfairLock(initialState: [String]()), githubURL = params["url"]?.stringValue
         let githubTab = command == .githubRight ? WebPageTab.registerGitHub(services) : nil
-        githubTab?.onShown = { url, content in if url == githubURL, content { githubShown.withLock { $0 = true } } }
+        githubTab?.onShown = { url, content in githubShown.withLock { $0.append(url == githubURL ? (content ? "content" : "empty") : "other") } }
         defer { githubTab?.onShown = nil }
         let start = ContinuousClock.now
         if command == .linkRight, let url = URL(string: params["url"]?.stringValue ?? "https://example.com/") {
@@ -80,7 +80,7 @@ enum DebugInstantCreateBench {
             }
             let placement = services.linkOpener.placement
             services.linkOpener.placement = { .splitRight }
-            _ = WebPageTab.openGitHub(url, from: pane, services: services)
+            githubShown.withLock { $0.append("opened:\(WebPageTab.openGitHub(url, from: pane, services: services).map(String.init) ?? "nil")") }
             services.linkOpener.placement = placement
         } else if command == .dockRespawn, let pane = controller.content?.focusedPane, let tab = pane.pane.tabs.first {
             TabMoves.toNewDockColumn(tab, anchor: pane.pane, edge: .left, role: .agentChat, respawn: .terminal(SpawnOptions()), services: services)
@@ -93,11 +93,11 @@ enum DebugInstantCreateBench {
         let chrome = visible == nil || command != .newBrowser ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
         let opensRight = command == .linkRight || command == .splitBrowser
-        // The GitHub page: the frame after it drew the pull request (its `shown` mark), never only its loading state.
+        // The GitHub page: the frame after it drew the pull request (its `shown` mark, not its loading state), with or without `visible`.
         let github = command == .githubRight ? params["url"]?.stringValue : nil
-        let page = visible == nil || (command != .newBrowser && !opensRight && github == nil) ? nil
+        let page = (visible == nil && github == nil) || (command != .newBrowser && !opensRight && github == nil) ? nil
             : await frames.settled(until: {
-                if github != nil { return githubShown.withLock { $0 } }
+                if github != nil { return githubShown.withLock { $0.contains("content") } }
                 return opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers) : Probe(controller).pagePainted(services)
             },
                                    start: start, window: 0, deadline: 5_000)
@@ -112,7 +112,7 @@ enum DebugInstantCreateBench {
             "key_ms": .number(keyMilliseconds),
             "visible_ms": visible.map { .number($0) } ?? .null,
             "confirmed_ms": confirmed.map { .number($0) } ?? .null,
-            "page_ms": page.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null,
+            "page_ms": page.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "github": .array(githubShown.withLock { $0 }.map(JSON.string)),
             "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"),
             "spare_window": .string(services.cache.cef.spareWindowState),
             "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null,
