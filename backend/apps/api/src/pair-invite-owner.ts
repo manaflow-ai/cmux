@@ -12,6 +12,9 @@ import type { Env } from "./env.ts"
  *   answers, and a key left pending by a request that died is resolved on the alarm too (its
  *   invite adopted when it was minted, forgotten when not), so a failure between the Durable
  *   Object calls never leaves two live invites.
+ * - Order: each key takes the next number of this person's sequence when it begins, and the live
+ *   invite is the one with the highest number. Two requests begun in the same millisecond still
+ *   have an order, so a late commit from the earlier one never displaces the newer invite.
  */
 
 /** How long a pending key or a failed void waits before the alarm resolves it. */
@@ -19,14 +22,26 @@ export const OWNER_RECHECK_MS = 30_000
 /** How long a key replays its invite. */
 export const OWNER_KEY_RETENTION_MS = 60 * 60_000
 
-type MintRow = { key: string; invite: string; team: string; created_at: number; expires_at: number | null }
+type MintRow = { key: string; invite: string; team: string; created_at: number; expires_at: number | null; seq: number }
 
 export type OwnerBegin = { readonly state: "fresh" } | { readonly state: "replay"; readonly invite: string; readonly expires_at: number | null } | { readonly state: "conflict" }
 
 export const ownerSchema = (sql: SqlStorage): void => {
-  sql.exec(`CREATE TABLE IF NOT EXISTS pair_invite_mint (key TEXT PRIMARY KEY, invite TEXT NOT NULL, team TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER)`)
-  sql.exec(`CREATE TABLE IF NOT EXISTS pair_invite_live (id INTEGER PRIMARY KEY CHECK (id = 1), invite TEXT NOT NULL, created_at INTEGER NOT NULL)`)
+  sql.exec(`CREATE TABLE IF NOT EXISTS pair_invite_mint (key TEXT PRIMARY KEY, invite TEXT NOT NULL, team TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER, seq INTEGER NOT NULL DEFAULT 0)`)
+  sql.exec(`CREATE TABLE IF NOT EXISTS pair_invite_live (id INTEGER PRIMARY KEY CHECK (id = 1), invite TEXT NOT NULL, created_at INTEGER NOT NULL, seq INTEGER NOT NULL DEFAULT 0)`)
   sql.exec(`CREATE TABLE IF NOT EXISTS pair_invite_void (invite TEXT PRIMARY KEY)`)
+  sql.exec(`CREATE TABLE IF NOT EXISTS pair_invite_seq (id INTEGER PRIMARY KEY CHECK (id = 1), n INTEGER NOT NULL)`)
+  // Objects the previous build wrote have no `seq`: number their keys in begin order (rowid), and
+  // give the live invite its key's number (0 when its key is gone, so any new key is newer).
+  const hasSeq = (t: string) => /\bseq\b/.test(sql.exec<{ sql: string }>(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, t).toArray()[0]?.sql ?? "")
+  if (!hasSeq("pair_invite_mint")) {
+    sql.exec(`ALTER TABLE pair_invite_mint ADD COLUMN seq INTEGER NOT NULL DEFAULT 0`)
+    sql.exec(`UPDATE pair_invite_mint SET seq = rowid`)
+  }
+  if (!hasSeq("pair_invite_live")) {
+    sql.exec(`ALTER TABLE pair_invite_live ADD COLUMN seq INTEGER NOT NULL DEFAULT 0`)
+    sql.exec(`UPDATE pair_invite_live SET seq = COALESCE((SELECT m.seq FROM pair_invite_mint m WHERE m.invite = pair_invite_live.invite), 0)`)
+  }
 }
 
 export class InviteOwner {
@@ -64,12 +79,22 @@ export class InviteOwner {
     this.sql.exec(`DROP TABLE pair_invite_owner`)
   }
 
+  /** The next number of this person's sequence: above every key and live invite recorded so far. */
+  private nextSeq(): number {
+    const max = this.sql
+      .exec<{ n: number }>(`SELECT MAX(n) AS n FROM (SELECT n FROM pair_invite_seq UNION ALL SELECT MAX(seq) FROM pair_invite_mint UNION ALL SELECT MAX(seq) FROM pair_invite_live)`)
+      .toArray()[0]?.n ?? 0
+    const next = (max ?? 0) + 1
+    this.sql.exec(`INSERT OR REPLACE INTO pair_invite_seq (id, n) VALUES (1, ?)`, next)
+    return next
+  }
+
   /** Records `key` for `invite` (pending), or answers what the key already holds. */
   async begin(key: string, invite: string, team: string, now: number): Promise<OwnerBegin> {
     this.migrateLegacy(now)
     const r = this.sql.exec<MintRow>(`SELECT * FROM pair_invite_mint WHERE key = ?`, key).toArray()[0]
     if (r) return r.team === team ? { state: "replay", invite: r.invite, expires_at: r.expires_at } : { state: "conflict" }
-    this.sql.exec(`INSERT INTO pair_invite_mint (key, invite, team, created_at, expires_at) VALUES (?, ?, ?, ?, NULL)`, key, invite, team, now)
+    this.sql.exec(`INSERT INTO pair_invite_mint (key, invite, team, created_at, expires_at, seq) VALUES (?, ?, ?, ?, NULL, ?)`, key, invite, team, now, this.nextSeq())
     await this.wakeAt(now + OWNER_RECHECK_MS)
     return { state: "fresh" }
   }
@@ -81,16 +106,17 @@ export class InviteOwner {
 
   /**
    * The key's invite is minted: record its expiry, make it the live invite unless a newer key's
-   * already is (then it is voided itself), and void the one it replaces. `skipVoid` only queues
+   * (a higher sequence number, not a later clock) already is (then it is voided itself), and void
+   * the one it replaces. `skipVoid` only queues
    * the void (tests: a void that never reached its object).
    */
   async commit(key: string, invite: string, expiresAt: number, now: number, opts: { skipVoid?: boolean } = {}): Promise<{ ok: boolean }> {
     const r = this.sql.exec<MintRow>(`SELECT * FROM pair_invite_mint WHERE key = ?`, key).toArray()[0]
     if (!r || r.invite !== invite) return { ok: false }
     if (r.expires_at === null) this.sql.exec(`UPDATE pair_invite_mint SET expires_at = ? WHERE key = ?`, expiresAt, key)
-    const live = this.sql.exec<{ invite: string; created_at: number }>(`SELECT invite, created_at FROM pair_invite_live WHERE id = 1`).toArray()[0]
-    if (!live || (live.invite !== invite && live.created_at <= r.created_at)) {
-      this.sql.exec(`INSERT OR REPLACE INTO pair_invite_live (id, invite, created_at) VALUES (1, ?, ?)`, invite, r.created_at)
+    const live = this.sql.exec<{ invite: string; seq: number }>(`SELECT invite, seq FROM pair_invite_live WHERE id = 1`).toArray()[0]
+    if (!live || (live.invite !== invite && live.seq < r.seq)) {
+      this.sql.exec(`INSERT OR REPLACE INTO pair_invite_live (id, invite, created_at, seq) VALUES (1, ?, ?, ?)`, invite, r.created_at, r.seq)
       if (live) this.sql.exec(`INSERT OR IGNORE INTO pair_invite_void (invite) VALUES (?)`, live.invite)
     } else if (live.invite !== invite) {
       // A newer key's invite is live already: this one is replaced on arrival.

@@ -63,7 +63,7 @@ enum CloudStartSessionStrings {
     }
 
     static var cwdInvalid: String {
-        String(localized: "cloud.startSession.cwdInvalid", defaultValue: "Pass --cwd as an absolute folder on the machine, for example `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`.", table: "CloudSessions", bundle: .module)
+        String(localized: "cloud.startSession.cwdInvalid", defaultValue: "Pass --cwd as an absolute folder on the machine, for example `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/FOLDER`.", table: "CloudSessions", bundle: .module)
     }
 
     /// The machine to create (`--name`) could not be created; `reason` says why. `quoted` is the
@@ -88,7 +88,7 @@ enum CloudStartSessionStrings {
 
     /// The start found no folder it may use (none in the workspace, or the home folder).
     static func needsFolder(_ name: String, id: String, agent: String) -> String {
-        String(format: String(localized: "cloud.startSession.needsFolder", defaultValue: "Machine `%1$@` started but its agent didn't: it needs a folder on that machine to start in. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd /home/cmux/work` again with a folder there.", table: "CloudSessions", bundle: .module), name, id, agent)
+        String(format: String(localized: "cloud.startSession.needsFolder", defaultValue: "Machine `%1$@` started but its agent didn't: it needs a folder on that machine to start in. Run `cmux cloud start-session --target machine:%2$@ --agent %3$@ --cwd FOLDER` again with a folder that exists there.", table: "CloudSessions", bundle: .module), name, id, agent)
     }
 
     // MARK: The card's text and what an agent's run says

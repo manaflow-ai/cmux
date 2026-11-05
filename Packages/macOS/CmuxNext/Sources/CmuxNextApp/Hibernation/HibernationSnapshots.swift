@@ -19,10 +19,9 @@ final class HibernationSnapshots {
     /// Least recently used first.
     private var order: [String] = []
 
-    /// One page's picture: `data` is the JPEG or PNG (nil for a decoded picture kept in `previews`
-    /// when `HibernationTunables.compressedSnapshots` is off), `image` decodes from it.
+    /// One page's picture: `data` is the JPEG or PNG, `image` decodes from it.
     nonisolated struct Picture: Sendable {
-        let data: Data?
+        let data: Data
         let image: CGImage
     }
 
@@ -40,7 +39,8 @@ final class HibernationSnapshots {
     }
 
     func insert(_ picture: Picture, for key: String) {
-        guard let cost = picture.data?.count, cost <= capacityBytes else { return }
+        let cost = picture.data.count
+        guard cost <= capacityBytes else { return }
         remove(key)
         pictures[key] = picture
         order.append(key)
@@ -50,7 +50,7 @@ final class HibernationSnapshots {
 
     func remove(_ key: String) {
         guard let picture = pictures.removeValue(forKey: key) else { return }
-        totalBytes -= picture.data?.count ?? 0
+        totalBytes -= picture.data.count
         order.removeAll { $0 == key }
     }
 

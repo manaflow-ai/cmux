@@ -63,7 +63,10 @@ extension ControlRouter {
         }
         let schema = Dictionary(action.arguments.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
         let folded = Dictionary(action.arguments.map { (Self.foldedArgumentName($0.name), $0.name) }, uniquingKeysWith: { first, _ in first })
-        for (given, raw) in rawArguments {
+        // The spelling that named each argument: two spellings of one argument (`promptId` and `prompt-id`) are refused,
+        // never one silently overwriting the other.
+        var givenAs: [String: String] = [:]
+        for (given, raw) in rawArguments.sorted(by: { $0.key < $1.key }) {
             // Rooms became Spaces: `--room` still names the `space` argument. A spelling the schema does not use
             // (`prompt-id`, `prompt_id` or `promptId` for one named another way) names the argument it folds to:
             // the CLI sends `--prompt-id` as `promptId`, and one drifted name failed `cmux cloud start-chat`.
@@ -75,6 +78,14 @@ extension ControlRouter {
                     data: ["valid": .array(action.arguments.map { .string($0.name) })]
                 )
             }
+            if let earlier = givenAs[name] {
+                throw ControlError.invalidParams(
+                    ControlStrings.format("control.error.argumentGivenTwice", "%1$@ argument '%2$@' is given twice, as '%3$@' and '%4$@'",
+                                          action.id, name, earlier, given),
+                    data: ["argument": .string(name), "given": .array([.string(earlier), .string(given)])]
+                )
+            }
+            givenAs[name] = given
             request.arguments.updateValue(try value(raw, for: argument, action: action.id, knownKinds: knownKinds), forKey: name)
         }
         let interactive = params["interactive"]?.boolValue ?? false

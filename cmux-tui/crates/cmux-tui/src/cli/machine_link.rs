@@ -110,8 +110,20 @@ fn refused(answer: &Value) -> Option<(String, String)> {
 fn pick<'a>(machines: &'a [Value], name: &str) -> Result<&'a Value, String> {
     let text =
         |m: &Value, key: &str| m.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-    let others: Vec<&Value> =
-        machines.iter().filter(|m| m.get("this").and_then(Value::as_bool) != Some(true)).collect();
+    // Not this Mac: neither this build nor another build of the same computer.
+    let mine: Vec<String> = machines
+        .iter()
+        .filter(|m| m.get("this").and_then(Value::as_bool) == Some(true))
+        .map(|m| text(m, "machine_id"))
+        .filter(|id| !id.is_empty())
+        .collect();
+    let others: Vec<&Value> = machines
+        .iter()
+        .filter(|m| {
+            m.get("this").and_then(Value::as_bool) != Some(true)
+                && !mine.contains(&text(m, "machine_id"))
+        })
+        .collect();
     let wanted = name.to_lowercase();
     let exact: Vec<&Value> = others
         .iter()
@@ -171,7 +183,7 @@ fn doctor(global: &GlobalArgs, name: &str) -> i32 {
     let device_id = machine.get("device_id").and_then(Value::as_str).unwrap_or_default().to_owned();
     let label = machine.get("name").and_then(Value::as_str).unwrap_or(name).to_owned();
     let started = Instant::now();
-    let request = json!({"op": "open", "peer": device_id, "service": "machine", "args": {}, "origin": origin()});
+    let request = json!({"op": "open", "peer": device_id, "service": "machine", "args": {}});
     let mut conversation = match Conversation::start(&socket, &request) {
         Ok(conversation) => conversation,
         Err(error) => return fail(error),
@@ -235,15 +247,6 @@ fn doctor(global: &GlobalArgs, name: &str) -> i32 {
     0
 }
 
-/// `person` when a person typed this in a terminal; `agent` otherwise. The
-/// target only ever narrows on it (an agent never gets `install`).
-fn origin() -> &'static str {
-    let agent = ["CLAUDECODE", "CODEX_SANDBOX", "CMUX_AGENT_SESSION", "ACPMUX_SESSION"]
-        .iter()
-        .any(|key| std::env::var_os(key).is_some());
-    if agent { "agent" } else { "person" }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,6 +270,17 @@ mod tests {
         assert_eq!(pick(&list, "33333333-3333-3333-3333-333333333333").unwrap()["online"], false);
         // This Mac is never a target.
         assert!(pick(&list, "Studio").unwrap_err().contains("no Mac named Studio"));
+        // Nor is another build of this same computer (same machine id).
+        let mut with_sibling = list.clone();
+        with_sibling.push(mac(
+            "Studio DEV",
+            "44444444-4444-4444-4444-444444444444",
+            "aa",
+            true,
+            false,
+        ));
+        assert!(pick(&with_sibling, "Studio DEV").is_err());
+        assert!(!pick(&with_sibling, "nope").unwrap_err().contains("Studio DEV"));
         assert!(pick(&list, "nope").unwrap_err().contains("MacBook"));
     }
 

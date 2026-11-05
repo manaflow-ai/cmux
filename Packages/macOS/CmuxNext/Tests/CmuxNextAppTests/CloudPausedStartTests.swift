@@ -44,6 +44,50 @@ struct CloudPausedStartTests {
         #expect(resumed.refused == 1)
     }
 
+    /// `cloud start-chat` runs as the person's start (agents' starts are delegated by default), so its attach is a
+    /// `user` one. On a paused app-link machine that attach went straight to a connect, which the platform refuses
+    /// (`cloud.machine.paused`: no automatic start), and the start failed at once with "didn't connect" (prod,
+    /// 2026-11-05, on the DEV build with #36369). It resumes through Resume Machine with the person's origin.
+    @Test func aPersonsAttachResumesAPausedAppLinkMachineAndThenDials() async {
+        let dials = CloudLinkRedialSessionTests.Dials()
+        let session = Self.session(.paused, LateReceiverResolver(refusing: 0, dials: dials))
+        defer { session.disconnect() }
+        var origins: [CloudLinkOrigin] = []
+        session.resumer = { [weak session] _, origin in
+            origins.append(origin)
+            guard let session else { return }
+            var live = session.machine
+            live.status = .running
+            live.pauseReason = nil
+            session.applyRecord(live)
+        }
+        session.attach(origin: .user)
+        #expect(await CloudWait.holds(within: .seconds(10)) { dials.answered > 0 }, "the resumed machine was never dialed")
+        #expect(origins == [.user], "a person's attach on a paused machine never resumed it through Resume Machine")
+        #expect(session.resumeFailure == nil)
+    }
+
+    /// Retry and Reconnect (the progress view's Retry, a machine header's Reconnect, a creation's Retry) resume a
+    /// paused app-link machine as an attach does: they connected straight away, which the platform refuses.
+    @Test func retryResumesAPausedAppLinkMachineAndThenDials() async {
+        let dials = CloudLinkRedialSessionTests.Dials()
+        let session = Self.session(.paused, LateReceiverResolver(refusing: 0, dials: dials))
+        defer { session.disconnect() }
+        var origins: [CloudLinkOrigin] = []
+        session.resumer = { [weak session] _, origin in
+            origins.append(origin)
+            guard let session else { return }
+            var live = session.machine
+            live.status = .running
+            live.pauseReason = nil
+            session.applyRecord(live)
+        }
+        session.retry()
+        #expect(await CloudWait.holds(within: .seconds(10)) { dials.answered > 0 }, "the resumed machine was never dialed")
+        #expect(origins == [.user], "Retry on a paused machine never resumed it through Resume Machine")
+        #expect(session.resumeFailure == nil)
+    }
+
     /// The idle auto-pause parked the machine while the app's copy still read running: a start reads the record
     /// again first, so it resumes the machine instead of dialing a parked one.
     @Test func aStartReadsAnAppLinkMachinesRecordAgainFirst() async {
