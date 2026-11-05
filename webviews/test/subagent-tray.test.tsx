@@ -56,7 +56,7 @@ const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subagentFold");
 const { SUBAGENT_DONE } = await import("../src/agent-session/acpmux/subagents/subagentRows");
-const { trayItems, finishedTrayItems, withSubagentLines, configureSubagentTray } =
+const { trayItems, finishedTrayItems, withSubagentLines } =
   await import("../src/agent-session/acpmux/subagents/runningTray");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
@@ -74,7 +74,6 @@ type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Sub
 
 afterAll(() => {
   setPaneLanguage("en");
-  configureSubagentTray(true);
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

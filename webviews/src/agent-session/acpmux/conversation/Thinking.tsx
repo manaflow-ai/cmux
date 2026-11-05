@@ -21,7 +21,7 @@ import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
 import { verbLeads } from "./ToolVerb";
-import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
+import { useTicking, WorkingCountsContext } from "./WorkingFor";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxTurnRetry } from "../model";
@@ -237,9 +237,7 @@ export function Thinking({
   const ownMs = doing === undefined ? (waitsOnAgents || writing ? undefined : thoughtMs) : done ? doneMs : undefined;
   const own = total && ownMs !== undefined ? formatDuration(ownMs) : undefined;
   const elapsed = own ?? turnTime;
-  // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
-  // running tray off, the work still going in the background, each count opening what it counts
-  // (App.tsx counts nothing while the tray lists it).
+  // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn.
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
   // A send's line names who it goes to and for how long; the turn's token counts there are noise
@@ -251,10 +249,6 @@ export function Thinking({
   // split on hover (liveLineTokens.experiment.ts). Never "↓ out ↑ in" in the line's words (the
   // coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in").
   const oneCount = experimentArm(liveLineTokens) === "total";
-  // The label already names the subagents it waits on: no second count of them.
-  const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
-    (part) => !(liveState === "subagents" && part.key === "agents"),
-  );
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
   // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
   if (retry && !waiting) {
@@ -363,16 +357,6 @@ export function Thinking({
           )}
         </span>
       )}
-      {parts.map((part) => (
-        <span key={part.key} className="cv-worked__count">
-          <span className="cv-worked__sep" aria-hidden="true">
-            ·
-          </span>
-          <button type="button" className="cv-worked__open" onClick={part.open}>
-            {part.label}
-          </button>
-        </span>
-      ))}
       {/* Keyed by the call, so each command's hint waits its moment again. */}
       {command && !done && !waiting && doing !== undefined && <BackgroundHint key={doingAt} />}
     </div>

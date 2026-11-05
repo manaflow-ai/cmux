@@ -2391,12 +2391,6 @@
       "center-line:row subagentDone:agent-completed-check-4"
     ],
     "agent-pane.subagent-tray#workflow-progress": [],
-    "agent-pane.subagents#agents-pill": [
-      "center-line:row subagents-2:agent-error-parsing",
-      "center-line:row subagents-2:agent-retry-policy",
-      "center-line:row subagents-2:agent-test-coverage",
-      "center-line:row subagents-2:agent-timeouts"
-    ],
     "agent-pane.subagents#card-closed": [
       "center-line:row subagents-2:agent-error-parsing",
       "center-line:row subagents-2:agent-retry-policy",
@@ -2444,79 +2438,14 @@
       "center-line:row subagents-2:agent-test-coverage",
       "center-line:row subagents-2:agent-timeouts"
     ],
-    "agent-pane.subagents#child-nested": [],
-    "agent-pane.subagents#claude-kinds": [
-      "center-line:row subagents-17:agent-check-the-docs",
-      "center-line:row subagents-17:agent-find-retry-config",
-      "center-line:row subagents-17:agent-review-naming"
-    ],
-    "agent-pane.subagents#codex": [
-      "center-line:row subagents-13:agent-read-a",
-      "center-line:row subagents-13:agent-read-b"
-    ],
     "agent-pane.subagents#codex-child": [],
     "agent-pane.subagents#codex-two-turns": [
       "icon-column:row subagents-13"
-    ],
-    "agent-pane.subagents#done": [
-      "icon-column:row subagents-6"
-    ],
-    "agent-pane.subagents#many": [
-      "center-line:row subagents-4:agent-package-i18n",
-      "center-line:row subagents-4:agent-package-icons",
-      "center-line:row subagents-4:agent-package-router",
-      "center-line:row subagents-4:agent-package-tests"
-    ],
-    "agent-pane.subagents#mixed": [
-      "center-line:row subagents-2:agent-error-parsing",
-      "center-line:row subagents-2:agent-retry-policy",
-      "center-line:row subagents-2:agent-test-coverage",
-      "center-line:row subagents-2:agent-timeouts"
-    ],
-    "agent-pane.subagents#open": [
-      "center-line:row subagents-2:agent-error-parsing",
-      "center-line:row subagents-2:agent-retry-policy",
-      "center-line:row subagents-2:agent-test-coverage",
-      "center-line:row subagents-2:agent-timeouts"
-    ],
-    "agent-pane.subagents#open-done": [
-      "center-line:row subagents-6:agent-error-parsing",
-      "center-line:row subagents-6:agent-retry-policy",
-      "center-line:row subagents-6:agent-test-coverage",
-      "center-line:row subagents-6:agent-timeouts"
-    ],
-    "agent-pane.subagents#open-many": [
-      "center-line:row subagents-4:agent-package-i18n",
-      "center-line:row subagents-4:agent-package-icons",
-      "center-line:row subagents-4:agent-package-net",
-      "center-line:row subagents-4:agent-package-router",
-      "center-line:row subagents-4:agent-package-store",
-      "center-line:row subagents-4:agent-package-tests",
-      "center-line:row subagents-4:agent-package-ui"
     ],
     "agent-pane.subagents#own-pane": [
       "center-line:row subagents-11:agent-integration-tests",
       "center-line:row subagents-11:agent-unit-tests",
       "icon-column:row subagents-11"
-    ],
-    "agent-pane.subagents#pane-open": [
-      "center-line:row subagents-13:agent-read-a",
-      "center-line:row subagents-13:agent-read-b"
-    ],
-    "agent-pane.subagents#running": [
-      "center-line:row subagents-19:agent-error-parsing",
-      "center-line:row subagents-19:agent-retry-policy",
-      "center-line:row subagents-19:agent-test-coverage",
-      "center-line:row subagents-19:agent-timeouts"
-    ],
-    "agent-pane.subagents#single": [
-      "center-line:row subagents-24:agent-find-callers"
-    ],
-    "agent-pane.subagents#stopped": [],
-    "agent-pane.subagents#stopped-open": [
-      "center-line:row subagents-29:agent-error-parsing",
-      "center-line:row subagents-29:agent-retry-policy",
-      "center-line:row subagents-29:agent-timeouts"
     ],
     "agent-pane.subagents#summary": [
       "center-line:row subagents-2:agent-error-parsing",
@@ -2525,11 +2454,6 @@
       "center-line:row subagents-2:agent-timeouts"
     ],
     "agent-pane.subagents#summary-legacy": [],
-    "agent-pane.subagents#two-batches": [
-      "center-line:row subagents-34:agent-test-coverage",
-      "center-line:row subagents-34:agent-timeouts",
-      "icon-column:row subagents-34"
-    ],
     "agent-pane.subsession-cards#avatars": [
       "center-line:row activity-24"
     ],

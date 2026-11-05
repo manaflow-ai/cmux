@@ -61,7 +61,6 @@ afterAll(() => {
   }
 });
 
-const { configureSubagentTray } = await import("../src/agent-session/acpmux/subagents/runningTray");
 const { rememberTrayOpen } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
 // A tray of more than one line starts folded and builds no rows (cmux#29250); these tests read rows.
 for (const chat of [fixtures.SESSION_ID, "late-root-tray"]) rememberTrayOpen(chat, true);
@@ -133,7 +132,6 @@ for (const producer of [false, true])
       markAgentProgressSource(next.rows, fold.progressSource);
       return next;
     };
-    configureSubagentTray(true);
     (dom.window as unknown as { webkit: unknown }).webkit = {
       messageHandlers: {
         agentSession: {
@@ -188,7 +186,6 @@ for (const producer of [false, true])
   });
 
 test("bridge repopulates progress when switching sessions", async () => {
-  configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
@@ -218,7 +215,6 @@ test("bridge repopulates progress when switching sessions", async () => {
 });
 
 test("versioned bridge snapshots retain progress when an unrelated snapshot omits the delta", async () => {
-  configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
@@ -255,7 +251,6 @@ test("versioned bridge snapshots retain progress when an unrelated snapshot omit
 });
 
 test("compatibility snapshots without a progress delta refresh the row from its latest agent", async () => {
-  configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
@@ -285,7 +280,6 @@ test("compatibility snapshots without a progress delta refresh the row from its 
 });
 
 test("a rebuilt producer source refreshes rows even when its structure counter restarts", async () => {
-  configureSubagentTray(true);
   (dom.window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
       agentSession: {
@@ -374,7 +368,6 @@ test("one usage event touches one source entry regardless of sibling count", () 
 
 for (const surface of ["tray", "inspector"] as const)
   test(`late root identification retires phantom progress from the ${surface}`, async () => {
-    configureSubagentTray(true);
     (dom.window as unknown as { webkit: unknown }).webkit = {
       messageHandlers: {
         agentSession: {

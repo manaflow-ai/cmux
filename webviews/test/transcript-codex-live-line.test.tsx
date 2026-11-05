@@ -110,17 +110,6 @@ test("the live line carries the turn's tokens while it times the turn, beside a 
   );
 });
 
-test("with the tray off the live line counts the work still going, beside a call too", () => {
-  const start = 1_000_000;
-  const counts = { agents: 2, commands: 1, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
-  const drawn = (node: ReactElement) =>
-    words(renderToStaticMarkup(<WorkingCountsContext.Provider value={counts}>{node}</WorkingCountsContext.Provider>));
-  expect(drawn(<Thinking since={start} doing="Read app.ts" doingAt={start} now={() => start + 3_000} />)).toBe(
-    "Read app.ts 3s · 2 subagents · 1 command",
-  );
-  expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 subagents · 1 command");
-});
-
 test("a command Claude is still writing reads Writing a command, with no Ctrl-B", () => {
   // Claude sends a Bash call with no input first and its command up to 20s later, as the model
   // writes it (Leo's session, 2026-10-21): it had read "Running a command 9s".
