@@ -1941,9 +1941,6 @@ function fallbackRowHeight(
   if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
-  // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
-  // reader clicks Load preview, the transcript's ResizeObserver measures the head over its frame.
-  if (row.kind === PREVIEW) return finish(previewCardHeight(row.text, false));
   // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
   // and its muted line, then a 36px row of answers; answered, the question over the answer in 8px.
   if (row.kind === NEXT_STEP && row.nextStep) {
@@ -2352,8 +2349,7 @@ function measuredRowHeight(
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return finish(0);
-  // A preview row's text is its address, not prose: the card's height is fixed.
-  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  if (!row.text) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
   let entry = cache.get(row.id);
   if (!entry) {
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
@@ -2824,7 +2820,6 @@ import { acpmuxSendCalls } from "./conversation/acpmuxSends";
 import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
-import { previewCardHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
 import {
   ACTIVITY_LINE,
@@ -2832,7 +2827,6 @@ import {
   isEmptyFooter,
   isFoldedCopy,
   NEXT_STEP,
-  PREVIEW,
   RENDER,
   THINKING,
   WORKED,

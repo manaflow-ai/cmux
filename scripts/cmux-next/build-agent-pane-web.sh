@@ -94,7 +94,7 @@ bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/sty
 
 # Same-origin script files only (no inline script, no eval; WebAssembly compiles for Ondine's Mermaid diagrams) and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web
-# pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts) and the render frame
+# pages (URL+AgentPanePreview.swift keeps the same hosts) and the render frame
 # (a render card; AgentPaneRenderFrame.swift). The page host sends the same
 # script-src (PageDescriptor.agent, test/fixtures/agent-page-csp.txt).
 CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"

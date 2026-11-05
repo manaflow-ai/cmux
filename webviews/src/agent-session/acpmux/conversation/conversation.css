@@ -5206,53 +5206,6 @@ a.cv-sha:focus-visible {
   white-space: nowrap;
 }
 
-/* The preview card before the reader loads its frame (PreviewCard.tsx): one compact row
-   (previewUrl.ts PREVIEW_COMPACT_HEIGHT), the page's icon unboxed, no thumbnail box. "Load preview"
-   is a quiet text button among the row's actions; the frame appears only after the click. */
-.acpmux-turn-preview[data-compact] .acpmux-turn-preview-head {
-  gap: 8px;
-  min-height: 36px;
-  padding: 6px 8px 6px 12px;
-  box-shadow: none;
-}
-.acpmux-turn-preview[data-compact] .acpmux-turn-preview-icon {
-  width: 16px;
-  height: 16px;
-  background: none;
-}
-.acpmux-turn-preview-load {
-  flex: none;
-  height: 22px;
-  padding: 0 var(--ds-space-2);
-  border: 0;
-  border-radius: var(--ds-radius-control);
-  background: transparent;
-  color: var(--agent-muted);
-  font: inherit;
-  font-size: var(--text-detail);
-  cursor: default;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.acpmux-turn-preview-load:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
-  color: var(--agent-text);
-}
-.acpmux-turn-preview-load:focus-visible {
-  outline: 1.5px solid var(--agent-muted);
-  outline-offset: 1px;
-}
-/* The head's "Open in tab" and "Open in" (OpenInMenu.tsx) read like Load preview and the link hover
-   card's actions: no outline, muted text, a background only under the pointer. */
-.acpmux-turn-preview-head .acpmux-review-changes {
-  padding: 0 var(--ds-space-2);
-  box-shadow: none;
-  color: var(--agent-muted);
-}
-.acpmux-turn-preview-head .acpmux-review-changes:hover {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
-  color: var(--agent-text);
-}
-
 /* A render card (RenderCard.tsx): a quiet head over the live frame, which takes its page's height. */
 .acpmux-render-card {
   position: relative;

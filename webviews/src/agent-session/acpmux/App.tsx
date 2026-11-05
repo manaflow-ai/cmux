@@ -501,7 +501,6 @@ import {
   ACTIVITY_LINE,
   DATE,
   NEXT_STEP,
-  PREVIEW,
   RENDER,
   THINKING,
   WORKED,
@@ -521,7 +520,6 @@ import {
 } from "./conversation/turns";
 import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
-import { PreviewCard } from "./conversation/PreviewCard";
 import { NextStepCard } from "./conversation/NextStepCard";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -1718,7 +1716,6 @@ const PREVIEW_TURNS = 8;
 const REVEAL_HOLD_MS = 2_000;
 /// Asks the host for a browser tab on a turn's local web page; a host without one (the quick
 /// panel) refuses, and the card's address still opens outside the pane.
-const openPreview = (url: string) => void callNative("browser.open", { url }).catch(() => undefined);
 /// A tagged ask the turn's answer ended on, as a card with its answers (conversation/NextStepCard.tsx).
 const NextStepRow = memo(
   function NextStepRow({ row }: RowProps) {
@@ -1735,13 +1732,6 @@ const ReadOnlyNextStepRow = memo(
     return row.nextStep ? <NextStepCard ask={row.nextStep.ask} answer={row.nextStep.answer} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-/// A turn's local web page, live (conversation/PreviewCard.tsx).
-const PreviewRow = memo(
-  function PreviewRow({ row }: RowProps) {
-    return row.text ? <PreviewCard url={row.text} onOpen={openPreview} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.text === b.row.text,
 );
 /// An ended turn's render call, live (conversation/RenderCard.tsx).
 const RenderRow = memo(
@@ -2072,7 +2062,6 @@ const defaultRegistry: NativeRegistry = {
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
   [ACTIVITY_LINE]: ActivityLineRow,
-  [PREVIEW]: PreviewRow,
   [NEXT_STEP]: NextStepRow,
   [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
@@ -2160,7 +2149,6 @@ export const readOnlyRegistry: NativeRegistry = {
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,
   [TASK_LINE]: NoRow,
-  [PREVIEW]: NoRow,
   [NEXT_STEP]: ReadOnlyNextStepRow,
   [RENDER]: NoRow,
 };

@@ -42,7 +42,7 @@ extension AgentPaneRequest {
     }
 
     /// `pane.action {id: "preview"}`: its `url` comes from transcript text, so only a local page
-    /// (``Foundation/URL/isAgentPanePreview``, as the preview card's `browser.open`) reaches the App.
+    /// (``Foundation/URL/isAgentPanePreview``) reaches the App.
     private static func preview(_ params: [String: Any]?, method: String) -> AgentPaneRequest {
         let toggle = params?["mode"] as? String == "toggle"
         guard let raw = params?["url"] else { return .preview(url: nil, toggle: toggle) }

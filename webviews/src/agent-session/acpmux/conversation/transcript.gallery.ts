@@ -1522,7 +1522,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/EditDiff.tsx",
     "agent-session/acpmux/conversation/EditDiffHunks.tsx",
     "agent-session/acpmux/conversation/EditedFilesCard.tsx",
-    "agent-session/acpmux/conversation/PreviewCard.tsx",
     "agent-session/acpmux/conversation/Thinking.tsx",
     "agent-session/acpmux/conversation/WorkingFor.tsx",
     "agent-session/acpmux/conversation/TurnRows.tsx",
@@ -3147,24 +3146,6 @@ export default agentPaneEntry({
     "edited-files": {
       note: "A turn that edited three files: the edited-files card with Undo.",
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),
-    },
-    "preview-card": {
-      note: "A turn that started a local server. Its address stays a link in the reply; the preview card under the answer shows only with the Debug toggle agentPane.debug.turnPreviewCards (data-turn-preview-cards on <html>).",
-      snapshot: chat([
-        user("Start the dev server", 9),
-        activity(
-          [
-            tool("bun run dev", "execute", "completed", {
-              command: "bun run dev",
-              output: "  VITE v8.0.0  ready in 412 ms\n\n  ➜  Local:   http://localhost:5173/",
-              exitCode: 0,
-            }),
-          ],
-          8.9,
-        ),
-        assistant("The dev server runs at http://localhost:5173/.", 8.8),
-        summary(8.8, { status: "completed", toolCount: 1 }),
-      ]),
     },
     "token-link": {
       note: "An agent's bare local address with a token (Leo 2026-10-20): plain link text with the token as •••, no card under the answer; hovering it offers Open and Open in.",

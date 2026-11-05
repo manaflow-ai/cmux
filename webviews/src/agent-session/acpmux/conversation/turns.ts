@@ -18,7 +18,6 @@ import {
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { findRowIndex } from "./chatFind";
-import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
@@ -68,10 +67,6 @@ export const WORKING = "working";
 /// The running turn's activity line under its todo list (Debug Settings `agent.sessionStatus`,
 /// cx-ncc.102): what the agent is doing now and how long the turn has run.
 export const ACTIVITY_LINE = "activityLine";
-/// A row added for an ended turn that started or mentioned a local web page (previewUrl.ts): its
-/// preview card, with the page's address as its text. Only with the Debug toggle
-/// `agentPane.debug.turnPreviewCards` (`turnPreviewCardsOn`).
-export const PREVIEW = "preview";
 /// A row added for each render call of an ended turn (renderCall.ts), above its answer: the
 /// render card, with the call as its one item.
 export const RENDER = "render";
@@ -1109,8 +1104,6 @@ function shapeTurn(
     if (taskLine && taskLook === "after-reply") shaped.push(taskLine);
   }
   shaped.push(...editsCard(edits));
-  const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;
-  if (preview) shaped.push({ id: `${PREVIEW}-${user.id}`, version, at: summary.at, kind: PREVIEW, text: preview });
   // The footer copies the answer, so it carries the answer's text; the last turn's also retries
   // its prompt, and stops offering to once a later prompt goes (or waits to). A last turn the
   // reader stopped also offers Continue, as Codex does, until a prompt follows it or it runs again.

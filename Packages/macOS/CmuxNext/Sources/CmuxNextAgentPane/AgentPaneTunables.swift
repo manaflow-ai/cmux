@@ -292,15 +292,6 @@ public nonisolated struct AgentPaneTunables {
         help: "While a long thought streams, it holds seven lines with its newest in view, then folds. Needs Fold long thoughts. New agent tabs.",
         default: true, code: "AgentPaneTunables.liveThoughtViewport")
 
-    /// A turn that started or mentioned a local web page gets a preview card under its answer
-    /// (webviews conversation/PreviewCard.tsx: the address, Load preview, Open in tab, Open in). Off
-    /// by default (Leo 2026-10-20: a mentioned dev server is not worth a card nobody asked for); the
-    /// address stays a link in the reply. New agent tabs read it.
-    public static let turnPreviewCards = Tunable<Bool>.toggle(
-        "agentPane.debug.turnPreviewCards", PageTunables.section, "Local page preview cards in the agent pane",
-        help: "A turn that started or mentioned a local web page shows a card under its answer with Load preview. New agent tabs.",
-        default: false, code: "AgentPaneTunables.turnPreviewCards")
-
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
     public static let topStripStyle = Tunable<AgentPaneTopStripStyle>.choice(
@@ -368,7 +359,7 @@ public nonisolated struct AgentPaneTunables {
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
                    thoughtFoldThreshold: thoughtFoldThreshold.value,
                    needsYou: needsYouStyle(installed: needsYouInstalled(), debug: needsYou.value),
-                   needsYouPill: needsYouPill.value, turnPreviewCards: turnPreviewCards.value,
+                   needsYouPill: needsYouPill.value,
                    streamWords: streamWords.value, iconFamily: IconFamily.tunable.value,
                    wheelGlide: wheelGlide.value)
     }
@@ -378,7 +369,6 @@ public nonisolated struct AgentPaneTunables {
                            liveThoughtViewport: Bool = true,
                            thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .every,
                            needsYou: AgentPaneNeedsYouStyle = .pinned, needsYouPill: Bool = true,
-                           turnPreviewCards: Bool = false,
                            streamWords: Bool = true, iconFamily: IconFamily = .pack,
                            wheelGlide: Bool = true) -> [String: String] {
         var attributes: [String: String] = [:]
@@ -389,7 +379,6 @@ public nonisolated struct AgentPaneTunables {
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
-        if turnPreviewCards { attributes["turn-preview-cards"] = "on" }
         if !streamWords { attributes["stream-words"] = "off" }
         // Debug Settings `icons.family`: the page lays the same overlay over its icon pack (iconPack.ts).
         if let overlay = iconFamily.overlay { attributes["icon-family"] = overlay }
@@ -509,7 +498,6 @@ public nonisolated struct AgentPaneTunables {
             thoughtFoldThreshold.descriptor,
             thoughtHeader.descriptor,
             topStripStyle.descriptor,
-            turnPreviewCards.descriptor,
             turnActionsPlacement.descriptor,
             wheelGlide.descriptor,
             agentLinks.descriptor,

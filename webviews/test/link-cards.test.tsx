@@ -3,11 +3,8 @@
 // full-width card (globe, the raw address with its token, Open in tab, Open in, then a ~300px empty
 // see-through box around Load preview). A link in a reply now reads as text: no globe, a secret
 // query value as •••, the real href kept; a site's title and favicon only in the hover card; a local
-// or private address never dressed as a site; the turn's preview card only behind the Debug toggle
-// agentPane.debug.turnPreviewCards, and opaque.
+// or private address never dressed as a site; no preview card under the turn.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
@@ -56,7 +53,6 @@ afterAll(() => {
 });
 
 const TOKEN_URL = "http://127.0.0.1:47811?token=ad27875be63b0aa1c1ea76c048581e181e470bc39a1c71be";
-const webviews = path.join(import.meta.dir, "..");
 
 test("secret-looking query values read as •••; other parameters and the rest stay as written", async () => {
   const { redactUrlText, isSecretParam } = await import("../src/agent-session/acpmux/chips/linkDisplay");
@@ -241,46 +237,6 @@ test("a site cmux already has a title for still reads as its address; the card h
   expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe("Example docs");
   expect(card.querySelector(".cv-link-preview__icon img")?.getAttribute("src")).toBe(FAVICON);
   await chip.done();
-});
-
-test("a turn's preview card shows only behind the Debug toggle agentPane.debug.turnPreviewCards", async () => {
-  const { turnView, PREVIEW } = await import("../src/agent-session/acpmux/conversation/turns");
-  // Fresh rows each time: a turn view is cached by its rows.
-  const rows = () =>
-    [
-      { id: "u1", kind: "user", text: "Start it", at: 1_000 },
-      { id: "a1", kind: "assistant", text: `It runs at ${TOKEN_URL}`, at: 2_000 },
-      { id: "s1", kind: "turnSummary", status: "completed", at: 2_000 },
-    ] as never;
-  const root = dom.window.document.documentElement;
-  delete root.dataset.turnPreviewCards;
-  expect(turnView(rows(), new Set()).some((row) => row.kind === PREVIEW)).toBe(false);
-  root.dataset.turnPreviewCards = "on";
-  try {
-    expect(turnView(rows(), new Set()).some((row) => row.kind === PREVIEW)).toBe(true);
-  } finally {
-    delete root.dataset.turnPreviewCards;
-  }
-});
-
-test("the preview card masks its address's secrets and draws on an opaque surface", async () => {
-  const { act } = await import("react");
-  const { createRoot } = await import("react-dom/client");
-  const { PreviewCard } = await import("../src/agent-session/acpmux/conversation/PreviewCard");
-  const rootElement = dom.window.document.getElementById("root")!;
-  const root = createRoot(rootElement);
-  await act(async () => root.render(<PreviewCard url={TOKEN_URL} onOpen={() => {}} />));
-  const address = rootElement.querySelector(".acpmux-turn-preview-address")!;
-  expect(address.textContent).toContain("token=•••");
-  expect(address.textContent).not.toContain("ad27875be63b");
-  expect(address.getAttribute("href")).toBe(TOKEN_URL);
-  await act(async () => root.unmount());
-  // The page's own background is transparent over art or a see-through window, so the card and
-  // its frame sit on the theme's solid surface.
-  const styles = readFileSync(path.join(webviews, "src/agent-session/acpmux/styles.css"), "utf8");
-  const rule = (selector: string) => new RegExp(`\\${selector}\\{[^}]*\\}`).exec(styles)?.[0] ?? "";
-  for (const selector of [".acpmux-turn-preview", ".acpmux-turn-preview-frame"])
-    expect(rule(selector)).toContain("var(--cmux-surface-solid");
 });
 
 test("a web card's head names the site; its address shows only when it says more than the host", async () => {

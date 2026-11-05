@@ -8,7 +8,7 @@ import Testing
 /// Every tunable other than the family is passed at its shipped default, so the pack case is empty and the
 /// custom case holds `icon-family` alone. `foldLongThoughts` defaults to true (Leo 2026-10-18, #20963):
 /// passing false asks
-/// ``AgentPaneTunables/attributes(foldLongThoughts:topStripStyle:thoughtHeader:liveThoughtViewport:thoughtFoldThreshold:needsYou:needsYouPill:turnPreviewCards:streamWords:iconFamily:)``
+/// ``AgentPaneTunables/attributes(foldLongThoughts:topStripStyle:thoughtHeader:liveThoughtViewport:thoughtFoldThreshold:needsYou:needsYouPill:streamWords:iconFamily:)``
 /// for `fold-long-thoughts=off` as well, which is what it has always answered, so the pack case could
 /// never be empty as it was written when it landed with #24673.
 struct IconFamilyAttributeTests {

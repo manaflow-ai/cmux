@@ -4,9 +4,9 @@ import WebKit
 
 /// Keeps the web view on its page (`AgentPaneSource`): the main frame shows only the page
 /// document. A clicked http(s) link, or a cmux app link (opened in the app), opens outside the pane after a real user gesture
-/// (``openOutside(_:gestures:open:)``); a frame inside the page may show a loopback web page (a
-/// turn's preview card, `URL.isAgentPanePreview`) or the render frame (a render card,
-/// `AgentPaneRenderFrame`); every other navigation is cancelled.
+/// (``openOutside(_:gestures:open:)``); a frame inside the page may show a loopback web page
+/// (`URL.isAgentPanePreview`) or the render frame (a render card, `AgentPaneRenderFrame`); every
+/// other navigation is cancelled.
 final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     weak var view: AgentPaneView?
 
