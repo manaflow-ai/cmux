@@ -90,3 +90,9 @@ test("only web and mail links and web pictures carry their targets into another 
   expect(html).toContain('<img src="https://example.com/y.png" alt="y">');
   expect(htmlMarkdown('<ul><li><a href="javascript:alert(1)">run</a></li></ul>')).toBe("- run");
 });
+
+test("a line break inside a paragraph copies as a line, and reads back as one", () => {
+  const html = markdownHtml("Intro\nnext line\n\n- one");
+  expect(html).toContain("Intro<br>next line");
+  expect(htmlMarkdown(html)).toBe("Intro\nnext line\n\n- one");
+});

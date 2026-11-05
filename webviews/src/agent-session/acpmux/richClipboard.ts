@@ -27,6 +27,8 @@ export function copyHref(href: string): string | undefined {
 // another app would run or draw; a link or picture keeps its target only where `copyHref` allows.
 const toHtml = new Marked({
   gfm: true,
+  // A line break inside a paragraph is a line in the transcript, so it is one in the copy too.
+  breaks: true,
   renderer: {
     html: ({ text }) => escapeHtml(text),
     link(token) {

@@ -15,7 +15,8 @@ const MATH = "[data-tex]";
 const KEEP = new Set(["href", "start", "colspan", "rowspan", "src", "alt"]);
 /// What the transcript draws around the text: icons and hidden labels. A button (a link chip, an
 /// image that opens) is unwrapped, its words and picture kept.
-const CHROME = "svg, [aria-hidden='true'], [hidden], .sr-only";
+/// A list's drawn number and bullet are the list's own markers in the copy (`<ol>`, `<ul>`).
+const CHROME = "svg, [aria-hidden='true'], [hidden], .sr-only, .cv-li__num, .cv-li__bullet";
 
 /// The document the listener is on: once per page, and again for a new one (a test's next DOM).
 let installedOn: Document | undefined;
@@ -46,6 +47,9 @@ export function selectionHtml(range: Range): string | null {
     return null;
   for (const element of reply.querySelectorAll("*"))
     if ((element.shadowRoot || element.matches(`${MATH}, pre`)) && range.intersectsNode(element)) return null;
+  // A selection inside one table clones bare cells with no row or table around them: the page's
+  // own copy keeps their separators.
+  if (elementOf(range.commonAncestorContainer)?.closest("table")) return null;
   const holder = document.createElement("div");
   holder.append(range.cloneContents());
   // A selection inside one list clones its items without the list: put them back in it, an ordered
