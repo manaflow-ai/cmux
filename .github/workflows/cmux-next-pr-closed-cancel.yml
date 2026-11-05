@@ -26,8 +26,9 @@ concurrency:
 jobs:
   cancelled:
     # The run's concurrency group does the work when the run is created; this
-    # job is here because a workflow needs one, and it never takes a runner.
-    if: false
+    # job is here because a workflow needs one. Every run of this workflow is a
+    # closed event, so it is always skipped and never takes a runner.
+    if: github.event.action != 'closed'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 1
     steps:
