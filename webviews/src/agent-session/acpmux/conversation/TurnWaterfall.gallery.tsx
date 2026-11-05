@@ -39,7 +39,7 @@ const WORK: AcpmuxActivity[] = [
   call("grep-1", "search", "grep -rn useRowDisclosure", 3_000, 3_600),
   call("read-2", "read", "Read transcriptDisclosure.tsx", 3_700, 4_000),
   thought(4_100, 7_800),
-  call("edit-1", "edit", "Edit turnWaterfall.ts", 8_000, 9_100),
+  call("edit-1", "edit", "Edit waterfallSpans.ts", 8_000, 9_100),
   call("test-1", "execute", "bun test turnWaterfall", 9_300, 21_000, { command: "bun test turnWaterfall" }),
   call("lint-1", "execute", "scripts/web-lint.sh", 21_200, 49_000, { command: "scripts/web-lint.sh" }),
   call("fetch-1", "fetch", "Fetch github.com/manaflow-ai/cmux/pull/36491", 49_300, 51_800),
@@ -69,7 +69,7 @@ export default componentEntry<{ look: WaterfallLook }>({
   covers: [
     "agent-session/acpmux/conversation/TurnWaterfall.tsx",
     "agent-session/acpmux/conversation/TurnWaterfall.css",
-    "agent-session/acpmux/conversation/turnWaterfall.ts",
+    "agent-session/acpmux/conversation/waterfallSpans.ts",
   ],
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   load: async () => Waterfall,

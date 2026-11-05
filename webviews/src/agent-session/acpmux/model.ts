@@ -499,7 +499,7 @@ export type AcpmuxRow = {
   /// run of tool calls between them, in order; undefined when the agent said nothing.
   turnCopy?: TurnCopyPart[];
   /// A finished turn footer's timed tool calls and thoughts, in order, for its waterfall
-  /// (conversation/turnWaterfall.ts `turnWork`, TurnWaterfall.tsx); undefined when none was timed.
+  /// (conversation/waterfallSpans.ts `turnWork`, TurnWaterfall.tsx); undefined when none was timed.
   turnWork?: AcpmuxActivity[];
   /// A footer turns.ts `supersededFooters` added where the person came in on a stretch of a turn (a
   /// steer that landed in it, or a new prompt over a turn with no summary): the stretch counts as

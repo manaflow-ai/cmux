@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture tool titles, not shipped UI.
-// A finished turn's Timeline (TurnWaterfall.tsx, turnWaterfall.ts): the footer carries its timed
+// A finished turn's Timeline (TurnWaterfall.tsx, waterfallSpans.ts): the footer carries its timed
 // calls, draws a closed clock button for them and nothing more until the reader opens it; opened,
 // each call is a bar on the turn's axis that opens its row.
 import { expect, test } from "bun:test";
@@ -9,7 +9,7 @@ import { TurnFooter } from "./TurnRows";
 import { TurnWaterfall } from "./TurnWaterfall";
 import { TurnActionsContext } from "./turnActions";
 import { turnView } from "./turns";
-import { turnWork, waterfall, WATERFALL_FIRST } from "./turnWaterfall";
+import { turnWork, waterfall, WATERFALL_FIRST } from "./waterfallSpans";
 
 const call = (id: string, from: number | undefined, to: number | undefined, status = "completed"): AcpmuxActivity => ({
   kind: "tool",

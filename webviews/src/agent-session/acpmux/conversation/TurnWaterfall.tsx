@@ -11,7 +11,7 @@ import { toolLabel } from "../toolPaths";
 import { Clock } from "./icons";
 import { ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
-import { waterfall, WATERFALL_FIRST, type WaterfallSpan, type WaterfallTone } from "./turnWaterfall";
+import { waterfall, WATERFALL_FIRST, type WaterfallSpan, type WaterfallTone } from "./waterfallSpans";
 import "./TurnWaterfall.css";
 
 /// How the bars lay out: `bars` (label, then its bar on the shared axis), `stacked` (the label over
