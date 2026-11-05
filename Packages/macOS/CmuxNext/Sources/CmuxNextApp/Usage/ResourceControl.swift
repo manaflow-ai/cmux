@@ -142,7 +142,7 @@ extension ResourceControl {
     @MainActor // browser tabs by browser id, agent tabs by the browser showing their page
     private static func rendererOwners(_ services: AppServices) -> [Int32: CEFRendererOwner] {
         let browsers = services.cache.browsers.compactMap { key, entry in (entry.tab as? CEFTab)?.browserID.map { ($0, key, "browser") } }
-        let agents = (services.madeAgentTabs?.views ?? [:]).compactMap { key, view in services.cache.cef.browserID(showing: view.focusTarget).map { ($0, key, "agent") } }
+        let agents = (services.madeAgentTabs?.views.bare ?? [:]).compactMap { key, view in services.cache.cef.browserID(showing: view.focusTarget).map { ($0, key, "agent") } }
         return Dictionary((browsers + agents).map { browser, key, kind in
             var owner = CEFRendererOwner(kind: kind, tab: key)
             if let (tab, pane) = services.locateTab(key) {
