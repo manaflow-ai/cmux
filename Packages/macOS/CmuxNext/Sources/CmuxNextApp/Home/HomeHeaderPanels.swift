@@ -1,7 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextHome
-import CmuxNextHomeEngine
 
 /// The panels the Home transcript header's top-right toggles open and close beside Home, like
 /// Claude desktop's panel buttons (Leo 2026-10-20: "stop opening the hard-coded default right
@@ -44,14 +43,12 @@ struct HomeHeaderPanelContext {
     /// The Chief's routing (``ChiefInspectorHandlers/route(_:)``): a named local Chief, or a paired server's.
     let chief: String?
     let server: String?
-    /// The conversation this Home shows.
-    var conversation: String?
 }
 
 @MainActor
 enum HomeHeaderPanels {
     /// Every header toggle, left to right.
-    static let all: [HomeHeaderPanel] = [screenShare, computer, memory, rightSidebar]
+    static let all: [HomeHeaderPanel] = [screenShare, memory, rightSidebar]
 
     /// Share Screen with Chief (docs/chief-screen-share.md): on this Mac's own Chief only, lit while
     /// the Chief can see the screen; a click starts or stops sharing.
@@ -61,20 +58,6 @@ enum HomeHeaderPanels {
         isShown: { $0.isChief && $0.chief == nil && $0.server == nil },
         alwaysShown: true,
         isOpen: { $0.services.chiefScreenShare.isOn })
-
-    /// The Chief's profile page with its computer, a tab in Home's right column. Every Chief shows
-    /// it, also without cmux Cloud, whose page then says what it takes (``HomeChiefProfileView/Gate``).
-    static let computer = HomeHeaderPanel(
-        id: "computer", symbol: "desktopcomputer", label: { HomeEngineStrings.computerPageTitle },
-        action: ChiefComputerPageService.toggleActionID,
-        isShown: { $0.isChief },
-        alwaysShown: true,
-        arguments: { context in context.conversation.map { ["conversation": .string($0)] } ?? [:] },
-        isOpen: { context in
-            guard let window = context.window,
-                  let page = context.services.pages.provider(.chiefComputer) as? ChiefComputerPageService else { return false }
-            return page.isShown(in: window)
-        })
 
     /// The Chief's Memory Inspector, a tab in Home's right column (``ChiefMemoryPageService``).
     static let memory = HomeHeaderPanel(

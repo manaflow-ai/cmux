@@ -3,11 +3,12 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
 
-/// The Chief profile card's Computer tab (cmux issue 31488): the Chief's own computer's screen
-/// (16:10, view only) with "<name>'s screen" under it (Lawrence's reference, 2026-11-04). While the
-/// computer runs and the tab shows, its screen refreshes, so the person watches the Chief work on
-/// it; asleep, the screen says so and is not woken. Hidden while ``HomeChiefComputer`` is nil (no
-/// paid plan, or the Chief never set up a computer), which also hides the tab.
+/// The Chief Settings card's Computer section (cmux issue 31488), where Messages shows Find My on
+/// a contact: the Chief's own computer's screen (16:10, view only) with "<name>'s screen" under it
+/// (Lawrence's reference, 2026-11-04). While the computer runs and the card is open, its screen
+/// refreshes, so the person watches the Chief work on it; asleep, the screen says so and is not
+/// woken. Hidden, with its header, while ``HomeChiefComputer`` is nil (no paid plan, or the Chief
+/// never set up a computer).
 @MainActor
 public final class HomeChiefComputerSection: NSStackView {
     /// What the app gives the section; read only while the card is open.
@@ -51,15 +52,15 @@ public final class HomeChiefComputerSection: NSStackView {
         didSet { if isOpen { open() } }
     }
 
-    /// Whether the screen is on show (the Computer tab is selected). While false only the state is
-    /// read, which is what says whether the tab exists at all; no frame is fetched for a hidden tab.
+    /// Whether the screen is on show. While false only the state is read (the chat's popup, until
+    /// the Chief acts on its computer); no frame is fetched.
     public var watchesScreen = true {
         didSet { if watchesScreen != oldValue, isOpen { open() } }
     }
 
     /// Runs when the section shows or hides.
     public var onResize: () -> Void = {}
-    /// Runs after each read is shown (the popup follows ``HomeChiefComputer/acting`` and its page opening).
+    /// Runs after each read is shown (the popup follows ``HomeChiefComputer/acting`` and the card opening).
     public var onStatus: () -> Void = {}
 
     /// What the section shows now; nil hides it.

@@ -17,6 +17,14 @@ import Testing
         #expect(ChiefComputer.shown(.init(used: true, machineID: nil, state: nil), name: "Ada")?.state == .unavailable)
     }
 
+    @Test func aFailedStatusReadKeepsTheCardAsUnavailable() {
+        let live = ChiefComputer.shown(.init(used: true, machineID: "vm", state: "running"), name: "Ada")
+        let failed = ChiefComputer.shown(nil, name: "Ada", before: live)
+        #expect(failed?.state == .unavailable)
+        #expect(failed?.machineID == "vm")
+        #expect(failed?.title == live?.title)
+    }
+
     @Test func theRouteAnswerParses() {
         let body = Data(#"{"ok":true,"value":{"used":true,"computer":{"id":"vm-9","state":"paused","name":null}}}"#.utf8)
         #expect(ChiefComputerStatus(json: body) == .init(used: true, machineID: "vm-9", state: "paused"))

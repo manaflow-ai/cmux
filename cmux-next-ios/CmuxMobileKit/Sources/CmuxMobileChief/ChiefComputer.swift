@@ -26,10 +26,10 @@ public enum ChiefComputerState: Equatable, Sendable {
     /// The card's state row.
     public var title: String {
         switch self {
-        case .live: String(localized: "Awake")
-        case .asleep: String(localized: "Asleep")
-        case .waking: String(localized: "Waking up")
-        case .unavailable: String(localized: "Unavailable")
+        case .live: String(localized: "mobile.chief.computer.state.live", defaultValue: "Running", bundle: .module)
+        case .asleep: String(localized: "mobile.chief.computer.state.asleep", defaultValue: "Asleep", bundle: .module)
+        case .waking: String(localized: "mobile.chief.computer.state.waking", defaultValue: "Starting", bundle: .module)
+        case .unavailable: String(localized: "mobile.chief.computer.state.unavailable", defaultValue: "Unavailable", bundle: .module)
         }
     }
 }
@@ -95,10 +95,12 @@ public final class ChiefComputer {
 
     public init() {}
 
-    /// The card for `status`, or nil: the Chief has used a computer.
-    nonisolated static func shown(_ status: ChiefComputerStatus?, name: String) -> Shown? {
-        guard let status, status.used else { return nil }
-        return Shown(title: String(localized: "\(name)’s Computer"), machineID: status.machineID,
+    /// The card for `status`, or nil: the Chief has used a computer. A read that failed (nil) keeps
+    /// the card shown before as unavailable, as the Mac does, so a flaky connection does not hide it.
+    nonisolated static func shown(_ status: ChiefComputerStatus?, name: String, before: Shown? = nil) -> Shown? {
+        guard let status else { return before.map { Shown(title: $0.title, machineID: $0.machineID, state: .unavailable) } }
+        guard status.used else { return nil }
+        return Shown(title: String(localized: "mobile.chief.computer.title", defaultValue: "\(name)’s Computer", bundle: .module), machineID: status.machineID,
                      state: status.machineID == nil ? .unavailable : ChiefComputerState(freestyle: status.state))
     }
 
@@ -115,7 +117,7 @@ public final class ChiefComputer {
             if sinceStatus >= Self.statusInterval {
                 let status = await source.computerStatus(chief: chief)
                 guard !Task.isCancelled else { return }
-                show(Self.shown(status, name: name))
+                show(Self.shown(status, name: name, before: shown))
                 sinceStatus = .zero
             }
             let wait: Duration

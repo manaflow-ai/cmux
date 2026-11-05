@@ -3,7 +3,7 @@ import CmuxNextDesign
 
 /// The live view that pops up in the chat while the Chief is using its computer, over the transcript
 /// at the top right, so no message moves. Status is read only during a Chief turn
-/// (``follow(working:)``), and frames only while it shows. A click opens the Chief's page; the ✕
+/// (``follow(working:)``), and frames only while it shows. A click opens the Chief's card (its Computer section); the ✕
 /// keeps it away for the rest of the turn.
 @MainActor
 public final class HomeChiefComputerPopup: NSView {
@@ -13,7 +13,7 @@ public final class HomeChiefComputerPopup: NSView {
     public let section = HomeChiefComputerSection()
     /// A click on the screen.
     public var onOpen: () -> Void = {}
-    /// The chat already shows the computer beside it (its page is open): no popup.
+    /// The chat already shows the computer (the Chief's card is open): no popup.
     public var isSuppressed: () -> Bool = { false }
     /// Showing or hiding.
     public var onVisibility: () -> Void = {}

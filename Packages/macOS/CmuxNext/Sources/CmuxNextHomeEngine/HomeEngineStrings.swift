@@ -127,7 +127,7 @@ public nonisolated enum HomeEngineStrings {
     }
     static var diagnostics: String { String(localized: "home.engine.section.diagnostics", defaultValue: "Diagnostics", table: "Home", bundle: .module) }
     /// Under the name, for a Chief whose brain runs here.
-    public static var runsHere: String { String(localized: "home.engine.runsHere", defaultValue: "Runs on this Mac", table: "Home", bundle: .module) }
+    static var runsHere: String { String(localized: "home.engine.runsHere", defaultValue: "Runs on this Mac", table: "Home", bundle: .module) }
     /// The Hosted Chief's place line.
     public static var runsInCloud: String {
         String(localized: "home.engine.runsInCloud", defaultValue: "Runs in the cloud", table: "Home", bundle: .module)

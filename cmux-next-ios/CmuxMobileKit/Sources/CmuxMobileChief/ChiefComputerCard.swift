@@ -55,24 +55,24 @@ private struct ChiefComputerScreen: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .accessibilityElement()
-                        .accessibilityLabel(String(localized: "Screen of \(title)"))
+                        .accessibilityLabel(String(localized: "mobile.chief.computer.screen", defaultValue: "Screen of \(title)", bundle: .module))
                         .accessibilityIdentifier("chief.settings.computer.screen")
                 } else {
                     ProgressView().tint(.white)
                 }
             case .asleep:
-                message(String(localized: "Computer is asleep"), symbol: "moon.zzz.fill")
+                message(String(localized: "mobile.chief.computer.asleep", defaultValue: "Computer is asleep", bundle: .module), symbol: "moon.zzz.fill")
                     .accessibilityIdentifier("chief.settings.computer.asleep")
             case .waking:
                 VStack(spacing: 8) {
                     ProgressView().tint(.white)
-                    Text(String(localized: "Waking up…"))
+                    Text(String(localized: "mobile.chief.computer.waking", defaultValue: "Waking up…", bundle: .module))
                         .font(.footnote)
                         .foregroundStyle(.white.opacity(0.8))
                 }
                 .accessibilityElement(children: .combine)
             case .unavailable:
-                message(String(localized: "Computer isn't available"), symbol: nil)
+                message(String(localized: "mobile.chief.computer.unavailable", defaultValue: "Computer isn’t available", bundle: .module), symbol: nil)
             }
         }
         .aspectRatio(ChiefComputerGeometry.aspect, contentMode: .fit)

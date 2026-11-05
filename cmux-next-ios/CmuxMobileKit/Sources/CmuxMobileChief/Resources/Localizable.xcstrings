@@ -322,6 +322,132 @@
         "ko": {"stringUnit": {"state": "translated", "value": "진단"}},
         "ja": {"stringUnit": {"state": "translated", "value": "診断"}}
       }
+    },
+    "mobile.chief.computer.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%@’s Computer"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Computer von %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Ordinateur de %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "كمبيوتر %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ordenador de %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "%@的電腦"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%@的电脑"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@의 컴퓨터"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@のコンピュータ"}}
+      }
+    },
+    "mobile.chief.computer.screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Screen of %@"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Bildschirm von %@"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Écran de %@"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "شاشة %@"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Pantalla de %@"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "%@ 的螢幕"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "%@ 的屏幕"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "%@의 화면"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "%@の画面"}}
+      }
+    },
+    "mobile.chief.computer.state.live": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Running"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Aktiv"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "En marche"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "قيد التشغيل"}},
+        "es": {"stringUnit": {"state": "translated", "value": "En ejecución"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "執行中"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "运行中"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "실행 중"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "実行中"}}
+      }
+    },
+    "mobile.chief.computer.state.asleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Asleep"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Schläft"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "En veille"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "في وضع السكون"}},
+        "es": {"stringUnit": {"state": "translated", "value": "En reposo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "睡眠"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "休眠"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "잠자기"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "スリープ"}}
+      }
+    },
+    "mobile.chief.computer.state.waking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Starting"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Startet"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Démarrage"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جارٍ البدء"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Iniciando"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "正在啟動"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "正在启动"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "시작 중"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "起動中"}}
+      }
+    },
+    "mobile.chief.computer.state.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Unavailable"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Nicht verfügbar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Indisponible"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "غير متاح"}},
+        "es": {"stringUnit": {"state": "translated", "value": "No disponible"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "無法使用"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "不可用"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "사용할 수 없음"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "利用不可"}}
+      }
+    },
+    "mobile.chief.computer.asleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Computer is asleep"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Computer schläft"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’ordinateur est en veille"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الكمبيوتر في وضع السكون"}},
+        "es": {"stringUnit": {"state": "translated", "value": "El ordenador está en reposo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "電腦正在睡眠"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "电脑正在休眠"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "컴퓨터가 잠자기 상태입니다"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コンピュータはスリープ中です"}}
+      }
+    },
+    "mobile.chief.computer.waking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Waking up…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wird aktiviert …"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Réveil en cours…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جارٍ الاستيقاظ…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Despertando…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "正在喚醒…"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "正在唤醒…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "깨우는 중…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "起動中…"}}
+      }
+    },
+    "mobile.chief.computer.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Computer isn’t available"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Computer ist nicht verfügbar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’ordinateur n’est pas disponible"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الكمبيوتر غير متاح"}},
+        "es": {"stringUnit": {"state": "translated", "value": "El ordenador no está disponible"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "電腦無法使用"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "电脑不可用"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "컴퓨터를 사용할 수 없습니다"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "コンピュータを利用できません"}}
+      }
     }
   },
   "version": "1.0"

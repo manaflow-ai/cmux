@@ -216,6 +216,11 @@ export const computerVerb = async (b: ChiefBrainDO, id: string, state: string, r
  * While the Chief is idle (computerIdle), the last frame stays the answer, so watching does not keep the VM busy.
  */
 const recent = new WeakMap<object, { at: number; image: Promise<string>; id: string }>()
+/** While the Chief is idle (computerIdle), the last frame of `id`: the owner's view shows it without a VM lookup. */
+export const idleShot = (b: ChiefBrainDO, id: string): Promise<string> | null => {
+  const last = recent.get(b.sql)
+  return last && last.id === id && computerIdle(b) ? last.image : null
+}
 export const ownerShot = (b: ChiefBrainDO, id: string): Promise<string> => {
   const last = recent.get(b.sql)
   if (last && last.id === id && (Date.now() - last.at < SHOT_REUSE_MS || computerIdle(b))) return last.image

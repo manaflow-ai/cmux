@@ -4,7 +4,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The Chief profile card's Computer tab (cmux issue 31488): the Chief's own computer, shown
+/// The Chief Settings card's Computer section (cmux issue 31488): the Chief's own computer, shown
 /// only with a paid plan once the Chief has set one up; while it runs its screen refreshes for as
 /// long as the card is open, and asleep it is never read.
 @MainActor @Suite(.serialized) struct HomeChiefComputerTests {

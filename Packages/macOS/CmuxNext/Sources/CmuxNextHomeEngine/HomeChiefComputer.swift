@@ -1,8 +1,8 @@
 public import Foundation
 
-/// What the Chief profile card's Computer tab shows (cmux issue 31488): the Chief's own computer,
+/// What the Chief Settings card's Computer section shows (cmux issue 31488): the Chief's own computer,
 /// a Cloud sandbox with a desktop that the Chief works on by sight (`chief-vm computer`, backend
-/// chief-brain-cc/sandbox-computer.ts), captioned "<name>'s screen". The tab shows only when the plan pays for cmux Cloud and the Chief has
+/// chief-brain-cc/sandbox-computer.ts), captioned "<name>'s screen". It shows only when the plan pays for cmux Cloud and the Chief has
 /// set up a computer at least once; from then on it stays, also while the computer sleeps or is gone.
 public struct HomeChiefComputer: Equatable, Sendable {
     public enum State: Equatable, Sendable {

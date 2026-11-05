@@ -1,6 +1,6 @@
 import AppKit
 
-/// The asleep computer's mark in the Computer tab: a grey Chief with closed eyes and three z's
+/// The asleep computer's mark in the Computer section: a grey Chief with closed eyes and three z's
 /// rising to its right (Lawrence's reference, 2026-11-04). A fixed grey, since it sits on the
 /// card's translucent fill in both light and dark themes. Decorative: the note beside it says it.
 @MainActor
