@@ -46,6 +46,21 @@ import Testing
         }
     }
 
+    /// User 2026-11-05 (msg 22013): the shipped pill is compact like the target, a 13 pt title in a 30 pt
+    /// capsule whose width follows its title (a short title no longer gets a 120 pt pill).
+    @Test func theShippedPillIsCompactAndHugsItsTitle() throws {
+        let part = try #require(HomeAgentFoldRowProvider().part(Self.row()))
+        guard case let .custom(custom) = part else { Issue.record("not a drawn row"); return }
+        let payload = try #require(HomeAgentFoldRowProvider.payload(custom))
+        let pills = HomeAgentPills(payload, shape: .pill, width: 900).pills
+        #expect(pills.allSatisfy { $0.rect.height == 30 })
+        let short = try #require(pills.first { $0.title == "a933" })
+        let long = try #require(pills.first { $0.title == "Nightly appcast rebuild" })
+        #expect(short.rect.width < 110)
+        #expect(short.rect.width < long.rect.width)
+        #expect(long.rect.width < 260)
+    }
+
     /// A click on a pill of the shipped row names that agent (between pills, nothing), and an agent the person
     /// already opened draws no unread dot.
     @Test func theShippedRowHitTestsEachPillAndKeepsEachUnreadDot() throws {
