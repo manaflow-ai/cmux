@@ -4579,7 +4579,15 @@ fn validate_touched_pane(transaction: &Transaction<'_>, pane_id: &str) -> anyhow
     Ok(())
 }
 
+/// Tabs [`validate_touched_tab`] checked in this test process (nextest runs each test alone): a commit's
+/// validation must be O(changed), never O(tabs in the pane).
+#[cfg(test)]
+pub(crate) static TABS_VALIDATED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 fn validate_touched_tab(transaction: &Transaction<'_>, tab_id: &str) -> anyhow::Result<()> {
+    #[cfg(test)]
+    TABS_VALIDATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stored = transaction
         .query_row(
             "SELECT pane_id, content_kind, content_id, deleted_revision
