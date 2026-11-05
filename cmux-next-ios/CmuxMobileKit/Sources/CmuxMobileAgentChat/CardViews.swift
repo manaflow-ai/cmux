@@ -111,7 +111,7 @@ struct PermissionCard: View {
 
     private var action: String {
         if record.request.plan != nil { return "start on this plan" }
-        switch record.request.toolCall.kind {
+        return switch record.request.toolCall.kind {
         case .execute: "run a command"
         case .edit, .fileChange: "edit files"
         case .fetch: "fetch a URL"
