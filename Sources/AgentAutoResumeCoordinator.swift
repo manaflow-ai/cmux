@@ -40,7 +40,8 @@ final class AgentAutoResumeCoordinator {
             sessionId: draft.sessionId,
             // Pending background work continues the turn, and the pane's own
             // idle settlement can land before a slow StopFailure.
-            endsTurn: !draft.pendingWork && draft.nativeEvent != "program_status_idle"
+            endsTurn: !draft.pendingWork && draft.nativeEvent != "program_status_idle",
+            declaredPhase: draft.declaredPhase
         )
         // The marker lasts until the agent finishes a turn on its own.
         if draft.kind == .sessionEnded || (hadResumes && tracker.totalResumes(surfaceId: surfaceId) == 0) {

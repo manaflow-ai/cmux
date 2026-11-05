@@ -83,13 +83,16 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
     ///   really over. A completion with background work pending, or one the
     ///   app infers before the agent's own Stop arrives, may still be followed
     ///   by that turn's failure.
+    /// - Parameter declaredPhase: For `.stateChanged`, the phase the event
+    ///   asserts, if any. Only a running phase shows a turn running again.
     public mutating func observe(
         kind: AgentJournalEventKind,
         surfaceId: String,
         isSubagent: Bool,
         detail: String?,
         sessionId: String? = nil,
-        endsTurn: Bool = true
+        endsTurn: Bool = true,
+        declaredPhase: AgentLifecyclePhase? = nil
     ) -> Action {
         // Nested agents report through their parent; resuming the parent
         // pane for a child's failure would inject text into the wrong turn.
@@ -134,13 +137,11 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             return .schedule(surfaceId: surfaceId, attempt: state.streak + 1, delay: delay, token: nextToken)
         case .turnCompleted:
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
-            // Background work or the pane's own settlement: a turn was
-            // running and may still fail, so the streak and marker count
-            // carry on.
-            guard endsTurn else {
-                surfaces[surfaceId]?.turnEnded = false
-                return cancelPending(surfaceId: surfaceId)
-            }
+            // Background work or the pane's own settlement: the turn may
+            // still fail, so the streak and marker count carry on. It does
+            // not reopen a finished turn; the settlement can follow a Stop
+            // that was still queued.
+            guard endsTurn else { return cancelPending(surfaceId: surfaceId) }
             // A turn finished normally: the agent recovered, so the failing
             // streak and the marker's count are both over.
             var state = surfaces[surfaceId] ?? SurfaceState()
@@ -179,6 +180,9 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
         case .childSpawned, .childCompleted, .childFailed, .stateChanged:
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
+            // A correction that restores a finished turn's phase is no sign
+            // of work.
+            if let declaredPhase, declaredPhase != .running { return .none }
             // Progress does not change whether an errored turn still needs a
             // resume, but it shows a turn running again after a completed one:
             // a continuation can start without a prompt hook.
