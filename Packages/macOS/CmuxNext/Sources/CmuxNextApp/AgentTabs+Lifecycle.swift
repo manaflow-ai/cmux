@@ -416,7 +416,7 @@ extension AgentTabStore {
                 release(scoped.key, machine: scoped.machine)
             }
         }
-        for entry in aliases.entries where tabStores[entry.key].map({ $0 === store }) == true && store.liveTreeLists(tab: entry.value) == false && ProvisionalTab.isProvisional(entry.key.key) {
+        for entry in aliases.entries where tabStores[AgentTabKey(machine: entry.key.machine, key: entry.value)].map({ $0 === store }) == true && store.liveTreeLists(tab: entry.key.key) == false && ProvisionalTab.isProvisional(entry.key.key) {
             aliases.removeValue(forKey: entry.key)
         }
     }

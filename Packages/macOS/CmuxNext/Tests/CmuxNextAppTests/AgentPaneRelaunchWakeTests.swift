@@ -35,6 +35,8 @@ struct AgentPaneRelaunchWakeTests {
         tabs.relaunchWake = AgentPaneRelaunchWake(file: file)
         let tree = DaemonStore()
         tabs.lookup = { key in records[key].map { ($0, tree) } }
+        tabs.lookupScoped = { scoped in records[scoped.key].map { ($0, tree) } }
+        tabs.listTabsScoped = { records.map { (key: $0.key, record: $0.value, machine: thisMac) } }
         return tabs
     }
 

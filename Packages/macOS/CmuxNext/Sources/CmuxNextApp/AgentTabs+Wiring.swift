@@ -445,7 +445,7 @@ extension AgentTabStore {
                 guard daemon.supports(DaemonCapability.agentSessionStart.rawValue) else { return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine)) }
                 host.start = { [weak tabs] cwd, harness, model, personKey in
                     guard let tabs else { throw CancellationError() }
-                    return try await tabs.startRemoteChat(key.key, machine: machineID, cwd: cwd, harness: harness, model: model, personKey: personKey,
+                    return try await tabs.startRemoteChat(key.key, machine: machineID, machineName: machine, cwd: cwd, harness: harness, model: model, personKey: personKey,
                                                           ownerLink: links?.ownerLink, teammate: links?.teammate, reconnect: reconnect, endpoint: endpoint)
                 }
             }
@@ -470,7 +470,7 @@ extension AgentTabStore {
                 workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in tab.agentSession.map { (key: tab.id, record: $0, machine: services.machines.daemon(forTab: tab).machineID) } }
             }
         }
-        tabs.listTabs = { tabs.listTabsScoped().map { (key: $0.key, record: $0.record) } }
+        tabs.listTabs = { [weak tabs] in tabs?.listTabsScoped().map { (key: $0.key, record: $0.record) } ?? [] }
         tabs.create = { pane, daemon, record, key, transaction, split in
             guard let connection = daemon.connection else { throw DaemonError.notConnected }
             var request = NewConversationTabRequest(agentSession: record, pane: pane, origin: createOrigin, mutationID: key,

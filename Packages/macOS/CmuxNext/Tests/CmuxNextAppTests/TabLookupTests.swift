@@ -150,12 +150,12 @@ struct TabLookupTests {
             return (.taken, nil)
         }
 
-        #expect(tabs.lookupScoped(localKey)?.store === fixture.services.daemon.store)
-        #expect(tabs.lookupScoped(remoteKey)?.store === fixture.remote.daemon.store)
-        #expect(tabs.locateScoped(localKey)?.pane == fixture.localPane.handle)
-        #expect(tabs.locateScoped(remoteKey)?.pane == fixture.remotePane.handle)
-        #expect(tabs.daemonForTabScoped(localKey) === fixture.services.daemon)
-        #expect(tabs.daemonForTabScoped(remoteKey) === fixture.remote.daemon)
+        #expect(tabs.record(for: localKey)?.store === fixture.services.daemon.store)
+        #expect(tabs.record(for: remoteKey)?.store === fixture.remote.daemon.store)
+        #expect(tabs.pane(for: localKey)?.pane == fixture.localPane.handle)
+        #expect(tabs.pane(for: remoteKey)?.pane == fixture.remotePane.handle)
+        #expect(tabs.daemon(for: localKey) === fixture.services.daemon)
+        #expect(tabs.daemon(for: remoteKey) === fixture.remote.daemon)
         _ = await tabs.bindScoped(remoteKey, fixture.remoteTab.surface, nil, "remote", nil)
         _ = await tabs.bindScoped(localKey, fixture.localTab.surface, nil, "local", nil)
         #expect(bound == [remoteKey, localKey])
