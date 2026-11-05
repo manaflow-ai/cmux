@@ -52,6 +52,52 @@ describe("servers in the team directory (TeamDO reducer)", () => {
     expect((confirmed.state as TeamState).server_revocations?.[INSTALL]).toBeUndefined()
     expect(gone.outbox?.map((o) => o.kind)).toEqual(["host.delete", "audit.append"])
   })
+
+  it("lets the inviter (the server's owner) revoke it after losing the admin role, and hands the revoke the pairing that made it", () => {
+    const ADMIN = "user_00000000000000000003"
+    const start = { ...base(), members: { ...base().members, [ADMIN]: { user: ADMIN, role: "admin", display_name: "a" } } } as TeamState
+    rows = new MemoryRows()
+    const pairing = { code: "7KQ4M2XD", invite: "ABCDE12345" }
+    const r = reduce(start, "server.enrolled", { ...enrolled, owner_user: ADMIN, approved_by: ADMIN, pairing }, ctx(null))
+    if (!r.ok) throw new Error(r.message)
+    const host = (r.value as { id: string }).id
+    expect((r.state as TeamState).server_pairings?.[host]).toMatchObject(pairing)
+    // The inviter is now a plain member: still the owner, so still allowed; another member is not.
+    const demoted = { ...(r.state as TeamState), members: { ...(r.state as TeamState).members, [ADMIN]: { user: ADMIN, role: "member", display_name: "a" } } } as TeamState
+    expect(reduce(demoted, "server.revoke", { host }, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    const gone = reduce(demoted, "server.revoke", { host }, ctx(ADMIN))
+    if (!gone.ok) throw new Error(gone.message)
+    expect(gone.value).toEqual({ host, install: INSTALL, owner_user: ADMIN, pairing })
+    expect((gone.state as TeamState).server_pairings?.[host]).toBeUndefined()
+  })
+
+  it("forgets a pairing once its code and invite have ended, and ignores a malformed one", () => {
+    const r = reduce(base(), "server.enrolled", { ...enrolled, pairing: { code: "7KQ4M2XD", invite: null } }, ctx(null))
+    if (!r.ok) throw new Error(r.message)
+    const host = (r.value as { id: string }).id
+    const late = { ...ctx(OWNER), now: 1_000_000 + txn + 20 * 60_000 + 1 }
+    const gone = reduce(r.state as TeamState, "server.revoke", { host }, late)
+    if (!gone.ok) throw new Error(gone.message)
+    expect(gone.value).toEqual({ host, install: INSTALL, owner_user: OWNER })
+    const bad = reduce(base(), "server.enrolled", { ...enrolled, pairing: { code: "nope", invite: "x" } }, ctx(null))
+    if (!bad.ok) throw new Error(bad.message)
+    expect((bad.state as TeamState).server_pairings).toEqual({})
+  })
+
+  it("server.signed_out (the box's own install signed out) removes its host without queueing a revocation; a repeat changes nothing", () => {
+    const pairing = { code: "7KQ4M2XD", invite: null }
+    const r = reduce(base(), "server.enrolled", { ...enrolled, pairing }, ctx(null))
+    if (!r.ok) throw new Error(r.message)
+    const host = (r.value as { id: string }).id
+    expect(reduce(r.state as TeamState, "server.signed_out", { install: INSTALL }, ctx(OWNER))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    const out = reduce(r.state as TeamState, "server.signed_out", { install: INSTALL }, ctx(null))
+    if (!out.ok) throw new Error(out.message)
+    expect(out.value).toEqual({ host, install: INSTALL, owner_user: OWNER, pairing })
+    expect(rows.get("host", host)).toBeUndefined()
+    expect((out.state as TeamState).server_revocations?.[INSTALL]).toBeUndefined()
+    expect((out.state as TeamState).host_count).toBe(0)
+    expect(reduce(out.state as TeamState, "server.signed_out", { install: INSTALL }, ctx(null))).toMatchObject({ ok: true, changed: false, value: { host: null } })
+  })
 })
 
 describe("approver role loss (server.enrolled reducer)", () => {

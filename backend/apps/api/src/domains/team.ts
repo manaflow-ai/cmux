@@ -17,7 +17,7 @@ import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type Tea
 import { reduceMemberProvision, reduceOwnerCountInit, reduceStackMirror, seatsOf, teamDeleted, withOwnerDelta } from "./team-stack.ts"
 import { removeGrantFor, roleHas, usesSeat } from "./team-roles.ts"
 import { withAuditRows } from "./team-audit-rows.ts"
-import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
+import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerNetworkConfirmed, reduceServerRevoke, reduceServerSignedOut, type ServerPairing, type ServerRevocation } from "./team-servers.ts"
 import { reduceHostNetworkBound } from "./team-host-network.ts"
 import { GROUP_OPS, reduceGroup } from "./team-groups.ts"
 import { memberAuthorityWrites } from "./team-authority.ts"
@@ -34,6 +34,8 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly host_count?: number
   /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
+  /** Recently paired servers (host -> the pairing code and invite that made them), so a revoke can spend them (team-servers.ts). */
+  readonly server_pairings?: Readonly<Record<string, ServerPairing>>
   /** Removed members (user -> removal time) whose SSH certificates and hosts TeamDO still has to settle (team-member-cleanup.ts). */
   readonly member_cleanup?: Readonly<Record<string, number>>
   /** Team default monthly AI spending limit per member in USD (team-ai-limit.ts); absent or null = the cmux default. */
@@ -258,6 +260,10 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
       case "server.install_revoked": {
         if (p.kind !== "system") return reject("auth.forbidden", "internal op")
         return reduceServerInstallRevoked(state, params)
+      }
+      case "server.signed_out": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return reduceServerSignedOut(state, params, ctx)
       }
       case "server.network.confirmed": {
         if (p.kind !== "system") return reject("auth.forbidden", "internal op")

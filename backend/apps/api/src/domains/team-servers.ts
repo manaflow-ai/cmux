@@ -6,6 +6,7 @@ import { appendAudit } from "./team-audit.ts"
 import type { TeamState } from "./team.ts"
 import type { RowReader, RowWrite } from "@cmux/ownership"
 import { can, hostByInstall, hostDelete, hostOf, hostUpsert, memberOf } from "./team-members.ts"
+import { PAIRING_TTL_MS } from "./pairing.ts"
 
 /**
  * Servers in the team directory (plans/cmux-next/server.md 6). A server is a
@@ -42,6 +43,34 @@ export interface ServerRevocation {
   readonly at: number
 }
 
+/**
+ * The pairing that made a server: its 8-symbol code and the invite it came through. Kept only
+ * while that code's or invite's object can still answer (both end within PAIRING_TTL_MS of the
+ * approval), so a revoke can spend them: pair-invite-routes.ts revokeServerPairing.
+ */
+export interface ServerPairing {
+  readonly code: string
+  readonly invite: string | null
+  readonly at: number
+}
+
+/** How long a server's pairing is kept for its revoke: past the life of its code and its invite. */
+export const SERVER_PAIRING_KEEP_MS = 2 * PAIRING_TTL_MS
+
+const livePairings = (state: TeamState, now: number): Record<string, ServerPairing> =>
+  Object.fromEntries(Object.entries(state.server_pairings ?? {}).filter(([, p]) => p.at > now - SERVER_PAIRING_KEEP_MS))
+
+/** The pairing that made `host` (if still live), and the kept set without it. */
+const takePairing = (state: TeamState, host: string, now: number): { pairing: { code: string; invite: string | null } | undefined; rest: Record<string, ServerPairing> } => {
+  const { [host]: taken, ...rest } = livePairings(state, now)
+  return { pairing: taken ? { code: taken.code, invite: taken.invite } : undefined, rest }
+}
+
+const validPairing = (p: unknown): p is { code: string; invite: string | null } => {
+  const v = p as { code?: unknown; invite?: unknown } | null
+  return typeof v?.code === "string" && /^[0-9A-Z]{8}$/.test(v.code) && (v.invite === null || (typeof v.invite === "string" && /^[0-9A-Z]{10}$/.test(v.invite)))
+}
+
 /** UserDO confirmed the revocation: drop it from the retry set. */
 export const reduceServerInstallRevoked = (state: TeamState, params: unknown): Out => {
   const install = (params as { install: string }).install
@@ -61,7 +90,7 @@ const ENROLL_REFUSED = "only team owners and admins may add a server"
 
 export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
   if (!state.team) return reject("validation.invalid", "team not initialized")
-  const v = params as { install: string; name: string; platform: typeof Host.Type["platform"]; wg_public_key: string; owner_user: string; approved_by: string; network?: unknown }
+  const v = params as { install: string; name: string; platform: typeof Host.Type["platform"]; wg_public_key: string; owner_user: string; approved_by: string; network?: unknown; pairing?: unknown }
   // One host per install: a replayed or repeated approval of the same install keeps the host id.
   const existing = hostByInstall(state, ctx.rows, v.install)
   if (existing && existing.kind !== "server") return reject("validation.invalid", "this install is already a device host")
@@ -92,7 +121,9 @@ export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: Red
     ...(persistedNetwork ? { network: persistedNetwork } : {})
   }
   if (existing && JSON.stringify(existing) === JSON.stringify(host)) return { ok: true, state, value: host, changed: false }
-  const next = { ...state, host_count: (state.host_count ?? 0) + (existing ? 0 : 1) }
+  const pairings = livePairings(state, ctx.now)
+  if (validPairing(v.pairing)) pairings[host.id] = { code: v.pairing.code, invite: v.pairing.invite, at: ctx.now }
+  const next = { ...state, host_count: (state.host_count ?? 0) + (existing ? 0 : 1), server_pairings: pairings }
   return withWrites(
     audited(next, ctx, "server.enrolled", host, { kind: "host.upsert", entity: host.id, payload: { ...host, team: state.team.id } }, `server ${host.name} paired`, {
       host: host.id,
@@ -158,16 +189,43 @@ export const reduceServerRevoke = (state: TeamState, params: unknown, ctx: Reduc
   if (!d.ok) return d
   const host = hostOf(state, ctx.rows, d.value.host)
   if (!host || host.kind !== "server") return reject("selector.not_found", "server not found")
+  // The owner is the person who approved its pairing; for a server that came through an invite that is
+  // always the inviter (PairingDO.claim lets only `invited_by` approve), so the inviter may revoke it.
   if (host.owner_user !== p.user && !can(state, ctx.rows, p.user, "team.manage")) return reject("auth.forbidden", "only the server owner or a team admin may revoke it")
   const legacy = state.hosts?.[host.id] ? (({ [host.id]: _gone, ...rest }) => ({ hosts: rest }))(state.hosts) : {}
   // The install revocation commits here as a pending item; TeamDO pushes it to the owner's UserDO and retries until confirmed.
   const pending: ServerRevocation = { install: host.enrolled_by, owner_user: host.owner_user, by: p.user!, at: ctx.now }
-  const next = { ...state, ...legacy, host_count: Math.max(0, (state.host_count ?? 1) - 1), server_revocations: { ...(state.server_revocations ?? {}), [host.enrolled_by]: pending } }
+  // The pairing that made it, while its code and invite still live: the Worker spends both (http.ts).
+  const { pairing, rest: pairings } = takePairing(state, host.id, ctx.now)
+  const next = { ...state, ...legacy, host_count: Math.max(0, (state.host_count ?? 1) - 1), server_revocations: { ...(state.server_revocations ?? {}), [host.enrolled_by]: pending }, server_pairings: pairings }
   return withWrites(
-    audited(next, ctx, "server.revoke", { host: host.id, install: host.enrolled_by, owner_user: host.owner_user }, { kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }, `server ${host.name} revoked`, {
+    audited(next, ctx, "server.revoke", { host: host.id, install: host.enrolled_by, owner_user: host.owner_user, ...(pairing ? { pairing } : {}) }, { kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }, `server ${host.name} revoked`, {
       host: host.id,
       install: host.enrolled_by,
       by: p.user
+    }),
+    hostDelete(host)
+  )
+}
+
+/**
+ * The server's own install signed itself out (`install.sign_out`, which UserDO already committed:
+ * `cmux server unpair` on the box). Its host leaves the directory, as a revoke would, and no
+ * install revocation is queued (the install is revoked already). Keyed by the install, so a
+ * repeat finds no host and changes nothing.
+ */
+export const reduceServerSignedOut = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
+  const install = (params as { install?: unknown } | null)?.install
+  if (typeof install !== "string") return reject("validation.invalid", "install required")
+  const host = hostByInstall(state, ctx.rows, install)
+  if (!host || host.kind !== "server") return { ok: true, state, value: { host: null, install }, changed: false }
+  const legacy = state.hosts?.[host.id] ? (({ [host.id]: _gone, ...rest }) => ({ hosts: rest }))(state.hosts) : {}
+  const { pairing, rest: pairings } = takePairing(state, host.id, ctx.now)
+  const next = { ...state, ...legacy, host_count: Math.max(0, (state.host_count ?? 1) - 1), server_pairings: pairings }
+  return withWrites(
+    audited(next, ctx, "server.signed_out", { host: host.id, install, owner_user: host.owner_user, ...(pairing ? { pairing } : {}) }, { kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }, `server ${host.name} unpaired itself`, {
+      host: host.id,
+      install
     }),
     hostDelete(host)
   )

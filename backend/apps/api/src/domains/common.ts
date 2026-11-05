@@ -441,6 +441,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
     } as CloudOpDef
   ],
   [
+    "server.signed_out",
+    {
+      name: "server.signed_out",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({ install: InstallId }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: a paired server's own install signed itself out (cmux server unpair); its host leaves the directory.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "server.enrolled",
     {
       name: "server.enrolled",
@@ -456,7 +473,9 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
         wg_public_key: WgPublicKey,
         network: Schema.optionalKey(ServerNetworkReservation),
         owner_user: UserId,
-        approved_by: UserId
+        approved_by: UserId,
+        /** The pairing code and invite that made it, kept a while so a revoke can spend them. */
+        pairing: Schema.optionalKey(Schema.Struct({ code: Schema.String, invite: Schema.NullOr(Schema.String) }))
       }),
       result: Schema.Unknown,
       errors: [],

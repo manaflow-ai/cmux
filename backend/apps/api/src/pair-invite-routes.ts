@@ -134,6 +134,23 @@ export const beginWithInvite = async (
   return redeemed.reason === "unknown" ? notFound() : used()
 }
 
+/** Which pairing made a server: TeamDO keeps it a while after `server.enrolled` (domains/team-servers.ts). */
+export interface ServerPairingRef {
+  readonly code: string
+  readonly invite: string | null
+}
+
+/**
+ * A server was revoked (server.revoke, or its box signed itself out): spend the pairing code that
+ * made it, so that thumbprint cannot be approved or collected again on that record, and void the
+ * invite it came through, so a retried `/v1/pair/begin` with that invite gets 409 and the
+ * inviter's watcher hears `voided {reason:"revoked"}`. Both are idempotent.
+ */
+export const revokeServerPairing = async (env: Env, pairing: ServerPairingRef, now = Date.now()): Promise<void> => {
+  await pairingStub(env, pairing.code).serverRevoked(pairing.code, now)
+  if (pairing.invite) await inviteStub(env, pairing.invite).inviteVoid(pairing.invite, "revoked", now)
+}
+
 /** After an approval of an invited record completed: the inviter's watcher hears `paired`. */
 export const invitePairedNotify = async (env: Env, invite: string, code: string, host: string): Promise<void> => {
   await inviteStub(env, invite).invitePaired(invite, code, host, Date.now())

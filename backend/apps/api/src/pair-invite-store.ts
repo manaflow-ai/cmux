@@ -17,7 +17,8 @@ import { PAIRING_TTL_MS } from "./domains/pairing.ts"
 
 export type InviteState = "open" | "arrived" | "paired" | "voided"
 
-export type InviteVoidReason = "second_redemption" | "replaced"
+/** `revoked`: the server this invite paired was revoked (server.revoke, or the box signed itself out). */
+export type InviteVoidReason = "second_redemption" | "replaced" | "revoked"
 
 export interface InviteArrival {
   readonly code: string
@@ -170,11 +171,12 @@ export class InviteStore {
   /**
    * Void a live invite that is not paired yet (a newer invite replaced it). Returns the bound pairing
    * code, if any; for an invite already voided it returns that code again (without a second push), so
-   * a caller whose abort of that code failed can retry it.
+   * a caller whose abort of that code failed can retry it. A `revoked` void also ends a paired
+   * invite: the server it paired is gone, so a reconnecting watcher hears `voided {reason:"revoked"}`.
    */
   async void(invite: string, reason: InviteVoidReason, now: number): Promise<{ ok: boolean; code: string | null }> {
     const r = this.row(now)
-    if (!r || r.invite !== invite || r.state === "paired") return { ok: false, code: null }
+    if (!r || r.invite !== invite || (r.state === "paired" && reason !== "revoked")) return { ok: false, code: null }
     if (r.state === "voided") return { ok: true, code: r.code }
     return { ok: true, code: this.voidRow(r, reason) }
   }
