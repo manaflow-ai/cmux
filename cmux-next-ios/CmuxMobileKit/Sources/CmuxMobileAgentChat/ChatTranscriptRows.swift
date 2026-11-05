@@ -19,6 +19,8 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         /// says where what is shown starts instead of when the session started.
         case sessionStart(Date, earlier: Bool)
         case prompt(text: String, attachments: [AgentAttachment], at: Date, isLast: Bool)
+        /// The turn's prompt is another agent's message: its card (AgentIncomingCard), not the person's bubble.
+        case incoming(AgentIncoming, at: Date)
         /// One block of the agent message `messageID` (the whole message is copied).
         case block(messageID: String, block: MarkdownBlock)
         case thought(text: String, isLive: Bool)
@@ -166,7 +168,8 @@ final class ChatTranscriptBuilder {
             rows.append(ChatRow(id: "session-start", turnID: turnID, kind: .sessionStart(turn.promptAt, earlier: context.earlierHistory), gap: 0))
         }
         rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
-                            kind: .prompt(text: turn.prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
+                            kind: turn.incoming.map { .incoming($0, at: turn.promptAt) }
+                                ?? .prompt(text: turn.prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
                             gap: context.isFirst ? 0 : (context.followsActions ? 18 : 24)))
         let turnRows = turn.rows
         let running = turn.status == .running
