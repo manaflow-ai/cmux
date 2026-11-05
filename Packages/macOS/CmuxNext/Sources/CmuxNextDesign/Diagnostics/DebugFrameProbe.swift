@@ -1,8 +1,5 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
-import CmuxNextControl
-import CmuxNextDesign
-import CmuxNextSettings
 import CmuxNextWakeups
 
 /// `debug.frames`: display-link frame intervals for the CLI storm bench.
@@ -17,8 +14,13 @@ import CmuxNextWakeups
 /// `NSView.layout()` calls and window layout passes in it (`LayoutPassGuard`'s
 /// counters), for the app gesture bench (scripts/cmux-next/app-perf.py).
 /// `raw: true` adds the per-frame arrays to the reply.
+///
+/// It also says why each missed refresh was late (``FrameMissSplit``): `missed_split` counts `main_late`, `commit_late`
+/// and `presented_late`, and `missed_frames` lists the first misses with their stamps. A third observer, just before
+/// Core Animation's commit, stamps the end of each turn's main work. The reply is plain Foundation values (the App's route makes it
+/// the socket's JSON).
 @MainActor
-final class DebugFrameProbe {
+public final class DebugFrameProbe {
     static let maximumRun: Duration = .seconds(600)
     private lazy var client = FrameClient(owner: "debug.frames", isAnimation: false, on: .app) { [weak self] tick in
         self?.tick(tick)
@@ -36,10 +38,18 @@ final class DebugFrameProbe {
     private var awakeSince: CFTimeInterval = 0
     private var awake: CFTimeInterval = 0
     private var observers: [CFRunLoopObserver] = []
+    /// The missed refreshes' causes, and the current turn's stamps for it: when it woke and when its main work ended.
+    private var split = FrameMissSplit()
+    private var turnWoke: CFTimeInterval = 0
+    private var turnMainEnd: CFTimeInterval?
+    /// Just before Core Animation's commit (2,000,000) and the frame presenter's pass (1,999,999).
+    static let mainEndOrder: CFIndex = 1_999_998
 
-    func handle(_ params: [String: JSONValue]) -> JSONValue {
-        let raw = params["raw"]?.boolValue == true
-        switch params["action"]?.stringValue ?? "read" {
+    public init() {}
+
+    /// `action`: "start", "stop", "reset", or anything else to read the record; `raw` adds the per-frame arrays.
+    public func handle(action: String?, raw: Bool) -> [String: Any] {
+        switch action ?? "read" {
         case "start":
             start()
         case "stop":
@@ -76,6 +86,8 @@ final class DebugFrameProbe {
         last = 0
         awake = 0
         awakeSince = CACurrentMediaTime()
+        split = FrameMissSplit()
+        (turnWoke, turnMainEnd) = (awakeSince, nil)
     }
 
     /// Two observers of the main run loop: one when it wakes (first of the
@@ -91,24 +103,33 @@ final class DebugFrameProbe {
         let sleeps: CFRunLoopObserver? = MainRunLoopObserver.afterCommitObserver(activities: .beforeWaiting, order: CFIndex.max) { [weak self] _ in
             MainActor.assumeIsolated { self?.willWait() } // main-proof: an observer of the main run loop
         }
-        guard let woke, let sleeps else { return }
+        let mainEnds = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, Self.mainEndOrder) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.turnMainEnd = CACurrentMediaTime() } // main-proof: an observer of the main run loop
+        }
+        guard let woke, let sleeps, let mainEnds else { return }
         CFRunLoopAddObserver(CFRunLoopGetMain(), woke, .commonModes)
+        CFRunLoopAddObserver(CFRunLoopGetMain(), mainEnds, .commonModes)
         CFRunLoopAddObserver(CFRunLoopGetMain(), sleeps, .commonModes)
-        observers = [woke, sleeps]
+        observers = [woke, mainEnds, sleeps]
     }
 
     private func didWake() {
         awakeSince = CACurrentMediaTime()
+        turnWoke = awakeSince
     }
 
     private func willWait() {
+        let now = CACurrentMediaTime()
+        split.turnEnded(woke: turnWoke, mainEnd: turnMainEnd, commitEnd: now)
+        turnMainEnd = nil
         guard awakeSince > 0 else { return }
-        awake += CACurrentMediaTime() - awakeSince
+        awake += now - awakeSince
         awakeSince = 0
     }
 
     private func tick(_ tick: FrameTick) {
         if let refresh = tick.refreshInterval { expected = refresh }
+        split.tick(timestamp: tick.timestamp, target: tick.targetTimestamp, refresh: expected, openTurnWoke: awakeSince > 0 ? turnWoke : nil)
         let now = CACurrentMediaTime()
         if awakeSince > 0 {
             awake += now - awakeSince
@@ -133,34 +154,34 @@ final class DebugFrameProbe {
         }
     }
 
-    private func stats(raw: Bool) -> JSONValue {
+    private func stats(raw: Bool) -> [String: Any] {
         let sorted = intervals.sorted()
         let work = busy.sorted()
         let budget = 1_000.0 / 60.0
-        var stats: [String: JSONValue] = [
-            "running": .bool(client.isActive),
-            "frames": JSONValue(sorted.count),
-            "refresh_ms": .number(expected * 1_000),
-            "p50_ms": .number(sorted.sortedPercentile(0.5)),
-            "p95_ms": .number(sorted.sortedPercentile(0.95)),
-            "p99_ms": .number(sorted.sortedPercentile(0.99)),
-            "max_ms": .number(sorted.last ?? 0),
-            "over_16_7_ms": JSONValue(sorted.filter { $0 > budget }.count),
+        var stats: [String: Any] = [
+            "running": client.isActive,
+            "frames": sorted.count,
+            "refresh_ms": expected * 1_000,
+            "p50_ms": sorted.sortedPercentile(0.5),
+            "p95_ms": sorted.sortedPercentile(0.95),
+            "p99_ms": sorted.sortedPercentile(0.99),
+            "max_ms": sorted.last ?? 0,
+            "over_16_7_ms": sorted.filter { $0 > budget }.count,
             // Missed vsyncs: intervals longer than 1.5 refresh periods.
-            "missed": JSONValue(expected > 0 ? sorted.filter { $0 > expected * 1_500 }.count : 0),
+            "missed": expected > 0 ? sorted.filter { $0 > expected * 1_500 }.count : 0,
             // When the missed vsyncs happened: ms from the first frame to the end of each (at most 16).
-            "missed_at_ms": .array(missedOffsets.prefix(16).map { .number($0.rounded()) }),
+            "missed_at_ms": missedOffsets.prefix(16).map { $0.rounded() },
             // The main thread's busy ms per frame; over 8.33 ms misses a 120 Hz vsync.
-            "main_p50_ms": .number(work.sortedPercentile(0.5)),
-            "main_p95_ms": .number(work.sortedPercentile(0.95)),
-            "main_max_ms": .number(work.last ?? 0),
-            "main_total_ms": .number(busy.reduce(0, +)),
-            "main_over_8_3_ms": JSONValue(work.filter { $0 > 1_000.0 / 120.0 }.count),
-        ].merging(layouts.report(raw: raw).compactMapValues(JSONValue.init(foundation:))) { $1 }
+            "main_p50_ms": work.sortedPercentile(0.5),
+            "main_p95_ms": work.sortedPercentile(0.95),
+            "main_max_ms": work.last ?? 0,
+            "main_total_ms": busy.reduce(0, +),
+            "main_over_8_3_ms": work.filter { $0 > 1_000.0 / 120.0 }.count,
+        ].merging(layouts.report(raw: raw)) { $1 }.merging(split.report) { $1 }
         if raw {
-            stats["intervals_ms"] = .array(intervals.map { .number(($0 * 100).rounded() / 100) })
-            stats["main_ms"] = .array(busy.map { .number(($0 * 100).rounded() / 100) })
+            stats["intervals_ms"] = intervals.map { ($0 * 100).rounded() / 100 }
+            stats["main_ms"] = busy.map { ($0 * 100).rounded() / 100 }
         }
-        return .object(stats)
+        return stats
     }
 }
