@@ -194,7 +194,11 @@ def frame(k, variant):
     y0 = STRIP_PX if has_strip(variant) else 0
     if variant == "held" and 12 <= k <= 40:
         a_view = A_REST  # A's content keeps its rest width while its pane grows
+    if variant == "strip-tui-a-late" and 11 <= k <= 30:
+        a_view = a_width(max(s - 1, 0), variant)  # m14: A's view keeps the previous sample's size (m6 "late"), anchored top-left
     draw_tui(img, 0, a_view, picture_w=a_width(max(s - 3, 0), variant) if variant == "cut" else None, y0=y0)
+    if variant == "strip-tui-a-late" and 11 <= k <= 30:
+        img[y0:, int(round(a_view)):int(round(aw))] = BLACK  # behind A's old-size view: no shell (m6 E4 does not fire)
     if variant == "glyph":
         # A ruler digit in the old black-class ink just inside A's left ring 3, on every row.
         img[y0:, PAD + 3 * CW + 2:PAD + 3 * CW + 6] = GLYPH
@@ -222,6 +226,8 @@ def frame(k, variant):
         draw_tui_at(img, b_x, W - b_x, GREEN, y0=y0)  # B: a terminal below its strip, one sample late
     elif variant == "strip-stretch" and 20 <= k <= 22:
         draw_page(img, b_x, W - b_x, y0=y0, rings=(4, 8, 12))  # B's page stretched: its rings twice as wide
+    elif variant == "strip-squeeze" and 20 <= k <= 22:
+        draw_page(img, b_x, W - b_x, y0=y0, rings=(1, 2, 3))  # m14: B's page squeezed: its rings half as wide
     elif variant == "samefill":
         if not 30 <= k <= 32:
             draw_tui_at(img, b_x, W - b_x, YELLOW)  # B: a terminal of A's own fill; it shows nothing for 3 frames
@@ -1574,6 +1580,121 @@ def jp_frames(ranges):
             a, _, b = part.partition("-")
             out |= set(range(int(a), int(b or a) + 1))
     return out
+
+
+class M14ContractTests(unittest.TestCase):
+    """cmux-ad m14 (Lead 2026-11-05, Lawrence P0): in every frame every terminal and every page shows live pixels rendered
+    at that frame's pane size: each content edge within TOL_PX of its pane edge as cmux's own layer shows it, never frozen,
+    never stretched or squeezed, never the old frame anchored. m6's allowances fail: its "late" (the previous size,
+    anchored top-left, clipped) is the class `allowed`, its "page late 1" the class `page_late`. Per kind, a frame takes the
+    first class of: scaled (E5 stretched, or rings 2 and 3 narrower than at rest), gap (E4), edge (E2, E3, page early 1),
+    allowed, page_late, pass. The m6 rows do not change (M6ContractTests)."""
+
+    VARIANTS = ("strip", "strip-tui-a-late", "strip-page-late", "strip-stretch", "strip-squeeze", "gap2", "strip-whole-late")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-m14-")
+        cls.bases = {v: build(cls.tmp, v, v) for v in cls.VARIANTS}
+        cls.reports = {v: jp.judge(b, all_frames=True) for v, b in cls.bases.items()}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def m14(self, variant, kind):
+        return self.reports[variant]["m14"]["kinds"][kind]
+
+    def m6(self, variant, kind):
+        return self.reports[variant]["m6"]["kinds"][kind]
+
+    def test_content_on_its_strips_passes(self):
+        for kind in ("terminal", "page"):
+            row = self.m14("strip", kind)
+            self.assertGreater(row["judged"], 50, kind)
+            self.assertEqual((row["fail"], row["pass"], row["worst_px"]), (0, row["judged"], 0.0), kind)
+            for c in jp.M14_FAIL_CLASSES:
+                self.assertEqual(row[c], 0, (kind, c))
+
+    def test_the_allowed_frame_of_m6_fails(self):
+        # A's terminal view keeps the previous sample's size in 11-30 (anchored top-left, 2 px short, no shell behind):
+        # m6 passes it as late; m14 fails it as `allowed`, in exactly m6's late frames.
+        m6, m14 = self.m6("strip-tui-a-late", "terminal"), self.m14("strip-tui-a-late", "terminal")
+        self.assertEqual(m6["fail"], 0)
+        self.assertGreaterEqual(m6["late"], 15)
+        self.assertEqual((m14["allowed"], m14["fail"], m14["allowed_ranges"]), (m6["late"], m6["late"], m6["late_ranges"]))
+        self.assertEqual(m14["worst_px"], 2.0)
+        self.assertTrue(m14["worst_edge"].endswith(" hi"), m14["worst_edge"])
+
+    def test_page_late_1_fails(self):
+        m6, m14 = self.m6("strip-page-late", "page"), self.m14("strip-page-late", "page")
+        self.assertEqual((m6["fail"], m6["page_late_1"]), (0, 20))
+        self.assertEqual((m14["page_late"], m14["fail"], m14["page_late_ranges"]), (20, 20, "11-30"))
+        self.assertEqual(self.m14("strip-page-late", "terminal")["fail"], 0)
+
+    def test_stretched_and_squeezed_content_is_scaled(self):
+        self.assertEqual((self.m14("strip-stretch", "page")["scaled"], self.m14("strip-stretch", "page")["scaled_ranges"]),
+                         (3, "20-22"))
+        row = self.m14("strip-squeeze", "page")
+        self.assertEqual((row["scaled"], row["scaled_ranges"], row["fail_ranges"]), (3, "20-22", "20-22"))
+        self.assertEqual(self.m6("strip-squeeze", "page")["fail_by_rule"]["E5"], 0)  # m6 has no squeeze rule
+
+    def test_a_shell_gap_is_its_own_class(self):
+        row = self.m14("gap2", "terminal")
+        self.assertEqual((row["gap"], row["gap_ranges"], row["fail_ranges"]), (6, "20-25", "20-25"))
+        self.assertGreater(row["not_judged"], 0)  # no strip: its E2 and E3 are not judged (never the trace)
+
+    def test_late_as_a_whole_is_information_not_a_content_class(self):
+        r = self.reports["strip-whole-late"]
+        self.assertEqual(r["m14"]["late_as_a_whole"], r["m6"]["late_as_a_whole"])
+        for kind in ("terminal", "page"):
+            self.assertEqual(self.m14("strip-whole-late", kind)["fail"], 0, kind)
+
+    def test_m14_is_information_the_judge_exit_does_not_change(self):
+        # The judge's defects stay m6's: a film that m14 alone fails (page late 1) has no m14 defect.
+        r = self.reports["strip-page-late"]
+        self.assertNotIn("m14 contract", [f["check"] for f in r["findings"]])
+        self.assertIn("m14 contract", [f["check"] for f in r["info"]])
+
+    def test_the_verdict_cli(self):
+        import judge_m14
+        out = Path(self.tmp) / "m14.json"
+        code = judge_m14.main([str(self.bases["strip"]), str(self.bases["strip-tui-a-late"]), "--json", str(out)])
+        self.assertEqual(code, 1)
+        films = {Path(f["base"]).name: f for f in json.loads(out.read_text())["films"]}
+        self.assertEqual((films["strip"]["status"], films["strip-tui-a-late"]["status"]), ("pass", "fail"))
+        self.assertEqual(judge_m14.main([str(self.bases["strip"])]), 0)
+
+
+# cmux-ad m14 known films (pixel-perfect, 2026-11-05): ab-s4pin-44ab81a (#35900 head 44ab81aadd96, cmux22, 120 Hz).
+KNOWN_RUN = Path("/work/tmp/resize-videos/runs/ab-s4pin-44ab81a-20261105T000715Z-cmux22")
+KNOWN_HELD = KNOWN_RUN / "px-keys-held-2-sw-terminals/video/px-keys-held-2-sw-terminals-on-s1"
+KNOWN_CLEAN = KNOWN_RUN / "px-keys-rk-3t-sw-terminals/video/px-keys-rk-3t-sw-terminals-on-s1"
+
+
+@unittest.skipUnless(Path(f"{KNOWN_HELD}.mov.scan").is_file() and Path(f"{KNOWN_CLEAN}.mov.scan").is_file(),
+                     f"the known m14 films are not on this machine ({KNOWN_RUN})")
+class M14KnownFilmTests(unittest.TestCase):
+    """The Lead's known films for m14: px-keys-held-2 ON x1 (T|P), where the page stays at an old narrow width while its
+    pane is wide (frames 411-538: the shell beside it, up to 1504 device px), must fail in every one of those frames; the
+    terminals-only px-keys-rk-3t ON x1 (0 failing and 0 late terminal frames under m6) must pass."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.held = jp.judge(str(KNOWN_HELD))
+        cls.clean = jp.judge(str(KNOWN_CLEAN))
+
+    def test_the_page_at_an_old_narrow_width_fails_in_every_frame(self):
+        row = self.held["m14"]["kinds"]["page"]
+        missing = set(range(411, 539)) - jp_frames(row["fail_ranges"])
+        self.assertEqual(missing, set(), f"frames of the old narrow page that m14 passes: {sorted(missing)[:20]}")
+        self.assertGreaterEqual(row["worst_px"], 1000)
+
+    def test_a_clean_terminal_film_passes(self):
+        kinds = self.clean["m14"]["kinds"]
+        self.assertEqual(set(kinds), {"terminal"})
+        self.assertGreater(kinds["terminal"]["judged"], 500)
+        self.assertEqual(kinds["terminal"]["fail"], 0, kinds["terminal"].get("fail_ranges"))
 
 
 if __name__ == "__main__":
