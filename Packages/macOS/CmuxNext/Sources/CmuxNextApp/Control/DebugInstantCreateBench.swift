@@ -53,6 +53,7 @@ enum DebugInstantCreateBench {
             return .object(["error": .string("command: one of \(Command.allCases.map(\.rawValue).joined(separator: ", "))")])
         }
         let before = Probe(controller)
+        let shownBrowsers = Probe.browserTabs(controller) // a page painted before the press is never the new one
         let (key, modifiers) = command.key
         frames.start()
         BenchSpans.begin()
@@ -76,7 +77,7 @@ enum DebugInstantCreateBench {
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
         let opensRight = command == .linkRight || command == .splitBrowser
         let page = visible == nil || (command != .newBrowser && !opensRight) ? nil
-            : await frames.settled(until: { opensRight ? Probe.anyPagePainted(controller, services) : Probe(controller).pagePainted(services) },
+            : await frames.settled(until: { opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers) : Probe(controller).pagePainted(services) },
                                    start: start, window: 0, deadline: 5_000)
         let confirmed = visible == nil ? nil
             : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
@@ -123,10 +124,18 @@ enum DebugInstantCreateBench {
                case .browser(let entry) = focused.currentContent { browser = entry }
         }
 
-        /// Whether a pane of the window shows a browser whose page painted (``pagePainted(_:)``).
-        static func anyPagePainted(_ controller: WindowController, _ services: AppServices) -> Bool {
+        /// The browser tabs the window's panes show.
+        static func browserTabs(_ controller: WindowController) -> Set<String> {
+            Set(controller.content?.panes.values.compactMap { pane in
+                if case .browser(let entry) = pane.currentContent { entry.tab.id.rawValue } else { nil }
+            } ?? [])
+        }
+
+        /// Whether a pane of the window shows a browser, other than `besides`, whose page painted (``pagePainted(_:)``).
+        static func anyPagePainted(_ controller: WindowController, _ services: AppServices, besides: Set<String>) -> Bool {
             controller.content?.panes.values.contains { pane in
-                guard pane.view.hostsContent, case .browser(let entry) = pane.currentContent else { return false }
+                guard pane.view.hostsContent, case .browser(let entry) = pane.currentContent,
+                      !besides.contains(entry.tab.id.rawValue) else { return false }
                 if case .finished = entry.tab.state.phase { return true }
                 return services.cache.cef.benchMarks.firstPaints[entry.tab.id.rawValue] != nil
             } ?? false
