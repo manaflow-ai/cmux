@@ -54,7 +54,7 @@ mod status_conflict;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 use status_conflict::{conflict_row, ensure_replaceable_target};
 
-const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
+pub const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";
 const ACTIVATION_NOTE: &str = "Providers load hooks at process start; launch or restart agents inside a cmux-tui terminal so CMUX_TUI_SOCKET and CMUX_TUI_HOOK are inherited.";
 const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;

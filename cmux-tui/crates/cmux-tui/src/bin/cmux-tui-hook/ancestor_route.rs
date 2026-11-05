@@ -77,9 +77,9 @@ pub(super) fn ancestor_terminal() -> Option<Route> {
     None
 }
 
-/// The parent of `pid`, when this user may read it.
-pub(super) fn parent_of(pid: u32) -> Option<u32> {
-    platform::parent_of(pid)
+/// The parent and arguments of `pid`, when this user may read them.
+pub(super) fn parent_and_arguments(pid: u32) -> Option<(u32, Vec<Vec<u8>>)> {
+    Some((platform::parent_of(pid)?, platform::arguments(pid)?))
 }
 
 fn is_cleared(environment: &[Vec<u8>]) -> bool {
@@ -122,6 +122,12 @@ mod platform {
         after_comm.split_whitespace().nth(1)?.parse().ok()
     }
 
+    pub(super) fn arguments(pid: u32) -> Option<Vec<Vec<u8>>> {
+        let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+        let cmdline = cmdline.strip_suffix(&[0]).unwrap_or(&cmdline);
+        Some(cmdline.split(|byte| *byte == 0).map(<[u8]>::to_vec).collect())
+    }
+
     pub(super) fn read(pid: u32) -> Option<Process> {
         let parent = parent_of(pid)?;
         let environ = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
@@ -158,6 +164,15 @@ mod platform {
     }
 
     fn environment(pid: u32) -> Option<Vec<Vec<u8>>> {
+        parse_procargs2(&procargs2(pid)?).map(|(_, environment)| environment)
+    }
+
+    pub(super) fn arguments(pid: u32) -> Option<Vec<Vec<u8>>> {
+        parse_procargs2(&procargs2(pid)?).map(|(arguments, _)| arguments)
+    }
+
+    /// The `KERN_PROCARGS2` record of `pid`.
+    fn procargs2(pid: u32) -> Option<Vec<u8>> {
         let mut argmax: libc::c_int = 0;
         let mut size = size_of::<libc::c_int>();
         let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
@@ -193,22 +208,26 @@ mod platform {
         if status != 0 {
             return None;
         }
-        parse_procargs2(&buffer[..size.min(buffer.len())])
+        buffer.truncate(size);
+        Some(buffer)
     }
 
     /// `KERN_PROCARGS2`: argc (i32), the exec path, NUL padding, argc
     /// arguments, then the environment, ended by an empty string. For an
     /// Apple-signed program the system leaves the environment out, so it
-    /// reads back empty.
-    fn parse_procargs2(data: &[u8]) -> Option<Vec<Vec<u8>>> {
+    /// reads back empty. The arguments and the environment.
+    #[allow(clippy::type_complexity, reason = "two lists of the record's strings")]
+    fn parse_procargs2(data: &[u8]) -> Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)> {
         let argc = usize::try_from(i32::from_ne_bytes(data.get(..4)?.try_into().ok()?)).ok()?;
-        let mut strings = data[4..].split(|byte| *byte == 0);
+        let mut strings = data.get(4..)?.split(|byte| *byte == 0);
         strings.next()?; // exec path
         let mut rest = strings.skip_while(|entry| entry.is_empty());
+        let mut arguments = Vec::with_capacity(argc);
         for _ in 0..argc {
-            rest.next()?;
+            arguments.push(rest.next()?.to_vec());
         }
-        Some(rest.take_while(|entry| !entry.is_empty()).map(<[u8]>::to_vec).collect())
+        let environment = rest.take_while(|entry| !entry.is_empty()).map(<[u8]>::to_vec).collect();
+        Some((arguments, environment))
     }
 }
 
@@ -221,6 +240,10 @@ mod platform {
     }
 
     pub(super) fn parent_of(_pid: u32) -> Option<u32> {
+        None
+    }
+
+    pub(super) fn arguments(_pid: u32) -> Option<Vec<Vec<u8>>> {
         None
     }
 }

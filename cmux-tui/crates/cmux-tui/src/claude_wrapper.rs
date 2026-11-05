@@ -46,7 +46,27 @@ const HOOKS_DISABLED_ENV: &str = "CMUX_TUI_CLAUDE_HOOKS_DISABLED";
 /// Read by the hook helper (cmux-tui-hook inbox.rs): the wrapped Claude's
 /// process id, and `1` for a headless (`-p`) run.
 const CLAUDE_PID_ENV: &str = "CMUX_TUI_CLAUDE_PID";
+/// The program (canonical path) the wrapper started as that Claude.
+const CLAUDE_PROGRAM_ENV: &str = "CMUX_TUI_CLAUDE_PROGRAM";
 const HEADLESS_ENV: &str = "CMUX_TUI_CLAUDE_HEADLESS";
+
+/// Whether a re-entry (a wrapped launch whose program started `claude` again
+/// through the shim) makes the Claude it now starts the terminal's agent,
+/// instead of keeping the identity of the process the first wrapper started.
+///
+/// When that first program is not the one this launch runs, it was a
+/// launcher (a script that resolves `claude` again): the Claude it starts now
+/// is the agent, and its hooks must name it. When it is the same program,
+/// this `claude` was started inside that Claude (a tool call, a nested
+/// session): it keeps the outer identity, so its hooks, whose shells are its
+/// own children, never take the outer session's messages (cmux-tui-hook
+/// inbox.rs `run_by`). Without an inherited identity there is nothing to
+/// decide, and an identity with no program (an older wrapper) is kept.
+fn reentry_takes_over(getenv: impl Fn(&str) -> Option<OsString>, program: &Path) -> bool {
+    getenv(WRAPPER_ACTIVE_ENV).is_some_and(|value| value == "1")
+        && getenv(CLAUDE_PID_ENV).is_some()
+        && getenv(CLAUDE_PROGRAM_ENV).is_some_and(|first| Path::new(&first) != program)
+}
 
 /// Whether `args` run Claude headless (`-p`/`--print`), before any `--`.
 fn is_headless(args: &[OsString]) -> bool {
@@ -80,6 +100,8 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     };
     let mut command = Command::new(&claude);
     command.env("PATH", path_without_shims(&path, shim_dir.as_deref()));
+    // The program this launch runs, to tell a re-entry below it apart.
+    let program = claude.canonicalize().unwrap_or_else(|_| claude.clone());
     // The arguments as given, before the hooks are folded in: what a respawn
     // after a reboot starts Claude with again (relaunch_store::agent_launch).
     command.env(AGENT_ARGS_ENV, agent_args_json(args));
@@ -99,12 +121,17 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
                 // exec keeps this process id, so it is Claude's: its hooks
                 // check that they run under it, and its wake hook ends with it.
                 command.env(CLAUDE_PID_ENV, std::process::id().to_string());
+                command.env(CLAUDE_PROGRAM_ENV, &program);
                 if let Some(helper) = helper {
                     command.env("CMUX_TUI_HOOK", helper);
                 }
             }
             Err(_) => eprintln!("{}", messages.hooks_unavailable),
         }
+    }
+    if reentry_takes_over(|name| std::env::var_os(name), &program) {
+        command.env(CLAUDE_PID_ENV, std::process::id().to_string());
+        command.env(CLAUDE_PROGRAM_ENV, &program);
     }
     let _error = command.args(&launch_args).exec();
     eprintln!("{}", messages.agent_start_failed);
@@ -823,6 +850,48 @@ mod tests {
             let prompt = &settings["hooks"]["UserPromptSubmit"][0]["hooks"][0];
             assert_ne!(prompt["asyncRewake"], true, "{prompt}");
         }
+    }
+
+    /// Review P2 (nested launch): a Claude started inside a wrapped Claude (the
+    /// same program) keeps the outer identity, so its hooks never pass as the
+    /// outer session's; a Claude a wrapped launcher starts takes it over.
+    #[test]
+    fn a_reentry_takes_over_only_below_a_launcher() {
+        let claude = Path::new("/opt/claude/bin/claude");
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs.iter().find(|(key, _)| *key == name).map(|(_, value)| OsString::from(value))
+            }
+        };
+        // A first launch: nothing inherited.
+        assert!(!reentry_takes_over(env(&[]), claude));
+        // Inside the wrapped Claude itself: nested, the outer identity stays.
+        assert!(!reentry_takes_over(
+            env(&[
+                (WRAPPER_ACTIVE_ENV, "1"),
+                (CLAUDE_PID_ENV, "100"),
+                (CLAUDE_PROGRAM_ENV, "/opt/claude/bin/claude"),
+            ]),
+            claude
+        ));
+        // Below a launcher the first wrapper started: this Claude is the agent.
+        assert!(reentry_takes_over(
+            env(&[
+                (WRAPPER_ACTIVE_ENV, "1"),
+                (CLAUDE_PID_ENV, "100"),
+                (CLAUDE_PROGRAM_ENV, "/home/me/bin/claude-launcher"),
+            ]),
+            claude
+        ));
+        // An older wrapper's identity (no program) and no identity: kept.
+        assert!(!reentry_takes_over(
+            env(&[(WRAPPER_ACTIVE_ENV, "1"), (CLAUDE_PID_ENV, "100")]),
+            claude
+        ));
+        assert!(!reentry_takes_over(
+            env(&[(WRAPPER_ACTIVE_ENV, "1"), (CLAUDE_PROGRAM_ENV, "/x")]),
+            claude
+        ));
     }
 
     /// `claude -p` shares the terminal with the interactive session; the wrapper

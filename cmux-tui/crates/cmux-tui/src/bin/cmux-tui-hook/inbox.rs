@@ -190,24 +190,47 @@ pub(super) const CLAUDE_HEADLESS_ENV: &str = "CMUX_TUI_CLAUDE_HEADLESS";
 /// The second argument that runs [`wake`] (`cmux-tui-hook claude inbox-wait`).
 pub(super) const WAKE_MODE: &str = "inbox-wait";
 
-/// Parent levels between a hook and its Claude: the shell Claude starts the
-/// command in, and one launcher. A Claude started from a tool call of
-/// another one is further away and is not taken for it.
-const CLAUDE_ANCESTORS: usize = 3;
-
+/// Whether this hook runs for the Claude process `agent` itself.
 #[cfg(unix)]
 fn runs_under(agent: u32) -> bool {
     // SAFETY: getppid has no preconditions and cannot fail.
-    let mut pid = u32::try_from(unsafe { libc::getppid() }).ok();
-    for _ in 0..CLAUDE_ANCESTORS {
-        match pid {
-            Some(current) if current == agent => return true,
-            Some(current) if current > 1 => pid = ancestor_route::parent_of(current),
-            _ => return false,
-        }
-    }
-    false
+    let Ok(parent) = u32::try_from(unsafe { libc::getppid() }) else { return false };
+    run_by(agent, parent, &ancestor_route::parent_and_arguments)
 }
+
+/// Whether a hook whose parent process is `hook_parent` was started by Claude
+/// process `agent`. Claude Code starts a hook command in a shell of its own
+/// (`sh -c <command>`), and the shell either runs the helper as its child or
+/// becomes it (`exec`). So the helper's parent is `agent`, or a shell whose
+/// command is a cmux hook command (it carries [`HOOK_COMMAND_MARKER`]) and
+/// whose parent is `agent`. Nothing else is: a Claude started inside `agent`
+/// (from a tool call, through any number of shells) inherits `agent`'s
+/// variables, but its hooks' shells are its children, and it is no hook
+/// shell, so its hooks are never taken for `agent`'s. A process that cannot
+/// be read is not `agent`'s.
+#[cfg_attr(not(unix), allow(dead_code))]
+fn run_by(
+    agent: u32,
+    hook_parent: u32,
+    process: &dyn Fn(u32) -> Option<(u32, Vec<Vec<u8>>)>,
+) -> bool {
+    if agent <= 1 {
+        return false;
+    }
+    if hook_parent == agent {
+        return true;
+    }
+    let Some((grandparent, arguments)) = process(hook_parent) else { return false };
+    let marker = HOOK_COMMAND_MARKER.as_bytes();
+    let hook_shell = arguments
+        .iter()
+        .any(|argument| argument.windows(marker.len()).any(|window| window == marker));
+    hook_shell && grandparent == agent
+}
+
+/// The comment every cmux hook command ends with (cmux-tui-hooks).
+#[cfg_attr(not(unix), allow(dead_code))]
+const HOOK_COMMAND_MARKER: &str = cmux_tui_hooks::COMMAND_MARKER;
 
 #[cfg(not(unix))]
 fn runs_under(_agent: u32) -> bool {
@@ -524,6 +547,87 @@ mod tests {
         // This test's own parent is within the hook's reach of it.
         let parent = std::os::unix::process::parent_id().to_string();
         assert!(claude_owns_terminal(env(&[(CLAUDE_PID_ENV, parent.as_str())])));
+    }
+
+    /// A process table: pid -> (parent, arguments).
+    fn table(rows: &[(u32, u32, &[&str])]) -> impl Fn(u32) -> Option<(u32, Vec<Vec<u8>>)> + use<> {
+        let rows: Vec<(u32, u32, Vec<Vec<u8>>)> = rows
+            .iter()
+            .map(|(pid, parent, argv)| {
+                (*pid, *parent, argv.iter().map(|arg| arg.as_bytes().to_vec()).collect())
+            })
+            .collect();
+        move |pid| {
+            rows.iter().find(|row| row.0 == pid).map(|(_, parent, argv)| (*parent, argv.clone()))
+        }
+    }
+
+    /// Review P2 (nested launch): only `agent`'s own hooks run for it. Its
+    /// hook shell (marked) or the helper exec'd in its place has it as parent;
+    /// a Claude started inside it inherits its pid but is no hook shell, and
+    /// that Claude's hook shells are its own children.
+    #[test]
+    fn only_the_named_claudes_own_hooks_run_for_it() {
+        const OUTER: u32 = 100;
+        const NESTED: u32 = 200;
+        let hook = "h=x;\"$h\" claude UserPromptSubmit||echo {};#cmux-tui-journal-hook";
+        let processes = table(&[
+            (OUTER, 50, &["claude"]),
+            (150, OUTER, &["/bin/sh", "-c", hook]),
+            (160, OUTER, &["/bin/zsh", "-c", "claude"]),
+            (NESTED, OUTER, &["claude", "--resume"]),
+            (210, NESTED, &["/bin/sh", "-c", hook]),
+            (220, 160, &["/bin/sh", "-c", hook]),
+            (230, OUTER, &["/bin/sh", "-c", "my-hook"]),
+        ]);
+        // The outer Claude's own hook, through its shell or exec'd in its place.
+        assert!(run_by(OUTER, 150, &processes));
+        assert!(run_by(OUTER, OUTER, &processes));
+        // outer -> nested -> hook shell -> hook: the nested session's hook.
+        assert!(!run_by(OUTER, 210, &processes));
+        assert!(run_by(NESTED, 210, &processes), "the nested Claude's own hook is its own");
+        // outer -> nested -> hook (the shell exec'd it): its parent is no hook shell.
+        assert!(!run_by(OUTER, NESTED, &processes));
+        // A Claude under a tool shell of the outer one: its hook shell's parent is not outer.
+        assert!(!run_by(OUTER, 220, &processes));
+        // An unmarked shell (another program's hook) and unreadable processes.
+        assert!(!run_by(OUTER, 230, &processes));
+        assert!(!run_by(OUTER, 999, &processes));
+        assert!(!run_by(0, 0, &processes));
+        assert!(!run_by(1, 1, &processes));
+    }
+
+    /// The same, on real processes: this test is the outer Claude; a child
+    /// shell plays a Claude started inside it, and that shell's child (whose
+    /// command carries the hook marker) plays the nested Claude's hook shell.
+    #[cfg(unix)]
+    #[test]
+    fn a_real_nested_process_tree_does_not_run_for_the_outer_claude() {
+        use std::io::BufRead as _;
+        // Both shells wait on a builtin read of the piped stdin, so they keep
+        // their argv and end when the test closes it: no process outlives it.
+        let inner = format!("echo $$; read line; : #{HOOK_COMMAND_MARKER}");
+        let mut nested = std::process::Command::new("/bin/sh")
+            .args(["-c", "/bin/sh -c \"$INNER\"; :"])
+            .env("INNER", &inner)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let nested_pid = nested.id();
+        let mut line = String::new();
+        std::io::BufReader::new(nested.stdout.take().unwrap()).read_line(&mut line).unwrap();
+        let hook_shell: u32 = line.trim().parse().unwrap();
+        let read = ancestor_route::parent_and_arguments;
+        let outer = std::process::id();
+        let owned_outer = run_by(outer, hook_shell, &read);
+        let owned_nested = run_by(nested_pid, hook_shell, &read);
+        let nested_as_shell = run_by(outer, nested_pid, &read);
+        drop(nested.stdin.take());
+        let _ = nested.wait();
+        assert!(!owned_outer, "the nested hook shell ran for the outer Claude");
+        assert!(owned_nested, "the nested Claude's hook shell is its own");
+        assert!(!nested_as_shell, "a nested Claude is no hook shell of the outer one");
     }
 
     const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
