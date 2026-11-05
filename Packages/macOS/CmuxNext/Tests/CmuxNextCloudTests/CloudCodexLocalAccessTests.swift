@@ -48,6 +48,8 @@ struct CloudCodexLocalAccessTests {
         #expect(CloudCodexLocalAccess.grant(authJSON: Self.auth(access: fine, key: "sk-fixture"), now: now) == nil)
         #expect(CloudCodexLocalAccess.grant(authJSON: Self.auth(access: fine, mode: "apikey"), now: now) == nil)
         #expect(CloudCodexLocalAccess.grant(authJSON: Data("not json".utf8), now: now) == nil)
+        let far = Self.jwt(["exp": 1e300])
+        #expect(CloudCodexLocalAccess.grant(authJSON: Self.auth(access: far), now: now) == nil)
     }
 
     @Test func readsOnlyAPrivateFileInTheFileStore() throws {

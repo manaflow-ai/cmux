@@ -54,7 +54,7 @@ public nonisolated struct CloudCodexLocalAccess: Sendable {
               let access = tokens["access_token"] as? String, !access.isEmpty, access.utf8.count < 16_384,
               access.utf8.allSatisfy({ $0 > 32 && $0 < 127 }),
               let account = (tokens["account_id"] as? String) ?? accountClaim(access), !account.isEmpty,
-              let expiry = expiry(access) else { return nil }
+              let expiry = expiry(access, now: now) else { return nil }
         guard expiry.timeIntervalSince(now) >= minimumLifetime else { return nil }
         return CloudCodexAccessGrant(accessToken: access, chatgptAccountID: account, expiresAt: expiry)
     }
@@ -96,9 +96,11 @@ public nonisolated struct CloudCodexLocalAccess: Sendable {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
-    static func expiry(_ jwt: String) -> Date? {
+    static func expiry(_ jwt: String, now: Date) -> Date? {
         // NumericDate: JSONSerialization gives an NSNumber, integral or not.
-        guard let exp = (claims(jwt)?["exp"] as? NSNumber)?.doubleValue, exp > 0 else { return nil }
+        // Within a year of now at most: a far or non-finite one is malformed (and would trap as an Int64).
+        guard let exp = (claims(jwt)?["exp"] as? NSNumber)?.doubleValue, exp.isFinite, exp > 0,
+              exp < now.timeIntervalSince1970 + 366 * 86_400 else { return nil }
         return Date(timeIntervalSince1970: exp)
     }
 
