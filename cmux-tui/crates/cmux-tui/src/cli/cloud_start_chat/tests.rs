@@ -221,7 +221,14 @@ fn a_new_chat_starts_on_a_new_machine_sends_waits_and_answers_the_reply() {
         assert_eq!(answer[key], value, "{key}");
     }
     assert_eq!(answer["sent"], true);
-    assert!(answer["follow_up"]["send"].as_str().unwrap().contains("acp send --no-wait sess-1"));
+    assert_eq!(
+        answer["follow_up"]["send"],
+        "cmux cloud chat send --target machine:vm-1 --session sess-1 --prompt 'PROMPT'"
+    );
+    assert_eq!(
+        answer["follow_up"]["last"],
+        "cmux cloud chat last --target machine:vm-1 --session sess-1"
+    );
     assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--json"]));
     assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
     // The app had no relay chat: the link path, on the machine just made.
@@ -409,7 +416,12 @@ fn a_permission_question_and_a_timeout_say_what_to_do() {
     let asked = request(&["--prompt", "x", "--wait", "--timeout", "10"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
     assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3));
-    assert!(error["message"].as_str().unwrap().contains("acp wait sess-1"));
+    assert!(
+        error["message"].as_str().unwrap().contains(
+            "cmux cloud chat status --target machine:vm-1 --session sess-1 --after 0 --wait 20"
+        ),
+        "{error}"
+    );
 }
 
 #[test]
@@ -734,7 +746,10 @@ fn the_relay_answers_a_new_chat_with_no_link_to_the_machine() {
     assert_eq!(answer["session_id"], "relay-1");
     assert_eq!(answer["first_text_ms"], 2100);
     assert_eq!(answer["stop_reason"], "end_turn");
-    assert!(answer["follow_up"]["wait"].as_str().unwrap().contains("acp wait relay-1"));
+    assert_eq!(
+        answer["follow_up"]["status"],
+        "cmux cloud chat status --target machine:vm-1 --session relay-1 --wait 20"
+    );
     assert_eq!(
         fake.ran[2],
         strings(&[

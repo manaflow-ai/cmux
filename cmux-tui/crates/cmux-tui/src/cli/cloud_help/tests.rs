@@ -180,9 +180,9 @@ fn quick_start_commands_parse() {
             .filter(|line| !line.contains("secret") && !line.contains("client-session"))
             .filter(|line| !line.starts_with("cmux cloud env "))
             .collect::<Vec<_>>();
-        // Two start-chat lines, three follow-ups and five machine lines; the quick start's
-        // create is `cmux machine new`.
-        assert_eq!(commands.len(), 10, "{commands:?}");
+        // Two start-chat lines, three chat follow-ups, five machine lines and two desktop lines;
+        // the quick start's create is `cmux machine new`.
+        assert_eq!(commands.len(), 12, "{commands:?}");
         assert!(
             commands[0].starts_with("cmux cloud start-chat "),
             "start-chat leads: {commands:?}"
@@ -198,6 +198,18 @@ fn quick_start_commands_parse() {
                     matches!(
                         crate::cli::cloud_start_chat::parse(&words[2..], || Err(String::new())),
                         Ok(crate::cli::cloud_start_chat::Parsed::Run(_))
+                    ),
+                    "quick start command does not parse: {command}"
+                );
+                continue;
+            }
+            if matches!(words[1].as_str(), "chat" | "computer") {
+                assert!(
+                    matches!(
+                        crate::cli::cloud_agent::parse(&words[1], &words[2..], || Err(
+                            String::new()
+                        )),
+                        Ok(crate::cli::cloud_agent::Command::Tool { .. })
                     ),
                     "quick start command does not parse: {command}"
                 );
@@ -252,6 +264,26 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
                 Ok(crate::cli::cloud_start_chat::Parsed::Run(_))
             ),
             "{example}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn chat_and_computer_help_lines_parse() {
+    for (noun, usage) in [("chat", CHAT_USAGE), ("computer", COMPUTER_USAGE)] {
+        assert_eq!(verb_help(noun, false).as_deref(), Some(usage));
+    }
+    for command in
+        START_CHAT_USAGE.lines().map(str::trim).filter(|l| l.starts_with("cmux cloud chat "))
+    {
+        let words = shell_words(command).into_iter().skip(1).collect::<Vec<_>>();
+        assert!(
+            matches!(
+                crate::cli::cloud_agent::parse("chat", &words[2..], || Err(String::new())),
+                Ok(crate::cli::cloud_agent::Command::Tool { .. })
+            ),
+            "{command}"
         );
     }
 }

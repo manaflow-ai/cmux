@@ -26,6 +26,7 @@ mod browser_tools;
 mod caller_scope;
 mod chat_tools;
 mod cloud_repo_tools;
+mod cloud_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
@@ -114,6 +115,16 @@ pub(super) fn workflow_command(global: GlobalArgs, arguments: Value) -> i32 {
             super::wire::print_local_error(&json!({"code":code,"message":message}), output, 2)
         }
     }
+}
+
+/// `cmux cloud chat …` and `cmux cloud computer …` (cloud_agent.rs): the `cloud_*` tool `name`
+/// with `arguments`, run by the same code as the MCP tool, answered as its tool result.
+#[cfg(unix)]
+pub(super) fn cloud_tool(global: GlobalArgs, name: &str, arguments: &Map<String, Value>) -> Value {
+    let backend = LiveBackend { global };
+    cloud_tools::run(&backend, name, arguments, super::app::action_origin()).unwrap_or_else(|| {
+        tool_error(envelope(v2_tools::invalid(format!("no cloud tool {name}")), "not_run", None))
+    })
 }
 
 /// A failed owner call as the CLI prints it: the owner's error with its
@@ -215,6 +226,12 @@ pub(super) trait Backend {
             "automation.unavailable",
             "this server cannot reach the automation store",
         ))
+    }
+
+    /// The Cloud machine attached to the Chief this server runs for (its `engine.json`
+    /// `computer`, `cloud_tools::CHIEF_ENGINE_ENV`): `cloud_computer`'s default machine.
+    fn chief_computer(&self) -> Option<String> {
+        cloud_tools::chief_computer_from_env()
     }
 
     /// Cloud chat repo actions run on the selected machine daemon.
@@ -810,6 +827,7 @@ impl<B: Backend> Server<B> {
         tools.extend(agent_dispatch_tools::descriptors());
         tools.push(workflow_tools::descriptor());
         tools.extend(cloud_repo_tools::descriptors());
+        tools.extend(cloud_tools::descriptors());
         tools.extend(chat_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
@@ -940,6 +958,9 @@ impl<B: Backend> Server<B> {
             return Ok(result);
         }
         if let Some(result) = cloud_repo_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = cloud_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
         }
         if let Some(tool) = v2_tools::find(name) {

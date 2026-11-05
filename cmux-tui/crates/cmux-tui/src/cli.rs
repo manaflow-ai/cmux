@@ -42,6 +42,8 @@ mod capability_cache;
 mod chief;
 mod chief_target;
 #[cfg(unix)]
+mod cloud_agent;
+#[cfg(unix)]
 mod cloud_client_session;
 #[cfg(unix)]
 mod cloud_environment;
@@ -542,6 +544,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
+        .or_else(|| cloud_agent::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
@@ -926,8 +929,10 @@ fn scan_globals(
             index += 1;
             continue;
         }
-        // Cloud repo actions name a chat, not a daemon, with --session.
-        if command.get(..2).is_some_and(|words| words == ["cloud", "repo"])
+        // Cloud repo and chat verbs name a chat, not a daemon, with --session.
+        if command
+            .get(..2)
+            .is_some_and(|words| words == ["cloud", "repo"] || words == ["cloud", "chat"])
             && (value == "--session" || value.starts_with("--session="))
         {
             command.push(value.clone());

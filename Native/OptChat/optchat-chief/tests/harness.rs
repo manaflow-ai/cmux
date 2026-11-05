@@ -672,6 +672,10 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
                 "cmux,acpmux,cmux-agent-memory".to_owned()
             ),
             (
+                "CMUX_CHIEF_ENGINE".to_owned(),
+                optchat_chief::engine::path(&home).display().to_string(),
+            ),
+            (
                 "CMUX_MCP_TOOLS".to_owned(),
                 optchat_chief::session_dir::CHIEF_CMUX_TOOLS.join(","),
             ),
