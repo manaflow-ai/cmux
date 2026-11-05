@@ -167,10 +167,15 @@ export class InviteStore {
     return r.code
   }
 
-  /** Void a live invite that is not paired yet (a newer invite replaced it). Returns the bound pairing code, if any. */
+  /**
+   * Void a live invite that is not paired yet (a newer invite replaced it). Returns the bound pairing
+   * code, if any; for an invite already voided it returns that code again (without a second push), so
+   * a caller whose abort of that code failed can retry it.
+   */
   async void(invite: string, reason: InviteVoidReason, now: number): Promise<{ ok: boolean; code: string | null }> {
     const r = this.row(now)
-    if (!r || r.invite !== invite || r.state === "paired" || r.state === "voided") return { ok: false, code: null }
+    if (!r || r.invite !== invite || r.state === "paired") return { ok: false, code: null }
+    if (r.state === "voided") return { ok: true, code: r.code }
     return { ok: true, code: this.voidRow(r, reason) }
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { beginPairing, call, op, read, runAlarm, sessionToken, testEnv, worker } from "./pairing-harness.ts"
+import { beginPairing, call, inDO, op, read, runAlarm, sessionToken, testEnv, worker } from "./pairing-harness.ts"
 
 /**
  * Invite pairing follow-ups (workerd): a minted invite replays for its idempotency key, one live
@@ -131,6 +131,48 @@ describe("one live invite per person survives a failure between the Durable Obje
     await runAlarm(owner(me.user))
     await watcher.until(() => watcher.closes.length > 0)
     expect(watcher.frames.at(-1)).toEqual({ t: "voided", reason: "replaced" })
+  })
+})
+
+describe("review findings on the owner (follow-up review)", () => {
+  it("a live invite recorded by the first build's owner table is voided by the next mint", async () => {
+    const me = await signedIn("stack-invite-legacy")
+    const old = (await mint(me.token, me.team)).json.value
+    const watcher = await watch(old.invite, old.watch_secret)
+    await watcher.until(() => watcher.frames.length >= 1)
+    // The owner object as the first build left it: only the legacy one-row table names the live invite.
+    await (inDO as any)(owner(me.user), async (_instance: unknown, state: DurableObjectState) => {
+      state.storage.sql.exec(`DELETE FROM pair_invite_live`)
+      state.storage.sql.exec(`DELETE FROM pair_invite_mint`)
+      state.storage.sql.exec(`CREATE TABLE IF NOT EXISTS pair_invite_owner (id INTEGER PRIMARY KEY CHECK (id = 1), invite TEXT NOT NULL, live_until INTEGER NOT NULL)`)
+      state.storage.sql.exec(`INSERT OR REPLACE INTO pair_invite_owner (id, invite, live_until) VALUES (1, ?, ?)`, old.invite, Date.now() + 600_000)
+    })
+    await mint(me.token, me.team)
+    await watcher.until(() => watcher.closes.length > 0)
+    expect(watcher.frames.at(-1)).toEqual({ t: "voided", reason: "replaced" })
+    expect((await beginPairing(Date.now(), false, ip(), undefined, {}, old.invite)).res.status).toBe(409)
+  })
+
+  it("a void that committed but whose abort failed still aborts the bound box on the owner's retry", async () => {
+    const me = await signedIn("stack-invite-abort-retry")
+    const old = (await mint(me.token, me.team)).json.value
+    const begun = await beginPairing(Date.now(), false, ip(), undefined, {}, old.invite)
+    expect(begun.res.status).toBe(200)
+    const box = await waitBox(begun.res.json.code, begun.res.json.collect_secret)
+    await box.until(() => box.frames.length >= 1)
+    // The void reached the invite, the abort of its pairing code did not.
+    const now = Date.now()
+    expect((await inviteDo(old.invite).inviteVoid(old.invite, "replaced", now)).code).toBe(begun.res.json.code)
+    expect(box.closes).toEqual([])
+    // A newer invite queues the old one's void; the owner's alarm retries it and aborts the box.
+    const invite = "W4W4W4W4W4"
+    await owner(me.user).inviteOwnerBegin("w".repeat(64), invite, me.team, now)
+    await inviteDo(invite).inviteMint({ invite, approver: me.user, team: me.team, inviter: null, watch_hash: "h".repeat(64), now })
+    await owner(me.user).inviteOwnerCommit("w".repeat(64), invite, now + 600_000, now, { skipVoid: true })
+    await runAlarm(owner(me.user))
+    await box.until(() => box.closes.length > 0)
+    expect(box.frames.at(-1)).toEqual({ t: "refused", reason: "invite_voided" })
+    expect(box.closes).toEqual([4403])
   })
 })
 

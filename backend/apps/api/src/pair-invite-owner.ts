@@ -41,6 +41,7 @@ export class InviteOwner {
 
   /** Whether this object holds a person's invites (so its alarm is the owner's). */
   holdsOwnerState(): boolean {
+    this.migrateLegacy(Date.now())
     const n = (t: string) => this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${t}`).toArray()[0]!.n
     return n("pair_invite_mint") + n("pair_invite_live") + n("pair_invite_void") > 0
   }
@@ -50,8 +51,22 @@ export class InviteOwner {
     if (current === null || current > at) await this.ctx.storage.setAlarm(at)
   }
 
+  /**
+   * The first build kept a person's live invite in `pair_invite_owner` (one row). Carry a live one
+   * over as the live invite, older than any key, so the next mint voids it; then drop the table.
+   */
+  private migrateLegacy(now: number): void {
+    const legacy = this.sql.exec<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'pair_invite_owner'`).toArray()[0]
+    if (!legacy) return
+    const r = this.sql.exec<{ invite: string; live_until: number }>(`SELECT invite, live_until FROM pair_invite_owner WHERE id = 1`).toArray()[0]
+    const live = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM pair_invite_live`).toArray()[0]!.n
+    if (r && r.live_until > now && live === 0) this.sql.exec(`INSERT INTO pair_invite_live (id, invite, created_at) VALUES (1, ?, 0)`, r.invite)
+    this.sql.exec(`DROP TABLE pair_invite_owner`)
+  }
+
   /** Records `key` for `invite` (pending), or answers what the key already holds. */
   async begin(key: string, invite: string, team: string, now: number): Promise<OwnerBegin> {
+    this.migrateLegacy(now)
     const r = this.sql.exec<MintRow>(`SELECT * FROM pair_invite_mint WHERE key = ?`, key).toArray()[0]
     if (r) return r.team === team ? { state: "replay", invite: r.invite, expires_at: r.expires_at } : { state: "conflict" }
     this.sql.exec(`INSERT INTO pair_invite_mint (key, invite, team, created_at, expires_at) VALUES (?, ?, ?, ?, NULL)`, key, invite, team, now)
@@ -91,7 +106,11 @@ export class InviteOwner {
     return this.env.PAIRING_DO.get(this.env.PAIRING_DO.idFromName(`invite:${invite}`))
   }
 
-  /** Voids every queued invite (and aborts a box it bound); a failure stays queued for the alarm. */
+  /**
+   * Voids every queued invite and aborts the box it bound; a failure stays queued for the alarm.
+   * `inviteVoid` answers the bound code again for an invite already voided, so a retry after an
+   * abort that failed still aborts it (`inviteAbort` is a no-op on a code already refused).
+   */
   private async drainVoids(now: number): Promise<void> {
     const queued = this.sql.exec<{ invite: string }>(`SELECT invite FROM pair_invite_void`).toArray()
     for (const { invite } of queued) {
