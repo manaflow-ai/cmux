@@ -414,6 +414,15 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
         let Some(line) = tracker.line(at_work as u64, renew, now) else { continue };
         if flushes_before(&line) {
             flush_to_disk().await;
+            // A turn that started during the flush: the idle line is stale, so it waits and the
+            // next tick sends the count anew.
+            let hub = hub.clone();
+            let busy =
+                tokio::task::spawn_blocking(move || !hub.sessions_at_work_detail().is_empty());
+            if busy.await.unwrap_or(true) {
+                tracker.unsent();
+                continue;
+            }
         }
         if !send(&path, &line).await {
             tracker.unsent();
@@ -441,15 +450,25 @@ pub(super) fn flushes_before(line: &Value) -> bool {
 #[cfg(unix)]
 const FLUSH_BUDGET: Duration = Duration::from_secs(2);
 
+/// A `sync(2)` still running: a stuck disk holds one blocking thread, never one per report.
+#[cfg(unix)]
+static FLUSHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Flushes the machine's dirty pages (`sync(2)`: the agents' transcripts, acpmux's own chat
-/// logs) on a blocking thread, waiting at most [`FLUSH_BUDGET`].
-/// A no-op off Unix: Cloud machines are Linux guests.
+/// logs) on a blocking thread, waiting at most [`FLUSH_BUDGET`]. While an earlier flush has
+/// not returned, it starts none and does not wait. A no-op off Unix: Cloud machines are Linux
+/// guests.
 async fn flush_to_disk() {
     #[cfg(unix)]
     {
+        use std::sync::atomic::Ordering;
+        if FLUSHING.swap(true, Ordering::AcqRel) {
+            return;
+        }
         let flush = tokio::task::spawn_blocking(|| {
             // SAFETY: sync(2) takes no arguments and cannot fail.
-            unsafe { libc::sync() }
+            unsafe { libc::sync() };
+            FLUSHING.store(false, Ordering::Release);
         });
         let _ = tokio::time::timeout(FLUSH_BUDGET, flush).await;
     }
