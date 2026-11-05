@@ -77,7 +77,7 @@ parser.add_argument("--key-repeat", type=int, default=1, help="presses of each k
 parser.add_argument("--key-gap-ms", type=float, default=33.0, help="between repeated presses of one key")
 parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the last press of a key")
 # SCRATCH (frame-owner-s4 profile, never merge): an xctrace recording of the first round of each arm of the key layouts.
-parser.add_argument("--xctrace", help="xctrace template key: time (Time Profiler) or metal (Metal System Trace): record each arm's first key round")
+parser.add_argument("--xctrace", help="xctrace template key: time (Time Profiler), metal (Metal System Trace) or hitches (Animation Hitches): record each arm's first key round")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -394,7 +394,7 @@ def xctrace_start(label):
     xcodes = sorted(glob.glob("/Applications/Xcode*.app"))
     env_x = dict(os.environ, DEVELOPER_DIR=(xcodes[-1] + "/Contents/Developer") if xcodes else "")
     trace = os.path.join(opts.out, f"xct-{label}.trace")
-    template = {"time": "Time Profiler", "metal": "Metal System Trace"}.get(opts.xctrace, opts.xctrace)
+    template = {"time": "Time Profiler", "metal": "Metal System Trace", "hitches": "Animation Hitches"}.get(opts.xctrace, opts.xctrace)
     proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", template, "--all-processes", "--time-limit", "60s",
                              "--output", trace, "--no-prompt"], env=env_x, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     time.sleep(4)  # bench script: the recorder starts
@@ -417,6 +417,8 @@ def xctrace_stop(handle, label):
                                '/trace-toc/run[@number="1"]/data/table[@schema="time-profile"]', "--output", xml],
                               env=env_x, capture_output=True, text=True, timeout=600)
     summary = {"template": opts.xctrace, "record_tail": out, "export_rc": exported.returncode, "export_err": exported.stderr[-800:]}
+    if opts.xctrace == "hitches":
+        return hitches_summary(trace, env_x, summary, label)
     if exported.returncode != 0 or not os.path.exists(xml):
         return summary
     import collections, xml.etree.ElementTree as ET
@@ -475,6 +477,47 @@ def xctrace_stop(handle, label):
                            for p in incl_w if focus(p)}
     print(f"XCTRACE {label} {json.dumps(summary)[:24000]}", flush=True)
     return summary
+
+
+def hitches_summary(trace, env_x, summary, label):
+    """SCRATCH: Animation Hitches: every table whose schema names a hitch, a commit or a render, each row as its
+    columns' display values (fmt), so a reader can say per hitch whether the app's commit, the render server or the GPU
+    was late."""
+    import xml.etree.ElementTree as ET
+    toc = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--toc"], env=env_x, capture_output=True,
+                         text=True, timeout=300)
+    schemas = sorted(set(re.findall(r'schema="([^"]+)"', toc.stdout)))
+    summary["schemas"] = schemas
+    tables = {}
+    for schema in schemas:
+        if not re.search(r"hitch|commit|render|frame-lifetime|display", schema):
+            continue
+        xml = f"{trace}.{schema}.xml"
+        done = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                               f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]', "--output", xml],
+                              env=env_x, capture_output=True, text=True, timeout=600)
+        if done.returncode != 0 or not os.path.exists(xml):
+            tables[schema] = {"error": done.stderr[-300:]}
+            continue
+        byid, cols, rows = {}, [], []
+        for _, e in ET.iterparse(xml, events=("end",)):
+            if e.get("id"):
+                byid[e.get("id")] = e
+            if e.tag == "col":
+                mn = e.find("mnemonic")
+                cols.append(mn.text if mn is not None else "?")
+            if e.tag != "row":
+                continue
+            values = []
+            for child in e:
+                ref = child.get("ref")
+                node = byid.get(ref, child) if ref else child
+                values.append(node.get("fmt") or (node.text or ""))
+            rows.append(values)
+        tables[schema] = {"cols": cols, "rows": len(rows), "sample": rows[:400]}
+    summary["tables"] = tables
+    print(f"XCTRACE {label} {json.dumps(summary)[:120000]}", flush=True)
+    return {k: v for k, v in summary.items() if k != "tables"}
 
 
 def measure_keys(name):
