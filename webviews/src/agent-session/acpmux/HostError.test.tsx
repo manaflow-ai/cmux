@@ -162,7 +162,7 @@ function PaneHostLine({ error, failingForMs }: { error: unknown; failingForMs: n
   return (
     <NoticeSlot>
       <Notice id="host-error" tier="error" when={hostErrorShows(error, failingForMs)}>
-        <HostUnavailableLine message={hostLine.line} detail={hostLine.detail} onRetry={() => undefined} />
+        {() => <HostUnavailableLine message={hostLine.line} detail={hostLine.detail} onRetry={() => undefined} />}
       </Notice>
     </NoticeSlot>
   );

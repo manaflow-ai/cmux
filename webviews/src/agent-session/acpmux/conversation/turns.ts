@@ -115,6 +115,17 @@ export function workedLabel(t: Translate, row: AcpmuxRow): string {
 export const isFailed = (row: AcpmuxRow) =>
   row.kind === "turnSummary" && (row.status === "failed" || row.status === "error");
 
+/// When the chat's last turn that ended well ended, or undefined: a failed turn before it is resolved
+/// (TurnRows.tsx TurnFooter, cmux#36329). It walks back from the end only to that turn, so a streamed
+/// token costs the running turn's rows, never the chat's.
+export function lastCompletedAt(rows: readonly AcpmuxRow[]): number | undefined {
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (row.kind === "turnSummary" && row.status === "completed") return row.at;
+  }
+  return undefined;
+}
+
 export const isStopped = (row: AcpmuxRow) =>
   row.kind === "turnSummary" && (row.status === "cancelled" || row.status === "interrupted") && !row.continued;
 

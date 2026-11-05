@@ -1,4 +1,5 @@
 import { useT } from "./i18n";
+import { NoticeDismiss } from "./NoticeDismiss";
 
 // A chat whose folder is missing (cx-nn3e.1): acpmux's `_acpmux/chat_open` said the person must
 // pick a folder (the recorded one was deleted or moved, or the chat recorded none). The chat opens
@@ -33,7 +34,18 @@ export async function chooseChatFolder(
 }
 
 /// The line above the composer: why the chat has no folder, acpmux's reason, Choose Folder.
-export function MissingFolder({ reason, error, onChoose }: { reason: string; error?: string; onChoose(): void }) {
+export function MissingFolder({
+  reason,
+  error,
+  onChoose,
+  onDismiss,
+}: {
+  reason: string;
+  error?: string;
+  onChoose(): void;
+  /// The line's × (cmux#36329): hides it until the chat's folder problem changes.
+  onDismiss?(): void;
+}) {
   const t = useT();
   return (
     <output className="acpmux-switch-notice acpmux-folder-choice acpmux-missing-folder" aria-live="polite">
@@ -47,6 +59,7 @@ export function MissingFolder({ reason, error, onChoose }: { reason: string; err
           <span role="alert">{error}</span>
         </>
       )}
+      {onDismiss && <NoticeDismiss onDismiss={onDismiss} className="acpmux-inline-dismiss" />}
     </output>
   );
 }

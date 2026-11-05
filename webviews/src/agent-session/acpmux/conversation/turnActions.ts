@@ -133,6 +133,11 @@ export const TurnActionsContext = createContext<TurnActions>({});
 /// that offers Retry draws it, and a prompt draws none outside the Messages view.
 export const RetryTargetContext = createContext<{ promptId?: string; footerId?: string } | undefined>(undefined);
 
+/// When the chat's last turn that ended well ended (turns.ts `lastCompletedAt`), which VirtualTranscript
+/// provides (App.tsx): a failed turn before it is resolved, since the chat went on and worked after it,
+/// so its card clears (cmux#36329). Unset (a test, a gallery entry): every failed turn keeps its card.
+export const ResolvedBeforeContext = createContext<number | undefined>(undefined);
+
 /// The prompt Continue sends after a stopped turn. Claude Code and Codex both resume on a plain
 /// "continue"; it goes to the agent, never shown as UI. l10n-allow: a prompt to the agent, not UI
 export const CONTINUE_PROMPT = "Continue";

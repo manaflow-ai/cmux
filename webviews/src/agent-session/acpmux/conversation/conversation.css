@@ -4631,6 +4631,14 @@ a.cv-sha:focus-visible {
   align-items: flex-start;
   gap: var(--ds-space-2);
 }
+/* Its × (NoticeDismiss.tsx, cmux#36329) at the cause line's end, centred on its first line. */
+.cv-turn-error__cause > .text-fg {
+  flex: 1;
+  min-width: 0;
+}
+.cv-turn-error__dismiss {
+  margin-inline-start: auto;
+}
 .cv-turn-error__icon {
   flex: none;
   margin-top: 2px;
