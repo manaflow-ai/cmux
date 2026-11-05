@@ -48,8 +48,7 @@ async function layout(ctx: PlayContext, value: TopRightLayout, lit: string[] = [
   );
 }
 
-const settle = (ctx: PlayContext) =>
-  new Promise((done) => ctx.document.defaultView!.setTimeout(done, 400));
+const settle = (ctx: PlayContext) => new Promise((done) => ctx.document.defaultView!.setTimeout(done, 400));
 
 const at =
   (value: TopRightLayout, lit: string[] = [], recent: string[] = []): Play =>
@@ -95,7 +94,8 @@ const stripDocked: Play = async (ctx) => {
   const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools > *")];
   const right = (el: Element) => el.getBoundingClientRect().right;
   const tab = ctx.find({ selector: ".acpmux-topright-tab" });
-  if (tools.some((el) => right(el) > right(tab) + 0.5)) throw new Error("the open pane's tab must be the trailing control");
+  if (tools.some((el) => right(el) > right(tab) + 0.5))
+    throw new Error("the open pane's tab must be the trailing control");
 };
 
 const dockOpen =
@@ -117,10 +117,15 @@ export default componentEntry<Props>({
     "agent-session/acpmux/header/TopRightLayouts.tsx#TopRightLayouts",
     "agent-session/acpmux/header/ChatHeaderTools.tsx#ChatHeaderTools",
   ],
-  load: () => import("./ChatHeaderTools").then((module) => (props: Props) => createElement(module.ChatHeaderTools, props)),
+  load: () =>
+    import("./ChatHeaderTools").then((module) => (props: Props) => createElement(module.ChatHeaderTools, props)),
   styles: () => Promise.all([import("../styles.css"), import("../../../ui/popupSurface.css"), import("./header.css")]),
   variants: {
-    "row-today": { note: "Today's row (the default, unchanged): every quick action its own button.", props: base, play: at("row") },
+    "row-today": {
+      note: "Today's row (the default, unchanged): every quick action its own button.",
+      props: base,
+      play: at("row"),
+    },
     "morph-rest": {
       note: "Morph at rest: one control in the row's place; nothing open beside the chat.",
       props: base,

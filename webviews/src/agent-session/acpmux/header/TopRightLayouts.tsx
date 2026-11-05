@@ -14,7 +14,15 @@
 // Every move is in the `web` motion category: the CSS runs on the pane's motion tokens (0 with
 // animation off, data-cmux-motion), and the one scripted glide asks motionMode() first, so with
 // animation off each change lands in one frame and every handler still runs.
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type RefObject } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type RefObject,
+} from "react";
 import { useT } from "../i18n";
 import { tooltipProps } from "../shortcuts";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup } from "../../../ui/Menu";
@@ -82,7 +90,12 @@ function glide(from: Element | null, to: Element | null) {
   const end = to.getBoundingClientRect();
   const ghost = glyph.cloneNode(true) as HTMLElement;
   ghost.classList.add("acpmux-topright-ghost");
-  Object.assign(ghost.style, { left: `${start.left}px`, top: `${start.top}px`, width: `${start.width}px`, height: `${start.height}px` });
+  Object.assign(ghost.style, {
+    left: `${start.left}px`,
+    top: `${start.top}px`,
+    width: `${start.width}px`,
+    height: `${start.height}px`,
+  });
   from.ownerDocument.body.append(ghost);
   const dx = end.left + (end.width - start.width) / 2 - start.left;
   const dy = end.top + (end.height - start.height) / 2 - start.top;
@@ -185,7 +198,9 @@ function MorphControl({
     doc?.addEventListener("pointerdown", away, true);
     // From the keyboard, the set's first icon takes focus, as a toolbar's does.
     if (byKeyboard.current)
-      root.current?.querySelector<HTMLButtonElement>(".acpmux-topright-morph-set button")?.focus({ preventScroll: true });
+      root.current
+        ?.querySelector<HTMLButtonElement>(".acpmux-topright-morph-set button")
+        ?.focus({ preventScroll: true });
     return () => doc?.removeEventListener("pointerdown", away, true);
   }, [open]);
   const pick = (tool: HeaderQuickTool, button: HTMLButtonElement) => {
@@ -199,6 +214,8 @@ function MorphControl({
     <div
       ref={root}
       className="acpmux-topright-morph"
+      role="group"
+      aria-label={label}
       data-open={open || undefined}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || !open) return;
@@ -342,7 +359,9 @@ function DockButton({
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover acpmux-topright-dock-popover" align="end">
         {sections.open.length > 0 && <MenuGroup label={t("header.topRight.openNow")}>{rows(sections.open)}</MenuGroup>}
-        {sections.recent.length > 0 && <MenuGroup label={t("header.topRight.recent")}>{rows(sections.recent)}</MenuGroup>}
+        {sections.recent.length > 0 && (
+          <MenuGroup label={t("header.topRight.recent")}>{rows(sections.recent)}</MenuGroup>
+        )}
         {sections.more.length > 0 && <MenuGroup label={t("header.topRight.more")}>{rows(sections.more)}</MenuGroup>}
       </MenuPopup>
     </Menu>

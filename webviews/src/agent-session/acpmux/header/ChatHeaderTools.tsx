@@ -424,12 +424,7 @@ export function ChatHeaderTools({
     ))
   );
   return (
-    <div
-      ref={toolsRef}
-      className="acpmux-header-tools"
-      data-top-right={consolidated}
-      onPointerEnter={onPointerEnter}
-    >
+    <div ref={toolsRef} className="acpmux-header-tools" data-top-right={consolidated} onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
