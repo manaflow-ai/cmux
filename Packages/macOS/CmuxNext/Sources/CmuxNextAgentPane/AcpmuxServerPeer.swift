@@ -253,15 +253,39 @@ nonisolated enum AcpmuxServerPeer {
         return out
     }
 
-    /// A strict on-disk check before a Team-signed app launches its acpmux.
-    /// DEV is ad-hoc and has no team to require.
-    static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam) -> Bool {
+    /// How much of an executable a signature check reads.
+    enum SignatureValidation: Sendable {
+        /// Every architecture, every page of the file and its resources (`kSecCSStrictValidate`):
+        /// the gate before a Team-signed app launches its acpmux (``AcpmuxDaemonLauncher``, off the
+        /// main thread). It reads the whole file, which took 1.7-2.9 s on a loaded Mac.
+        case strict
+        /// The signature over the code directory and the team requirement, without hashing the
+        /// executable's pages or resources (`kSecCSDoNotValidateExecutable |
+        /// kSecCSDoNotValidateResources`): which executable ``AcpmuxEnvironment/resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``
+        /// picks, a question its synchronous callers ask on the main thread. A file whose pages
+        /// were changed after signing passes this and is still refused at launch by ``strict``.
+        case codeDirectory
+    }
+
+    /// An on-disk check that `executable` is signed by the app's team. DEV is ad-hoc and has no
+    /// team to require. `validation` ``SignatureValidation/strict`` is the launch gate.
+    static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam,
+                                          validation: SignatureValidation = .strict) -> Bool {
         guard let team else { return true }
         guard let requirement = requirement(team: team) else { return false }
+        return signatureValid(executable, requirement: requirement, validation: validation)
+    }
+
+    /// `executable` (symlinks resolved) has a valid signature that meets `requirement`, read as
+    /// `validation` says.
+    static func signatureValid(_ executable: URL, requirement: SecRequirement, validation: SignatureValidation) -> Bool {
         var code: SecStaticCode?
         let path = executable.resolvingSymlinksInPath()
         guard SecStaticCodeCreateWithPath(path as CFURL, [], &code) == errSecSuccess, let code else { return false }
-        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
+        let flags = switch validation {
+        case .strict: SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
+        case .codeDirectory: SecCSFlags(rawValue: kSecCSDoNotValidateExecutable | kSecCSDoNotValidateResources)
+        }
         return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
     }
 

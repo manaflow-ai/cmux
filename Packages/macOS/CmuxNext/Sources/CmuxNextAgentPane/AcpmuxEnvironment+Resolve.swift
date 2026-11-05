@@ -37,7 +37,7 @@ nonisolated extension AcpmuxEnvironment {
         return resolve(build: build, bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome,
                        uid: uid, isExecutable: isExecutable, launchEnvironment: launchEnvironment,
                        executableOverride: executableOverride, teamIdentifier: AcpmuxServerPeer.ownTeam,
-                       isTrustedExecutable: AcpmuxServerPeer.executableSignedByAppTeam)
+                       isTrustedExecutable: { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1, validation: resolveValidation) })
     }
 
     /// ``resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)`` with
@@ -54,7 +54,7 @@ nonisolated extension AcpmuxEnvironment {
         personsHome: URL? = AcpmuxEnvironment.testProcessPersonsHome,
         executableOverride: URL?,
         teamIdentifier: String? = AcpmuxServerPeer.ownTeam,
-        isTrustedExecutable: (URL, String) -> Bool = { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1) }
+        isTrustedExecutable: (URL, String) -> Bool = { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1, validation: resolveValidation) }
     ) -> AcpmuxEnvironment? {
         guard let executable = executableOverride
             ?? executableCandidates(bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome)
@@ -92,6 +92,15 @@ nonisolated extension AcpmuxEnvironment {
             passesPersonKeyAtSpawn: teamIdentifier == nil
         )
     }
+
+    /// How ``resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``
+    /// checks the executable it picks: the team's signature over its code directory, not every
+    /// page of the file. Its callers are synchronous and many run on the main thread (QuitAgents,
+    /// the model router, the GitHub lease, the crash reporter); a strict read there was a 1.7-2.1 s
+    /// hang each time on a loaded Mac (nightly hang reports, 2026-11-05). Nothing resolve returns
+    /// is run without the strict check: ``AcpmuxDaemonLauncher`` validates every page before each
+    /// spawn, off the main thread, and refuses an executable that fails it.
+    static let resolveValidation: AcpmuxServerPeer.SignatureValidation = .codeDirectory
 
     /// The usual install directories, searched after `PATH`. The pane names
     /// them when acpmux is missing, so they are written as a user types them.
