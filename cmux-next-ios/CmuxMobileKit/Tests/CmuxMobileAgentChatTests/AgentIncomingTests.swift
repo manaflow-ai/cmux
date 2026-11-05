@@ -49,11 +49,13 @@ import Testing
 
     @Test func labelNamesTheSenderWhenNothingElseDoes() {
         let text = relayed(body)
-        #expect(AgentIncoming.parse(text: text, provenance: nil)?.messages == [.init(sender: "build-box/lane-3", text: body)])
+        // An older acpmux's `acpmux send` at a shell, with no provenance.
+        #expect(AgentIncoming.parse(text: text, provenance: nil, client: "acpmux-cli#1@build-box")?.messages
+            == [.init(sender: "build-box/lane-3", text: body)])
     }
 
     @Test func signatureRepeatingTheSenderIsDropped() {
-        let incoming = AgentIncoming.parse(text: relayed("From lane-3: merged #36125."), provenance: nil)
+        let incoming = AgentIncoming.parse(text: relayed("From lane-3: merged #36125."), provenance: nil, client: "acpmux-cli#1@build-box")
         #expect(incoming?.messages.first?.text == "merged #36125.")
     }
 
@@ -130,12 +132,12 @@ import Testing
         store.apply(.turnStarted(turnId: "t-1", at: Date()))
         let steer = relayed("Merged #36125")
         store.apply(.userMessage(text: steer, promptId: "p-2", turnId: "t-1", attachments: [], at: Date()))
-        store.apply(.promptFrom(turnId: "t-1", incoming: try #require(AgentIncoming.parse(text: steer, provenance: nil))))
+        store.apply(.promptFrom(turnId: "t-1", incoming: try #require(AgentIncoming.parse(text: steer, provenance: nil, client: "acpmux-cli#1@build-box"))))
         #expect(store.turns.first?.prompt == "Fix the grid")
         #expect(store.turns.first?.incoming == nil)
         // A turn the relayed message opened is its card.
         store.apply(.userMessage(text: steer, promptId: "p-3", turnId: "t-2", attachments: [], at: Date()))
-        store.apply(.promptFrom(turnId: "t-2", incoming: try #require(AgentIncoming.parse(text: steer, provenance: nil))))
+        store.apply(.promptFrom(turnId: "t-2", incoming: try #require(AgentIncoming.parse(text: steer, provenance: nil, client: "acpmux-cli#1@build-box"))))
         #expect(store.turns.last?.incoming?.text == "Merged #36125")
     }
 
@@ -144,5 +146,25 @@ import Testing
         let person = try json(#"{"kind":"person_message","from":"s-1","fromName":"Ana"}"#)
         #expect(AgentIncoming.parse(text: "hi", provenance: person) == nil)
         #expect(AgentIncoming.parse(text: "[message abc]\nnope", provenance: nil) == nil)
+    }
+
+    /// Anyone can type a broker label: the person's own prompt, or a guest's, stays theirs.
+    @Test func labelThePersonTypedStaysTheirPrompt() throws {
+        let text = relayed(body)
+        #expect(AgentIncoming.parse(text: text, provenance: nil) == nil)
+        #expect(AgentIncoming.parse(text: text, provenance: nil, client: "acpmux") == nil)
+        #expect(AgentIncoming.parse(text: text, provenance: try json(#"{"kind":"user"}"#), client: "acpmux") == nil)
+    }
+
+    @Test func digestWhosePartsDontReadIsStillItsSendersCard() throws {
+        let provenance = try json(#"{"kind":"agent_digest","messages":[{"from":"lane-a"},{"from":"lane-b"}]}"#)
+        let incoming = AgentIncoming.parse(text: "two messages arrived", provenance: provenance)
+        #expect(incoming?.messages == [.init(sender: "lane-a, lane-b", text: "two messages arrived")])
+    }
+
+    @Test func inboxThreadWithoutPreviewReadsItsLineInTheNotice() throws {
+        let notice = "[inbox] New messages from other agents in 1 thread.\n- 1 new in messages from lane-b: Merged #36125 (thread pr:1)"
+        let provenance = try json(#"{"kind":"inbox_notice","threads":[{"threadId":"pr:1","from":["lane-b"]}]}"#)
+        #expect(AgentIncoming.parse(text: notice, provenance: provenance)?.messages == [.init(sender: "lane-b", text: "Merged #36125")])
     }
 }

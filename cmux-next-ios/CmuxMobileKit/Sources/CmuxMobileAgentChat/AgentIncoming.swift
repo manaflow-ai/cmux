@@ -50,10 +50,12 @@ public struct AgentIncoming: Hashable, Sendable {
 }
 
 extension AgentIncoming {
-    /// The card a recorded `user_message` draws (its `text` and `_meta.provenance`), or nil for the
-    /// person's own prompt and anything not recognized, which then draws as written.
-    public static func parse(text: String, provenance: JSONValue?, fromHarness: String? = nil) -> AgentIncoming? {
-        let relay = RelayEnvelope(text)
+    /// The card a recorded `user_message` draws (its `text`, `_meta.provenance` and `client`), or nil
+    /// for the person's own prompt and anything not recognized, which then draws as written.
+    public static func parse(text: String, provenance: JSONValue?, client: String? = nil, fromHarness: String? = nil) -> AgentIncoming? {
+        // Only a record acpmux keeps as another agent's has its broker label read: anyone can type
+        // one, and the person's own prompt stays theirs.
+        let relay = fromAgent(provenance: provenance, client: client) ? RelayEnvelope(text) : nil
         let body = relay?.body ?? text
         let harness = provenance?["fromHarness"]?.nonEmpty ?? fromHarness
         let kind = provenance?["kind"]?.stringValue
@@ -72,14 +74,23 @@ extension AgentIncoming {
                         return Message(sender: sender, text: unsigned(RelayEnvelope.without(words).trimmed, sender))
                     }
                 }
-                guard let preview = thread["preview"]?.nonEmpty.map(RelayEnvelope.withoutHead), !preview.isEmpty else { return [] }
+                // The thread's preview, or (a notice logged before the provenance carried one) its line in the notice's text.
+                let preview = [thread["preview"]?.nonEmpty, thread["threadId"]?.nonEmpty.flatMap { previewLine(text, threadID: $0) }]
+                    .compactMap { $0.map(RelayEnvelope.withoutHead) }.first { !$0.isEmpty }
+                guard let preview else { return [] }
                 return [Message(sender: from, text: preview)]
             }
             return messages.isEmpty ? nil : AgentIncoming(messages: messages, raw: text)
         case "agent_digest":
             let messages = digest(body)
-            guard !messages.isEmpty else { break }
-            return AgentIncoming(messages: messages, harness: harness, raw: text)
+            if !messages.isEmpty { return AgentIncoming(messages: messages, harness: harness, raw: text) }
+            // A digest whose parts don't read: one card from its senders, its text as sent (as the Mac).
+            let senders = (provenance?["messages"]?.arrayValue ?? []).compactMap { $0["from"]?.nonEmpty }
+            guard !senders.isEmpty else { break }
+            var unique: [String] = []
+            for sender in senders where !unique.contains(sender) { unique.append(sender) }
+            let name = unique.count > 3 ? "\(unique.prefix(3).joined(separator: ", ")) +\(unique.count - 3)" : unique.joined(separator: ", ")
+            return AgentIncoming(messages: [Message(sender: name, text: body.trimmed)], harness: harness, raw: text)
         case "subsession_message", "session_message", "task_result", "lane_report":
             guard let from = provenance?["from"]?.nonEmpty else { break }
             let name = provenance?["fromShortName"]?.nonEmpty ?? provenance?["fromName"]?.nonEmpty ?? from
@@ -93,6 +104,26 @@ extension AgentIncoming {
             break
         }
         return relay.map { one($0.sender, $0.body) }
+    }
+
+    /// Provenance kinds acpmux gives only another agent's message (or a tool's notice).
+    private static let agentKinds: Set<String> = ["agent_message", "session_message", "subsession_message", "task_result", "lane_report", "notice"]
+
+    /// Whether acpmux recorded the message as another agent's: its provenance says so, or (an older
+    /// acpmux with none) it came by `acpmux send` at a shell, a peer or the outbox.
+    static func fromAgent(provenance: JSONValue?, client: String?) -> Bool {
+        if let provenance { return provenance["kind"]?.stringValue.map(agentKinds.contains) ?? false }
+        guard let client else { return false }
+        return ["acpmux-cli#", "acpmux-peer#", "acpmux-outbox#"].contains { client.hasPrefix($0) }
+    }
+
+    /// A thread's line in an inbox notice's text, `- [blocker] N new in LABEL from A, B: PREVIEW (thread KEY)`: its preview.
+    static func previewLine(_ notice: String, threadID: String) -> String? {
+        let end = " (thread \(threadID))"
+        guard let line = notice.split(separator: "\n").first(where: { $0.hasPrefix("- ") && $0.hasSuffix(end) }) else { return nil }
+        let body = line.dropFirst(2).dropLast(end.count)
+        guard let colon = body.range(of: ": ") else { return nil }
+        return String(body[colon.upperBound...]).trimmed
     }
 
     /// The messages of a digest as acpmux writes it (hub/digest.rs `digest_blocks`): a line saying
