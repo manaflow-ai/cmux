@@ -262,8 +262,16 @@ CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper die
                         r"no \"Test run with\" summary line")
 # A commit sha inside an error line: a full 40-hex sha, or 7 to 39 hex digits right after a word that
 # names a commit (commit, sha, tree, revision). The same red on the head and the base names each run's
-# own commit; any other hex id (an artifact, a hash) is compared as it is.
-SHA = re.compile(r"\b[0-9a-f]{40}\b|\b((?:commit|sha|tree|revision) `?)[0-9a-f]{7,39}\b")
+# own commit; any other hex id (an artifact, a hash) is compared as it is. A full 40-hex id right after
+# a word that names a stored thing rather than a commit (ARTIFACT) is such an id: two different digests
+# stayed one error line while every bare 40-hex token was masked, so a real red could pass as a base red
+# (cmux#35902, from the review of #35893). A commit the line does not name as an artifact still masks,
+# whatever word introduces it: a base red often names each run's own tree or stamp with no keyword at
+# all ("source stamp <40-hex> != <40-hex>"), which is why the bare case cannot ask for one.
+ARTIFACT = r"(?i:artifacts?|artefacts?|assets?|digests?|checksums?|hashe?s?|packs?|bundles?|archives?|images?|layers?)"
+SHA = re.compile(rf"(?P<artifact>\b{ARTIFACT} `?[0-9a-f]{{40}}\b)"
+                 r"|\b[0-9a-f]{40}\b"
+                 r"|\b(?P<commit>(?:commit|sha|tree|revision) `?)[0-9a-f]{7,39}\b")
 # A compile check that gave no verdict (the build-fleet controller unreachable, timed out, or a result
 # for another head): nothing compiled the head, so it is never a base red, whatever the base shows
 # (2026-10-28: the fleet Release compile's "no result" was red on PRs and on the base alike while the
@@ -467,7 +475,13 @@ def is_aggregate(name: str, repo: str = HOME_REPO) -> bool:
 
 
 def mask_shas(text: str) -> str:
-    return SHA.sub(lambda match: (match.group(1) or "") + "<sha>", text)
+    """TEXT with its commit shas masked, leaving every other hex id as it is (SHA)."""
+    def masked(match: re.Match[str]) -> str:
+        if match.group("artifact") is not None:
+            return match.group("artifact")
+        return (match.group("commit") or "") + "<sha>"
+
+    return SHA.sub(masked, text)
 
 
 def normalise_error(text: str) -> str:
