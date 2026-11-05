@@ -272,8 +272,6 @@ import Testing
     private static func readyTab(_ runtime: CEFRuntime, browser: Int32, restored: String? = "https://example.com/") throws -> (CEFTab, () -> Int) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
-        // A pane host has an area: the fork orders an empty host's page window out, and an empty host takes no focus.
-        tab.contentView.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         host.add(tab)
         if let restored, let url = URL(string: restored) { tab.load(url) } // as the app asks for it before Chromium made the page
         final class Count { var value = 0 }
@@ -521,6 +519,8 @@ import Testing
     private func createdTab(_ runtime: CEFRuntime, browser: Int32) throws -> (CEFTab, CEFPaneHost) {
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        // A pane host has an area: the fork orders an empty host's page window out, and an empty host takes no focus.
+        tab.contentView.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         host.add(tab)
         host.ensureCreated(tab)
         let request = try #require(runtime.pendingWindows.keys.first)
