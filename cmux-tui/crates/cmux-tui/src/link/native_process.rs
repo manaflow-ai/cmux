@@ -72,10 +72,13 @@ async fn read_bootstrap(control: &mut UnixStream) -> anyhow::Result<NativeBootst
     NativeBootstrap::decode(&frame).map_err(|error| anyhow!(error))
 }
 
-async fn refresh(source: &Arc<AgentReceiver>) -> anyhow::Result<ReceiverSnapshot> {
+/// One policy read. A `renewal` that fails leaves the installed policy to its
+/// own lease (the caller decides when to retire it); the first read closes.
+async fn refresh(source: &Arc<AgentReceiver>, renewal: bool) -> anyhow::Result<ReceiverSnapshot> {
     // Intent creation belongs to the live actor, not to the blocking executor.
     // A delayed executor must never create fresh authority after role stop.
-    let prepared = source.prepare_refresh().map_err(|error| anyhow!(error))?;
+    let prepared = if renewal { source.prepare_renewal() } else { source.prepare_refresh() }
+        .map_err(|error| anyhow!(error))?;
     let active = prepared.started() + REQUEST_BUDGET;
     let elapsed = prepared
         .elapsed_source()
@@ -91,7 +94,9 @@ async fn refresh(source: &Arc<AgentReceiver>) -> anyhow::Result<ReceiverSnapshot
     match result {
         Some(Ok(Ok(snapshot))) => Ok(snapshot),
         _ => {
-            source.invalidate();
+            if !renewal {
+                source.invalidate();
+            }
             bail!("cloud.receiver.policy_unavailable")
         }
     }
@@ -106,7 +111,7 @@ async fn initialize(
         AgentReceiver::for_receiver(binding.clone(), keys, generation)
             .map_err(|error| anyhow!(error))?,
     ));
-    let snapshot = refresh(&authority.0).await?;
+    let snapshot = refresh(&authority.0, false).await?;
     // Native VM routes use the original IPv4 VPC endpoint. The host's inner
     // IPv6 overlay belongs to the userspace mesh, not the kernel interface.
     let socket =
@@ -183,6 +188,16 @@ impl RenewalLog {
         }
     }
 
+    fn kept(&self, took: Duration, left: Duration, retry: Duration) {
+        eprintln!(
+            "cmux link: receiver policy read failed after {} ms; the current lease holds {} ms \
+             more and keeps serving, next read in {} ms",
+            took.as_millis(),
+            left.as_millis(),
+            retry.as_millis()
+        );
+    }
+
     fn failed(&self, took: Duration, retry: Duration) {
         eprintln!(
             "cmux link: receiver policy read failed after {} ms; streams and peers closed, \
@@ -193,11 +208,23 @@ impl RenewalLog {
     }
 }
 
+/// A snapshot's lease end on both clocks: active time and elapsed time.
+fn lease_of(snapshot: &ReceiverSnapshot) -> Option<(Instant, Deadline)> {
+    Some((snapshot.expires(), snapshot.elapsed_deadline()?))
+}
+
+/// What is left of a lease, by whichever clock ends it first; `None` once
+/// either has run out.
+fn lease_left(lease: &(Instant, Deadline)) -> Option<Duration> {
+    let active = lease.0.checked_duration_since(Instant::now()).filter(|left| !left.is_zero())?;
+    Some(active.min(lease.1.remaining()?))
+}
+
 async fn renew(
     source: Arc<AgentReceiver>,
     send: mpsc::Sender<Option<NativePolicy>>,
     mut next: (Instant, Deadline),
-    mut expires: Option<Instant>,
+    mut expires: Option<(Instant, Deadline)>,
 ) -> anyhow::Result<()> {
     let mut retry = Duration::from_secs(1);
     let mut log = RenewalLog { last_slow: None };
@@ -209,13 +236,14 @@ async fn renew(
             .await
             .map_err(|_| anyhow!("cloud.receiver.clock_unavailable"))?;
         let started = Instant::now();
-        match refresh(&source).await {
+        match refresh(&source, true).await {
             Ok(snapshot) => {
                 let arrived = Instant::now();
                 let took = arrived - started;
-                let lapsed = expires.and_then(|end| arrived.checked_duration_since(end));
+                let lapsed =
+                    expires.as_ref().and_then(|(end, _)| arrived.checked_duration_since(*end));
                 log.read(took, snapshot.expires() - snapshot.started(), lapsed);
-                expires = Some(snapshot.expires());
+                expires = lease_of(&snapshot);
                 next = renewal_at(&snapshot, took)?;
                 retry = Duration::from_secs(1);
                 send.send(Some(snapshot.native_policy()))
@@ -226,14 +254,27 @@ async fn renew(
                 if source.is_retired() {
                     return Err(anyhow!("cloud.receiver.generation_retired"));
                 }
-                log.failed(started.elapsed(), retry);
-                expires = None;
-                source.invalidate();
-                send.send(None).await.map_err(|_| anyhow!("cloud.receiver.stopped"))?;
-                let elapsed = clock
-                    .after(retry)
-                    .ok_or_else(|| anyhow!("cloud.receiver.clock_unavailable"))?;
-                next = (Instant::now() + retry, elapsed);
+                // A failed read is not a revocation: the lease the receiver
+                // already holds keeps serving until it ends on its own (its
+                // stream and peer deadlines close it then), and reads retry
+                // meanwhile. Only a read still failing past that end retires.
+                let wait = match expires.as_ref().and_then(lease_left) {
+                    Some(left) => {
+                        let wait = retry.min(left);
+                        log.kept(started.elapsed(), left, wait);
+                        wait
+                    }
+                    None => {
+                        log.failed(started.elapsed(), retry);
+                        expires = None;
+                        source.invalidate();
+                        send.send(None).await.map_err(|_| anyhow!("cloud.receiver.stopped"))?;
+                        retry
+                    }
+                };
+                let elapsed =
+                    clock.after(wait).ok_or_else(|| anyhow!("cloud.receiver.clock_unavailable"))?;
+                next = (Instant::now() + wait, elapsed);
                 retry = (retry * 2).min(Duration::from_secs(30));
             }
         }
@@ -270,7 +311,7 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
     };
     let (send, updates) = mpsc::channel(1);
     let next = renewal_at(&snapshot, snapshot.started().elapsed())?;
-    let expires = Some(snapshot.expires());
+    let expires = lease_of(&snapshot);
     let (stop, stopped) = oneshot::channel();
     let serving = receiver.serve(updates, async {
         let _ = stopped.await;
