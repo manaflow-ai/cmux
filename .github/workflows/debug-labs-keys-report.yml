@@ -1,0 +1,15 @@
+name: Debug and Labs keys report
+
+# The report is implemented on feat-cmux-next (scripts/report-debug-labs-keys.py). GitHub dispatches
+# only a workflow the default branch has, so this inert registration lets
+# debug-labs-keys-dispatch.yml start the feat-cmux-next file by name; the run uses that branch's copy.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  registration:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: echo "The Debug and Labs keys report is implemented on feat-cmux-next"
