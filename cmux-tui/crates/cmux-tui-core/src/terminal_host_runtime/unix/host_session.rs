@@ -80,8 +80,8 @@ pub fn enter_terminal_host_process() -> anyhow::Result<()> {
     // SAFETY: the host is still single-threaded (see below).
     #[cfg(any(target_vendor = "apple", target_os = "linux"))]
     unsafe {
-        crate::test_owner::adopt()
-    };
+        crate::test_owner::adopt();
+    }
     // SAFETY: getpid/getsid/setsid take no pointers; the host is still
     // single-threaded here.
     let own_session = unsafe { libc::getsid(0) == libc::getpid() };
