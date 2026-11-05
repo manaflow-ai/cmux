@@ -23,13 +23,17 @@ import CmuxNextWakeups
         var rotated: [String] = []
         var answer = true
         var on = true
+        /// Whether the test's section is on screen, and whether a list read covers it (the window is
+        /// covered while the read is in flight).
+        var visible = true
+        var coverOnList = false
 
         @MainActor func store() -> JoinedMachineStore {
             JoinedMachineStore(service: { [self] in
                 guard on else { return nil }
                 return MachineJoinService(
                     mint: { _ in .failure(.failed) },
-                    list: { [self] in lists += 1; return rows },
+                    list: { [self] in lists += 1; if coverOnList { visible = false }; return rows },
                     revoke: { [self] id in
                         revoked.append(id)
                         if answer { rows = rows.map { $0.id == id ? Fake.machine(id, $0.name, state: .revoked) : $0 } }
@@ -110,6 +114,46 @@ import CmuxNextWakeups
         visible = true
         store.startAging(section) { visible }
         #expect(!store.isAging, "no online row: nothing can age, no deadline")
+        store.stopAging(section)
+    }
+
+    /// A section that registers while its window is covered sets no deadline: a covered window costs
+    /// no wakeups from the start, and showing it starts aging (``JoinedMachineStore/resumeAging()``).
+    @Test func aSectionRegisteringWhileCoveredSetsNoDeadline() async {
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: Date().addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        fake.visible = false
+        store.startAging(section) { fake.visible }
+        #expect(!store.isAging, "registered while covered: no deadline")
+        fake.visible = true
+        store.resumeAging()
+        #expect(store.isAging, "the window shows: aging starts")
+        store.stopAging(section)
+    }
+
+    /// A list read that lands after every window was covered sets no deadline, whether the read was
+    /// a fire's or any other (a refresh, Add Device's card).
+    @Test func aReadLandingAfterTheWindowWasCoveredSetsNoDeadline() async {
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: Date().addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        store.startAging(section) { fake.visible }
+        #expect(store.isAging)
+        fake.coverOnList = true
+        await store.ageFired()
+        #expect(!fake.visible, "the window was covered while the fire's read was in flight")
+        #expect(!store.isAging, "the fire's read landed covered: no next deadline")
+        fake.coverOnList = false
+        await store.refresh()
+        #expect(!store.isAging, "a plain read landing covered: no deadline either")
+        fake.visible = true
+        store.resumeAging()
+        #expect(store.isAging)
         store.stopAging(section)
     }
 
