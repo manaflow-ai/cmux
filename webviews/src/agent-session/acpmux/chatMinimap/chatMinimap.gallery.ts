@@ -33,7 +33,9 @@ export default agentPaneEntry({
   title: "VS Code Minimap",
   area: "Agent pane",
   height: 720,
-  widths: { narrow: 1040, normal: 1240, wide: 1440 },
+  // 80px wider than beside the old 720px column, so each width keeps the right gutter the strip
+  // draws in beside Chat Text Width's 800px one.
+  widths: { narrow: 1120, normal: 1320, wide: 1520 },
   anchors: [{ selector: ".acpmux-chat-minimap" }],
   covers: ["agent-session/acpmux/chatMinimap/ChatMinimap.tsx#ChatMinimap"],
   experiment: {
