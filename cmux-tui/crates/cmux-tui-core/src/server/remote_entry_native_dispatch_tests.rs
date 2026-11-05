@@ -169,6 +169,7 @@ fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
             json!({"cmd":"agent-session-attach", "surface":1}),
             json!({"cmd":"agent-transfer-receive", "cwd":"/tmp", "manifest":{}, "vm_kind":"owner"}),
             json!({"cmd":"agent-transfer-finish", "receive_id":"fake", "vm_kind":"owner"}),
+            json!({"cmd":"set-default-colors", "fg":"#ffffff"}),
         ] {
             assert_eq!(call(&mut stream, &mut reader, frame)["error_code"], json!(REMOTE_DENIED));
         }
@@ -254,3 +255,16 @@ fn native_data_frames_reach_only_the_owner() {
 
 #[path = "remote_entry_native_terminal_tests.rs"]
 mod terminal;
+
+/// Every command the app sends on connect and chat start reaches the owner: the terminal theme
+/// (`set-default-colors`) was refused with remote_denied over the Native owner link (2026-11-05).
+#[test]
+fn native_owner_takes_the_apps_connect_commands() {
+    assert!(native_owner::commands().contains(&"set-default-colors"));
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let reply = call(&mut stream, &mut reader, json!({"cmd":"set-default-colors", "fg":"#ffffff", "bg":"#000000"}));
+    assert_ne!(reply["error_code"], json!(REMOTE_DENIED), "{reply}");
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+}

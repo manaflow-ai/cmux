@@ -2568,6 +2568,7 @@ fn run_server(
     #[cfg(unix)]
     if trusted_carrier {
         Session::Local(mux.clone()).ensure_initial(None)?;
+        ensure_cloud_work_folder();
     }
     // Background mux workers can report reconnect diagnostics before an
     // interactive client attaches. Install the non-terminal sink as soon as
@@ -2933,6 +2934,20 @@ fn start_local_owner_event_loop_with_completion(
 /// trusted listener on for a daemon whose baked launch line predates the flag
 /// (cmux Cloud machines healed in place). Only an exact truthy value counts.
 #[cfg(unix)]
+/// A Cloud machine's default chat folder (`~/work`, what `cmux cloud start-chat --cwd` and the move
+/// use), made at daemon start when the image did not: a machine from an older image had none, and
+/// every chat there was refused for want of a folder. Best effort; a failure leaves it to the caller.
+#[cfg(unix)]
+fn ensure_cloud_work_folder() {
+    let Some(home) = std::env::var_os("HOME").filter(|home| !home.is_empty()) else { return };
+    let work = std::path::Path::new(&home).join("work");
+    if !work.is_dir() {
+        if let Err(error) = std::fs::create_dir_all(&work) {
+            eprintln!("cmux-tui: could not make {}: {error}", work.display());
+        }
+    }
+}
+
 fn remote_ws_trusted_carrier_from_env() -> bool {
     std::env::var("CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER")
         .map(|value| matches!(value.trim(), "1" | "true" | "yes"))

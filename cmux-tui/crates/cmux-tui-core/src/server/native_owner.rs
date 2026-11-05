@@ -50,6 +50,8 @@ const COMMANDS: &[&str] = &[
     "agent-inventory",
     "agent-inventory-refresh",
     "agent-inventory-watch",
+    // The app's terminal theme on connect (`set-default-colors`): the owner's own machine.
+    "set-default-colors",
 ];
 
 const CAPABILITIES: &[&str] = &[
@@ -104,6 +106,11 @@ const CAPABILITIES: &[&str] = &[
 ];
 
 /// Whether identify on this carrier lists `capability` (tests read the policy through this).
+#[cfg(test)]
+pub(super) fn commands() -> &'static [&'static str] {
+    COMMANDS
+}
+
 #[cfg(test)]
 pub(super) fn carries(capability: &str) -> bool {
     CAPABILITIES.contains(&capability)
@@ -224,7 +231,8 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         Command::Subscribe { surface: None, .. }
         | Command::ListWorkspaces
         | Command::CreateWorkspace { .. }
-        | Command::CreateTerminal { .. } => true,
+        | Command::CreateTerminal { .. }
+        | Command::SetDefaultColors { .. } => true,
         Command::NewConversationTab(params) => params.native_agent_tab(mux),
         _ => terminal::allows(mux, client, command),
     }
