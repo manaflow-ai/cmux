@@ -893,7 +893,19 @@ export const mockSessions: MockSession[] = [
           ].join("\n"),
         ),
       },
-      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+      { ago: at + 5_000, mux: "turn_result", msg: { status: "completed" } },
+      // Two lanes' messages sent from a shell (`from: "cli"`), which name their sender only (Leo,
+      // 2026-11-05: "i can't click to go to these for some reason"): the daemon resolves the first
+      // (its chip opens that chat) and has no chat for the second (its click says so).
+      ...["review-box/session-info-lane", "mesh-relay"].map((fromName, index) => ({
+        ago: at + 2_000 - index * 1_000,
+        mux: "user_message",
+        msg: {
+          text: index === 0 ? "the hq#7125 lane is up; Session Info panel next" : "mesh relay reconnected",
+          promptId: `mock-links-msg-${index}`,
+          _meta: { provenance: { kind: "agent_message", from: "cli", fromName, msgId: `mock-links-m-${index}` } },
+        },
+      })),
     ],
   },
   {
@@ -986,6 +998,12 @@ export const mockResolvable: Record<string, { sessionId: string; name: string; h
     sessionId: "mock-notice-mid-reply",
     name: "opus-session-info",
     host: "gcp-agent-lane-1",
+  },
+  // A lane's shell-sent message names only its sender (SESSION_LINKS_SESSION's received lines).
+  "review-box/session-info-lane": {
+    sessionId: "mock-notice-mid-reply",
+    name: "session-info-lane",
+    host: "review-box",
   },
 };
 

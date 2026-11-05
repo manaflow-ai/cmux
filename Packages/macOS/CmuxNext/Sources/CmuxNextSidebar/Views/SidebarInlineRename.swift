@@ -106,7 +106,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
         field.cell?.isScrollable = true
         field.delegate = self
         field.wantsLayer = true
-        field.layer?.cornerRadius = Metrics.space2
+        field.layer?.cornerRadius = Metrics.insetCornerRadius
         let height = ceil(field.intrinsicContentSize.height)
         let x = titleFrame.minX - Metrics.space1
         field.frame = NSRect(x: x, y: titleFrame.midY - height / 2, width: max(0, maxX - x), height: height)

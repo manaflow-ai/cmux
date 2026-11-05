@@ -1,13 +1,17 @@
 // Whether a transcript block (an edit's diff, a command's Shell block, a call's output) wraps its
 // long lines. Each kind of block has its own choice: prose (a Markdown or text file) wraps by
-// default, code does not, and output wraps as a terminal transcript does. The wrap button in a
-// block's header flips its kind's choice for every block of that kind, and the choice is the
+// default, and code and a command's output do not. Output keeps each printed line on its own row,
+// so a table (`ps`, `ls -l`, a test summary) reads with its columns aligned instead of every long
+// row folded back under itself; the block scrolls sideways for what runs past, with its right edge
+// fading while more lies there (Leo, 2026-11-04, on a Shell card's folded `ps` output: "why isn't
+// this just prettified by default?"). The wrap button in a block's header flips its kind's choice
+// for every block of that kind, back to the folded form and on again, and the choice is the
 // viewer's, kept in localStorage across chats and panes (in step by the `storage` event).
 import { useSyncExternalStore } from "react";
 
 export type BlockKind = "prose" | "code" | "output";
 
-const DEFAULTS: Readonly<Record<BlockKind, boolean>> = { prose: true, code: false, output: true };
+const DEFAULTS: Readonly<Record<BlockKind, boolean>> = { prose: true, code: false, output: false };
 const KEY = "cmux.agentPane.blockWrap";
 
 /// Files read as prose: wrapped by default, with a hanging indent.

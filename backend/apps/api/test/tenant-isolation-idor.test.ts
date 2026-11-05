@@ -1,10 +1,9 @@
 import { beforeAll, describe, expect, it } from "vitest"
-import { bindFile, cloudStub, DAEMON, vmKey, WG_KEY } from "./cloud-bind-support.ts"
 import { call, callOp, callRead, catalogOps, idsIn, makeTenant, post, sampleParams, shape, stable, succeeded, type Reply, type Tenant } from "./setup/tenant.ts"
 
 /**
  * Tenant isolation, IDOR sweep (plans/cmux-next/tenant-isolation-DESIGN.md section 5.1). Tenant A owns real
- * resources: a machine, a snapshot, a group, a DM with a message, an automation, a chief, a feed item, an
+ * resources: a group, a DM with a message, an automation, a chief, a feed item, an
  * install, a host. Tenant B then calls EVERY operation in the catalog (as a session and as an install token)
  * with A's ids in every id-typed parameter. Expected: no reply carries an A canary, no operation changes A's
  * own view, and an operation that answers ok for B with an A id is listed in ALLOWED_OK with its reason.
@@ -36,8 +35,6 @@ const learn = (op: string, r: Reply) => {
 }
 const aView = async () => {
   const reads: Array<[string, unknown]> = [
-    ["cloud.machine.list", {}],
-    ["cloud.snapshot.list", {}],
     ["group.list", {}],
     ["inbox.list", { limit: 50 }],
     ["automation.list", {}],
@@ -65,14 +62,7 @@ beforeAll(async () => {
   fixtures.TeamId = a.team
   fixtures.UserId = a.user
   fixtures.InstallId = a.install
-  const m = await callOp(a.session, "cloud.machine.create", { size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, name: `${a.canary} machine` })
-  learn("cloud.machine.create", m)
-  if (fixtures.MachineId) {
-    const { json } = await bindFile(cloudStub(a.team), fixtures.MachineId)
-    const bound = await post("/v1/cloud/bind", undefined, { team: a.team, machine: fixtures.MachineId, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: (await vmKey()).jwk })
-    created.push(["cloud.bind", bound])
-  }
-  if (fixtures.MachineId) learn("cloud.snapshot.create", await callOp(a.session, "cloud.snapshot.create", { machine: fixtures.MachineId, name: `${a.canary} snap` }))
+  // Cloud machines and snapshots are cmux-platform's (CloudDO lives there and has its own isolation tests).
   learn("group.create", await callOp(a.session, "group.create", { name: `${a.canary} group` }))
   const dm = await callOp(a.session, "dm.open", { peer: { email: a2.email } })
   learn("dm.open", dm)
@@ -90,7 +80,7 @@ beforeAll(async () => {
 
 describe("tenant fixtures", () => {
   it("tenant A really owns the resources B will probe (a sweep over nothing proves nothing)", () => {
-    for (const k of ["MachineId", "SnapshotId", "ConversationId", "InstallId", "TeamId", "UserId"]) expect(fixtures[k], `${k}; created: ${JSON.stringify(created.map(([o, r]) => [o, r.code, r.code ? r.raw.slice(0, 300) : undefined]))}`).toBeTruthy()
+    for (const k of ["ConversationId", "InstallId", "TeamId", "UserId"]) expect(fixtures[k], `${k}; created: ${JSON.stringify(created.map(([o, r]) => [o, r.code, r.code ? r.raw.slice(0, 300) : undefined]))}`).toBeTruthy()
   })
 })
 

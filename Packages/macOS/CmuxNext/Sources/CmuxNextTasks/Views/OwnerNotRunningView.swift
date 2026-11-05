@@ -29,7 +29,7 @@ struct OwnerNotRunningView: View {
                 .accessibilityLabel(TasksStrings.copyCommand).accessibilityIdentifier("cmux.tasks.copyCommand")
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 7).fill(colors.hover))
+            .background(RoundedRectangle(cornerRadius: Metrics.insetCornerRadius).fill(colors.hover))
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -752,7 +752,7 @@ os.replace(path + ".part", path)
     if (c.way === "menu") {
       await page.locator(".acpmux-composer-plus .acpmux-picker-button").click();
       const chooser = page.waitForEvent("filechooser", { timeout: 5_000 });
-      await page.locator('[role="listbox"] [role="option"][data-value="add.files"]').click();
+      await page.locator('[role="menu"] [role="menuitem"][data-value="add.files"]').click();
       await (await chooser).setFiles(path.join(dir, c.file!.name));
       await page.waitForFunction(() => (window as unknown as BigWindow).__big.gestureAt > 0, undefined, {
         polling: 20,
@@ -1164,13 +1164,13 @@ os.replace(path + ".part", path)
       await step(
         "the + menu",
         page
-          .locator('[role="listbox"]')
+          .locator('[role="menu"]')
           .first()
           .waitFor({ timeout: STEP_MS - 1000 }),
       );
       row.menuMs = Date.now() - opened;
       await step("closing the + menu", page.keyboard.press("Escape"));
-      await step("the + menu closed", page.locator('[role="listbox"]').first().waitFor({ state: "detached" }));
+      await step("the + menu closed", page.locator('[role="menu"]').first().waitFor({ state: "detached" }));
       const heapNow = await liveHeap(cdp);
       const pending = page.locator(".acpmux-composer .acpmux-attachment-pending");
       const begun = (await probes(page)).begins;

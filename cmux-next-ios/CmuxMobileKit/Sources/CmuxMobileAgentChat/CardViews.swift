@@ -86,7 +86,10 @@ struct PermissionCard: View {
                     Image(systemName: "hand.raised.fill").foregroundStyle(Color.cmuxMobileWarning)
                     Text("\(agentName) wants to \(action)").font(.headline)
                 }
-                if let command = record.request.toolCall.command {
+                if let plan = record.request.plan {
+                    // The plan as the transcript renders a reply (the Mac pane's plan card).
+                    StreamingMarkdown(markdown: plan, isStreaming: false, animatesBlocks: false)
+                } else if let command = record.request.toolCall.command {
                     CodeCard(language: "bash", code: command, title: "Command", maxHeight: 6 * 19 + 60)
                 } else {
                     Text(record.request.toolCall.title).font(.subheadline.monospaced())
@@ -107,7 +110,8 @@ struct PermissionCard: View {
     }
 
     private var action: String {
-        switch record.request.toolCall.kind {
+        if record.request.plan != nil { return "start on this plan" }
+        return switch record.request.toolCall.kind {
         case .execute: "run a command"
         case .edit, .fileChange: "edit files"
         case .fetch: "fetch a URL"
@@ -134,7 +138,7 @@ public struct PermissionActionBar: View {
     let request: ACPPermissionRequest
     let respond: (ACPPermissionOption?) -> Void
     let replyInstead: (() -> Void)?
-    /// The allow waiting for Face ID: its button spins, the other allows are disabled,
+    /// The allow on its way: its button spins, the other allows are disabled,
     /// Deny stays available.
     var approvingOptionID: String?
 
@@ -146,8 +150,8 @@ public struct PermissionActionBar: View {
         self.replyInstead = replyInstead
     }
 
-    /// Shown on the allow while Face ID runs (the Feed's string).
-    public static let waitingForFaceID = "Waiting for Face ID…"
+    /// Shown on the allow while it is signed and sent (the Feed's string).
+    public static let sendingAllow = "Sending…"
     /// Taps on a choice, for the tap's haptic.
     @State private var taps = 0
 
@@ -155,27 +159,25 @@ public struct PermissionActionBar: View {
         VStack(spacing: 8) {
             ForEach(request.phoneOptions) { option in
                 Button {
-                    // The allow already waiting for Face ID ignores a second tap.
+                    // The allow already on its way ignores a second tap.
                     guard !(option.isAllow && approvingOptionID != nil) else { return }
                     taps += 1
                     respond(option)
                 } label: {
                     // Long options ("Always allow cargo test in this workspace")
-                    // wrap instead of truncating. An allow is signed after Face ID
-                    // (verify/phone-approvals.md), and says so.
+                    // wrap instead of truncating. An allow is signed with this
+                    // phone's approval key (verify/phone-approvals.md), with no prompt.
                     HStack(spacing: 6) {
                         if option.id == approvingOptionID {
                             ProgressView().controlSize(.small).tint(option.kind == .allowOnce ? Color.cmuxMobileOnAccent : Color.primary).accessibilityHidden(true)
-                            Text(Self.waitingForFaceID).lineLimit(2).multilineTextAlignment(.center)
+                            Text(Self.sendingAllow).lineLimit(2).multilineTextAlignment(.center)
                         } else {
-                            if option.isAllow { Image(systemName: "faceid").accessibilityHidden(true) }
-                            Text(option.phoneLabel).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
+                            Text(request.label(for: option)).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
                         }
                     }
                     .animation(.cmuxMobileSnap, value: approvingOptionID)
                 }
                     .disabled(approvingOptionID != nil && option.isAllow && option.id != approvingOptionID)
-                    .accessibilityHint(option.isAllow ? "Approve with Face ID" : "")
                     .buttonStyle(CmuxMobileCapsuleButtonStyle(style(option), size: .bar))
             }
             if let replyInstead {

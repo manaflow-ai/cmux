@@ -1831,7 +1831,7 @@ fn sync_directory(path: &Path) -> Result<()> {
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(path)?;
-    dir.sync_all().map_err(SyncFailed)?;
+    log_sync::sync_full(&dir).map_err(SyncFailed)?;
     #[cfg(test)]
     sync_model::folder_synced(path);
     Ok(())
@@ -2137,6 +2137,10 @@ mod head_tests;
 mod journal_meta_tests;
 #[cfg(all(test, unix))]
 mod journal_store_tests;
+#[cfg(all(test, unix))]
+mod journal_sync_tests;
+#[cfg(all(test, unix))]
+mod journal_write_back_tests;
 
 impl LocalStore {
     /// `Store::scan`, and with `strict` `Store::scan_strict`.
