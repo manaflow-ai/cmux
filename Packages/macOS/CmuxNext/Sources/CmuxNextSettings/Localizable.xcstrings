@@ -194322,6 +194322,366 @@
         }
       }
     },
+    "settings.computerUse.groundingFallback": {
+      "comment": "Settings row title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find Elements with a Vision Model"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elemente mit einem Vision-Modell finden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trouver des éléments avec un modèle de vision"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "العثور على العناصر باستخدام نموذج رؤية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar elementos con un modelo de visión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用視覺模型尋找元素"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用视觉模型查找元素"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비전 모델로 요소 찾기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビジョンモデルで要素を探す"
+          }
+        }
+      }
+    },
+    "settings.computerUse.groundingFallback.help": {
+      "comment": "Settings row help text.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When an app shows agents few named controls (canvas apps, games, Electron apps), agents can ask a vision model where an element is. The app window's screenshot goes to the model address below. Upstream driver only."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn eine App Agenten nur wenige benannte Bedienelemente zeigt (Canvas-Apps, Spiele, Electron-Apps), können Agenten ein Vision-Modell fragen, wo ein Element ist. Das Bildschirmfoto des App-Fensters geht an die Modelladresse unten. Nur mit dem Upstream-Treiber."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quand une app montre peu de contrôles nommés aux agents (apps à canevas, jeux, apps Electron), les agents peuvent demander à un modèle de vision où se trouve un élément. La capture de la fenêtre de l'app est envoyée à l'adresse du modèle ci-dessous. Pilote Upstream uniquement."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عندما يعرض تطبيق للوكلاء عناصر تحكم مسماة قليلة (تطبيقات اللوحات والألعاب وتطبيقات Electron)، يمكن للوكلاء سؤال نموذج رؤية عن موضع العنصر. تُرسل لقطة شاشة نافذة التطبيق إلى عنوان النموذج أدناه. مع مشغّل Upstream فقط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuando una app muestra a los agentes pocos controles con nombre (apps de lienzo, juegos, apps de Electron), los agentes pueden preguntar a un modelo de visión dónde está un elemento. La captura de la ventana de la app se envía a la dirección del modelo de abajo. Solo con el controlador Upstream."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "當 App 向代理程式顯示的具名控制項很少時（畫布 App、遊戲、Electron App），代理程式可以詢問視覺模型某個元素在哪裡。App 視窗的截圖會傳送到下方的模型位址。僅限 Upstream 驅動程式。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "当应用向智能体显示的具名控件很少时（画布应用、游戏、Electron 应用），智能体可以询问视觉模型某个元素在哪里。应用窗口的截图会发送到下方的模型地址。仅限 Upstream 驱动。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "앱이 에이전트에게 이름 있는 컨트롤을 거의 보여 주지 않을 때(캔버스 앱, 게임, Electron 앱) 에이전트가 비전 모델에 요소의 위치를 물어볼 수 있습니다. 앱 윈도우의 스크린샷은 아래 모델 주소로 전송됩니다. Upstream 드라이버 전용."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリがエージェントに名前付きのコントロールをほとんど示さない場合（キャンバスアプリ、ゲーム、Electron アプリ）、エージェントはビジョンモデルに要素の位置を尋ねられます。アプリのウインドウのスクリーンショットは下のモデルのアドレスに送られます。Upstream ドライバのみ。"
+          }
+        }
+      }
+    },
+    "settings.computerUse.groundingFallback.summary": {
+      "comment": "Settings row summary: one short line under the setting's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets agents find unnamed controls with a vision model"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lässt Agenten unbenannte Bedienelemente mit einem Vision-Modell finden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet aux agents de trouver les contrôles sans nom avec un modèle de vision"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح للوكلاء العثور على عناصر التحكم غير المسماة باستخدام نموذج رؤية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite a los agentes encontrar controles sin nombre con un modelo de visión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "讓代理程式使用視覺模型尋找未命名的控制項"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "让智能体使用视觉模型查找未命名的控件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 비전 모델로 이름 없는 컨트롤을 찾게 합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがビジョンモデルで名前のないコントロールを探せるようにします"
+          }
+        }
+      }
+    },
+    "settings.computerUse.groundingEndpoint": {
+      "comment": "Settings row title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vision Model Address"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresse des Vision-Modells"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresse du modèle de vision"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عنوان نموذج الرؤية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dirección del modelo de visión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "視覺模型位址"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "视觉模型地址"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비전 모델 주소"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビジョンモデルのアドレス"
+          }
+        }
+      }
+    },
+    "settings.computerUse.groundingEndpoint.help": {
+      "comment": "Settings row help text.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An OpenAI-compatible server for the vision model, such as one on this Mac at http://127.0.0.1:8080/v1. Any other address must use https."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein OpenAI-kompatibler Server für das Vision-Modell, etwa einer auf diesem Mac unter http://127.0.0.1:8080/v1. Jede andere Adresse muss https verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un serveur compatible OpenAI pour le modèle de vision, par exemple sur ce Mac à http://127.0.0.1:8080/v1. Toute autre adresse doit utiliser https."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خادم متوافق مع OpenAI لنموذج الرؤية، مثل خادم على هذا الـ Mac على http://127.0.0.1:8080/v1. يجب أن يستخدم أي عنوان آخر https."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un servidor compatible con OpenAI para el modelo de visión, como uno en este Mac en http://127.0.0.1:8080/v1. Cualquier otra dirección debe usar https."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "視覺模型的 OpenAI 相容伺服器，例如這台 Mac 上的 http://127.0.0.1:8080/v1。其他位址必須使用 https。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "视觉模型的 OpenAI 兼容服务器，例如这台 Mac 上的 http://127.0.0.1:8080/v1。其他地址必须使用 https。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비전 모델용 OpenAI 호환 서버(예: 이 Mac의 http://127.0.0.1:8080/v1). 그 밖의 주소는 https를 사용해야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビジョンモデル用の OpenAI 互換サーバー。たとえばこの Mac 上の http://127.0.0.1:8080/v1。それ以外のアドレスは https を使う必要があります。"
+          }
+        }
+      }
+    },
+    "settings.computerUse.groundingEndpoint.summary": {
+      "comment": "Settings row summary: one short line under the setting's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the vision model runs"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wo das Vision-Modell läuft"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Où s'exécute le modèle de vision"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مكان تشغيل نموذج الرؤية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dónde se ejecuta el modelo de visión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "視覺模型的執行位置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "视觉模型的运行位置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비전 모델이 실행되는 곳"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビジョンモデルが動く場所"
+          }
+        }
+      }
+    },
     "settings.default.neverDiscard": {
       "comment": "Settings > Browser > Memory > Hibernate Hidden Tabs: the value with nothing in cmux.json: hidden tabs only freeze and are never discarded (reloaded) on their own.",
       "extractionState": "manual",
