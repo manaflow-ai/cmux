@@ -14,6 +14,7 @@ until a patch's signer is checked (cmux#13742).
 | Undo the newest patch | `touch ~/Library/Caches/cmux-next/live-code/undo-1.rollback` (each rollback a new name) |
 | See what applied | `~/Library/Caches/cmux-next/live-code/live-code.log` |
 | Back to normal | Turn Live Code off and relaunch, or install a regular build |
+| Try a pull request's Swift in a copy | `scripts/cmux-next/try-pr.sh <PR> --from <the build>.app --live-code <the reload's log>` ([hot-reload.md](hot-reload.md#try-a-pull-request-without-knowing-what-it-changed)) |
 
 `CMUX_LIVE_CODE_DIR=DIR` starts the same watcher on another folder with no switch (the fleet's
 measurement, `scripts/measure/live-code-app.sh`, does this).
