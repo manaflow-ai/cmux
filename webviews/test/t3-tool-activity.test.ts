@@ -133,3 +133,15 @@ test("pending approvals and failed trailing tools remain visible outside settled
   expect(rows.find((r) => r.id === "failed")).toBeDefined();
   expect(rows.find((r) => r.id === "final")?.text).toBe("Done.");
 });
+
+test("the working timer stays above changing activity and leaves when the turn completes", () => {
+  const options = { working: true, liveRuns: true, lineBelow: true, agentFamily: "claude" };
+  for (const activity of [[], [run("tests", 1000, "in_progress")], [prose]]) {
+    const rows = turnView([prompt, ...activity], new Set(), options);
+    const header = rows.findIndex((r) => r.workingHeader);
+    expect(header).toBe(1);
+    expect(rows[header]).toMatchObject({ id: "t3-working-prompt", kind: "working", at: 0 });
+    expect(rows.filter((r) => r.workingHeader)).toHaveLength(1);
+  }
+  expect(turnView(source, new Set(), { ...options, working: false }).some((r) => r.workingHeader)).toBe(false);
+});
