@@ -42,7 +42,9 @@ const ended = { mux: "turn_result", msg: { status: "completed" } };
 async function snapshotAfter(steps: unknown[], done: (snapshot: AcpmuxSnapshot) => boolean) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  // A scripted socket starts empty; the normal fixture seeds unrelated history that would move
+  // the attach-page boundary away from the current turn.
+  const socket = new MockAcpmuxSocket(() => Promise.resolve(), { steps: [] });
   const daemon = socket as unknown as Daemon;
   for (const step of steps) daemon.record(mockHost.sessionId!, step);
   let last: AcpmuxSnapshot | undefined;
@@ -155,7 +157,7 @@ test("a list cleared after a later prompt takes Progress away", async () => {
 test("an explicitly cleared Progress section stays gone when older history loads", async () => {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const socket = new MockAcpmuxSocket(() => Promise.resolve(), { steps: [] });
   const daemon = socket as unknown as Daemon;
   const record = (step: unknown) => daemon.record(mockHost.sessionId!, step);
   // Keep the historical plan outside the attach page. The current page starts at a turn boundary,
