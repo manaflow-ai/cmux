@@ -1,0 +1,68 @@
+/* A web search or fetch call's sources (WebSources.tsx): one 24px line under its row, aligned with
+   the row's words, in the muted detail size; open, a list of the pages, one 24px line each. */
+.cv-web-sources {
+  margin: 0 0 4px var(--cv-tool-text-inset);
+  font-size: var(--text-detail);
+  color: var(--cv-text-muted);
+}
+.cv-web-sources__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.cv-web-sources__chip:hover {
+  background: var(--agent-control-hover);
+  color: var(--cv-text);
+}
+.cv-web-sources__label {
+  color: var(--cv-text);
+}
+.cv-web-sources__hosts {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-web-sources__more {
+  flex: none;
+  color: var(--cv-text-dim);
+}
+.cv-web-sources__list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.cv-web-sources__page {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: var(--ds-radius-control);
+  color: inherit;
+  text-decoration: none;
+}
+.cv-web-sources__page:hover {
+  background: var(--agent-control-hover);
+}
+.cv-web-sources__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text);
+}
+.cv-web-sources__site {
+  flex: none;
+  color: var(--cv-text-dim);
+}

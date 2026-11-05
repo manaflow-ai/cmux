@@ -27,6 +27,8 @@ import { useRowDisclosure } from "./transcriptDisclosure";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { WriteLabel, writeCall } from "./WriteLabel";
+import { WebSources } from "./WebSources";
+import { webSources, withoutLinks } from "./webSources";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard, repoRecoveryFor } from "./RepoRecoveryCard";
@@ -112,7 +114,10 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // A finished call's envelope images show in its strip instead of its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
   // A hook's block shows the hook's words, without the harness's "PreToolUse:… hook error:" envelope.
-  const source = callOutput(tool, failure);
+  // A web search's links show in its sources chip (WebSources.tsx), not again in its body.
+  const sources = useMemo(() => webSources(tool), [tool]);
+  const output = callOutput(tool, failure);
+  const source = output && sources.length ? withoutLinks(output) : output;
   const result = useMemo(() => {
     if (shell || !source) return undefined;
     return toolResult(source, cleanText, strip, {
@@ -202,6 +207,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
         )}
       </ToolVisualRow>
       <WrittenArtifactButtons tools={[tool]} />
+      <WebSources sources={sources} />
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
