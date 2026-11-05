@@ -41,8 +41,9 @@
 //! own queued prompts are held too (2026-11-05, the UI ceremony audit's lens review: the person
 //! stays in control of what is sent): Stop ends the turn and keeps the queue, and the next queued
 //! prompt waits until the person sends it (the queue's Resume, a row's Send now, or a new prompt,
-//! which runs ahead of them). Each is listed `heldByStop` (`QueuedPrompt::held_by_stop`). A
-//! prompt the person already sent now (`sent_now`, a steer) is not queued work and is not held.
+//! which runs ahead of them). Each is listed `heldByStop` (`QueuedPrompt::held_by_stop`), one sent
+//! now before the Stop included (the Stop came after it). A steer already on its way into the turn
+//! is not held. Even while Claude compacts, the person's Stop withdraws none of their prompts.
 //!
 //! Another agent's message is never lost to a Stop (2026-11-02: a coordinator's message sent a
 //! second after Stop was steered into the cancelling turn, answered by its forced end, and the
@@ -131,13 +132,10 @@ impl Hub {
     /// and the next one be about to start. A Stop of an idle chat with nothing queued holds nothing.
     pub async fn person_stop(self: &Arc<Self>, session: &Arc<Session>) -> Result<(), RpcError> {
         let turn = session.turn().map(|t| t.turn_id);
-        // Prompts queued from here on run ahead of the ones it holds: a Stop while Claude compacts
-        // withdraws none of them (`cancel_matching`).
-        let since = now_ms();
         if turn.is_some() || session.queued() > 0 {
             self.hold_queue_for_person(session, turn.as_deref().unwrap_or_default());
         }
-        self.cancel_matching(session, None, None, Some(since)).await
+        self.cancel_matching(session, None, None, true).await
     }
 
     /// Holds the other agents' messages queued now, and those that come until the hold ends: the
@@ -170,10 +168,11 @@ impl Hub {
                     // One sent now waits too: the Stop came after it.
                     (q.held, q.sent_now) = (true, false);
                     held.push(q.prompt_id.clone());
-                } else if persons && !q.sent_now && !q.steer && !q.awaiting_owner {
+                } else if persons && !q.steer && !q.awaiting_owner {
                     // The person's own waiting prompt: it waits for them to send it. One a failed
-                    // turn held already is the Stop's now too, so the queue says it was stopped.
-                    (q.held, q.held_by_stop) = (true, true);
+                    // turn held already is the Stop's now too, so the queue says it was stopped,
+                    // and so is one sent now before the Stop: the Stop came after it.
+                    (q.held, q.held_by_stop, q.sent_now) = (true, true, false);
                     held.push(q.prompt_id.clone());
                 }
             }
@@ -363,12 +362,12 @@ impl Hub {
         prompt_id: &str,
     ) -> Result<(), RpcError> {
         let running = self.stop_prompt_retry(session, prompt_id)?;
-        self.cancel_matching(session, None, Some(running.as_deref().unwrap_or(prompt_id)), None).await
+        self.cancel_matching(session, None, Some(running.as_deref().unwrap_or(prompt_id)), false).await
     }
 
     /// A Stop while Claude compacts ends the turn at once and withdraws the person's queued
     /// prompts, a prompt promoted with Send now included, except `replacement` (an interrupt's
-    /// own prompt) and those the person's own Stop holds (`hold_queue_for_person`: they wait for
+    /// own prompt); the person's own Stop withdraws none (`hold_queue_for_person`: they wait for
     /// the person to send them); other agents' messages are held, never dropped
     /// (`hold_agent_messages`).
     /// Any other Stop withdraws nothing: the queue runs on once the turn ends.
@@ -377,7 +376,7 @@ impl Hub {
         session: &Arc<Session>,
         replacement: Option<&str>,
     ) -> Result<(), RpcError> {
-        self.cancel_matching(session, replacement, None, None).await
+        self.cancel_matching(session, replacement, None, false).await
     }
 
     async fn cancel_matching(
@@ -385,9 +384,9 @@ impl Hub {
         session: &Arc<Session>,
         replacement: Option<&str>,
         expected_prompt: Option<&str>,
-        // A person's Stop: when it began (ms). A prompt queued since is the person's next send,
-        // never withdrawn by a compaction Stop.
-        person_since: Option<u64>,
+        // A person's Stop (`person_stop`): it withdraws none of the person's prompts, those it
+        // holds, one they send after it, nor a steer already on its way.
+        persons: bool,
     ) -> Result<(), RpcError> {
         // Match and fence while holding the turn identity lock. A workflow's stale
         // child record must not cancel a queued/person turn that replaced its prompt.
@@ -479,7 +478,7 @@ impl Hub {
                         && !q.held_by_stop
                         // A guest's prompt that waits for the owner is the owner's to decide.
                         && !q.awaiting_owner
-                        && person_since.is_none_or(|since| q.queued_at < since)
+                        && !persons
                 })
                 .map(|q| q.prompt_id.clone())
                 .collect();
