@@ -367,9 +367,13 @@ def trial(run: Run, arm: str, drivers: dict, target: dict, witness: dict, gestur
     except Exception as error:
         row["error"] = str(error)[:1200]
         # A driver that refuses because a window is in front: keep what was on screen, once a run.
+        # A diagnostic that fails leaves the trial as the driver's refusal.
         if "in front" in row["error"] and run.obstruction is None:
-            run.obstruction = {"arm": arm, "target": target["name"], "error": row["error"],
-                               "windows": sh([run.inject, "windows"]).get("windows")}
+            try:
+                windows = sh([run.inject, "windows"]).get("windows")
+            except Exception as failed:
+                windows = {"error": str(failed)[:600]}
+            run.obstruction = {"arm": arm, "target": target["name"], "error": row["error"], "windows": windows}
     row["call_ms"] = round((time.monotonic() - started) * 1000, 1)
     time.sleep(AFTER_S)
     after = sh([run.inject, "observe"])
