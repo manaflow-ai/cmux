@@ -153,3 +153,47 @@ test("unreachable and subagent states remain factual with custom verbs", () => {
   expect(container.textContent).toContain("Waiting on 2 subagents");
   expect(container.textContent).not.toContain("Imagining");
 });
+
+test("a new call rolls the live line's words: the old rise out above, the new restart their roll in", () => {
+  const output = () => container.querySelector("output.cv-thinking")!;
+  act(() => root!.render(<Thinking since={0} now={() => 1_000} />));
+  // The first words roll nothing in.
+  expect(container.querySelector(".cv-roll-out")).toBeNull();
+  expect(output().hasAttribute("data-roll")).toBe(false);
+
+  act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="Read App.tsx" doingAt={1} />));
+  const first = output();
+  let out = container.querySelector(".cv-roll-out")!;
+  expect(out.getAttribute("data-text")).toBe("Thinking");
+  expect(out.getAttribute("aria-hidden")).toBe("true");
+  // The old words are drawn from attributes: the line's text says only the new call.
+  expect(out.textContent).toBe("");
+  expect(container.querySelector(".cv-worked")?.textContent).toBe("Read App.tsx1s");
+  expect(first.getAttribute("data-roll")).toBe("odd");
+
+  act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="ls -la" doingShell doingAt={2} command />));
+  out = container.querySelector(".cv-roll-out")!;
+  // The action keeps its full ink as it leaves.
+  expect(out.getAttribute("data-lead")).toBe("Read");
+  expect(out.getAttribute("data-text")).toBe(" App.tsx");
+  // The same live region, its roll restarted by the swapped keyframes.
+  expect(output()).toBe(first);
+  expect(first.getAttribute("data-roll")).toBe("even");
+
+  // The same words again (a tick) roll nothing.
+  act(() => root!.render(<Thinking since={0} now={() => 2_000} doing="ls -la" doingShell doingAt={2} command />));
+  expect(first.getAttribute("data-roll")).toBe("even");
+});
+
+test("the playful verb's own rotation does not roll the live line", () => {
+  act(() =>
+    setChatDisplay({
+      "agentPane.display.statusVerbs.mode": "custom",
+      "agentPane.display.statusVerbs.custom": "Planning, Reading",
+    }),
+  );
+  act(() => root!.render(<Thinking since={0} now={() => 0} />));
+  act(() => root!.render(<Thinking since={0} now={() => 2_400} />));
+  expect(container.querySelector(".cv-thinking")?.textContent).toContain("Reading");
+  expect(container.querySelector(".cv-roll-out")).toBeNull();
+});
