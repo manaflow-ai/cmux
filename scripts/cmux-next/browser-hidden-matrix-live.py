@@ -194,6 +194,13 @@ def first_tab_of(window_id):
     return next((p.get("selected") for p in w.get("topology") or [] if p.get("selected")), None)
 
 
+def minimized_window():
+    """True once an app window is minimized and occluded (`debug.window_list`)."""
+    reply = rpc("debug.window_list") or {}
+    listed = reply.get("windows") if isinstance(reply, dict) else reply
+    return any(w.get("miniaturized") and w.get("occluded") for w in listed or [] if isinstance(w, dict))
+
+
 def new_window():
     before = {w.get("id") for w in windows()}
     action("newWindow", focus=True)
@@ -249,6 +256,10 @@ def build(engines, states):
                 tabs[(engine, state)] = tab
                 if state == "minimized":
                     action("minimizeWindow", target=f"window:{window}", focus=False)
+                    # The Dock animation ends later: a verb run before it ends meets a window that
+                    # still draws, and one during it meets the change mid-call.
+                    if not wait(minimized_window, 20):
+                        print("note: the window did not report minimized in 20 s", flush=True)
     # The person's place: the control workspace in the first window, key and in front.
     rpc("debug.window.focus", {"window": home})
     action("workspace.select", target=f"workspace:{home_ws}", focus=True)
