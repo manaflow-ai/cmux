@@ -142,6 +142,15 @@ public final class RemoteViewPageSession {
     /// The mode the next rd session starts in (tests).
     var nextSessionControls: Bool { rdControl }
 
+    /// Take over (`control`) or Hand back (`view`), as the toolbar button does. False when this
+    /// session has no Take over (only a Cloud desktop does).
+    @discardableResult
+    public func selectMode(_ mode: RemoteControlMode) -> Bool {
+        guard pane.state.modeControl == .takeOver else { return false }
+        pane.selectMode(mode)
+        return true
+    }
+
     /// The pane (tests).
     var paneForTesting: RemoteDesktopPane { pane }
 

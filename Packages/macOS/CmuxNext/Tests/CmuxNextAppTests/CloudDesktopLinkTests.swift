@@ -136,4 +136,24 @@ import Testing
         #expect(made == [false, true, false])
         session.end()
     }
+
+    /// `remote_view.mode` (release builds): Take over on a Cloud desktop tab's session, as the
+    /// button does; a session without Take over refuses.
+    @Test func theControlSurfaceSwitchesModeOnACloudDesktop() throws {
+        var made: [Bool] = []
+        let record = try #require(RemoteViewTabRecord(host: "vm-1", target: .virtual, mode: .view, cloudDesktop: true, cloudRd: true))
+        let session = try #require(RemoteViewPageSession.make(record: record, closeTab: {}, cloudRd: { _ in
+            { control in
+                made.append(control)
+                return RemoteRdStreamTransport(carrier: RecordingCarrier(), hello: RemoteRdHello.cloudDesktop(install: "test"),
+                                               startKey: "k", control: control)
+            }
+        }))
+        session.resume()
+        #expect(session.selectMode(.control))
+        #expect(made == [false, true])
+        #expect(session.selectMode(.control), "the mode in force changes nothing")
+        #expect(made == [false, true])
+        session.end()
+    }
 }
