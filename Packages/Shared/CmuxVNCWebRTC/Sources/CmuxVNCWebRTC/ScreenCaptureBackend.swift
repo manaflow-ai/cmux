@@ -38,6 +38,10 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     /// The newest of them (nil once a frame goes out): the host's keep-alive
     /// sends it, so a cursor the gate missed shows within a second.
     private var held: (buffer: CVPixelBuffer, crop: CGRect)?
+    /// The stream whose frames go on (the one starting or running): a frame
+    /// the previous stream sends while it stops is dropped, so it can't show
+    /// the old display or seed the skip gate for the new one.
+    private var delivering: ObjectIdentifier?
     /// The pointer position read for the frame before (sent or not).
     private var lastPointer: CGPoint?
     private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
@@ -221,10 +225,19 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         // A new capture's first frame always goes out, whatever its dirty rects say.
         lock.withLock {
+            delivering = ObjectIdentifier(stream)
             lastDelivered = nil
             held = nil
         }
-        try await stream.startCapture()
+        do {
+            try await stream.startCapture()
+        } catch {
+            // The running stream (if any) goes on delivering.
+            lock.withLock {
+                if delivering == ObjectIdentifier(stream) { delivering = self.stream.map(ObjectIdentifier.init) }
+            }
+            throw error
+        }
         // stop() may have run while this capture started: it then ends here, never stored.
         let (previous, late, latest, generation) = lock.withLock { () -> (SCStream?, Bool, Int, Int) in
             if stopped { return (nil, true, rate, streamGeneration) }
@@ -239,14 +252,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             try? await stream.stopCapture()
             return
         }
-        if let previous {
-            try? await previous.stopCapture()
-            // The old stream's last frames may have set these while this one started.
-            lock.withLock {
-                lastDelivered = nil
-                held = nil
-            }
-        }
+        if let previous { try? await previous.stopCapture() }
         input.display = display.frame
         log("capturing display \(display.displayID) at \(Int(size.width))x\(Int(size.height)), \(rate) fps")
         // The rate changed while this capture started (setFrameRate found no stream to update).
@@ -261,7 +267,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         let size = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
         let dirtyRects = (attachments.first?[.dirtyRects] as? [Any]).map { $0.count }
         let pointer = CGEvent(source: nil)?.location
+        let id = ObjectIdentifier(stream)
         let sink = lock.withLock { () -> (@Sendable (CVPixelBuffer, CGRect) -> Void)? in
+            guard delivering == id else { return nil }
             defer { lastPointer = pointer }
             guard Self.delivers(dirtyRectCount: dirtyRects, size: size, pointer: pointer, last: lastDelivered,
                                 previousPointer: lastPointer) else {
