@@ -350,6 +350,47 @@ try {
     expect(copied).toEqual([text]);
   });
 
+  // Leo, 2026-11-05, on the sent bubble's chip: "I think this is almost kind of interesting, but
+  // it's, like, really awkward". It said "1 line" over a paragraph of hundreds of words, in an
+  // outlined box that showed its first five words above the whole text once opened.
+  test("a one-paragraph paste's chip previews its first lines, says its size and opens in place", () => {
+    resetTranscriptDisclosure();
+    const typed = "Can you tighten this up?";
+    const paste = Array.from({ length: 900 }, (_, index) => `word${index}`).join(" ");
+    const text = `${typed}\n${paste}`;
+    const start = typed.length + 1;
+    remount(prompt("user-9", text, { pasted: [{ start, end: start + paste.length }] }));
+    const chip = host.querySelector<HTMLButtonElement>(".cv-user__paste")!;
+    // The composer's label: what it is and its size, never "1 line" for one long paragraph.
+    expect(chip.querySelector(".cv-user__paste-name")?.textContent).toBe(translate("composer.pastedText"));
+    const chars = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(paste.length);
+    expect(chip.querySelector(".cv-user__paste-lines")?.textContent).toBe(
+      translate("composer.pastedChars", { count: chars }),
+    );
+    // No outlined attachment box inside the bubble.
+    expect(host.querySelector(".cv-user__paste-block .acpmux-attachment")).toBeNull();
+    // Closed, the paste's own first lines show, wrapped at the bubble's width: far more than five
+    // words, never the whole paste, and outside Find.
+    const preview = host.querySelector<HTMLElement>(".cv-user__paste-text")!;
+    expect(preview).not.toBeNull();
+    expect(preview.textContent!.length).toBeGreaterThan(200);
+    expect(preview.textContent!.length).toBeLessThan(paste.length);
+    expect(paste.startsWith(preview.textContent!)).toBe(true);
+    expect(preview.closest("[data-find-skip]")).not.toBeNull();
+    click(chip);
+    // Open, the same text grows to the whole paste in place, and Find reads it.
+    const opened = host.querySelector<HTMLElement>(".cv-user__paste-text")!;
+    expect(opened).toBe(preview);
+    expect(opened.textContent).toBe(paste);
+    expect(opened.closest("[data-find-skip]")).toBeNull();
+    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("true");
+    // The label closes it again; a click on the closed preview opens it too.
+    click(host.querySelector(".cv-user__paste")!);
+    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("false");
+    click(host.querySelector(".cv-user__paste-text")!);
+    expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("true");
+  });
+
   test("Find opens the closed paste chip that holds the match", () => {
     resetTranscriptDisclosure();
     const typed = "See the log";
