@@ -4,7 +4,8 @@ name: screen stream eval
 # WebRTC through the same fixed scenarios (key and pointer glass-to-glass, kbps idle, typing and
 # scrolling, 13 pt code OCR error, encode/network/decode split) on one console Mac, every day at the
 # feat-cmux-next tip. Report only, no gate: the run uploads results.json and a summary.md that
-# compares each number with the last successful scheduled run. It goes through the build-fleet
+# compares each number with the last successful scheduled run (artifacts keep 3 days, the repo's
+# limit, so a daily run always finds yesterday's). It goes through the build-fleet
 # gateway runner, which only hands the step to the controller with `cmux-ci run`.
 
 on:
@@ -111,4 +112,4 @@ jobs:
             artifacts/screen-stream-eval/results.json
             artifacts/screen-stream-eval/summary.md
           if-no-files-found: ignore
-          retention-days: 90
+          retention-days: 3
