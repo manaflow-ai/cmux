@@ -454,6 +454,16 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## A dropped card covers no leaving row (2026-11-05)
+
+Leo 2026-11-05: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit." His
+recording: claude-sr2-coord, the Coordinators group's one workspace, dropped where the header stood. The emptied
+header faded in place under the landing card, which draws no material in a translucent window (#32330), so
+"Coordinators" read through "claude-sr2-coord" for the fade. A row the drop or the model takes away now goes at
+once when a settling or flying card's path covers it, from where its flight began to its slot (`flightStart`,
+`isUnderCard`, `dropLeavingRows`); rows elsewhere still fade. The lift's see-through look (Leo 2026-10-23) and the held drag are unchanged. Regression:
+`SidebarDropUnderCardTests`.
+
 ## Rename field on a whole pixel (2026-11-02)
 
 User 2026-10-31: "double click to rename workspaces must not have layout shift". Since #27598 a title can
