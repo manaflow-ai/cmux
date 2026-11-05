@@ -77,7 +77,7 @@ import {
 } from "../devbox-image-common";
 import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
-import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
+import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines, RD_SOCKET, RD_SOCKET_UNIT, rdSetupCommand } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
@@ -652,9 +652,15 @@ async function installMachineHealth(ctx: Ctx): Promise<void> {
 /** Agent tools (agent-tools.ts): after configureRoles, whose check refuses any installed first-use package. */
 async function installAgentTools(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
+  // Before anything runs on the builder: a lock without cmux-rd fails here (rdHostPath).
+  const files = agentToolsFiles(lock);
   for (const phase of browserRoleBakePhases(lock)) await L.step(vm, phase.name, phase.command);
-  for (const file of agentToolsFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  for (const file of files) await writeGuestFile(vm, file.path, file.text, file.mode);
   ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand()}`)).trim().split("\n").at(-2);
+  // Role desktop: the image record says this image carries the cmux-rd host (the platform's desktop capability).
+  await L.step(vm, "agent-tools-desktop", rdSetupCommand());
+  const rd = lock.programs.find((p) => p.name === "cmux-rd")!;
+  ctx.result.desktop = { role: "desktop", program: rd.name, version: rd.version, socketUnit: RD_SOCKET_UNIT, socket: RD_SOCKET };
 }
 
 /**
@@ -759,6 +765,8 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const t0 = Date.now();
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
   try {
+    // --agent-tools needs the cmux-rd release pinned: fail before a builder exists.
+    if (options.agentTools) agentToolsFiles(lock);
     builder = await createVm(fs, ledger, { name, snapshotId: lock.base.snapshot, allowUnprefixed: options.promotion || options.prodCopy === true });
     result.builderVmId = builder.vmId;
     await firstExec(builder.vm, builder.t0);

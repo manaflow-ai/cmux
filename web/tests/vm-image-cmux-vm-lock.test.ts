@@ -6,6 +6,7 @@ import {
   bakedPrograms,
   chromeForTestingShape,
   cmuxCuaReleaseShape,
+  cmuxRdReleaseShape,
   DEFAULT_LOCK_PATH,
   diffCounts,
   diffFileManifests,
@@ -469,5 +470,43 @@ describe("cmux-browser-host 1.0.0-r1 in the browser role (release cmux-browser-h
     expect(problems).toContain(`programs[${hostIndex()}].otherArches.aarch64.sha256: missing or not 64 lowercase hex`);
     expect(problems).toContain(`programs[${hostIndex()}].otherArches.riscv: unknown arch`);
     expect(problems).toContain(`programs[${hostIndex()}].notices: "../LICENSE" must be a relative path inside the store entry`);
+  });
+});
+
+describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> on manaflow-ai/cmux)", () => {
+  const entry = (version = "0.1.0") => ({ ...cmuxRdReleaseShape(version), sha256: "cd".repeat(32), size: 4096 });
+  const withRd = (patch: Record<string, unknown> = {}) => {
+    const raw = fresh();
+    raw.programs = raw.programs.filter((p: { name: string }) => p.name !== "cmux-rd");
+    raw.programs.push({ ...entry(), ...patch });
+    return raw;
+  };
+  const rdIndex = (raw: Record<string, any>) => raw.programs.findIndex((p: { name: string }) => p.name === "cmux-rd");
+
+  test("the shape is the release tarball, checked against the release checksums.txt, baked in role desktop", () => {
+    expect(cmuxRdReleaseShape("0.1.0")).toEqual({
+      name: "cmux-rd",
+      version: "0.1.0",
+      url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.1.0/cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      format: "tar.gz",
+      bin: { "cmux-rd": "cmux-rd-0.1.0-x86_64-unknown-linux-gnu/cmux-rd" },
+      versionArgs: [],
+      checksumsUrl: "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.1.0/checksums.txt",
+      checksumsName: "cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      roles: ["desktop"],
+    });
+    expect(problemsOf(withRd())).toEqual([]);
+    const lock = validateInputsLock(withRd());
+    expect(bakedPrograms(lock).map((p) => p.name)).toContain("cmux-rd");
+    expect(profileLinks(lock).find((l) => l.command === "cmux-rd")?.target).toBe(`/opt/cmux/store/${"cd".repeat(32)}/cmux-rd-0.1.0-x86_64-unknown-linux-gnu/cmux-rd`);
+    expect(programInstallCommand(lock.programs[rdIndex(withRd())])).toContain(`grep -qx '${"cd".repeat(32)}  cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz'`);
+  });
+
+  test("another URL, no checksums.txt, no desktop role or a first-use entry is refused", () => {
+    const at = rdIndex(withRd());
+    expect(problemsOf(withRd({ url: "https://example.com/cmux-rd.tar.gz" }))).toContain(`programs[${at}].url: must be ${cmuxRdReleaseShape("0.1.0").url}`);
+    expect(problemsOf(withRd({ checksumsUrl: undefined, checksumsName: undefined })).some((p) => p.startsWith(`programs[${at}].checksumsUrl: must be`))).toBe(true);
+    expect(problemsOf(withRd({ roles: ["cua"] }))).toContain(`programs[${at}].roles: cmux-rd is in the desktop role`);
+    expect(problemsOf(withRd({ firstUse: true })).some((p) => p.includes("cmux-rd is baked"))).toBe(true);
   });
 });

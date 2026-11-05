@@ -14,7 +14,10 @@
  *    terminal, and an MCP client lists its tools and calls them: the browser host takes a
  *    screenshot of a loopback page (the daemon socket-activates the host), and cmux-cua takes a
  *    screenshot of the Xvfb display (the wrapper starts it) with a Chrome window on it.
- * 3. The agent step (a Claude Code session that lists the tools and takes both screenshots
+ * 3. Desktop (role desktop): the cmux-rd host's user, run dir and socket; the work user cannot
+ *    connect to the socket (EACCES) or read the host's cookie copy; a root connection (the link
+ *    receiver's side) starts the host, which runs as its own user with no TCP listener.
+ * 4. The agent step (a Claude Code session that lists the tools and takes both screenshots
  *    itself) runs only with `--model-route edge` on a machine the backend created (`--vm`),
  *    whose agents reach the model through the coderouter edge. Otherwise it is UNVERIFIED.
  *
@@ -30,7 +33,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
-import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_TOOLS_BIN, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, WORK_USER_CMUX_JSON } from "./agent-tools";
+import { A11Y_TEMPLATE_UNIT, AGENT_DISPLAY, AGENT_TOOLS_BIN, AGENT_XAUTHORITY, CUA_UNIT, DISPLAY_TEMPLATE_UNIT, DISPLAY_UNIT, RD_RUN_DIR, RD_SOCKET, RD_SOCKET_UNIT, RD_UNIT, RD_USER, RD_XAUTHORITY, WORK_USER_CMUX_JSON } from "./agent-tools";
 import { createVm, deleteVm, firstExec, freestyleClient, Ledger, run, type Vm } from "./guest";
 import { CURRENT_BIN, sq } from "./lock";
 
@@ -346,6 +349,72 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
   check("browser-host-socket-activated-sandbox-on", Number(hosts) >= 1 && sandboxOff === "0", `hosts=${hosts} sandbox-off-switches=${sandboxOff}`);
 }
 
+/** Connects RD_SOCKET and prints `connected` or the errno name; with `holdSeconds`, keeps the connection open that long. */
+export function rdConnectCommand(holdSeconds = 0): string {
+  const py = `import errno, socket, sys, time
+s = socket.socket(socket.AF_UNIX)
+try:
+    s.connect(sys.argv[1])
+except OSError as e:
+    print("connect=" + errno.errorcode.get(e.errno, str(e.errno))); sys.exit(0)
+print("connect=connected"); sys.stdout.flush(); time.sleep(float(sys.argv[2]))`;
+  return `python3 -I -c ${sq(py)} ${RD_SOCKET} ${holdSeconds}`;
+}
+
+/** The desktop host's user, run dir, socket and units before any connection (as root). */
+export function rdStaticCheckCommand(): string {
+  return [
+    `echo "rd-user=$(getent passwd ${RD_USER} | cut -d: -f7)"`,
+    `echo "rd-groups=$(id -nG ${RD_USER} | tr ' ' ',')"`,
+    `echo "rd-run-dir=$(stat -c '%a:%U:%G' ${RD_RUN_DIR})"`,
+    `echo "rd-socket=$(stat -c '%F:%a:%U' ${RD_SOCKET})"`,
+    `echo "rd-socket-unit=$(systemctl is-active ${RD_SOCKET_UNIT})"`,
+    `echo "rd-socket-enabled=$(systemctl is-enabled ${RD_SOCKET_UNIT})"`,
+    `echo "rd-unit=$(systemctl is-active ${RD_UNIT})"`,
+  ].join("; ");
+}
+
+/** As root: a connection held open starts the host (bounded: the first start downloads OpenH264); then who runs it and what it listens on. */
+export function rdActivateCommand(waitSeconds = 90): string {
+  return [
+    `{ ${rdConnectCommand(waitSeconds + 10)} > /tmp/cmux-rd-probe-connect.txt 2>&1 & held=$!; }`,
+    `for i in $(seq 1 ${waitSeconds * 5}); do pid=$(systemctl show -p MainPID --value ${RD_UNIT}); [ "\${pid:-0}" != 0 ] && break; sleep 0.2; done`,
+    "sleep 1",
+    `pid=$(systemctl show -p MainPID --value ${RD_UNIT})`,
+    `echo "rd-unit-active=$(systemctl is-active ${RD_UNIT})"`,
+    `echo "rd-host-user=$(ps -o user= -p "\${pid:-0}" 2>/dev/null | tr -d ' ')"`,
+    `echo "rd-host-cmd=$(tr '\\0' ' ' < /proc/\${pid:-0}/cmdline 2>/dev/null | sed 's/^[^ ]*cmux-rd /cmux-rd /')"`,
+    `echo "rd-host-tcp=$(ss -Htlnp 2>/dev/null | grep -c "pid=\${pid:-0}," || true)"`,
+    `echo "rd-xauth=$(stat -c '%a:%U' ${RD_XAUTHORITY} 2>/dev/null)"`,
+    `sed 's/^/rd-root-/' /tmp/cmux-rd-probe-connect.txt`,
+    'kill "$held" 2>/dev/null; wait "$held" 2>/dev/null; true',
+  ].join("; ");
+}
+
+/** As the work user: the socket refuses it, and the host's cookie copy is unreadable. */
+export function rdWorkUserCommand(): string {
+  return [`${rdConnectCommand(0)} | sed 's/^/work-/'`, `if cat ${RD_XAUTHORITY} >/dev/null 2>&1; then echo work-xauth=readable; else echo work-xauth=unreadable; fi`].join("; ");
+}
+
+/** Desktop checks (role desktop): nothing the work user can reach admits a viewer; a root connection starts the host as its own user. */
+async function desktopChecks(vm: Vm, check: Checker): Promise<void> {
+  const s = kv((await run(vm, rdStaticCheckCommand())).stdout);
+  check("rd-user", s["rd-user"] === "/usr/sbin/nologin" && s["rd-groups"] === RD_USER, `shell ${s["rd-user"]}, groups ${s["rd-groups"]} (not ${DEVBOX_WORK_USER}, no sudo)`);
+  check("rd-run-dir-and-socket-root-only", s["rd-run-dir"] === `710:root:${RD_USER}` && s["rd-socket"] === "socket:600:root", `${RD_RUN_DIR} ${s["rd-run-dir"]}, ${RD_SOCKET} ${s["rd-socket"]}`);
+  check("rd-socket-enabled-host-off", s["rd-socket-unit"] === "active" && s["rd-socket-enabled"] === "enabled" && s["rd-unit"] === "inactive", `socket ${s["rd-socket-unit"]}/${s["rd-socket-enabled"]}, host ${s["rd-unit"]}`);
+  const before = kv((await run(vm, rdWorkUserCommand(), 30_000, DEVBOX_WORK_USER)).stdout);
+  check("rd-work-user-refused", before["work-connect"] === "EACCES", `connect as ${DEVBOX_WORK_USER}: ${before["work-connect"]}`);
+  const a = kv((await run(vm, rdActivateCommand(), 150_000)).stdout);
+  check(
+    "rd-root-connection-starts-host-as-its-user",
+    a["rd-root-connect"] === "connected" && a["rd-unit-active"] === "active" && a["rd-host-user"] === RD_USER && (a["rd-host-cmd"] ?? "").includes("--listen-systemd") && a["rd-host-tcp"] === "0",
+    JSON.stringify({ connect: a["rd-root-connect"], unit: a["rd-unit-active"], user: a["rd-host-user"], cmd: a["rd-host-cmd"], tcpListeners: a["rd-host-tcp"] }),
+  );
+  check("rd-cookie-copy", a["rd-xauth"] === `600:${RD_USER}`, `${RD_XAUTHORITY} ${a["rd-xauth"]}`);
+  const after = kv((await run(vm, rdWorkUserCommand(), 30_000, DEVBOX_WORK_USER)).stdout);
+  check("rd-work-user-cannot-read-cookie", after["work-xauth"] === "unreadable" && after["work-connect"] === "EACCES", `${DEVBOX_WORK_USER}: ${RD_XAUTHORITY} ${after["work-xauth"]}, connect ${after["work-connect"]}`);
+}
+
 /** The agent itself, through the machine's own model route (no credential is written). */
 async function agentStep(vm: Vm, check: Checker, result: ProbeResult, outDir: string): Promise<void> {
   const list = terminalScript("list", [
@@ -375,6 +444,7 @@ export async function agentToolsProbe(vm: Vm, options: ProbeOptions): Promise<Pr
   if (!(await prepare(vm, check, result))) return result;
   const servers = await recordLaunch(vm, check, result, options.outDir);
   await callServers(vm, check, result, options.outDir, servers);
+  await desktopChecks(vm, check);
   const plan = agentStepPlan(options);
   if (plan.run) await agentStep(vm, check, result, options.outDir);
   else {
