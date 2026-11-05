@@ -619,6 +619,32 @@ const fontSizeVariants: Record<string, AgentPaneVariant> = Object.fromEntries(
   ),
 );
 
+/// Pastes `types` on the prompt as the system clipboard hands them over; `plain`, after Paste as
+/// Plain Text (⌘⇧V), as the prompt was before rich paste (richClipboard.ts).
+async function pasteTypes(ctx: PlayContext, types: Record<string, string>, settled: string, plain = false) {
+  const view = ctx.document.defaultView!;
+  if (plain) (ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement).acpmuxMarkdownField?.plainPaste();
+  const data = new view.DataTransfer();
+  for (const [type, value] of Object.entries(types)) data.setData(type, value);
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: data });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md")?.textContent?.includes(settled));
+}
+
+/// A bulleted reply as Claude's and ChatGPT's Copy put it on the clipboard (Leo's screenshots).
+const BULLETED_REPLY = [
+  "Continuing the landing pass:",
+  "",
+  "- **#21620** merged; no red of its own",
+  "- **#21621** typecheck fixed where `vp check` failed",
+  "- **#21200** waiting on review",
+].join("\n");
+
+/// HTML from a web page or Notes with a heading, a list and code.
+const HEADING_AND_CODE_HTML =
+  "<meta charset='utf-8'><h2>Retry plan</h2><ul><li>Retry only on <b>429</b> and <b>503</b></li><li>Back off from 200 ms</li></ul><pre><code class='language-ts'>await retry(send, { attempts: 3 });</code></pre>";
+
 export default agentPaneEntry({
   id: "agent-pane.composer",
   title: "Composer",
@@ -1020,6 +1046,39 @@ export default agentPaneEntry({
           throw new Error("the inline paste card must show the paste's first lines");
         if (!/131 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
           throw new Error("the inline paste card must say its line count");
+      },
+    },
+    // Leo (2026-11-05): "we don't even render bullet points properly in our thing when we're pasting
+    // that stuff in". Before: the bulleted reply goes in as literal "- " lines (Paste as Plain Text
+    // keeps that); after: an ordinary paste draws the same bullets typing "- " makes.
+    "paste-bulleted-reply-plain": {
+      note: 'Before, and still Paste as Plain Text (⌘⇧V): a bulleted reply copied from a chat goes in as its literal lines, each starting with "- " and **bold** as typed.',
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await pasteTypes(ctx, { "text/plain": BULLETED_REPLY }, "#21200", true);
+        if (ctx.document.querySelector(".acpmux-md li")) throw new Error("Paste as Plain Text must not draw a list");
+      },
+    },
+    "paste-bulleted-reply": {
+      note: "After: the same paste draws its intro line and three bullets, bold and inline code as the reply had them.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await pasteTypes(ctx, { "text/plain": BULLETED_REPLY }, "#21200");
+        if (ctx.document.querySelectorAll(".acpmux-md ul > li").length !== 3)
+          throw new Error("a pasted bulleted reply must draw three bullets");
+      },
+    },
+    "paste-heading-and-code": {
+      note: "HTML from a web page or Notes with a heading, a list and code: a heading, two bullets and a code block in the prompt.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await pasteTypes(
+          ctx,
+          { "text/html": HEADING_AND_CODE_HTML, "text/plain": "Retry plan\nRetry only on 429 and 503" },
+          "attempts",
+        );
+        if (!ctx.document.querySelector(".acpmux-md h2") || !ctx.document.querySelector(".acpmux-md pre"))
+          throw new Error("a pasted heading and code block must draw as a heading and a code block");
       },
     },
     // Leo (2026-10-28): "double paste of long block text should reveal it instead of duplicating
