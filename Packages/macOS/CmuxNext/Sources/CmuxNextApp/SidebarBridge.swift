@@ -165,6 +165,11 @@ final class SidebarBridge {
             self.showProfiles(profiles, active: active, launching: launching)
             self.show(SidebarSection.decorated(feed.fill(sections), decorations), shownAt: shownAt, layout: shown, launching: launching, failed: failed,
                       creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
+            // A grouped create this pass listed loose (and left out) joins its group now: the document's move draws it
+            // there on the next pass, its first frame.
+            for (id, group) in PendingWorkspaceRows.shared.groupJoins.takeDue(in: windowState.id) {
+                AgentSessionWorkspace.join(id, group: group, sidebar: self)
+            }
             services.windows.retryDeferredPlacements() // before pending stand-ins are forgotten
             // A workspace the window lists shows its own row from here on (cx-9a7wx). No create waits: no walk of every row.
             guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }

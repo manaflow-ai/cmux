@@ -1884,6 +1884,11 @@ if ! is_positive_integer "$XCODEBUILD_LOCK_WAIT_SECONDS"; then
   echo "error: xcodebuild lock wait timeout must be a positive integer" >&2
   exit 1
 fi
+# The commit and dirty state the build is made from, read before it starts: a checkout that moves
+# during the build must not stamp the app with a commit it was not built from (Info.plist below).
+build_commit="$(git rev-parse --verify -q HEAD 2>/dev/null || true)"
+build_dirty=false
+[[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]] && build_dirty=true
 # Xcode 26's SWBBuildService is a per-user singleton. Too many concurrent
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
@@ -2117,12 +2122,9 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     # The commit the build was made from, as the nightly stamps it, plus whether tracked files had
     # local changes then. try-pr sorts a PR against it (scripts/cmux-next/try-pr.sh), and crash
     # reports name it (CrashReportIdentity).
-    build_commit="$(git rev-parse --verify -q HEAD 2>/dev/null || true)"
     /usr/libexec/PlistBuddy -c 'Delete :CMUXCommit' "$INFO_PLIST" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c 'Delete :CMUXCommitDirty' "$INFO_PLIST" 2>/dev/null || true
     if [[ -n "$build_commit" ]]; then
-      build_dirty=false
-      [[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]] && build_dirty=true
       /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $build_commit" "$INFO_PLIST"
       /usr/libexec/PlistBuddy -c "Add :CMUXCommitDirty bool $build_dirty" "$INFO_PLIST"
     fi

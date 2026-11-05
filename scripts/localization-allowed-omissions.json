@@ -7149,6 +7149,14 @@
       "pt-BR": "Manual is the Portuguese adjective for a hand-set order, spelled as in English."
     }
   },
+  "github.tab.title": {
+    "class": "brand",
+    "source": "GitHub"
+  },
+  "github.page.title": {
+    "class": "brand",
+    "source": "GitHub"
+  },
   "remote.status.title": {
     "class": "brand",
     "source": "cmux Remote"

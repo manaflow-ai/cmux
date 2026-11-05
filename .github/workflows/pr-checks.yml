@@ -6,7 +6,7 @@ name: PR checks
 # workflows had (gallery-link.yml, pr-size-advisory.yml, cmux-next-split-guard.yml).
 # None of them fails a pull request. PR size warns on one over 800 lines with
 # no `Size:` line and runs on every push, a base-only one included.
-# pr-capture-check keeps its own workflow.
+# The description lints (pr-capture-check and three more) run in pr-body-checks.yml.
 #
 # Base-only updates: a push that only merged feat-cmux-next into the branch
 # skips the link and split-plan, whose answers stay the previous head's. On 2026-10-26,
@@ -362,7 +362,7 @@ jobs:
           sparse-checkout: scripts/ci/ui_review_advisory.py
           sparse-checkout-cone-mode: false
 
-      # The changed paths from the event's merge commit without blobs, as pr-design-spec-check.yml reads
+      # The changed paths from the event's merge commit without blobs, as pr-body-checks.yml reads
       # them: no API call. The paginated REST file list (one call a page, from the repository's shared
       # GITHUB_TOKEN budget) is only the fallback when git cannot answer.
       - name: Read changed files and body

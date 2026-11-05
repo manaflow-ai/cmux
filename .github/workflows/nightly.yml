@@ -1553,9 +1553,15 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
 
+      # The helper and the classic ghostty tree take the default Zig (PATH,
+      # CMUX_ZIG); the source archive's libghostty-vt tree (ghostty-next,
+      # 0.17.0) takes CMUX_VT_ZIG, a local install beside it.
       - name: Install Zig
         if: inputs.nightly_next_unsigned_run == ''
-        run: ./scripts/install-zig-ci.sh
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+          GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
 
       - name: Cache Zig packages
         if: inputs.nightly_next_unsigned_run == ''
@@ -2226,6 +2232,12 @@ jobs:
       # complete.
       - name: Install Zig for fast cmux-tui client
         if: inputs.nightly_next_unsigned_run == '' && (env.NIGHTLY_FAST_BUILD == 'true')
+        env:
+          # libghostty-vt (ghostty-vt-sys) builds from ghostty-next.
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          # Job-local install: this warm mini also runs classic jobs that need
+          # the Zig 0.16.0 in /usr/local/bin, so never replace it from here.
+          ZIG_FORCE_LOCAL_INSTALL: "1"
         run: ./scripts/install-zig-ci.sh
 
       - name: Build fast arm64 cmux-tui client

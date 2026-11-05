@@ -115,7 +115,11 @@ for reason, paths in sorted(json.load(sys.stdin)["reasons"].items()):
 # the Swift the PR was written against.
 if [[ "$verdict" == web-live && -f "$from/Contents/Info.plist" ]]; then
   recorded="$("$buddy" -c 'Print :CMUXCommit' "$from/Contents/Info.plist" 2>/dev/null || true)"
-  app_commit="$(git -C "$ROOT" rev-parse --verify -q "${recorded:-none}^{commit}" 2>/dev/null || true)"
+  # Only a hex commit id is looked up: an empty or other value never resolves as a ref name.
+  app_commit=""
+  if [[ "$recorded" =~ ^[0-9a-f]{7,40}$ ]]; then
+    app_commit="$(git -C "$ROOT" rev-parse --verify -q "${recorded}^{commit}" 2>/dev/null || true)"
+  fi
   # A reload build stamps CMUXCommitDirty when tracked files had local edits. Those are not in the
   # commit and may change or remove Swift the PR leans on, so no sort from the commit vouches for it.
   dirty="$("$buddy" -c 'Print :CMUXCommitDirty' "$from/Contents/Info.plist" 2>/dev/null || true)"
@@ -332,9 +336,17 @@ case "$verdict" in
     [[ -n "$dry" || -x "$ci" ]] || { echo "no cmux-ci client at $ci (CMUX_CI names another)" >&2; exit 1; }
     # A later push with the same tag and workspace supersedes a queued build of an older head.
     build=(build cmux --ref "$head" --tag "pr-$pr" --backend-mode local --workspace "try-pr:$pr:$(id -un)")
+    # Build ahead (cmuxterm-hq build_ahead.go): the fleet may already have built this head's tree
+    # (a prebuild, or anyone's equal build under another tag). Take it: the side instance opens
+    # whatever .app the job holds. An older client without --any-tag still matches tag pr-N.
+    build_help="$([[ -n "$dry" ]] || "$ci" build --help 2>/dev/null || true)"
+    if [[ -n "$dry" || "$build_help" == *--any-tag* ]]; then build+=(--any-tag); fi
     if [[ -n "$dry" ]]; then run "$ci" "${build[@]}"; if [[ -n "$here" ]]; then echo "would wait for it and print where it is"; else echo "would wait for it and open it as cmux PR #$pr"; fi; exit 0; fi
     job="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$("$ci" "${build[@]}")")"
     echo "fleet job $job"
+    # Done already means a build of this tree was ready: no build waited on.
+    state="$("$ci" status "$job" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("state", ""))' 2>/dev/null || true)"
+    if [[ "$state" == done ]]; then echo "built ahead: job $job already holds this tree's app"; fi
     "$ci" wait "$job" >&2 || { echo "job $job is not done; \`try-pr.sh $pr\` again picks up the same build" >&2; exit 1; }
     out="$side_root/builds/pr-$pr-${head:0:12}"
     if [[ ! -d "$out/bundle" ]]; then
