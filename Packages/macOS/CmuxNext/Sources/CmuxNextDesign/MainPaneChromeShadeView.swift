@@ -148,8 +148,12 @@ final class ChromeShadeFilletView: NSView {
         guard let content, let root, content.superview === root, alpha > 0, radius > 0, !card.isEmpty,
               card.maxY < content.frame.maxY - 0.5 else {
             isHidden = true
+            Self.roundsTop(content, true)
             return
         }
+        // The card's top is below the content's: the content's own top corners would clip the row above the
+        // card (the first tab's square corner under the squared tab look), so only its bottom corners round.
+        Self.roundsTop(content, false)
         if superview !== root { root.addSubview(self, positioned: .above, relativeTo: content) }
         frame = root.bounds
         isHidden = false
@@ -163,5 +167,17 @@ final class ChromeShadeFilletView: NSView {
         for x in [card.minX, card.maxX - r] { corners.addRect(CGRect(x: x, y: card.maxY - r, width: r, height: r)) }
         wedges.path = corners.subtracting(CGPath(roundedRect: card, cornerWidth: r, cornerHeight: r, transform: nil))
         wedges.fillColor = NSColor.black.withAlphaComponent(alpha).cgColor
+    }
+
+    /// Rounds all four of `content`'s layer corners, or only its bottom ones.
+    private static func roundsTop(_ content: NSView?, _ rounds: Bool) {
+        guard let content, let layer = content.layer else { return }
+        let bottom: CACornerMask = content.isFlipped ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        let corners: CACornerMask = rounds ? [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner] : bottom
+        guard layer.maskedCorners != corners else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.maskedCorners = corners
+        CATransaction.commit()
     }
 }
