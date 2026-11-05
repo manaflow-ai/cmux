@@ -2563,9 +2563,9 @@ def _run_action_profiled(self, action):
             for i in everything:
                 if i["name"] == "observation.track" and i["begin"] <= b and i["end"] >= a:
                     ms = (min(i["end"], b) - max(i["begin"], a)) * 1000
-                    row = per.setdefault(i.get("message") or "?", [0, 0.0, 0.0])
-                    row[1] += ms
-                    row[2] = max(row[2], ms)
+                    slot = per.setdefault(i.get("message") or "?", [0, 0.0, 0.0])
+                    slot[1] += ms
+                    slot[2] = max(slot[2], ms)
             for site, (w, total, longest) in per.items():
                 agg = sites.setdefault(site, {"windows": 0, "wakes": 0, "track_ms": 0.0, "max_track_ms": 0.0, "per_window_ms": []})
                 agg["windows"] += 1
