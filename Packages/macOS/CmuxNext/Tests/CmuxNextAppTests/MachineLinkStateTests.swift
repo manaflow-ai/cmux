@@ -53,5 +53,6 @@ import Testing
         #expect(Self.header(.paused, kind: .cloud).statusTone == .quiet)
         #expect(Self.header(.disconnected, kind: .cloud).statusTone == .attention)
         #expect(Self.header(.connected, kind: .local).statusTone == nil, "This Mac draws no dot while connected")
+        #expect(Self.header(.connected, kind: .cloud).statusTone == nil, "A Cloud header is a name, a chevron and a + while connected")
     }
 }

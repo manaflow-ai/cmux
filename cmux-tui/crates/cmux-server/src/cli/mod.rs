@@ -115,7 +115,9 @@ fn run_with_code(ctx: &Context<'_>, args: &[String]) -> u8 {
         }
         Err(e) if parsed.verb.first().is_some_and(|verb| verb == "pair") && !parsed.json => {
             let messages = crate::pairing::messages::current();
-            fail(false, &Error::new(e.kind, format!("{} ({})", messages.failed, e.message)))
+            let reason =
+                messages.explain(&e.message).map(|text| format!(": {text}")).unwrap_or_default();
+            fail(false, &Error::new(e.kind, format!("{}{reason} ({})", messages.failed, e.message)))
         }
         Err(e) => fail(parsed.json, &e),
     }

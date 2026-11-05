@@ -235,6 +235,7 @@ extension AgentTabStore {
             guard let id = try? services.cloud.localDeviceID() else { services.daemon.logger.error("agent tabs: no install id, new agent tabs are refused"); return nil }
             return AgentSessionRef.host(installID: id)
         }
+        tabs.resolveFormerLocalHosts = { [weak services] in Set(services?.cloud.installIDs.backendIDs().map(AgentSessionRef.host(installID:)) ?? []) }
         tabs.openProcess = { [weak services] chat, viewer in
             guard let services else { return false }
             return AgentProcessTerminal(services: services).open(viewer, beside: chat)
@@ -313,7 +314,7 @@ extension AgentTabStore {
             services.paneController(for: pane)?.selectWhenReportedKeepingFocus(surface: tab.surface)
         }
         tabs.showSplit = { [weak services] chat, key, focus in // the chat's pane: the split's provisional one has no controller yet
-            guard let services, let (_, pane) = services.locateTabOnAnyMachine(chat), let content = services.paneController(for: pane)?.workspace else { return { _ in } }
+            guard let services, let (_, pane) = services.locateTab(chat), let content = services.paneController(for: pane)?.workspace else { return { _ in } }
             let intent = focus ? content.beginFocusIntent() : nil
             if let intent { content.focus.expect(.tab(key), generation: intent) }
             BenchSpans.measure("split.layout") { content.applyCurrent() }
@@ -346,8 +347,7 @@ extension AgentTabStore {
         tabs.gitLink = { [weak services, weak tabs] key in
             guard let services else { return nil }
             guard let tabs, let (tab, _) = services.locateTabOnAnyMachine(key), let record = tab.agentSession,
-                  AgentPaneHostKind(record, localHost: tabs.localHost, chiefHost: tabs.chiefHost,
-                                    listedHere: services.machines.daemon(forTab: tab).isLocal) == .remote else { return services.agentGit.local }
+                  tabs.hostKind(record, listedHere: services.machines.daemon(forTab: tab).isLocal) == .remote else { return services.agentGit.local }
             // A tab naming another machine than the one listing it reads nothing (never this Mac's folder).
             guard let daemon = try? services.machines.agentDaemon(forTab: tab) else { return nil }
             return services.agentGit.link(for: daemon)
@@ -387,7 +387,7 @@ extension AgentTabStore {
             do {
                 daemon = try services.machines.agentDaemon(forTab: tab)
             } catch {
-                return AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: record.hostName ?? ""))
+                return AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: record.hostName ?? record.host))
             }
             let machine = record.hostName ?? services.machines.machineName(daemon.machineID) ?? daemon.machineID
             let session = record.session ?? tabs.sessions[tabs.resolve(key)]

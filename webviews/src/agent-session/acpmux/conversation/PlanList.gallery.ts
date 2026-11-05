@@ -171,7 +171,7 @@ export default agentPaneEntry({
       ),
     },
     "hat-tucked": {
-      note: "Settings > Agent Chat > Tuck Away Running Tray on (or the hat's chevron clicked): only a faint grabber at the composer's top middle, in the accent while work runs; hovered, an up chevron brings the hat back.",
+      note: "Settings > Agent Chat > Tuck Away Running Tray on (or the hat's chevron clicked): only a faint up chevron at the composer's top middle, in the accent while work runs; hovered, it brightens on a small pill and brings the hat back.",
       display: { "agentPane.display.trayTucked": true },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-tray-pull__tab"));
