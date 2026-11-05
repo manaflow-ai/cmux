@@ -1,72 +1,95 @@
 public import AppKit
-public import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDesign
-public import CoreVideo
+import CmuxNextWakeups
 
-/// The Chief Settings card's Computer section (cmux issue 31488), in the place of Messages' Find
-/// My on a contact: a "Computer" header, the Cloud machine's screen (16:10, view only), then its
-/// name and state. While the machine runs, its screen streams for as long as the card is open;
-/// paused, the screen says it is asleep. Hidden while ``HomeChiefComputer`` is nil (no paid plan,
-/// or no machine has run).
+/// The Chief profile card's Computer tab (cmux issue 31488): the Chief's own computer's screen
+/// (16:10, view only) with "<name>'s screen" under it (Lawrence's reference, 2026-11-04). While the
+/// computer runs and the tab shows, its screen refreshes, so the person watches the Chief work on
+/// it; asleep, the screen says so and is not woken. Hidden while ``HomeChiefComputer`` is nil (no
+/// paid plan, or the Chief never set up a computer), which also hides the tab.
 @MainActor
 public final class HomeChiefComputerSection: NSStackView {
     /// What the app gives the section; read only while the card is open.
-    public struct Source {
-        /// The account's Cloud machines (in the app's order) and whether the plan pays for Cloud,
-        /// read under observation so the section follows a machine pausing or starting.
-        public var directory: @MainActor @Sendable () -> (paid: Bool, machines: [CloudMachine])
-        /// Starts machine `id`'s desktop frames, view only: `frame` gets each newest frame and
-        /// `ended` runs once if the stream ends by itself. Returns how to stop it; nil when this
-        /// Mac cannot reach the machine's desktop.
-        public var frames: @MainActor (_ id: String, _ frame: @escaping @MainActor (CVPixelBuffer) -> Void,
-                                       _ ended: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)?
+    public struct Source: Sendable {
+        /// Whether the plan pays for cmux Cloud.
+        public var paid: @MainActor @Sendable () -> Bool
+        /// The Chief's name, for "<name>'s Computer".
+        public var chief: @MainActor @Sendable () -> String
+        /// The computer's status (``HomeChiefComputerRoute/status()``); nil when not known.
+        public var status: @MainActor @Sendable () async -> HomeChiefComputer.Status?
+        /// The screen now (``HomeChiefComputerRoute/screen()``); nil while it sleeps or is not reached.
+        public var screen: @MainActor @Sendable () async -> CGImage?
+        /// Paces the reads (a ``DemandTimer`` on it; tests pass a manual clock).
+        public var clock: any Clock<Duration>
 
-        public init(directory: @escaping @MainActor @Sendable () -> (paid: Bool, machines: [CloudMachine]),
-                    frames: @escaping @MainActor (String, @escaping @MainActor (CVPixelBuffer) -> Void,
-                                                  @escaping @MainActor () -> Void) -> (@MainActor () -> Void)?) {
-            self.directory = directory
-            self.frames = frames
+        public init(paid: @escaping @MainActor @Sendable () -> Bool, chief: @escaping @MainActor @Sendable () -> String,
+                    status: @escaping @MainActor @Sendable () async -> HomeChiefComputer.Status?,
+                    screen: @escaping @MainActor @Sendable () async -> CGImage?,
+                    clock: any Clock<Duration> = ContinuousClock()) {
+            self.paid = paid
+            self.chief = chief
+            self.status = status
+            self.screen = screen
+            self.clock = clock
+        }
+
+        /// The Chief's computer through its owner route.
+        public init(paid: @escaping @MainActor @Sendable () -> Bool, chief: @escaping @MainActor @Sendable () -> String,
+                    route: HomeChiefComputerRoute) {
+            self.init(paid: paid, chief: chief, status: { await route.status() }, screen: { await route.screen() })
         }
     }
+
+    /// A new frame about once a second while it runs (the Chief acts in steps of a second or more).
+    static let frameInterval: Duration = .milliseconds(900)
+    /// The state is read again this often while the card is open.
+    static let statusInterval: Duration = .seconds(8)
 
     /// Set by the app; nil keeps the section hidden.
     public var source: Source? {
         didSet { if isOpen { open() } }
     }
 
-    /// Runs when the section shows, hides or changes height (the card resizes).
-    var onResize: () -> Void = {}
+    /// Whether the screen is on show (the Computer tab is selected). While false only the state is
+    /// read, which is what says whether the tab exists at all; no frame is fetched for a hidden tab.
+    public var watchesScreen = true {
+        didSet { if watchesScreen != oldValue, isOpen { open() } }
+    }
+
+    /// Runs when the section shows or hides.
+    public var onResize: () -> Void = {}
+    /// Runs after each read is shown (the popup follows ``HomeChiefComputer/acting`` and its page opening).
+    public var onStatus: () -> Void = {}
 
     /// What the section shows now; nil hides it.
-    private(set) var shown: HomeChiefComputer?
-    /// The machine whose screen streams now (nil: none), and how to stop it.
-    private(set) var streaming: String?
-    private var stopStream: (@MainActor () -> Void)?
-    /// The stream of this machine ended by itself; it is not retried until its state changes.
-    private var endedStream: String?
-    private var isOpen = false
+    public private(set) var shown: HomeChiefComputer?
+    /// Frames shown since the card opened (tests).
+    private(set) var frames = 0
+    public private(set) var isOpen = false
+    /// The read in flight (one status and, while it runs, one frame).
     private var watch: Task<Void, Never>?
+    /// The next read, on the source's clock.
+    private var next: DemandTimer?
 
-    private let header = ThemedLabel(labelWithString: HomeEngineStrings.computerSection)
+    static let screenCorner: CGFloat = 14
     let screen = NSView()
     private let message = ThemedLabel(labelWithString: "")
-    private let symbol = ThemedImageView()
-    private let name = ThemedLabel(labelWithString: "")
-    private let state = ThemedLabel(labelWithString: "")
+    private let sleepFace = HomeChiefComputerSleepFace()
+    let caption = ThemedLabel(labelWithString: "")
 
     public init() {
         super.init(frame: .zero)
         orientation = .vertical
-        alignment = .leading
-        spacing = Metrics.space2
-        header.font = Typography.header
-        header.ink = .secondary
-        header.setAccessibilityRole(.staticText)
-        header.setAccessibilityIdentifier("cmux.home.chief.computer")
+        alignment = .centerX
+        spacing = 10
+        caption.font = Typography.system(size: TypeScale.detail, weight: TypeScale.regular)
+        caption.ink = .secondary
+        caption.alignment = .center
+        caption.lineBreakMode = .byTruncatingTail
+        caption.setAccessibilityIdentifier("cmux.home.chief.computer")
         screen.wantsLayer = true
-        screen.layer?.backgroundColor = NSColor.black.cgColor
-        screen.layer?.cornerRadius = Metrics.densityPaneCornerRadius
+        screen.layer?.cornerRadius = Self.screenCorner
         screen.layer?.cornerCurve = .continuous
         screen.layer?.masksToBounds = true
         screen.layer?.contentsGravity = .resizeAspect
@@ -74,37 +97,15 @@ public final class HomeChiefComputerSection: NSStackView {
         screen.setAccessibilityRole(.image)
         screen.setAccessibilityIdentifier("cmux.home.chief.computer.screen")
         screen.translatesAutoresizingMaskIntoConstraints = false
-        message.font = Typography.caption
-        message.ink = .secondary
+        message.font = Typography.system(size: TypeScale.field, weight: TypeScale.regular)
         message.alignment = .center
-        symbol.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .title2)
-        symbol.ink = .secondary
-        let note = NSStackView(views: [symbol, message])
+        let note = NSStackView(views: [sleepFace, message])
         note.orientation = .vertical
         note.alignment = .centerX
-        note.spacing = Metrics.space1
+        note.spacing = 6
         note.translatesAutoresizingMaskIntoConstraints = false
         screen.addSubview(note)
-        // The screen's note is always light on its black glass, in either theme.
-        screen.appearance = NSAppearance(named: .darkAqua)
-        name.font = Typography.body
-        name.lineBreakMode = .byTruncatingTail
-        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        state.font = Typography.body
-        state.ink = .secondary
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
-        let row = NSStackView(views: [name, spacer, state])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = Metrics.space2
-        row.setAccessibilityElement(true)
-        row.setAccessibilityIdentifier("cmux.home.chief.computer.state")
-        // Says plainly that this is the Chief's own machine, which it uses for computer-use tasks (34263).
-        let ownComputer = HomeChiefSettingsView.footnote(HomeEngineStrings.computerNote)
-        ownComputer.preferredMaxLayoutWidth = HomeChiefSettingsView.width - 2 * HomeChiefSettingsView.inset
-        ownComputer.setAccessibilityIdentifier("cmux.home.chief.computer.note")
-        for view in [header, screen, row, ownComputer] as [NSView] {
+        for view in [screen, caption] as [NSView] {
             addArrangedSubview(view)
             view.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
         }
@@ -120,95 +121,125 @@ public final class HomeChiefComputerSection: NSStackView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    /// The card opened: follow the machines, and stream a running machine's screen.
-    func open() {
+    /// The card opened: read the computer's state, and while it runs, its screen.
+    public func open() {
         isOpen = true
-        watch?.cancel()
+        stop()
         guard let source else { return show(nil) }
-        let directory = source.directory
-        // The first value applies now, so the card opens at its final height.
-        let (first, later) = ObservationStream.current { () -> HomeChiefComputer? in
-            let now = directory()
-            return HomeChiefComputer(machines: now.machines, paid: now.paid)
-        }
-        show(first)
-        // task-owner: the open card's machine watch; cancelled when the card closes
-        watch = Task { [weak self] in
-            for await computer in later { self?.show(computer) }
+        let timer = DemandTimer(owner: "home.chief.computer", clock: source.clock)
+        next = timer
+        read(source, timer, sinceStatus: nil)
+    }
+
+    /// The card closed: the screen stops refreshing, so nothing reads the computer.
+    public func close() {
+        isOpen = false
+        stop()
+        frames = 0
+        screen.layer?.contents = nil
+        redraw()
+    }
+
+    /// The window went away without the card closing: stop reading all the same.
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil, isOpen { close() }
+        applyScreenFill()
+    }
+
+    override public func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyScreenFill()
+    }
+
+    /// A running screen is black glass; with no frame, the card's own fill behind the note.
+    private func applyScreenFill() {
+        performWithTheme {
+            screen.layer?.backgroundColor = screen.layer?.contents == nil ? Palette.hoverFill.cgColor : NSColor.black.cgColor
         }
     }
 
-    /// The card closed: the stream stops, so this Mac stops reading the machine's desktop.
-    func close() {
-        isOpen = false
+    private func stop() {
         watch?.cancel()
         watch = nil
-        endedStream = nil
-        stream(nil)
+        next?.cancel()
+        next = nil
     }
 
-    /// Shows `computer` (nil hides the section) and streams its screen while it runs.
+    /// One read: the state when ``statusInterval`` has passed since the last (`sinceStatus` nil:
+    /// now), then while it runs a frame; then the next read on `timer`, after ``frameInterval``
+    /// while it runs and ``statusInterval`` otherwise. Stops when the card closes.
+    private func read(_ source: Source, _ timer: DemandTimer, sinceStatus: Duration?) {
+        // task-owner: one read of the open card's computer; cancelled by stop() when the card closes
+        watch = Task { [weak self] in
+            var since = sinceStatus ?? Self.statusInterval
+            if since >= Self.statusInterval {
+                let status = await source.status()
+                guard let self, self.isOpen, !Task.isCancelled else { return }
+                self.show(self.section(for: status, source))
+                since = .zero
+                self.onStatus()
+                guard !Task.isCancelled else { return }
+            }
+            guard let self else { return }
+            var wait = Self.statusInterval
+            if self.shown?.state == .live, self.watchesScreen {
+                let image = await source.screen()
+                guard self.isOpen, !Task.isCancelled else { return }
+                if self.shown?.state == .live { self.frame(image) }
+                self.onStatus()
+                guard !Task.isCancelled else { return }
+                wait = Self.frameInterval
+            }
+            let after = since + wait
+            timer.schedule(after: wait) { @MainActor [weak self] in
+                guard let self, self.isOpen, self.next === timer else { return }
+                self.read(source, timer, sinceStatus: after)
+            }
+        }
+    }
+
+    /// The section for a status read. A read that failed (nil) keeps a shown section, as
+    /// unavailable, instead of hiding it until the next read.
+    private func section(for status: HomeChiefComputer.Status?, _ source: Source) -> HomeChiefComputer? {
+        guard source.paid() else { return nil }
+        guard let status else { return shown.map { HomeChiefComputer(machineID: $0.machineID, title: $0.title, state: .unavailable) } }
+        return HomeChiefComputer(status: status, paid: true, chief: source.chief())
+    }
+
+    /// Shows `computer` (nil hides the section).
     func show(_ computer: HomeChiefComputer?) {
-        if computer?.machineID != shown?.machineID || computer?.state != .live { endedStream = nil }
-        let resized = (computer == nil) != (shown == nil)
+        let resized = (computer == nil) != isHidden
+        if computer?.state != .live || computer?.machineID != shown?.machineID { screen.layer?.contents = nil }
         shown = computer
         isHidden = computer == nil
-        let live = computer.flatMap { $0.state == .live && endedStream != $0.machineID ? $0.machineID : nil }
-        stream(isOpen ? live : nil)
         redraw()
         if resized { onResize() }
     }
 
-    private func stream(_ machine: String?) {
-        guard machine != streaming else { return }
-        stopStream?()
-        stopStream = nil
-        streaming = nil
-        screen.layer?.contents = nil
-        guard let machine, let source else { return }
-        streaming = machine
-        stopStream = source.frames(machine, { [weak self] buffer in
-            guard let self, streaming == machine else { return }
-            let first = screen.layer?.contents == nil
-            // The frame's IOSurface is never written again (CloudDesktopFrames), so the layer shows it as is.
-            screen.layer?.contents = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue()
-            // Only the first frame changes the labels (it takes "Connecting…" away).
-            if first { redraw() }
-        }, { [weak self] in
-            guard let self, streaming == machine else { return }
-            stopStream = nil
-            streaming = nil
-            endedStream = machine
-            screen.layer?.contents = nil
-            redraw()
-        })
-        if stopStream == nil {
-            streaming = nil
-            endedStream = machine
-        }
+    /// One frame of the running computer (nil: none came; the last one stays).
+    private func frame(_ image: CGImage?) {
+        guard let image else { return }
+        let first = screen.layer?.contents == nil
+        screen.layer?.contents = image
+        frames += 1
+        // Only the first frame changes the labels (it takes "Connecting…" away).
+        if first { redraw() }
     }
 
     private func redraw() {
+        applyScreenFill()
         guard let shown else { return }
-        name.stringValue = shown.name
-        let note: (text: String, symbol: String?)?
-        switch shown.state {
-        case .live where streaming == shown.machineID:
-            note = screen.layer?.contents == nil ? (HomeEngineStrings.computerConnecting, nil) : nil
-        case .live, .unavailable: note = (HomeEngineStrings.computerUnavailable, nil)
-        case .asleep: note = (HomeEngineStrings.computerAsleep, "moon.zzz.fill")
-        case .waking: note = (HomeEngineStrings.computerWaking, nil)
+        caption.stringValue = shown.title
+        let note: String? = switch shown.state {
+        case .live: screen.layer?.contents == nil ? HomeEngineStrings.computerConnecting : nil
+        case .unavailable: HomeEngineStrings.computerUnavailable
+        case .asleep: HomeEngineStrings.computerAsleep
+        case .waking: HomeEngineStrings.computerWaking
         }
-        state.stringValue = switch shown.state {
-        case .live: HomeEngineStrings.computerStateLive
-        case .asleep: HomeEngineStrings.computerStateAsleep
-        case .waking: HomeEngineStrings.computerStateWaking
-        case .unavailable: HomeEngineStrings.computerStateUnavailable
-        }
-        message.stringValue = note?.text ?? ""
+        message.stringValue = note ?? ""
         message.isHidden = note == nil
-        symbol.image = note?.symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
-        symbol.isHidden = symbol.image == nil
-        screen.setAccessibilityLabel(note?.text ?? HomeEngineStrings.computerScreen(shown.name))
+        sleepFace.isHidden = shown.state != .asleep
+        screen.setAccessibilityLabel(note ?? shown.title)
     }
 }

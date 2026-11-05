@@ -14,7 +14,6 @@ import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextPages
-import CmuxNextRemoteViewSessions
 import CmuxNextSidebar
 import CmuxNextWakeups
 import ImageIO
@@ -60,6 +59,8 @@ final class HomeHostView: NSView {
     private var showsCloud = false
     private var showsHosted = false
     private var isWorking = false
+    /// The chat's live view of the Chief's computer, while the Chief uses it.
+    let computerPopup = HomeChiefComputerPopup()
     lazy var turnActions = HomeChiefTurnActions(transcript: transcript)
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
@@ -110,8 +111,6 @@ final class HomeHostView: NSView {
         petRows.onRefusal = { [settingsView] in settingsView.showNote($0) }  // why an upload was refused
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
-        settingsView.computer.source = .init(directory: { [weak services] in (services?.machines.cloudLimits?.paysForCloud == true, services?.machines.cloud.map(\.machine) ?? []) },
-            frames: { [weak services] id, frame, ended in services?.cloudDesktopTransport(machine: id).map { CloudDesktopFrames.view(machine: id, open: $0, frame: frame, ended: ended) } })
         // The Chief's vault (names only) and its Google connections (cmux issue 34263).
         let work = services.work
         settingsView.vault.names = {
@@ -132,6 +131,18 @@ final class HomeHostView: NSView {
                 // task-owner: one Connect or Disconnect gesture; the model refuses a second while it runs
                 Task { connect ? await connections.connect(provider) : await connections.disconnect(provider) }
             })
+        // The live view that pops up in the chat while this Chief uses its computer (cmux issue 31488).
+        computerPopup.section.source = ChiefComputerPageService.source(services: services, conversation: conversation)
+        computerPopup.isSuppressed = { [weak self] in
+            guard let self, let page = services.pages.provider(.chiefComputer) as? ChiefComputerPageService else { return false }
+            return page.shows(conversation, in: self.window)
+        }
+        computerPopup.onOpen = { [weak services] in
+            _ = services?.registry.perform(ChiefComputerPageService.toggleActionID,
+                                           invocation: ActionInvocation(arguments: ["conversation": .string(conversation), "open": .string("1")], origin: .user))
+        }
+        computerPopup.onVisibility = { [weak self] in self?.transcript.needsLayout = true }
+        transcript.setFloatingAccessory(computerPopup)
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // Each Chief's tile reads its own brain home: this re-reads them, so only the
@@ -240,6 +251,7 @@ final class HomeHostView: NSView {
                 self.isChief = isChief
                 openPendingSettings()
                 isWorking = isChief && typing
+                computerPopup.follow(working: isWorking && cloud)
                 transcript.isWorking = isWorking
                 turnActions.update(control: control.turnControl, isChief: isChief, working: isWorking, sequence: lastSeq)
                 if cloud != showsCloud || (cloud && hosted != showsHosted) {
@@ -540,6 +552,8 @@ final class HomeHostView: NSView {
             let picture = decoded.map { NSImage(cgImage: $0, size: .zero) }
             let text = avatar.text  // nil: the header and the hero draw the name's monogram (CH)
             transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero
+            (control.services.pages.provider(.chiefComputer) as? ChiefComputerPageService)?
+                .setAvatar(conversation: control.conversation.rawValue, picture: picture, text: text)
             settingsView.setAvatar(picture: picture, text: text ?? transcript.shownMonogram)
         }
     }

@@ -563,6 +563,15 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "brain", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // The Home header's Computer toggle and the chat's popup: the Chief's profile page with
+            // its computer (cmux issue 31488), behind cmux Cloud. `conversation` names the Chief.
+            ActionDescriptor(
+                id: "chief.toggleComputer",
+                title: String(localized: "action.chief.toggleComputer", defaultValue: "Chief: Toggle Computer", bundle: .module),
+                keywords: ["chief", "computer", "screen", "cloud", "profile", "panel", "show", "hide"],
+                category: .agents, symbol: "desktopcomputer", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             // Chief Usage (chief-usage-analytics-DESIGN.md): tokens, cost, cache hit and turn
             // time of this Mac's Chiefs, as a page tab (Home's right column in Home). The
             // Chief's row menu in Home runs it too. `cmux chief usage` prints the same summary.

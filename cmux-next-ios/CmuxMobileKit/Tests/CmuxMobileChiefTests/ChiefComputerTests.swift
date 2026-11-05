@@ -1,130 +1,97 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import CmuxMobileChief
 
-/// Chief info's Computer card (https://github.com/manaflow-ai/cmux/issues/31488):
-/// the gate, which machine it shows, and its state from the Cloud status.
-@Suite struct ChiefComputerTests {
-    typealias Machine = ChiefComputerDirectory.Machine
-
-    func machine(_ id: String, _ status: String?, ran: Bool) -> Machine {
-        Machine(machineID: id, teamID: "team", name: "Box \(id)", status: status, ran: ran)
+/// Chief info's Computer card (https://github.com/manaflow-ai/cmux/issues/31488): the Cloud
+/// Chief's own computer, shown once the Chief has used one, refreshed while it runs and the card
+/// is on screen, and never read while it sleeps.
+@MainActor @Suite(.serialized) struct ChiefComputerTests {
+    @Test func theCardShowsOnceTheChiefUsedAComputer() {
+        #expect(ChiefComputer.shown(nil, name: "Ada") == nil)
+        #expect(ChiefComputer.shown(.init(used: false, machineID: nil, state: nil), name: "Ada") == nil)
+        let live = ChiefComputer.shown(.init(used: true, machineID: "vm", state: "running"), name: "Ada")
+        #expect(live?.title == "Ada’s Computer")
+        #expect(live?.state == .live)
+        #expect(ChiefComputer.shown(.init(used: true, machineID: "vm", state: "suspended"), name: "Ada")?.state == .asleep)
+        #expect(ChiefComputer.shown(.init(used: true, machineID: nil, state: nil), name: "Ada")?.state == .unavailable)
     }
 
-    @Test func hiddenUnlessPaidAndSomeMachineRan() {
-        let ran = machine("a", "paused", ran: true)
-        let never = machine("b", "provisioning", ran: false)
-        #expect(ChiefComputerDirectory(paid: true, machines: [never, ran]).showsComputer)
-        #expect(!ChiefComputerDirectory(paid: false, machines: [ran]).showsComputer)
-        #expect(!ChiefComputerDirectory(paid: true, machines: [never]).showsComputer)
-        #expect(!ChiefComputerDirectory(paid: true, machines: []).showsComputer)
-        // The Mac's owner has not turned on phone.cloudDesktop: no card.
-        #expect(!ChiefComputerDirectory(paid: true, desktops: false, machines: [ran]).showsComputer)
-        #expect(ChiefComputerDirectory(paid: false, machines: [ran]).computer == nil)
+    @Test func theRouteAnswerParses() {
+        let body = Data(#"{"ok":true,"value":{"used":true,"computer":{"id":"vm-9","state":"paused","name":null}}}"#.utf8)
+        #expect(ChiefComputerStatus(json: body) == .init(used: true, machineID: "vm-9", state: "paused"))
+        #expect(ChiefComputerStatus(json: Data(#"{"ok":false}"#.utf8)) == nil)
     }
 
-    @Test func picksTheFirstRunningElseTheFirstThatRan() {
-        let paused = machine("a", "paused", ran: true)
-        let never = machine("b", "failed", ran: false)
-        let running = machine("c", "running", ran: true)
-        let later = machine("d", "running", ran: true)
-        #expect(ChiefComputerDirectory(paid: true, machines: [paused, never, running, later]).computer == running)
-        #expect(ChiefComputerDirectory(paid: true, machines: [never, paused]).computer == paused)
+    @Test func aRunningComputerRefreshesUntilTheCardGoes() async {
+        let source = Source(.init(used: true, machineID: "vm", state: "running"))
+        let computer = rig(source)
+        let follow = Task { await computer.follow(chief: "agent_x", name: "Ada") }
+        await until { source.screens >= 3 && computer.frame != nil }
+        #expect(computer.shown?.state == .live)
+        follow.cancel()
+        await follow.value
+        let screens = source.screens
+        await settle()
+        #expect(source.screens == screens)
     }
 
-    @Test func mapsCloudStatusToTheCardState() {
-        #expect(ChiefComputerState(status: "running") == .live)
-        #expect(ChiefComputerState(status: "paused") == .asleep)
-        #expect(ChiefComputerState(status: "pausing") == .asleep)
-        #expect(ChiefComputerState(status: "starting") == .waking)
-        #expect(ChiefComputerState(status: "provisioning") == .waking)
-        for status in ["failed", "unknown", "destroyed", "deleting", "something-new", nil] as [String?] {
-            #expect(ChiefComputerState(status: status) == .unavailable, "\(status ?? "nil")")
-        }
+    @Test func anAsleepComputerIsNeverRead() async {
+        let source = Source(.init(used: true, machineID: "vm", state: "suspended"))
+        let computer = rig(source)
+        let follow = Task { await computer.follow(chief: "agent_x", name: "Ada") }
+        await until { computer.shown?.state == .asleep && source.statuses >= 3 }
+        #expect(source.screens == 0)
+        #expect(computer.frame == nil)
+        follow.cancel()
+        await follow.value
     }
 
-    @Test func anAsleepRefusalShowsAsleepAndATransientCloseDoesNot() {
-        #expect(ChiefComputerState.live.refused("asleep") == .asleep)
-        #expect(ChiefComputerState.live.refused("forbidden") == .unavailable)
-        #expect(ChiefComputerState.live.refused("no_surface_host") == .unavailable)
-        for code in ["eof", "stalled", "evicted", "replaced", "timeout", "no-link"] {
-            #expect(ChiefComputerState.live.refused(code) == .live, "\(code)")
-        }
-        #expect(ChiefComputerState.live.refused(nil) == .live)
-        #expect(ChiefComputerState.waking.refused("asleep") == .waking)
+    @Test func noCloudChiefHidesTheCard() async {
+        let source = Source(.init(used: true, machineID: "vm", state: "running"))
+        let computer = rig(source)
+        await computer.follow(chief: nil, name: "Ada")
+        #expect(computer.shown == nil)
+        #expect(source.statuses == 0)
     }
 
-    @Test func aRunningMachineOnAMacWithoutDesktopStreamingIsUnavailable() throws {
-        let directory = ChiefComputerDirectory(paid: true, machines: [machine("a", "running", ran: true)])
-        let old = try #require(ChiefComputer.shown(directory, mac: ChiefComputerMac(macID: "mac", streamsDesktop: false)))
-        #expect(old.state == .unavailable)
-        let new = try #require(ChiefComputer.shown(directory, mac: ChiefComputerMac(macID: "mac", streamsDesktop: true)))
-        #expect(new.state == .live)
-        #expect(new.macID == "mac")
-        #expect(new.machine.machineID == "a")
-    }
-}
+    // MARK: Rig
 
-/// The card loads from its source and hides when there is no Mac or the read fails.
-@MainActor @Suite struct ChiefComputerLoadTests {
     final class Source: ChiefComputerSource {
-        var mac: ChiefComputerMac?
-        var directory: Result<ChiefComputerDirectory, any Error>
-        var asked: [String?] = []
-        init(mac: ChiefComputerMac?, directory: Result<ChiefComputerDirectory, any Error>) {
-            self.mac = mac
-            self.directory = directory
+        var status: ChiefComputerStatus?
+        var statuses = 0
+        var screens = 0
+        let image: CGImage? = CGContext(data: nil, width: 16, height: 10, bitsPerComponent: 8, bytesPerRow: 0,
+                                        space: CGColorSpaceCreateDeviceRGB(),
+                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)?.makeImage()
+
+        init(_ status: ChiefComputerStatus?) { self.status = status }
+
+        func computerStatus(chief: String) async -> ChiefComputerStatus? {
+            statuses += 1
+            return status
         }
-        func computerMac(preferring preferred: String?) -> ChiefComputerMac? {
-            asked.append(preferred)
-            return mac
+
+        func computerScreen(chief: String) async -> CGImage? {
+            screens += 1
+            return image
         }
-        func computerDirectory(on macID: String) async throws -> ChiefComputerDirectory { try directory.get() }
     }
 
-    struct Down: Error {}
-
-    let paused = ChiefComputerDirectory(paid: true, machines: [
-        .init(machineID: "m", teamID: "t", name: "Dev box", status: "paused", ran: true),
-    ])
-
-    @Test func showsTheMachineAndHidesWhenTheMacGoes() async {
+    private func rig(_ source: Source) -> ChiefComputer {
         let computer = ChiefComputer()
-        let source = Source(mac: ChiefComputerMac(macID: "mac", streamsDesktop: true), directory: .success(paused))
         computer.source = source
-        await computer.load(preferring: "chief-mac")
-        #expect(source.asked == ["chief-mac"])
-        #expect(computer.shown?.machine.name == "Dev box")
-        #expect(computer.state == .asleep)
-        #expect(computer.stream == nil)
-
-        source.mac = nil
-        await computer.load(preferring: "chief-mac")
-        #expect(computer.shown == nil)
+        // Every wait is one turn: the test drives the timing.
+        computer.pause = { _ in await Task.yield() }
+        return computer
     }
 
-    @Test func aFailedReadHidesTheCard() async {
-        let computer = ChiefComputer()
-        let source = Source(mac: ChiefComputerMac(macID: "mac", streamsDesktop: true), directory: .success(paused))
-        computer.source = source
-        await computer.load(preferring: nil)
-        #expect(computer.shown != nil)
-        source.directory = .failure(Down())
-        await computer.load(preferring: nil)
-        #expect(computer.shown == nil)
+    private func until(_ condition: @MainActor () -> Bool) async {
+        for _ in 0..<2_000 where !condition() { await Task.yield() }
+        #expect(condition())
     }
 
-    @Test func aMacChangeAsksForAReload() {
-        let computer = ChiefComputer()
-        let before = computer.reload(preferring: "mac")
-        computer.macChanged()
-        #expect(computer.reload(preferring: "mac") != before)
-        #expect(computer.reload(preferring: "mac") == computer.reload(preferring: "mac"))
-    }
-
-    @Test func noSourceHidesTheCard() async {
-        let computer = ChiefComputer()
-        await computer.load(preferring: "mac")
-        #expect(computer.shown == nil)
+    private func settle() async {
+        for _ in 0..<50 { await Task.yield() }
     }
 }

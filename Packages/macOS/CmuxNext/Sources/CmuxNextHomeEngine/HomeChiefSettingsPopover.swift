@@ -78,12 +78,9 @@ public final class HomeChiefSettingsPopover {
             }
         }
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
-        // The Computer section takes its first state before the card is measured.
-        content.computer.open()
         content.vault.open()
         content.connections.open()
         guard popup.show(size: size(), anchor: rect, in: window, preferred: .below, centered: true, makeKey: true) != nil else {
-            content.computer.close()
             content.vault.close()
             content.connections.close()
             return false

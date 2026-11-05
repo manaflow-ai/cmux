@@ -6,6 +6,7 @@ import { freestyleIdleSeconds } from "../auto-pause.ts"
 import type { Env } from "../env.ts"
 import { execAs, grant, LINUX_USERS, revokeGrant, revokeIdentity } from "./sandbox-access.ts"
 import { fileVerb, snapshotVerb, snapsOf, takeSnapshot } from "./sandbox-files.ts"
+import { computerActing, computerOf, computerUsedAt, computerVerb, forgetComputer, ownerShot, SCREEN } from "./sandbox-computer.ts"
 import { costOf, GROW_FS, GUEST_SIZE, guestOf, hasSize, planOf, resourcesOf, sizeOf, toFreestyle, type Guest, type Resources, type Size } from "./sandbox-size.ts"
 
 /**
@@ -14,7 +15,8 @@ import { costOf, GROW_FS, GUEST_SIZE, guestOf, hasSize, planOf, resourcesOf, siz
  * Worker could hand out controls the whole Freestyle account (production VMs too), so the key stays here and the
  * Chief gets actions through its running turn's token (plans/cmux-next/chief-vm-freestyle-parity.md): list, get,
  * create, update, resize, pause, start, stop, exec, delete, cap; fs (sandbox-files.ts); snapshot, snapshots,
- * snapshot_get, snapshot_rename, snapshot_delete, fork.
+ * snapshot_get, snapshot_rename, snapshot_delete, fork; computer (sandbox-computer.ts: a desktop it works on by sight,
+ * which its owner watches in the Chief's profile).
  *
  * Kept per Chief, not per conversation: everything here runs in the Chief's `<agent>/sandboxes` object (a brain-class
  * object named after no conversation; turn.ts forwards each call with the running turn's agent). Owner check on
@@ -59,6 +61,8 @@ export const sandboxesOf = (env: Env, agent: string) =>
     ccSandboxCall(agent: string, req: unknown, legacy: ReadonlyArray<Sandbox>, owner: string | null): Promise<Out>
     ccSandboxRetire(): Promise<{ paused: number; revoked: boolean }>
     ccSandboxPurge(): Promise<{ deleted: number; left: number; revoked: boolean }>
+    ccComputerStatus(agent: string): Promise<Awaited<ReturnType<typeof ccComputerStatus>>>
+    ccComputerScreen(agent: string): Promise<Awaited<ReturnType<typeof ccComputerScreen>>>
   }
 /** Sandboxes a conversation brain kept before they moved to the Chief's object. */
 export const legacyOf = (b: ChiefBrainDO): Array<Sandbox> => listOf(b)
@@ -114,7 +118,10 @@ const live = async (b: ChiefBrainDO) => {
     else out.push(view(s, v))
   }
   // Read the list again: a create that finished meanwhile stays; only VMs Freestyle no longer has are dropped.
-  if (gone.size) save(b, listOf(b).filter((x) => !gone.has(x.id)))
+  if (gone.size) {
+    save(b, listOf(b).filter((x) => !gone.has(x.id)))
+    for (const id of gone) forgetComputer(b, id)
+  }
   return out
 }
 
@@ -245,8 +252,8 @@ const execIn = (req: Req) => {
   }
 }
 
-const ACTIONS = "list, get, create, update, resize, pause, start, stop, exec, fs, snapshot, snapshots, snapshot_get, snapshot_rename, snapshot_delete, fork, delete or cap"
-const VM_ACTIONS = ["get", "update", "resize", "pause", "start", "stop", "exec", "fs", "snapshot", "fork", "delete"]
+const ACTIONS = "list, get, create, update, resize, pause, start, stop, exec, fs, computer, snapshot, snapshots, snapshot_get, snapshot_rename, snapshot_delete, fork, delete or cap"
+const VM_ACTIONS = ["get", "update", "resize", "pause", "start", "stop", "exec", "fs", "computer", "snapshot", "fork", "delete"]
 const SNAP_ACTIONS = ["snapshots", "snapshot_get", "snapshot_rename", "snapshot_delete"]
 
 /** Makes a sandbox (size, settings, snapshot), grants the Chief's identity on it, then grows it to the size asked. */
@@ -369,6 +376,8 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
       }
       case "fs":
         return await fileVerb(b, vm.id, String(req.op ?? ""), req)
+      case "computer":
+        return await computerVerb(b, vm.id, vm.state, req)
       case "snapshot": {
         const { snap: _, ...out } = await takeSnapshot(b, vm.id, req)
         return out
@@ -394,6 +403,7 @@ export async function ccSandbox(b: ChiefBrainDO, agent: string, raw: unknown, le
         await res?.body?.cancel().catch(() => undefined)
         if (!res || !(res.ok || res.status === 404)) return { status: 502, json: { error: `not deleted (${res?.status ?? "no answer"})` } }
         save(b, listOf(b).filter((x) => x.id !== vm.id))
+        forgetComputer(b, vm.id)
         return { status: 200, json: { deleted: vm.id } }
       }
     }
@@ -429,7 +439,43 @@ export const ccSandboxPurge = async (b: ChiefBrainDO): Promise<{ deleted: number
     }
     const rest = listOf(b).filter((x) => !gone.has(x.id))
     save(b, rest)
+    forgetComputer(b)
     return { deleted: gone.size, left: rest.length }
   })
   return { deleted, left, revoked: await revokeIdentity(b) }
+}
+
+/**
+ * The Chief's computer as its owner sees it (`GET /v1/chiefs/<agent>/computer`, chief-brain/routes.ts): whether the
+ * Chief ever set one up (`used`: its profile shows the Computer section from then on), and the one it has now with
+ * its state, or null. Reads Freestyle's state; never starts or changes the VM.
+ */
+export const ccComputerStatus = async (b: ChiefBrainDO, agent: string): Promise<{ used: boolean; acting?: boolean; computer: { id: string; state: string; name: string | null } | null; screen: typeof SCREEN }> => {
+  const used = computerUsedAt(b) !== null
+  const c = computerOf(b)
+  if (!c) return { used, computer: null, screen: SCREEN }
+  const o = await own(b, agent, c.id)
+  if ("status" in o) {
+    // Gone or no longer this Chief's: forget it (a Freestyle that did not answer keeps it).
+    if (o.status === 404) forgetComputer(b, c.id)
+    return { used, computer: o.status === 404 ? null : { id: c.id, state: "unknown", name: null }, screen: SCREEN }
+  }
+  return { used, acting: o.vm.state === "running" && computerActing(b), computer: { id: c.id, state: o.vm.state, name: o.vm.display_name }, screen: SCREEN }
+}
+
+/**
+ * The computer's screen for its owner (`GET /v1/chiefs/<agent>/computer/screen`): a JPEG while it runs; 409 asleep
+ * when it is paused or stopped (it is not woken for a look), 404 when there is none.
+ */
+export const ccComputerScreen = async (b: ChiefBrainDO, agent: string): Promise<{ status: 200; image: string } | { status: 404 | 409 | 502; error: string; state?: string }> => {
+  const c = computerOf(b)
+  if (!c) return { status: 404, error: "this Chief has no computer" }
+  const o = await own(b, agent, c.id)
+  if ("status" in o) return o.status === 404 ? (forgetComputer(b, c.id), { status: 404, error: "this Chief has no computer" }) : { status: 502, error: "Freestyle did not answer" }
+  if (o.vm.state !== "running") return { status: 409, error: "the computer is asleep", state: o.vm.state }
+  try {
+    return { status: 200, image: await ownerShot(b, c.id) }
+  } catch (e) {
+    return { status: 502, error: e instanceof CcError ? e.message : "the screenshot failed" }
+  }
 }

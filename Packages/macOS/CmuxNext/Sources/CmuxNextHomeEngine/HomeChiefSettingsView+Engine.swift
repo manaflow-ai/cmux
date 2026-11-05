@@ -94,7 +94,6 @@ extension HomeChiefSettingsView {
     /// The card closed: a note about a change is said and seen, so the next open starts clear. A
     /// picture's note, set after its open panel closed the card, waits for the next open.
     func cardClosed() {
-        computer.close()
         vault.close()
         connections.close()
         guard changeFailed else { return }
