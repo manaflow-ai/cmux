@@ -2,6 +2,8 @@ import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
+import CmuxNextHomeEngine
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -54,5 +56,36 @@ import Testing
         tabs.resolveLocalHost = { (try? cloud.localDeviceID()).map(AgentSessionRef.host(installID:)) }
         let saved = AgentSessionRef(host: AgentSessionRef.host(installID: "mac-before"), hostName: "cosmic-gray")
         #expect(AgentPaneHostKind(saved, localHost: tabs.localHost, chiefHost: nil, listedHere: true) == .local)
+    }
+
+    /// A tab a launch on the selected backend saved (under that backend's id, before this fix) is this
+    /// Mac's too; the tunnel keeps the backend's id; another Mac's tab still is not this Mac's.
+    @Test func aTabSavedUnderABackendsIDIsThisMacsAndAnotherMacsIsNot() throws {
+        let (bundle, folder) = try Self.buildFolder()
+        defer { try? FileManager.default.removeItem(at: folder.deletingLastPathComponent()) }
+        let backend = folder.appendingPathComponent("staging-2", isDirectory: true)
+        try FileManager.default.createDirectory(at: backend, withIntermediateDirectories: true)
+        try Data("mac-staging\n".utf8).write(to: backend.appendingPathComponent("device-id"))
+        let cloud = Self.cloud(Self.tagged(bundle))
+        #expect(try cloud.localDeviceID() == "mac-before")
+        #expect(try cloud.installIDs.backend.loadNow() == "mac-staging", "the tunnel enrolls the selected backend's id")
+
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
+        tabs.resolveLocalHost = { (try? cloud.localDeviceID()).map(AgentSessionRef.host(installID:)) }
+        tabs.resolveFormerLocalHosts = { Set(cloud.installIDs.backendIDs().map(AgentSessionRef.host(installID:))) }
+        let staging = AgentSessionRef(host: AgentSessionRef.host(installID: "mac-staging"), hostName: "cosmic-gray")
+        #expect(tabs.hostKind(staging, listedHere: true) == .local)
+        // Only a tab this Mac's tree lists: another machine's store naming that id is that machine's.
+        #expect(tabs.hostKind(staging, listedHere: false) == .remote)
+        let otherMac = AgentSessionRef(host: AgentSessionRef.host(installID: "mac-other"), hostName: "big-red")
+        #expect(tabs.hostKind(otherMac, listedHere: true) == .remote)
+    }
+
+    /// The banner a tab of another machine still shows names that machine, never "another machine".
+    @Test func theBannerNamesTheMachineTheChatBelongsTo() {
+        let elsewhere = AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: "big-red").userMessage
+        #expect(elsewhere == "This chat belongs to big-red, so it does not run on this Mac.")
+        let listed = AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.listedElsewhereCode, machine: "cosmic-gray").userMessage
+        #expect(listed == "This chat belongs to this Mac, so it does not run on cosmic-gray.")
     }
 }
