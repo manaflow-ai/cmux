@@ -72,9 +72,11 @@ scripts/cmux-next/projection.sh open ~/src/cmux-wt --test 'bun test src/settings
 starts the worktree's webviews dev server on a port of its own (4290-4389) and runs **Debug > Open
 Projection Window** (`debug.projection`): a new window of the running app whose pages and agent panes
 load from that server. It is a real window of your app, so it has your settings, theme, backdrop,
-keys and the live daemon's terminals; its first workspace is a terminal in the worktree. Saving a web
+keys and the live daemon's terminals; its first workspace is in the worktree and shows the New Tab
+page. Saving a web
 file in the worktree hot-reloads that window only (Vite HMR; React Fast Refresh keeps component
-state). Your other windows keep their pages, and `web-dev.json` is not touched. Settings, theme and
+state). Your other windows keep their pages, and `web-dev.json` is not touched. While a projection
+is open, newly opened pages use WebKit in every window, as with `web-dev.json`. Settings, theme and
 keybinding edits in `cmux-next.json` apply to every window live, the projection included.
 
 **Debug > Run Projection Test** (`debug.projection.runTest`, or `projection.sh test [CMD]`) runs the

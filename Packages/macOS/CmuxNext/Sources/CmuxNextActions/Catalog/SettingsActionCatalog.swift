@@ -534,7 +534,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ),
             // Leo 2026-11-05 (HQ#7149 L10): "the view of the app that's separate ... with your actual config, your
             // actual settings": a real window of this app whose pages load from a worktree's dev server, the other
-            // windows untouched (ProjectionWindows, CmuxNextApp; Debug menu, DEV and NIGHTLY).
+            // windows untouched (WebProjection, CmuxNextPages; Debug menu, DEV and NIGHTLY).
             ActionDescriptor(
                 id: "debug.projection",
                 title: String(localized: "action.debug.projection", defaultValue: "Open Projection Window", bundle: .module),
@@ -560,6 +560,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 ],
                 mainMenu: .debug,
                 isDebugOnly: true,
+                startsTerminal: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs

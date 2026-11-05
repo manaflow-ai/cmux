@@ -13,14 +13,16 @@ public import WebKit
 /// - `debug.projection` (Debug > Open Projection Window; `cmux action run debug.projection --server
 ///   http://127.0.0.1:4290/ --worktree ~/src/wt --test 'bun test src/x.test.ts'`, which
 ///   `scripts/cmux-next/projection.sh` runs): ``open(server:worktree:test:)`` names a new window, and
-///   CmuxNextApp's `ProjectionWindows` opens it with a terminal in the worktree.
+///   CmuxNextApp (`ChiefViewsPageTab.bindProjection`) opens it on a workspace in the worktree, showing
+///   the New Tab page.
 /// - `debug.projection.runTest` (Debug > Run Projection Test): ``testRun(in:test:)`` picks the
 ///   projection, and the app runs its test command in a new workspace of that window.
 ///
 /// The page and agent pane scheme handlers ask ``server(for:)`` per request: a web view whose window
 /// is a projection's (``windowID``, which the app sets) loads from that server, with the same fetch
 /// and fallback as `web-dev.json`'s `server` (``WebDevOverride``); any other one reads
-/// ``WebDevOverride/current``. A page that made its first request before it was in a window is
+/// ``WebDevOverride/current``. While a projection window is open, new pages open in WebKit in every
+/// window, as with `web-dev.json` (Chromium serves only its bundled files). A page that made its first request before it was in a window is
 /// checked again shortly after (``served(_:)``). NIGHTLY, cmux NEXT DEV and Debug only
 /// (``WebDevOverride/isEnabled``).
 public final class WebProjection {
@@ -98,14 +100,29 @@ public final class WebProjection {
         return projections[index]
     }
 
-    /// A scheme handler is answering a request of `webView`: records where it read from. A view with
-    /// no window yet (a page built before its tab is shown) is checked again shortly, so a page that
-    /// first loads the shipped files and then lands in a projection window reloads from its server.
-    func served(_ webView: WKWebView) {
-        guard !projections.isEmpty else { return }
+    /// A scheme handler is answering a request of `webView`: a document load (`isDocument`) records where
+    /// the page read from. A view with no window yet (a page built before its tab is shown) is checked
+    /// again until it has one, so a page that first loads the shipped files and then lands in a projection
+    /// window reloads from its server.
+    public func served(_ webView: WKWebView, isDocument: Bool) {
+        guard !projections.isEmpty, isDocument else { return }
         servedFrom.setObject(server(for: webView).map { $0.root as NSURL } ?? unbound, forKey: webView)
         guard webView.window == nil else { return }
-        recheck.scheduleIfIdle(after: .milliseconds(300)) { @MainActor [weak self] in self?.reloadStale() }
+        windowlessChecks = 0
+        scheduleRecheck()
+    }
+
+    /// Passes left for views that loaded with no window: 40 at 300 ms, about 12 s for a window to show.
+    private var windowlessChecks = 0
+
+    private func scheduleRecheck() {
+        recheck.scheduleIfIdle(after: .milliseconds(300)) { @MainActor [weak self] in
+            guard let self else { return }
+            reloadStale()
+            windowlessChecks += 1
+            let waiting = WebBundleServedViews.shared.shown.contains { $0.window == nil && self.servedFrom.object(forKey: $0) != nil }
+            if waiting, windowlessChecks < 40 { scheduleRecheck() }
+        }
     }
 
     /// Reloads every shown view whose last request read another server than its window says now.

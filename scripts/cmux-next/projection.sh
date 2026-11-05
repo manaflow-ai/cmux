@@ -12,7 +12,7 @@
 #   projection.sh stop [WORKTREE]     # stop the dev server this script started for WORKTREE
 #   projection.sh status [WORKTREE]
 #
-# The app side is `debug.projection` and `debug.projection.runTest` (ProjectionWindows.swift); this
+# The app side is `debug.projection` and `debug.projection.runTest` (WebProjection.swift); this
 # script runs them with `cmux action run` ($CMUX_CLI, else `cmux`). Settings, theme and keybinding
 # edits in cmux-next.json apply to every window live, the projection included, with no restart.
 set -euo pipefail
@@ -72,8 +72,8 @@ case "$cmd" in
     tree="$ROOT" port="" test=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --port) port="$2"; shift 2 ;;
-        --test) test="$2"; shift 2 ;;
+        --port) port="${2:?--port needs a value}"; shift 2 ;;
+        --test) test="${2:?--test needs a value}"; shift 2 ;;
         -h|--help) usage ;;
         -*) usage 1 ;;
         *) tree="$(cd "$1" && pwd)"; shift ;;
