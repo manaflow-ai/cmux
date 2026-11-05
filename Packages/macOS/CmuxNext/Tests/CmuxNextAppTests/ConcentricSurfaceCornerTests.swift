@@ -55,7 +55,7 @@ import Testing
             ("CardSurfaceView", CardSurfaceView().cornerRadius),
             ("TerminalStatusBanner", TerminalStatusBanner().layer?.cornerRadius ?? -1),
             ("ServerMetrics.cornerRadius", ServerMetrics.cornerRadius),
-            ("SidebarDensityTokens.rowCornerRadius", SidebarDensityTokens.rowCornerRadius),
+            ("OmnibarStyle.barCornerRadius", OmnibarStyle.barCornerRadius),
         ]
         for (name, value) in surfaces {
             #expect(value == outer, "\(radius)/\(padding): \(name) is \(value) pt, the one corner radius is \(outer) pt")
@@ -74,7 +74,6 @@ import Testing
         let popup = PopupStyle.standard
         let nested: [(String, CGFloat, CGFloat)] = [
             ("PopupStyle.rowCornerRadius", popup.rowCornerRadius, max(0, popup.cornerRadius - popup.padding)),
-            ("OmnibarStyle.barCornerRadius", OmnibarStyle.barCornerRadius, corners.inner),
             ("ServerMetrics.cardRadius", ServerMetrics.cardRadius, corners.inner),
             ("Metrics.itemCornerRadius", Metrics.itemCornerRadius, corners.radius(depth: 2)),
             ("TooltipPanel.radius", TooltipPanel.radius, corners.radius(depth: 2)),
@@ -85,13 +84,13 @@ import Testing
         }
     }
 
-    /// Unset, the corners keep today's compact look where a surface already sat on the scale: 10 pt
-    /// panels and cards, 6 pt items, and a popover row 4 pt inside its card.
+    /// Unset, the corners start from the omnibar's 8 pt (Lawrence 2026-11-05): 8 pt panels and
+    /// cards, 4 pt items, and a popover row 4 pt inside its card.
     @Test func theDefaultsKeepTheCompactScale() {
         reset()
-        #expect(Metrics.panelCornerRadius == 10)
-        #expect(Metrics.itemCornerRadius == 6)
-        #expect(FloatingGlassStyle.card.cornerRadius == 10)
+        #expect(Metrics.panelCornerRadius == 8)
+        #expect(Metrics.itemCornerRadius == 4)
+        #expect(FloatingGlassStyle.card.cornerRadius == 8)
         #expect(PopupStyle.standard.rowCornerRadius == PopupStyle.standard.cornerRadius - PopupStyle.standard.padding)
     }
 }
