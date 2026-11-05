@@ -64,7 +64,6 @@ PICKS: dict[str, int] = {
     "cloud-vm-image-promote.yml": 2,
     "cloud-vm-image-reachability.yml": 1,
     "cloud-vm-migrate.yml": 3,
-    "cloud-vm-runtime-promotion.yml": 1,
     "cloudflare-relay.yml": 1,
     "cmux-actions.yml": 1,
     "cmux-art-publish.yml": 1,

@@ -84,7 +84,6 @@ SINGLE_SIZE: dict[str, int] = {
     "cloud-vm-image-promote.yml": 0,
     "cloud-vm-image-reachability.yml": 0,
     "cloud-vm-migrate.yml": 0,
-    "cloud-vm-runtime-promotion.yml": 0,
     "cloud-vm-smoke.yml": 0,
     "cmux-art-publish.yml": 0,
     "cmux-browser-host-release.yml": 1,

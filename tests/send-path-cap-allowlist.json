@@ -28,6 +28,7 @@
       "workers/iroh-v2/src/",
       "workers/device-hub/src/",
       "web/app/api/relay/",
+      "web/app/api/vm/",
       "web/app/api/v1/",
       "web/app/api/cli/",
       "web/app/api/rpc/",
