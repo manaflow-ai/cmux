@@ -3456,8 +3456,7 @@ class Nightly(unittest.TestCase):
         target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH,
                                side=True, nightly=True, push_branch="nightly-next", event="push")
         result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
-        self.assertIn("started delivery work", result)
-        self.assertIn("decide", result)
+        self.assertEqual(result, rescue.NIGHTLY_NEVER_CANCELLED)
         self.assertNotIn("cancel", api.calls)
 
     def test_a_never_started_next_decide_does_not_block_no_start_rescue(self):
@@ -3470,8 +3469,8 @@ class Nightly(unittest.TestCase):
         target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH,
                                side=True, nightly=True, push_branch="nightly-next", event="push")
         result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
-        self.assertIn("cancel", api.calls)
-        self.assertNotIn("decide", result)
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(result, rescue.NIGHTLY_NEVER_CANCELLED)
 
     def test_a_nightly_whose_decide_waits_for_the_nightly_mini_is_never_cancelled(self):
         # Run 41970392032 (nightly-next push, 2026-11-05): decide queued on glaeda-nightly-mini while the one
@@ -3498,8 +3497,8 @@ class Nightly(unittest.TestCase):
         target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH,
                                side=True, nightly=True, push_branch="nightly-next", event="push")
         result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
-        self.assertIn("cancel", api.calls)
-        self.assertNotIn("started delivery work", result)
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(result, rescue.NIGHTLY_NEVER_CANCELLED)
 
     def test_a_queued_next_decide_with_a_runner_assignment_is_still_not_started(self):
         decide = job("decide", runner="mini-1")
@@ -3514,8 +3513,8 @@ class Nightly(unittest.TestCase):
         target = rescue.Target(RUN_ID, 1, HEAD, 0, path=rescue.NIGHTLY_WORKFLOW_PATH,
                                side=True, nightly=True, push_branch="main", event="push")
         result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
-        self.assertIn("cancel", api.calls)
-        self.assertNotIn("started delivery work", result)
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(result, rescue.NIGHTLY_NEVER_CANCELLED)
 
     def test_next_push_bootstrap_uses_the_explicit_180_second_window(self):
         clock = Clock()
@@ -4079,7 +4078,7 @@ class Nightly(unittest.TestCase):
         code, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
         self.assertEqual(code, 0)
         self.assertNotIn("cancel", api.calls)
-        self.assertIn("started delivery work", summary)
+        self.assertIn("a nightly run is never cancelled", summary)
         self.assertNotIn("rerun", api.calls)
         self.assertNotIn("pull", api.calls)
         self.assertIn(f"queued on {TRUSTED}", summary)
@@ -4113,8 +4112,7 @@ class Nightly(unittest.TestCase):
             result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None,
                                    failed_only=True)
             self.assertNotIn("cancel", api.calls, moved)
-            self.assertTrue(result.startswith(rescue.NIGHTLY_BUSY), result)
-            self.assertIn("publish-nightly", result)
+            self.assertEqual(result, rescue.NIGHTLY_NEVER_CANCELLED)
 
     def late_sibling_api(self, *, stalled_from_sibling=False, retry=False):
         """Nightly: the build stuck on the trusted pool, nothing else running at the look; a Linux sibling starts
@@ -4159,7 +4157,7 @@ class Nightly(unittest.TestCase):
             lines = []
             result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
                                    log=lines.append)
-            self.assertTrue(any(line.startswith(rescue.NIGHTLY_BUSY) for line in lines), (retry, lines))
+            self.assertTrue(any(line.startswith(rescue.NIGHTLY_NEVER_CANCELLED) for line in lines), (retry, lines))
             self.assertIn("watch limit reached", result, retry)
             self.assertNotIn("cancel", api.calls)
 
@@ -4205,7 +4203,7 @@ class Nightly(unittest.TestCase):
             def jobs(self, run_id, attempt):
                 return [job("publish-nightly", status="in_progress", runner="linux")]
         api = Limited()
-        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True, path=rescue.NIGHTLY_WORKFLOW_PATH)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, path=rescue.CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH, event="schedule")  # a nightly never reaches the guard (NightlyNeverCancelled)
         api.run = lambda run_id: {"run_attempt": 1, "status": "in_progress"}
         with self.assertRaises(rescue.NightlyBusy):
             rescue.nightly_cancel(api, target, lambda _: None, lambda _: None)
@@ -4234,7 +4232,7 @@ class Nightly(unittest.TestCase):
             headers["Retry-After"] = "1"
             raise urllib.error.HTTPError(request.full_url, 429, "rate limited", headers, io.BytesIO(b"{}"))
         api = Http()
-        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True, path=rescue.NIGHTLY_WORKFLOW_PATH)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, path=rescue.CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH, event="schedule")  # a nightly never reaches the guard (NightlyNeverCancelled)
         with unittest.mock.patch("urllib.request.urlopen", urlopen):
             with self.assertRaises(rescue.Aborted) as raised:
                 rescue.nightly_cancel(api, target, lambda _: None, lambda _: None)
@@ -4281,7 +4279,7 @@ class Nightly(unittest.TestCase):
         # returns attempt 1's finished jobs, so only the run read after it can tell: no cancel goes out.
         api, sent, state, patch = self.guard_http("/attempts/1/jobs")
         api.sleep = lambda seconds: state.update(attempt=2)
-        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True, path=rescue.NIGHTLY_WORKFLOW_PATH)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, path=rescue.CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH, event="schedule")  # a nightly never reaches the guard (NightlyNeverCancelled)
         with patch, self.assertRaises(rescue.Aborted) as raised:
             rescue.nightly_cancel(api, target, lambda _: None, lambda _: None)
         self.assertNotIsInstance(raised.exception, rescue.NightlyBusy)
@@ -4292,7 +4290,7 @@ class Nightly(unittest.TestCase):
         # The run GET waits through a 429; meanwhile a job of the nightly starts. The guard reads the jobs again.
         api, sent, state, patch = self.guard_http(f"/runs/{RUN_ID}")
         api.sleep = lambda seconds: state.update(running=True)
-        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, nightly=True, path=rescue.NIGHTLY_WORKFLOW_PATH)
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, side=True, path=rescue.CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH, event="schedule")  # a nightly never reaches the guard (NightlyNeverCancelled)
         with patch, self.assertRaises(rescue.NightlyBusy) as raised:
             rescue.nightly_cancel(api, target, lambda _: None, lambda _: None)
         self.assertIn("publish-nightly", str(raised.exception))
@@ -4313,7 +4311,7 @@ class Nightly(unittest.TestCase):
         _, summary = run_main(api, clock, payload=nightly_event(), env_extra={"RESCUE_SECONDS": "30"})
         self.assertNotIn("cancel", api.calls)
         self.assertNotIn("rerun-failed", api.calls)
-        self.assertIn("a newer nightly run on main", summary)
+        self.assertIn("a nightly run is never cancelled", summary)
 
     def test_a_refused_build_is_rerun_once_the_run_finishes(self):
         clock = Clock()
