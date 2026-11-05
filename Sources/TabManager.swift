@@ -3077,7 +3077,11 @@ class TabManager: ObservableObject {
             let windowWarns = windowSettingWarns || hasActiveProcess
             showsBatchConfirmation = windowWarns || alwaysConfirm
             dontAskAgain = Self.workspaceCloseDontAskAgain(
-                ordinary: Self.closeWarningKinds(.window, settingWarns: windowSettingWarns, hasActiveProcess: hasActiveProcess),
+                ordinary: Self.closeWarningKinds(
+                    .window,
+                    settingWarns: windowSettingWarns,
+                    hasActiveProcess: hasActiveProcess
+                ),
                 ordinaryWarns: windowWarns,
                 alwaysConfirm: alwaysConfirm
             )
@@ -3086,7 +3090,11 @@ class TabManager: ObservableObject {
             let workspaceWarns = workspaceSettingWarns || hasActiveProcess
             showsBatchConfirmation = workspaceWarns || alwaysConfirm
             dontAskAgain = Self.workspaceCloseDontAskAgain(
-                ordinary: Self.closeWarningKinds(.workspace, settingWarns: workspaceSettingWarns, hasActiveProcess: hasActiveProcess),
+                ordinary: Self.closeWarningKinds(
+                    .workspace,
+                    settingWarns: workspaceSettingWarns,
+                    hasActiveProcess: hasActiveProcess
+                ),
                 ordinaryWarns: workspaceWarns,
                 alwaysConfirm: alwaysConfirm
             )
@@ -3389,7 +3397,11 @@ class TabManager: ObservableObject {
         let showsCloseConfirmation = requiresConfirmation
             && (warnsWithoutAlwaysConfirm || alwaysConfirm)
         let dontAskAgain = Self.workspaceCloseDontAskAgain(
-            ordinary: Self.closeWarningKinds(.workspace, settingWarns: workspaceSettingWarns, hasActiveProcess: needsCloseConfirmation),
+            ordinary: Self.closeWarningKinds(
+                .workspace,
+                settingWarns: workspaceSettingWarns,
+                hasActiveProcess: needsCloseConfirmation
+            ),
             ordinaryWarns: warnsWithoutAlwaysConfirm,
             alwaysConfirm: alwaysConfirm
         )
