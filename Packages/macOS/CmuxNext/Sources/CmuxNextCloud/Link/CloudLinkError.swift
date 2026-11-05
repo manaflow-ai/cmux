@@ -83,6 +83,21 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
 
     /// " (reason)", or nothing for an empty reason.
     private static func because(_ reason: String) -> String { reason.isEmpty ? "" : " (\(reason))" }
+
+    /// Why a dropped link ended, as a person reads it: a `.disconnected`'s reason, or another error's
+    /// description. Nil for none, or only the state word (`disconnected`), which adds nothing to the
+    /// sentence. A NEXT Nightly's Cloud chat read only "Disconnected" with nothing logged (2026-11-05).
+    public static func droppedReason(_ error: any Error) -> String? {
+        var reason: String
+        switch error as? CloudLinkError {
+        case .disconnected(let why)?: reason = why
+        case nil: reason = (error as? any LocalizedError)?.errorDescription ?? ""
+        default: return nil
+        }
+        reason = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        while reason.hasSuffix(".") { reason.removeLast() }
+        return reason.isEmpty || reason.caseInsensitiveCompare("disconnected") == .orderedSame ? nil : reason
+    }
 }
 
 /// An app server op failure, as the daemon answered it (`error_code`). It
