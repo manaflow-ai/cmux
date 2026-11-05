@@ -13,7 +13,10 @@ import {
 } from "../src/agent-session/acpmux/session-info/imessage";
 import { IMessageConnector } from "../src/agent-session/acpmux/session-info/IMessageConnector";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
-import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import {
+  resetSessionInfoState,
+  setSessionInfoSection,
+} from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { connectorsSection } from "../src/agent-session/acpmux/session-info/native/connectors";
 import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/native/model";
 
@@ -92,11 +95,12 @@ test("the WebKit native bridge enables iMessage on a Mac", async () => {
     root = createRoot(container);
     root.render(<SessionInfo more />);
   });
+  await act(async () => setSessionInfoSection("connectors", true));
   expect(calls).toEqual(["imessage.status"]);
   expect(button(container, translate("imessage.connect"))).toBeDefined();
 });
 
-test("Connectors reveals Connect once, then keeps a manual fold through status refreshes", async () => {
+test("Connectors starts collapsed and keeps a manual fold through status refreshes", async () => {
   const container = install();
   let status: IMessageData["status"] = "not_connected";
   setNativeHost(async () => ({ ...IMESSAGE_INITIAL, status }));
@@ -105,6 +109,8 @@ test("Connectors reveals Connect once, then keeps a manual fold through status r
     root.render(<SessionInfo more />);
   });
   const fold = () => container.querySelector<HTMLButtonElement>('[data-section="connectors"] button[aria-expanded]')!;
+  expect(fold().getAttribute("aria-expanded")).toBe("false");
+  await act(async () => fold().click());
   expect(fold().getAttribute("aria-expanded")).toBe("true");
   await act(async () => fold().click());
   expect(fold().getAttribute("aria-expanded")).toBe("false");
@@ -130,6 +136,7 @@ test("the Connectors header keeps the MCP count beside an unconnected iMessage r
       <SessionInfo more summary={{ sessionId: "chat", mcpServers: [{ name: "github", status: "connected" }] }} />,
     );
   });
+  await act(async () => setSessionInfoSection("connectors", true));
   const section = container.querySelector('[data-section="connectors"]')!;
   expect(section.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe(
     translate("rail.connected", { count: 1 }),
@@ -192,6 +199,7 @@ test("Connect is one Show more reveal away without MCP; permission steps precede
     root = createRoot(container);
     root.render(<SessionInfo />);
   });
+  await act(async () => setSessionInfoSection("connectors", true));
   expect(calls).toEqual(["imessage.status"]);
   expect(container.querySelector('[data-section="connectors"]')).toBeNull();
   const more = [...container.querySelectorAll("button")].find((node) =>
@@ -227,6 +235,7 @@ test("permission events refresh status and a closed connected list reads no thre
     root = createRoot(container);
     root.render(<SessionInfo more />);
   });
+  await act(async () => setSessionInfoSection("connectors", true));
   expect(calls).toEqual(["imessage.status"]);
   data = { ...data, status: "needs_full_disk_access", sends_enabled: false };
   await act(async () => dom!.window.dispatchEvent(new dom!.window.Event("cmux-imessage-changed")));

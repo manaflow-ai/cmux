@@ -8,7 +8,7 @@
 // default, stays open (or closed) in each chat pane on its own, floats outside the chat's layout so it never
 // moves or reflows the chat (Settings Push always takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
-// Every section in view (`setSessionInfoMore(true)`): the panel's compact default view is
+// Expanded sections with Show more open: the panel's compact default view is
 // session-info-compact-default.test.tsx's.
 import { readFileSync } from "node:fs";
 
@@ -109,6 +109,17 @@ function installDom(sessionInfo: boolean): HTMLElement {
   Object.assign(scope, replacements);
   resetSessionInfoState();
   setSessionInfoMore(true);
+  for (const id of [
+    "environment",
+    "context",
+    "changes",
+    "sources",
+    "servers",
+    "subagents",
+    "tasks",
+    "outputs",
+  ] as const)
+    setSessionInfoSection(id, true);
   return dom.window.document.getElementById("root")!;
 }
 

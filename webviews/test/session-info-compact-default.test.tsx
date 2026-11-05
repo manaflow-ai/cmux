@@ -71,7 +71,7 @@ afterAll(() => {
 setPaneLanguage("en");
 
 // The gallery's full chat, every section present, as a pane draws it: Show more from the pane's state.
-const full = { ...(gallery.variants.full!.props as SessionInfoProps), more: undefined };
+const full = { ...(gallery.variants.full!.props as SessionInfoProps), sections: undefined, more: undefined };
 const FOUR = ["environment", "context", "subagents", "tasks", "sources"];
 const EVERY = ["environment", "context", "usage", "subagents", "tasks", "sources", "changes", "outputs", "connectors"];
 

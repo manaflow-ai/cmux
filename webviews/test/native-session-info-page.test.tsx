@@ -142,10 +142,10 @@ test("the page posts the latest geometry once per frame and withdraws it when hi
 test("native folds and drags use the current section model and saved page state", async () => {
   await render(props());
   await flushFrame();
-  expect(model()!.sections.find((section) => section.id === "context")!.open).toBe(true);
-  await act(async () => runNativeSessionInfoAction("fold:context:0"));
-  await flushFrame();
   expect(model()!.sections.find((section) => section.id === "context")!.open).toBe(false);
+  await act(async () => runNativeSessionInfoAction("fold:context:1"));
+  await flushFrame();
+  expect(model()!.sections.find((section) => section.id === "context")!.open).toBe(true);
   await act(async () => runNativeSessionInfoAction("move:context:environment"));
   await flushFrame();
   expect(model()!.sections[0]!.id).toBe("context");

@@ -164,7 +164,7 @@ test("native Connectors retains MCP counts beside every iMessage state", () => {
   ).toBe(t("rail.connected", { count: 1 }));
 });
 
-test("native iMessage reveals Connect once and keeps the person's fold across refreshes and remounts", async () => {
+test("native iMessage stays collapsed through status refreshes and remounts", async () => {
   const { JSDOM } = await import("jsdom");
   const { act, createElement } = await import("react");
   const { createRoot } = await import("react-dom/client");
@@ -221,6 +221,8 @@ test("native iMessage reveals Connect once and keeps the person's fold across re
     );
   try {
     await act(async () => renderPanel());
+    expect(sessionInfoState().sections.connectors).toBe(false);
+    await act(async () => runNativeSessionInfoAction("fold:connectors:1"));
     expect(sessionInfoState().sections.connectors).toBe(true);
     await act(async () => runNativeSessionInfoAction("fold:connectors:0"));
     expect(sessionInfoState().sections.connectors).toBe(false);

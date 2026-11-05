@@ -21,7 +21,6 @@ import type { OutputArtifact, OutputLink } from "../OutputsSection";
 import { sessionInfoLists, type SessionInfoProcess } from "../processes";
 import { useSectionOrder, sectionOrder } from "../sectionOrder";
 import {
-  claimSessionInfoIMessageReveal,
   setSessionInfoSection,
   setSessionInfoSourcesAll,
   useSessionInfoState,
@@ -191,12 +190,6 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
   const state = useSessionInfoState();
   const { shown, summary, onShowUsage } = props;
   const imessage = useIMessage(shown);
-  const imessageStatus = imessage?.data.status;
-  useEffect(() => {
-    if (!imessageStatus || imessageStatus === "connected") return;
-    // A persistent claim reveals Connect once across panels; later folds belong to the person.
-    if (claimSessionInfoIMessageReveal()) setSessionInfoSection("connectors", true);
-  }, [imessageStatus]);
   useEffect(() => {
     if (imessage?.expanded) setSessionInfoSection("connectors", true);
   }, [imessage?.expanded]);

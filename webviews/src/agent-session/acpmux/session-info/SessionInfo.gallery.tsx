@@ -110,10 +110,12 @@ function GallerySessionInfo({
   panelWidth = 320,
   scroller,
   more: moreAtFirst,
+  sections: sectionsAtFirst,
   ...props
 }: Props) {
   // The panel's Show more, held here so a variant starts where it says and a play can open it.
   const [more, setMore] = useState(moreAtFirst);
+  const [sections, setSections] = useState(sectionsAtFirst);
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
@@ -133,6 +135,12 @@ function GallerySessionInfo({
       >
         <SessionInfo
           {...props}
+          sections={sections}
+          onSection={
+            sections === undefined
+              ? undefined
+              : (id, open) => setSections((current) => ({ ...(current ?? DEFAULT_SECTIONS), [id]: open }))
+          }
           more={more}
           onMore={more === undefined ? undefined : setMore}
           banner={scope && header !== "title" ? <SubagentBanner scope={scope} variant={header} /> : undefined}
@@ -685,6 +693,17 @@ const unpricedFleet: AcpmuxSessionEntry[] = [
 ];
 
 const full: Props = {
+  sections: {
+    ...DEFAULT_SECTIONS,
+    environment: true,
+    context: true,
+    changes: true,
+    sources: true,
+    servers: true,
+    subagents: true,
+    tasks: true,
+    outputs: true,
+  },
   summary,
   allSessions: fleet,
   onOpenChat: () => undefined,
@@ -1089,6 +1108,21 @@ export default componentEntry<Props>({
   ],
   load: async () => GallerySessionInfo,
   variants: {
+    "lean-default": {
+      note: "Fresh Session Info: machine and project details stay visible. Expandable sections start collapsed, with less-used sections behind Show more. Saved folds and section order take precedence.",
+      props: { ...full, sections: DEFAULT_SECTIONS, more: false },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("[data-slot]"));
+        expectDrawn(ctx, LEO_FOUR);
+        const triggers = ctx.document.querySelectorAll(".ui-disclosure-trigger");
+        if ([...triggers].some((trigger) => trigger.getAttribute("aria-expanded") !== "false"))
+          throw new Error("Fresh sections must start collapsed");
+      },
+    },
+    "lean-narrow": {
+      note: "The fresh panel at its minimum width, as in a narrow split.",
+      props: { ...full, sections: DEFAULT_SECTIONS, more: false, panelWidth: 260 },
+    },
     full: {
       note: "A chat on this Mac with every section, shipped layout (glance), in the default order: the machine (this Mac or Cloud), Context, what it runs, then Sources. No section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Usage as one row each. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished. A hairline, then Sources with read-only PRs, URLs, files and MCP tools, six session-owned pull requests in Changes, and its outputs. A last hairline, then Connectors (1 to reconnect).",
       props: full,

@@ -94,7 +94,6 @@ import {
 } from "./subagentScope";
 import {
   bindSessionInfoPane,
-  claimSessionInfoIMessageReveal,
   SESSION_INFO_WIDTH,
   sessionInfoPaneKey,
   setSessionInfoMore,
@@ -1688,11 +1687,6 @@ export function SessionInfo({
   const stored = sessionInfoState.sections;
   const state = sections ?? stored;
   const fold = (id: SessionInfoSectionId) => (next: boolean) => (onSection ?? setSessionInfoSection)(id, next);
-  const imessageStatus = imessage?.data.status;
-  useEffect(() => {
-    if (!imessageStatus || imessageStatus === "connected" || !claimSessionInfoIMessageReveal()) return;
-    (onSection ?? setSessionInfoSection)("connectors", true);
-  }, [imessageStatus, onSection]);
   useEffect(() => {
     if (imessage?.expanded) (onSection ?? setSessionInfoSection)("connectors", true);
   }, [imessage?.expanded, onSection]);
@@ -1783,15 +1777,14 @@ export function SessionInfo({
       ? { session_id: chatId, cwd: summary?.cwd ?? "", branch: summary?.branch, harness: summary?.harness }
       : undefined,
   );
-  const [appOpen, setAppOpen] = useState<Record<string, boolean>>({});
   const appNodes = Object.fromEntries(
     appPanels.map((section) => [
       section.id,
       <AppPanelSection
         key={section.id}
         section={section}
-        open={appOpen[section.id] ?? true}
-        onOpenChange={(open) => setAppOpen((current) => ({ ...current, [section.id]: open }))}
+        open={state[section.id] ?? false}
+        onOpenChange={fold(section.id)}
       />,
     ]),
   );

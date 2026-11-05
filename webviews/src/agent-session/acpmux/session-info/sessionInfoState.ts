@@ -44,20 +44,19 @@ export type SessionInfoSections = Readonly<Record<BuiltInSessionInfoSectionId, b
 /// The width a drag can give it, in px, and the width it opens at the first time.
 export const SESSION_INFO_WIDTH = { min: 260, max: 560, fallback: 320 } as const;
 
-/// Usage and Connectors start folded to their one-line values (as in Claude Code desktop); the rest
-/// start open, Context too (Leo, 2026-11-01: "context tho is pretty good i think to keep expanded by
-/// default? it seemed like it was collapsed initially").
+/// Expandable sections start folded to their summaries. Saved choices take precedence.
+/// The glance layout keeps the machine and project rows visible without a disclosure.
 export const DEFAULT_SECTIONS: SessionInfoSections = {
-  environment: true,
-  context: true,
+  environment: false,
+  context: false,
   usage: false,
   connectors: false,
-  changes: true,
-  sources: true,
-  servers: true,
-  subagents: true,
-  tasks: true,
-  outputs: true,
+  changes: false,
+  sources: false,
+  servers: false,
+  subagents: false,
+  tasks: false,
+  outputs: false,
 };
 
 /// The last choice made in any pane: the defaults for a pane with no state of its own. These were
@@ -67,8 +66,6 @@ const WIDTH_KEY = "cmux.agentPane.inspector.width";
 const SECTIONS_KEY = "cmux.agentPane.inspector.sections";
 /// The last Show more / Show less of the panel's less-used sections (sectionOrder.ts `MORE_SECTIONS`).
 const MORE_KEY = "cmux.agentPane.inspector.more";
-/// The first iMessage connector reveal is shared across panes and relaunches; later folds stay put.
-const IMESSAGE_REVEALED_KEY = "cmux.agentPane.inspector.imessageRevealed";
 /// Each chat's own state, one key per chat (`{ open, width, sections, at }`): a pane writes only its
 /// chat's key, so two panes saving at once never undo each other's change.
 export const SESSION_INFO_PANE_PREFIX = "cmux.agentPane.inspector.pane.";
@@ -119,18 +116,15 @@ const clampWidth = (width: number) =>
 const widthOf = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? clampWidth(value) : SESSION_INFO_WIDTH.fallback;
 
-/// The saved sections' version. Before 2 every chat saved Context folded because that was the
-/// default (each chat saves its whole state when a pane first shows it), not because the viewer folded
-/// it, so a saved Context from before 2 gives way to today's default.
+/// Retain the stored version for older pages; every saved boolean is now a user choice.
 const SECTIONS_VERSION = 2;
 
 function sectionsOf(value: unknown): SessionInfoSections {
   if (!value || typeof value !== "object") return DEFAULT_SECTIONS;
-  const stored = value as Partial<Record<SessionInfoSectionId | "v", unknown>>;
   const sections = { ...DEFAULT_SECTIONS };
-  for (const id of Object.keys(DEFAULT_SECTIONS) as SessionInfoSectionId[])
-    if (typeof stored[id] === "boolean" && (id !== "context" || stored.v === SECTIONS_VERSION))
-      sections[id] = stored[id];
+  for (const [id, open] of Object.entries(value))
+    if (typeof open === "boolean" && (Object.hasOwn(DEFAULT_SECTIONS, id) || /^app:[^#]+#[^#]+$/.test(id)))
+      sections[id as SessionInfoSectionId] = open;
   return sections;
 }
 
@@ -211,7 +205,6 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
   /// Once per page: a chat whose key is in no index (a save another pane's index write lost) joins
   /// the index, so pruning reaches it. The only full scan of the storage.
   let swept = false;
-  let imessageRevealed = false;
   const adoptStrays = (index: [string, number][]) => {
     if (swept) return index;
     swept = true;
@@ -298,13 +291,6 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
   };
   const store = {
     current,
-    /// Claims the initial Connect reveal before changing any fold; no storage still remembers per page.
-    claimIMessageReveal(): boolean {
-      if (imessageRevealed || read(IMESSAGE_REVEALED_KEY) === "1") return false;
-      imessageRevealed = true;
-      write(IMESSAGE_REVEALED_KEY, "1");
-      return true;
-    },
     /// What the pane shows for chat `sessionId`, read before the pane is bound to it, so a pane
     /// switched to another chat draws that chat's state from its first frame: the chat's saved
     /// state, else what the pane shows now (a new chat inherits it).
@@ -371,18 +357,9 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
     },
     /// Forgets every choice, every chat's too (the gallery and tests; it scans the storage).
     reset() {
-      for (const key of [
-        OPEN_KEY,
-        WIDTH_KEY,
-        SECTIONS_KEY,
-        MORE_KEY,
-        IMESSAGE_REVEALED_KEY,
-        SESSION_INFO_INDEX_KEY,
-        ...paneKeys(),
-      ])
+      for (const key of [OPEN_KEY, WIDTH_KEY, SECTIONS_KEY, MORE_KEY, SESSION_INFO_INDEX_KEY, ...paneKeys()])
         write(key, null);
       swept = false;
-      imessageRevealed = false;
       pane = undefined;
       tab = undefined;
       state = undefined;
@@ -415,7 +392,6 @@ export const setSessionInfoTab = page.setTab;
 export const setSessionInfoOpen = page.setOpen;
 export const setSessionInfoWidth = page.setWidth;
 export const setSessionInfoSection = page.setSection;
-export const claimSessionInfoIMessageReveal = page.claimIMessageReveal;
 export const setSessionInfoSourcesAll = page.setSourcesAll;
 export const setSessionInfoMore = page.setMore;
 /// Forgets every choice: the gallery and the tests start each case on a clean slate.
