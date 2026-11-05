@@ -12,7 +12,7 @@ private final class FakeClock: Sendable {
     let duringSleep = OSAllocatedUnfairLock<[@Sendable () -> Void]>(initialState: [])
 
     var now: UInt64 { nanos.withLock { $0 } }
-    func advance(_ duration: Duration) { nanos.withLock { $0 += UInt64(duration.nanoseconds) } }
+    func advance(_ duration: Duration) { nanos.withLock { $0 += UInt64(duration.totalNanos) } }
 
     func gate(_ rule: TakeoverRule = TakeoverRule()) -> TakeoverGate {
         TakeoverGate(rule: rule, now: { self.now }, sleep: { duration in

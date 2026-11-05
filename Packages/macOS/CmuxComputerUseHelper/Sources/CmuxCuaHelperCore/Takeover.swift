@@ -221,7 +221,7 @@ public final class TakeoverGate: Sendable {
         guard requirement == .act else { return }
         starter?()
         let start = now()
-        let deadline = start &+ UInt64(rule.hold.nanoseconds)
+        let deadline = start &+ UInt64(rule.hold.totalNanos)
         var waited = false
         while true {
             let at = now()
@@ -242,18 +242,18 @@ public final class TakeoverGate: Sendable {
     private static func holder(_ state: State, rule: TakeoverRule, at: UInt64) -> ControlHolder {
         guard state.healthy else { return .unwatched }
         guard let last = state.lastPerson else { return .agent }
-        let resumesAt = last &+ UInt64(rule.quiet.nanoseconds)
+        let resumesAt = last &+ UInt64(rule.quiet.totalNanos)
         return at < resumesAt ? .person(resumesAt: resumesAt) : .agent
     }
 
     private static func personHolds(_ state: State, rule: TakeoverRule, at: UInt64) -> Bool {
         guard let last = state.lastPerson else { return false }
-        return at < last &+ UInt64(rule.quiet.nanoseconds)
+        return at < last &+ UInt64(rule.quiet.totalNanos)
     }
 }
 
 extension Duration {
-    var nanoseconds: Int64 {
+    var totalNanos: Int64 {
         let (seconds, attoseconds) = components
         return seconds * 1_000_000_000 + attoseconds / 1_000_000_000
     }

@@ -25,7 +25,7 @@ public struct TakeoverBench {
     static let harmlessKey: CGKeyCode = 80
 
     public func main(arguments: [String]) -> Int32 {
-        if let index = arguments.firstIndex(of: personFlag) {
+        if let index = arguments.firstIndex(of: Self.personFlag) {
             let count = arguments.dropFirst(index + 1).first.flatMap { Int($0) } ?? 200
             Self.postAsPerson(count: count)
             return 0
@@ -74,7 +74,7 @@ public struct TakeoverBench {
         let stats = tap.gate.snapshot()
 
         // Quiet so the person's first event is a takeover from the agent.
-        Thread.sleep(forTimeInterval: tap.gate.rule.quiet.seconds + 0.1)
+        Thread.sleep(forTimeInterval: tap.gate.rule.quiet.totalSeconds + 0.1)
         _ = tap.takeStampedLatencies()
         let personEvents = max(50, events / 2)
         let takeoversBefore = tap.gate.snapshot().takeovers
@@ -165,5 +165,5 @@ public struct TakeoverBench {
 }
 
 extension Duration {
-    var seconds: Double { Double(nanoseconds) / 1_000_000_000 }
+    var totalSeconds: Double { Double(totalNanos) / 1_000_000_000 }
 }
