@@ -215,7 +215,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tabBarOrder: TabBarOrder = .aboveToolbar
     /// `browser.toolbarPosition`: the omnibar row of browser and Markdown panes.
     public var browserToolbarPosition: ToolbarPosition = .top
-    /// `app.quitBehavior`; "ask" when unset or invalid.
+    /// `app.quitBehavior`; "keep" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback

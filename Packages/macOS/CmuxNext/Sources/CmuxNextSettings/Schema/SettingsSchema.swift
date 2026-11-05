@@ -223,7 +223,6 @@ public nonisolated enum SettingsSchema {
                 help: SettingsText.keyed("settings.app.quitBehavior.help",
                                         "Terminals run in cmux-tui and keep running after cmux quits unless you end them."),
                 kind: .choice([
-                    SettingChoice(QuitBehavior.ask.rawValue, SettingsText.keyed("settings.choice.quitAsk", "Ask")),
                     SettingChoice(QuitBehavior.keep.rawValue, SettingsText.keyed("settings.choice.quitKeep", "Keep Sessions Running")),
                     SettingChoice(QuitBehavior.endKeepLayout.rawValue,
                                   SettingsText.keyed("settings.choice.quitEndKeepLayout", "End Sessions, Keep Layout")),
