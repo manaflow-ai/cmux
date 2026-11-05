@@ -103,7 +103,9 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
                 let value = value()?;
                 passthrough.extend([flag.to_owned(), value]);
             }
-            "--gpu" if inline.is_none() && verb == Some("start") => passthrough.push(flag.to_owned()),
+            "--gpu" if inline.is_none() && verb == Some("start") => {
+                passthrough.push(flag.to_owned())
+            }
             "--build-host" if verb == Some("start") => build_host = Some(value()?),
             "--session" if verb == Some("start") => session = Some(value()?),
             "--port" if verb == Some("start") => {
@@ -118,7 +120,8 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             }
         }
     }
-    let unexpected = |flag: &str| UsageError::new(messages.unexpected_argument.replace("{value}", flag));
+    let unexpected =
+        |flag: &str| UsageError::new(messages.unexpected_argument.replace("{value}", flag));
     if rust && chromium {
         return Err(unexpected("--chromium"));
     }

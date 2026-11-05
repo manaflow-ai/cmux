@@ -84,7 +84,9 @@ pub(super) fn status_if_used(tree: &Path) {
 
 /// The loop's state folder (`chromium-live.py state_dir`).
 pub(super) fn state_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("CMUX_CHROMIUM_LIVE_STATE_DIR").filter(|dir| !dir.is_empty()) {
+    if let Some(dir) =
+        std::env::var_os("CMUX_CHROMIUM_LIVE_STATE_DIR").filter(|dir| !dir.is_empty())
+    {
         return Some(PathBuf::from(dir));
     }
     let home = PathBuf::from(std::env::var_os("HOME").filter(|home| !home.is_empty())?);
