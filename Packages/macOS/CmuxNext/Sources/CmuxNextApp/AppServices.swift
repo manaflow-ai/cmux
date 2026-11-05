@@ -28,6 +28,7 @@ import CmuxNextFavicons
 import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
+import CmuxNextLiveCode
 import CmuxNextPalette
 import CmuxNextAccounts
 import CmuxNextAppCore
@@ -192,6 +193,8 @@ final class AppServices {
     let updater: UpdaterService
     /// The file picker made ahead of the click, the app's one: agent panes, page file inputs and Home's "+" take it.
     let openPanel = MadeAheadOpenPanel()
+    /// Live code's watcher (Debug and bench, CMUX_LIVE_CODE_DIR or Labs > Live Code); windows show its badge.
+    let liveCode = LiveCode.fromEnvironment()
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })

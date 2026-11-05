@@ -75,7 +75,7 @@ enum LiveWebHandlers {
             if bundled.known == nil { return LiveWebStrings.noCLI }
             if !tagged { return LiveWebStrings.swiftNotTagged }
             if tree == nil { return LiveWebStrings.swiftNoCheckout }
-            return LiveCode.isLive == on ? (on ? LiveWebStrings.swiftAlreadyOn : LiveWebStrings.swiftAlreadyOff) : nil
+            return context.services.liveCode.isLive == on ? (on ? LiveWebStrings.swiftAlreadyOn : LiveWebStrings.swiftAlreadyOff) : nil
         }
         for on in [true, false] {
             registry.bindEffect(on ? swiftStartID : swiftStopID, unavailable: { refusal(on) }, effect: { invocation in

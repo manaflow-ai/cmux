@@ -26,7 +26,7 @@ extension WindowController {
             self?.relayoutTopRowStrips()
         }
         // Swift live mode's mark joins the top row last once this app watches a live folder.
-        LiveCode.whenLive { [weak self] in
+        services.liveCode.whenLive { [weak self] in
             self?.root.liveModeBadge = LiveModeBadgeView()
             self?.relayoutTopRowStrips()
         }
