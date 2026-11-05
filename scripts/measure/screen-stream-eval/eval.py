@@ -3,6 +3,7 @@
 summary.md with each number's change against an earlier run's results.json.
 
   eval.py target NAME DIR OUT.json      DIR holds what the harness and the target wrote
+  eval.py empty ERROR...                a schema-complete target that measured nothing
   eval.py summary RESULTS.json OUT.md [--previous EARLIER.json]
 
 Schema (SCHEMA below; README.md): results.json is
@@ -58,6 +59,22 @@ def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, di
     return kbps, fps, encode, decode
 
 
+OCR_FIELDS = ["cer", "host_cer_vs_truth", "viewer_cer_vs_truth", "host_chars", "viewer_chars", "truth_chars", "host_image", "viewer_image"]
+
+
+def empty_target(errors: list[str]) -> dict:
+    """A target with every schema field present and null: what a run that measured nothing reports."""
+    return {
+        "ok": False, "errors": errors,
+        "latency": {k: {"p50_ms": None, "p95_ms": None, "n": None, "lost": None} for k in ("key", "pointer")},
+        "kbps": dict.fromkeys(WINDOW_PHASES), "fps": dict.fromkeys(WINDOW_PHASES),
+        "ocr": dict.fromkeys(OCR_FIELDS),
+        "split": {**{k: {"input_to_capture_ms": None, "encode_ms": None, "transport_ms": None, "decode_ms": None, "method": None}
+                     for k in ("key", "pointer")}, "typing": {"encode_ms": None, "decode_ms": None}},
+        "extra": {},
+    }
+
+
 def target(name: str, folder: Path, out: Path) -> None:
     errors = [line for line in (folder / "errors.txt").read_text().splitlines() if line] if (folder / "errors.txt").exists() else []
     result: dict = {"ok": False, "errors": errors, "latency": {}, "kbps": {}, "fps": {}, "ocr": {}, "split": {}, "extra": {}}
@@ -82,7 +99,7 @@ def target(name: str, folder: Path, out: Path) -> None:
     if None in kbps.values():
         errors.append(f"window: no numbers for {[k for k, v in kbps.items() if v is None]} (phases logged: {sorted(phases)})")
     ocr = load(folder / "ocr.json")
-    result["ocr"] = ocr or {"cer": None}
+    result["ocr"] = {**dict.fromkeys(OCR_FIELDS), **(ocr or {})}
     if ocr is None:
         errors.append("ocr: no result")
     result["extra"] = window.get("extra") or {}
@@ -160,6 +177,9 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
 def main(argv: list[str]) -> int:
     if len(argv) >= 4 and argv[0] == "target":
         target(argv[1], Path(argv[2]), Path(argv[3]))
+        return 0
+    if len(argv) >= 2 and argv[0] == "empty":
+        print(json.dumps(empty_target(argv[1:])))
         return 0
     if len(argv) in (3, 5) and argv[0] == "summary":
         previous = Path(argv[4]) if len(argv) == 5 and argv[3] == "--previous" else None

@@ -57,16 +57,18 @@ trap cleanup EXIT
 # results.json from whatever the targets wrote; blocked=REASON marks a run that measured nothing.
 finish() {
   local blocked="${1:-}"
-  python3 -I - "$out" "$run" "$blocked" "$targets" <<'EOF'
+  python3 -I - "$out" "$run" "$blocked" "$targets" "$here" <<'EOF'
 import json, sys
 from pathlib import Path
 out, run, blocked, names = Path(sys.argv[1]), json.loads(sys.argv[2]), sys.argv[3], sys.argv[4].split(",")
+sys.path.insert(0, sys.argv[5])
+from eval import empty_target
 if blocked:
     run["blocked"] = blocked
 targets = {}
 for name in names:
     path = out / name / "target.json"
-    targets[name] = json.loads(path.read_text()) if path.exists() else {"ok": False, "errors": [blocked or "did not run"]}
+    targets[name] = json.loads(path.read_text()) if path.exists() else empty_target([blocked or "did not run"])
 results = {"schema": "cmux.screen-stream-eval/1", "run": run, "scenarios": ["idle", "typing", "scroll", "ocr"], "targets": targets}
 (out / "results.json").write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
 EOF
