@@ -7,8 +7,10 @@
 //! Before the first event, the injector finds the XI2 master named [`PERSON_MASTER`] or
 //! adds it, and makes it this connection's ClientPointer. From then on the person's XTest
 //! events move that master and type on its paired keyboard, and the agent keeps the core
-//! pointer, so both work at once. The master is reused after a crash (found by name) and
-//! removed when the last injector in this process ends.
+//! pointer, so both work at once. The master is removed when the last injector in this
+//! process ends. One left by a crashed host is removed and made again, because the server
+//! does not release what a dead client held through XTest, and removing a device does
+//! (dix DisableDevice: ReleaseButtonsAndKeys).
 //!
 //! While the person holds control, the root window carries [`PERSON_PROPERTY`]: JSON with
 //! the toplevel under the person's pointer and the time of their last input. An agent can
@@ -24,7 +26,7 @@
 use crate::keymap::hid_to_x;
 use crate::Res;
 use cmux_rd_proto::InputEvent;
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use x11rb::connection::Connection;
@@ -51,8 +53,9 @@ pub const HOLD_LIMIT: Duration = Duration::from_secs(2);
 /// Events queued behind a waiting press before the queue is sent anyway.
 const HOLD_QUEUE_MAX: usize = 512;
 
-/// Injectors in this process that hold the person master; the last one removes it.
-static PERSON_USERS: Mutex<usize> = Mutex::new(0);
+/// Injectors in this process holding the person master, per display; the last one removes
+/// it. Held across find-or-create and removal, so they never race.
+static PERSON_USERS: Mutex<Option<HashMap<String, usize>>> = Mutex::new(None);
 
 /// The person master's device ids on the server.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,6 +130,7 @@ impl HoldGuard {
 
 pub struct Injector {
     conn: RustConnection,
+    display: String,
     root: Window,
     keys: BTreeSet<u8>,
     buttons: BTreeSet<u8>,
@@ -135,6 +139,8 @@ pub struct Injector {
     person: Option<Option<PersonMaster>>,
     property: Option<Atom>,
     last_property: Option<Instant>,
+    /// Motion moved the pointer since the property was last written.
+    property_stale: bool,
     hold: HoldGuard,
     /// Events with no XTest mapping (for example text), counted for stats.
     pub unsupported: u64,
@@ -147,12 +153,14 @@ impl Injector {
         conn.xtest_get_version(2, 2)?.reply()?;
         Ok(Self {
             conn,
+            display: display.to_owned(),
             root,
             keys: BTreeSet::new(),
             buttons: BTreeSet::new(),
             person: None,
             property: None,
             last_property: None,
+            property_stale: false,
             hold: HoldGuard::default(),
             unsupported: 0,
         })
@@ -170,9 +178,17 @@ impl Injector {
         if let Some(p) = self.person {
             return p;
         }
-        let p = match attach_person_master(&self.conn) {
+        let mut guard = PERSON_USERS.lock().unwrap();
+        let users = guard.get_or_insert_with(HashMap::new).entry(self.display.clone()).or_insert(0);
+        // No injector here owns a master yet: one that exists is a crashed host's.
+        let fresh = *users == 0;
+        let attached = attach_person_master(&self.conn, fresh).or_else(|e| {
+            eprintln!("cmux-rd host: attaching the person master failed ({e}); trying once more");
+            attach_person_master(&self.conn, fresh)
+        });
+        let p = match attached {
             Ok(m) => {
-                *PERSON_USERS.lock().unwrap() += 1;
+                *users += 1;
                 self.property = self
                     .conn
                     .intern_atom(false, PERSON_PROPERTY.as_bytes())
@@ -188,6 +204,7 @@ impl Injector {
                 None
             }
         };
+        drop(guard);
         self.person = Some(p);
         p
     }
@@ -196,9 +213,12 @@ impl Injector {
     fn note_person(&mut self, master: PersonMaster, always: bool) {
         let Some(atom) = self.property else { return };
         if !always && self.last_property.is_some_and(|t| t.elapsed() < PROPERTY_EVERY) {
+            // Written once more when motion settles (pump).
+            self.property_stale = true;
             return;
         }
         self.last_property = Some(Instant::now());
+        self.property_stale = false;
         let window = self
             .conn
             .xinput_xi_query_pointer(self.root, master.pointer)
@@ -242,17 +262,22 @@ impl Injector {
 
     /// Injects queued events whose press the agent no longer blocks (or that waited
     /// [`HOLD_LIMIT`]). Returns true while events still wait.
+    /// Also writes the property once more after motion settles. Returns true while events
+    /// still wait or the property is stale.
     pub fn pump(&mut self) -> Res<bool> {
-        if !self.hold.waiting() {
-            return Ok(false);
-        }
         let Some(Some(master)) = self.person else { return Ok(false) };
-        let (conn, root) = (&self.conn, self.root);
-        let ready = self.hold.release(Instant::now(), || Self::agent_holds(conn, root, master));
-        for e in &ready {
-            self.send(e, Some(master))?;
+        if self.hold.waiting() {
+            let (conn, root) = (&self.conn, self.root);
+            let ready = self.hold.release(Instant::now(), || Self::agent_holds(conn, root, master));
+            for e in &ready {
+                self.send(e, Some(master))?;
+            }
         }
-        Ok(self.hold.waiting())
+        if self.property_stale {
+            self.note_person(master, false);
+            self.conn.flush()?;
+        }
+        Ok(self.hold.waiting() || self.property_stale)
     }
 
     fn send(&mut self, event: &InputEvent, person: Option<PersonMaster>) -> Res<()> {
@@ -321,7 +346,8 @@ impl Drop for Injector {
     fn drop(&mut self) {
         let _ = self.release_all();
         let Some(Some(master)) = self.person else { return };
-        let mut users = PERSON_USERS.lock().unwrap();
+        let mut guard = PERSON_USERS.lock().unwrap();
+        let users = guard.get_or_insert_with(HashMap::new).entry(self.display.clone()).or_insert(0);
         *users = users.saturating_sub(1);
         if *users > 0 {
             return;
@@ -329,7 +355,9 @@ impl Drop for Injector {
         if let Some(atom) = self.property {
             let _ = self.conn.delete_property(self.root, atom);
         }
-        let _ = remove_person_master(&self.conn, master);
+        if let Err(e) = remove_person_master(&self.conn, master) {
+            eprintln!("cmux-rd host: removing the person master failed: {e}");
+        }
         let _ = self.conn.sync();
     }
 }
@@ -390,13 +418,24 @@ fn pick_master(devices: &[(u16, DeviceType, u16, Vec<u8>)], name: &str) -> Optio
         .then_some(PersonMaster { pointer: *pointer, keyboard: *keyboard, core })
 }
 
-/// Finds or adds the person master and makes it `conn`'s ClientPointer.
-fn attach_person_master(conn: &RustConnection) -> Res<PersonMaster> {
+/// Finds or adds the person master and makes it `conn`'s ClientPointer. `fresh`: no
+/// injector in this process owns one, so an existing master is a crashed host's and may
+/// still hold a button; it is removed (which releases what it held) and made again.
+fn attach_person_master(conn: &RustConnection, fresh: bool) -> Res<PersonMaster> {
     let v = conn.xinput_xi_query_version(2, 2)?.reply()?;
     if v.major_version < 2 {
         return Err(format!("XInput {}.{} has no masters", v.major_version, v.minor_version).into());
     }
-    let master = match find_master(conn, PERSON_MASTER)? {
+    let mut found = find_master(conn, PERSON_MASTER)?;
+    if let (true, Some(stale)) = (fresh, found) {
+        match remove_person_master(conn, stale) {
+            Ok(()) => found = None,
+            Err(e) => {
+                eprintln!("cmux-rd host: removing a crashed host's person master failed: {e}")
+            }
+        }
+    }
+    let master = match found {
         Some(m) => m,
         None => {
             let change = HierarchyChange {
@@ -579,18 +618,8 @@ mod tests {
     #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
     fn person_master_keeps_the_core_pointer_for_the_agent() {
         use x11rb::protocol::xproto::{CreateWindowAux, WindowClass};
-        let display = format!(":{}", 60 + std::process::id() % 30);
-        let mut xvfb = std::process::Command::new("Xvfb")
-            .args([display.as_str(), "-screen", "0", "1280x800x24", "-nolisten", "tcp", "-noreset"])
-            .spawn()
-            .expect("Xvfb");
-        let socket = format!("/tmp/.X11-unix/X{}", &display[1..]);
-        let t0 = Instant::now();
-        while !std::path::Path::new(&socket).exists() {
-            assert!(t0.elapsed() < Duration::from_secs(10), "Xvfb did not start");
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        std::thread::sleep(Duration::from_millis(200));
+        let xvfb = Xvfb::start();
+        let display = xvfb.display.clone();
 
         // The "agent": a second client whose XTest drives the core pointer.
         let (agent, screen) = x11rb::connect(Some(&display)).unwrap();
@@ -691,8 +720,112 @@ mod tests {
         agent.sync().unwrap();
         assert_eq!(find_master(&agent, PERSON_MASTER).unwrap(), None);
         assert!(read(&agent).is_none());
+        xvfb.alive();
+    }
 
-        let _ = xvfb.kill();
-        let _ = xvfb.wait();
+    /// Xvfb on a display it picks itself (-displayfd), killed when the test ends, passed
+    /// or failed.
+    struct Xvfb {
+        child: std::process::Child,
+        display: String,
+    }
+
+    impl Xvfb {
+        fn start() -> Self {
+            use std::io::BufRead;
+            let mut child = std::process::Command::new("Xvfb")
+                .args([
+                    "-displayfd",
+                    "1",
+                    "-screen",
+                    "0",
+                    "1280x800x24",
+                    "-nolisten",
+                    "tcp",
+                    "-noreset",
+                ])
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .expect("Xvfb");
+            let mut line = String::new();
+            std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+            let n: u32 = line.trim().parse().expect("Xvfb printed its display");
+            let xvfb = Self { child, display: format!(":{n}") };
+            xvfb.alive();
+            xvfb
+        }
+
+        fn alive(&self) {
+            assert!(
+                std::path::Path::new(&format!("/proc/{}", self.child.id())).exists(),
+                "Xvfb exited"
+            );
+        }
+    }
+
+    impl Drop for Xvfb {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    /// The crashing host for the next test: holds a button on the person master, then
+    /// aborts with no cleanup. Does nothing unless the next test runs it.
+    #[test]
+    #[ignore = "a helper process for crash_reuse_releases_a_crashed_hosts_button"]
+    fn crash_helper_holds_a_button_and_aborts() {
+        let Ok(display) = std::env::var("CMUX_RD_CRASH_DISPLAY") else { return };
+        let mut host = Injector::new(&display).unwrap();
+        host.apply(&InputEvent::Pointer { x: 300, y: 300 }).unwrap();
+        host.apply(&InputEvent::Button { button: 1, down: true }).unwrap();
+        host.conn.sync().unwrap();
+        std::process::abort();
+    }
+
+    /// A host that crashed holding a button leaves its master holding it (the server does
+    /// not release a dead client's XTest input). The next host replaces that master, so
+    /// nothing stays held.
+    #[test]
+    #[ignore = "needs Xvfb; run with --ignored on a Linux host"]
+    fn crash_reuse_releases_a_crashed_hosts_button() {
+        let xvfb = Xvfb::start();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "inject::tests::crash_helper_holds_a_button_and_aborts",
+                "--include-ignored",
+                "--nocapture",
+            ])
+            .env("CMUX_RD_CRASH_DISPLAY", &xvfb.display)
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(!status.success(), "the helper aborted");
+
+        let (agent, screen) = x11rb::connect(Some(&xvfb.display)).unwrap();
+        let root = agent.setup().roots[screen].root;
+        agent.xinput_xi_query_version(2, 2).unwrap().reply().unwrap();
+        let held = |c: &RustConnection, m: PersonMaster| {
+            let r = c.xinput_xi_query_pointer(root, m.pointer).unwrap().reply().unwrap();
+            r.buttons.first().copied().unwrap_or(0) & 0x3fe
+        };
+        let stale = find_master(&agent, PERSON_MASTER).unwrap().expect("the crashed host's master");
+        assert_ne!(held(&agent, stale), 0, "the crashed host's button is still down");
+
+        let mut host = Injector::new(&xvfb.display).unwrap();
+        host.apply(&InputEvent::Pointer { x: 310, y: 310 }).unwrap();
+        host.conn.sync().unwrap();
+        let fresh = host.person.flatten().expect("a person master");
+        assert_eq!(find_master(&agent, PERSON_MASTER).unwrap(), Some(fresh));
+        assert_eq!(held(&agent, fresh), 0, "nothing stays held");
+        let core = agent.xinput_xi_query_pointer(root, fresh.core).unwrap().reply().unwrap();
+        assert_eq!(
+            core.buttons.first().copied().unwrap_or(0) & 0x3fe,
+            0,
+            "nor on the core pointer"
+        );
+        drop(host);
+        xvfb.alive();
     }
 }

@@ -154,6 +154,7 @@ impl MediaSession {
     ) -> String {
         let mut damage = Vec::new();
         let mut incoming = Vec::new();
+        let mut had_control = table.may_inject_input(session, viewer);
         // The first frame covers the whole screen (an IDR).
         if let Some(req) = self.engine.start(now_us()) {
             if let Err(e) = self.encode(carrier, &req) {
@@ -233,6 +234,11 @@ impl MediaSession {
                 }
             }
             let may_inject = table.may_inject_input(session, viewer);
+            if had_control && !may_inject {
+                // Control just ended: release what the viewer holds and drop queued input.
+                self.release_input();
+            }
+            had_control = may_inject;
             if !may_inject {
                 // Control ended: the viewer's microphone and camera stop with it.
                 for closed in self.upstreams.close_all(&mut self.engine) {
