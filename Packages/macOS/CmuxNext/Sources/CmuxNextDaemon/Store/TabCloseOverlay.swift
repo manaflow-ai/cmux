@@ -62,17 +62,18 @@ extension DaemonStore {
     }
 
     /// `move-tab`'s final index and the tab's current index in the daemon's order of `pane` for a move of `surface`
-    /// to `index` of the visible `pane.tabs`. The daemon still holds the tabs whose close is in flight, which the
-    /// visible order leaves out: the tab goes right before the visible tab now at `index` (else after the last), so a
-    /// close of a tab left of it before its echo no longer lands it one slot early (Leo 2026-11-05, the close/create
-    /// shuffle: Cmd-T after b, close a, the new tab ended first).
+    /// to `index` of the visible `pane.tabs`. A close held back from the daemon (``holdTabs(_:)``, `HiddenTabClose`
+    /// while its read decides) leaves its tabs out of the visible order but not the daemon's, and its close goes out
+    /// after this move: the tab goes right before the visible tab now at `index` (else last), so it no longer lands one
+    /// slot early (Leo 2026-11-05, the close/create shuffle: Cmd-T after b, close a, the new tab ended first). A close
+    /// already sent reaches the daemon before the move, so its tabs do not count.
     public func daemonMoveIndex(_ index: Int, moving surface: SurfaceID, in pane: PaneModel) -> (final: Int, current: Int?) {
         var order = pane.tabs.map(\.surface)
         let others = order.filter { $0 != surface }
-        // Each close's overlay undone, newest first, as `TabCloseOverlay.undo` would.
+        // Each held close's overlay undone, newest first, as `TabCloseOverlay.undo` would.
         for entry in intentLog.entries.reversed() {
             guard case .closedTabs(let hidden)? = entry.undo else { continue }
-            for tab in hidden.reversed() where tab.pane == pane.handle { order.insert(tab.tab.surface, at: min(tab.index, order.count)) }
+            for tab in hidden.reversed() where tab.pane == pane.handle && heldTabIDs.contains(tab.tab.id) { order.insert(tab.tab.surface, at: min(tab.index, order.count)) }
         }
         let full = order.filter { $0 != surface }
         let final = others.dropFirst(index).first.flatMap { full.firstIndex(of: $0) } ?? full.count
