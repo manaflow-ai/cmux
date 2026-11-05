@@ -83880,6 +83880,268 @@
         }
       }
     },
+    "settings.updates.oneClickInstall": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update in One Click"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit einem Klick aktualisieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour en un clic"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحديث بنقرة واحدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar con un clic"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一鍵更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一键更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 번의 클릭으로 업데이트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワンクリックでアップデート"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriraj jednim klikom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdater med ét klik"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna con un clic"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើបច្ចុប្បន្នភាពដោយចុចតែម្តង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdater med ett klikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizuj jednym kliknięciem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar com um clique"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление в один клик"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดตในคลิกเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek Tıkla Güncelle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлення в один клік"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cập nhật bằng một lần nhấp"
+          }
+        }
+      }
+    },
+    "settings.updates.oneClickInstall.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus: „Aktualisieren“ lädt das Update, dann fragt cmux, bevor es neu startet. Ein: Ein Klick auf „Aktualisieren“ lädt es, zeigt den Fortschritt, installiert es und startet cmux neu. Terminals und Agenten laufen über den Neustart hinweg weiter."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé : Mettre à jour télécharge la mise à jour, puis cmux demande avant de redémarrer. Activé : un clic sur Mettre à jour la télécharge, affiche sa progression, puis l’installe et redémarre cmux. Les terminaux et les agents continuent de tourner pendant le redémarrage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف: يؤدي «تحديث» إلى تنزيل التحديث، ثم يسأل cmux قبل إعادة التشغيل. تشغيل: نقرة واحدة على «تحديث» تنزّله وتعرض تقدّمه، ثم تثبّته وتعيد تشغيل cmux. تستمر الطرفيات والوكلاء في العمل خلال إعادة التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado: Actualizar descarga la actualización y cmux pregunta antes de reiniciarse. Activado: un clic en Actualizar la descarga, muestra su progreso, la instala y reinicia cmux. Los terminales y los agentes siguen ejecutándose durante el reinicio."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉：「更新」會下載更新，cmux 會在重新啟動前先詢問。開啟：按一下「更新」即會下載並顯示進度，接著安裝並重新啟動 cmux。終端機和代理程式在重新啟動期間會繼續執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭：“更新”会下载更新，cmux 会在重新启动前先询问。开启：点按一次“更新”即会下载并显示进度，然后安装并重新启动 cmux。终端和代理在重新启动期间会继续运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔: 업데이트를 누르면 업데이트를 다운로드하고, cmux가 재시작하기 전에 묻습니다. 켬: 업데이트를 한 번 클릭하면 다운로드하며 진행 상황을 표시하고, 설치한 뒤 cmux를 재시작합니다. 터미널과 에이전트는 재시작 중에도 계속 실행됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ：「アップデート」でアップデートをダウンロードし、再起動の前に cmux が確認します。オン：「アップデート」を1回クリックするとダウンロードして進行状況を表示し、インストールして cmux を再起動します。ターミナルとエージェントは再起動中も動作し続けます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno: Ažuriraj preuzima ažuriranje, a zatim cmux pita prije ponovnog pokretanja. Uključeno: jedan klik na Ažuriraj preuzima ga, prikazuje napredak, zatim ga instalira i ponovo pokreće cmux. Terminali i agenti nastavljaju raditi tokom ponovnog pokretanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra: Opdater henter opdateringen, og cmux spørger, før det genstarter. Til: ét klik på Opdater henter den, viser fremskridtet, installerer den og genstarter cmux. Terminaler og agenter kører videre under genstarten."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato: Aggiorna scarica l'aggiornamento, poi cmux chiede prima di riavviarsi. Attivato: un clic su Aggiorna lo scarica, ne mostra l'avanzamento, lo installa e riavvia cmux. Terminali e agenti continuano a funzionare durante il riavvio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ៖ ធ្វើបច្ចុប្បន្នភាព ទាញយកការធ្វើបច្ចុប្បន្នភាព បន្ទាប់មក cmux សួរមុនពេលចាប់ផ្តើមឡើងវិញ។ បើក៖ ចុចម្តងលើ ធ្វើបច្ចុប្បន្នភាព ដើម្បីទាញយក បង្ហាញដំណើរការ បន្ទាប់មកដំឡើង ហើយចាប់ផ្តើម cmux ឡើងវិញ។ ស្ថានីយ និងភ្នាក់ងារនៅតែដំណើរការក្នុងពេលចាប់ផ្តើមឡើងវិញ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av: Oppdater laster ned oppdateringen, og cmux spør før det starter på nytt. På: ett klikk på Oppdater laster den ned, viser fremdriften, installerer den og starter cmux på nytt. Terminaler og agenter fortsetter å kjøre under omstarten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone: Aktualizuj pobiera aktualizację, a cmux pyta przed ponownym uruchomieniem. Włączone: jedno kliknięcie Aktualizuj pobiera ją, pokazuje postęp, instaluje ją i uruchamia cmux ponownie. Terminale i agenci działają dalej podczas ponownego uruchomienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado: Atualizar baixa a atualização e o cmux pergunta antes de reiniciar. Ativado: um clique em Atualizar a baixa, mostra o progresso, instala e reinicia o cmux. Terminais e agentes continuam rodando durante a reinicialização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл.: «Обновить» загружает обновление, затем cmux спрашивает перед перезапуском. Вкл.: один клик по «Обновить» загружает его, показывает ход загрузки, устанавливает и перезапускает cmux. Терминалы и агенты продолжают работать во время перезапуска."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด: อัปเดตจะดาวน์โหลดการอัปเดต แล้ว cmux จะถามก่อนรีสตาร์ท เปิด: คลิกอัปเดตครั้งเดียวจะดาวน์โหลด แสดงความคืบหน้า แล้วติดตั้งและรีสตาร์ท cmux เทอร์มินัลและเอเจนต์ยังคงทำงานระหว่างรีสตาร์ท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı: Güncelle, güncellemeyi indirir, ardından cmux yeniden başlatmadan önce sorar. Açık: Güncelle'ye tek tık güncellemeyi indirir, ilerlemesini gösterir, ardından yükler ve cmux'u yeniden başlatır. Terminaller ve ajanlar yeniden başlatma boyunca çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимк.: «Оновити» завантажує оновлення, потім cmux питає перед перезапуском. Увімк.: один клік на «Оновити» завантажує його, показує перебіг, встановлює та перезапускає cmux. Термінали й агенти працюють далі під час перезапуску."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt: Cập nhật sẽ tải bản cập nhật, sau đó cmux hỏi trước khi khởi động lại. Bật: một lần nhấp vào Cập nhật sẽ tải xuống, hiển thị tiến trình, rồi cài đặt và khởi động lại cmux. Terminal và tác tử vẫn tiếp tục chạy trong khi khởi động lại."
+          }
+        }
+      }
+    },
     "settings.updates.showFeatureTips": {
       "extractionState": "manual",
       "localizations": {
