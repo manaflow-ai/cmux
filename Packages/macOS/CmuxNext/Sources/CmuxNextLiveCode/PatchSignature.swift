@@ -19,6 +19,7 @@ nonisolated enum PatchSignature {
         guard SecRequirementCreateWithString(text, [], &requirement) == errSecSuccess, let requirement else {
             throw LiveCodeError.notOurTeam("no requirement for team \(team)")
         }
+        // concurrency-allow: called only from LiveEngine, an actor off the main thread
         let status = SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures), requirement)
         guard status == errSecSuccess else { throw LiveCodeError.notOurTeam("team \(team) required (OSStatus \(status))") }
     }

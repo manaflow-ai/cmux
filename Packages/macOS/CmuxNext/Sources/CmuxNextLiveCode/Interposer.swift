@@ -6,13 +6,14 @@ import Darwin
 import Foundation
 import MachO
 
-enum LiveCodeError: Error, CustomStringConvertible {
+nonisolated enum LiveCodeError: Error, CustomStringConvertible {
     case open(String)
     case noImage
     case noInterposer
     case nothingToReplace
     case layoutChanged([String])
     case notOurTeam(String)
+    case nothingToUndo
 
     var description: String {
         switch self {
@@ -22,12 +23,14 @@ enum LiveCodeError: Error, CustomStringConvertible {
         case .nothingToReplace: "the patch defines no function this build has (built against another build?)"
         case .layoutChanged(let types): "stored properties changed, rebuild instead: \(types.joined(separator: ", "))"
         case .notOurTeam(let detail): "not signed by this app's team: \(detail)"
+        case .nothingToUndo: "no patch is applied"
         }
     }
 }
 
-/// The Mach-O side: the patch's code symbols, matched by name to this executable's.
-enum Interposer {
+/// The Mach-O side: the patch's code symbols, matched by name to this executable's. Nonisolated:
+/// LiveCode's engine actor calls it, off the main thread.
+nonisolated enum Interposer {
     private struct Tuple {
         var replacement: UnsafeRawPointer
         var replacee: UnsafeRawPointer
@@ -36,9 +39,9 @@ enum Interposer {
     private typealias DynamicInterpose = @convention(c) (UnsafePointer<mach_header>, UnsafeRawPointer, Int) -> Void
 
     /// Loads the patch, off the main thread: dlopen holds dyld's loader lock while it maps and binds.
-    /// Returns its handle's bit pattern, which ``apply(handle:dylib:)`` takes on the main actor.
-    nonisolated static func load(_ path: String) throws -> Int {
-        // concurrency-allow: called only from LiveCode.apply's detached task, never on the main thread
+    /// Returns its handle's bit pattern, which ``apply(handle:dylib:current:)`` takes.
+    static func load(_ path: String) throws -> Int {
+        // concurrency-allow: called only from LiveEngine, an actor off the main thread
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             throw LiveCodeError.open(String(cString: dlerror()))
         }
@@ -52,7 +55,6 @@ enum Interposer {
         var before: [String: UnsafeRawPointer]
     }
 
-    @MainActor
     /// `current` holds each replaced function's newest code: dyld repoints the bindings that hold the
     /// replacee, which after the first patch is that patch's copy, not the executable's.
     static func apply(handle bits: Int, dylib path: String, current: inout [String: UnsafeRawPointer]) throws -> Applied {
@@ -92,7 +94,6 @@ enum Interposer {
 
     /// Undoes `patch`, the newest applied: every function it replaced runs the code it replaced
     /// again. The patch's image stays loaded (no dlclose); nothing points at it.
-    @MainActor
     static func revert(_ patch: Applied, current: inout [String: UnsafeRawPointer]) throws -> Int {
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "dyld_dynamic_interpose") else {
             throw LiveCodeError.noInterposer
@@ -105,7 +106,6 @@ enum Interposer {
     }
 
     /// Hands `tuples` to dyld, then repoints the executable's already bound pointers to `targets`.
-    @MainActor
     private static func repoint(_ tuples: [Tuple], to targets: [String: UnsafeRawPointer], interpose: DynamicInterpose) throws {
         guard let main = _dyld_get_image_header(0) else { throw LiveCodeError.noImage }
         tuples.withUnsafeBytes { bytes in
@@ -125,7 +125,7 @@ enum Interposer {
     /// Its calls to its own Swift functions go through these (`-interposable`), and once dyld has
     /// bound one, `dyld_dynamic_interpose` does not rewrite it. Returns how many it wrote, and how
     /// many it could not (a page `mprotect` refused).
-    @MainActor @discardableResult
+    @discardableResult
     static func rebind(header: UnsafePointer<mach_header>, slide: Int,
                        to replacements: [String: UnsafeRawPointer]) -> (written: Int, failed: Int) {
         let base = UnsafeRawPointer(header)
