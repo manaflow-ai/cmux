@@ -121,10 +121,10 @@ fn inline_nullable_numeric_aliases(value: &mut Value, aliases: &Map<String, Valu
             let Some(branches) = obj.get("allOf").and_then(Value::as_array) else {
                 return;
             };
-            if branches.len() != 1 {
+            let [only] = branches.as_slice() else {
                 return;
-            }
-            let Some(reference) = branches[0]
+            };
+            let Some(reference) = only
                 .as_object()
                 .filter(|branch| branch.len() == 1)
                 .and_then(|branch| branch.get("$ref"))

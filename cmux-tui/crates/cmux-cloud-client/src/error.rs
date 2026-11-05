@@ -127,7 +127,7 @@ impl ApiError {
 
 fn append_capped(body: &mut Vec<u8>, chunk: &[u8]) {
     let room = MAX_ERROR_BODY.saturating_sub(body.len());
-    body.extend_from_slice(&chunk[..chunk.len().min(room)]);
+    body.extend_from_slice(chunk.get(..room).unwrap_or(chunk));
 }
 
 #[cfg(test)]

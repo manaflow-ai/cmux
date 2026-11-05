@@ -28,7 +28,8 @@ pub enum Answer<T, E> {
 
 /// Sends `O` with `params` to `base_url` (`/v1/read` or `/v1/ops` by its
 /// class). `key` is the idempotency key: required for an op whose catalog
-/// row requires one, refused for one that forbids it.
+/// row requires one, refused for a read and for a mutation that refuses keys
+/// (`WireIdempotency::None`).
 pub async fn call<O: Op>(
     http: &reqwest::Client,
     base_url: &str,
@@ -41,7 +42,7 @@ pub async fn call<O: Op>(
         (WireIdempotency::Required, None) => {
             return Err(local(format!("{} needs an idempotency key", O::NAME)));
         }
-        (WireIdempotency::Forbidden, Some(_)) => {
+        (WireIdempotency::Forbidden | WireIdempotency::None, Some(_)) => {
             return Err(local(format!("{} takes no idempotency key", O::NAME)));
         }
         (_, Some(key)) if O::CLASS == WireClass::Mutation => {
@@ -155,5 +156,37 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.code.as_deref(), Some("cloud.client.usage"));
+    }
+
+    /// A mutation whose catalog row refuses keys (`idempotency: none`).
+    struct OneTimeOp;
+
+    impl Op for OneTimeOp {
+        const NAME: &'static str = "test.one_time";
+        const CLASS: WireClass = WireClass::Mutation;
+        const IDEMPOTENCY: WireIdempotency = WireIdempotency::None;
+        const OWNER: &'static str = "test";
+        const RISK: &'static str = "mutate-own";
+        const PRINCIPALS: &'static [cmux_cloud_wire::WirePrincipal] = &[];
+        type Params = serde_json::Value;
+        type Result = serde_json::Value;
+        type Error = <CloudMachineDeleteOp as Op>::Error;
+    }
+
+    #[tokio::test]
+    async fn a_key_for_a_mutation_that_refuses_keys_is_refused_before_sending() {
+        crate::test_tls();
+        let http = reqwest::Client::new();
+        let error = call::<OneTimeOp>(
+            &http,
+            "http://127.0.0.1:9",
+            serde_json::json!({}),
+            Some("ck_1"),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code.as_deref(), Some("cloud.client.usage"));
+        assert!(error.status.is_none(), "nothing was sent");
     }
 }

@@ -27,6 +27,15 @@ serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["time"] }
 
+# The generator's own pins (workers/cmux-vm/cli/Cargo.toml), so the client
+# generated here is the one cmux-vm-codegen writes.
+[build-dependencies]
+openapiv3 = "=2.2.0"
+prettyplease = "=0.3.0"
+progenitor = { version = "=0.15.0", default-features = false }
+serde_json.workspace = true
+syn = { version = "=3.0.6", features = ["full"] }
+
 [dev-dependencies]
 cmux-cloud-config.workspace = true
 rustls.workspace = true
