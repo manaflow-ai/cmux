@@ -99,12 +99,15 @@
 .acpmux-model-name{color:var(--agent-text)}
 .acpmux-model-effort{flex:none;margin-left:4px;padding:2px 6px;border-radius:4px;background:var(--acpmux-menu-hover);color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-effort .acpmux-picker-button,.acpmux-picker-button .acpmux-icon:last-child{color:var(--agent-muted)}
-/* The context ring is a button the size of the mic; resting on it or focusing it shows the context card (contextCard.css). */
+/* The context ring is a button the size of the mic; resting on it or focusing it shows the context card (contextCard.css). It always reads as a gauge, never a spinner: the remaining share is a clearly visible track (ComposerPickers.tsx CONTEXT_RING_LOOKS, test/context-ring-gauge.test.tsx). */
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
 .acpmux-context-ring svg{width:12px;height:12px}
-.acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
+.acpmux-context-ring:disabled,.acpmux-context-ring[aria-disabled="true"]{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+/* The `percent` look of the context ring (experiment context-ring-look, not shipped): the percent used as a caption beside the ring. */
+.acpmux-context:has(.acpmux-context-caption){display:inline-flex;align-items:center}
+.acpmux-context-caption{font-size:var(--text-caption);line-height:1;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 /* The right-click hosts around the context ring and, when it is hidden, the footer: no box of their own. */
 .acpmux-context-usage-menu,.acpmux-attachment-menu,.acpmux-plan-menu,.acpmux-mic-menu,.acpmux-chrome-area{display:contents}
 /* Send, Stop and ↵ are plain line glyphs in the secondary text color (--agent-muted), as the mic is (Leo 2026-10-21: "WHY ARE THERE CIRCLES ... no solid discs", Claude Code desktop's; then: the secondary text color, only a hover background): no fill, no ring; hover takes the mic's soft pill and keeps the glyph's color (composerStates.css). */
@@ -115,6 +118,10 @@
 /* The picker menus open above the field at their chip (useUiAnchor). The chip is their containing block, so the width comes from the rows and the viewport, never the chip. */
 /* A picker on the dropdown layer (ui/README.md, "Layers and transparency"): above a field's suggestions on the New Tab page (Leo 10-15: the model menu opened under them). */
 .acpmux-menu{font-family:var(--font-ui);font-size:var(--text-control);position:absolute;bottom:calc(100% + 6px);z-index:var(--layer-dropdown);width:max-content;min-width:min(220px,calc(100vw - 16px));max-width:min(420px,calc(100vw - 16px));height:auto;max-height:min(360px,50vh);overflow-x:hidden;overflow-y:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);color:var(--agent-text);line-height:18px;transform-origin:var(--transform-origin,bottom left);letter-spacing:var(--text-control--letter-spacing)}
+/* MenuPopup is positioned by the shared UI positioner. The legacy absolute placement above is
+   retained for the remaining hand-rolled palette, while migrated picker popups must stay in the
+   positioner's layout box so collision detection measures their real size. */
+.acpmux-menu.acpmux-picker-menu{position:relative;inset:auto;z-index:auto}
 /* The picker menus open above the field, aligned with its edges. */
 .acpmux-menu-start{left:0}
 .acpmux-menu-end{right:0;transform-origin:var(--transform-origin,bottom right)}
@@ -124,25 +131,89 @@
    and in the composer it's ass"), shaped as ChatGPT's: a short list in untitled groups split by the
    menu hairline (below), one width, and a bounded height that scrolls inside (useUiAnchor still caps
    it to the room the pane has). --popup-scroll-cap is that bound for popupHost.ts, so a list longer
-   than it scrolls here rather than going past the window's edge as a flat native list. It draws
-   outside the composer's glass (Picker overBackdrop), so its own glass frosts the pills behind it. */
-.acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,calc(100vh - 16px))}
+   than it scrolls here rather than going past the window's edge as a flat native list. MenuPopup's
+   shared portal keeps it above the composer's glass, so its own glass frosts the pills behind it. */
+.acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh)}
+.acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);overflow-y:overlay;scrollbar-width:none;padding-inline-end:calc(var(--ui-popup-padding) + 4px)}
+.acpmux-menu.acpmux-composer-plus::-webkit-scrollbar{display:none;width:0;height:0}
+/* Keep the composer's action rows pressable at every edge (composer-chip-press.test.ts probes all
+   four row edges) by leaving WebKit's hit-tested mask channel off and moving the visible edge fade
+   onto pointer-transparent overlays. The unprefixed mask remains for the shared fade contract. */
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
+  /* Keep a computed mask for the shared edge-fade contract, but make the mask fully opaque.
+     WebKit includes mask alpha in hit testing; the pointer-transparent sticky overlays below
+     provide the visible fade without making a row's trailing edge unpressable. */
+  /* Keep the unprefixed value observable for the shared fade contract. WebKit's prefixed mask
+     participates in hit testing, so leave that channel disabled and let the overlays paint the
+     edge treatment without stealing a row's press. */
+  -webkit-mask-image:none;
+  mask-image:linear-gradient(#000,#000);
+}
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::before,
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::after{
+  position:sticky;
+  inset-inline:0;
+  z-index:var(--layer-raised,1);
+  display:block;
+  flex:none;
+  content:"";
+  pointer-events:none;
+  opacity:0;
+}
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::before{
+  inset-block-start:0;
+  height:var(--ui-scroll-fade-top);
+  margin-block-end:calc(-1 * var(--ui-scroll-fade-top));
+  background:linear-gradient(to bottom,var(--glass-tint),transparent);
+}
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::after{
+  inset-block-end:0;
+  height:var(--ui-scroll-fade-bottom);
+  margin-block-start:calc(-1 * var(--ui-scroll-fade-bottom));
+  background:linear-gradient(to bottom,transparent,var(--glass-tint));
+}
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-top]::before,
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-bottom]::after{opacity:1}
+@media (prefers-reduced-transparency:reduce){
+  .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::before,
+  .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::after{opacity:0}
+}
+:root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::before,
+:root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::after{opacity:0}
+@media (prefers-reduced-transparency:reduce){
+  .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
+    -webkit-mask-image:none;
+    mask-image:none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
+  -webkit-mask-image:none;
+  mask-image:none;
+}
 /* It opens over the project and machine pills above New Tab's box: a denser tint than a plain popup's
    60% (still glass, under the menus' 0.9 ceiling), so under the blur they read as frost, not text. */
-.acpmux-composer-plus .acpmux-menu.ui-glass{--glass-tint:color-mix(in srgb,var(--glass-surface) 86%,transparent)}
+.acpmux-composer-plus .acpmux-menu.ui-glass,.acpmux-menu.acpmux-composer-plus.ui-glass{--glass-tint:color-mix(in srgb,var(--glass-surface) 86%,transparent)}
 /* A row is one line: the icon, the title, a gap, then the muted description, which alone truncates. */
-.acpmux-composer-plus .acpmux-menu-text{flex-direction:row;align-items:baseline;gap:var(--ds-space-2,8px)}
-.acpmux-composer-plus .acpmux-menu-label{flex:0 1 auto;min-width:0}
-.acpmux-composer-plus .acpmux-menu-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-composer-plus .acpmux-menu-item>svg{flex:none}
+.acpmux-composer-plus .acpmux-menu-text,.acpmux-menu.acpmux-composer-plus .acpmux-menu-text{flex-direction:row;align-items:baseline;gap:var(--ds-space-2,8px)}
+.acpmux-composer-plus .acpmux-menu-label,.acpmux-menu.acpmux-composer-plus .acpmux-menu-label{flex:0 1 auto;min-width:0}
+.acpmux-composer-plus .acpmux-menu-description,.acpmux-menu.acpmux-composer-plus .acpmux-menu-description{flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-composer-plus .acpmux-menu-item>svg,.acpmux-menu.acpmux-composer-plus .acpmux-menu-item>svg{flex:none}
 /* Custom picker rows use the same AppKit menu grid as Menu/ContextMenu. The old 8px inset put
    icon rows' labels at 36px (and plain rows at 12px); the shared leading line is 15px, with a
    14px icon and 6px label gap making the icon-row text line 35px from the popup edge. */
 .acpmux-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);padding-inline:calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding));box-sizing:border-box;border-radius:var(--ui-row-radius)}
+.acpmux-menu.acpmux-composer-plus .acpmux-menu-item{width:calc(100% - 4px);margin-inline-end:4px}
+.acpmux-menu.acpmux-composer-plus .acpmux-menu-item{position:relative}
+.acpmux-menu.acpmux-composer-plus .acpmux-menu-hit-area{position:absolute;inset-block:0;inset-inline-start:0;inset-inline-end:-8px;z-index:var(--layer-raised,1);pointer-events:auto;transform:translateZ(0)}
+.acpmux-menu.acpmux-composer-plus .acpmux-menu-item>*:not(.acpmux-menu-hit-area){position:relative;z-index:var(--layer-base,0)}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
 .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;line-height:1}
 .acpmux-menu .ui-menu-check{color:var(--acpmux-composer-dim);font-family:var(--font-ui);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-menu-active{background:var(--acpmux-menu-hover)}
+.acpmux-composer-plus .acpmux-menu-item:hover,.acpmux-composer-plus .acpmux-menu-item[data-highlighted],
+.acpmux-menu.acpmux-composer-plus .acpmux-menu-item:hover,.acpmux-menu.acpmux-composer-plus .acpmux-menu-item[data-highlighted]{
+  background-color:var(--acpmux-menu-hover)!important;
+}
 .acpmux-menu-item.acpmux-unrestricted{color:var(--acpmux-warning)}
 .acpmux-menu-text{flex:1;min-width:0;display:flex;flex-direction:column}
 .acpmux-menu-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -152,8 +223,9 @@
 .acpmux-composer-list-layer{position:absolute;pointer-events:none}
 .acpmux-composer-list-layer>*{pointer-events:auto}
 .acpmux-slash-menu{--popup-scroll-cap:296px;position:absolute;bottom:calc(100% + 6px);left:0;right:0;z-index:3;max-height:min(296px,50vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);font-size:13px;transform-origin:bottom}
-.acpmux-slash-row{display:flex;align-items:center;gap:8px;height:31px;padding:0 8px;border-radius:8px;white-space:nowrap}
+.acpmux-slash-row{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border-radius:var(--ui-row-radius);white-space:nowrap}
 .acpmux-slash-active{background:var(--acpmux-menu-hover)}
+.acpmux-slash-menu .ui-listbox-row[aria-selected="true"]{background:var(--acpmux-menu-hover)}
 .acpmux-slash-name{flex:none;color:var(--agent-text)}
 .acpmux-slash-name mark{background:none;color:inherit;font-weight:600}
 .acpmux-slash-hint{flex:none;color:var(--acpmux-composer-dim);font-style:italic}
@@ -959,7 +1031,7 @@ fieldset.acpmux-question[hidden]{display:none}
 /* The groups are split by the shared menu separator (PaletteMenu.tsx), in the pane's menu hairline. */
 .acpmux-palette-menu .ui-separator{flex:none;height:0;margin:4px 8px;border:0;border-top:var(--cmux-hairline,.5px) solid var(--agent-border);background:none}
 /* The composer's + (Picker) splits its groups with the same hairline, on the group itself. */
-.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section{margin-top:4px;padding-top:4px;box-shadow:none;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
+.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section,.acpmux-menu.acpmux-composer-plus .acpmux-menu-section+.acpmux-menu-section{margin-top:4px;padding-top:4px;box-shadow:none;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
 .acpmux-palette-empty{padding:var(--ui-row-height) var(--ui-row-padding-inline);color:var(--agent-muted);text-align:center}
 
 /* Keep search rows on the same shared menu metrics. */

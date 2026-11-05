@@ -16,7 +16,9 @@ use std::time::Duration;
 
 /// Ask on every this many ping ticks.
 pub(super) const HEALTH_EVERY: u64 = 3;
-/// How long one ask may take.
+/// How long one ask may take. `refresh_health` is detached from the link loop, and a timeout
+/// keeps the previous reading; it never blocks a wake or launch.
+// timeout: stale health is preferable to making peer/link work fail on a busy machine.
 const HEALTH_BUDGET: Duration = Duration::from_secs(5);
 
 impl Peer {

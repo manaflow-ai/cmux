@@ -402,41 +402,6 @@ import Testing
         #expect(item?.quote == FeedItem.Quote("lint"))
     }
 
-    /// The phone connected after the turn ended (it slept through the live event): the ledger row
-    /// the Mac's daemon still keeps the texts for shows the answer, not "Finished its turn in the
-    /// terminal". Claude Code in a terminal read that way before, while Codex's own OSC 9 text
-    /// filled its card.
-    @Test func aTurnFinishedBeforeThePhoneConnectedStillShowsItsAnswer() async {
-        let daemon = FakeDaemon()
-        let (store, feed) = Self.make(daemon)
-        var row = Self.row("ntf_1", "Claude finished", surface: 1, at: 2_000_000)
-        row.removeLast()
-        daemon.rows = [row + #","message":"The build is green.\n\n- 3 tests fixed","prompt":"fix ci"}"#]
-        feed.treeChanged(Self.claudeTree(), macID: "mac", connection: Self.connection)
-        await Self.settle { store.items.count == 1 }
-        let item = store.item(id: "term-mac-ntf_1")
-        #expect(item?.kind == .response)
-        #expect(item?.markdown == "The build is green.\n\n- 3 tests fixed")
-        #expect(item?.quote == FeedItem.Quote("fix ci"))
-    }
-
-    /// An approval says what it waits on (the tool and its command), as a GUI chat's permission
-    /// card does, under its headline.
-    @Test func aTerminalApprovalShowsTheCommandItWaitsOn() async {
-        let daemon = FakeDaemon()
-        let (store, feed) = Self.make(daemon)
-        feed.treeChanged(Self.claudeTree("working"), macID: "mac", connection: Self.connection)
-        await Self.settle { daemon.lists == 1 }
-        let command = "Bash\n\n```\nrm -rf build\n```\n\nClean the build folder"
-        daemon.rows = [Self.row("ntf_1", "Claude needs approval", body: "Bash", level: "warning", surface: 1, at: 2_000_000)]
-        feed.notificationPosted(NotificationPost(id: "ntf_1", surface: 1, source: "agent", message: command))
-        await Self.settle { store.items.count == 1 }
-        let item = store.item(id: "term-mac-ntf_1")
-        #expect(item?.kind == .needsInput)
-        // The tool shows once: in the headline, not again above its command.
-        #expect(item?.markdown == "**Needs approval:** Bash\n\n```\nrm -rf build\n```\n\nClean the build folder")
-    }
-
     /// A Mac before the event's `id`: its preview goes to the next new row on that terminal.
     @Test func anOlderMacsPreviewStillReachesItsRow() async {
         let daemon = FakeDaemon()

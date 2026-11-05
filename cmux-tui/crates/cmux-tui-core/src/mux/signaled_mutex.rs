@@ -2,19 +2,72 @@
 //! acquisitions feed hold and wait telemetry (`server-stats`), and
 //! [`Mux::lock_state_pinned`], the state lock taken under the registry.
 
+use std::cell::Cell;
 use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, LockResult, Mutex, MutexGuard, PoisonError};
 use std::sync::{TryLockError, TryLockResult};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::{Mux, State, WorkspaceRegistry};
 use crate::lock_rank::{HeldRank, LockRank};
 use crate::workspace_registry::registry_connection::RegistryConnectionPin;
 
+thread_local! {
+    /// Requests a person waits on: a sidebar click (collapse or move a
+    /// group, place a workspace), a new chat tab. Inside one, every registry
+    /// lock this thread takes goes ahead of plain lockers (see
+    /// [`SignaledMutex`]).
+    static INTERACTIVE: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Marks this thread's registry locks interactive until it drops. Nested
+/// scopes are fine.
+pub(crate) struct InteractiveScope(());
+
+impl Drop for InteractiveScope {
+    fn drop(&mut self) {
+        INTERACTIVE.with(|depth| depth.set(depth.get().saturating_sub(1)));
+    }
+}
+
+/// Run the rest of the current request's registry locks as interactive.
+pub(crate) fn interactive_scope() -> InteractiveScope {
+    INTERACTIVE.with(|depth| depth.set(depth.get().saturating_add(1)));
+    InteractiveScope(())
+}
+
+fn in_interactive_scope() -> bool {
+    INTERACTIVE.with(|depth| depth.get() > 0)
+}
+
+/// How many interactive acquisitions may go ahead of waiting plain lockers
+/// in a row. After that, interactive lockers step aside until a plain one
+/// takes the lock, so interactive writes (agents send personal writes too)
+/// delay ordinary registry writers by at most this many holds and never
+/// starve them.
+const MAX_INTERACTIVE_STREAK: usize = 4;
+
+/// The workspace registry lock. The mutex under it is not fair: a waiter
+/// can lose to newcomers again and again, so on a busy Mac (about 50 agent
+/// sessions writing status, the lock held most of the time) one short write
+/// a person waits on could queue behind the whole crowd for seconds
+/// ("workspace_group.update (no reply within 2.0 seconds)"). Locks taken
+/// inside an [`interactive_scope`] go next: while one waits, a plain locker
+/// neither queues for the lock nor keeps one it just won, up to
+/// [`MAX_INTERACTIVE_STREAK`] interactive turns in a row; then the
+/// interactive lockers step aside the same way until a plain one has had
+/// its turn.
 pub(crate) struct SignaledMutex<T> {
     value: Mutex<T>,
     release_epoch: Mutex<u64>,
     released: Condvar,
+    /// Interactive lockers waiting for `value`.
+    interactive_waiters: AtomicUsize,
+    /// Interactive acquisitions since the last plain one.
+    interactive_streak: AtomicUsize,
+    /// Plain lockers waiting for `value`.
+    plain_waiters: AtomicUsize,
     /// Contention record with `#[track_caller]` attribution, reported by
     /// `server-stats` so lock convoys are visible without external sampling.
     stats: crate::diagnostics::LockStats,
@@ -26,6 +79,9 @@ impl<T> SignaledMutex<T> {
             value: Mutex::new(value),
             release_epoch: Mutex::new(0),
             released: Condvar::new(),
+            interactive_waiters: AtomicUsize::new(0),
+            interactive_streak: AtomicUsize::new(0),
+            plain_waiters: AtomicUsize::new(0),
             stats: crate::diagnostics::LockStats::new(),
         }
     }
@@ -60,11 +116,80 @@ impl<T> SignaledMutex<T> {
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
-        match self.value.lock() {
+        let locked =
+            if in_interactive_scope() { self.lock_interactive() } else { self.lock_plain() };
+        match locked {
             Ok(value) => Ok(self.guard(value, site, waited_from, blocker)),
             Err(error) => {
                 Err(PoisonError::new(self.guard(error.into_inner(), site, waited_from, blocker)))
             }
+        }
+    }
+
+    /// Waits for the current holder, and for waiting plain lockers only once
+    /// the streak cap is reached.
+    fn lock_interactive(&self) -> LockResult<MutexGuard<'_, T>> {
+        self.interactive_waiters.fetch_add(1, Ordering::AcqRel);
+        let locked = loop {
+            self.wait_while(|| self.plain_goes_first());
+            match self.value.lock() {
+                // Plain lockers are owed a turn: hand the lock to one.
+                Ok(value) if self.plain_goes_first() => drop(value),
+                locked => break locked,
+            }
+        };
+        self.interactive_streak.fetch_add(1, Ordering::AcqRel);
+        // Plain lockers wait for this count to reach zero; the guard's drop
+        // (every release) wakes them.
+        self.interactive_waiters.fetch_sub(1, Ordering::AcqRel);
+        locked
+    }
+
+    fn lock_plain(&self) -> LockResult<MutexGuard<'_, T>> {
+        self.plain_waiters.fetch_add(1, Ordering::AcqRel);
+        let locked = loop {
+            self.wait_while(|| self.interactive_goes_first());
+            match self.value.lock() {
+                // An interactive locker queued meanwhile: hand the lock to it
+                // (this unlock wakes a waiter) and queue again after it.
+                Ok(value) if self.interactive_goes_first() => drop(value),
+                locked => break locked,
+            }
+        };
+        self.interactive_streak.store(0, Ordering::Release);
+        self.plain_waiters.fetch_sub(1, Ordering::AcqRel);
+        locked
+    }
+
+    /// An interactive locker waits and has not used up its streak.
+    fn interactive_goes_first(&self) -> bool {
+        self.interactive_waiters.load(Ordering::Acquire) > 0
+            && self.interactive_streak.load(Ordering::Acquire) < MAX_INTERACTIVE_STREAK
+    }
+
+    /// The interactive streak is used up and a plain locker waits. Never
+    /// true together with [`Self::interactive_goes_first`], so the two
+    /// kinds never both step aside.
+    fn plain_goes_first(&self) -> bool {
+        self.plain_waiters.load(Ordering::Acquire) > 0
+            && self.interactive_streak.load(Ordering::Acquire) >= MAX_INTERACTIVE_STREAK
+    }
+
+    /// Wait while `owed` (the other kind goes first). Every release
+    /// notifies `released`, and the other kind releases after it took the
+    /// lock, so the wait ends at most one hold after its turn; the short
+    /// timeout only bounds a missed wakeup. Nothing waits here at idle.
+    fn wait_while(&self, owed: impl Fn() -> bool) {
+        if !owed() {
+            return;
+        }
+        let mut epoch = self.release_epoch.lock().unwrap_or_else(PoisonError::into_inner);
+        while owed() {
+            epoch = self
+                .released
+                .wait_timeout(epoch, Duration::from_millis(20))
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
         }
     }
 
@@ -161,7 +286,7 @@ pub(crate) struct SignaledMutexGuard<'a, T> {
     value: Option<MutexGuard<'a, T>>,
     owner: &'a SignaledMutex<T>,
     site: crate::diagnostics::LockSite,
-    waited: std::time::Duration,
+    waited: Duration,
     acquired_at: Instant,
     /// Lock rank `WorkspaceRegistry` (crate::lock_rank), released after the
     /// lock.
@@ -230,7 +355,7 @@ pub(crate) struct StateGuard<'a> {
     /// The mutex, for `Drop::drop` to publish the routing tables when they changed (R-DAEMON-STATE stage S1).
     owner: &'a StateMutex,
     site: crate::diagnostics::LockSite,
-    waited: std::time::Duration,
+    waited: Duration,
     acquired_at: Instant,
     /// Lock rank `MuxState` (crate::lock_rank), released after the lock.
     _rank: HeldRank,
@@ -280,14 +405,14 @@ const STATE_LOCK_NAME: &str = "mux.state";
 
 #[cfg(test)]
 thread_local! {
-    static STATE_LOCKS_TAKEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static STATE_LOCKS_TAKEN: Cell<u64> = const { Cell::new(0) };
 }
 
 /// How many times this thread has taken the mux state lock (test hook): a test proves a path never takes the session
 /// lock by counting, with no timing (TYPING UNDER LOAD F4).
 #[cfg(test)]
 pub(crate) fn state_locks_taken_on_this_thread() -> u64 {
-    STATE_LOCKS_TAKEN.with(std::cell::Cell::get)
+    STATE_LOCKS_TAKEN.with(Cell::get)
 }
 
 impl Drop for StateGuard<'_> {
@@ -299,7 +424,7 @@ impl Drop for StateGuard<'_> {
         let owner = self.owner;
         let cut_short = std::thread::panicking() && !self.panicking_at_lock;
         if !cut_short
-            && owner.publish_routes.load(std::sync::atomic::Ordering::Relaxed)
+            && owner.publish_routes.load(Ordering::Relaxed)
             && !owner.routes.load().is_current(&self.guard)
         {
             let published = std::sync::Arc::new(crate::route_table::RouteSnapshot::of(&self.guard));
@@ -352,7 +477,7 @@ impl StateMutex {
             crate::route_table::RouteSnapshot::default()
         };
         self.routes.store(std::sync::Arc::new(snapshot));
-        self.publish_routes.store(on, std::sync::atomic::Ordering::Relaxed);
+        self.publish_routes.store(on, Ordering::Relaxed);
     }
 
     /// Whether a writer panicked while it held the session state.

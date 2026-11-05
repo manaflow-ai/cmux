@@ -275,5 +275,5 @@ fn open_transfers_are_bounded() {
 
 #[test]
 fn the_bulk_objects_are_abi_4() {
-    assert_eq!(cmux_rd_ffi_abi_version(), 4);
+    assert_eq!(cmux_rd_ffi_abi_version(), 5);
 }

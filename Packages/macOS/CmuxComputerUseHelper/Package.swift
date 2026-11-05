@@ -12,7 +12,8 @@ import PackageDescription
 // builds without it.
 //
 //   CCuaDriverABI       -> the vendored upstream header (types only)
-//   CmuxCuaHelperCore   -> CCuaDriverABI, Security (admission, control pipe, socket, runtime bridge)
+//   CmuxCuaHelperCore   -> CCuaDriverABI, Security (admission, control pipe, socket, runtime bridge),
+//                          Vision, ScreenCaptureKit (perception: OCR, unchanged screenshots, native zoom)
 //   cmux-cua-helper     -> CmuxCuaHelperCore (the executable in "cmux Computer Use (dev).app")
 
 let swiftSettings: [SwiftSetting] = [
@@ -35,7 +36,10 @@ let package = Package(
             dependencies: ["CCuaDriverABI"],
             resources: [.process("Resources")],
             swiftSettings: swiftSettings,
-            linkerSettings: [.linkedFramework("Security"), .linkedFramework("ApplicationServices")]
+            linkerSettings: [.linkedFramework("Security"), .linkedFramework("ApplicationServices"),
+                             // Perception: OCR, screenshot signatures and native-resolution zoom.
+                             .linkedFramework("Vision"), .linkedFramework("ScreenCaptureKit"),
+                             .linkedFramework("ImageIO")]
         ),
         .executableTarget(
             name: "cmux-cua-helper",

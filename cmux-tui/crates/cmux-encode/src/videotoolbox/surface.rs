@@ -169,7 +169,6 @@ mod tests {
     }
     use cv_sys::*;
 
-
     /// An IOSurface-backed pixel buffer; the surface lives as long as the buffer.
     struct TestSurface(CVPixelBufferRef);
 

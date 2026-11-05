@@ -49,6 +49,8 @@ extension LayoutRootView {
                 view.finishResizeGesture()
             }
             guard shown != (view.frame, view.alphaValue, view.isHidden) else { continue }
+            // It slid, faded or hid under a possibly still pointer: its divider hover and resize cursor follow.
+            view.refreshDividerHover()
             setNeedsOverlaySync()
             // The thumb's occluder follows the screen's origin and hidden state.
             view.scrollbar?.syncOccluder()

@@ -65,11 +65,10 @@ export function hostErrorShows(
 }
 
 /// The wait before the next handshake. Looking for a daemon is cheap, so while the host is
-/// recovering it is asked again within 2 s and the chat appears soon after the daemon answers (a
-/// 30 s cap saw a ready daemon up to 32 s late, #27283's replay); a refusal that waits on the
-/// person backs off to 30 s, so a host without a daemon is not asked four times a second.
+/// recovering it is asked again within 2 s and the chat appears soon after the daemon answers; a
+/// refusal that waits on the person backs off without a terminal retry cap.
 export function nextRetryDelay(delay: number, recovering: boolean): number {
-  return Math.min(delay * 2, recovering ? 2_000 : 30_000);
+  return Math.min(delay * 2, recovering ? 2_000 : 2_147_483_647);
 }
 
 /// What the pane's handshake loop does around a Restart acpmux.

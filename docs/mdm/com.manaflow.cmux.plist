@@ -113,7 +113,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>standard</string>
+			<string>minimal</string>
 			<key>pfm_description</key>
 			<string>Minimal has no titlebar strip; the top row moves the window.</string>
 			<key>pfm_name</key>
@@ -496,6 +496,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back.</string>
+			<key>pfm_name</key>
+			<string>tabs.hideLoneChatTab</string>
+			<key>pfm_title</key>
+			<string>Hide the Tab of a Chat Alone in Its Pane</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.</string>
 			<key>pfm_name</key>
 			<string>tabs.swapCmdTAndCmdN</string>
@@ -675,6 +687,18 @@
 			<string>updates.downloadAutomatically</string>
 			<key>pfm_title</key>
 			<string>Download Updates Automatically</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart.</string>
+			<key>pfm_name</key>
+			<string>updates.oneClickInstall</string>
+			<key>pfm_title</key>
+			<string>Update in One Click</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1086,13 +1110,13 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
-			<string>An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.</string>
+			<string>Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.</string>
 			<key>pfm_name</key>
 			<string>cloud.agentsStartWithoutAsking</string>
 			<key>pfm_title</key>
-			<string>Let Agents Start Cloud Sessions Without Asking</string>
+			<string>Let Agents Use Cloud Without Asking</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -2109,6 +2133,16 @@
 		</dict>
 		<dict>
 			<key>pfm_description</key>
+			<string>A look from a file in ~/.config/cmux/themes, such as "tokyo" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.</string>
+			<key>pfm_name</key>
+			<string>appearance.themeFile</string>
+			<key>pfm_title</key>
+			<string>Theme File</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
 			<string>The color of selected text everywhere: terminals, Markdown, editors, the address bar and text fields. Unset, it is the terminal theme's selection color.</string>
 			<key>pfm_name</key>
 			<string>appearance.highlightColor</string>
@@ -2946,6 +2980,8 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.</string>
 			<key>pfm_name</key>
 			<string>layout.paneCornerRadius</string>
 			<key>pfm_range_max</key>
@@ -2954,6 +2990,20 @@
 			<real>0.0</real>
 			<key>pfm_title</key>
 			<string>Corner Radius</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Space between a pane's edge and its tabs. Inner corners use the corner radius minus this.</string>
+			<key>pfm_name</key>
+			<string>layout.cornerPadding</string>
+			<key>pfm_range_max</key>
+			<real>12</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Corner Padding</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
@@ -3984,6 +4034,36 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.trayTucked</string>
+			<key>pfm_title</key>
+			<string>Tuck Away Running Tray</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>middle</string>
+			<key>pfm_description</key>
+			<string>Where the handle that tucks the running tray away and brings it back sits along the top of the composer.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.trayHandle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>left</string>
+				<string>middle</string>
+				<string>right</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Running Tray Handle</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>markdown</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.font.preset</string>
@@ -4168,6 +4248,18 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Prompt Rail Side</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.commandLabels</string>
+			<key>pfm_title</key>
+			<string>Command Labels</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -8610,6 +8702,23 @@
 			<string>Show Context Usage</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>context</string>
+			<key>pfm_description</key>
+			<string>What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.</string>
+			<key>pfm_name</key>
+			<string>agentPane.composerRing</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>context</string>
+				<string>planUsage</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Composer Ring</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

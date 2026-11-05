@@ -87,7 +87,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         // task-owner: one file read or dynamic lookup per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let reply = await self.reply(to: url, range: range)
+            let reply = await self.reply(to: url, range: range, webView: webView)
             guard self.active.remove(id) != nil else { return }
             guard let reply else {
                 task.didFailWithError(URLError(.fileDoesNotExist))
@@ -105,8 +105,9 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// per request: its server's answers, else (a stopped server, a 4xx or 5xx) its overlay
     /// folder's file, else, with an active web update (``WebBundleOverlay``), the update's copy
     /// of the page's folder, else the bundled one. `range` is the request's `Range` header, which
-    /// only a ranged dynamic source (``PageRangedResourceSource``) reads.
-    func reply(to url: URL, range: String? = nil) async -> Reply? {
+    /// only a ranged dynamic source (``PageRangedResourceSource``) reads. `webView`'s request reads
+    /// the update that page loaded with (``WebBundleServedViews``), any other the active one.
+    func reply(to url: URL, range: String? = nil, webView: WKWebView? = nil) async -> Reply? {
         guard let served = served(url) else { return nil }
         if served.page.id.lowercased() == PageArtifactFrame.pageID, PageArtifactFrame.isFrame(url) {
             return Self.artifactReply(url: url)
@@ -122,7 +123,11 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             // The launch variable's server (Debug) fails the request, as before.
             if self.devServer != nil { return nil }
         }
-        let update = await WebBundleOverlay.shared.root(for: served.root)
+        let update = if let webView {
+            await WebBundleServedViews.shared.root(for: served.root, in: webView)
+        } else {
+            await WebBundleOverlay.shared.root(for: served.root)
+        }
         let root = live.overlayRoot(for: served.page, bundledRoot: served.root) ?? update
         switch Self.route(for: url, page: served.page, root: root) {
         case nil:

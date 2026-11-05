@@ -25,7 +25,7 @@ export const dependencyDown =
   (_error: unknown): Effect.Effect<never, ServiceUnavailable> =>
     Effect.logWarning("cmux-vm dependency unavailable").pipe(
       Effect.annotateLogs({ operation }),
-      Effect.zipRight(Effect.fail(unavailable())),
+      Effect.zipRight(Effect.fail(unavailable(operation))),
     );
 
 /** Spends one request from the tenant's per-minute budget for `rateClass`, or fails with 429. */

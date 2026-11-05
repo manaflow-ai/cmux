@@ -470,9 +470,7 @@ impl Mux {
         }
         let was_placed = state.pane_of(surface.id).is_some();
         let screens_before = state
-            .workspaces
-            .iter()
-            .find(|workspace| workspace.key == terminal.workspace_key)
+            .workspace_by_key(&terminal.workspace_key)
             .map(|workspace| workspace.screens.len());
         let (placement, changed) = self.project_terminal_to_workspace_in_state(
             &mut state,

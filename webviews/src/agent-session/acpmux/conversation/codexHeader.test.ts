@@ -2,7 +2,7 @@
 // A finished Codex turn's header, as Codex's own (Leo, 2026-11-02: "i assume the x previous messages
 // are when there's a mix and the worked for is if it's one contiguous thing ... let's follow those"):
 // work with the agent's messages between it reads "N previous messages", work alone "Worked for".
-// Claude turns keep their per-run folding (#30176) and draw no header.
+// A Claude turn draws no header by default; only its opt-in (turnFoldStyle.ts) folds it under "Worked for".
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { WORKED, turnView, workedLabel } from "./turns";

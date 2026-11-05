@@ -266,7 +266,25 @@ def collection_names(lines):
 def collection_kinds(lines):
     """({dictionary names}, {names declared as an indexable non-dictionary: an array type or
     literal, Data, Array(...)}, {names declared any other way: inferred or another type})."""
-    dicts, arrays, others = set(), set(), set()
+    dicts, arrays, others, _ = declarations(lines)
+    return dicts, arrays, others
+
+
+# Every parameter of a func/init list, whatever its type (`func f(_ s: inout State)`).
+ANY_PARAMETER = re.compile(r"[(,]\s*(?:\w+\s+)?(\w+)\s*:")
+# Closure parameters: `{ state in`, `{ [weak self] a, b in`, `{ (s: State) -> Bool in`.
+CLOSURE_PARAMETERS = re.compile(r"\{\s*(?:\[[^\[\]]*\]\s*)?(\([^(){}]*\)|\w+(?:\s*,\s*\w+)*)"
+                                r"\s*(?:->\s*[^{}]+?)?\s+in\b")
+FOR_IN = re.compile(r"\bfor\s+(?:case\s+(?:let|var)\s+)?(\([^()]*\)|\w+)\s+in\b")
+PARAMETER_NAME = re.compile(r"(?:^|[(,])\s*(\w+)")
+
+
+def declarations(lines):
+    """collection_kinds' three sets, and {every value name LINES declare}: var/let names
+    (`if let` and `guard let` too), func/init parameters of any type, closure parameters
+    and loop variables. A member chain whose receiver is one of these names (`state.tasks[id]`
+    with `state` from this file) reads the member's kind from this file's declarations."""
+    dicts, arrays, others, values = set(), set(), set(), set()
     signature_depth = 0  # > 0 while a func/init parameter list continues on later lines
     for line in lines:
         code = swift_code(line)
@@ -286,11 +304,15 @@ def collection_kinds(lines):
                         break
             params = text[:stop] if head else "(" + text[:stop]
             found += [(m.group(1), params[m.end():].strip()) for m in PARAMETER_TYPE.finditer(params)]
+            values.update(m.group(1) for m in ANY_PARAMETER.finditer(params))
             signature_depth = max(depth, 0) if stop == len(text) else 0
+        for match in list(CLOSURE_PARAMETERS.finditer(code)) + list(FOR_IN.finditer(code)):
+            values.update(PARAMETER_NAME.findall(match.group(1)))
         for name, text in found:
+            values.add(name)
             kind = bracket_kind(text)
             (dicts if kind == "dict" else arrays if kind == "array" else others).add(name)
-    return dicts, arrays, others
+    return dicts, arrays, others, values
 
 
 ASSIGNED = re.compile(r"\s*=(?!=)")
@@ -299,10 +321,13 @@ ASSIGNED = re.compile(r"\s*=(?!=)")
 def index_hits(code, dictionaries=frozenset()):
     """Computed subscripts in CODE that can trap (see index_subscript). DICTIONARIES:
     names the module declares only as dictionaries, or (file dictionaries, module
-    dictionaries[, file indexables, module indexables]) from file_dictionaries. An
-    assignment target (`x[k] = v`) counts only on a known indexable name."""
+    dictionaries[, file indexables, module indexables[, file value names]]) from
+    file_dictionaries. An assignment target (`x[k] = v`) counts only on a known indexable name."""
     hits = 0
-    if isinstance(dictionaries, tuple) and len(dictionaries) == 4:
+    values = frozenset()
+    if isinstance(dictionaries, tuple) and len(dictionaries) == 5:
+        local, module, local_arrays, module_arrays, values = dictionaries
+    elif isinstance(dictionaries, tuple) and len(dictionaries) == 4:
         local, module, local_arrays, module_arrays = dictionaries
     else:
         local, module = dictionaries if isinstance(dictionaries, tuple) else (dictionaries, dictionaries)
@@ -316,9 +341,13 @@ def index_hits(code, dictionaries=frozenset()):
             continue  # a checked accessor, or a dictionary subscript with a default
         chain = re.sub(r"\(\)$", "", match.group(0)[:match.group(0).index("[")])
         base = chain.split(".")[-1]
-        # A file's own declarations decide only for a bare name (or self.name); a
-        # member of another value (`transport.pending[i]`) uses the module rule.
-        qualified = chain not in (base, "self." + base)
+        # A file's own declarations decide for a bare name (or self.name), and for a
+        # member of a value this file declares (`state.tasks[id]` with `state` a property,
+        # local or closure parameter here: the member is the one this file's type has).
+        # A member of a value from elsewhere (`transport.pending[i]`) uses the module rule.
+        receiver = chain[:-len(base) - 1] if chain != base else ""
+        receiver = receiver[len("self."):] if receiver.startswith("self.") else receiver
+        qualified = receiver not in ("", "self") and receiver not in values
         if base in (module if qualified else local):
             continue
         if local_arrays is not None and ASSIGNED.match(code[match.end():]) and \
@@ -610,13 +639,13 @@ def file_dictionaries(lines, module_dicts, module_arrays=None):
     as a dictionary (a property from the type's main file used in an extension file). A
     same-named array or inferred local in another file of the module no longer hides a
     dictionary declared in this one; one declared any other way in this file still counts."""
-    dicts, arrays, others = collection_kinds(lines)
+    dicts, arrays, others, values = declarations(lines)
     others = others | arrays
     declared = dicts | others
     local = frozenset((dicts - others) | {name for name in module_dicts if name not in declared})
     if module_arrays is None:
         return local, frozenset(module_dicts)
-    return local, frozenset(module_dicts), frozenset(arrays), frozenset(module_arrays)
+    return local, frozenset(module_dicts), frozenset(arrays), frozenset(module_arrays), frozenset(values)
 
 
 class Scan:

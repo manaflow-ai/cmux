@@ -5,9 +5,9 @@
 
 use super::capture::Bounds;
 use super::keys::{key_code, modifier_flag};
+use super::sys::{self, cf, cg, event_type, CGEventFlags, CGEventRef, CGKeyCode, CGPoint};
 use crate::Res;
 use cmux_rd_proto::InputEvent;
-use super::sys::{self, cf, cg, event_type, CGEventFlags, CGEventRef, CGKeyCode, CGPoint};
 use std::collections::BTreeSet;
 
 /// A CGEvent this code created, released on drop.
@@ -186,7 +186,8 @@ impl Injector {
     fn mouse(&self, kind: u32, button: Option<Button>, clicks: Option<i64>) {
         let cg_button = button.map_or(sys::MOUSE_BUTTON_LEFT, |b| b.events().3);
         // SAFETY: a live source; the event is released by `Event`.
-        let created = unsafe { cg::CGEventCreateMouseEvent(self.source, kind, self.point, cg_button) };
+        let created =
+            unsafe { cg::CGEventCreateMouseEvent(self.source, kind, self.point, cg_button) };
         let Some(event) = Event::new(created) else { return };
         if let Some(Button::Other(number)) = button {
             event.set_field(sys::FIELD_MOUSE_EVENT_BUTTON_NUMBER, number);
@@ -233,8 +234,9 @@ impl Injector {
         }
         let unit = if precise { sys::SCROLL_UNIT_PIXEL } else { sys::SCROLL_UNIT_LINE };
         // SAFETY: a live source; the event is released by `Event`.
-        let created =
-            unsafe { cg::CGEventCreateScrollWheelEvent2(self.source, unit, 2, whole_y, whole_x, 0) };
+        let created = unsafe {
+            cg::CGEventCreateScrollWheelEvent2(self.source, unit, 2, whole_y, whole_x, 0)
+        };
         if let Some(event) = Event::new(created) {
             event.post(self.flags);
         }
@@ -303,4 +305,3 @@ impl Drop for Injector {
 
 // SAFETY: the event source is only used from the session's thread that owns the injector.
 unsafe impl Send for Injector {}
-

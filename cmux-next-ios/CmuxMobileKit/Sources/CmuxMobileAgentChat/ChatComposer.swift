@@ -1,13 +1,14 @@
 #if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileDesign
+import CmuxMobileRealtime
 import CmuxMobileTransport
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// SPEC 4.3 composer for agent chat: glass card with a text row over a
-/// controls row (`+` menu, model pill, mic, send/stop), attachment previews,
+/// controls row (`+` menu, model pill, voice mode, send/stop), attachment previews,
 /// queue rows, slash-command suggestions, and the collapsed capsule (same placeholder as the field).
 struct ChatComposer: View {
     let store: AgentChatStore
@@ -35,6 +36,7 @@ struct ChatComposer: View {
     var cmuxCommands: [CmuxSlashCommand] = []
     var runCmuxCommand: (@MainActor (CmuxSlashCommand, String) async -> String?)?
     @State private var showPhotos = false
+    private let voice = AgentVoiceLauncher.shared
     @State private var showFiles = false
     @State private var showCamera = false
     @State private var photoItems: [PhotosPickerItem] = []
@@ -246,9 +248,11 @@ struct ChatComposer: View {
                     Spacer(minLength: 0)
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
                 }
-                // No mic button: iOS has no API to start keyboard dictation, and the
-                // keyboard's own mic dictates into this field (SPEC open decision).
-                primaryButton
+                // Voice mode instead of a dictation mic (the keyboard's own mic still
+                // dictates into the field): with no draft, the send circle is the voice
+                // button (ChatGPT's composer); while the agent runs it sits beside Stop.
+                if primaryState == .empty || primaryState == .stop, voice.isAvailable { voiceButton }
+                if primaryState != .empty || !voice.isAvailable { primaryButton }
             }
             .padding(.horizontal, 8)
             .padding(.bottom, collapsed ? 6 : 8)
@@ -434,6 +438,29 @@ struct ChatComposer: View {
     private var primaryState: PrimaryState {
         if store.isRunning { return hasContent ? .queue : .stop }
         return hasContent ? .send : .empty
+    }
+
+    /// Voice mode on this chat: the agent's words read aloud, the user's
+    /// speech sent as prompts. On while it runs here; a tap ends it.
+    private var voiceButton: some View {
+        let source = AgentChatVoiceSource(store: store)
+        let active = voice.isActive(source.voiceSourceID)
+        return Button {
+            voice.toggle(source)
+        } label: {
+            Image(systemName: "waveform")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(active ? Color.cmuxMobileOnAccent : Color.primary)
+                .symbolEffect(.variableColor.iterative, isActive: active)
+                .frame(width: 36, height: 36)
+                .background(active ? Color.cmuxMobileAccent : Color.cmuxMobileFill, in: .circle)
+                .padding(4)
+                .contentShape(.circle)
+                .padding(-4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+        .accessibilityIdentifier("agentChat.composer.voice")
     }
 
     private var primaryButton: some View {

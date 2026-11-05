@@ -51,7 +51,7 @@ export function commandWorkLabel(text: string): string | undefined {
     // Stack order puts each substitution before the command that consumes its answer. Iterative,
     // so deeply nested shell input does not grow the JavaScript call stack.
     for (const run of [...(command.runs ?? [])].reverse())
-      for (const nested of shellCommands(run).reverse()) pending.push(nested);
+      for (const nested of [...shellCommands(run)].reverse()) pending.push(nested);
   }
   return labels.join(" · ") || undefined;
 }

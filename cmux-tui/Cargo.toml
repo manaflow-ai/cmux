@@ -24,6 +24,7 @@ members = [
     "crates/cmux-imessage",
     "crates/cmux-chat-index",
     "crates/cmux-cloud-cli",
+    "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
     "crates/cmux-chief",
     "bindings/rust",
@@ -43,12 +44,14 @@ members = [
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-journal",
     "crates/cmux-kitty-media",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
+    "crates/cmux-cloud-config",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
     "crates/cmux-pty",
@@ -127,11 +130,13 @@ default-members = [
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-journal",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
+    "crates/cmux-cloud-config",
     "crates/cmux-pty",
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
@@ -180,7 +185,7 @@ default-members = [
     "crates/cmux-url-input",
     "crates/cmux-view-rows",
 ]
-exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
+exclude = ["vendor/crossterm", "crates/cmux-rd-host", "crates/cmux-cellgrid-bench"]
 
 [workspace.package]
 # The cmux-next version: the one source of truth for every version surface
@@ -220,6 +225,8 @@ cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
+cmux-cloud-config = { path = "crates/cmux-cloud-config" }
+cmux-cloud-environment = { path = "crates/cmux-cloud-environment" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
@@ -246,6 +253,7 @@ cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-json = { path = "crates/cmux-json" }
+cmux-journal = { path = "crates/cmux-journal" }
 cmux-kitty-media = { path = "crates/cmux-kitty-media" }
 cmux-api-compat = { path = "crates/cmux-api-compat" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }

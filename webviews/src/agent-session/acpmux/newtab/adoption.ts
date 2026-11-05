@@ -114,12 +114,13 @@ export function withHandshakeNewTab(
 }
 
 /// The screen two contexts draw is the same: they differ at most in the input token (each Cmd-T has
-/// its own) and the bar's places (the open tabs, workspaces and actions, which a places event
+/// its own), the chat's start folder and the bar's places (the open tabs, workspaces and actions, which a places event
 /// updates in place). A spare prepared with the tab's context (NewTabSparePool) gets such an adopt.
 export function sameNewTabScreen(a: NewTabHost | undefined, b: NewTabHost): boolean {
   if (!a) return false;
-  const { inputToken: _a1, omnibar: _a2, ...left } = a;
-  const { inputToken: _b1, omnibar: _b2, ...right } = b;
+  // The start folder is the chat's, not the screen's: an adopt applies it in place (App adoptNewTab).
+  const { inputToken: _a1, omnibar: _a2, start: _a3, ...left } = a;
+  const { inputToken: _b1, omnibar: _b2, start: _b3, ...right } = b;
   return sameValue(left, right);
 }
 

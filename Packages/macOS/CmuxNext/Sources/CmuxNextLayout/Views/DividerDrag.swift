@@ -36,6 +36,7 @@ struct DividerDrag {
             screen.activeDrag = drag
             screen.columnWidths.drop() // a person's drag sets widths on purpose (R3b)
             model.setGestureActive(true)
+            catchShown(kind, at: windowPoint)
         case let .moved(windowPoint, flags):
             guard screen.activeDrag != nil else { return }
             screen.activeDrag?.modifiers = DividerDragModifiers(flags)
@@ -63,7 +64,7 @@ struct DividerDrag {
             screen.activeDrag?.modifiers = DividerDragModifiers(flags)
             if case .split = kind {
                 // The layout this release makes springs on from the pointer's velocity.
-                screen.releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime())
+                screen.releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime(), drag.sharedEdges)
             }
             apply(at: windowPoint, phase: .ended)
             screen.activeDrag?.hintToast?.dismiss()
@@ -86,6 +87,8 @@ struct DividerDrag {
             if redraw { screen.reconcile(animated: false) }
         }
         model.cancelGesture(drag.transaction)
+        // A press that caught a springing value: the release it replaced lands as it would have.
+        if let replaced = drag.replaced { set(replaced, transaction: .make(), phase: .ended) }
         model.setGestureActive(false)
         screen.resizeGestureReleased()
     }
@@ -127,7 +130,11 @@ struct DividerDrag {
     func apply(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
         guard var drag = screen.activeDrag else { return }
         let point = drag.effective(contentPoint(fromWindow: windowPoint, kind: drag.kind))
-        let targets: [DividerDragValue]
+        // A line caught in a clamp (rule D) never shows behind the pointer (`SharedEdgeClamp.follow`).
+        if let clamp = drag.clampHold, !clamp.follow((drag.axis == .horizontal ? point.x : point.y) - drag.grabOffset, on: screen) {
+            drag.clampHold = nil
+        }
+        var targets: [DividerDragValue]
         switch drag.kind {
         case let .split(id):
             targets = splitTargets(id, drag: &drag, point: point, phase: phase)
@@ -137,7 +144,11 @@ struct DividerDrag {
             screen.activeDrag = drag
             return applyRowEdge(column, upper: upper, drag: drag, windowPoint: windowPoint, phase: phase)
         }
-        let keys = Set(targets.map(\.key))
+        var keys = Set(targets.map(\.key))
+        // The caught value is this drag's start for its key (rule C): a mode that stops setting it puts it back there.
+        if let caught = drag.caughtValue, drag.touched.contains(caught.key), !keys.contains(caught.key) {
+            (targets, keys) = (targets + [caught], keys.union([caught.key]))
+        }
         let restored = drag.touched.subtracting(keys)
         drag.touched = keys
         drag = phase == .ended ? drag : showingHint(drag)

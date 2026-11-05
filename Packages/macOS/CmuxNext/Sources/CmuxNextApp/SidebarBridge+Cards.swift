@@ -18,8 +18,7 @@ extension SidebarBridge {
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView)
         let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
         let document: @MainActor @Sendable () -> SidebarDocStore? = { [weak services] in services?.sidebarDoc.store }
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry,
-                                                 settings: services.settings, asks: services.machineAsks)
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks)
             .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton)
     }
 }
@@ -52,7 +51,8 @@ enum SidebarCardFeed {
     }
 
     static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
-        Task {
+        model.updatedCard = updatedCard(updater) // before the window's first frame (relaunch layout shifts)
+        return Task {
             for await (card, updated, notice) in ObservationStream({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
                 (updateCard(updater), updatedCard(updater), asks?.card ?? noticeCard(updater, registry: registry))
             }) {

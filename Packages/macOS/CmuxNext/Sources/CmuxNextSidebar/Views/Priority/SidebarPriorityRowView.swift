@@ -230,9 +230,10 @@ final class SidebarPriorityRowView: NSView {
     }
 
     /// A machine's tag takes its identity color (MachineColor: the person's pick, else a stable
-    /// theme accent), so it matches the machine's sidebar rows, tabs and chips.
+    /// theme accent), so it matches the machine's sidebar rows, tabs and chips; as text, raised to
+    /// read on the row in every state (MachineColor.rowTextColor).
     static func machineColor(_ machine: String) -> NSColor {
-        MachineColor(name: machine).color
+        MachineColor(name: machine).rowTextColor
     }
 
     override func mouseDown(with event: NSEvent) {

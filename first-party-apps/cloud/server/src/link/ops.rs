@@ -429,14 +429,9 @@ pub(crate) fn begin_connect<C: ControlPlane>(
                     ensure_running(server, machine, origin, &format!("{key}/info"), true)?;
                 }
                 // Contract 1.7: wait for the `running` upsert, then dial. The
-                // client connects again on that upsert; nothing waits here.
-                Err(CloudError {
-                    retryable: true,
-                    ..CloudError::new(
-                        LINK_DOWN,
-                        "The machine is starting: connect again when it runs",
-                    )
-                })
+                // serve loop parks the op until then (super::park); a direct
+                // caller gets this answer and connects again.
+                Err(starting())
             }
         });
     let info = match info {
@@ -448,6 +443,13 @@ pub(crate) fn begin_connect<C: ControlPlane>(
             end_links_after(server, machine, &error);
             // A start can fail for plan reasons, and a machine without a host
             // is still provisioning: neither is a revocation.
+            let attach = server.attach_mut();
+            if attach.park_link_waits && waits_for_running(&error) {
+                // The serve loop's op waits for the machine to run, then runs
+                // again (super::park); the client no longer reads it in a loop.
+                attach.parked_machine = Some(machine.to_owned());
+                return Err(CloudError::new(super::park::MACHINE_WAIT, error.message));
+            }
             return Err(error);
         }
     };
@@ -479,6 +481,22 @@ pub(crate) fn begin_connect<C: ControlPlane>(
 
 /// Reads the machine when the projection does not know it, and starts it
 /// when it is paused.
+/// The answer of a connect whose machine is still starting (or binding).
+pub(crate) fn starting() -> CloudError {
+    CloudError {
+        retryable: true,
+        ..CloudError::new(LINK_DOWN, "The machine is starting: connect again when it runs")
+    }
+}
+
+/// Whether `error` only says the machine does not run yet: it is starting,
+/// or it is still provisioning with no host (`not_bound`, retryable).
+fn waits_for_running(error: &CloudError) -> bool {
+    let start = starting();
+    (error.code == start.code && error.message == start.message)
+        || (error.code == codes::NOT_BOUND && error.retryable)
+}
+
 fn ensure_running<C: ControlPlane>(
     server: &mut Server<C>,
     machine: &str,
@@ -495,7 +513,14 @@ fn ensure_running<C: ControlPlane>(
         let start = Request::new("cloud.machine.start", json!({ "machine": machine }))
             .origin(origin)
             .key(start_key);
-        server.handle(&start)?;
+        match server.handle(&start) {
+            Ok(_) => {}
+            // Something else started it first (inbound traffic wakes a
+            // paused machine): it is not paused, so the connect goes on and
+            // the readiness read below decides.
+            Err(error) if error.code == codes::NOT_PAUSED => {}
+            Err(error) => return Err(error),
+        }
         // The machine's state changed: read its link facts again.
         let attach = server.attach_mut();
         attach.infos.forget(machine);
