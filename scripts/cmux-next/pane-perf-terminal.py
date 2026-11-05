@@ -12,8 +12,9 @@ the panes rest:
   zoom        Cmd-Shift-Enter (toggleSplitZoom) and back (unzoom)
   window      Window > Zoom (the titlebar double-click's resize path) and back (window-unzoom)
   drag        the first vertical divider pressed and dragged 120 pt out and back, one event per 120 Hz frame
-  keys        a held key resize: resizePaneRight pressed 12 times at key-repeat pace (33 ms), then resizePaneLeft
-              12 times (Ctrl-Shift-L / H through the action path, which takes the key-resize hold)
+  keys        a held key resize: resizePaneRight pressed 4 times at key-repeat pace (33 ms), then resizePaneLeft
+              4 times (Ctrl-Cmd-Right / Left by default, through the action path, which takes the key-resize hold); 4 steps
+              of 5% each way stay inside the pane minimums, so the split ends where it started
   sidepanel   the window's right sidebar shown (switchRightSidebarToFiles, keyboard stays put) and hidden
               (toggleRightSidebar, sidepanel-close): the main pane loses and regains its width at once, no spring
   scroll      (--browser) the page scrolled 1500 px down and back over about 1 s, one step per page animation frame
@@ -385,8 +386,9 @@ def drag_divider():
 
 
 def key_resize():
-    """A held Ctrl-Shift-L, then a held Ctrl-Shift-H, on the focused pane: one press per key repeat (33 ms)."""
-    for verb in ["resizePaneRight"] * 12 + ["resizePaneLeft"] * 12:
+    """A held resizePaneRight, then a held resizePaneLeft, on the focused pane: one press per key repeat (33 ms), 4 each
+    way, so the split comes back to where it started for the next round."""
+    for verb in ["resizePaneRight"] * 4 + ["resizePaneLeft"] * 4:
         reply = action(verb)
         if isinstance(reply, dict) and reply.get("error"):
             return f"{verb}: {reply['error']}"

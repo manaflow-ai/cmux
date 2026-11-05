@@ -7,7 +7,7 @@ import Testing
 import WebKit
 
 /// WebKit pages in pane motion (Lawrence 2026-11-05: "we need to try to resize webviews (both chrome and webkit) more
-/// often so it is smoother"). In a key resize (Ctrl-Shift-H/J/K/L, a press or a held key) and in a divider drag, a WebKit
+/// often so it is smoother"). In a key resize (resizePane*, Ctrl-Cmd-arrows by default; a press or a held key) and in a divider drag, a WebKit
 /// page takes its pane's page area in every motion frame: its `WKWebView` frame changes with the pane, never a held start
 /// size cut by the pane, never past the pane's edge. While WebKit has not drawn the new size yet, the gap beside its last
 /// frame shows the page's own background color (the view's background), not WebKit's default control color (m18/m20, as
@@ -84,7 +84,8 @@ import WebKit
         #expect(pane.misses().isEmpty, "the page is not at its pane's size after the landing: \(pane.misses())")
     }
 
-    /// A divider drag (no hold): the page lays out at each drag size.
+    /// A divider drag (no hold): the page lays out at each drag size. Green before this change too (autoresizing did it
+    /// already): it guards the drag path, the key-resize test above is the red one.
     @Test func aDividerDragShowsTheWebKitPageAtThePanesSizeInEveryFrame() {
         let pane = Pane(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
         defer { pane.tearDown() }
@@ -116,6 +117,58 @@ import WebKit
             return Self.isPageColor(webView.layer?.backgroundColor)
         }
         #expect(shown, "the gap shows \(String(describing: webView.layer?.backgroundColor)), not the page's rgb(16, 48, 80)")
+    }
+
+    /// The page changes its own background after it loaded: the key resize that starts then reads it again, so the gap
+    /// shows the color the page has now, not the one it had at its load.
+    @Test func aKeyResizeReadsThePagesColorAgain() async throws {
+        let pane = Pane(frame: NSRect(x: 200, y: 0, width: 600, height: 500))
+        defer { pane.tearDown() }
+        let webView = pane.page.webView
+        webView.loadHTMLString("<html style=\"background: rgb(250, 250, 250)\"><body>page</body></html>",
+                               baseURL: URL(string: "https://gap.example/"))
+        try #require(await Self.poll { !webView.isLoading && webView.url?.host == "gap.example" },
+                     "SETUP: the page did not load")
+        _ = try await webView.evaluateJavaScript("document.documentElement.style.background = 'rgb(16, 48, 80)'; 0")
+
+        pane.area.hold = PaneMotionHold(trailing: true, bottom: false)
+        let shown = await Self.poll {
+            webView.displayIfNeeded()
+            return Self.isPageColor(webView.layer?.backgroundColor)
+        }
+        #expect(shown, "the gap shows \(String(describing: webView.layer?.backgroundColor)), not the page's color now")
+    }
+
+    /// A page parked in its pane's page area (another tab shows) takes no frame during a key resize, and takes the page
+    /// area's size once, when it shows again (no view work the person cannot see).
+    @Test func aParkedWebKitPageResizesOnceWhenItShows() throws {
+        let pane = Pane(frame: NSRect(x: 200, y: 0, width: 600, height: 500))
+        defer { pane.tearDown() }
+        let other = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
+        defer { other.close() }
+        let parked = pane.page.webView
+        pane.chrome.parksLeavingPage = true
+        pane.chrome.attach(other, replacing: pane.page)
+        pane.chrome.parksLeavingPage = false
+        pane.area.layoutSubtreeIfNeeded()
+        try #require(pane.page.contentView.isHidden && pane.page.contentView.superview != nil, "SETUP: the page did not park")
+        let parkedSize = parked.frame.size
+
+        pane.area.hold = PaneMotionHold(trailing: true, bottom: false)
+        var changes: [String] = []
+        for dx in stride(from: CGFloat(10), through: 120, by: 10) {
+            pane.area.frame = NSRect(x: 200 + dx, y: 0, width: 600 - dx, height: 500)
+            pane.area.layoutSubtreeIfNeeded()
+            if parked.frame.size != parkedSize { changes.append("\(parked.frame.size)") }
+        }
+        #expect(changes.isEmpty, "the parked page took \(changes.count) frames during the key resize: \(changes.prefix(3))")
+        pane.area.hold = nil
+        pane.area.layoutSubtreeIfNeeded()
+
+        pane.chrome.attach(pane.page, replacing: other)
+        pane.area.layoutSubtreeIfNeeded()
+        #expect(parked.frame.size == pane.chrome.contentContainer.bounds.size,
+                "the page shown again is \(parked.frame.size), not its page area \(pane.chrome.contentContainer.bounds.size)")
     }
 
     static func isPageColor(_ color: CGColor?) -> Bool {

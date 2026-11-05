@@ -14,13 +14,36 @@ import WebKit
 extension WebKitTab {
     private static var setBackgroundColor: Selector { NSSelectorFromString("_setBackgroundColor:") }
 
-    /// Reads the document's background (`CEFTab.pageBackdropScript`, engine neutral) and gives it to the web view.
+    /// The document's background as `[r, g, b]` (0-255): the root element's, else the body's; null when neither has one
+    /// (WebKit's own default is the page's canvas then, white or dark with the page's color scheme, so the gap keeps it)
+    /// or when the first one set is translucent. `CEFTab.pageBackdropScript` without its white fallback.
+    static let pageBackdropScript = """
+    (() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      for (const element of [document.documentElement, document.body]) {
+        if (!element) continue;
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = 'rgba(0, 0, 0, 0)';
+        context.fillStyle = getComputedStyle(element).backgroundColor;
+        context.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+        if (a === 0) continue;
+        return a === 255 ? [r, g, b] : null;
+      }
+      return null;
+    })()
+    """
+
+    /// Reads the document's background (`pageBackdropScript`, in the isolated world: a page cannot patch what it reads)
+    /// and gives it to the web view.
     func samplePageBackdrop() {
         guard BrowserResizeTunables.pageBackdrop.value, !isClosed, !PageBackground.isBlank(webView.url),
               webView.responds(to: Self.setBackgroundColor) else { return }
         let document = pageBackdropDocument
         Task { [weak self] in
-            guard let value = try? await self?.evaluate(CEFTab.pageBackdropScript, world: .page, gesture: .cmux) else { return }
+            guard let value = try? await self?.evaluate(Self.pageBackdropScript, world: .isolated, gesture: .cmux) else { return }
             // A navigation since the read: the next document reads its own.
             guard let self, document == self.pageBackdropDocument, !self.isClosed else { return }
             self.applyPageBackdrop(CEFTab.backdropARGB(from: value))
