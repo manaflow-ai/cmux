@@ -28,7 +28,7 @@ pub fn step(name: &str, key: &str) -> Option<Step> {
         && name.as_bytes()[..key.len()].eq_ignore_ascii_case(key.as_bytes())
     {
         Some(Step::Prefix)
-    } else if !fold(key).is_empty() && fold(name) == fold(key) {
+    } else if folded(key).next().is_some() && folded(name).eq(folded(key)) {
         Some(Step::Separators)
     } else {
         None
@@ -36,8 +36,9 @@ pub fn step(name: &str, key: &str) -> Option<Step> {
 }
 
 /// `text` in lowercase without `-`, `_` or spaces: `td2-A`, `td2_a` and `TD2 a` all read `td2a`.
-pub fn fold(text: &str) -> String {
-    text.chars().filter(|c| !matches!(c, '-' | '_' | ' ')).map(|c| c.to_ascii_lowercase()).collect()
+/// An iterator, so a lookup over every session allocates nothing.
+fn folded(text: &str) -> impl Iterator<Item = char> + '_ {
+    text.chars().filter(|c| !matches!(c, '-' | '_' | ' ')).map(|c| c.to_ascii_lowercase())
 }
 
 /// The names of `items` that `key` names at its first step with any match: `Ok(Some)` for one,
