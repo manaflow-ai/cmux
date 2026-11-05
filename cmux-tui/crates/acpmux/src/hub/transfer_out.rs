@@ -336,6 +336,9 @@ impl Hub {
             }
             *moving = Some(transfer_id.clone());
         }
+        // This begin holds the move's watch until it starts it, below: a watch that ran now
+        // would read no `alive` stamp and end the move under it (`transfer_watch.rs`).
+        let watch = self.claim_move_watch(&transfer_id);
         // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
         // before transfer_out so a daemon restart restores the same epoch while this move is in flight.
         let dir = transfers_dir().join(&transfer_id);
@@ -478,7 +481,9 @@ impl Hub {
         }
         let _ = std::fs::write(dir.join("epoch"), epoch.to_string());
         super::transfer_watch::note_activity(&dir, None);
-        self.watch_transfer(session, &transfer_id);
+        if let Some(watch) = watch {
+            self.watch_claimed(session, watch);
+        }
         let files: Vec<Value> =
             files.into_iter().map(|(path, size)| json!({"path": path, "size": size})).collect();
         let schema = if session.meta().harness == "cmux-harness" {
