@@ -82,3 +82,70 @@ struct AgentLocalSessionTests {
         #expect(lane.shortName == "cloud-demo")
     }
 }
+
+/// `AgentLaneStore.tabSession` / `localSessionID`: the session and host `agent.openSessionTab` and
+/// `agent.openSessionWorkspace` bind their tab to, and the refusal the caller reads when the given
+/// session names more than one chat or no chat of a peer.
+@MainActor
+struct AgentSessionOpenTargetTests {
+    static let localID = AgentLocalSessionTests.live
+
+    static func store(live: Bool = true, extra: [AgentActivityLane] = []) -> AgentLaneStore {
+        let store = AgentLaneStore()
+        let all = AgentLocalSessionTests.lanes + AgentPeerSessionTests.lanes + extra
+        store.lanes = Dictionary(all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        store.live = live
+        return store
+    }
+
+    /// The refusal `body` throws, nil when it throws none.
+    static func refusal(_ body: () throws(AgentSessionOpenRefusal) -> Void) -> String? {
+        do { try body(); return nil } catch { return error.description }
+    }
+
+    @Test func thisMacsChatNamedByItsHarnessIdOrNameOpensAcpmuxsId() throws {
+        let store = Self.store()
+        for host in [nil, "this-mac"] {
+            #expect(try store.localSessionID("cloud-demo", host: host, localHost: "this-mac") == Self.localID)
+            let target = try store.tabSession("01a18641-9a05-7c33-8cfd-055af5d4f02a", host: host, localHost: "this-mac")
+            #expect(target.session == Self.localID && target.host == host)
+        }
+    }
+
+    /// Before the lane watch has every session, and for a host that is not this Mac, a name opens as given.
+    @Test func beforeTheWatchIsLiveOrOnAnotherHostTheSessionOpensAsGiven() throws {
+        #expect(try Self.store(live: false).localSessionID("cloud-demo", host: nil, localHost: "this-mac") == "cloud-demo")
+        #expect(try Self.store().localSessionID("cloud-demo", host: "chief:0001", localHost: "this-mac") == "cloud-demo")
+        let chief = try Self.store().tabSession("cloud-demo", host: "chief:0001", localHost: "this-mac")
+        #expect(chief.session == "cloud-demo" && chief.host == "chief:0001")
+    }
+
+    @Test func aNameTwoOfThisMacsChatsGoByIsRefused() {
+        let twin = AgentActivityLane(id: "codex-1", name: "codex/cloud-demo", title: "Twin", peer: nil, parent: nil,
+                                     state: .idle, since: nil, error: nil, shortName: "cloud-demo")
+        let store = Self.store(extra: [twin])
+        let refusal = Self.refusal { _ = try store.localSessionID("cloud-demo", host: nil, localHost: "this-mac") }
+        #expect(refusal?.contains("cloud-demo") == true)
+        #expect(Self.refusal { _ = try store.tabSession("cloud-demo", host: nil, localHost: "this-mac") } == refusal)
+    }
+
+    @Test func aPeersChatOpensAsTheSessionThisMacMirrorsWithNoHost() throws {
+        let target = try Self.store().tabSession("cx3-s10-dots", host: "cmux16", localHost: "this-mac")
+        #expect(target.session == "01a16a4d" && target.host == nil)
+    }
+
+    @Test func aPeerWithNoChatOrTwoChatsOfThatNameIsRefused() {
+        let unknown = Self.refusal { _ = try Self.store().tabSession("no-such-chat", host: "cmux16", localHost: "this-mac") }
+        #expect(unknown?.contains("cmux16") == true && unknown?.contains("no-such-chat") == true)
+        let twin = AgentActivityLane(id: "01a16a4e", name: "cmux16/cx3-s10-dots", title: "Dots 2", peer: "cmux16", parent: nil,
+                                     state: .working, since: nil, error: nil)
+        let ambiguous = Self.refusal { _ = try Self.store(extra: [twin]).tabSession("cx3-s10-dots", host: "cmux16", localHost: "this-mac") }
+        #expect(ambiguous?.contains("cx3-s10-dots") == true && ambiguous != unknown)
+    }
+
+    /// A host this Mac mirrors no chat of keeps its host: the tab's host check refuses it with its own reason.
+    @Test func aHostThatIsNoPeerStaysAsGiven() throws {
+        let target = try Self.store().tabSession("anything", host: "big-red", localHost: "this-mac")
+        #expect(target.session == "anything" && target.host == "big-red")
+    }
+}
