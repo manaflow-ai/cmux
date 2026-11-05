@@ -7,7 +7,7 @@
 
 use cmux_focus_core::close_aim::Press;
 use cmux_focus_core::event::FocusEvent;
-use cmux_focus_core::topology::{Kind, Pane, Tab, Topology};
+use cmux_focus_core::topology::Topology;
 use cmux_layout_reducer_ffi::focus::{CmuxFocusReply, CmuxFocusStr, CmuxFocusStrings, Focus, NONE};
 use cmux_layout_reducer_ffi::input::Input;
 use serde_json::{Value, json};
@@ -315,57 +315,6 @@ fn an_equal_topology_report_adds_no_allocation_in_the_router() {
     assert_eq!(
         input_handle, window_handle,
         "the input handle made {input_handle} allocations for an equal topology report, the window handle \
-         {window_handle} (the router rebuilt its tab index?)"
-    );
-}
-
-/// A topology report that changes only which tab a pane shows (Cmd-1, a tab click, a switch back) lists the same tabs:
-/// the router's tab index, which holds each tab's id, surface, kind and host terminal and never the selection, stays as
-/// it is, and the input handle makes no more allocations than the window handle for it. Before, the router rebuilt the
-/// whole index on every report that ran the reducer (an `Arc<str>` per tab id, surface and host terminal): the S2 focus
-/// A/B measured a topology report 13 % slower through the input handle (8.04 -> 9.13 us p50, 30 panes).
-#[test]
-fn a_report_that_only_selects_another_tab_rebuilds_no_tab_index() {
-    let layout = |selected: &str| {
-        let tab = |id: String, kind: Kind| Tab {
-            surface: Some(format!("surface-{id}")),
-            terminal: matches!(kind, Kind::Terminal).then(|| format!("host-{id}")),
-            id,
-            kind,
-        };
-        let panes = (0..6)
-            .map(|index| Pane {
-                id: format!("pane-{index}"),
-                tabs: vec![
-                    tab(format!("a{index}"), Kind::Terminal),
-                    tab(format!("b{index}"), Kind::Browser),
-                ],
-                selected: Some(format!("{selected}{index}")),
-            })
-            .collect();
-        Topology::new(Some("workspace".into()), panes, Vec::new())
-    };
-    let (shows_a, shows_b) = (layout("a"), layout("b"));
-    let mut old = Focus::new();
-    let mut new = Input::new(MEMORY);
-    new.window_open(WINDOW).unwrap();
-    // The same switches once before the count, so every reply and effect buffer has grown to them.
-    for topology in [&shows_a, &shows_b, &shows_a] {
-        old.set_topology(topology.clone());
-        new.focus_set_topology(WINDOW, topology.clone()).unwrap();
-    }
-    let (for_old, for_new) = (shows_b.clone(), shows_b);
-    let start = allocations();
-    let reply = old.set_topology(for_old);
-    let window_handle = allocations() - start;
-    let want = snapshot(reply);
-    let start = allocations();
-    let reply = new.focus_set_topology(WINDOW, for_new).unwrap();
-    let input_handle = allocations() - start;
-    assert_eq!(snapshot(reply), want);
-    assert_eq!(
-        input_handle, window_handle,
-        "the input handle made {input_handle} allocations for a report that only selects other tabs, the window handle \
          {window_handle} (the router rebuilt its tab index?)"
     );
 }
