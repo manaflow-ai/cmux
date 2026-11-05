@@ -113,8 +113,9 @@ final class BrowserHibernation {
     /// When the pointer last rested on each hidden tab: its strip cell, or a sidebar row of its workspace
     /// (`noteHover`, `noteWorkspaceHover`; plans/cmux-next/hover-preload-DESIGN.md).
     private var hoveredAt: [String: ContinuousClock.Instant] = [:]
-    /// Pages a hover restored from hibernation: when their grace ends still hidden, they are discarded again.
-    private(set) var hoverRestored: Set<String> = []
+    /// Pages a hover restored from hibernation: when their grace ends still hidden, or a newer hover
+    /// needs their room, they are discarded again.
+    private(set) var hoverRestores = HoverRestores()
     /// The tabs a workspace row's click would show in a window (`WindowController.shownTabsIfSelected`); injected by the App.
     var workspaceTabs: (_ workspace: String, _ window: String) -> [String] = { _, _ in [] }
     /// Seconds a hovered tab stays awake after the hover, as for an agent's call.
@@ -140,11 +141,8 @@ final class BrowserHibernation {
     /// The page's freeze control (a seam for tests; Chromium pages only in the app).
     var freezer: (any BrowserTab) -> (any BrowserFreezing)? = { $0 as? any BrowserFreezing }
 
-    /// When the person showed each tab lately (at most `focusLimit`, within `focusWindow`).
-    private var focusedAt: [String: [ContinuousClock.Instant]] = [:]
-    /// Seconds of focus history a tab's ranking counts.
-    static let focusWindow: Double = 3_600
-    static let focusLimit = 64
+    /// When the person showed each tab lately (the ranking's `recentFocusCount`).
+    private var focusHistory = FocusHistory()
     /// Tabs whose browser lease an agent holds now (`noteLease`).
     private(set) var leased: Set<String> = []
     /// Hidden pages whose workspace hibernates (`hibernateForWorkspace`): discarded without
@@ -279,7 +277,7 @@ final class BrowserHibernation {
         freezeKeptAt[key] = nil
         probeHistory.clearMisses(key)
         hoveredAt[key] = nil
-        hoverRestored.remove(key)
+        hoverRestores.drop(key)
         hiddenAt[key] = nil
         prepared[key] = nil
         exemptions[key] = nil
@@ -290,18 +288,11 @@ final class BrowserHibernation {
         noteFocus(key, at: now())
     }
 
-    /// Records a show of tab `key` for its ranking, dropping shows older than `focusWindow`.
-    func noteFocus(_ key: String, at now: ContinuousClock.Instant) {
-        var times = focusedAt[key, default: []].filter { (now - $0).seconds < Self.focusWindow }
-        times.append(now)
-        if times.count > Self.focusLimit { times.removeFirst(times.count - Self.focusLimit) }
-        focusedAt[key] = times
-    }
+    /// Records a show of tab `key` for its ranking.
+    func noteFocus(_ key: String, at now: ContinuousClock.Instant) { focusHistory.note(key, at: now) }
 
-    /// Shows of tab `key` within `focusWindow` of `now`.
-    func recentFocusCount(_ key: String, now: ContinuousClock.Instant) -> Int {
-        focusedAt[key]?.filter { (now - $0).seconds < Self.focusWindow }.count ?? 0
-    }
+    /// Shows of tab `key` within `FocusHistory.window` of `now`.
+    func recentFocusCount(_ key: String, now: ContinuousClock.Instant) -> Int { focusHistory.count(key, now: now) }
 
     /// An agent acted on tab `key` (`cmux browser`, MCP, the browser REPL):
     /// a hidden page's clock starts again, so a page an agent drives in the
@@ -334,9 +325,9 @@ final class BrowserHibernation {
         freezeKeptAt[key] = nil
         probeHistory.forget(key)
         hoveredAt[key] = nil
-        hoverRestored.remove(key)
+        hoverRestores.drop(key)
         awakeNeighbors.remove(key)
-        focusedAt[key] = nil
+        focusHistory.forget(key)
         leased.remove(key)
         memoryBytes[key] = nil
         probeKeptAt[key] = nil
@@ -373,35 +364,47 @@ final class BrowserHibernation {
     }
 
     /// The dwell held: wake what the click would show, at most `hoverBudget.pages` pages. A frozen page
-    /// thaws (one message); a hibernated one restores in the background while fewer than
-    /// `HoverWakeBudget.inFlight` hover restores load. Each stays awake `hoverGrace` seconds.
+    /// thaws (one message); a hibernated one restores in the background. At most
+    /// `HoverWakeBudget.inFlight` hover-restored pages live at once: a newer intent discards the oldest
+    /// (Chrome's hover prerenders, first in first out). Each stays awake `hoverGrace` seconds.
     func hoverIntent(_ target: HoverWakeTarget) {
         guard let cache else { return }
+        let budget = hoverBudget
+        guard budget.pages > 0 else { return }
         let keys = switch target {
         case let .tab(key): [key]
         case let .workspace(id, window): workspaceTabs(id, window)
         }
-        let budget = hoverBudget
-        let hidden = keys.filter { cache.browsers[$0] != nil && cache.lifecycle.phase($0) != .mountedVisible }.prefix(budget.pages)
+        let hidden = Array(keys.filter { cache.browsers[$0] != nil && cache.lifecycle.phase($0) != .mountedVisible }.prefix(budget.pages))
         guard !hidden.isEmpty else { return }
         let now = self.now()
-        var restores = budget.restores(wanted: hidden.count, loading: hoverRestored.filter { cache.lifecycle.phase($0) == .restoring }.count)
+        let wanted = hidden.filter { cache.lifecycle.phase($0) == .hibernated && mayPrewarmRestore($0, hover: true) }
+        // The newer intent replaces the older: the oldest hover restores go back to make room.
+        for key in hoverRestores.retire(keeping: Set(hidden), room: HoverWakeBudget.inFlight - wanted.count) {
+            hoveredAt[key] = nil
+            prepare(key, cause: "hover-replaced")
+        }
+        var restores = budget.restores(wanted: wanted.count, loading: hoverRestores.loading(excluding: hidden))
         for key in hidden {
             hoveredAt[key] = now
-            let restoring = cache.lifecycle.phase(key) == .hibernated
-            if restoring, restores == 0 {
-                thaw(key, prewarm: true)
-                continue
+            if wanted.contains(key) {
+                guard restores > 0 else { continue }
+                restores -= 1
             }
-            if restoring { restores -= 1 }
             warm(key, cause: target.cause, hover: true)
         }
         replan()
     }
 
+    /// A hover-restored page's load ended (or did not within its bound): it no longer counts as in flight.
+    func hoverLoadEnded(_ key: String) {
+        hoverRestores.loaded(key)
+    }
+
     /// How many pages one hover may wake now (memory pressure and Low Power Mode lower it).
+    /// `browser.keepNeighborTabsAwake` 0 turns it off: the person asked that no hidden page be kept awake early.
     var hoverBudget: HoverWakeBudget {
-        HoverWakeBudget(pressure: pressure, lowPower: lowPower.isEnabled)
+        HoverWakeBudget(pressure: pressure, lowPower: lowPower.isEnabled, enabled: setting.neighborRadius > 0)
     }
 
     /// How long the pointer stays on a tab or row before its pages wake.
@@ -442,7 +445,7 @@ final class BrowserHibernation {
         // A restore loads the page again: logged with its cause, as every non-user reload is.
         logger.notice("prewarm restore \(key, privacy: .public) cause=\(cause, privacy: .public)")
         prewarmCauses[key] = cause
-        if hover { hoverRestored.insert(key) }
+        if hover { hoverRestores.restored(key) }
         cache.applyLifecycle(cache.lifecycle.send(.wake(key)))
         prewarmedCount += 1
         cache.trace(key, "prewarmed (restore)")
@@ -487,8 +490,6 @@ final class BrowserHibernation {
                 return nil
             }
             if exemptions[key] == .neighbor { exemptions[key] = nil }
-            // A hover restored it and its grace ended unseen: it goes back (the same probe as every discard).
-            if hoverRestored.remove(key) != nil, prepare(key, cause: "hover-grace") { return nil }
             if let used = agentUsedAt[key] {
                 let left = Self.agentGrace - (now - used).seconds
                 if left > 0, setting.isEnabled {
@@ -499,6 +500,9 @@ final class BrowserHibernation {
                 agentUsedAt[key] = nil
                 if exemptions[key] == .agentDriving { exemptions[key] = nil }
             }
+            // A hover restored it and its grace ended unseen: it goes back through the same probe as every
+            // discard. It stays a hover restore until that ends (discarded, shown, or kept by its own page).
+            if hoverRestores.contains(key), !leased.contains(key), prepare(key, cause: "hover-grace") { return nil }
             var facts = candidate(key, entry: entry, hiddenFor: (now - at).seconds, now: now)
             if let kept = probeKeptAt[key] {
                 if (now - kept).seconds < Self.keptBackoff { facts.recentlyKept = true } else { probeKeptAt[key] = nil }
@@ -654,8 +658,10 @@ final class BrowserHibernation {
     /// `beforeunload` handler, an agent lease) or cmux.json turned `browser.hibernation` off. Unlike
     /// the timeout this runs without `browser.hibernation` set: the person's workspace setting asked.
     /// Returns why not, or nil when it started.
+    /// `byPerson`: the person's Hibernate Workspace; like Hibernate Tab, its pages then restore only when
+    /// shown or woken, never on a hover.
     @discardableResult
-    func hibernateForWorkspace(_ key: String) -> HibernationPlanner.Exemption? {
+    func hibernateForWorkspace(_ key: String, byPerson: Bool = false) -> HibernationPlanner.Exemption? {
         guard let cache, let entry = cache.browsers[key] else { noteWorkspacePage("no_page"); return .disabled }
         guard !(entry.tab is HibernatedBrowserTab) else { noteWorkspacePage("already_hibernated"); return .disabled }
         let phase = cache.lifecycle.phase(key)
@@ -669,7 +675,7 @@ final class BrowserHibernation {
             return kept
         }
         workspaceDue.insert(key)
-        if !prepare(key, cause: "workspace-idle") { noteWorkspacePage("not_prepared") }
+        if !prepare(key, cause: byPerson ? "workspace-person" : "workspace-idle") { noteWorkspacePage("not_prepared") }
         return nil
     }
 
@@ -730,6 +736,7 @@ final class BrowserHibernation {
                 break
             }
             if let exemption {
+                self.hoverRestores.drop(key) // its own page keeps it: the normal policy decides from here
                 self.exemptions[key] = exemption
                 if self.workspaceDue.contains(key) { self.noteWorkspacePage("kept_\(exemption.rawValue)") }
                 self.probeKeptAt[key] = self.now()
@@ -746,7 +753,8 @@ final class BrowserHibernation {
             }
             if self.workspaceDue.contains(key) { self.noteWorkspacePage("discarding") }
             self.prepared[key] = (state, snapshot, cause)
-            if user { self.discardedByUser.insert(key) } else { self.discardedByUser.remove(key) }
+            // The person's Hibernate Tab or Hibernate Workspace: it restores only when shown or woken.
+            if user || cause == "workspace-person" { self.discardedByUser.insert(key) } else { self.discardedByUser.remove(key) }
             cache.applyLifecycle(cache.lifecycle.send(.hibernate(key)))
         }
         return true
@@ -788,6 +796,7 @@ final class BrowserHibernation {
         hiddenAt[key] = nil
         // A probe that kept the page before no longer applies (`debug.surfaces`).
         exemptions[key] = nil
+        hoverRestores.drop(key)
         hibernatedCount += 1
         // Notice, not info: the field log keeps it, so a page that reloads on its next show can be traced.
         logger.notice("discarded \(key, privacy: .public) cause=\(saved.cause, privacy: .public) \(token.description, privacy: .public); it reloads from its saved history when it wakes")
@@ -804,13 +813,14 @@ final class BrowserHibernation {
         // plan): a leased page is never discarded, not even by Hibernate Tab.
         if leased.contains(key) { return .keep(.agentLease) }
         if user { return .go }
+        // Beside a shown tab or hovered again while the probe ran: kept, whatever the cause.
+        if awakeNeighbors.contains(key) || hoverLeft(key, now: now()) != nil { return .keep(.neighbor) }
         // Its workspace hibernates: the page's own answers above decided; the timeout's setting does not.
         if workspaceDue.contains(key) { return setting.isEnabled ? .go : .keep(.disabled) }
         // The setting changed while the probe ran: an automatic discard started under a timeout
         // the person has since removed (or turned off) does not happen.
         if !setting.isEnabled { return .keep(.disabled) }
         if !setting.discardsAutomatically { return .keep(.keepsState) }
-        if awakeNeighbors.contains(key) || hoverLeft(key, now: now()) != nil { return .keep(.neighbor) }
         if let used = agentUsedAt[key], (now() - used).seconds < Self.agentGrace { return .keep(.agentDriving) }
         return .go
     }

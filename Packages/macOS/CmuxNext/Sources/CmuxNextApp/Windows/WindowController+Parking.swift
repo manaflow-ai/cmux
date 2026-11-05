@@ -23,7 +23,11 @@ extension WindowController {
         var chosen: [String: String] = [:]
         if let kept { for pane in kept.panes.values { if let key = pane.currentTabKey { chosen[pane.paneKey] = key } } }
         let panes = screen.panes.map { pane in
-            HoverWakePanes.Pane(id: pane.id, selected: chosen[pane.id] ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : pane.tabs.first?.id))
+            // The parked pane's tab, else this window's remembered tab of the pane, else the daemon's default:
+            // the order a show resolves it in.
+            let remembered = state.selection.selection(in: pane.id).flatMap { tab in pane.tabs.contains { $0.id == tab } ? tab : nil }
+            let fallback = pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : pane.tabs.first?.id
+            return HoverWakePanes.Pane(id: pane.id, selected: chosen[pane.id] ?? remembered ?? fallback)
         }
         let zoomed = screen.zoomedPane.flatMap { handle in screen.panes.first { $0.handle == handle }?.id }
         return HoverWakePanes(panes, zoomed: zoomed).shownTabs()

@@ -21,7 +21,7 @@ package nonisolated enum HoverWakeTarget: Hashable, Sendable {
 /// It fires once per stay: resting on a row longer does not repeat the intent.
 package nonisolated struct HoverWakeIntent: Sendable {
     /// What the next timer fire does.
-    package enum Fire: Equatable, Sendable {
+    package nonisolated enum Fire: Equatable, Sendable {
         /// Nothing rests (it left, or the intent for this stay already fired).
         case idle
         /// The target changed within the dwell: fire again after the time left.
@@ -58,6 +58,17 @@ package nonisolated struct HoverWakeIntent: Sendable {
         return dwell
     }
 
+    /// Forgets the target and any pending fire (the gate cancelled its timer): the next note arms again.
+    package mutating func reset() {
+        target = nil
+        since = nil
+        armed = false
+        fired = false
+    }
+
+    /// Whether `target` is what the pointer rests on now.
+    package func isResting(on target: HoverWakeTarget) -> Bool { self.target == target }
+
     /// The timer fired at `now`.
     package mutating func fire(at now: ContinuousClock.Instant) -> Fire {
         armed = false
@@ -80,8 +91,10 @@ package nonisolated struct HoverWakeBudget: Equatable, Sendable {
     /// Pages per intent: 2, 1 under a memory pressure warning or in Low Power Mode, none at critical.
     package let pages: Int
 
-    package init(pressure: MemoryPressureLevel, lowPower: Bool) {
+    /// `enabled` false (`browser.keepNeighborTabsAwake` 0) wakes nothing.
+    package init(pressure: MemoryPressureLevel, lowPower: Bool, enabled: Bool = true) {
         pages = switch pressure {
+        case _ where !enabled: 0
         case .critical: 0
         case .warning: 1
         case .normal: lowPower ? 1 : 2
@@ -97,7 +110,7 @@ package nonisolated struct HoverWakeBudget: Equatable, Sendable {
 /// The tabs a workspace shows when it is selected: the selected tab of each pane on its shown screen, or
 /// only the zoomed pane's (plans/cmux-next/hover-preload-DESIGN.md). Pure.
 package nonisolated struct HoverWakePanes: Sendable {
-    package struct Pane: Equatable, Sendable {
+    package nonisolated struct Pane: Equatable, Sendable {
         package let id: String
         package let selected: String?
         package init(id: String, selected: String?) {

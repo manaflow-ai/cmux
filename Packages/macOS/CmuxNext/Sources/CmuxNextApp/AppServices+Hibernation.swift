@@ -2,6 +2,7 @@ public import CmuxNextWakeups
 public import CmuxNextHibernation
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextResources
 import CmuxNextSettings
 
 // Browser hibernation and the memory-budgeted warm sets
@@ -49,9 +50,9 @@ extension AppServices {
     }
 
     /// Unmounts workspace `id` in every window, then frees its tabs' surfaces and pages.
-    func hibernateWorkspace(_ id: String) {
+    func hibernateWorkspace(_ id: String, byPerson: Bool = false) {
         windows.releaseParked(id)
-        cache.hibernateTabs(machines.workspace(id: id)?.0.screens.flatMap(\.panes).flatMap(\.tabs).map(\.id) ?? [])
+        cache.hibernateTabs(machines.workspace(id: id)?.0.screens.flatMap(\.panes).flatMap(\.tabs).map(\.id) ?? [], byPerson: byPerson)
     }
 }
 

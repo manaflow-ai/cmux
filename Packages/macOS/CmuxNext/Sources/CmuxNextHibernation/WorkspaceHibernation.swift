@@ -17,6 +17,13 @@ public protocol WorkspaceHibernationHost: AnyObject {
     /// Frees `workspace`'s memory: unmounts it in every window, destroys its terminal surfaces,
     /// discards its pages and lets its chat pages go (each page's own checks may keep it).
     func hibernate(workspace: String)
+    /// As ``hibernate(workspace:)``; `byPerson` is the person's Hibernate Workspace, whose pages then
+    /// restore only when shown, never on a hover (plans/cmux-next/hover-preload-DESIGN.md).
+    func hibernate(workspace: String, byPerson: Bool)
+}
+
+extension WorkspaceHibernationHost {
+    public func hibernate(workspace: String, byPerson: Bool) { hibernate(workspace: workspace) }
 }
 
 extension WorkspaceHibernationHost {
@@ -258,7 +265,7 @@ public final class WorkspaceHibernation {
     public func isHibernated(_ workspace: String) -> Bool { hibernated.contains(workspace) }
 
     private func hibernateNow(_ workspace: String, cause: String) {
-        host.hibernate(workspace: workspace)
+        host.hibernate(workspace: workspace, byPerson: cause == "person")
         hibernated.insert(workspace)
         hibernatedCount += 1
         logger.notice("hibernated workspace \(workspace, privacy: .public) cause=\(cause, privacy: .public)")

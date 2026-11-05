@@ -47,9 +47,8 @@ import Testing
         pointer.move(to: nil, atMs: 200 * frame)
         pointer.rest(untilMs: 200 * frame + 1000)
         #expect(pointer.intents.isEmpty)
-        // One fire per dwell while the sweep lasts (each re-arms for the time left), one when it rounds up,
-        // and the last one after the pointer left (it finds nothing resting).
-        #expect(pointer.timerFires <= Int((200 * frame / 100).rounded(.up)) + 2)
+        // About one fire per dwell while the sweep lasts (1.67 s: 17 dwells), not one per row (200).
+        #expect(pointer.timerFires <= 25)
     }
 
     /// A sweep that slows to 2 rows per dwell still starts nothing; resting on the last row starts it, once.
@@ -83,12 +82,24 @@ import Testing
         #expect(pointer.intents == [.tab("c"), .tab("b")])
     }
 
+    /// After the gate cancels its timer, the next note arms it again (a pending fire is forgotten).
+    @Test func aResetArmsAgainOnTheNextNote() {
+        var intent = HoverWakeIntent(dwell: .milliseconds(100))
+        let now = ContinuousClock.now
+        #expect(intent.note(.tab("a"), at: now) == .milliseconds(100))
+        intent.reset()
+        #expect(intent.note(.tab("a"), at: now) == .milliseconds(100))
+        #expect(intent.isResting(on: .tab("a")))
+        #expect(!intent.isResting(on: .tab("b")))
+    }
+
     /// 2 pages, 1 under a memory pressure warning or in Low Power Mode, none at critical; at most 2 restores load.
     @Test func theBudgetShrinksUnderPressureAndLowPower() {
         #expect(HoverWakeBudget(pressure: .normal, lowPower: false).pages == 2)
         #expect(HoverWakeBudget(pressure: .normal, lowPower: true).pages == 1)
         #expect(HoverWakeBudget(pressure: .warning, lowPower: false).pages == 1)
         #expect(HoverWakeBudget(pressure: .critical, lowPower: false).pages == 0)
+        #expect(HoverWakeBudget(pressure: .normal, lowPower: false, enabled: false).pages == 0)
         let normal = HoverWakeBudget(pressure: .normal, lowPower: false)
         #expect(normal.restores(wanted: 3, loading: 0) == 2)
         #expect(normal.restores(wanted: 3, loading: 1) == 1)

@@ -15,8 +15,8 @@ user rapidly moving mouse over entire sidebar; we don't want to cause any main t
 
 1. **What wakes.** The pages the click would show, nothing else. For a tab: that tab. For a workspace row:
    the selected tab of each pane on its shown screen (only the zoomed pane when one is zoomed), from the
-   window's parked content when it has one (the window's own selection), else from the daemon model
-   (active screen, each pane's default tab). Only browser tabs (WebKit and Chromium). A frozen page thaws
+   window's parked content when it has one, else the window's remembered tab of each pane
+   (`TabSelectionMemory`), else the daemon's default tab: the order a show resolves it in. Only browser tabs (WebKit and Chromium). A frozen page thaws
    (one message); a hibernated page restores from its saved history in the background (the lifecycle
    keeps it hidden until selected).
 2. **Intent, not every hover.** A wake starts only after the pointer rests on one row or tab for the dwell
@@ -24,14 +24,17 @@ user rapidly moving mouse over entire sidebar; we don't want to cause any main t
    replaces the older one. Dwell bounds the speed: to stay 100 ms on a 28 pt row the pointer moves less
    than 280 pt/s, so a sweep over the sidebar (one row per frame at 120 Hz) starts no wake.
 3. **Bounded.** One intent wakes at most `HoverWakeBudget.pages` pages: 2 normally, 1 under memory
-   pressure warning or Low Power Mode, 0 at critical pressure. At most 2 hover restores are in flight; an
-   intent that finds 2 in flight wakes only what is left of the cap (a frozen page's thaw is free).
+   pressure warning or Low Power Mode, 0 at critical pressure, 0 when `browser.keepNeighborTabsAwake` is 0
+   (the person asked that no hidden page be kept awake early). At most `HoverWakeBudget.inFlight` (2)
+   hover-restored pages live at once (`HoverRestores`): a newer intent discards the oldest first (cause
+   `hover-replaced`). A restore counts as in flight until its load ends. A frozen page's thaw is free.
 4. **Grace, then back.** A woken page that is not shown stays awake `hoverGrace` (30 s), then it freezes
    again by the freeze rule, and a page that a hover *restored* is discarded again (cause `hover-grace`),
    through the same probe as every discard, so a page the person touched meanwhile is kept.
 5. **Safety.** A restore is the same restore as a click (`BrowserHibernation.restore`: GET of the saved
    history, the record's profile, no form resubmission: a page that shows a form result is never
-   discarded in the first place). A page the person hibernated (Hibernate Tab) never restores on hover.
+   discarded in the first place). A page the person hibernated (Hibernate Tab or Hibernate Workspace)
+   never restores on hover.
    With no `browser.hibernation` written, only pages that workspace hibernation discarded restore on
    hover (they reload on the click anyway); other discarded pages wait for the click as before (#25791).
    A thaw does no network.
@@ -44,7 +47,8 @@ user rapidly moving mouse over entire sidebar; we don't want to cause any main t
 - The tab strip's hover does the same through the tab gate. `replan()` no longer runs per crossed tab.
 - The timer (`DemandTimer`) sleeps off the main thread. When it fires, the gate checks the dwell off the
   main thread: a target that changed within the dwell re-arms for the time left. Only a target that held
-  for the dwell hops to the main actor, once, where the resolution (O(panes of one workspace)) and the
+  for the dwell hops to the main actor, once; there the gate checks again that the pointer still rests on
+  it (a leave during the hop wakes nothing), then the resolution (O(panes of one workspace)) and the
   thaw or restore run. A sweep over 200 rows costs the main thread 200 lock writes and nothing else.
 - Page work (the reload, the first paint) runs in the WebKit and Chromium processes.
 
@@ -70,6 +74,7 @@ activation); cmux does, because the person asked for it and the grace puts the p
 
 - `CmuxNextHibernation/HoverWakeIntent.swift`: the dwell machine, the budget and the target resolution (pure).
 - `CmuxNextHibernation/HoverWakeGate.swift`: the off-main gate (lock + one `DemandTimer`).
+- `CmuxNextHibernation/HoverRestores.swift`: the hover-restored pages, oldest first, and which still load.
 - `CmuxNextApp/Hibernation/BrowserHibernation.swift`: tab and workspace intents, the cap, the grace re-discard.
 - `CmuxNextSidebar/Views/SidebarListView+HoverPrefetch.swift`: `onHoverWorkspace`.
 - Tests: `HoverWakeIntentTests` (pure: sweep, dwell, cancel, replace, budget, targets),

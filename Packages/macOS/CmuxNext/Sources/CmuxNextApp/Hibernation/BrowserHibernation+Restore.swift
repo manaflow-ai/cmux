@@ -118,6 +118,7 @@ extension BrowserHibernation {
                 for await ended in ObservationStream({ page.map { Self.loadEnded($0.state.phase) } ?? true }) where ended { return true }
                 return false
             }
+            self?.hoverLoadEnded(key)
             guard let self, let page, self.cache?.browsers[key]?.tab === page else { return }
             self.wakeLog.loaded(key, ended: ended == true)
         }

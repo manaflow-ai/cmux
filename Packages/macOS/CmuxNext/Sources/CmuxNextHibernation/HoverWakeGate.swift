@@ -30,7 +30,7 @@ package nonisolated final class HoverWakeGate: Sendable {
 
     package func cancel() {
         timer.cancel()
-        _ = intent.withLock { $0.note(nil, at: now()) }
+        intent.withLock { $0.reset() }
     }
 
     private func arm(after delay: Duration) {
@@ -44,7 +44,13 @@ package nonisolated final class HoverWakeGate: Sendable {
         switch intent.withLock({ $0.fire(at: at) }) {
         case .idle: return
         case let .rearm(left): arm(after: left)
-        case let .intent(target): await onIntent(target)
+        case let .intent(target): await deliver(target)
         }
+    }
+
+    /// On the main actor: the pointer may have left between the fire and this hop; then nothing wakes.
+    @MainActor private func deliver(_ target: HoverWakeTarget) {
+        guard intent.withLock({ $0.isResting(on: target) }) else { return }
+        onIntent(target)
     }
 }
