@@ -44,7 +44,9 @@ enum AgentSessionWorkspace {
                 AgentSessionRef(host: $0.record.host, session: $0.record.session)
             })
         }
-        let task = try open(session: request.session, name: request.name, defaultName: request.defaultName, key: request.key, cwd: request.cwd,
+        // The chat's acpmux id, never its name or harness session id (AgentSessionTab.localSession).
+        let session = try AgentSessionTab.localSession(request.session, host: request.host, services: context.services)
+        let task = try open(session: session, name: request.name, defaultName: request.defaultName, key: request.key, cwd: request.cwd,
                             host: request.host, group: request.group, top: request.top, focus: invocation.allowsViewChange, parent: parent,
                             services: context.services)
         context.services.registry.track(task)

@@ -14,6 +14,8 @@ import { currentLanguage, useT } from "./i18n";
 /// ON LOAD"). Not listed and never seen here (it may be deleted, or in an acpmux this tab is
 /// not routed to): "Can't find this chat", never "deleted". Every case but loading keeps what MissingChat.tsx
 /// offered (Lawrence, 86dec887282): the chat's short session id, so a person knows which chat it was,
+/// More than one chat here goes by the id the tab recorded (its name, or a harness's own session id),
+/// and none by acpmux's id: "This session no longer exists", never "Reconnecting…" forever.
 /// Resume from Transcript, which opens All Chats, where the chat's saved transcript resumes in a new
 /// session, and Close Tab (a deleted chat's is Remove from Sidebar).
 export function ChatUnavailableState({
@@ -87,6 +89,12 @@ export function ChatUnavailableState({
     title = t("unavailable.deleted.title");
     detail = named ? t("unavailable.deleted.detailOn", { machine: named }) : t("unavailable.deleted.detail");
     action = { label: t("unavailable.remove"), run: onRemove, kind: "remove" };
+  } else if (unavailable.reason === "gone") {
+    // The tab's id names more than one chat here, and none by its id: no machine coming back
+    // opens it, so it never reads as "Reconnecting…" (Leo, 2026-11-05). Resume from Transcript
+    // (All Chats, where the person picks the chat they meant) and Close Tab stay.
+    title = t("unavailable.gone.title");
+    detail = t("unavailable.gone.detail");
   } else if (unavailable.reason === "notFound") {
     // Not listed here and never seen here: it may be deleted, or in an acpmux this tab is not routed
     // to (a Chief home's own), so the pane never says it was deleted.
@@ -129,7 +137,7 @@ export function ChatUnavailableState({
           focusable="false"
         >
           <rect x="4.75" y="6.75" width="26.5" height="22.5" rx="6" />
-          {unavailable.reason === "deleted" || unavailable.reason === "notFound" ? (
+          {unavailable.reason === "deleted" || unavailable.reason === "notFound" || unavailable.reason === "gone" ? (
             <path d="M13.5 18h9" />
           ) : (
             <path d="M11.5 18h1M17.5 18h1M23.5 18h1" />

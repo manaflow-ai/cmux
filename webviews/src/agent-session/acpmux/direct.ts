@@ -765,6 +765,25 @@ function namesChat(session: Session, name: string): boolean {
   );
 }
 
+/// The listed chat a tab's id names when it is no chat's session id: an agent opened the tab with
+/// the chat's name ("cloud-demo"), its short name, or its harness's own session id (acpmux's
+/// `agentSessionId`, which `acpmux ls --json` prints first) in place of acpmux's id, and the tab
+/// recorded that. `session`: the one chat it names, which the tab opens and rebinds to. `ambiguous`:
+/// it names more than one, so the pane cannot tell which (chatUnavailable.ts `gone`). Neither: it
+/// names nothing listed (the chat may be on a machine not connected yet).
+export function chatNamedBy(
+  id: string,
+  sessions: readonly Session[],
+): { session?: string; ambiguous: boolean } {
+  if (!id || sessions.some((session) => session.sessionId === id)) return { ambiguous: false };
+  const named = sessions.filter(
+    (session) =>
+      (typeof session.agentSessionId === "string" && session.agentSessionId === id) || namesChat(session, id),
+  );
+  if (named.length === 1) return { session: named[0]!.sessionId, ambiguous: false };
+  return { ambiguous: named.length > 1 };
+}
+
 /// A `queued` record that is another agent's message, as its received line reads it once it runs
 /// (conversation/incomingMessage.ts), else as acpmux's `fromAgent` names it (`acpmux send --from`),
 /// its text without a leading "[name]" or "From name:" that only repeats the sender. Undefined for
@@ -1866,6 +1885,9 @@ export class AcpmuxDirectClient {
   private missingRecheck?: ReturnType<typeof setTimeout>;
   /** Why `missingSession` is set: the daemon's list lacked it when the pane opened, or it left the list while shown. */
   private missingReason?: MissingSessionReason;
+  /// More than one listed chat goes by `missingSession` (`chatNamedBy`): the pane says the session
+  /// no longer exists instead of waiting for a machine.
+  private missingAmbiguous = false;
   /** The adopt acpmux refused because its chat is live elsewhere, until the user picks a way on. */
   private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   /** Take Over refused because the watched chat's app still runs it, until the user picks a way on. */
@@ -2714,11 +2736,24 @@ export class AcpmuxDirectClient {
         this.selectionGeneration += 1;
         this.resetSessionState();
       }
+      // A tab that recorded the chat's name or its harness's session id in place of acpmux's id
+      // opens the one listed chat that goes by it, and the app rebinds the tab to that chat's id
+      // (`onSessionChange`), so it never waits on "Reconnecting…" for an id no machine will list.
+      const named = this.selectedSessionId !== undefined ? chatNamedBy(this.selectedSessionId, this.sessions) : undefined;
+      if (named?.session !== undefined) {
+        this.wire.lifecycle("tab session named", { asked: this.selectedSessionId, opened: named.session });
+        this.selectedSessionId = named.session;
+        this.selectionGeneration += 1;
+        this.resetSessionState();
+        // The host keeps it as the tab's session (`chat.persistSession`), so the tab is rebound.
+        this.markAdopted(named.session);
+      }
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
         // A linked session the daemon lacks is refused, never replaced by the most recent chat.
         if (this.host.sessionMustExist) {
           this.noteMissing(this.selectedSessionId);
           this.missingReason = "notListedAtOpen";
+          this.missingAmbiguous = named?.ambiguous === true;
         }
         const purging =
           this.selectedSessionId !== undefined &&
@@ -3727,6 +3762,7 @@ export class AcpmuxDirectClient {
     if (sessionId === undefined) return;
     if (this.missingSession !== sessionId) {
       this.missingSince = Date.now();
+      this.missingAmbiguous = false;
       // The machine the chat was on: the summary it had here (it went away while shown, or before a
       // reconnect), else what this page or the app host kept of it.
       const shown = this.summary?.sessionId === sessionId ? this.summary?.peer : undefined;
@@ -3742,19 +3778,37 @@ export class AcpmuxDirectClient {
   private reopenMissing(): boolean {
     const missing = this.missingSession;
     if (this.selectedSessionId !== undefined || missing === undefined || this.closed) return false;
-    if (!this.sessions.some((session) => session.sessionId === missing)) return false;
-    const [reason, since, peer] = [this.missingReason, this.missingSince, this.missingPeer];
-    const opening = this.select(missing);
+    // The chat the tab's id names, when it is a name or a harness's session id (`chatNamedBy`).
+    const named = chatNamedBy(missing, this.sessions);
+    this.missingAmbiguous = named.ambiguous;
+    const target = named.session ?? missing;
+    if (!this.sessions.some((session) => session.sessionId === target)) return false;
+    const [reason, since, peer, ambiguous] = [this.missingReason, this.missingSince, this.missingPeer, this.missingAmbiguous];
+    const opening = this.select(target);
+    // A chat the id only names: the host rebinds the tab to its id once it opens.
+    if (target !== missing)
+      void opening.then(
+        (opened) => {
+          if (opened === target && this.selectedSessionId === target) this.markAdopted(target);
+        },
+        () => undefined,
+      );
     // select() takes its generation before its first await: a newer selection (even of this same
     // chat, switching away and back) moves it, and this failure is then not the pane's to undo.
     const generation = this.selectionGeneration;
     void opening.catch(() => {
-      if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== missing) return;
-      this.wire.lifecycle("reopen failed", { sessionId: missing });
+      if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== target) return;
+      this.wire.lifecycle("reopen failed", { sessionId: target });
       this.selectedSessionId = undefined;
       this.selectionGeneration += 1;
       this.resetSessionState();
-      [this.missingSession, this.missingReason, this.missingSince, this.missingPeer] = [missing, reason, since, peer];
+      [this.missingSession, this.missingReason, this.missingSince, this.missingPeer, this.missingAmbiguous] = [
+        missing,
+        reason,
+        since,
+        peer,
+        ambiguous,
+      ];
       this.emit("session changed");
       void this.refreshPeers()
         .catch(() => undefined)
@@ -3774,6 +3828,7 @@ export class AcpmuxDirectClient {
       peers: this.peerStatus,
       waitedMs: Date.now() - this.missingSince,
       seenListed: this.missingReason === "leftListWhileShown",
+      ambiguousName: this.missingAmbiguous,
     });
     if (unavailable.reason === "connecting" && this.missingRecheck === undefined && !this.closed)
       this.missingRecheck = setTimeout(() => {
@@ -8699,6 +8754,7 @@ export class AcpmuxDirectClient {
     this.selectedSessionId = sessionId;
     this.missingSession = undefined;
     this.missingReason = undefined;
+    this.missingAmbiguous = false;
     // A hidden pane does not see the chat it opens (the tab's missing chat came back while its
     // workspace was in the background): it stays unread until the page shows (`showChanged`).
     if (pageShown()) this.markSeen(sessionId);

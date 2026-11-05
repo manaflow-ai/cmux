@@ -56,6 +56,15 @@ enum MiscHandlerStrings {
     static func ambiguousPeerSession(_ session: String, _ peer: String) -> String {
         String(format: String(localized: "handlers.misc.failed.ambiguousPeerSession", defaultValue: "%1$@ has more than one chat named %2$@. Name it by its session id.", table: "MiscHandlers", bundle: .module), peer, session)
     }
+    /// `agent.openSessionTab` / `agent.openSessionWorkspace` with a `session` that is no session id
+    /// and no live chat's name here.
+    static func noLocalSession(_ session: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.noLocalSession", defaultValue: "No running chat here is named %@. Name it by its session id.", table: "MiscHandlers", bundle: .module), session)
+    }
+    /// The same, with a `session` more than one live chat here goes by.
+    static func ambiguousLocalSession(_ session: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.ambiguousLocalSession", defaultValue: "More than one chat here is named %@. Name it by its session id.", table: "MiscHandlers", bundle: .module), session)
+    }
     static var sessionRequired: String { String(localized: "handlers.misc.failed.sessionRequired", defaultValue: "Name the acpmux session to open (session).", table: "MiscHandlers", bundle: .module) }
     static var noAgentSession: String { String(localized: "handlers.misc.failed.noAgentSession", defaultValue: "The focused terminal has no agent session to fork.", table: "MiscHandlers", bundle: .module) }
     static var noAgentPane: String { String(localized: "handlers.misc.failed.noAgentPane", defaultValue: "The focused pane is not showing an agent chat.", table: "MiscHandlers", bundle: .module) }

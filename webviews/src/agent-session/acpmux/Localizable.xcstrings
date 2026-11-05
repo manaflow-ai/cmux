@@ -233149,6 +233149,270 @@
         }
       }
     },
+    "unavailable.gone.title": {
+      "comment": "Agent pane: title in place of a tab's chat when the id the tab recorded is no chat's id here and more than one listed chat goes by it (its name or its harness's session id)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه الجلسة لم تعد موجودة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova sesija više ne postoji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne session findes ikke længere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Sitzung existiert nicht mehr"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This session no longer exists"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta sesión ya no existe"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette session n’existe plus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa sessione non esiste più"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このセッションはもう存在しません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សម័យនេះលែងមានទៀតហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 세션은 더 이상 존재하지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne økten finnes ikke lenger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta sesja już nie istnieje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta sessão não existe mais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этого сеанса больше нет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เซสชันนี้ไม่มีอยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu oturum artık yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цього сеансу більше немає"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phiên này không còn tồn tại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此会话已不存在"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作階段已不存在"
+          }
+        }
+      }
+    },
+    "unavailable.gone.detail": {
+      "comment": "Agent pane: under 'This session no longer exists'; All Chats is the list of every chat, where the person picks the one they meant",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحمل أكثر من محادثة هنا هذا الاسم. اختر المحادثة التي تقصدها في كل المحادثات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Više chatova ovdje nosi ovo ime. Odaberite onaj koji ste mislili u Svim chatovima."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mere end én chat her har dette navn. Vælg den, du mente, i Alle chats."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mehr als ein Chat hier trägt diesen Namen. Wähle den gemeinten in „Alle Chats“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More than one chat here goes by this name. Pick the one you meant in All Chats."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aquí hay más de un chat con este nombre. Elige el que querías en Todos los chats."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plusieurs discussions portent ce nom ici. Choisissez celle que vous vouliez dans Toutes les discussions."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qui più di una chat ha questo nome. Scegli quella che intendevi in Tutte le chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この名前のチャットがここに複数あります。「すべてのチャット」で目的のものを選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានការជជែកច្រើនជាងមួយនៅទីនេះដែលមានឈ្មោះនេះ។ សូមជ្រើសរើសមួយដែលអ្នកចង់បាននៅក្នុងការជជែកទាំងអស់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 이름의 채팅이 여기에 여러 개 있습니다. 모든 채팅에서 원하는 채팅을 고르세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mer enn én chat her har dette navnet. Velg den du mente i Alle chatter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tu jest więcej niż jeden czat o tej nazwie. Wybierz właściwy we Wszystkich czatach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Há mais de um chat aqui com este nome. Escolha o que você queria em Todos os chats."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Здесь несколько чатов с этим именем. Выберите нужный во «Всех чатах»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีแชตมากกว่าหนึ่งรายการที่ใช้ชื่อนี้ เลือกแชตที่ต้องการในแชตทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Burada bu adı taşıyan birden fazla sohbet var. Kastettiğinizi Tüm Sohbetler’de seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тут кілька чатів із цією назвою. Виберіть потрібний у «Усіх чатах»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Có nhiều cuộc trò chuyện ở đây mang tên này. Hãy chọn cuộc bạn muốn trong Tất cả cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这里有多个聊天使用此名称。请在“所有聊天”中选择你要的那个。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這裡有多個聊天使用此名稱。請在「所有聊天」中選擇你要的那個。"
+          }
+        }
+      }
+    },
     "unavailable.remove": {
       "comment": "Agent pane: button on a deleted chat; closes its tab",
       "extractionState": "manual",
