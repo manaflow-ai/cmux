@@ -861,8 +861,12 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
     // The app gave the machine no usable login before the send (`cloud.relay.login_*`): the link path would only
     // reach the same signed-out agent, so the app's typed answer and its recovery command are the outcome.
     let undelivered = at(&relayed, "delivered").as_bool() == Some(false);
-    if let Some(code) = at(&relayed, "error_code").as_str().filter(|code| undelivered && code.starts_with(RELAY_LOGIN_CODES)) {
-        let message = at(&relayed, "error_message").as_str().unwrap_or("the machine has no login").to_owned();
+    if let Some(code) = at(&relayed, "error_code")
+        .as_str()
+        .filter(|code| undelivered && code.starts_with(RELAY_LOGIN_CODES))
+    {
+        let message =
+            at(&relayed, "error_message").as_str().unwrap_or("the machine has no login").to_owned();
         let exit = if code == "cloud.relay.login_pending" { 75 } else { 1 };
         return Relayed::Answered(failed(
             code,
