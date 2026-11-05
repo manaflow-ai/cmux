@@ -285,6 +285,15 @@ struct SessionScrollbackCheckpointCoordinatorTests {
             )
         }
 
+        /// Removals the latest checkpoint asked for, whichever batch carried them.
+        var lastRemovals: Set<UUID> {
+            guard let last = batches.last else { return [] }
+            guard batches.count > 1 else { return last.removals }
+            let previous = batches[batches.count - 2]
+            let previousIsRemovalOnly = previous.captures.isEmpty && previous.livePanelIds == nil
+            return last.removals.union(previousIsRemovalOnly && last.livePanelIds != nil ? previous.removals : [])
+        }
+
         func advanceToNextCheckpoint() {
             uptime += SessionScrollbackCheckpointPolicy.interval
             wallClock += SessionScrollbackCheckpointPolicy.interval
@@ -359,7 +368,7 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         #expect(coordinator.tickIfDue())
         let batch = try #require(harness.batches.last)
         #expect(batch.captures.isEmpty)
-        #expect(batch.removals == [running])
+        #expect(harness.lastRemovals == [running])
         #expect(batch.livePanelIds == [running])
         #expect(harness.captureCounts[running] == nil)
     }
@@ -401,17 +410,17 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
         #expect(try #require(harness.batches.last).captures.map(\.panelId) == [captured])
-        #expect(try #require(harness.batches.last).removals.isEmpty)
+        #expect(harness.lastRemovals.isEmpty)
 
         // The captured terminal started a command: delete its file once.
         harness.eligible[captured] = false
         harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
-        #expect(try #require(harness.batches.last).removals == [captured])
+        #expect(harness.lastRemovals == [captured])
 
         harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
-        #expect(try #require(harness.batches.last).removals.isEmpty)
+        #expect(harness.lastRemovals.isEmpty)
         #expect(harness.eligibilityChecks[running] == nil)
         #expect(harness.eligibilityChecks[captured] == 2)
     }
@@ -425,7 +434,7 @@ struct SessionScrollbackCheckpointCoordinatorTests {
 
         harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
-        #expect(try #require(harness.batches.last).removals == [restored])
+        #expect(harness.lastRemovals == [restored])
         #expect(coordinator.checkpointedPanelIds == Set<UUID>())
     }
 
@@ -451,7 +460,7 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         harness.persistBatch = { store.apply($0).failedRemovalIds }
         harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
-        #expect(try #require(harness.batches.last).removals == [panelId])
+        #expect(harness.lastRemovals == [panelId])
         #expect(coordinator.checkpointedPanelIds?.isEmpty == true)
         #expect(store.loadRecords(panelIds: [panelId]).isEmpty)
     }
@@ -551,7 +560,53 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         harness.canCheckpoint = true
         harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
-        #expect(try #require(harness.batches.last).removals == [running])
+        #expect(harness.lastRemovals == [running])
+    }
+
+    /// A capture can run for several main-queue turns. A file that already went
+    /// stale must be on its way out before the first of them starts.
+    @Test func removalsAreQueuedBeforeTheFirstCapture() throws {
+        let harness = Harness()
+        _ = harness.addTerminal()
+        let running = harness.addTerminal(eligible: false)
+        _ = harness.activity.beginCapture(surfaceID: running)
+        let coordinator = harness.makeCoordinator()
+        coordinator.noteExistingCheckpoints([running])
+        var queuedAtCapture: Set<UUID>?
+        harness.onCapture = { _ in queuedAtCapture = Set(harness.batches.flatMap(\.removals)) }
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(queuedAtCapture == [running])
+    }
+
+    /// A failed listing says nothing about which files exist, so every live
+    /// terminal stays checked until a later listing succeeds. Then only terminals
+    /// known to have a file are, including one captured while it was unknown.
+    @Test func failedListingStaysUnknownUntilALaterListingSucceeds() throws {
+        let harness = Harness()
+        let quiet = harness.addTerminal()
+        _ = harness.activity.beginCapture(surfaceID: quiet)
+        let captured = harness.addTerminal()
+        let coordinator = harness.makeCoordinator()
+        coordinator.noteExistingCheckpoints(nil)
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(coordinator.checkpointedPanelIds == nil)
+        #expect(harness.eligibilityChecks[quiet] == 1)
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(coordinator.checkpointedPanelIds == nil)
+        #expect(harness.eligibilityChecks[quiet] == 2)
+
+        coordinator.noteExistingCheckpoints([])
+        #expect(coordinator.checkpointedPanelIds == [captured])
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(harness.eligibilityChecks[quiet] == 2)
     }
 
     @Test func seedBeforeTheStartupListingIsStillTracked() throws {
@@ -566,7 +621,7 @@ struct SessionScrollbackCheckpointCoordinatorTests {
 
         harness.advanceToNextCheckpoint()
         #expect(coordinator.tickIfDue())
-        #expect(try #require(harness.batches.last).removals == [panel])
+        #expect(harness.lastRemovals == [panel])
     }
 
     @Test func failedExportStaysPendingAndBacksOff() throws {
@@ -657,6 +712,19 @@ struct SessionScrollbackCheckpointStoreTests {
         try Data().write(to: store.directoryURL.appendingPathComponent("notes.txt"))
 
         #expect(store.checkpointedPanelIds() == [written])
+    }
+
+    @Test func failedPruneIsReattemptedByTheNextBatch() throws {
+        let store = makeStore()
+        defer { cleanUp(store) }
+        let stale = UUID()
+        store.apply(.init(captures: [capture(stale, at: 1, "old\n")], removals: [], livePanelIds: nil))
+
+        store.apply(.init(captures: [], removals: [], livePanelIds: []), fileManager: RefusingCheckpointRemoval())
+        #expect(store.checkpointedPanelIds() == [stale])
+
+        store.apply(.init(captures: [], removals: [], livePanelIds: []))
+        #expect(store.checkpointedPanelIds()?.isEmpty == true)
     }
 
     @Test func writesTruncatesRemovesAndPrunes() throws {

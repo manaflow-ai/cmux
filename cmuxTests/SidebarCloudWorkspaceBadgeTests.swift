@@ -129,6 +129,71 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(store.machineIDs(forWorkspace: workspaceID) == [machine])
     }
 
+    @Test("Staged and uncaptured panels stay per workspace through every transition")
+    func perWorkspaceRecordsSurviveTransitionsAcross100Workspaces() {
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "restore"))
+        let other = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "other"))
+        let workspaces = (0..<100).map { _ in UUID() }
+        let panels = workspaces.map { _ in UUID() }
+        var store = SurfaceProjectionRestoreStore()
+        func record(_ index: Int, on target: SurfaceMachineID, key: String = "key") -> SurfaceProjectionRecord {
+            SurfaceProjectionRecord(
+                panelID: panels[index],
+                resource: SurfaceResourceID(machine: target, kind: .terminal, key: "\(key)-\(index)")
+            )
+        }
+        for index in workspaces.indices {
+            store.stage(record(index, on: machine), workspaceID: workspaces[index])
+        }
+        for index in workspaces.indices {
+            #expect(store.records(for: workspaces[index]).map(\.panelID) == [panels[index]])
+            #expect(store.hasUncapturedRecords(for: workspaces[index]))
+        }
+
+        // Capture marks only its own workspace.
+        store.markRecordsCaptured(for: workspaces[0])
+        #expect(!store.hasUncapturedRecords(for: workspaces[0]))
+        #expect(store.hasUncapturedRecords(for: workspaces[1]))
+        #expect(store.records(for: workspaces[0]).map(\.panelID) == [panels[0]])
+
+        // A captured panel stays captured when it moves; an uncaptured one stays pending.
+        #expect(store.move(panelID: panels[0], to: workspaces[2]))
+        #expect(store.records(for: workspaces[0]).isEmpty)
+        #expect(Set(store.records(for: workspaces[2]).map(\.panelID)) == [panels[0], panels[2]])
+        store.markRecordsCaptured(for: workspaces[2])
+        #expect(!store.hasUncapturedRecords(for: workspaces[2]))
+        #expect(store.move(panelID: panels[1], to: workspaces[2]))
+        #expect(store.hasUncapturedRecords(for: workspaces[2]))
+        #expect(!store.hasUncapturedRecords(for: workspaces[1]))
+
+        // Replacing a stage in another workspace leaves nothing behind and is uncaptured again.
+        store.stage(record(2, on: machine, key: "new"), workspaceID: workspaces[3])
+        #expect(!store.records(for: workspaces[2]).contains { $0.panelID == panels[2] })
+        #expect(store.records(for: workspaces[3]).contains { $0.resource.key == "new-2" })
+        #expect(store.hasUncapturedRecords(for: workspaces[3]))
+
+        // Removing the only uncaptured panel clears the workspace's pending state.
+        #expect(store.remove(panelID: panels[4]))
+        #expect(store.records(for: workspaces[4]).isEmpty)
+        #expect(!store.hasUncapturedRecords(for: workspaces[4]))
+
+        // Machine removal and provider resolution clear only what they own.
+        store.stage(record(5, on: other), workspaceID: workspaces[5])
+        store.remove(machine: other)
+        #expect(store.records(for: workspaces[5]).isEmpty)
+        #expect(!store.hasUncapturedRecords(for: workspaces[5]))
+        #expect(store.records(for: workspaces[6]).map(\.panelID) == [panels[6]])
+
+        let resolved = store.takeResolvable(
+            machine: machine,
+            availableResources: [record(6, on: machine).resource]
+        )
+        #expect(resolved.map(\.panelID) == [panels[6]])
+        #expect(store.records(for: workspaces[6]).isEmpty)
+        #expect(!store.hasUncapturedRecords(for: workspaces[6]))
+        #expect(store.hasUncapturedRecords(for: workspaces[7]))
+    }
+
     /// Ensures Cloud identity changes alter only the immutable row projection.
     @Test func cloudBindingChangesSidebarSnapshotWithoutTitleOrPathChanges() {
         let workspace = Workspace(title: "vm:vivid-newt", workingDirectory: "/tmp", initialSurface: .cloudVMLoading)
