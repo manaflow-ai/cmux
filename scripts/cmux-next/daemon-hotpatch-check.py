@@ -154,10 +154,6 @@ def main() -> int:
         CMUX_TUI_HOST_EXE_DIR=str(work / "host-exe"),
         CMUX_TUI_SHELL_INTEGRATION="none",
         SHELL="/bin/sh",
-        # dx records every crate's rustc args during its first build and replays
-        # them for a patch; a crate a shared target dir already holds is never
-        # compiled there, so the patch fails ("Missing rustc args for replay").
-        CARGO_TARGET_DIR=str(args.cache / "dx-target"),
     )
     daemon_args = shlex.join(["--headless", "--session", "hotpatch-check", "--socket", str(sock),
                               "--state", str(work / "state")])

@@ -1606,6 +1606,7 @@ dependencies = [
  "cmux-remote-protocol",
  "cmux-server",
  "cmux-server-core",
+ "cmux-terminal-client",
  "cmux-tui-cdp",
  "cmux-tui-core",
  "cmux-tui-hooks",

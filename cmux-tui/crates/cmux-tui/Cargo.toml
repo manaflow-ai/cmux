@@ -23,7 +23,9 @@ iroh-transport = ["cmux-remote/iroh-transport"]
 windows-thin-exe = []
 # Debug only: patch the running daemon in place under `dx serve --hot-patch`
 # (cmux-tui-core/src/hotpatch.rs). No shipped build enables it.
-hotpatch = ["cmux-tui-core/hotpatch"]
+# It also builds cmux-terminal-client: dx 0.7.10 replays every workspace crate that
+# depends on an edited one, and fails on one its first build never compiled.
+hotpatch = ["cmux-tui-core/hotpatch", "dep:cmux-terminal-client"]
 
 # The whole program. src/main.rs stays the crate root (its dispatch tables are
 # where they always were); the cmux-tui binary is a small entry point that
@@ -55,6 +57,8 @@ path = "src/bin/cmux-tui-host.rs"
 [dependencies]
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+# Only for `hotpatch` (see the feature).
+cmux-terminal-client = { path = "../cmux-terminal-client", optional = true }
 # `cmux vm`: the cmux-vm child starts through the daemon-safe spawn.
 cmux-process.workspace = true
 cmux-api-compat.workspace = true
