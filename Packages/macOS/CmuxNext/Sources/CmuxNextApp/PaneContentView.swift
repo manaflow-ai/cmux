@@ -16,7 +16,7 @@ import os
 /// The strip is the pane's header, or with the strip at the bottom its
 /// footer: the layout's border and rounded corners trace the content host
 /// between them, a browser's toolbar included.
-final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
+final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, AgentRenderHome {
     let stripView: TabStripView
     /// The strip's colors: its pane's scope, subtler while another pane has focus (`setChromeEmphasis`). Chrome, not
     /// `.terminal`, which keeps the terminal theme under an App Theme (`PaneStripAppThemeTests`).
@@ -441,10 +441,9 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
     }
 
     /// Its parked workspace shows: content an agent drove off screen meanwhile (`AgentRenderWindows`) comes back.
-    override func viewDidUnhide() {
-        super.viewDidUnhide()
-        if let view = content, !hostsContent, view.window?.identifier == AgentRenderPanel.windowIdentifier { show(view) }
-    }
+    override func viewDidUnhide() { super.viewDidUnhide(); if let content { takeBack(content) } }
+    /// Its window draws again (`AgentRenderHome`): the tab an agent drove off screen comes back if this pane still shows it.
+    func takeBack(_ view: NSView) { if view === content, !hostsContent, view.window?.identifier == AgentRenderPanel.windowIdentifier { show(view) } }
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()

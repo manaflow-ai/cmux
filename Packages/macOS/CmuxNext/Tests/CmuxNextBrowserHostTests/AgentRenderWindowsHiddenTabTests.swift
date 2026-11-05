@@ -48,7 +48,7 @@ import Testing
     }
 
     @Test func aTabAWindowShowsStaysWhereItIs() {
-        let windows = AgentRenderWindows()
+        let windows = AgentRenderWindows(windowDraws: { _ in true })
         let chrome = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         let (window, _) = windowHolding(chrome)
         #expect(!windows.keepRendering(tabID: "tab_shown", chrome: chrome, webView: nil))
@@ -57,7 +57,7 @@ import Testing
     }
 
     @Test func aPaneTakesItsTabBackFromTheRenderWindow() {
-        let windows = AgentRenderWindows()
+        let windows = AgentRenderWindows(windowDraws: { _ in true })
         let chrome = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         let (window, workspace) = windowHolding(chrome)
         workspace.isHidden = true
@@ -69,5 +69,43 @@ import Testing
         // A second agent call finds the tab shown: it stays in the pane.
         #expect(!windows.keepRendering(tabID: "tab_back", chrome: chrome, webView: nil))
         window.close()
+    }
+    /// The minimized or covered window draws again (its delegate tells the render windows): its
+    /// pane gets the tab back, and another window's change does not move it.
+    @Test func aWindowThatDrawsAgainTakesItsTabBack() {
+        var draws = false
+        let windows = AgentRenderWindows(windowDraws: { _ in draws })
+        let chrome = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let pane = PaneStandIn(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let window = NSWindow(contentRect: pane.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(pane)
+        pane.addSubview(chrome)
+        #expect(windows.keepRendering(tabID: "tab_return", chrome: chrome, webView: nil))
+        #expect(chrome.window !== window)
+        // Still covered: it stays off screen.
+        windows.windowDidChangeOcclusion(window)
+        #expect(chrome.window !== window)
+        draws = true
+        let other = NSWindow(contentRect: pane.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+        other.isReleasedWhenClosed = false
+        windows.windowDidChangeOcclusion(other)
+        #expect(chrome.window !== window)
+        windows.windowDidChangeOcclusion(window)
+        #expect(chrome.window === window)
+        #expect(pane.takenBack == 1)
+        #expect(!windows.keepRendering(tabID: "tab_return", chrome: chrome, webView: nil))
+        other.close()
+        window.close()
+    }
+}
+
+/// A pane: it adds a chrome back to itself, as `PaneContentView.show` does.
+@MainActor private final class PaneStandIn: NSView, AgentRenderHome {
+    private(set) var takenBack = 0
+
+    func takeBack(_ view: NSView) {
+        addSubview(view)
+        takenBack += 1
     }
 }

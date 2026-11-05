@@ -7,7 +7,8 @@ package import WebKit
 /// WebKit driver and its Chromium relay.
 extension AgentRenderWindows {
     /// Before an agent acts on a live page no window shows (a background tab of a pane, a tab of a
-    /// parked workspace, one never shown, one just woken from hibernation), its view moves into its
+    /// parked workspace, one never shown, one just woken from hibernation, a WebKit tab of a minimized
+    /// or fully covered window), its view moves into its
     /// off-screen render window. Hidden, WebKit runs no animation frame, fires timers once a second
     /// and takes no native input (no window); Chromium draws no frame. Nothing shows and focus does
     /// not move. A Chromium tab whose pane shows another tab of the same Chromium window stays

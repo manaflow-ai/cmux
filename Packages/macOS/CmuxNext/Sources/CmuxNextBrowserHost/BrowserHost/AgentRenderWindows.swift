@@ -1,4 +1,5 @@
 package import AppKit
+import CmuxNextBrowser
 package import CmuxNextBrowserAutomation
 package import WebKit
 
@@ -18,10 +19,28 @@ package import WebKit
 ///
 /// The chrome, not the page container, moves: when a pane shows the tab it
 /// adds the chrome back to itself (`PaneContentView.show`), AppKit takes it
-/// out of the render window, and the window closes.
+/// out of the render window, and the window closes. A tab that left a
+/// minimized or covered window goes back to its pane (``AgentRenderHome``)
+/// when that window draws again (``windowDidChangeOcclusion(_:)``, from the
+/// window's delegate).
 @MainActor
 package final class AgentRenderWindows {
-    package init() {}
+    /// - Parameter windowDraws: Whether a window draws its content; the
+    ///   default reads AppKit (`NSWindow.drawsContent`). Tests pass a fixed answer.
+    package init(windowDraws: @escaping @MainActor (NSWindow) -> Bool = { $0.drawsContent }) {
+        self.windowDraws = windowDraws
+    }
+
+    private let windowDraws: @MainActor (NSWindow) -> Bool
+    /// Per parked tab that left a window that did not draw: where it goes back when that window draws.
+    private var returns: [String: Return] = [:]
+
+    /// A parked chrome's way back to its pane.
+    private struct Return {
+        weak var chrome: NSView?
+        weak var home: (any AgentRenderHome)?
+        weak var window: NSWindow?
+    }
 
     /// Playwright's default page size for a hidden driven tab, so results do
     /// not depend on the pane that last showed it.
@@ -40,22 +59,49 @@ package final class AgentRenderWindows {
         // A chrome its pane parked hidden (`PaneContentView+Parking`) is a
         // background tab too, and so is one in a parked workspace (hidden in
         // place, still in the window): its pane takes it back when the
-        // workspace shows (`PaneContentView.viewDidUnhide`).
-        guard chrome.window == nil || chrome.isHiddenOrHasHiddenAncestor else { return false }
+        // workspace shows (`PaneContentView.viewDidUnhide`). A tab in a
+        // minimized or covered window goes back when that window draws.
+        guard chrome.isOffScreen(windowDraws: windowDraws) else { return false }
+        let source = chrome.isHiddenOrHasHiddenAncestor ? nil : chrome.window
+        let home = Self.home(of: chrome)
         parked.removeValue(forKey: tabID)?.finish()
         let panel = AgentRenderPanel(viewport: Self.viewport, screens: NSScreen.screens.map(\.frame), privateCalls: privateCalls)
         panel.onRelease = { [weak self, weak panel] in
             guard let self, let panel, self.parked[tabID] === panel else { return }
             self.parked[tabID] = nil
+            self.returns[tabID] = nil
         }
         panel.park(chrome, webView: webView)
         parked[tabID] = panel
+        returns[tabID] = source.map { Return(chrome: chrome, home: home, window: $0) }
         return true
     }
 
     /// The tab closed: its render window goes.
     package func release(tabID: String) {
+        returns[tabID] = nil
         parked.removeValue(forKey: tabID)?.finish()
+    }
+
+    /// The nearest ancestor of `chrome` that takes tabs back (a pane).
+    private static func home(of chrome: NSView) -> (any AgentRenderHome)? {
+        var view = chrome.superview
+        while let current = view {
+            if let home = current as? any AgentRenderHome { return home }
+            view = current.superview
+        }
+        return nil
+    }
+
+    /// A window's occlusion changed (its delegate): when it draws again
+    /// (deminiaturized, uncovered), the tabs that left it go back to their panes.
+    /// - Parameter window: The window whose occlusion state changed.
+    package func windowDidChangeOcclusion(_ window: NSWindow) {
+        guard windowDraws(window) else { return }
+        for (tabID, way) in returns where way.window === window {
+            returns[tabID] = nil
+            if let chrome = way.chrome, let home = way.home { home.takeBack(chrome) }
+        }
     }
 
     /// The frame of a render window of `size`: left of and below every
@@ -81,7 +127,7 @@ package final class AgentRenderPanel: NSPanel {
     private let privateCalls: WebKitPrivateCalls
 
     /// Every render window's identifier: a pane whose content is in one takes it back when it shows.
-    package static let windowIdentifier = NSUserInterfaceItemIdentifier("cmux.agentRenderWindow")
+    package static let windowIdentifier = NSUserInterfaceItemIdentifier.agentRenderWindow
 
     package init(viewport: NSSize, screens: [NSRect], privateCalls: WebKitPrivateCalls) {
         self.privateCalls = privateCalls
