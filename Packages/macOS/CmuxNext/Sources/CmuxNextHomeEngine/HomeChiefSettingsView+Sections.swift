@@ -61,9 +61,20 @@ extension HomeChiefSettingsView {
         HomeChiefProfileTab.allCases.first { view.isDescendant(of: sections[$0]) }
     }
 
-    /// The wider gap after `view`, a group's last row, in the stack that holds it.
+    /// The gap between two groups of a tab, after `view`, a group's last row, in the stack that holds it:
+    /// one gap between every two sections.
     func gap(after view: NSView) {
-        (view.superview as? NSStackView)?.setCustomSpacing(Metrics.space4, after: view)
+        (view.superview as? NSStackView)?.setCustomSpacing(Self.sectionGap, after: view)
+    }
+
+    static var sectionGap: CGFloat { Metrics.space5 }
+
+    /// A footer action of a tab (Edit Chief…, All Chief Settings…): a push button at the column's edge.
+    static func footerButton(_ title: String, target: AnyObject, action: Selector) -> NSButton {
+        let button = NSButton(title: title, target: target, action: action)
+        button.bezelStyle = .rounded
+        button.font = Typography.body
+        return button
     }
 
     @objc func showMemory() {

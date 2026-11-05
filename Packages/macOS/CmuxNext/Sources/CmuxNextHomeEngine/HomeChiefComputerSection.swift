@@ -90,7 +90,7 @@ public final class HomeChiefComputerSection: NSStackView {
         super.init(frame: .zero)
         orientation = .vertical
         alignment = .centerX
-        spacing = 10
+        spacing = Metrics.space4
         caption.font = Typography.system(size: TypeScale.detail, weight: TypeScale.regular)
         caption.ink = .secondary
         caption.alignment = .center
@@ -126,8 +126,9 @@ public final class HomeChiefComputerSection: NSStackView {
             note.centerXAnchor.constraint(equalTo: screen.centerXAnchor),
             note.centerYAnchor.constraint(equalTo: screen.centerYAnchor),
             note.widthAnchor.constraint(lessThanOrEqualTo: screen.widthAnchor, constant: -2 * Metrics.space4),
-            expandButton.topAnchor.constraint(equalTo: screen.topAnchor, constant: Metrics.space2),
-            expandButton.trailingAnchor.constraint(equalTo: screen.trailingAnchor, constant: -Metrics.space2),
+            // Inset from the card's rounded corner, clear of its edge.
+            expandButton.topAnchor.constraint(equalTo: screen.topAnchor, constant: Metrics.space4),
+            expandButton.trailingAnchor.constraint(equalTo: screen.trailingAnchor, constant: -Metrics.space4),
         ])
         isHidden = true
     }

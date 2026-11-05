@@ -89,7 +89,7 @@ public final class HomeChiefProfilePanel {
     /// one only when the computer changed, and again while the app had none to give.
     public func follow(agent: String?, machine: String?, make: (String?, String?) -> HomeChiefComputerControlSource?) {
         let key = [agent, machine]
-        guard key != controlKey else { return }
+        guard key != controlKey, !view.pinsControl else { return }
         let source = agent == nil && machine == nil ? nil : make(agent, machine)
         if source != nil || view.control != nil { view.control = source }
         controlKey = source == nil ? nil : key

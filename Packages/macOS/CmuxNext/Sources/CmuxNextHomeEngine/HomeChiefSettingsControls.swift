@@ -144,6 +144,11 @@ final class HomeChiefLinkButton: NSButton {
     override func mouseEntered(with event: NSEvent) { isHovering = true }
     override func mouseExited(with event: NSEvent) { isHovering = false }
 
+    /// The borderless cell draws its title inset from the frame: the text, not the frame, lines up
+    /// with the column's edge.
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets(top: 0, left: Self.titleInset, bottom: 0, right: Self.titleInset) }
+    static let titleInset: CGFloat = 2
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyTitle()

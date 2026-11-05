@@ -26,6 +26,12 @@ extension HomeChiefSettingsView {
             row.widthAnchor.constraint(equalTo: teleportRow.widthAnchor).isActive = true
         }
         teleportRow.isHidden = chip == nil
+        followPlace()
         onResize()
+    }
+
+    /// The line under the name says where the Chief runs only while no Runs On row says it.
+    func followPlace() {
+        place.isHidden = !teleportRow.isHidden
     }
 }

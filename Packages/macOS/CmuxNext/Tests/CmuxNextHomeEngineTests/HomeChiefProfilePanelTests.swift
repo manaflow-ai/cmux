@@ -61,6 +61,55 @@ import Testing
         #expect(panel.selectedTab == .settings)
     }
 
+    /// The Runs On row says where the Chief runs: the line under the name does not say it again.
+    @Test func theRunsOnRowReplacesTheLineUnderTheName() {
+        let card = Self.card()
+        #expect(!card.place.isHidden)
+        let chip = ChiefTeleportChip(model: ChiefTeleportModel(showing: .thisMac, phase: .idle, destinations: []))
+        card.showTeleport(chip)
+        #expect(card.place.isHidden, "Runs On shows: no second line")
+        card.showTeleport(nil)
+        #expect(!card.place.isHidden)
+    }
+
+    /// Every Settings row puts its control in one column, whatever the control: the pickers, Can Wake the
+    /// Chief, and an Appearance row (the panel at its width, laid out).
+    @Test func settingsRowsShareOneControlColumn() throws {
+        let card = Self.card()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: HomeChiefSettingsView.width, height: 1200), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = card
+        card.showSection(.settings)
+        card.layoutSubtreeIfNeeded()
+        let pet = try #require(card.appearanceRows.arrangedSubviews.first.flatMap { ($0 as? NSStackView)?.arrangedSubviews.dropFirst().first })
+        let controls: [(String, NSView)] = [("Model", card.model), ("Effort", card.effort), ("Can Wake", card.reactionRows.canWake),
+                                            ("Show Chief Pet", pet)]
+        let column = card.model.convert(card.model.alignmentRect(forFrame: card.model.bounds), to: card).minX
+        #expect(column > HomeChiefSettingsView.inset + 40, "the label column is left of the controls")
+        for (name, control) in controls {
+            let x = control.convert(control.alignmentRect(forFrame: control.bounds), to: card).minX
+            #expect(abs(x - column) < 1, "\(name)'s control starts at \(x), not the column's \(column)")
+        }
+        let wake = card.reactionRows.canWake.convert(card.reactionRows.canWake.bounds, to: card).maxX
+        let model = card.model.convert(card.model.bounds, to: card).maxX
+        #expect(abs(wake - model) < 1, "Can Wake's picker is as wide as Model's")
+    }
+
+    /// The capture scene's fixture computer keeps its control bar through the host's own reads.
+    @Test func aPinnedControlBarIgnoresTheHostsComputer() {
+        let panel = HomeChiefProfilePanel(settings: Self.card())
+        let lease = Lease()
+        panel.view.control = lease.source(machine: false)
+        panel.view.pinsControl = true
+        panel.follow(agent: nil, machine: nil) { _, _ in nil }
+        #expect(panel.view.control != nil)
+        panel.view.pinsControl = false
+        panel.follow(agent: nil, machine: nil) { _, _ in nil }
+        #expect(panel.view.control == nil)
+    }
+
     @Test func theExpandedPageHasNoSettingsTab() {
         let page = HomeChiefProfileView()
         #expect(page.isExpanded)

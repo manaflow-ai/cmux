@@ -84,7 +84,7 @@ public final class HomeChiefSettingsView: NSView {
     /// The profile panel's tabs' parts of the card (``showSection(_:)``); `addFullWidth` adds to ``filling``'s.
     let sections = HomeChiefSettingsSections()
     var filling: HomeChiefProfileTab?
-    lazy var editChief = HomeChiefLinkButton(title: HomeEngineStrings.editChief, target: self, action: #selector(openAllSettings))
+    lazy var editChief = Self.footerButton(HomeEngineStrings.editChief, target: self, action: #selector(openAllSettings))
     var source: any HomeChiefEngineSource
     /// The engine the pickers last showed (the brain's answer), which a refused pick shows again.
     var shownEngine: HomeChiefSnapshot?
@@ -186,7 +186,7 @@ public final class HomeChiefSettingsView: NSView {
             let section = sections[tab]
             section.orientation = .vertical
             section.alignment = .leading
-            section.spacing = Metrics.space2
+            section.spacing = Metrics.space3
             section.setAccessibilityIdentifier("cmux.home.chief.section.\(tab.rawValue)")
             addFullWidth(section)
             gap(after: section)
@@ -205,10 +205,19 @@ public final class HomeChiefSettingsView: NSView {
         vault.onResize = { [weak self] in self?.onResize() }
         addFullWidth(vault)
         gap(after: vault)
-        addFullWidth(diagnosticsRow())
+        // The disclosure and what it opens are one group: the gap after it holds open or closed.
+        let diagnosticsGroup = NSStackView()
+        diagnosticsGroup.orientation = .vertical
+        diagnosticsGroup.alignment = .leading
+        diagnosticsGroup.spacing = Metrics.space3
+        addFullWidth(diagnosticsGroup)
+        gap(after: diagnosticsGroup)
         buildDiagnostics()
-        addFullWidth(diagnostics)
-        gap(after: diagnostics)
+        for view in [diagnosticsRow(), diagnostics] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            diagnosticsGroup.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: diagnosticsGroup.widthAnchor).isActive = true
+        }
         editChief.setAccessibilityIdentifier("cmux.home.chief.editChief")
         sections[.details].addArrangedSubview(editChief)
         // Settings: how the Chief works and looks.
@@ -253,7 +262,7 @@ public final class HomeChiefSettingsView: NSView {
         appearanceHeader.isHidden = true
         appearanceRows.isHidden = true
         // The rest of the Chief's settings (the pet, the chat's look, every Chief) live in Settings.
-        let allSettings = HomeChiefLinkButton(title: HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
+        let allSettings = Self.footerButton(HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
         allSettings.setAccessibilityIdentifier("cmux.home.chief.allSettings")
         sections[.settings].addArrangedSubview(allSettings)
         // Computer: where a Chief of this Mac does computer use.

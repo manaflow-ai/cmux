@@ -90,6 +90,9 @@ public final class HomeChiefProfileView: NSView {
     let inputs = HomeChiefComputerInputQueue()
     /// The panel or page is on screen: the computer and the card's sections read.
     private(set) var isOpen = false
+    /// The control bar keeps the computer it was given (the capture scene's fixture): the panel's
+    /// ``HomeChiefProfilePanel/follow(agent:machine:make:)`` changes nothing.
+    var pinsControl = false
 
     public init(settings: HomeChiefSettingsView? = nil) {
         self.settings = settings

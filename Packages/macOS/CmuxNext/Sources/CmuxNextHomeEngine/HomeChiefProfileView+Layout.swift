@@ -12,7 +12,7 @@ extension HomeChiefProfileView {
         placeLabel.font = Typography.body
         placeLabel.ink = .secondary
         placeLabel.alignment = .center
-        let allSettings = HomeChiefLinkButton(title: HomeEngineStrings.allChiefSettings, target: self, action: #selector(openSettings))
+        let allSettings = HomeChiefSettingsView.footerButton(HomeEngineStrings.allChiefSettings, target: self, action: #selector(openSettings))
         details.orientation = .vertical
         details.alignment = .centerX
         details.spacing = Metrics.space2
@@ -21,7 +21,8 @@ extension HomeChiefProfileView {
         buildGateBox()
         computerPane.orientation = .vertical
         computerPane.alignment = .centerX
-        computerPane.spacing = Metrics.space3
+        // The screen, its caption, then the control bar the screen's width (the panel and the page alike).
+        computerPane.spacing = Metrics.space4
         for view in [computer, gateBox, controlBar] as [NSView] { computerPane.addArrangedSubview(view) }
         column.orientation = .vertical
         column.alignment = .centerX
@@ -32,7 +33,7 @@ extension HomeChiefProfileView {
         column.setCustomSpacing(Self.tabsGap, after: tabs)
         column.translatesAutoresizingMaskIntoConstraints = false
         if let settings {
-            column.setCustomSpacing(Metrics.space3, after: computerPane)
+            column.setCustomSpacing(HomeChiefSettingsView.sectionGap, after: computerPane)
             column.addArrangedSubview(settings)
         }
         let document = FlippedView()

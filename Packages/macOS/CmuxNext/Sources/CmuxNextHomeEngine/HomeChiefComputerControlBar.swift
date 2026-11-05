@@ -5,7 +5,8 @@ import CmuxNextDesign
 /// computer, and the one button that changes it (Chief computer take-over). "<name> is using the
 /// computer" with Take Over while the Chief drives; "You're in control" (or the Chief's own reason,
 /// when it asked the person to take over) with Give Back to <name> while the person does. Hidden
-/// until the owner says who holds the lease, and with no source.
+/// until the owner says who holds the lease, and with no source. One rounded bar the screen's width,
+/// the status at its leading edge and the button at its trailing edge (Lawrence's reference, 2026-11-04).
 @MainActor
 public final class HomeChiefComputerControlBar: NSStackView {
     /// What the bar shows for a lease.
@@ -54,6 +55,10 @@ public final class HomeChiefComputerControlBar: NSStackView {
         orientation = .horizontal
         alignment = .centerY
         spacing = Metrics.space3
+        edgeInsets = NSEdgeInsets(top: Metrics.space3, left: Metrics.space5, bottom: Metrics.space3, right: Metrics.space3)
+        wantsLayer = true
+        layer?.cornerRadius = Metrics.surfaceCornerRadius
+        layer?.cornerCurve = .continuous
         setAccessibilityIdentifier("cmux.home.chief.computer.control")
         status.font = Typography.system(size: TypeScale.detail, weight: TypeScale.regular)
         status.ink = .secondary
@@ -76,6 +81,21 @@ public final class HomeChiefComputerControlBar: NSStackView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyFill()
+    }
+
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyFill()
+    }
+
+    /// The bar's surface, the gate note's fill, in its view's theme.
+    private func applyFill() {
+        performWithTheme { layer?.backgroundColor = Palette.hoverFill.cgColor }
+    }
 
     /// Who holds the lease now, as the source last said.
     var state: HomeChiefComputerControlState? { source?.state() }
