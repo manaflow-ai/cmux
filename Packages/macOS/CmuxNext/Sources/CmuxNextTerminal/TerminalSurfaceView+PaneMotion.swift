@@ -20,14 +20,17 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         // A hidden or parked terminal does no resize work (an unselected tab): shown, it sizes once
         // (`syncWindowState`, which joins a spring still under way).
         guard isShown else { return .top }
+        // A drag's release spring (cmux-ad m14): no hold at the final size; the surface keeps following its pane, and the
+        // grid goes once, when the release lands (`paneResizeGestureDidChange`).
+        guard !isFollowingResizeGesture else { return .top }
         return restAt(restSize(sizeChange: sizeChange), growing: sizeChange.height > 0.5)
     }
 
     /// The view joined a pane already on a layout spring (a split's new pane gets its terminal from the
     /// daemon's echo mid-spring): its final grid goes now, as at a spring's start, from the size its host
-    /// will rest at. Returns whether it did.
+    /// will rest at. Returns whether it did (never for a drag's release spring: its grid goes at the landing).
     func joinPaneMotion() -> Bool {
-        guard superview is TerminalHostView, let change = enclosingRestSizeChange else { return false }
+        guard !isFollowingResizeGesture, superview is TerminalHostView, let change = enclosingRestSizeChange else { return false }
         _ = restAt(restSize(sizeChange: change), growing: change.height > 0.5)
         return true
     }
@@ -91,27 +94,21 @@ extension TerminalSurfaceView: PaneMotionTargeting {
     }
 }
 
-/// A person's divider or edge drag (`ScreenContentView+ResizeGesture`): the pane follows the pointer with no
-/// spring, so without this the terminal reported a grid on every drag event and its program redrew at each
-/// size while the owner's announcements came a round trip behind the view (torn rows mid-drag). Through the
-/// drag the surface keeps its size and its text (no report, no reflow); when the drag and its release's spring
-/// landed, the grid the view fits goes to the PTY once (none when the release's spring already sent it at its
-/// start, `restAt`).
+/// A person's divider or edge drag (`ScreenContentView+ResizeGesture`): the pane follows the pointer with no spring.
+/// cmux-ad m14 (Lawrence's P0): in every frame of the drag and of its release each terminal shows its text at that
+/// frame's pane size, never frozen or anchored. The surface takes its pane's size in every frame through the placement
+/// any resize uses (`TerminalHostView` `placeSurface`, the frame owner's ``place(_:anchor:)``), and the reflow preview
+/// re-wraps its text at that size. The grid goes to the PTY once, when the release landed: a program does not redraw at
+/// every size while the owner's announcements come a round trip behind (torn rows mid-drag). Before, the drag hold
+/// (`terminalDrag.holdSurface`, RESIZE VIDEOS A3) kept the drag-start size and text through the drag, and the release's
+/// spring held its final size (pixel-perfect's trace, STATUS 13764: 157-159 held ticks in col-drag-2, the surface up to
+/// 150 pt off its pane).
 extension TerminalSurfaceView: PaneResizeGestureFollowing {
     public func paneResizeGestureDidChange(active: Bool) {
         guard isFollowingResizeGesture != active else { return }
         isFollowingResizeGesture = active
-        if active, TerminalDragTunables.holdsSurfaceDuringDrag.value {
-            // The text stays where it is through the drag (RESIZE VIDEOS A3: drawn reflowed to the pane on every drag
-            // frame, the wrap point moved in every frame): the surface keeps its size, clipped where the pane is
-            // narrower and beside the terminal background where it is wider, as a Chromium page does.
-            (superview as? TerminalHostView)?.holdSurface(size: bounds.size, anchor: .top)
-            return
-        }
-        guard !active else { return }
-        // A release that springs moved the hold to its final size at the spring's start (`restAt`) and let it go when
-        // it landed; one that did not spring lets go here: the surface takes its pane's size and reflows once.
-        if !isInPaneMotion { (superview as? TerminalHostView)?.releaseSurfaceHold() }
-        if isHeldGridPending { updateSurfaceSize() }
+        // The start ends a spring's hold the drag caught (a split or a press still landing): the surface follows the drag
+        // from this frame. The end sends the grid the view fits, once (none when the PTY has it already).
+        if active { endPaneMotion() } else if isHeldGridPending { updateSurfaceSize() }
     }
 }

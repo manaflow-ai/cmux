@@ -42,8 +42,8 @@ public final class TerminalSurfaceView: NSView {
     /// The size this view asked of Ghostty while its window's commit owns its frame (``place(_:anchor:)``).
     var frameOwnership = TerminalFrameOwnership()
 
-    /// A person drags a divider or edge of this terminal's pane (`PaneResizeGestureFollowing`): the view's
-    /// grid is held (drawn as the reflow preview) and goes to the PTY once, when the drag lands.
+    /// A person drags a divider or edge of this terminal's pane (`PaneResizeGestureFollowing`): the surface follows its
+    /// pane in every frame (the reflow preview), and its grid is held and goes to the PTY once, when the drag lands.
     var isFollowingResizeGesture = false
 
     /// Reports the grid the pane's layout spring will land at, now (``TerminalGridPolicy/finalSized(_:)``),
@@ -224,20 +224,16 @@ public final class TerminalSurfaceView: NSView {
     /// Window notifications reach only a shown terminal: a hidden one (a parked tab or workspace,
     /// still in its window) has no observers, so a key, occlusion or screen change of the window
     /// does no work per hidden terminal. Showing it again catches up (`syncWindowState`).
-    /// Leaving its host (a surface swap mid-drag puts a fresh surface in the host, and this one leaves it with its
-    /// superview already gone by `viewDidMoveToWindow`): the drag hold it set in that host goes now, while the host is
-    /// still its superview, so the fresh surface takes the pane's size.
+    /// Leaving its host (a surface swap mid-drag puts a fresh surface in the host): it stops following the drag now,
+    /// while it is still in its window (its superview is already gone by `viewDidMoveToWindow`).
     public override func viewWillMove(toSuperview newSuperview: NSView?) {
-        if newSuperview !== superview { stopFollowingResizeGesture(in: superview) }
+        if newSuperview !== superview { stopFollowingResizeGesture() }
         super.viewWillMove(toSuperview: newSuperview)
     }
 
-    /// Stops following a resize drag that will not end for this view: lets go of the surface hold the drag set in
-    /// `host` (not one a pane spring holds; its landing lets that go).
-    func stopFollowingResizeGesture(in host: NSView?) {
-        guard isFollowingResizeGesture else { return }
+    /// Stops following a resize drag that will not end for this view: its next shown size reports as any other.
+    func stopFollowingResizeGesture() {
         isFollowingResizeGesture = false
-        if !isInPaneMotion { (host as? TerminalHostView)?.releaseSurfaceHold() }
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -279,7 +275,7 @@ public final class TerminalSurfaceView: NSView {
         if !shown { linkPointer.exited() }
         // Out of its window, no drag's end may reach it (its layout root can go before it): it stops following, so
         // its next shown size reports as any other, never held for a drag that is gone.
-        if window == nil { stopFollowingResizeGesture(in: superview) }
+        if window == nil { stopFollowingResizeGesture() }
         if shown {
             updateContentScale()
             // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first
