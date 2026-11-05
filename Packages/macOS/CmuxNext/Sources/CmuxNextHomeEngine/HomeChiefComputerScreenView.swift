@@ -90,7 +90,8 @@ final class HomeChiefComputerScreenView: NSView {
         // A release outside the frame ends the drag at its edge: the last pixel inside is not known, so
         // it counts as a click where it began.
         let end = pixel(event) ?? start
-        input(Self.press(from: start.pixel, startPoint: start.point, to: end.pixel, endPoint: end.point, button: 1, count: event.clickCount))
+        // Each press is one click: a double-click arrives as two, which the computer counts as a double-click.
+        input(Self.press(from: start.pixel, startPoint: start.point, to: end.pixel, endPoint: end.point, button: 1, count: 1))
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -107,12 +108,20 @@ final class HomeChiefComputerScreenView: NSView {
     override func scrollWheel(with event: NSEvent) {
         guard let input, let at = pixel(event) else { return super.scrollWheel(with: event) }
         let vertical = abs(event.scrollingDeltaY) >= abs(event.scrollingDeltaX)
-        let delta = vertical ? event.scrollingDeltaY : -event.scrollingDeltaX
+        let delta = vertical ? event.scrollingDeltaY : event.scrollingDeltaX
         let result = Self.scrollSteps(delta: delta, carried: scrolled, precise: event.hasPreciseScrollingDeltas)
         scrolled = result.carried
         guard result.steps != 0 else { return }
         let direction = vertical ? (result.steps > 0 ? "up" : "down") : (result.steps > 0 ? "left" : "right")
         input(.scroll(x: at.pixel.x, y: at.pixel.y, direction: direction, amount: abs(result.steps)))
+    }
+
+    /// A Command or Control chord while the person drives goes to the computer (Command-L to its
+    /// browser), not to cmux's menus, when no cmux shortcut took it first.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard input != nil, window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
+        keyDown(with: event)
+        return true
     }
 
     override func keyDown(with event: NSEvent) {

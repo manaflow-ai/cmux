@@ -39,7 +39,12 @@ extension HomeChiefProfileView {
     func followControl() {
         let shown = control != nil && showsControl
         controlBar.isHidden = !shown || controlBar.shown == nil
-        let takesInput = shown && shownGate == nil && controlBar.personDrives && control?.send != nil && isOpen
+        let takesInput = shown && shownGate == nil && tabs.selected == .computer && controlBar.personDrives && control?.send != nil && isOpen
+        if !takesInput {
+            // Inputs still queued must not reach a computer the person gave back.
+            sending?.cancel()
+            sending = nil
+        }
         if takesInput, computer.screen.input == nil {
             computer.screen.input = { [weak self] in self?.send($0) }
         } else if !takesInput, computer.screen.input != nil {

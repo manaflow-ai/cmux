@@ -41,11 +41,11 @@ public final class HomeChiefProfilePanel {
     /// Closes the panel (it keeps a name being edited); the keyboard goes to `chat` when it was in the panel.
     public func close(keyboardTo chat: NSView) {
         guard isShown else { return }
-        let responder = view.window?.firstResponder
+        let hadKeyboard = holdsKeyboard(view.window?.firstResponder)
         view.isHidden = true
         divider.isHidden = true
         view.superview?.needsLayout = true
-        if holdsKeyboard(responder) { chat.window?.makeFirstResponder(chat) }
+        if hadKeyboard { chat.window?.makeFirstResponder(chat) }
     }
 
     /// Whether `responder` is in the open panel: its keys stay there (the Chief's screen, while the
@@ -86,11 +86,12 @@ public final class HomeChiefProfilePanel {
 
     /// The computer the Computer tab's control bar changes: a Cloud Chief's own sandbox (`agent`), else
     /// the Cloud machine a Chief of this Mac uses (`machine`), else none. `make` builds the source; a new
-    /// one only when the computer changed.
+    /// one only when the computer changed, and again while the app had none to give.
     public func follow(agent: String?, machine: String?, make: (String?, String?) -> HomeChiefComputerControlSource?) {
         let key = [agent, machine]
         guard key != controlKey else { return }
-        controlKey = key
-        view.control = agent == nil && machine == nil ? nil : make(agent, machine)
+        let source = agent == nil && machine == nil ? nil : make(agent, machine)
+        view.control = source
+        controlKey = source == nil ? nil : key
     }
 }

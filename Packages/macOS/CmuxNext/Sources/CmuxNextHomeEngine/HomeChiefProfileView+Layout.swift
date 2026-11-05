@@ -66,12 +66,19 @@ extension HomeChiefProfileView {
             document.widthAnchor.constraint(equalTo: clip.widthAnchor),
             column.topAnchor.constraint(equalTo: document.topAnchor, constant: Self.avatarTop),
             column.centerXAnchor.constraint(equalTo: document.centerXAnchor),
-            column.widthAnchor.constraint(lessThanOrEqualTo: document.widthAnchor, constant: settings == nil ? -32 : 0),
             document.bottomAnchor.constraint(equalTo: column.bottomAnchor, constant: 16),
             closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 16),
             closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            gateBox.heightAnchor.constraint(equalTo: gateBox.widthAnchor, multiplier: 10.0 / 16.0),
+            // The screen's 16:10 in the panel; on the wide page the note's card stops at a sensible height.
+            gateBox.heightAnchor.constraint(lessThanOrEqualToConstant: 320),
         ])
+        let ratio = gateBox.heightAnchor.constraint(equalTo: gateBox.widthAnchor, multiplier: 10.0 / 16.0)
+        ratio.priority = .defaultHigh
+        ratio.isActive = true
+        // A pane narrower than the panel clips the card's trailing edge rather than break its rows.
+        let fits = column.widthAnchor.constraint(lessThanOrEqualTo: document.widthAnchor, constant: settings == nil ? -32 : 0)
+        fits.priority = settings == nil ? .required : .defaultHigh
+        fits.isActive = true
         if settings == nil {
             column.widthAnchor.constraint(lessThanOrEqualToConstant: Self.expandedWidth).isActive = true
             let wide = column.widthAnchor.constraint(equalToConstant: Self.expandedWidth)
@@ -103,7 +110,7 @@ extension HomeChiefProfileView {
             note.centerYAnchor.constraint(equalTo: gateBox.centerYAnchor),
             note.widthAnchor.constraint(equalTo: gateBox.widthAnchor, constant: -32),
         ])
-        gateLabel.preferredMaxLayoutWidth = Self.columnWidth - 32
+        gateLabel.preferredMaxLayoutWidth = (settings == nil ? Self.expandedWidth : Self.columnWidth) - 32
     }
 
     func applyGateFill() {
