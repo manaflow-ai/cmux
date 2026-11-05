@@ -3,7 +3,9 @@
 .acpmux-workflow-tasks {
   display: flex;
   flex-direction: column;
-  gap: var(--grid-gap-inner);
+  /* Room between one workflow's block and the next, and between a group heading and its first
+     workflow (Leo, 2026-11-05: "we have a lot of work to do regarding spacing"). */
+  gap: var(--ds-space-3);
 }
 .acpmux-workflow-tasks__group {
   margin: 0;
@@ -20,6 +22,7 @@
   padding: 0;
 }
 .acpmux-workflow-task + .acpmux-workflow-task {
+  padding-top: var(--ds-space-3);
   border-top: 1px solid var(--agent-hairline, color-mix(in oklab, currentColor 10%, transparent));
 }
 .acpmux-workflow-task__head {
@@ -269,4 +272,151 @@ button.acpmux-workflow-agent__button:focus-visible {
 .acpmux-workflow-task .acpmux-workflow-dots {
   margin: 0;
   padding-inline: calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap)) var(--grid-gap);
+}
+
+/* "Up next: <phase>": the first phase no agent has reached, a muted line where its row will be. */
+.acpmux-workflow-task__next {
+  margin: 0;
+  min-height: var(--grid-row);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--grid-gap) 0 calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* One phase per row with room between them, its dots under its name. */
+.acpmux-workflow-task__phases {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.acpmux-workflow-phase .acpmux-workflow-dots {
+  padding-bottom: var(--ds-space-1);
+}
+
+/* An agent row: an ended one leads with the disclosure that opens its output; the row itself opens
+   its transcript. */
+.acpmux-workflow-agent__row {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+}
+.acpmux-workflow-agent__row > .acpmux-workflow-agent__button {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.acpmux-workflow-agent__disclosure {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-icon-box);
+  height: var(--grid-row);
+  margin-right: calc(var(--grid-gap) * -1);
+  padding: 0;
+  border: 0;
+  border-radius: var(--acpmux-session-info-row-radius);
+  background: none;
+  color: var(--agent-muted);
+}
+.acpmux-workflow-agent__disclosure:hover {
+  background: var(--acpmux-session-info-row-hover);
+}
+.acpmux-workflow-agent__disclosure:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+/* A finished agent's output, drawn as Markdown under its name; long output scrolls in place. */
+.acpmux-workflow-agent__output {
+  margin: 0 0 var(--ds-space-2);
+  padding: 0 var(--grid-gap) 0 calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* The rendered output reads at the row's detail size, not a reply's body size. */
+.acpmux-workflow-agent__markdown {
+  max-height: calc(var(--text-detail--line-height) * 12);
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.acpmux-workflow-agent__markdown > .cv-md {
+  --cv-font-size: var(--text-detail);
+  --cv-line-height: var(--text-detail--line-height);
+  color: var(--agent-text);
+}
+.acpmux-workflow-agent__markdown > .cv-md > :first-child {
+  margin-top: 0;
+}
+.acpmux-workflow-agent__markdown > .cv-md > :last-child {
+  margin-bottom: 0;
+}
+/* Closed: its first three lines, the last fading out only when the cut hides more. */
+.acpmux-workflow-agent__markdown[data-cut] {
+  max-height: calc(var(--text-detail--line-height) * 3);
+  overflow: hidden;
+}
+.acpmux-workflow-agent__markdown[data-more] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    currentColor calc(100% - var(--text-detail--line-height)),
+    transparent
+  );
+  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--text-detail--line-height)), transparent);
+}
+.acpmux-workflow-agent__more {
+  all: unset;
+  cursor: default;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.acpmux-workflow-agent__more:hover,
+.acpmux-workflow-agent__more:focus-visible {
+  color: var(--agent-text);
+  text-decoration: underline;
+}
+/* A running agent's words use the row's whole width under its name, not only the name's column. */
+.acpmux-workflow-agent__button--detail {
+  grid-template-columns: var(--grid-icon-box) minmax(0, 1fr) auto auto;
+}
+.acpmux-workflow-agent__button--detail .acpmux-workflow-agent__text {
+  display: contents;
+}
+.acpmux-workflow-agent__button--detail .acpmux-workflow-agent__line {
+  grid-column: 2;
+  grid-row: 1;
+}
+.acpmux-workflow-agent__button--detail .acpmux-workflow-agent__doing {
+  grid-column: 2 / -1;
+  grid-row: 2;
+}
+.acpmux-workflow-agent__button--detail .acpmux-workflow-agent__state {
+  grid-column: 3;
+  grid-row: 1;
+}
+.acpmux-workflow-agent__button--detail .acpmux-session-info-task__time {
+  grid-column: 4;
+  grid-row: 1;
+}
+.acpmux-workflow-agent__no-output {
+  margin: 0;
+  color: var(--agent-muted);
+}
+/* The commands an agent started, indented under it. */
+.acpmux-workflow-commands {
+  padding-left: calc(var(--grid-icon-box) + var(--grid-gap));
+}
+.acpmux-workflow-task > .acpmux-workflow-commands {
+  padding-left: 0;
+}
+/* "N finished": the agents that ended, out of the phases' running lists. */
+.acpmux-workflow-finished {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap-inner);
+  margin-top: var(--ds-space-1);
+}
+.acpmux-workflow-finished__agents {
+  padding-left: var(--grid-sidebar-depth-indent);
 }

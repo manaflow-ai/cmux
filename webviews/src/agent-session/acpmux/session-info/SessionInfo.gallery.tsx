@@ -22,7 +22,7 @@ import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { createWorkflowAdapter } from "../summary/foldWorkflows";
 import { sessionSummary, type SummarySource, type SummaryWakeup } from "../summary/sessionSummary";
-import { workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
+import { parallelWorkflowProcesses, workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
 import { SessionInfo, SessionInfoPanel, type SessionInfoPlacement } from "./SessionInfo";
 import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
 import { subagentSummary, type SubagentScope } from "./subagentScope";
@@ -1149,6 +1149,24 @@ export default componentEntry<Props>({
       props: workflowProps("running"),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-parallel": {
+      note: "Two phases run at once, 25 minutes in (Leo's 2026-11-05 screenshot): each reached phase is one row with its count and dots, closed until opened, except Latency, open on its own while the shell tasks its agents started run; Up next names Latency plan and Swarm synthesis, the phases no agent reached; the workflow names its model once; the two agents that ended are under 2 finished, out of the running lists, the latest first.",
+      props: { ...workflowProps("parallel"), processes: parallelWorkflowProcesses() },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-parallel-open": {
+      note: "The same run with Swarm research opened too: each running agent says in words what it does (never its last shell command), swarm:ours names Sonnet 5.5 since it differs from the workflow's model, the shell tasks its agents started sit under them, and both finished agents are opened to their output at the row's size, cut to three lines with Show more, rendered from their JSON results (swarm:history's cut short at Claude's 240-character preview).",
+      props: { ...workflowProps("parallel"), processes: parallelWorkflowProcesses() },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+        await ctx.click({ selector: ".acpmux-workflow-phase:nth-child(2) .acpmux-workflow-phase__head" });
+        await ctx.click({ selector: ".acpmux-workflow-finished li:nth-child(1) .acpmux-workflow-agent__disclosure" });
+        await ctx.click({ selector: ".acpmux-workflow-finished li:nth-child(2) .acpmux-workflow-agent__disclosure" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-agent__output") !== null);
       },
     },
     "workflow-finished": {

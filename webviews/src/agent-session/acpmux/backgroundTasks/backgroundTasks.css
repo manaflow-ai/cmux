@@ -151,6 +151,11 @@
   overscroll-behavior: contain;
   padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
 }
+/* The list's first heading ("Running 5") stands clear of the header's tools rather than against
+   them (Leo, 2026-11-05: "we have a lot of work to do regarding spacing"). */
+.acpmux-bg__list {
+  padding-top: var(--ds-space-4);
+}
 .acpmux-bg__empty {
   margin: var(--ds-space-4) var(--ds-space-2);
   color: var(--agent-muted);
@@ -318,7 +323,8 @@
 .acpmux-bg__task[data-state="failed"] .acpmux-bg__label {
   color: var(--agent-status-failure);
 }
-.acpmux-bg__finished {
+.acpmux-bg__finished,
+.acpmux-bg__nested {
   padding-left: var(--ds-space-4);
 }
 .acpmux-bg__more.ui-btn {
@@ -339,7 +345,7 @@
   max-width: 100%;
 }
 .acpmux-bg__section-head + .acpmux-bg__group {
-  margin-top: var(--ds-space-1);
+  margin-top: var(--ds-space-2);
 }
 .acpmux-bg__section-count {
   font-variant-numeric: tabular-nums;

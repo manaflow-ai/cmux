@@ -1,9 +1,10 @@
 // l10n-allow-file: fixture workflow names in assertions, not shipped UI.
 // Session Info's Background tasks lists the chat's Claude workflows (Labs): a running one with
-// its counts, tokens, description, phases with a dot per agent, the running phase open with its
-// model and agents, and the phases no agent started yet as plain rows with no label (Leo,
-// 2026-10-29: "I fucking hate it when you guys narrate so much bullshit"); a finished one as "Finished · 7 agents", its phases
-// N/N, each opening into its agents. The data is a workflow's events fed through the real fold.
+// its counts, tokens, model, description, each phase an agent reached as one closed row with its
+// count and a dot per agent, which opens to its running agents, "Up next" for the first phase no
+// agent reached, and its finished agents apart (Leo, 2026-11-05: "Definitely just build it."); a
+// finished one as "Finished · 7 agents", its phases N/N, its agents under "7 finished". The data is
+// a workflow's events fed through the real fold.
 import { afterEach, expect, test } from "bun:test";
 import { pageClocks } from "../src/ui/pageClock";
 import { act } from "react";
@@ -45,26 +46,25 @@ test("the adapter derives each phase's state and counts, and the model's name", 
   ]).toEqual(["Opus 5.5", "Sonnet", "Haiku 4.5", "Gpt 6"]);
 });
 
-test("a running workflow shows its counts, tokens, description, phases, the open running phase and the next phase as a row", () => {
+test("a running workflow shows its counts, tokens, model, description, closed phase rows, Up next and its finished agents", () => {
   const html = renderToStaticMarkup(<WorkflowTasks workflows={summaries("running")} onStop={async () => undefined} />);
   const shown = text(html);
   // One group: the section's head counts it, so no group head.
   expect(html).not.toContain("acpmux-workflow-tasks__group");
   expect(shown).toContain("demo-name-tournament");
-  expect(shown).toContain("1 running · 2 queued · 3 done · 185k tokens");
+  expect(shown).toContain("1 running · 2 queued · 3 done · 185k tokens · Opus 5.5");
   expect(shown).toContain("Demo: 3 agents brainstorm names");
-  expect(shown).toContain("Brainstorm 3 done");
-  // The phase with a running agent is open: its model once, its agents with how long or Queued.
-  expect(shown).toContain("Critique 1 running · 2 queued punchy Model: Opus 5.5");
-  expect(shown).toContain("playful Model: Opus 5.5 Queued descriptive Model: Opus 5.5 Queued");
-  // Judge has no agent yet: a phase row in its pending state, with nothing to open, and no "Up next" line.
-  expect(html.match(/class="acpmux-workflow-phase"/g)?.length).toBe(3);
-  expect(html).toContain('<li class="acpmux-workflow-phase" data-state="pending">');
-  expect(shown).not.toContain("Up next");
-  expect(shown).toMatch(/Judge$/);
-  const judge = /<li class="acpmux-workflow-phase" data-state="pending">.*?<\/li>/.exec(html)![0];
-  expect(judge).toContain("disabled");
-  expect(judge).not.toContain("data-icon");
+  // Each phase is one row with its count, closed; Brainstorm has nothing left running to open.
+  expect(shown).toContain("Brainstorm 3/3");
+  expect(shown).toContain("Critique 0/3");
+  expect(html).not.toContain("acpmux-workflow-phase__agents");
+  // Judge has no agent yet: not an empty row but "Up next: Judge".
+  expect(html.match(/class="acpmux-workflow-phase"/g)?.length).toBe(2);
+  expect(shown).toContain("Up next: Judge");
+  // The Brainstorm agents ended: they are under "3 finished", out of the running list, and no row
+  // repeats the model every agent shares.
+  expect(shown).toContain("3 finished");
+  expect(shown).not.toContain("Model: Opus 5.5");
   expect(html.match(/acpmux-workflow-dot"/g)?.length).toBe(6);
   expect(html).toContain('aria-label="Stop demo-name-tournament"');
 });
@@ -81,7 +81,7 @@ test("workflow agent rows never send a workflow agent id to the ordinary subagen
     scope[key] = value;
   }
   const workflow = summaries("running")[0]!;
-  const agent = workflow.agents[0]!;
+  const agent = workflow.agents.find((each) => each.state === "running")!;
   const container = dom.window.document.getElementById("root")!;
   root = createRoot(container);
   let legacyOpened = false;
@@ -109,11 +109,13 @@ test("the shipped Session Info renders workflow agents as normal content until a
         />,
       ),
     );
-    const rows = document.window.document.querySelectorAll(".acpmux-workflow-agent");
+    const rows = document.window.document.querySelectorAll(".acpmux-workflow-agent__button");
     expect(rows.length).toBe(3);
     for (const row of rows) {
+      expect(row.tagName).toBe("DIV");
       expect(row.querySelector("button, [role], [disabled], [aria-disabled], [tabindex], [aria-label]")).toBeNull();
-      expect(text(row.innerHTML)).toContain("Model: Opus 5.5");
+      // Every agent runs on the workflow's model, which its head names once.
+      expect(text(row.innerHTML)).not.toContain("Model:");
     }
     document.window.close();
   }
@@ -123,7 +125,7 @@ test("Session Info renders enabled workflow buttons when a workflow opener is su
   const document = new JSDOM(
     renderToStaticMarkup(<SessionInfo workflows={summaries("running")} onOpenWorkflowAgent={() => undefined} />),
   );
-  const buttons = document.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-workflow-agent button");
+  const buttons = document.window.document.querySelectorAll<HTMLButtonElement>("button.acpmux-workflow-agent__button");
   expect(buttons.length).toBe(3);
   for (const button of buttons) expect(button.disabled).toBe(false);
   document.window.close();
@@ -148,10 +150,11 @@ test("a queued workflow agent is inert without an agent id and a button with one
   expect(withAgentId).toContain("<button");
 });
 
-test("every workflow row exposes model, effort, last message, state and duration to assistive technology", () => {
+test("every workflow row exposes its own model and effort, state and duration to assistive technology", () => {
   const workflow = summaries("running")[0]!;
   const agent = {
     ...workflow.agents[0]!,
+    model: "claude-sonnet-5-5",
     effort: "high",
     doing: "Reading the source",
     lastMessage: "Review complete",
@@ -168,14 +171,14 @@ test("every workflow row exposes model, effort, last message, state and duration
         />,
       ),
     );
-    expect(document.window.document.querySelector("button")?.getAttribute("aria-label")).toBe(
-      "punchy, Model: Opus 5.5 · high, Review complete, Done, 7s",
-    );
+    expect(
+      document.window.document.querySelector("button.acpmux-workflow-agent__button")?.getAttribute("aria-label"),
+    ).toBe("punchy, Model: Sonnet 5.5 · high, Done, 7s");
     document.window.close();
     const plain = new JSDOM(
       renderToStaticMarkup(<WorkflowAgentRow workflow={workflow} agent={agent} now={NOW} variant={variant} />),
     );
-    expect(text(plain.window.document.body.innerHTML)).toBe("punchy Model: Opus 5.5 · high Review complete Done 7s");
+    expect(text(plain.window.document.body.innerHTML)).toBe("punchy Model: Sonnet 5.5 · high Done 7s");
     plain.window.close();
   }
 });
@@ -206,7 +209,7 @@ test("a workflow agent row sends the full agent to the workflow opener", async (
       />,
     ),
   );
-  const button = container.querySelector("button") as HTMLButtonElement;
+  const button = container.querySelector("button.acpmux-workflow-agent__button") as HTMLButtonElement;
   expect(button.disabled).toBe(false);
   await act(async () => button.click());
   expect(opened).toBe(agent);
@@ -264,7 +267,7 @@ afterEach(async () => {
   saved.clear();
 });
 
-test("a finished workflow reads as finished with its size, and a phase opens into its agents", async () => {
+test("a finished workflow reads as finished with its size, its phases N/N and its agents under N finished", async () => {
   dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
   for (const [key, value] of Object.entries({
     window: dom.window,
@@ -284,9 +287,9 @@ test("a finished workflow reads as finished with its size, and a phase opens int
   expect(shown()).toContain("Brainstorm 3/3 Critique 3/3 Judge 1/1");
   expect(shown()).not.toContain("Up next");
   expect(container.querySelector("[aria-label='Stop demo-name-tournament']")).toBeNull();
-  const judge = [...container.querySelectorAll("button")].find((button) => button.textContent?.startsWith("Judge"))!;
-  await act(async () => judge.click());
-  expect(shown()).toContain("Judge 1/1 judge Model: Opus 5.5 Done 41s");
+  // Nothing runs in a phase: it has nothing to open. Its agents are under "7 finished".
+  expect(container.querySelectorAll(".acpmux-workflow-phase__head:not(:disabled)").length).toBe(0);
+  expect(shown()).toContain("7 finished judge Done 41s");
 });
 
 test("a running workflow keeps its elapsed clock live before agent records arrive", async () => {
@@ -342,37 +345,39 @@ test("workflow phases and agent rows stay mounted when a run changes groups", as
   const render = (workflows: (typeof workflow)[]) =>
     act(async () => root!.render(<WorkflowTasks workflows={workflows} onOpenWorkflowAgent={() => undefined} />));
   await render([workflow]);
-  const phase = container.querySelector<HTMLButtonElement>("button[aria-expanded='true']")!;
-  const agent = container.querySelector<HTMLButtonElement>(".acpmux-workflow-agent button")!;
+  // Critique (the one phase with an agent still running) opens to its running agent.
+  const phase = container.querySelector<HTMLButtonElement>(".acpmux-workflow-phase__head:not(:disabled)")!;
+  await act(async () => phase.click());
+  expect(phase.getAttribute("aria-expanded")).toBe("true");
+  const agent = container.querySelector<HTMLButtonElement>(".acpmux-workflow-phase__agents button")!;
   agent.focus();
 
+  // A sibling run arriving and this run moving back must not reset its phase or its agent row.
+  const sibling = { ...workflow, id: "another-run", title: "Another run" };
+  await render([sibling, workflow]);
+  expect(
+    container.querySelector("[aria-label='demo-name-tournament'] .acpmux-workflow-phase__head:not(:disabled)") ===
+      phase,
+  ).toBe(true);
+  expect(phase.getAttribute("aria-expanded")).toBe("true");
+  expect(
+    container.querySelector("[aria-label='demo-name-tournament'] .acpmux-workflow-phase__agents button") === agent,
+  ).toBe(true);
+  expect(dom.window.document.activeElement === agent).toBe(true);
+  await act(async () => phase.click());
+  await render([workflow, sibling]);
+  expect(phase.getAttribute("aria-expanded")).toBe("false");
+
+  // When the run ends, its agents leave the running list for "N finished", with their results.
   const ended = {
     ...workflow,
     state: "completed" as const,
     agents: workflow.agents.map((entry) => ({ ...entry, state: "completed" as const, lastMessage: "Result ready" })),
   };
   await render([ended]);
-  expect(container.querySelector("button[aria-expanded='true']") === phase).toBe(true);
-  expect(container.querySelector(".acpmux-workflow-agent button") === agent).toBe(true);
-  expect(dom.window.document.activeElement === agent).toBe(true);
-  expect(agent.textContent).toContain("Result ready");
-  expect(agent.textContent).toContain("Done");
-
-  // Adding a running group and moving this run back must not reset its disclosure either.
-  const sibling = { ...workflow, id: "another-run", title: "Another run" };
-  await render([ended, sibling]);
-  expect(container.querySelector("[aria-label='demo-name-tournament'] button[aria-expanded='true']") === phase).toBe(
-    true,
-  );
-  await act(async () => phase.click());
-  expect(phase.getAttribute("aria-expanded")).toBe("false");
-  await render([workflow, sibling]);
-  expect(
-    container.querySelector("[aria-label='demo-name-tournament'] .acpmux-workflow-phase:nth-child(2) button") === phase,
-  ).toBe(true);
-  expect(phase.getAttribute("aria-expanded")).toBe("false");
+  expect(container.querySelector(".acpmux-workflow-phase__agents")).toBeNull();
+  expect(text(container.innerHTML)).toContain("6 finished");
 });
-
 test("a finished group heading absorbs Completed but keeps other outcome words", () => {
   const [finished] = summaries("finished");
   const failed = { ...finished!, id: "failed", state: "failed" as const };
@@ -398,9 +403,11 @@ test("blocked and skipped agents count as ended without finishing, never as unkn
 test("the transcript card shows workflow progress, latest agent text, model, time and tokens", () => {
   const [node] = workflowFixture("running", NOW).filter((each) => each.kind === "workflow");
   const html = renderToStaticMarkup(<WorkflowCard node={{ ...node!, endedAt: node!.startedAt + 13_000 }} />);
-  expect(text(html)).toContain("demo-name-tournament Running Critique 3/6 13s 185.1K tokens");
+  // Agents still queued and Judge not reached: what is done and running, not a total.
+  expect(text(html)).toContain("demo-name-tournament Running 3 done · 1 running 13s 185.1K tokens");
+  expect(text(html)).toContain("Critique Opus 5.5");
   expect(text(html)).toContain("The latest shortlist favors names that read clearly at a glance.");
-  expect(text(html)).toContain("claude-opus-5-5");
+  expect(text(html)).toContain("Opus 5.5");
   expect(html).toContain('role="progressbar"');
   expect(html).toContain('aria-valuemin="0"');
   expect(html).toContain('aria-valuemax="6"');
@@ -560,7 +567,7 @@ test("a retried workflow agent shows its current action even when an earlier err
   expect(text(html)).not.toContain(agent.error);
 });
 
-test("a pending phase opens on its own when its first agent starts running, as a started phase did", async () => {
+test("a phase no agent reached is Up next, and becomes a closed row when its first agent starts", async () => {
   dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
   for (const [key, value] of Object.entries({
     window: dom.window,
@@ -590,48 +597,26 @@ test("a pending phase opens on its own when its first agent starts running, as a
   };
   const container = dom.window.document.getElementById("root")!;
   root = createRoot(container);
-  const judgeRow = () => [...container.querySelectorAll(".acpmux-workflow-phase")].at(-1)!;
   await act(async () => root!.render(<WorkflowTasks workflows={[before]} />));
-  expect(judgeRow().querySelector(".acpmux-workflow-phase__agents")).toBeNull();
+  expect(text(container.innerHTML)).toContain("Up next: Judge");
+  expect(container.querySelectorAll(".acpmux-workflow-phase").length).toBe(2);
   await act(async () => root!.render(<WorkflowTasks workflows={[after]} />));
-  expect(judgeRow().querySelector(".acpmux-workflow-phase__agents")).not.toBeNull();
-  expect(judgeRow().querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
+  expect(text(container.innerHTML)).not.toContain("Up next");
+  const judgeRow = [...container.querySelectorAll(".acpmux-workflow-phase")].at(-1)!;
+  expect(text(judgeRow.innerHTML)).toStartWith("Judge 0/1");
+  expect(judgeRow.querySelector("button")!.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => judgeRow.querySelector("button")!.click());
+  expect(judgeRow.querySelector(".acpmux-workflow-phase__agents")).not.toBeNull();
 });
-
-test("a pending phase whose agents arrive queued opens when one of them starts running", async () => {
-  dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
-  for (const [key, value] of Object.entries({
-    window: dom.window,
-    document: dom.window.document,
-    HTMLElement: dom.window.HTMLElement,
-    IS_REACT_ACT_ENVIRONMENT: true,
-  })) {
-    saved.set(key, scope[key]);
-    scope[key] = value;
-  }
+test("a phase whose agents arrive queued is a row of its own, no longer Up next", () => {
   const before = summaries("running")[0]!;
   const judge = before.phases.find((phase) => phase.state === "pending")!;
-  // Judge's agent is spawned but waits its turn, then starts.
-  const withJudge = (state: "waiting" | "running") => ({
+  const queued = {
     ...before,
-    agents: [...before.agents, { ...before.agents[0]!, id: "judge-1", name: "judge", state }],
-    phases: before.phases.map((phase) =>
-      phase.id === judge.id
-        ? {
-            ...phase,
-            state: state === "running" ? ("running" as const) : phase.state,
-            agentIds: ["judge-1"],
-          }
-        : phase,
-    ),
-  });
-  const container = dom.window.document.getElementById("root")!;
-  root = createRoot(container);
-  const judgeRow = () => [...container.querySelectorAll(".acpmux-workflow-phase")].at(-1)!;
-  await act(async () => root!.render(<WorkflowTasks workflows={[before]} />));
-  await act(async () => root!.render(<WorkflowTasks workflows={[withJudge("waiting")]} />));
-  expect(judgeRow().querySelector("button")!.getAttribute("aria-expanded")).toBe("false");
-  await act(async () => root!.render(<WorkflowTasks workflows={[withJudge("running")]} />));
-  expect(judgeRow().querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
-  expect(judgeRow().querySelector(".acpmux-workflow-phase__agents")).not.toBeNull();
+    agents: [...before.agents, { ...before.agents[0]!, id: "judge-1", name: "judge", state: "waiting" as const }],
+    phases: before.phases.map((phase) => (phase.id === judge.id ? { ...phase, agentIds: ["judge-1"] } : phase)),
+  };
+  const shown = text(renderToStaticMarkup(<WorkflowTasks workflows={[queued]} />));
+  expect(shown).not.toContain("Up next");
+  expect(shown).toContain("Judge 0/1");
 });

@@ -12,6 +12,7 @@ import { openCommand } from "../../processTerminal";
 import { modelName, phaseAgents, phaseState, tally, workflowDetailRequest } from "../../summary/foldWorkflows";
 import type { SummaryBackgroundTask, SummaryWakeup } from "../../summary/sessionSummary";
 import type { WorkflowAgent, WorkflowSummary } from "../../summary/workflow";
+import { agentLine, agentModelLabel, firstLine, outputMarkdown, sharedModel } from "../../summary/workflowView";
 import {
   arrivalKey,
   sessionInfoLists,
@@ -370,12 +371,19 @@ function workflowRows(
           : {}),
       });
       if (!open) continue;
+      const shared = sharedModel(item.agents);
       for (const agent of agents) {
-        const modelEffort = [agent.model ? modelName(agent.model) : undefined, agent.effort]
-          .filter((value): value is string => Boolean(value))
-          .join(" · ");
-        const model = modelEffort ? t("workflow.model", { model: modelEffort }) : undefined;
-        const message = (agent.state === "failed" ? agent.error : undefined) ?? agent.lastMessage ?? agent.doing;
+        // The web row's rule (summary/workflowView.ts `agentModelLabel`).
+        const own = agentModelLabel(agent, shared);
+        const model = own?.model
+          ? t("workflow.model", {
+              model: [modelName(own.model), own.effort].filter((value): value is string => Boolean(value)).join(" · "),
+            })
+          : own?.effort;
+        // In words, never its last shell command or a JSON result (summary/workflowView.ts). This row
+        // has no output to open, so one that finished well says its output's first line.
+        const message =
+          agentLine(agent) ?? (agent.state === "completed" ? firstLine(outputMarkdown(agent)) : undefined);
         const elapsed =
           agent.elapsedMs ??
           (agent.state === "running" && agent.startedAt !== undefined

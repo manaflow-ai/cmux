@@ -5,7 +5,8 @@
 //
 // One group per agent: each of the chat's subagents (its own tool calls are its tasks, its nested
 // subagents are tasks that open in turn), each chat the agent started (a child session, which has no
-// tasks of its own here), and the chat's own background commands under the chat's name. Inside a
+// tasks of its own here), and the chat's own background commands under the chat's name; a command
+// a subagent started (the registry's `subagentSessionId`) is a task of that subagent's group. Inside a
 // group the running tasks come first, oldest first, then the finished ones, the latest first, which
 // the panel folds under "N finished". The group's counts line ("39 tasks, 3 failed") counts both.
 //
@@ -59,6 +60,8 @@ export type BackgroundTask = {
   /// A command's tool call, which its terminal opens by (processTerminal.ts).
   toolCallId?: string;
   stop?: StopTarget;
+  /// The task this one nests under: a command a workflow's agent started, under that agent's task.
+  parent?: string;
   /// A workflow's agent: the pane id its transcript loads by (summary/workflowTranscript.ts) and the
   /// agent, whose progress refreshes that transcript while it is open.
   workflow?: { pane: string; agent: WorkflowAgent };
@@ -245,6 +248,41 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
     list.push(agent);
     children.set(agent.parent, list);
   }
+  // A command a subagent (or an agent of a workflow) started is a task of that agent's group, not
+  // the chat's own (Leo, 2026-11-05, on shells a workflow's agents ran listed as the chat's).
+  const rootOf = (id: string): string | undefined => {
+    let at = agents.get(id);
+    const seen = new Set<string>();
+    while (at && at.parent !== null && agents.has(at.parent) && !seen.has(at.id)) {
+      seen.add(at.id);
+      at = agents.get(at.parent);
+    }
+    return at?.id;
+  };
+  const commandTask = (command: BackgroundCommand): BackgroundTask => ({
+    id: command.id,
+    kind: "command",
+    title: command.description?.trim() || command.command,
+    state: commandState(command),
+    startedAt: command.startedAt,
+    endedAt: command.endedAt,
+    toolCallId: command.toolCallId,
+    ...(command.state === "running" &&
+      command.processId !== undefined && { stop: { kind: "process", id: command.processId } as StopTarget }),
+  });
+  const ownCommands: BackgroundCommand[] = [];
+  const agentCommands = new Map<string, BackgroundTask[]>();
+  // The workflow agent (Claude's agent id) that started a command, from the registry.
+  const startedBy = new Map<string, string>();
+  for (const command of commands) {
+    const root = command.subagent !== undefined ? rootOf(command.subagent) : undefined;
+    if (root === undefined) {
+      ownCommands.push(command);
+      continue;
+    }
+    if (command.workflowAgent !== undefined) startedBy.set(command.id, command.workflowAgent);
+    agentCommands.set(root, [...(agentCommands.get(root) ?? []), commandTask(command)]);
+  }
   const groups: BackgroundGroup[] = [];
   for (const agent of agents.values()) {
     // A nested subagent is a task of the one that spawned it, unless that one is unknown.
@@ -277,6 +315,26 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
       });
     // A nested workflow's agents are tasks of the top agent too, each opening its own transcript.
     for (const child of descendants) if (child.kind === "workflow") tasks.push(...workflowTasks(child, sessionId));
+    // The Bash call that started one of its commands is that command: one row, the process's, with
+    // its state and Stop.
+    const started = (agentCommands.get(agent.id) ?? []).map((task) => {
+      // A workflow agent's command nests under that agent's task.
+      const by = startedBy.get(task.id);
+      if (by === undefined) return task;
+      const workflows = [agent, ...descendants].filter((each) => each.kind === "workflow");
+      const parent = workflows
+        .flatMap((each) => workflowOf(each, sessionId ?? "").agents)
+        .find((each) => each.agentId === by)?.id;
+      return parent !== undefined && tasks.some((each) => each.kind === "agent" && each.id === parent)
+        ? { ...task, parent }
+        : task;
+    });
+    if (started.length > 0) {
+      const calls = new Set(started.flatMap((task) => (task.toolCallId ? [task.toolCallId] : [])));
+      const kept = tasks.filter((task) => !(task.kind === "tool" && calls.has(task.id)));
+      tasks.length = 0;
+      tasks.push(...kept, ...started);
+    }
     const state = nodeState(agent);
     groups.push({
       id: `agent:${agent.id}`,
@@ -305,18 +363,8 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
       failed: 0,
     });
   }
-  if (commands.length > 0) {
-    const tasks: BackgroundTask[] = commands.map((command) => ({
-      id: command.id,
-      kind: "command",
-      title: command.description?.trim() || command.command,
-      state: commandState(command),
-      startedAt: command.startedAt,
-      endedAt: command.endedAt,
-      toolCallId: command.toolCallId,
-      ...(command.state === "running" &&
-        command.processId !== undefined && { stop: { kind: "process", id: command.processId } as StopTarget }),
-    }));
+  if (ownCommands.length > 0) {
+    const tasks: BackgroundTask[] = ownCommands.map(commandTask);
     const parts = split(tasks);
     const starts = tasks.map((task) => task.startedAt).filter((at): at is number => at !== undefined);
     const ends = tasks.map((task) => task.endedAt).filter((at): at is number => at !== undefined);
