@@ -84,6 +84,11 @@ struct NewTabWakesDoNotGrowWithSessionTests {
         let grew = stress.filter { $0.value > small[$0.key, default: 0] }
             .sorted { $0.value - small[$0.key, default: 0] > $1.value - small[$1.key, default: 0] }
             .map { "\($0.key) \(small[$0.key, default: 0]) -> \($0.value)" }
+        // Every count, also when the test passes: which observers one new tab wakes, at each size.
+        for site in Set(small.keys).union(stress.keys).sorted() {
+            print("wakes \(site): 2x1 \(small[site, default: 0]), 14x6 \(stress[site, default: 0])")
+        }
+        print("wakes total: 2x1 \(smallCount), 14x6 \(stressCount)")
         #expect(smallCount > 0, "fixture: the new tab woke no observer (the counter is not wired)")
         #expect(stressCount == smallCount,
                 "one New Terminal Tab woke \(smallCount) observers with 2 panes x 1 tab and \(stressCount) with 14 panes x 6 tabs; grew: \(grew)")
