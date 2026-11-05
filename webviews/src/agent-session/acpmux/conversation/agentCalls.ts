@@ -5,6 +5,7 @@
 // its past calls without one (adopt_tools.rs), as ACP kind `think` titled "Agent: …", and those
 // drew as a plain tool row with the prompt nowhere and the report as raw text (AgentCallCard.tsx).
 import type { AcpmuxActivity } from "../model";
+import { canonicalCall } from "../toolNames";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -24,11 +25,8 @@ export type AgentCall = {
   tokens?: number;
 };
 
-/// The Claude Code tool names that start a subagent, as the call's title says them.
-const AGENT_TITLE = /^(?:Task|Agent)(?:\b|:)/u;
-
 /// `tool` as a Claude subagent call, or undefined for any other call. It needs the call's input:
-/// a `prompt`, and a `subagent_type` or a title that names the Task or Agent tool. A Workflow or
+/// a `prompt`, and a `subagent_type` or a title that names a subagent tool. A Workflow or
 /// SendMessage call has no prompt, so never reads as one.
 export function agentCall(tool: Tool): AgentCall | undefined {
   if (tool.command || (tool.kind !== undefined && tool.kind !== "think" && tool.kind !== "other")) return undefined;
@@ -36,7 +34,9 @@ export function agentCall(tool: Tool): AgentCall | undefined {
   const prompt = text(input?.prompt);
   if (!input || !prompt) return undefined;
   const type = text(input.subagent_type);
-  if (!type && !AGENT_TITLE.test(tool.title.trim())) return undefined;
+  // A title that names a subagent tool in any harness (toolNames.ts): Claude Code's Task and Agent,
+  // opencode's task.
+  if (!type && canonicalCall(tool)?.tool !== "task") return undefined;
   const running = tool.status === "pending" || tool.status === "in_progress";
   const failed = tool.status === "failed";
   const split = running ? undefined : splitReport(tool.output ?? "");
