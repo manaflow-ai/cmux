@@ -817,6 +817,58 @@ mod tests {
         }
     }
 
+    /// An untracked heavy folder in a git checkout stays here, as it does
+    /// outside git: it is named once, as the folder, and none of its files
+    /// go. RED before the git copy used the heavy rule: an untracked,
+    /// un-ignored `node_modules/` or Cargo `target/` went to the machine
+    /// file by file (a 12.8 GB copy into a 16 GB disk ended in a broken pipe).
+    /// A tracked file under such a name is the project's and still goes.
+    #[test]
+    fn a_git_copy_leaves_untracked_heavy_folders_here() {
+        let dir = tempfile::tempdir().unwrap();
+        let top = std::fs::canonicalize(dir.path()).unwrap();
+        git(&top, &["init", "-q"]);
+        for (path, text) in [("Cargo.toml", "[package]\n"), ("vendor/node_modules/kept.js", "1\n")] {
+            let file = top.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        }
+        git(&top, &["add", "Cargo.toml", "vendor/node_modules/kept.js"]);
+        git(&top, &["commit", "-q", "-m", "base"]);
+        let heavy = [
+            "node_modules/left-pad/index.js",
+            "node_modules/left-pad/package.json",
+            "web/node_modules/react/index.js",
+            "target/debug/app",
+            "vendor/node_modules/new.js",
+        ];
+        let goes = ["notes.md", "docs/target/page.md", "web/src/app.ts"];
+        for path in heavy.iter().chain(goes.iter()) {
+            let file = top.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, "x\n").unwrap();
+        }
+
+        let set = collect(&top, Rules::Copy).unwrap();
+        assert!(set.git);
+        for path in heavy {
+            assert!(!set.files.contains_key(path), "{path} went to the machine");
+        }
+        for path in goes.iter().chain(["Cargo.toml", "vendor/node_modules/kept.js"].iter()) {
+            assert!(set.files.contains_key(*path), "{path} stayed here");
+        }
+        let (listed, counts) = set.skips.json();
+        assert_eq!(counts["heavy"], serde_json::json!(4), "{counts}");
+        let listed = listed.to_string();
+        for folder in ["node_modules/", "web/node_modules/", "target/", "vendor/node_modules/"] {
+            assert!(listed.contains(&format!("\"{folder}\"")), "{folder} not named: {listed}");
+        }
+
+        // A share of files (`cmux link access`) keeps the heavy folders.
+        let shared = collect(&top, Rules::Share).unwrap();
+        assert!(shared.files.contains_key("node_modules/left-pad/index.js"));
+    }
+
     #[test]
     fn an_alternates_line_is_a_path_plain_or_c_quoted() {
         assert_eq!(unquote(b"/a/b/objects"), b"/a/b/objects");
