@@ -78,12 +78,18 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
     }
 
     /// Folds one journaled event for a surface into a decision.
+    ///
+    /// - Parameter endsTurn: For `.turnCompleted`, whether the agent's turn is
+    ///   really over. A completion with background work pending, or one the
+    ///   app infers before the agent's own Stop arrives, may still be followed
+    ///   by that turn's failure.
     public mutating func observe(
         kind: AgentJournalEventKind,
         surfaceId: String,
         isSubagent: Bool,
         detail: String?,
-        sessionId: String? = nil
+        sessionId: String? = nil,
+        endsTurn: Bool = true
     ) -> Action {
         // Nested agents report through their parent; resuming the parent
         // pane for a child's failure would inject text into the wrong turn.
@@ -135,14 +141,19 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             state.streak = 0
             state.total = 0
             state.pendingToken = nil
-            state.turnEnded = true
+            state.turnEnded = endsTurn
             surfaces[surfaceId] = state
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
-        case .turnStarted, .approvalRequested, .questionRequested, .planReviewRequested, .attentionResolved:
+        case .turnStarted, .attentionResolved:
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
             surfaces[surfaceId]?.turnEnded = false
-            // The agent is working again, or waits on a human: never type
-            // into it on a timer.
+            // The agent is working again: never type into it on a timer.
+            return cancelPending(surfaceId: surfaceId)
+        case .approvalRequested, .questionRequested, .planReviewRequested:
+            guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
+            // The agent waits on a human: never type into it on a timer. A
+            // wait does not reopen a finished turn; some idle reminders after
+            // a Stop read as a question.
             return cancelPending(surfaceId: surfaceId)
         case .sessionEnded:
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
