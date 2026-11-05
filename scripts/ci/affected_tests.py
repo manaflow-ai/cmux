@@ -44,6 +44,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -58,6 +59,7 @@ RUST_SCRIPT = "scripts/ci/cmux-tui-rust-check.sh"
 SWIFT_SCRIPT = "scripts/ci/package-test-lane.sh"
 WEB_SCRIPT = "scripts/ci/run-webviews-tests.sh"
 PYTHON_RUNNER = "scripts/ci/run_python_test_lane.py"
+GUARDS_SCRIPT = "scripts/ci/guards-local.sh"
 LINUX_PYTHON_LANE = "linux-guard"
 CMUX_NEXT = "Packages/macOS/CmuxNext"
 NATIVE_MODES = {"Native/OptChat/optchat-chief/Cargo.toml": "optchat-chief"}
@@ -120,6 +122,12 @@ def area(path: str) -> str:
 
 def python_lane_tests(root: Path) -> dict[str, str]:
     return {path: lane for path, (lane, _serial) in focused_tests.lanes(root).items()}
+
+
+def guard_tests(root: Path) -> set[str]:
+    """The test files the guards unit runs: every tests/ path a ci-guards.yml step names."""
+    path = root / ".github/workflows/ci-guards.yml"
+    return set(re.findall(r"tests/test_[\w-]+\.(?:py|sh)", path.read_text())) if path.is_file() else set()
 
 
 class Planner:
@@ -201,6 +209,13 @@ class Planner:
             self.units.append({"name": name, "kind": "python", "why": why,
                                "argv": ["test", "--setup", "none", "--", "bash", "-c", script, "affected", *part]})
 
+    def guards(self) -> None:
+        """Every guard step of ci-guards.yml (the "CI fast guards" runner). Most guards read the whole
+        tree (ratchets, "every macOS job names its class"), so any change can turn one red and no path
+        map can say which: they always run, in about a minute."""
+        self.units.append({"name": "guards", "kind": "guards", "why": "every ci-guards.yml guard (they read the whole tree)",
+                           "argv": ["test", "--setup", "none", "--", "bash", GUARDS_SCRIPT, "--all", "--keep-going", "--no-stamp"]})
+
     def native(self, manifests: list[str]) -> None:
         for manifest in manifests:
             label = manifest.rsplit("/", 2)[-2]
@@ -245,6 +260,8 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
     focused = focused_tests.plan(root, files)
     reasons = ["--all"] if everything else everything_reasons(files, focused)
     p = Planner(root, base, head, shards)
+    if reasons or set(files) - set(focused.get("docs", [])):
+        p.guards()
     if reasons:
         p.rust(everything=True)
         p.swift({pkg: swift_test_targets(root, pkg) for pkg in swift_packages(root)}, "every Swift package test target")

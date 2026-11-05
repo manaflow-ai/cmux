@@ -43,13 +43,24 @@ class AffectedTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("--ref") + 1], HEAD)
 
     def test_one_shard_sends_no_shards_flag(self):
-        argv = plan(["cmux-tui/crates/cmux-config/src/lib.rs"], shards=1)["units"][0]["argv"]
+        units = plan(["cmux-tui/crates/cmux-config/src/lib.rs"], shards=1)["units"]
+        argv = next(u for u in units if u["kind"] == "rust")["argv"]
         self.assertNotIn("--shards", argv)
 
     def test_docs_select_nothing(self):
         result = plan(["cmux-tui/AGENTS.md"])
         self.assertFalse(result["all"])
         self.assertEqual(result["units"], [])
+
+    def test_every_code_change_runs_the_whole_tree_guards(self):
+        # Guards such as the short-timeout ratchet read every file, so no path map can skip them.
+        for path in ("cmux-tui/crates/cmux-config/src/lib.rs", "webviews/src/agent-session/acpmux/App.tsx"):
+            with self.subTest(path=path):
+                guards = [u for u in plan([path])["units"] if u["kind"] == "guards"]
+                self.assertEqual(len(guards), 1)
+                self.assertIn(affected_tests.GUARDS_SCRIPT, guards[0]["argv"])
+                self.assertIn("--all", guards[0]["argv"])
+        self.assertTrue(affected_tests.guard_tests(ROOT))
 
     def test_unmapped_path_runs_everything(self):
         # Built at run time, so no test file (this one included) names the path.
@@ -118,6 +129,22 @@ class AffectedTests(unittest.TestCase):
         data = json.loads(out)
         self.assertEqual(data["units"], [])
         self.assertRegex(data["head"], r"^[0-9a-f]{40}$")
+
+
+class Replay(unittest.TestCase):
+    def setUp(self):
+        import affected_tests_replay
+        self.replay = affected_tests_replay
+
+    def test_python_extra_selects_only_its_files(self):
+        unit = {"kind": "python", "argv": ["test", "--setup", "none", "--", "bash", "-c", "s", "affected", "tests/test_a.py"]}
+        sel = self.replay.selected({"all": False, "units": [unit]})
+        self.assertEqual(sel["python"], {"tests/test_a.py"})
+
+    def test_guard_runner_summary_names_each_red_guard(self):
+        log = "##[group]Run x\nfailed: workflow-guard-tests / ci: Validate A; workflow-guard-tests / ci: Validate B\n"
+        found = {(f["kind"], f["test"]) for f in self.replay.failures_in_log(log)}
+        self.assertEqual(found, {("guard", "workflow-guard-tests / ci: Validate A"), ("guard", "workflow-guard-tests / ci: Validate B")})
 
 
 class RustCheckAffectedScope(unittest.TestCase):

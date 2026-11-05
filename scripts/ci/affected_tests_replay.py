@@ -107,6 +107,9 @@ def failures_in_log(log: str) -> list[dict]:
     crate = ""
     for header, lines, failed in steps(log):
         for line in lines:
+            if line.startswith("failed: workflow-guard"):  # run_ci_guards.py's summary of red guard steps
+                for name in line[len("failed: "):].split("; "):
+                    add("guard", name.strip())
             m = WEB_FAIL.match(line)
             if m:
                 add("web", m.group(1))
@@ -223,10 +226,14 @@ def replay_worktree() -> Path:
 
 
 def selected(plan: dict) -> dict:
-    sel = {"all": plan["all"], "python": set(), "web": set(), "swift": set(), "rust": False}
+    sel = {"all": plan["all"], "python": set(), "web": set(), "swift": set(), "rust": False, "guards": False}
     for unit in plan["units"]:
         argv = unit["argv"]
-        if unit["kind"] == "python":
+        if unit["kind"] == "guards":
+            sel["guards"] = True
+        elif unit["kind"] == "python" and "affected" in argv:  # python-extra: bash -c SCRIPT affected FILE...
+            sel["python"] |= set(argv[argv.index("affected") + 1:])
+        elif unit["kind"] == "python":
             sel["python"] |= {argv[i + 1] for i, a in enumerate(argv) if a == "--path"}
             if "--path" not in argv:
                 sel["python"].add("*")
@@ -242,8 +249,14 @@ def selected(plan: dict) -> dict:
     return sel
 
 
+RUNNER_CHECKOUT = re.compile(r"^(?:.*/)?_work/[^/]+/[^/]+/")  # home/runner/_work/cmux/cmux/tests/x.py
+
+
 def check(path: Path, metadata: Path, out: Path | None) -> int:
     data = json.loads(path.read_text())
+    for f in data["failures"]:
+        if f["kind"] == "python":
+            f["test"] = RUNNER_CHECKOUT.sub("", f["test"])
     meta = json.loads(metadata.read_text())
     lanes = affected_tests.python_lane_tests(ROOT)
     plans: dict[str, dict] = {}
@@ -280,8 +293,13 @@ def check(path: Path, metadata: Path, out: Path | None) -> int:
             test = max((t for t in p["tree"] if test == t or test.endswith("/" + t)), key=len, default=test)
             row["test"] = test
             lane = lanes.get(test, "")
-            hit = test in sel["python"] or "*" in sel["python"] or any(n["what"] == test for n in plan["not_run"])
+            if "guard_tests" not in p:
+                p["guard_tests"] = affected_tests.guard_tests(replay_worktree())
+            hit = (test in sel["python"] or "*" in sel["python"] or any(n["what"] == test for n in plan["not_run"])
+                   or (sel["guards"] and test in p["guard_tests"]))
             why = f"lane {lane or 'unregistered'}" + (" (listed as not run)" if any(n["what"] == test for n in plan["not_run"]) else "")
+        elif kind == "guard":
+            hit, why = sel["guards"], "the ci-guards.yml guards"
         elif kind == "web":
             hit, why = test in sel["web"], f"{len(sel['web'])} web files selected"
         elif kind in ("swift-file", "swift-suite"):
