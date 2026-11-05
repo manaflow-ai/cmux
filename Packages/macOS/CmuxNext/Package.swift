@@ -65,8 +65,9 @@ import PackageDescription
 //     plans/cmux-next/react-pages.md)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
-//   CmuxNextAccounts -> Actions, Cloud, CodeRouter, Design, Icons, Pages, Settings, Wakeups (Settings > Accounts, the
-//     GitHub App connection and the onboarding step; the App supplies AccountsServices)
+//   CmuxNextAccounts -> Actions, AgentPane, AgentUpdates, Cloud, CodeRouter, DaemonService, Design, Icons, Pages,
+//     Settings, Wakeups (Settings > Accounts, the GitHub App connection and the onboarding step; the App supplies
+//     AccountsServices; Settings > Agents > Harnesses and the provider accounts routing may use)
 //   CmuxNextAgentIntegrations -> Daemon, Pages, Settings (Settings > Agents > Agent integrations: relays the bundled
 //     CLI's `agent hook status|install|uninstall`; the App supplies the CLI's location)
 //   CmuxNextBookmarks -> Design, Icons (bookmark tree per browser profile, Netscape HTML, ranking, file store,
@@ -466,7 +467,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // supplies `AccountsServices`.
         .target(
             name: "CmuxNextAccounts",
-            dependencies: ["CmuxNextActions", "CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextAgentUpdates", "CmuxNextCloud", "CmuxNextCodeRouter", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                            .product(name: "CMUXAuthCore", package: "CMUXAuthCore")],
             resources: [
                 .process("Localizable.xcstrings"),
