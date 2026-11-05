@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -74,7 +75,7 @@ struct AgentPageFlickerLogTests {
         log.watchWindows(center: center)
         log.watchWindows(center: center)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.borderless], backing: .buffered, defer: false)
-        defer { window.close() }
+        defer { window.closeAfterTest() }
         center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
         log.flush()
         let flips = try lines(log.url)
