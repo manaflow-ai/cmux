@@ -1706,6 +1706,7 @@ name = "cmux-server"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-environment",
  "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
