@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 578,
+  "count": 579,
   "sections": [
     {
       "id": "general",
@@ -1732,6 +1732,28 @@
             "max": 28,
             "unit": "points"
           }
+        },
+        {
+          "key": "agentPane.display.font.ui",
+          "title": "Chat Interface Font",
+          "help": "The font of the whole chat: replies, the composer, cards and menus.",
+          "kind": "choice",
+          "default": "inter-tuned",
+          "group": "Agent Chat",
+          "values": [
+            "inter-tuned",
+            "inter",
+            "verdana",
+            "roboto",
+            "plex",
+            "source-sans",
+            "geist",
+            "cmux-sans",
+            "hanken",
+            "atkinson",
+            "system-ui",
+            "system-ui-tight"
+          ]
         },
         {
           "key": "agentPane.display.fullWidth",
