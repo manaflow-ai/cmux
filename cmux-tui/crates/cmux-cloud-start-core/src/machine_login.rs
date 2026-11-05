@@ -29,6 +29,14 @@ pub fn parse(exit_code: i64, stdout: &str) -> MachineLogin {
     }
 }
 
+/// Whether a person's own recovery click (the turn card's "Set up Claude") mints a new login
+/// (`setup-token`) rather than installing the account's cached one: only when the machine already
+/// runs the cached token, so that token is what the provider refused, or when the probe gave no
+/// answer (`None`). On any other machine the cached login never reached it, so it is given that.
+pub fn recovery_refreshes(login: Option<MachineLogin>) -> bool {
+    login.is_none_or(|login| login == MachineLogin::Cached)
+}
+
 /// The SHA-256 of a token, lowercase hex: what the probe compares on the machine.
 pub fn fingerprint(token: &[u8]) -> String {
     Sha256::digest(token).iter().fold(String::with_capacity(64), |mut hex, byte| {

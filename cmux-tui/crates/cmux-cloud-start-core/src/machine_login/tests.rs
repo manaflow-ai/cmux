@@ -63,12 +63,9 @@ fn a_manual_recovery_mints_a_new_login_only_when_the_machine_has_the_cached_one(
     assert!(recovery_refreshes(Some(MachineLogin::Cached)));
     // Any other login on the machine: the cached token never reached it, so the recovery
     // installs the cached one and the person signs in again only when there is none.
-    for login in [
-        MachineLogin::None,
-        MachineLogin::Session,
-        MachineLogin::Working,
-        MachineLogin::Rejected,
-    ] {
+    for login in
+        [MachineLogin::None, MachineLogin::Session, MachineLogin::Working, MachineLogin::Rejected]
+    {
         assert!(!recovery_refreshes(Some(login)), "{login:?}");
     }
     // A probe that did not answer: the recovery mints a new login, as before.

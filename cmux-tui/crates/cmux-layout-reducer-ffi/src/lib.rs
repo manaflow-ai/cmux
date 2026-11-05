@@ -303,6 +303,20 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&serde_json::json!({ "fingerprint": fingerprint }))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"cloud_recovery_refreshes" => {
+                #[derive(serde::Deserialize)]
+                struct Request {
+                    #[serde(default)]
+                    probe: Option<cmux_cloud_start_core::machine_login::Probe>,
+                }
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                let login = request.probe.map(|probe| {
+                    cmux_cloud_start_core::machine_login::parse(probe.exit_code, &probe.stdout)
+                });
+                let refresh = cmux_cloud_start_core::machine_login::recovery_refreshes(login);
+                serde_json::to_vec(&serde_json::json!({ "refresh": refresh }))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"cloud_harness_login_provider" => {
                 #[derive(serde::Deserialize)]
                 struct Request {

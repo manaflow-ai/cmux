@@ -209,7 +209,8 @@ fn the_vm_kind_and_fingerprint_ops_answer() {
     );
     assert_eq!(call(c"cloud_start_check_account", &json!({"asked": []})).0, ERR_INVALID);
     assert_eq!(
-        call(c"cloud_recovery_refreshes", &json!({"probe": {"exitCode": 0, "stdout": "cached\n"}})).1,
+        call(c"cloud_recovery_refreshes", &json!({"probe": {"exitCode": 0, "stdout": "cached\n"}}))
+            .1,
         json!({"refresh": true})
     );
     assert_eq!(

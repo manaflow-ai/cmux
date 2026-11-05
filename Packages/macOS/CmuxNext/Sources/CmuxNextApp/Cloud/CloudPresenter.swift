@@ -163,10 +163,15 @@ enum CloudPresenter {
                         return await presentCodexDeviceCode(prompt, in: view.map(CmuxDialogScope.tab) ?? .window(window))
                     })
             } else {
+                // A click mints a new login only when this machine already runs the cached one; a machine
+                // that never got it is given it, with no setup-token terminal.
+                let refresh = request.automatic ? false : await CloudMachineLogin.recoveryRefreshes(
+                    on: services.cloud.machineAPI.pinningTeam(teamID), machineID: session.machineID, teamID: teamID,
+                    userID: userID, otherTeams: CloudStartChat.loginScopes(services.cloud))
                 try await transfer.run(api: services.cloud.machineAPI,
                                        currentTeamID: { services.cloud.auth.teamID },
                                        currentUserID: { services.cloud.auth.user?.id },
-                                       confirmed: true, refresh: !request.automatic,
+                                       confirmed: true, refresh: refresh,
                                        callerOwnsVM: { [cloud = services.cloud, machineID = session.machineID] in try await cloud.callerOwnsVM(machineID) },
                                        stillAllowed: CloudStartChat.loginCopyGate(services).stillAllowed)
             }
