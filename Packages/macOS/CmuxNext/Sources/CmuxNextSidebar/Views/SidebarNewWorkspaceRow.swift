@@ -78,7 +78,8 @@ final class SidebarNewWorkspaceRow: ClickableButton {
         let scale = window?.backingScaleFactor ?? 2
         let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
         glyph.frame = NSRect(x: snap(columns.lead + (box - side) / 2), y: snap(b.midY - side / 2), width: side, height: side)
-        let x = columns.text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
+        // The + is a leading mark: the label starts on the text column after the icon box, as Home's does.
+        let x = columns.text(hasLeadingMark: true) - SidebarStyle.labelCellPadding
         name.setFont(SidebarStyle.titleFont)
         name.frame = NSRect(x: x, y: SidebarStyle.textY(name, centerY: b.midY), width: max(0, columns.textEnd(trailingMarks: 0) - x),
                             height: ceil(name.intrinsicContentSize.height))
