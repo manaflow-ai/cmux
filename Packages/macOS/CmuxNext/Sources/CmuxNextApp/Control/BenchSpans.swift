@@ -1,3 +1,4 @@
+import CmuxNextLayout
 import Foundation
 
 /// Main-thread spans for `debug.new_tab` benches (R81: Cmd-W and `!` on the
@@ -23,14 +24,14 @@ enum BenchSpans {
         #if DEBUG || CMUX_BENCH_HOOKS
         origin = .now
         Thread.main.threadDictionary["cmux.benchMeasure"] = { (name: String, body: () -> Void) in measure(name, body) } as (String, () -> Void) -> Void
-        spans.removeAll(keepingCapacity: true)
+        spans.removeAll(keepingCapacity: true); if let origin { BenchTurnRecorder.main().start(origin) }
         #endif
     }
 
     static func end() -> [Span] {
         #if DEBUG || CMUX_BENCH_HOOKS
-        origin = nil
-        return spans
+        origin = nil; let turns = BenchTurnRecorder.main().stop().map { Span(name: $0.name, start: $0.start, milliseconds: $0.milliseconds) }
+        return spans + turns
         #else
         return []
         #endif

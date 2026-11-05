@@ -58,16 +58,16 @@ struct WorkspaceSpawner {
         let rule = spawn.placesBySetting ? row : nil
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.name ?? windowID.map { _ in
-            SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil })
+            BenchSpans.measure("cmdN.name") { SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil }) }
         }
         let named = renamed(name)
         if let windowID, let name {
             let opensPage = WorkspaceCreation.opensPage(spawn, on: daemon, tabs: services.agentTabs)
             SidebarNewRowTimer.shared.began(key.rawValue)
-            PendingWorkspaceRows.shared.add(creating: key.rawValue, window: windowID, machine: machine, name: name, opensPage: opensPage, slot: spawn.slot, byDefault: row)
+            BenchSpans.measure("cmdN.pendingRow") { PendingWorkspaceRows.shared.add(creating: key.rawValue, window: windowID, machine: machine, name: name, opensPage: opensPage, slot: spawn.slot, byDefault: row) }
         }
         WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
-        if let windowID, let name, let instant = shown(key, name: name, window: windowID, rule: rule) { return instant }
+        if let windowID, let name, let instant = BenchSpans.measure("cmdN.shown", { shown(key, name: name, window: windowID, rule: rule) }) { return instant }
         let windowID = windowID
         return {
             do {
