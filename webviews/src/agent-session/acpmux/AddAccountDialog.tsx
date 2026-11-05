@@ -72,11 +72,7 @@ export function AddAccountDialog({
     }
   };
   const defaultName =
-    way === "new"
-      ? nextName()
-      : way === "cli"
-        ? t("picker.addName.cli", { cli })
-        : t("picker.addName.key", { brand });
+    way === "new" ? nextName() : way === "cli" ? t("picker.addName.cli", { cli }) : t("picker.addName.key", { brand });
   const id = accountIdFor(name.trim(), defaultName, existing);
   const folder = `~/.cmux/accounts/${id}`;
   const choices: { way: Way; title: string; detail: string }[] = ways.map((value) =>

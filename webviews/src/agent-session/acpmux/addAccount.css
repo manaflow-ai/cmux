@@ -5,7 +5,7 @@
   width: min(420px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow: auto;
-  padding: 20px;
+  padding: 16px;
   color: var(--agent-text);
   background: var(--surface-popup);
   border: 1px solid var(--agent-border);
@@ -16,7 +16,7 @@
 }
 .acpmux-add-account form {
   display: grid;
-  gap: 14px;
+  gap: 12px;
 }
 .acpmux-add-account header {
   display: grid;
@@ -37,19 +37,18 @@
 }
 .acpmux-add-account-ways {
   display: grid;
-  gap: 2px;
+  gap: 0;
   margin: 0;
   padding: 4px;
   min-width: 0;
   border: 1px solid var(--agent-border);
-  border-radius: 9px;
+  border-radius: 8px;
 }
 .acpmux-add-account-way {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 6px 10px;
+  gap: 8px;
+  padding: 8px 12px;
   border-radius: 6px;
 }
 .acpmux-add-account-ways .acpmux-add-account-way:hover {
@@ -64,7 +63,7 @@
 .acpmux-add-account-way[data-only] {
   padding: 8px 12px;
   border: 1px solid var(--agent-border);
-  border-radius: 9px;
+  border-radius: 8px;
 }
 .acpmux-add-account-way input {
   flex: none;
@@ -73,7 +72,7 @@
 }
 .acpmux-add-account-way > span {
   display: grid;
-  gap: 2px;
+  gap: 0;
   min-width: 0;
 }
 .acpmux-add-account-way strong {

@@ -113,7 +113,9 @@ test("the CLI's own login adds a route with no folder of its own", async () => {
   const cli = dialog.querySelectorAll<HTMLInputElement>('input[type="radio"]')[1]!;
   await act(async () => cli.click());
   await submit(dialog);
-  expect(added).toEqual([{ id: "codex-cli-login", kind: "direct-subscription", family: "codex", name: "Codex CLI login" }]);
+  expect(added).toEqual([
+    { id: "codex-cli-login", kind: "direct-subscription", family: "codex", name: "Codex CLI login" },
+  ]);
 });
 
 test("the buttons are the shared controls, not bare buttons", async () => {
