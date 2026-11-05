@@ -11,7 +11,8 @@ extension AgentPaneTailCache {
         method == "chat.tail" || method == "chat.tail.get"
     }
 
-    /// The same memory read, with a disk-copy miss forwarded to the pane's host. The daemon
+    /// The same memory read; a miss reads the disk tier (``AgentPaneTailDisk``), and a miss there is
+    /// forwarded to the pane's host for a peer chat's disk copy. The daemon
     /// owns persistence and the web page interprets its envelope; neither policy lives here.
     static func reply(to method: String, params: [String: Any]?, host: (any AgentPaneHostProviding)?, pageGeneration: UInt64? = nil) async -> [String: Any] {
         // A surviving page can still hold the previous account's JS tail after resume().
@@ -23,6 +24,12 @@ extension AgentPaneTailCache {
         guard shared.acceptsTails else { return reply(to: method, params: params) }
         guard method == "chat.tail.get", let session = params?["sessionId"] as? String, !session.isEmpty,
               shared.tail(for: session) == nil else { return reply(to: method, params: params) }
+        // The disk tier first: this Mac's own copy of what a page last read, local chats included.
+        if let kept = await shared.diskTail(for: session) {
+            guard shared.generation == generation else { return AgentPaneReply.success(NSNull()) }
+            return AgentPaneReply.success(kept.foundationObject)
+        }
+        guard shared.generation == generation else { return AgentPaneReply.success(NSNull()) }
         let data = await host?.peerSnapshot(sessionId: session)
         // clear() runs on this actor too: a reply from before sign-out cannot cross it,
         // even if a new sign-in already resumed reads while the socket was answering.
