@@ -1,3 +1,5 @@
+import CmuxNextCompat
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
@@ -94,12 +96,60 @@ struct StoreIndexLookupTests {
 
     /// A reopen wait hears a workspace whose resource id arrives in place: the workspace list itself
     /// does not change, so the wait must not observe only that list (it would sit until its timeout).
-    @Test func aReopenWaitHearsAResourceIDArriveInPlace() async {
+    /// The deadline is a manual clock that never moves, so only hearing the change ends the wait: a
+    /// slow main actor (a loaded runner) cannot make the deadline come first.
+    @Test(.timeLimit(.minutes(2))) func aReopenWaitHearsAResourceIDArriveInPlace() async throws {
         let store = DaemonStore()
         store.apply(snapshot: Self.tree())
-        let wait = Task { await store.workspace(afterReopen: ResourceID(rawValue: "ws_a2"), timeout: .seconds(5)) }
-        for _ in 0..<10 { await Task.yield() }
+        let clock = ManualClock()
+        async let wait = store.workspace(afterReopen: ResourceID(rawValue: "ws_a2"), clock: clock)
+        // The deadline sleeps: the wait missed in the mirror and listens (both in its first turn).
+        try await clock.waitForSleeper(within: .seconds(60))
         store.apply(snapshot: Self.tree(firstResource: "ws_a2"))
-        #expect(await wait.value == "a")
+        #expect(await wait == "a")
+    }
+
+    /// A busy main actor does not lose a workspace that reached the mirror before the deadline. The
+    /// deadline's child ends the wait off the main actor, but hearing the workspace needs a main-actor
+    /// turn: when the deadline ends the wait first, the wait still answers what the mirror holds.
+    @Test(.timeLimit(.minutes(2))) func aBusyMainActorKeepsAWorkspaceThatArrivedBeforeTheDeadline() async throws {
+        let store = DaemonStore()
+        store.apply(snapshot: Self.tree())
+        let clock = WakeReportingClock()
+        async let wait = store.workspace(afterReopen: ResourceID(rawValue: "ws_a2"), timeout: .seconds(5), clock: clock)
+        try await clock.manual.waitForSleeper(within: .seconds(60))
+        // One main-actor turn, as on a loaded runner: the resource id arrives in place, then the
+        // deadline passes, and the turn stays busy until the deadline's sleep has returned.
+        store.apply(snapshot: Self.tree(firstResource: "ws_a2"))
+        clock.manual.advance(by: .seconds(5))
+        Self.keepMainActorBusy(until: { clock.woke })
+        #expect(await wait == "a")
+    }
+
+    /// Keeps the main actor busy (a loop with no await) until `done`, then 20 ms more for the
+    /// deadline's child to run its last statements after its sleep (`return nil`, the task group's
+    /// hand-off). Bounded, so a deadline that never wakes fails the test instead of hanging it.
+    private static func keepMainActorBusy(until done: () -> Bool) {
+        let bound = ContinuousClock.now + .seconds(30)
+        while !done(), ContinuousClock.now < bound {}
+        let end = ContinuousClock.now + .milliseconds(20)
+        while ContinuousClock.now < end {}
+    }
+}
+
+/// A ``ManualClock`` that says when a sleep on it has returned (`woke`): set on the sleeper's own
+/// task after the clock woke it, so a test that keeps the main actor busy knows the sleeper runs.
+private final class WakeReportingClock: Clock, Sendable {
+    let manual = ManualClock()
+    private let returned = Mutex(false)
+
+    var woke: Bool { returned.withLock { $0 } }
+    var now: ManualClock.Instant { manual.now }
+    var minimumResolution: Duration { manual.minimumResolution }
+
+    /// Off the main actor, where the deadline's child runs it (the Clock protocol's own requirement).
+    @concurrent func sleep(until deadline: ManualClock.Instant, tolerance: Duration?) async throws {
+        defer { returned.withLock { $0 = true } }
+        try await manual.sleep(until: deadline, tolerance: tolerance)
     }
 }
