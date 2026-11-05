@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Live check of splits that open the New Tab page (cmuxterm-hq#1829, cx-jfo7) on a running tagged cmux-next build.
 
-A person's Split Right or Down (Cmd-D) from a browser tab, the New Tab page or an agent chat opens
-the New Tab page in the new pane, with an Open Tabs list of the workspace's tabs; picking one moves
+A person's Split Right or Down (Cmd-D) from a browser tab, the New Tab page, an agent chat or Home's
+Chief pane (cmux#36300: NEXT is GUI-first) opens the New Tab page in the new pane, with an Open Tabs list of the workspace's tabs; picking one moves
 that tab into the new pane in the page's place. A terminal's split keeps the terminal.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
@@ -165,6 +165,28 @@ def checks():
     row("Cmd-D on an agent chat opens the New Tab page", "the chat focused; then the focused tab is the New Tab page",
         f"chat {chat}; tabs {before} -> {sum(len(labels(s)) for s in strips())}; New Tab page {shown}",
         chat is not None and shown is not None)
+    chief_splits()
+
+
+def chief_on_screen():
+    """Home shown with its Chief pane (the docked Home tab) focused; the focused tab is no New Tab page."""
+    print("home.openChief:", action("home.openChief", focus=True), flush=True)
+    return wait(lambda: page() is None and (rpc("debug.home") or {}).get("home_workspace"), 20)
+
+
+def chief_splits():
+    """Cmd-D and Cmd-Shift-D from the Chief pane open the GUI composer (the New Tab page), not a terminal (cmux#36300)."""
+    for name, modifiers in [("Cmd-D", ("command",)), ("Cmd-Shift-D", ("command", "shift"))]:
+        home = chief_on_screen()
+        time.sleep(1)  # test harness: the dock tab settles
+        before = sum(len(labels(s)) for s in strips())
+        print(name + ":", key("d", *modifiers), flush=True)
+        shown = wait(page, 15)
+        row(f"{name} on the Chief pane opens the New Tab page (GUI chat), not a terminal",
+            "Home's Chief focused; then the focused tab is the New Tab page",
+            f"home {bool(home)}; tabs {before} -> {sum(len(labels(s)) for s in strips())}; New Tab page {shown}",
+            bool(home) and shown is not None)
+        rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"chief-split-{name.lower()}.png")})
 
 
 main()
