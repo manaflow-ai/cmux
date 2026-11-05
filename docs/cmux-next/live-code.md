@@ -32,7 +32,10 @@ measurement, `scripts/measure/live-code-app.sh`, does this).
   first pass's log, `xcodebuild.log`, is the one `patch.py` reads. That costs some speed and size,
   which is why only this build has it.
 - **The patch.** `patch.py` compiles the edited files with the frontend command the build logged for
-  their module, links their objects into a dylib, signs it ad hoc and moves it into the live folder.
+  their module, links their objects into a dylib, signs it and moves it into the live folder. It
+  signs ad hoc unless `--sign IDENTITY` (or `CMUX_LIVE_CODE_SIGN_IDENTITY`) names a codesign
+  identity: a Debug or bench build loads an ad hoc patch, any other build only one signed by its own
+  team, so a Release live code build made and signed locally ad hoc refuses every patch.
 - **The app** (`CmuxNextLiveCode`). It loads each new patch once and refuses it when a type changed
   size (a stored property added or removed). It repoints every function the patch defines, then
   invalidates and draws every window. A new `*.rollback` file in the folder undoes the newest patch:

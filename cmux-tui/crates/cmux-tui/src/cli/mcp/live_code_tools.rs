@@ -89,6 +89,19 @@ pub(super) fn words(
     if let Some(key) = arguments.keys().find(|k| !allowed.contains(&k.as_str())) {
         return Some(Err(format!("{name} has no argument {key:?}")));
     }
+    // Each argument has one type; a wrong one is refused, never read as absent ("all": "true"
+    // must not undo one patch).
+    for (key, value) in arguments {
+        let ok = match key.as_str() {
+            "patch" | "dir" => value.as_str().is_some_and(|text| !text.is_empty()),
+            "all" => value.is_boolean(),
+            "timeout_seconds" => value.as_u64().is_some_and(|n| (1..=600).contains(&n)),
+            _ => value.as_u64().is_some_and(|n| (1..=10_000).contains(&n)),
+        };
+        if !ok {
+            return Some(Err(format!("{name}: {key} is {value}, not {}", expected(key))));
+        }
+    }
     let verb = match name {
         STATUS => "status",
         APPLY => "apply",
@@ -106,15 +119,24 @@ pub(super) fn words(
         words.push("--all".to_owned());
     }
     if let Some(seconds) = arguments.get("timeout_seconds").and_then(Value::as_u64) {
-        words.extend(["--timeout".to_owned(), seconds.clamp(1, 600).to_string()]);
+        words.extend(["--timeout".to_owned(), seconds.to_string()]);
     }
     if let Some(lines) = arguments.get("lines").and_then(Value::as_u64) {
-        words.extend(["-n".to_owned(), lines.clamp(1, 10_000).to_string()]);
+        words.extend(["-n".to_owned(), lines.to_string()]);
     }
     if let Some(dir) = arguments.get("dir").and_then(Value::as_str) {
         words.extend(["--dir".to_owned(), dir.to_owned()]);
     }
     Some(Ok(words))
+}
+
+fn expected(key: &str) -> &'static str {
+    match key {
+        "patch" | "dir" => "a non-empty string",
+        "all" => "true or false",
+        "timeout_seconds" => "a whole number from 1 to 600",
+        _ => "a whole number from 1 to 10000",
+    }
 }
 
 /// Runs a live code tool; None when `name` is none of them.
@@ -205,7 +227,7 @@ mod tests {
     fn each_tool_is_the_clis_live_code_verb() {
         assert_eq!(words_of(STATUS, json!({})), ok(&["live-code", "status"]));
         assert_eq!(
-            words_of(APPLY, json!({"patch": "/tmp/p.dylib", "timeout_seconds": 9999})),
+            words_of(APPLY, json!({"patch": "/tmp/p.dylib", "timeout_seconds": 600})),
             ok(&["live-code", "apply", "/tmp/p.dylib", "--timeout", "600"])
         );
         assert_eq!(
@@ -219,6 +241,18 @@ mod tests {
     fn bad_arguments_are_refused_and_other_tools_are_not_ours() {
         assert!(matches!(words_of(APPLY, json!({})), Some(Err(_))));
         assert!(matches!(words_of(UNDO, json!({"patch": "x"})), Some(Err(_))));
+        // A wrong type or range is refused, not read as absent.
+        for bad in [
+            json!({"all": "true"}),
+            json!({"timeout_seconds": 9999}),
+            json!({"timeout_seconds": "5"}),
+            json!({"dir": 3}),
+            json!({"dir": ""}),
+        ] {
+            assert!(matches!(words_of(UNDO, bad.clone()), Some(Err(_))), "{bad}");
+        }
+        assert!(matches!(words_of(LOG, json!({"lines": 0})), Some(Err(_))));
+        assert!(matches!(words_of(APPLY, json!({"patch": 1})), Some(Err(_))));
         assert_eq!(words_of("chat_send", json!({})), None);
         let names: Vec<String> = descriptors()
             .iter()

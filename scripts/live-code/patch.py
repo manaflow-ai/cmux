@@ -145,6 +145,9 @@ def main():
     parser.add_argument("--module", default="CmuxNextApp")
     parser.add_argument("--live", required=True, help="the live folder the app watches")
     parser.add_argument("--tree", help="read the module's sources from this tree; FILE is relative to its root")
+    parser.add_argument("--sign", default=os.environ.get("CMUX_LIVE_CODE_SIGN_IDENTITY", "-"),
+                        help="codesign identity (default: CMUX_LIVE_CODE_SIGN_IDENTITY, else - for ad hoc); outside Debug "
+                             "and bench the app loads only a patch signed by its own team")
     parser.add_argument("files", nargs="+")
     opts = parser.parse_args()
     started = time.time()
@@ -192,7 +195,13 @@ def main():
     if link_run.returncode != 0:
         sys.stderr.write(link_run.stderr[-6000:])
         sys.exit("patch.py: the link failed")
-    subprocess.run(["codesign", "--force", "--sign", "-", dylib], capture_output=True, check=True)
+    sign = subprocess.run(["codesign", "--force", "--timestamp=none", "--sign", opts.sign, dylib], capture_output=True, text=True)
+    if sign.returncode != 0:
+        sys.stderr.write(sign.stderr[-2000:])
+        sys.exit(f"patch.py: codesign --sign {opts.sign} failed")
+    if opts.sign == "-":
+        print("patch.py: signed ad hoc: only a Debug or bench build loads it (a live code NIGHTLY needs "
+              "--sign with the app's team identity)", file=sys.stderr)
     linked = time.time()
     os.makedirs(opts.live, exist_ok=True)
     # The sidecar first (`cmux live-code status` shows its commit and files), then the dylib.
