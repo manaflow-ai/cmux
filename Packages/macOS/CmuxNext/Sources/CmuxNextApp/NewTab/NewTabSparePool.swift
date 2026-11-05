@@ -16,7 +16,7 @@ import CmuxNextWakeups
 /// so making a web view never lands in an open's frames (nor, when idle, in typing). The spare is parked at the size of the
 /// pane content Cmd-T fills (the target window's focused pane) and keeps it while hidden: a pane that changes size later
 /// lays out no hidden page (RESIZE MAIN BUDGET: in a key resize's spring that fit cost a frame); the Cmd-T that takes it
-/// lays it out once at its pane's size (`Opening.refit`). Memory pressure drops the spare. A spare
+/// puts it in its pane, whose layout sizes it once (`debug.new_tab` records that as `Opening.refit`). Memory pressure drops the spare. A spare
 /// exists while the new tab page is likely: a person's Cmd-T always opens it.
 @MainActor
 final class NewTabSparePool {

@@ -117,7 +117,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
         view.onResize = { [weak services, weak paneView = view] in
             services?.surfaceInvariant.noteChange()
-            services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare follows
+            services?.newTabSpares.paneLayoutDidChange(in: paneView?.window) // the parked New Tab spare draws the context Cmd-T gives
         }
         #if DEBUG
         DebugLayoutCounters.note("pane mount", #fileID, #line)
