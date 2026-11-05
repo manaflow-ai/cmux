@@ -97,6 +97,9 @@ pub(super) fn run(command: &Command) -> i32 {
     };
     let mut process = Process::new("bash");
     process.arg(tree.join(SCRIPT)).args(&args).current_dir(&tree);
+    if let Some(path) = tool_path(std::env::var_os("PATH"), std::env::var_os("HOME")) {
+        process.env("PATH", path);
+    }
     if matches!(command, Command::Start { .. }) {
         process.args(["--worktree".as_ref(), tree.as_os_str()]);
     }
@@ -134,6 +137,25 @@ fn checkout(worktree: Option<&Path>, started: bool) -> Option<PathBuf> {
         return around;
     }
     recorded_tree(&state_dir()?.join("dev-server.tree")).filter(|tree| holds_script(tree))
+}
+
+/// `PATH` with the folders `bun` and Homebrew install into appended when missing. The app's
+/// Edit cmux Live action runs this command with a GUI app's short `PATH`, which has neither, and the
+/// script runs `bun` (the webviews dev server). Nil when nothing needs adding.
+pub(super) fn tool_path(path: Option<std::ffi::OsString>, home: Option<std::ffi::OsString>) -> Option<std::ffi::OsString> {
+    let mut dirs: Vec<PathBuf> = path.as_deref().map(|path| std::env::split_paths(path).collect()).unwrap_or_default();
+    let before = dirs.len();
+    let mut wanted = Vec::new();
+    if let Some(home) = home.filter(|home| !home.is_empty()) {
+        wanted.push(PathBuf::from(home).join(".bun/bin"));
+    }
+    wanted.extend(["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"].map(PathBuf::from));
+    for dir in wanted {
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    (dirs.len() != before).then(|| std::env::join_paths(dirs).ok()).flatten()
 }
 
 fn holds_script(tree: &Path) -> bool {

@@ -80,6 +80,7 @@ enum SettingsHandlers {
         }
         SessionMoveFromBuild.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
+        LiveWebHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
 
         registry.bind("palette.restartSocketListener", run: { [weak services = context.services] _ in

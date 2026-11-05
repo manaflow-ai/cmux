@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use super::{Command, parse, recorded_tree};
+use super::{Command, parse, recorded_tree, tool_path};
 
 fn words(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
@@ -52,4 +52,12 @@ fn reads_the_tree_the_dev_server_was_started_from() {
     assert_eq!(recorded_tree(&file), None);
     assert_eq!(recorded_tree(&dir.join("missing")), None);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_short_gui_path_gains_bun_and_homebrew() {
+    let path = tool_path(Some("/usr/bin:/bin".into()), Some("/Users/me".into())).unwrap();
+    assert_eq!(path, std::ffi::OsString::from("/usr/bin:/bin:/Users/me/.bun/bin:/opt/homebrew/bin:/usr/local/bin"));
+    let full = "/Users/me/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin";
+    assert_eq!(tool_path(Some(full.into()), Some("/Users/me".into())), None);
 }

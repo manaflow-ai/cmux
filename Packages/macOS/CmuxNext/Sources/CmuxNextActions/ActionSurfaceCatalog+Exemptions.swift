@@ -194,6 +194,8 @@ nonisolated extension ActionSurfaceCatalog {
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
             "hints.show", "sidebar.profileMenu", "browser.downloads.showFolder",
+            // `cmux live start|stop` is the CLI (cli/app/live.rs); these are its palette and Settings face.
+            "liveWeb.start", "liveWeb.stop",
         ],
         .liveInput: [
             "palette.toggleDictation",
