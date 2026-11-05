@@ -345,7 +345,10 @@ mod tests {
     fn host_and_a_session_id_name_that_session_by_id() {
         let id = "01a1acb2-5bb4-75a3-b5eb-a0eeea1d59d5";
         let to = recipient(&format!("machine-b/{id}"));
-        assert_eq!((to.session_id.as_deref(), to.name, to.host.as_deref()), (Some(id), None, Some("machine-b")));
+        assert_eq!(
+            (to.session_id.as_deref(), to.name, to.host.as_deref()),
+            (Some(id), None, Some("machine-b"))
+        );
         let to = recipient("machine-b/own-e2e");
         assert_eq!((to.name.as_deref(), to.session_id), (Some("own-e2e"), None));
     }
