@@ -81,7 +81,15 @@ fn swift_switches_start_and_stop_with_a_tag() {
         })
     );
     assert_eq!(
-        parse(&words(&["stop", "--swift", "--worktree=/src/wt", "--detach", "--setting-done", "--discard"])).unwrap(),
+        parse(&words(&[
+            "stop",
+            "--swift",
+            "--worktree=/src/wt",
+            "--detach",
+            "--setting-done",
+            "--discard"
+        ]))
+        .unwrap(),
         Command::Swift(Swift {
             on: false,
             worktree: Some(PathBuf::from("/src/wt")),

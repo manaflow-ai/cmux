@@ -67,7 +67,8 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     }
     let mut worktree = None;
     let mut port = None;
-    let (mut swift, mut tag, mut detach, mut setting_done, mut discard) = (false, None, false, false, false);
+    let (mut swift, mut tag, mut detach, mut setting_done, mut discard) =
+        (false, None, false, false, false);
     let switches = matches!(verb, Some("start" | "stop"));
     let mut words = rest.iter().skip(1);
     while let Some(word) = words.next() {
@@ -114,9 +115,14 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
             discard,
         }));
     }
-    if let Some(flag) = [(tag.is_some(), "--tag"), (detach, "--detach"), (setting_done, "--setting-done"), (discard, "--discard")]
-        .into_iter()
-        .find_map(|(given, flag)| given.then_some(flag))
+    if let Some(flag) = [
+        (tag.is_some(), "--tag"),
+        (detach, "--detach"),
+        (setting_done, "--setting-done"),
+        (discard, "--discard"),
+    ]
+    .into_iter()
+    .find_map(|(given, flag)| given.then_some(flag))
     {
         // Only the Swift switch takes these.
         return Err(UsageError::new(messages.unexpected_argument.replace("{value}", flag)));
