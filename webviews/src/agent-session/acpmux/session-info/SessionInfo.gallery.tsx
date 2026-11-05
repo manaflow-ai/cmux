@@ -1163,10 +1163,22 @@ export default componentEntry<Props>({
       props: { ...workflowProps("parallel"), processes: parallelWorkflowProcesses() },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
-        await ctx.click({ selector: ".acpmux-workflow-phase:nth-child(2) .acpmux-workflow-phase__head" });
-        await ctx.click({ selector: ".acpmux-workflow-finished li:nth-child(1) .acpmux-workflow-agent__disclosure" });
-        await ctx.click({ selector: ".acpmux-workflow-finished li:nth-child(2) .acpmux-workflow-agent__disclosure" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-agent__output") !== null);
+        // The rows sit below a short frame: each target is brought into view before its trusted click.
+        const open = async (selector: string, opened: string, count: number) => {
+          await ctx.waitFor(() => ctx.document.querySelector(selector));
+          ctx.document.querySelector(selector)?.scrollIntoView({ block: "center" });
+          await ctx.click({ selector });
+          await ctx.waitFor(() => ctx.document.querySelectorAll(opened).length >= count);
+        };
+        const finished = ".acpmux-workflow-finished li";
+        await open(
+          ".acpmux-workflow-phase:nth-child(2) .acpmux-workflow-phase__head",
+          ".acpmux-workflow-phase__agents",
+          2,
+        );
+        await open(`${finished}:nth-child(1) .acpmux-workflow-agent__disclosure`, ".acpmux-workflow-agent__output", 1);
+        await open(`${finished}:nth-child(2) .acpmux-workflow-agent__disclosure`, ".acpmux-workflow-agent__output", 2);
+        ctx.document.querySelector(".acpmux-workflow-task")?.scrollIntoView({ block: "start" });
       },
     },
     "workflow-finished": {

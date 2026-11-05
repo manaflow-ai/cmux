@@ -295,9 +295,10 @@ button.acpmux-workflow-agent__button:focus-visible {
   padding-bottom: var(--ds-space-1);
 }
 
-/* An agent row: an ended one leads with the disclosure that opens its output; the row itself opens
-   its transcript. */
+/* An agent row: a finished one has the disclosure that opens its output in the gutter left of its
+   icon, so its icon and name stay on the panel's grid; the row itself opens its transcript. */
 .acpmux-workflow-agent__row {
+  position: relative;
   display: flex;
   align-items: flex-start;
   min-width: 0;
@@ -311,9 +312,11 @@ button.acpmux-workflow-agent__button:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  position: absolute;
+  top: 0;
+  left: calc((var(--grid-icon-box) - var(--grid-gap)) * -1);
   width: var(--grid-icon-box);
   height: var(--grid-row);
-  margin-right: calc(var(--grid-gap) * -1);
   padding: 0;
   border: 0;
   border-radius: var(--acpmux-session-info-row-radius);
