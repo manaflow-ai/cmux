@@ -111,7 +111,7 @@ impl TranscriptTail {
         let mut rest = bytes.as_slice();
         while let Some(end) = rest.iter().position(|b| *b == b'\n') {
             let (piece, after) = rest.split_at(end);
-            rest = &after[1..];
+            rest = after.get(1..).unwrap_or_default();
             if std::mem::take(&mut self.dropping)
                 || self.partial.len().saturating_add(piece.len()) > MAX_LINE_BYTES
             {
