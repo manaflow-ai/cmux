@@ -221,15 +221,11 @@ function QueuedImage({
         ) : (
           <span className="acpmux-queued-image-empty" />
         )}
-        {/* The composer's own video glyph and length (composerAttachments.css), so the tile reads as
-            the video chip that was sent. */}
+        {/* One corner chip, the play glyph and the length, on the composer's video scrim
+            (composerAttachments.css): a 36px tile has no room for a centred glyph as well. */}
         {video && (
-          <span className="acpmux-attachment-video-play" aria-hidden="true">
-            <PlayTriangle />
-          </span>
-        )}
-        {length && (
-          <span className="acpmux-attachment-video-length" aria-hidden="true">
+          <span className="acpmux-attachment-video-length acpmux-queued-video" aria-hidden="true">
+            <PlayTriangle size={8} />
             {length}
           </span>
         )}

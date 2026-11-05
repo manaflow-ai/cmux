@@ -818,7 +818,13 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queued-image-slot[data-video] .acpmux-queued-image {
   position: relative;
 }
-.acpmux-queued-image-slot[data-video] .acpmux-attachment-video-length {
+.acpmux-queued-video.acpmux-attachment-video-length {
+  right: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
 }
