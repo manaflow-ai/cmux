@@ -157,6 +157,9 @@ PARTS = [
     # 400 workspaces, 6 scenarios: not timed against 900 s yet (perf-budgets' own per-bench cap is 900 s).
     {"name": "sidebar", "args": [*MEASURE, "--suite=budgets", "--only=sidebar"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 1500},
+    # 1/100/1000 workspace topology: warning-only constant-scaling trend budget.
+    {"name": "workspace-scaling", "args": [*MEASURE, "--suite=workspace-scaling"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "run_seconds": 3600},
     {"name": "home-idle", "args": [*MEASURE, "--suite=budgets", "--only=home,idle"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
@@ -171,6 +174,7 @@ PART_BY_NAME = {p["name"]: p for p in PARTS}
 ROW_PARTS = [
     (r"^panes\.[^.]+\.stress\.", "stress"), (r"^panes\.", "motion"), (r"^(cmd_n|cmd_t|ctrl_backtick|cmd_d|cmd_shift_d)\.", "motion"),
     (r"^(tab_switch|palette)\.", "switch"), (r"^perf_gate\.", "perf-gate"), (r"^(sidebar|workspace_switch)\.", "sidebar"),
+    (r"^workspace_scaling\.", "workspace-scaling"),
     (r"^(home|idle)\.", "home-idle"), (r"^(acp|anim)\.", "chat-anim"), (r"^launch\.", "launch"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.", "web-ui"),
 ]

@@ -131,7 +131,8 @@ def collect(reports):
         merged.update(sidebar_rows(docs.get("sidebar"), count))
         merged.update(typing_rows(docs.get("typing"), count))
         for interaction, values in merged.items():
-            rows.append({"interaction": interaction, "workspaces": count, **values})
+            rows.append({"name": f"workspace_scaling.{interaction}.{count}", "interaction": interaction,
+                         "workspaces": count, "unit": "ms", "budget": None, "floor": 1.0, **values})
     return rows
 
 
