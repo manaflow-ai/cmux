@@ -550,6 +550,19 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## The notice card's rows share one leading edge and show whole (2026-11-05)
+
+Leo 2026-11-05, on the first-run "Help Make cmux Faster?" hang-reports card: "why is the text under it? Also giving
+negative space away ... the buttons and the subtitle text is in a different indentation level". Its title and detail
+started after the icon and its buttons at the card's edge, the detail ended in "…" after two lines, and the card's
+height never depended on its width. A notice card with a symbol now draws it on its own row above the title, on the
+x's row, so the icon, title, detail, list lines and buttons all start at the card's padding
+(`SidebarNoticeCardView.GlyphPlacement.above`; the leading column and the inline icon are the gallery's other
+directions). One measure (`measureFrames`) sizes the slot and places the views: the title, detail and list lines
+wrap in full (the detail keeps two reserved lines, so loading cards keep one height), and a button that does not
+fit starts a new row. Cards without a symbol (the update status, tips, Tidy Up) keep their layout. Regression:
+`SidebarNoticeCardColumnTests`; gallery `AASidebarNoticeCardGalleryTests`.
+
 ## A dropped card covers no leaving row (2026-11-05)
 
 Leo 2026-11-05: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit." His
