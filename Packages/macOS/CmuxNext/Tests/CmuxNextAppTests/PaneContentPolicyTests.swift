@@ -539,6 +539,48 @@ struct PaneContentPolicyTests {
         #expect(afterLanding.isEmpty, "the landing asked the PTY for \(afterLanding) after the presses' grids")
     }
 
+    /// cmux-ad m14 (c1), the join question, with `motion.frameOwner.terminals` on: a close spring holds a terminal at its
+    /// final size, and a key press comes before it lands (p1 over p2 over p3; p3 closes, so p2 grows; Ctrl-Shift-J on p1
+    /// three frames later). A pane still on the close spring starts no key hold (`ScreenContentView.applyPresentation`
+    /// starts one only for a pane at rest), so its terminal host does not follow: its surface keeps the close's hold,
+    /// moved to the key press's final size, until the spring lands. The pane at rest when the key came (p1) follows the
+    /// key hold, and its surface has its area's frame in every frame. After the landing both rest at their areas.
+    @Test func aKeyPressDuringACloseSpringFollowsOnlyThePanesThatWereAtRest() throws {
+        let tree: SplitNode = .split("x", axis: .vertical, ratio: 0.5, a: .leaf("p1"),
+                                     b: .split("y", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))
+        let rig = Rig(PaneGroundCoversPaneTests.column(tree), focused: "p1")
+        defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
+        try #require(PaneGroundCoversPaneTests.ownFrames(), "the switch motion.frameOwner.terminals did not turn on")
+        _ = try #require(rig.model.showPaneClose("p3"), "p3 did not close in the key's turn")
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        for frame in 1...3 { try #require(rig.frame(), "the close landed after \(frame) frames") }
+        let resting = try #require(rig.provider.sessions["p1"]?.session), closing = try #require(rig.provider.sessions["p2"]?.session)
+        try #require(closing.view.surfaceHold != nil, "SETUP: p2's surface keeps no hold on the close spring")
+        #expect(PaneResize.press("p1", .down, model: rig.model, view: rig.root), "Ctrl-Shift-J on p1 moved nothing")
+        rig.root.syncWithModel()
+        var off: [String] = [], held: CGSize?
+        let frames = try Self.run(rig) { frame in
+            let p1 = resting.view, p2 = closing.view, p2Host = try #require(rig.root.context.hosts["p2"])
+            if p1.followedHold == nil { off.append("frame \(frame): p1's host does not follow its pane") }
+            off += try Self.offTheirPanes(["p1"], in: rig, "frame \(frame)")
+            guard p2Host.isOnLayoutSpring else { return }
+            if p2.followedHold != nil { off.append("frame \(frame): p2's host follows a key hold on the close spring") }
+            let size = closing.surfaceView.frame.size
+            if p2.surfaceHold?.size != size { off.append("frame \(frame): p2's surface \(size) is not its hold \(String(describing: p2.surfaceHold))") }
+            if let held, held != size { off.append("frame \(frame): p2's surface took \(size) after \(held)") }
+            held = size
+        }
+        off += try Self.offTheirPanes(["p1", "p2"], in: rig, "after the landing")
+        for (pane, session) in [("p1", resting), ("p2", closing)] where session.view.surfaceHold != nil || session.view.followedHold != nil {
+            off.append("after the landing: \(pane)'s surface still holds or its host still follows")
+        }
+        #expect(frames > 3, "the press did not spring (\(frames) frames)")
+        #expect(held != nil, "p2 was on no spring after the key press: the case under test did not happen")
+        #expect(off.isEmpty, "\(off.count) frames: \(off.prefix(4))")
+    }
+
     // MARK: The default path (switch off): one surface size per press (T5)
 
     /// The default (switch off; review of #35470 at c4d6c936c92, T5: the base checked this path, and the m6 tests now
