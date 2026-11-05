@@ -86,7 +86,7 @@ import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
 import { aptUpdateCommand } from "./apt-update";
-import { baseInputTree, cachedInstallCommand, imagePackagesCommand, isAppProgram, layerKeys, layerName, overlayPrepareCommand, overlayPruneCommand, type LayerName } from "./layers";
+import { baseInputTree, cachedInstallCommand, imagePackagesCommand, layerLabel, isAppProgram, layerKeys, layerName, overlayPrepareCommand, overlayPruneCommand, type LayerName } from "./layers";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
 import {
   METADATA_GUARD_FILE,
@@ -164,6 +164,11 @@ export type BakeOptions = {
    * missing one on its parent), then bake only the app layer (this lock's cmux-tui) on top. Dev snapshots only.
    */
   layered?: boolean;
+  /**
+   * Snapshot before the SBOM and file manifest, keep the builder, and leave them to inventory.ts (run beside the
+   * smoke): they were 73 s of a warm per-commit bake. --layered only.
+   */
+  deferInventory?: boolean;
 };
 
 /**
@@ -730,7 +735,21 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, "/root/cmux-clean.py", readFileSync(path.join(GUEST_DIR, "clean.py")), 0o755);
   const clean = await L.step(vm, "clean", `python3 /root/cmux-clean.py && rm -f /root/cmux-clean.py && ${devboxJournalResetCommand}`);
   result.clean = JSON.parse(clean.split("CLEAN_JSON ")[1].split("\n")[0]);
-  // SBOM and file-hash manifest of the final tree, written under /tmp (excluded from both) and downloaded.
+  // The SBOM and file manifest: here, or after the snapshot on the same builder (--defer-inventory).
+  if (!options.deferInventory) await collectInventory(vm, L, options, lock, result, name);
+  await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
+  result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
+  result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
+  result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
+  await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
+}
+
+/**
+ * The SBOM and file-hash manifest of the final tree, written under /tmp (excluded from both) and downloaded.
+ * With --defer-inventory it runs on the builder right after the snapshot (inventory.ts, beside the smoke), so the
+ * tree it reads is the snapshot's: nothing else runs on the builder in between.
+ */
+export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", "mkdir -p /tmp/cmux-out");
   await writeGuestFile(vm, "/tmp/cmux-out/manifest.py", readFileSync(path.join(GUEST_DIR, "manifest.py")), 0o755);
@@ -749,17 +768,14 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   ].join(" && "))]);
   result.manifest = manifest.trim();
   result.syft = sbomOut.trim();
-  result.sbomFile = path.join(options.outDir, `sbom-${name}.cdx.json`);
-  result.manifestFile = path.join(options.outDir, `manifest-${name}.tsv`);
-  writeFileSync(result.sbomFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/sbom.cdx.json.gz"))));
-  writeFileSync(result.manifestFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/manifest.tsv.gz"))));
-  const sbom = JSON.parse(readFileSync(result.sbomFile, "utf8")) as { components?: unknown[] };
+  const sbomFile = path.join(options.outDir, `sbom-${name}.cdx.json`);
+  const manifestFile = path.join(options.outDir, `manifest-${name}.tsv`);
+  Object.assign(result, { sbomFile, manifestFile });
+  writeFileSync(sbomFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/sbom.cdx.json.gz"))));
+  writeFileSync(manifestFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/manifest.tsv.gz"))));
+  const sbom = JSON.parse(readFileSync(sbomFile, "utf8")) as { components?: unknown[] };
   result.sbomComponents = sbom.components?.length ?? 0;
-  await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
-  result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
-  result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
-  result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
-  await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
+  await L.step(vm, "inventory-tmp-clean", "rm -rf /tmp/cmux-out /tmp/cmux-syft");
 }
 
 /** Every step of a full bake, from the provider base to the finalized tree (before the snapshot). */
@@ -856,8 +872,10 @@ async function bakeOn(
   steps: (vm: Vm) => Promise<void>,
   result: Record<string, unknown>,
   L: StepLog,
+  keepForInventory = false,
 ): Promise<string> {
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
+  let kept = false;
   try {
     builder = await createVm(fs, ledger, { name, snapshotId: from, allowUnprefixed: options.promotion || options.prodCopy === true });
     result.builderVmId = builder.vmId;
@@ -865,14 +883,19 @@ async function bakeOn(
     result.builderFirstExecMs = await firstExec(builder.vm, builder.t0);
     await steps(builder.vm);
     const tSnap = Date.now();
-    const snap = await builder.vm.snapshot({ displayName: name, slug: name });
+    // A layered snapshot records its parent in its label (layers.ts layerLabel), which gc-layers.ts follows so it
+    // never deletes a layer a kept image was built on.
+    const snap = await builder.vm.snapshot({ displayName: options.layered ? layerLabel(name, from) : name, slug: name });
     if (!snap?.snapshotId) throw new Error("snapshot response carried no id");
     ledger.record(snap.snapshotId, "snapshot", name);
     result.snapshotMs = Date.now() - tSnap;
     L.log(`SNAPSHOT ${name} ${snap.snapshotId} (${result.snapshotMs} ms)`);
+    // inventory.ts reads this builder next and deletes it; the run's cleanup deletes it from the ledger if not.
+    kept = keepForInventory;
+    if (kept) result.inventoryVmId = builder.vmId;
     return snap.snapshotId;
   } finally {
-    if (builder && !options.keepBuilder) await deleteVm(builder.vm, builder.vmId, name, ledger);
+    if (builder && !options.keepBuilder && !kept) await deleteVm(builder.vm, builder.vmId, name, ledger);
   }
 }
 
@@ -916,7 +939,8 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       const app: Record<string, unknown> = { layer: "app", hit: false, parent };
       layers.push(app);
       const t = Date.now();
-      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L);
+      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory));
+      if (app.inventoryVmId) result.inventoryVmId = app.inventoryVmId;
       app.ms = Date.now() - t;
       app.snapshotId = result.snapshotId;
     } else {
@@ -935,9 +959,10 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--native-receiver] [--layered]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--native-receiver] [--layered [--defer-inventory]]");
   if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
   if (hasFlag("--layered", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv) || hasFlag("--update-lock", argv))) throw new Error("--layered is for dev snapshots from a fixed lock; the full bake makes production copies and promotions");
+  if (hasFlag("--defer-inventory", argv) && !hasFlag("--layered", argv)) throw new Error("--defer-inventory needs --layered; the full bake records its SBOM and manifest before the snapshot");
   // The dev tree is a checkout of this commit, so a cached system layer would carry a stale one.
   if (hasFlag("--layered", argv) && hasFlag("--dev-tree", argv)) throw new Error("--layered cannot cache --dev-tree (a per-commit checkout); use the full bake");
   if (hasFlag("--native-receiver", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv))) throw new Error("--native-receiver is for dedicated development VM API images only");
@@ -958,6 +983,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     devTree: hasFlag("--dev-tree", argv),
     prodCopy: hasFlag("--prod-copy", argv),
     layered: hasFlag("--layered", argv),
+    deferInventory: hasFlag("--defer-inventory", argv),
   };
 }
 

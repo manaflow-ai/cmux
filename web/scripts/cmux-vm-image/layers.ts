@@ -94,6 +94,14 @@ export function layerKeys(lockText: string, flags: readonly string[], inputTree:
   return { system, agents: sha("cmux-vm-agents-v1", system, agentProgramsText(lockText)) };
 }
 
+/** A layered snapshot's label: its name and the snapshot it was built on. */
+export const layerLabel = (name: string, parent: string) => `${name} from ${parent}`;
+
+/** The parent a layered snapshot's label records, or undefined for a snapshot with no recorded parent. */
+export function labelParent(displayName: string | null | undefined): string | undefined {
+  return /^\S+ from (\S+)$/.exec(displayName ?? "")?.[1];
+}
+
 /** A cached layer's snapshot name and slug. Fits the 41-character tag limit of `cmuxnp-dev-vmimg-<tag>`. */
 export const layerName = (layer: LayerName, key: string) => `${LAYER_PREFIX[layer]}${key.slice(0, 16)}`;
 
