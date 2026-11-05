@@ -500,9 +500,12 @@ public final class TerminalSurfaceView: NSView {
         defer { copyMode.syncCursor() }
         setSurfacePixels(pixels, on: surface)
         let size = ghostty_surface_size(surface)
-        publish(size: size)
-        guard size.columns > 0, size.rows > 0 else { return }
-        let desired = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
+        // The PTY's grid is the grid the view's committed bounds fit: what its pane shows. Never the size asked of Ghostty
+        // and not shown yet (`inFlight`), nor the size drawn ahead for the next refresh (`ahead`): those go to Ghostty's
+        // render only (its reflow preview), and a press that retargets the spring may never show them (resize owner,
+        // STATUS 14461). The presenter's landing calls this again with the new bounds (``frameDidLand()``).
+        guard let desired = shownGrid(on: surface, fallback: size) else { return publish(size: size, grid: nil) }
+        publish(size: size, grid: desired)
         // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close) resizes this view on every display
         // frame: the surface draws each size (the reflow preview), and the grid goes to the owner once the
         // spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame. A key resize whose host
@@ -539,10 +542,25 @@ public final class TerminalSurfaceView: NSView {
         ghostty_surface_set_size(surface, size.width, size.height)
     }
 
-    private func publish(size: ghostty_surface_size_s) {
+    /// The grid the view's committed bounds fit (`ghostty_surface_fit_grid` of their pixel size), or `fallback`'s grid when
+    /// the bounds are the size Ghostty has; nil when no whole cell fits.
+    private func shownGrid(on surface: ghostty_surface_t, fallback size: ghostty_surface_size_s) -> TerminalGridSize? {
+        let shown = toBacking(bounds.size)
+        let asked = toBacking(frameOwnership.inFlight ?? frameOwnership.ahead ?? bounds.size)
+        if shown == asked {
+            return size.columns > 0 && size.rows > 0 ? TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows)) : nil
+        }
+        var columns: UInt16 = 0, rows: UInt16 = 0
+        guard shown.width >= 1, shown.height >= 1,
+              ghostty_surface_fit_grid(surface, UInt32(shown.width), UInt32(shown.height), &columns, &rows),
+              columns > 0, rows > 0 else { return nil }
+        return TerminalGridSize(columns: Int(columns), rows: Int(rows))
+    }
+
+    /// The model's grid: the owner's announced grid, else `shown` (the grid the committed bounds fit).
+    private func publish(size: ghostty_surface_size_s, grid shown: TerminalGridSize?) {
         guard let model = session?.model else { return }
-        let grid = geometry.gridToRender ?? TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
-        if model.grid != grid { model.grid = grid }
+        if let grid = geometry.gridToRender ?? shown, model.grid != grid { model.grid = grid }
         let cell = CGSize(width: Int(size.cell_width_px), height: Int(size.cell_height_px))
         if model.cellPixelSize != cell { model.cellPixelSize = cell }
     }
