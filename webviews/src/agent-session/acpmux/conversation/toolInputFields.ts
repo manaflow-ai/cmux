@@ -7,8 +7,26 @@ import { prettyValue } from "./mcpCalls";
 export type InputField = { key: string; text: string; look: "prose" | "markdown" | "tree" | "value" };
 
 /// Lines that only Markdown draws differently from plain prose: a heading, a list, a fence, a
-/// quote, a table or a link.
+/// quote, a table or a link, in a value of several lines.
 const MARKDOWN = /^(#{1,6} |[-*+] |\d+[.)] |```|> |\|.*\|)|\[[^\]\n]+\]\([^)\s]+\)/m;
+
+/// Marks Markdown draws on one line: bold, inline code or a link.
+const INLINE_MARKDOWN = /\*\*[^*\n]+\*\*|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\)/;
+
+/// Calls that change files: an edit keeps its diff or its output body, never input fields, even
+/// when it carries no diff (a failed or diff-less edit).
+const FILE_KINDS = new Set(["edit", "delete", "move", "fileChange"]);
+
+/// Whether a non-MCP call opens to input fields over its output (ToolRow.tsx), which Find reads the
+/// same way (chatFind.ts): not a shell, not a file change, not a hook's refusal, with output to show.
+export function opensToFields(
+  tool: { kind?: string; command?: string; diffs?: readonly unknown[] },
+  failure: { kind: string } | undefined,
+): boolean {
+  if (tool.kind === "execute" && tool.command) return false;
+  if (tool.diffs?.length || FILE_KINDS.has(tool.kind ?? "")) return false;
+  return failure?.kind !== "hook";
+}
 
 /// The fields of a call's input, in the order the harness sent them, or nil when the input is not
 /// an object with at least one field worth showing (the caller then shows it as it came).
@@ -20,7 +38,11 @@ export function inputFields(args: unknown): InputField[] | undefined {
     if (value === undefined || value === null || value === "") continue;
     if (typeof value === "string") {
       const text = value.replace(/\n$/, "");
-      fields.push({ key, text, look: text.includes("\n") && MARKDOWN.test(text) ? "markdown" : "prose" });
+      fields.push({
+        key,
+        text,
+        look: (text.includes("\n") && MARKDOWN.test(text)) || INLINE_MARKDOWN.test(text) ? "markdown" : "prose",
+      });
     } else if (Array.isArray(value) && value.length > 0 && value.every(isScalar) && value.join(", ").length <= 120) {
       // A short list of words or numbers reads as one line ("bug, frontend"), not a bracketed tree.
       fields.push({ key, text: value.join(", "), look: "prose" });

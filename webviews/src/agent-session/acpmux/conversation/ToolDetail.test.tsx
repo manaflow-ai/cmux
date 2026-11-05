@@ -169,3 +169,44 @@ test("an MCP call opens to labeled fields with its machine name above and its re
   await act(async () => raw!.click());
   expect(container.querySelector(".cv-mcp-call__body")?.textContent).toContain('"team": "WEB"');
 });
+
+test("a hook's refusal and an edit without a diff keep their output-only body", async () => {
+  const refused: AcpmuxActivity = {
+    kind: "tool",
+    text: "Fetch",
+    tool: {
+      id: "t3",
+      title: "Fetch",
+      kind: "fetch",
+      status: "failed",
+      inputSummary: JSON.stringify({ url: "https://example.test" }),
+      output: "PreToolUse:WebFetch hook error: [guard.sh]: Blocked: no network on this machine",
+    },
+  };
+  const refusedRow = await render(<ToolRow item={refused} />);
+  await open(refusedRow);
+  expect(refusedRow.querySelector(".cv-tool-detail")).toBeNull();
+  await act(async () => root!.unmount());
+  root = undefined;
+  const edit: AcpmuxActivity = {
+    kind: "tool",
+    text: "Edit notes.md",
+    tool: {
+      id: "t4",
+      title: "Edit notes.md",
+      kind: "edit",
+      status: "failed",
+      inputSummary: JSON.stringify({ file_path: "notes.md", old_string: "a", new_string: "b" }),
+      output: "String to replace not found in file.",
+    },
+  };
+  const editRow = await render(<ToolRow item={edit} />);
+  await open(editRow);
+  expect(editRow.querySelector(".cv-tool-detail")).toBeNull();
+  expect(editRow.textContent).toContain("String to replace not found");
+});
+
+test("a one-line value with Markdown marks draws them", () => {
+  expect(inputFields({ note: "Ship **WEB-412** after `bun test`" })?.[0]?.look).toBe("markdown");
+  expect(inputFields({ note: "Ship WEB-412 after the tests" })?.[0]?.look).toBe("prose");
+});

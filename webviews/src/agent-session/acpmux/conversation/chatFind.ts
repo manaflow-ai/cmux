@@ -13,10 +13,10 @@ import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { agentMessage } from "./agentMessages";
 import { dispatchCall } from "./dispatchCalls";
 import { subsessionCall } from "./subsessionCalls";
-import { fieldsText, inputFields } from "./toolInputFields";
+import { fieldsText, inputFields, opensToFields } from "./toolInputFields";
 import { plainText } from "./messageMenu";
 import { drawnThought } from "./thoughts";
-import { callOutput, shellOutput, toolFailure } from "./toolFailure";
+import { callOutput, rowFailed, shellOutput, toolFailure } from "./toolFailure";
 import { toolResult } from "./toolResult";
 import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
@@ -95,7 +95,10 @@ function drawnText(item: AcpmuxActivity): string {
         ? plainText(result.text)
         : result.text;
   // A call with output that is not a shell or an edit opens to its input's fields over it (ToolRow.tsx).
-  const fields = result?.text.trim() && !tool.diffs?.length ? inputFields(tool.inputSummary) : undefined;
+  const fields =
+    result?.text.trim() && opensToFields(tool, rowFailed(tool) ? toolFailure(tool) : undefined)
+      ? inputFields(tool.inputSummary)
+      : undefined;
   // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).
   return [
     (tool.command && commandFolder(tool.command).rest) || tool.title,

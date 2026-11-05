@@ -27,7 +27,7 @@ import { useRowDisclosure } from "./transcriptDisclosure";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolDetail } from "./ToolDetail";
-import { inputFields } from "./toolInputFields";
+import { inputFields, opensToFields } from "./toolInputFields";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
@@ -145,8 +145,8 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // Any other call opens to its input, one labeled field per argument, over its output
   // (ToolDetail.tsx); read only while drawn, as the diff is.
   const fields = useMemo(
-    () => (fold.present && !shell && !hasDiff ? inputFields(tool.inputSummary) : undefined),
-    [fold.present, shell, hasDiff, tool.inputSummary],
+    () => (fold.present && opensToFields(tool, failure) ? inputFields(tool.inputSummary) : undefined),
+    [fold.present, tool, failure],
   );
   const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} />;
   const content = (
