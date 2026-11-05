@@ -36,6 +36,10 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
         var total = 0
         /// Token of the pending schedule, if any.
         var pendingToken: UInt64?
+        /// The last turn completed and nothing has run since. An error now
+        /// is a late report for that turn (a dropped connection surfacing on
+        /// a wake), not a failure of work in progress.
+        var turnEnded = false
     }
 
     /// Extra wait, in seconds, added to a failure's `retry after` hint. Every
@@ -103,6 +107,9 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             // no detail says nothing new, so it neither schedules nor cancels.
             guard let detail, !detail.isEmpty else { return .none }
             var state = surfaces[surfaceId] ?? SurfaceState()
+            // The turn this error would resume already finished and is
+            // waiting on a human. Its completion cleared any pending resume.
+            guard !state.turnEnded else { return .none }
             guard classifier.isRetryable(detail: detail), state.streak < delays.count else {
                 let hadPending = state.pendingToken != nil
                 state.pendingToken = nil
@@ -123,15 +130,17 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
             // A turn finished normally: the agent recovered, so the failing
             // streak and the marker's count are both over.
-            guard var state = surfaces[surfaceId] else { return .none }
+            var state = surfaces[surfaceId] ?? SurfaceState()
             let hadPending = state.pendingToken != nil
             state.streak = 0
             state.total = 0
             state.pendingToken = nil
+            state.turnEnded = true
             surfaces[surfaceId] = state
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
         case .turnStarted, .approvalRequested, .questionRequested, .planReviewRequested, .attentionResolved:
             guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
+            surfaces[surfaceId]?.turnEnded = false
             // The agent is working again, or waits on a human: never type
             // into it on a timer.
             return cancelPending(surfaceId: surfaceId)
@@ -150,11 +159,16 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
                 surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
             }
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
-        case .childSpawned, .childCompleted, .childFailed, .stateChanged,
-             .idleObserved, .messagePublished:
-            // Progress and idle observations do not change whether the
-            // errored turn still needs a resume. An idle prompt that follows
-            // an error is exactly the state a resume addresses.
+        case .childSpawned, .childCompleted, .childFailed, .stateChanged:
+            guard !isStaleLifecycleEvent(surfaceId: surfaceId, sessionId: sessionId) else { return .none }
+            // Progress does not change whether an errored turn still needs a
+            // resume, but it shows a turn running again after a completed one:
+            // a continuation can start without a prompt hook.
+            surfaces[surfaceId]?.turnEnded = false
+            return .none
+        case .idleObserved, .messagePublished:
+            // An idle prompt that follows an error is exactly the state a
+            // resume addresses.
             return .none
         }
     }
