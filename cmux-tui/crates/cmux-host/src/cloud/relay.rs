@@ -43,6 +43,8 @@ pub const PROTOCOL: &str = "cmux.machine-relay/1";
 const PING_EVERY: Duration = Duration::from_secs(20);
 const DEAD_AFTER: Duration = Duration::from_secs(60);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+/// Failed dials after a resume that its running chats wait out for the next socket.
+const RESUME_REDIALS: u8 = 3;
 /// Chats run at once; the platform holds at most 8 per machine.
 const MAX_CHATS: usize = 8;
 const MAX_PROMPT_BYTES: usize = 256 * 1024;
@@ -406,6 +408,8 @@ fn run<H: Http>(
     let mut last_error = String::new();
     let mut seen = *resumes.borrow();
     let mut link = Link::default();
+    // Failed dials a resume's chats may wait out for the next socket; past them, they end as on any drop.
+    let mut carry = 0u8;
     while !*stop.borrow() {
         // A resume while no socket was up: the pooled HTTPS connection is as stale as the socket was.
         if *resumes.borrow() != seen {
@@ -426,13 +430,17 @@ fn run<H: Http>(
         match outcome {
             Ok(Ended::Resumed) => {
                 log("relay: the machine resumed; dialing again");
-                client.reset_transport();
                 seen = *resumes.borrow();
+                client.reset_transport();
                 backoff = Duration::from_secs(1);
+                carry = RESUME_REDIALS;
                 continue;
             }
             // A socket that was up resets the backoff.
-            Ok(Ended::Dropped) => backoff = Duration::from_secs(1),
+            Ok(Ended::Dropped) => {
+                backoff = Duration::from_secs(1);
+                carry = 0;
+            }
             Err(e) => {
                 if e != last_error {
                     log(&format!("relay: {e}"));
@@ -442,8 +450,13 @@ fn run<H: Http>(
             }
         }
         // Every other end drops the socket's chats: the platform ended their streams with it (host_gone), and a
-        // cancel for them could only come down that socket.
-        link = Link::default();
+        // cancel for them could only come down that socket. A dial that fails just after a resume (the network
+        // may still be waking) keeps them for the next, a few times.
+        if carry > 0 {
+            carry -= 1;
+        } else {
+            link = Link::default();
+        }
         pause(&rt, &mut stop, &mut resumes, seen, backoff);
     }
     // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
@@ -459,11 +472,11 @@ fn pause(
     seen: u64,
     backoff: Duration,
 ) {
-    let _ = (&resumes, seen);
     rt.block_on(async {
         or_stop(stop, async {
             tokio::select! {
                 () = tokio::time::sleep(backoff) => {}
+                Ok(_) = resumes.wait_for(|n| *n != seen) => {}
             }
         })
         .await;
@@ -509,8 +522,7 @@ enum Ended {
 /// Whether the wall clock leapt past [`DEAD_AFTER`] between two ping ticks: the machine was paused (a missed
 /// `Resumed`), since this thread's own clock does not run through a pause.
 fn slept_through(last_wall_ms: u64, now_wall_ms: u64) -> bool {
-    let _ = (last_wall_ms, now_wall_ms);
-    false
+    now_wall_ms.saturating_sub(last_wall_ms) > DEAD_AFTER.as_millis() as u64
 }
 
 /// One connection, until it drops, the machine resumes (a resume past `seen`) or `link` ends.
@@ -541,9 +553,10 @@ async fn serve(
     let mut ping = tokio::time::interval(PING_EVERY);
     let mut heard = tokio::time::Instant::now();
     let mut ticked_wall = now_wall_ms();
-    let _ = (&resumes, seen);
     loop {
         tokio::select! {
+            // Dropping the socket without a close: after a pause it is likely dead, and a close could hang on it.
+            Ok(_) = resumes.wait_for(|n| *n != seen) => return Ok(Ended::Resumed),
             msg = stream.next() => {
                 let Some(Ok(msg)) = msg else { return Ok(Ended::Dropped) };
                 heard = tokio::time::Instant::now();

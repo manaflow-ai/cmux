@@ -136,6 +136,11 @@ impl JsonPoster {
     /// dead and nothing says so: a request on it would hang to its 20 s bound. A request in flight keeps its
     /// transport, and drops it itself if it fails.
     pub fn reset(&self) {
+        if let Ok(mut slot) = self.transport.try_lock()
+            && let Some(transport) = slot.take()
+        {
+            transport.stop();
+        }
     }
 
     /// Compatibility for callers with an active-clock absolute deadline.
