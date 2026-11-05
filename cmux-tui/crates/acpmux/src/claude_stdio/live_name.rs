@@ -33,7 +33,7 @@ impl Translator {
         if !self.lists_rename().await {
             return Outbound::Reply(Message::err(
                 id.clone(),
-                RpcError::method_not_found(RENAME_UNSUPPORTED),
+                RpcError::new(-32601, RENAME_UNSUPPORTED),
             ));
         }
         let mut renaming = self.renaming.lock().await;

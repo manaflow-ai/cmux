@@ -362,7 +362,7 @@ pub const RECAP: &str = "_acpmux/claude/recap";
 /// (`hub/live_name.rs`), `{sessionId, name}`: its `/rename` line between turns (`live_name.rs`).
 /// The answer is `{renamed: true}`, or `RENAME_BUSY` while a turn runs.
 pub const RENAME: &str = "_acpmux/claude/rename";
-pub use live_name::RENAME_BUSY;
+pub use live_name::{RENAME_BUSY, RENAME_UNSUPPORTED};
 
 /// The chat's own session recap switch (`hub/away_recap.rs`): `default` follows the app's
 /// `agents.chats.sessionRecap`, `on` and `off` override it for this chat. acpmux keeps it; Claude
