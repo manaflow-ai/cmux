@@ -273,7 +273,15 @@ class Builder:
             staged = self.incoming / shipped
             if self.host:
                 rsh = " ".join(["ssh", *map(shlex.quote, ssh_options(self.state))])
-                source = f"{self.host}:{self.remote}/target/{self.out_dir()}/{binary}"
+                built_file = f"{self.remote}/target/{self.out_dir()}/{binary}"
+                # Without its debug info the debug cmux-tui is 263 MB, not 614 (x86_64 Linux,
+                # 2026-11-05), and rsync then sends only what changed against the last build here.
+                strip = (f"objcopy --strip-debug {built_file} {built_file}.live 2>/dev/null"
+                         f" || strip -S -o {built_file}.live {built_file}")
+                result = run(["ssh", *ssh_options(self.state), self.host, strip])
+                if result.returncode != 0:
+                    raise RuntimeError(f"strip on {self.host}: {result.stderr.strip()}")
+                source = f"{self.host}:{built_file}.live"
                 result = run(["rsync", "-z", "-e", rsh, source, str(staged)])
                 if result.returncode != 0:
                     raise RuntimeError(f"rsync from {self.host}: {result.stderr.strip()}")
