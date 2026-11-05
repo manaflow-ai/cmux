@@ -64,6 +64,8 @@ struct FocusInputSharedRouterTests {
         #expect(inRouter.remembered() == alone.remembered())
         // What a machine alone reads must be there at all: both sides empty would also be equal (review of #35875).
         #expect(!inRouter.recentPanes(in: "w").isEmpty, "the focus history is empty")
+        // The shown workspace's history (no workspace named: pane and link placement, directional focus read it).
+        #expect(inRouter.recentPanes() == inRouter.recentPanes(in: "w"), "the shown workspace's history is not w's: \(inRouter.recentPanes())")
         #expect(inRouter.remembered()["w"] != nil, "the remembered panes do not hold the workspace: \(inRouter.remembered())")
         #expect(!inRouter.checkpoint().matches(Self.emptyCheckpoint), "the checkpoint is empty")
         // The other window of the router kept its own focus: what a machine alone made of the same events.
