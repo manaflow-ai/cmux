@@ -16,7 +16,7 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
     return;
   }
   const entry = "agent-pane.subagent-result-header";
-  const variants = ["split-long", "dock-long", "dock-short", "stream-stable"] as const;
+  const variants = ["split-long", "dock-long", "dock-short", "stream-stable", "one-tab"] as const;
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -41,7 +41,10 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
   test("long and short result heads keep the transcript reachable across pane sizes", async () => {
     for (const variant of variants) {
       const page = await browser!.newPage({
-        viewport: { width: variant.startsWith("dock") ? 440 : 780, height: variant.startsWith("dock") ? 260 : 660 },
+        viewport: {
+          width: variant.startsWith("dock") || variant === "one-tab" ? 440 : 780,
+          height: variant.startsWith("dock") || variant === "one-tab" ? 300 : 660,
+        },
       });
       await page.goto(
         `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`,
@@ -65,7 +68,25 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
       console.log(`subagent-result-header ${variant} ${JSON.stringify(geometry)}`);
       expect(geometry.transcriptHeight).toBeGreaterThan(0);
       expect(geometry.transcriptTop).toBeGreaterThanOrEqual(geometry.headBottom - 0.5);
-      if (variant === "dock-long") expect(geometry.reportScrollHeight).toBeGreaterThan(geometry.reportClientHeight);
+      if (variant === "dock-long")
+        expect(geometry.reportScrollHeight).toBeGreaterThan(geometry.reportClientHeight);
+      if (variant === "one-tab") {
+        const bottomHit = await page.evaluate(() => {
+          const report = document.querySelector<HTMLElement>(".cv-subagent-result__report")!;
+          report.scrollTop = report.scrollHeight;
+          const rect = report.getBoundingClientRect();
+          const target = document.elementFromPoint(
+            rect.left + Math.min(12, rect.width / 2),
+            rect.bottom - 2,
+          );
+          return {
+            scrollable: report.scrollHeight > report.clientHeight,
+            inReport: target?.closest(".cv-subagent-result__report") !== null,
+          };
+        });
+        expect(bottomHit.scrollable).toBe(true);
+        expect(bottomHit.inReport).toBe(true);
+      }
       await page.close();
     }
   });

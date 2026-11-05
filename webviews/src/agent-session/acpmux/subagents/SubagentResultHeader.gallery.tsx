@@ -92,7 +92,11 @@ function ResultHeadScene({ report, viewport, stream }: Props) {
             data-solo-tab
             style={{ display: "flex", flex: 1, minHeight: 0, flexDirection: "column" }}
           >
-            <header className="acpmux-header" data-tab-row style={{ flex: "0 0 28px" }} />
+            <header
+              className="acpmux-header"
+              data-tab-row
+              style={{ flex: "0 0 var(--acpmux-tab-row-height, 28px)" }}
+            />
             <SubagentResultHeader agent={agent} />
             {transcript}
             {streamButton}
