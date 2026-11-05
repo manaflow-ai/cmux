@@ -2472,7 +2472,18 @@ export function layoutConversation(
   // Kept rows keep their gaps only at the scale they were placed at.
   if (previous && (previous.layout.scale ?? 1) === scale) {
     const limit = Math.min(rows.length, previous.rows.length);
-    while (start < limit && rows[start] === previous.rows[start]) start += 1;
+    // OrderedRows carries the first changed row beside each snapshot. Use that hint to
+    // avoid comparing every historical row when a tool output updates the tail. Keep the
+    // identity check at the hint boundary: filtered/reordered projections conservatively
+    // fall back to the exact prefix walk.
+    const hint = rowsChangedFrom(rows);
+    if (
+      hint !== undefined &&
+      hint <= limit &&
+      (hint === 0 || rows[hint - 1] === previous.rows[hint - 1])
+    )
+      start = hint;
+    else while (start < limit && rows[start] === previous.rows[start]) start += 1;
     // A row after the kept ones can change the height of the last kept row that draws (a footer
     // after a reply, a prompt after the last footer, past rows that draw nothing): place it again.
     let drawn = start - 1;

@@ -1,6 +1,6 @@
 // What a finished thought draws (Leo 2026-10-20, as Claude Desktop and Codex do): consecutive
 // thoughts in one step are one row, and a thought with nothing to read draws no row at all.
-import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { markRowsChangedFrom, type AcpmuxActivity, type AcpmuxRow } from "../model";
 
 /// A thought shorter than this many characters (trimmed)...
 export const QUIET_THOUGHT_CHARS = 40;
@@ -109,6 +109,10 @@ export function withoutQuietThoughts(
     offsets.push(out.length);
   }
   const result = changed || reuse > 0 ? out : rows;
+  // The ordered snapshot's index is in the raw row list; `offsets` translates it to the
+  // projected list after quiet thoughts are removed. Preserve the hint for layoutConversation
+  // when this projection allocated a new array. An unchanged raw array already carries its hint.
+  if (result !== rows) markRowsChangedFrom(result, reuse ? prior.offsets[reuse]! : 0);
   const entry = projections.get(rows) ?? { live: { rows: [], offsets: [] }, settled: { rows: [], offsets: [] } };
   entry[live ? "live" : "settled"] = { rows: result, offsets };
   projections.set(rows, entry);
