@@ -11,7 +11,8 @@
 # alone after the pair (dependencies recompiled there are feature-unification churn, what a
 # workspace-hack crate removes). tests=PKGS times `cargo test` against `cargo nextest run`.
 # Variants (scripts/measure/rust-dev-loop.py `variants`): base, lld (macOS) or mold/split
-# (Linux), nodebug, lld+nodebug, nightly, nightly+threads8, cranelift, cranelift+all.
+# (Linux), nodebug, lld+nodebug, nightly, nightly+threads8, cranelift, cranelift+all, and blaze
+# (github.com/indexable-inc/blaze, its pinned release; one clean build, then edits; rss_mb per build).
 # Output: DEVLOOP lines (variant scenario n p50 p95 min max compiled failures; with n under 20
 # p95 is close to the max), DEVLOOP-SAMPLE
 # per build, and .build/rust-dev-loop/samples.json. Exit 1 when a dev build failed.
@@ -49,6 +50,33 @@ if [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] && ! command -v mold 
     export PATH="$mold_dir/mold-3.0.0-x86_64-linux/bin:$PATH"
   else
     echo "notice: mold download failed; the mold variants are skipped"
+  fi
+fi
+# blaze, when asked for: its pinned release, checked against the sha256 GitHub publishes, with its
+# home (daemon state, build directory, its own nightly) under .build; the toolchain download
+# happens here, before any clock starts.
+if [[ ",$variants," == *,blaze,* ]]; then
+  blaze_version=0.20261105.1
+  case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64) blaze_target=x86_64-unknown-linux-gnu blaze_sha=aaf09e38f7cd9e873c84d4fa6afe8c26f713cb558e2e9dfc1a599af31b15ad8b ;;
+    Linux-aarch64) blaze_target=aarch64-unknown-linux-gnu blaze_sha=b50716873fe4f1fd9c0c3604e8df49d5f8225c0ded995016c86b9f5a2f7e4ebc ;;
+    Darwin-arm64) blaze_target=aarch64-apple-darwin blaze_sha=2c6fb64b14668cb73c1a4531bd4f8b77665d2abe0e365d5ad76aaa77a3001f3e ;;
+    *) blaze_target="" ;;
+  esac
+  blaze_dir="$root/.build/rust-dev-loop-blaze"
+  export BLAZE_HOME="$blaze_dir/home"
+  mkdir -p "$blaze_dir/bin" "$BLAZE_HOME"
+  blaze_tgz="$blaze_dir/blaze-v$blaze_version-$blaze_target.tar.gz"
+  if [[ -n "$blaze_target" ]] \
+    && curl -fsSL --retry 3 -o "$blaze_tgz" "https://github.com/indexable-inc/blaze/releases/download/v$blaze_version/blaze-v$blaze_version-$blaze_target.tar.gz" \
+    && python3 -c 'import hashlib,sys; sys.exit(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest()!=sys.argv[2])' "$blaze_tgz" "$blaze_sha"; then
+    tar -xzf "$blaze_tgz" -C "$blaze_dir/bin"
+    blaze_bin="$(dirname "$(find "$blaze_dir/bin" -type f -name blaze -perm -u+x | head -1)")"
+    export PATH="$blaze_bin:$PATH"
+    blaze --version || true
+    blaze toolchain || echo "notice: blaze toolchain failed; its first build fetches the toolchain"
+  else
+    echo "notice: no blaze release for this host or the download failed; the blaze variant is skipped"
   fi
 fi
 cd "$root/cmux-tui"
