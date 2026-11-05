@@ -484,7 +484,7 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     raw.programs.push({ ...entry(), ...patch });
     return raw;
   };
-  const rdIndex = (raw: Record<string, any>) => raw.programs.findIndex((p: { name: string }) => p.name === "cmux-rd");
+  const rdIndex = (raw: ReturnType<typeof fresh>) => raw.programs.findIndex((p: { name: string }) => p.name === "cmux-rd");
 
   test("the shape is the release tarball, checked against the release checksums.txt, baked in role desktop", () => {
     expect(cmuxRdReleaseShape("0.1.0")).toEqual({
