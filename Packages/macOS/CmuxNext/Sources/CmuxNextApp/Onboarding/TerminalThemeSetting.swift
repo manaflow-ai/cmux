@@ -80,8 +80,13 @@ final class TerminalThemeSetting {
     /// first window, which must not draw a frame in the defaults), then
     /// follows their changes.
     func follow(_ settings: SettingsController) {
-        // An opacity write with Material unset names the material of the config files' own blur.
-        settings.ghosttyBackgroundBlur = { GhosttyConfigBackground.loaded.blur }
+        // An opacity write with Material unset names the material the unset window draws: the config
+        // files' own blur, or Glass when they are at Ghostty's opaque defaults (WindowBackgroundOverride),
+        // so moving Opacity on a default window keeps its glass.
+        settings.ghosttyBackgroundBlur = {
+            let ghostty = GhosttyConfigBackground.loaded
+            return WindowBackgroundOverride().resolved(backgroundOpacity: ghostty.opacity, backgroundBlur: ghostty.blur).backgroundBlur
+        }
         // The theme, its edits, the window background, the backdrop art and the tuning follow
         // `applied`, so a theme picker's, the Opacity, Hue or Saturation slider's or the background
         // picker's live preview repaints the window; the rest follows the loaded

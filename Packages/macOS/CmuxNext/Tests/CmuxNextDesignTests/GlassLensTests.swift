@@ -31,7 +31,8 @@ import CmuxNextDesignTokens
         store.activate(file: nil)
         let clear = ReduceTransparency(system: { false }, changes: NotificationCenter())
         let reduced = ReduceTransparency(system: { true }, changes: NotificationCenter())
-        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: LowPowerMode(enabled: false)) == .plain)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: LowPowerMode(enabled: false)) == .lens)
+        #expect(GlassLensMode.current(store: store, reduceTransparency: reduced, lowPower: LowPowerMode(enabled: false)) == .plain)
         GlassLensMode.choose(.spectrum, in: store)
         #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: LowPowerMode(enabled: false)) == .spectrum)
         #expect(GlassLensMode.current(store: store, reduceTransparency: reduced, lowPower: LowPowerMode(enabled: false)) == .plain)
@@ -40,17 +41,18 @@ import CmuxNextDesignTokens
         #expect(GlassLensMode.current(store: store, reduceTransparency: clear, lowPower: lowPower) == .plain)
     }
 
-    /// Plain is the default and stores nothing; Release never activates the store, so it stays plain.
-    @Test func choosingPlainClearsTheOverrideAndAnInertStoreStaysPlain() {
+    /// The lens is the default and stores nothing (Leo 2026-11-05: "new install should default to
+    /// glass"); Release never activates the store, so it draws the lens, and an override there is inert.
+    @Test func choosingTheLensClearsTheOverrideAndAnInertStoreDrawsTheLens() {
         let store = TunableStore()
         store.register([GlassLensMode.tunable.descriptor])
-        GlassLensMode.choose(.lens, in: store)
-        #expect(GlassLensMode.tunable.value(in: store) == .plain)
-        store.activate(file: nil)
-        #expect(GlassLensMode.tunable.value(in: store) == .lens)
         GlassLensMode.choose(.plain, in: store)
-        #expect(store.overrides[GlassLensMode.tunable.key] == nil)
+        #expect(GlassLensMode.tunable.value(in: store) == .lens)
+        store.activate(file: nil)
         #expect(GlassLensMode.tunable.value(in: store) == .plain)
+        GlassLensMode.choose(.lens, in: store)
+        #expect(store.overrides[GlassLensMode.tunable.key] == nil)
+        #expect(GlassLensMode.tunable.value(in: store) == .lens)
     }
 
     @Test func thePayloadCarriesTheGlassMode() throws {

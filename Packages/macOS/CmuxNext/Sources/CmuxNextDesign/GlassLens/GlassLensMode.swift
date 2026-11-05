@@ -1,9 +1,11 @@
 public import CmuxNextDesignTokens
 /// How web glass surfaces bend the wallpaper behind them (plans/cmux-next/glass-lens-DESIGN.md):
 /// the Debug Settings choice `glass.lens` (DEV and NIGHTLY), outside the settings schema until the
-/// lens is promoted. `plain` (the default, the look before the lens) only blurs it, `lens` refracts
+/// lens is promoted. `plain` (the look before the lens) only blurs it, `lens` refracts
 /// it at the rim, `spectrum` adds a chromatic split at the rim. Leo 2026-10-21: the lens is a
-/// toggle to see and feel before it is the default.
+/// toggle to see and feel before it is the default. Leo 2026-11-05, on the composer beside the Dock:
+/// "Yes, new install should default to glass ... We can just iterate on the glass", so `lens` is the
+/// default now, Release included (its store never activates, so it draws the default).
 public nonisolated enum GlassLensMode: String, Sendable, CaseIterable, Codable, TunableChoice {
     case lens
     case plain
@@ -17,11 +19,12 @@ public nonisolated enum GlassLensMode: String, Sendable, CaseIterable, Codable, 
         }
     }
 
-    /// Debug Settings > Glass and Overlays > Liquid Glass; Release keeps `plain`, since its store never activates.
+    /// Debug Settings > Glass and Overlays > Liquid Glass; Release draws the default, `lens`, since its store
+    /// never activates.
     public static let tunable = Tunable<GlassLensMode>.choice(
         "glass.lens", .glass, "Liquid Glass",
-        help: "How web glass bends the wallpaper behind it: plain glass (default) only blurs it, lens refracts it at the rim, spectrum adds a chromatic split. Reduce Transparency and Low Power Mode draw plain glass.",
-        default: .plain, code: "GlassLensMode.tunable")
+        help: "How web glass bends the wallpaper behind it: lens (default) refracts it at the rim, plain glass only blurs it, spectrum adds a chromatic split. Reduce Transparency and Low Power Mode draw plain glass.",
+        default: .lens, code: "GlassLensMode.tunable")
 
     /// The mode pages draw: `plain` under Reduce Transparency or Low Power Mode, else this one.
     public func effective(reduceTransparency: Bool, lowPowerMode: Bool) -> GlassLensMode {
@@ -31,7 +34,8 @@ public nonisolated enum GlassLensMode: String, Sendable, CaseIterable, Codable, 
     /// Whether pages refract a wallpaper still (the host feeds them one, `GlassBackdropFeed`).
     public var refracts: Bool { self != .plain }
 
-    /// The palette's Toggle Liquid Glass Lens: plain turns the lens on; lens or spectrum turn it off.
+    /// The palette's Toggle Liquid Glass Lens: plain turns the lens on; lens or spectrum turn it off
+    /// (plain is then an override of the `lens` default).
     public var lensToggled: GlassLensMode { self == .plain ? .lens : .plain }
 }
 

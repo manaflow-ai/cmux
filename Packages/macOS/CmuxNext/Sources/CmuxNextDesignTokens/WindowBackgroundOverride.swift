@@ -7,6 +7,12 @@
 /// draws from both apply it, so ``WindowBackdrop`` and the terminal agree.
 /// Applying it to values it already resolved changes nothing.
 ///
+/// With nothing asked for anywhere (cmux.json unset and the Ghostty config at Ghostty's own
+/// opaque, unblurred defaults) the window is Glass at ``defaultTranslucentOpacity`` (Leo,
+/// 2026-11-05: "new install should default to glass ... I'm sick and tired of this opaque-ass
+/// composer"). Any value set in either config keeps its window, and `"none"` with opacity 1 in
+/// cmux.json is the opaque window. Reduce Transparency still makes it opaque (``WindowBackdrop``).
+///
 /// ```swift
 /// let override = WindowBackgroundOverride(opacity: 0.7, material: .glass)
 /// override.resolved(backgroundOpacity: 1, backgroundBlur: 0) // (0.7, -1)
@@ -42,9 +48,12 @@ public nonisolated struct WindowBackgroundOverride: Hashable, Sendable {
     /// - Parameter backgroundOpacity: Ghostty's `background-opacity`.
     /// - Parameter backgroundBlur: Ghostty's `background-blur` in its C
     ///   encoding (0 off, > 0 radius, -1/-2 macOS glass styles).
-    /// - Returns: The resolved pair, in the same encodings. With no override
-    ///   it is the input.
+    /// - Returns: The resolved pair, in the same encodings. With no override it is the input,
+    ///   except Ghostty's own defaults (opacity 1, no blur), which are the default Glass window.
     public func resolved(backgroundOpacity: Double, backgroundBlur: Int) -> (backgroundOpacity: Double, backgroundBlur: Int) {
+        if material == nil, opacity == nil, backgroundOpacity >= 1, backgroundBlur == 0 {
+            return (Self.defaultTranslucentOpacity, -1)
+        }
         let blur: Int
         switch material {
         case nil: blur = backgroundBlur
