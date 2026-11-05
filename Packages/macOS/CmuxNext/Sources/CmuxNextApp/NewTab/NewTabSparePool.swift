@@ -69,7 +69,7 @@ final class NewTabSparePool {
     /// Main-thread time of the last move of the parked spare to another window.
     private(set) var lastRetargetMilliseconds: Double?
 
-    /// The native New Tab page's spare (`tabs.nativeNewTabPage`): one SwiftUI page, made and laid out
+    /// The native New Tab page's spare (`tabs.nativeNewTabPage`): one AppKit page, made and laid out
     /// in the parking view at the target pane's size at a quiet moment, so Cmd-T shows it with no
     /// build or layout (cmux19-perf: a cold native page showed on the 4th frame, 51 ms p50).
     private(set) var nativeSpare: NativeNewTabHostingView?

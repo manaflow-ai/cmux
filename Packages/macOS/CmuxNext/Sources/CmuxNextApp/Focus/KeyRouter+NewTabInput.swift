@@ -118,7 +118,7 @@ final class NewTabInputCoordinator {
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
         let buffer = NewTabInputBuffer(began: now(), focusField: { [weak pane, weak window] in
-            // The native page (tabs.nativeNewTabPage): its field, once SwiftUI has made it.
+            // The native page (tabs.nativeNewTabPage): its field, once the page is in the pane.
             if let pane, let window, let key = pane.currentTabKey, LocalPageTab.page(of: key) == .nativeNewTab {
                 guard let field = nativeNewTabHost(in: pane.view)?.fieldView, field.window === window else { return false }
                 return window.firstResponder === field || window.makeFirstResponder(field)
