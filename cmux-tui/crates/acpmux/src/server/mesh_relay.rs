@@ -829,7 +829,8 @@ pub async fn deliver(
     own_daemon: Option<&str>,
 ) -> Option<Ack> {
     // Sender display metadata alone must never change legacy session delivery semantics.
-    let team = message.to.team_address.is_some() || message.start_work.is_some();
+    let own_user = crate::cli::cloud_join::machine_user_id();
+    let team = team_delivery(message, own_user.as_deref());
     if team
         && !hub.config.read().await.mesh_relay.as_ref().is_some_and(|relay| relay.team_messaging)
     {
@@ -918,6 +919,24 @@ pub async fn deliver(
     }
 }
 
+/// Whether `message` is delivered by the team rules (information unless the hub allows work).
+/// A team address always is. A prompt to a session by id or name is too when the hub marked it
+/// (`startWork`), unless the same person sent it: the hub marks every message `information` by
+/// default, and the person's own machine prompting their own session is a turn, as a send from
+/// this machine is (`acpmux send B/NAME`, own-machines e2e prompt-reply, 2026-11-05).
+fn team_delivery(message: &InMessage, own_user: Option<&str>) -> bool {
+    if message.to.team_address.is_some() {
+        return true;
+    }
+    if message.start_work.is_none() {
+        return false;
+    }
+    let own = own_user.filter(|own| !own.is_empty());
+    let same_person = message.from.team_address.is_none()
+        && own.is_some_and(|own| message.from.user.as_deref() == Some(own));
+    !same_person
+}
+
 fn start_work_allowed(message: &InMessage) -> bool {
     matches!(message.start_work, Some(StartWork::Allowed))
 }
@@ -959,6 +978,27 @@ mod tests {
         let mut message = from("", "lane");
         message.from.team_address = Some("lawrence/coordinator".into());
         assert_eq!(sender_name(&message), "@lawrence/coordinator");
+    }
+
+    #[test]
+    fn the_same_persons_direct_prompt_is_a_turn_and_any_other_marked_one_is_information() {
+        let mut message = from("machine-a", "own-e2e");
+        message.from.user = Some("person-1".into());
+        // The hub marks every message `information` by default.
+        assert!(!team_delivery(&message, Some("person-1")), "the same person's own prompt");
+        assert!(team_delivery(&message, Some("person-2")), "another person's");
+        assert!(team_delivery(&message, None), "no person recorded here");
+        message.from.user = None;
+        assert!(team_delivery(&message, Some("person-1")), "no hub-stamped sender");
+        message.from.user = Some("person-1".into());
+        message.from.team_address = Some("@person-1/lead".into());
+        assert!(team_delivery(&message, Some("person-1")), "a team sender");
+        message.from.team_address = None;
+        message.to.team_address = Some("@person-1/coordinator".into());
+        assert!(team_delivery(&message, Some("person-1")), "a team address always is");
+        message.to.team_address = None;
+        message.start_work = None;
+        assert!(!team_delivery(&message, None), "an unmarked direct prompt, as before");
     }
 
     #[test]
