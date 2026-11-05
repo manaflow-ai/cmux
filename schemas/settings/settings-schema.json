@@ -1150,6 +1150,8 @@
             "rows" : [
               "agentPane.display.transcriptView",
               "agentPane.display.presentation",
+              "agentPane.display.statusVerbs.mode",
+              "agentPane.display.statusVerbs.custom",
               "agentPane.needsYou.enabled",
               "agentPane.showMachineLoadWarnings",
               "agentPane.newChatsIn",
@@ -44777,6 +44779,312 @@
       "title" : {
         "key" : "settings.agentPane.display.presentation",
         "text" : "Chat Presentation"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "thinking",
+        "rotate",
+        "custom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatStatusVerbsThinking",
+            "text" : "Thinking only"
+          },
+          "value" : "thinking"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatStatusVerbsRotate",
+            "text" : "Rotate"
+          },
+          "value" : "rotate"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatStatusVerbsCustom",
+            "text" : "Custom"
+          },
+          "value" : "custom"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "thinking",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.statusVerbs.help",
+        "text" : "Choose whether the live status line rotates through verbs or stays on Thinking."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.statusVerbs.mode",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "status",
+        "working",
+        "verbs",
+        "thinking",
+        "spinner",
+        "rotate",
+        "custom"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "statusVerbs",
+        "mode"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.statusVerbs.mode"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.statusVerbs",
+        "text" : "Working Status Verbs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.statusVerbs.custom.help",
+        "text" : "Comma-separated -ing verbs for the live status line."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.statusVerbs.custom",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "status",
+        "working",
+        "verbs",
+        "custom",
+        "comma",
+        "thinking"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "statusVerbs",
+        "custom"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.statusVerbs.custom"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.statusVerbs.custom",
+        "text" : "Custom Working Verbs"
       },
       "validation" : "portable"
     },

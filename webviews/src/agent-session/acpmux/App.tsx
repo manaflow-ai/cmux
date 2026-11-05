@@ -638,6 +638,7 @@ import { usePresentation } from "./conversation/presentation";
 import { messagesRows } from "./conversation/messagesRows";
 import { AssistantPresentation, PresentationContext } from "./conversation/PresentationContext";
 import { thinkingVerbsFor, ThinkingVerbsContext } from "./conversation/thinkingVerbs";
+import { useStatusVerbConfig } from "./statusVerbs";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
@@ -7446,8 +7447,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Thinking and Verbose also open each finished turn's "Worked for" (conversation/viewFolds.ts).
   // One object per view, set or toggle change, so the turns are not reshaped per event.
   const chatPresentation = usePresentation(shownSessionId);
-  // The live line's verbs for the pane's language (conversation/thinkingVerbs.ts).
-  const thinkingVerbs = thinkingVerbsFor(usePaneLanguage());
+  // Leo's alternate -ing verbs stay behind the explicit Rotate setting. The normal path leaves
+  // this context empty so the live line remains the bare translated Thinking label.
+  const statusVerbConfig = useStatusVerbConfig();
+  const language = usePaneLanguage();
+  const thinkingVerbs = statusVerbConfig.mode === "rotate" ? thinkingVerbsFor(language) : undefined;
   const chatView = useTranscriptView(shownSessionId);
   const chatViewRef = useRef(chatView);
   chatViewRef.current = chatView;
