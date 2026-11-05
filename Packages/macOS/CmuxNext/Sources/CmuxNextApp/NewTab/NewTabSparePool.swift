@@ -13,11 +13,10 @@ import CmuxNextWakeups
 /// Opening the new tab page in any window adopts it in the same main-actor
 /// turn (no load, no React mount on the open path); the next spare starts
 /// ``openSettle`` after a handout (else once input is quiet for ``idleInput``),
-/// so making a web view never lands in an open's frames (nor, when idle, in typing). The spare waits at the size of the pane
-/// content Cmd-T fills (the target window's focused pane), refitted when a
-/// pane there changes size or focus, so the adoption changes no size: WebKit
-/// shows it at once at its final layout (hqacp-v2: a page parked at the
-/// window's width showed for ~40 ms at that width after Cmd-T). Memory pressure drops the spare. A spare
+/// so making a web view never lands in an open's frames (nor, when idle, in typing). The spare is parked at the size of the
+/// pane content Cmd-T fills (the target window's focused pane) and keeps it while hidden: a pane that changes size later
+/// lays out no hidden page (RESIZE MAIN BUDGET: in a key resize's spring that fit cost a frame); the Cmd-T that takes it
+/// lays it out once at its pane's size (`Opening.refit`). Memory pressure drops the spare. A spare
 /// exists while the new tab page is likely: a person's Cmd-T always opens it.
 @MainActor
 final class NewTabSparePool {
@@ -34,8 +33,7 @@ final class NewTabSparePool {
     }
 
     static let idleInput: Duration = .milliseconds(750)
-    /// A pane resize or focus change settles this long before the parked spare follows
-    /// (a live window resize lays the hidden page out once, at the end).
+    /// A focus or selected-tab change settles this long before the parked spare draws the context a Cmd-T there gives.
     static let fitSettle: Duration = .milliseconds(120)
     static let maximumOpenings = 64
 
@@ -58,7 +56,6 @@ final class NewTabSparePool {
     /// The main window the spare parks in (the key one, or the last key one).
     private(set) weak var target: NSWindow?
     private let warmTimer = DemandTimer(owner: "NewTabSparePool.warm")
-    private let fitTimer = DemandTimer(owner: "NewTabSparePool.fit")
     private var inputMonitor: Any?
     /// The app's memory pressure events; a warning or critical level drops the spare.
     private let memoryPressure: MemoryPressureEvents
@@ -199,8 +196,8 @@ final class NewTabSparePool {
         scheduleWarm()
     }
 
-    /// Parks the parking view in `content`, at the target pane's size. It does not follow the
-    /// window's size: ``fitParked()`` follows the pane's.
+    /// Parks the parking view in `content`, at the target pane's size (``fitParked()``). It follows neither the window's
+    /// size nor the pane's while hidden.
     private func park(in content: NSView) {
         if parking.superview !== content {
             parking.autoresizingMask = []
@@ -256,8 +253,7 @@ final class NewTabSparePool {
         return NSSize(width: pane.view.bounds.width, height: max(0, pane.view.bounds.height - strip))
     }
 
-    /// Sizes the parking view and the spare in it to the target pane now, laid out, so the
-    /// page commits at that size long before an adoption.
+    /// Sizes the parking view and the spare in it to the target pane now, laid out, when it is parked in a window.
     private func fitParked() {
         guard let content = parking.superview else { return }
         let size = targetPaneSize ?? content.bounds.size
@@ -267,13 +263,13 @@ final class NewTabSparePool {
         if !refills.isOpening { slot.all.forEach(snapshotParked) }
     }
 
-    /// A pane of `window` changed size, or its focus or selected tab moved: the parked spare follows
-    /// the target pane once that settles (``fitSettle``). Nothing is scheduled while it fits.
+    /// A pane of `window` changed size, or its focus or selected tab moved: the parked spare draws the context a
+    /// Cmd-T there gives once that settles (``fitSettle``). It keeps its size: a hidden page gets model changes, no
+    /// layout (a fit in a key resize's spring cost a motion frame 3.6 ms, RESIZE MAIN BUDGET); the New Tab that takes it
+    /// lays it out once, at its pane's size.
     func paneLayoutDidChange(in window: NSWindow?) {
-        guard let window, window === target, let content = parking.superview else { return }
-        let size = targetPaneSize ?? content.bounds.size
-        guard targetIdentity != preparedFor || parking.frame != PageOffscreenParking.frame(in: content.bounds, size: size) else { return }
-        fitTimer.schedule(after: Self.fitSettle) { @MainActor [weak self] in self?.fitParked() }
+        guard let window, window === target, parking.superview != nil, targetIdentity != preparedFor else { return }
+        schedulePrepare()
     }
 
     /// The spare for a new tab page in `window`, or nil (the page loads cold).
