@@ -91,24 +91,24 @@ struct ClickedLinkFocusTests {
         }
     }
 
-    /// A pull request link's GitHub page (``WebPageTab/openGitHub(_:from:services:)``) opened in a pane of its own
-    /// right of the source (made in the source, then moved): its close, emptying that pane, gives the focus back to the
-    /// source, as the web tab's does.
-    @Test func theGitHubPageInAPaneOfItsOwnGivesTheFocusBackToTheSource() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+    /// A pull request link's GitHub page (``WebPageTab/openGitHub(_:from:services:)``) opened in the browser pane right
+    /// of the source (``splitRightHoldingABrowser(_:_:_:)``; made in the source, then moved there): its close, emptying
+    /// that pane, gives the focus back to the source, as the web tab's does.
+    @Test func theGitHubPageInAnotherPaneGivesTheFocusBackToTheSource() async throws {
+        try await PinnedPageTests.withApp { services, connection in
             let store = services.daemon.store
             let content = try #require(services.windows.active?.workspaceContent)
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             let pane = try #require(services.paneController(for: model))
+            let right = try await Self.splitRightHoldingABrowser(services, content, connection)
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === pane })
             services.linkOpener.placement = { .splitRight }
 
             let opened = try await Self.click(services, from: pane, native: true)
-            try await PinnedPageTests.until({ content.focusedPane !== pane && content.focusedPane?.pane.tabs.map(\.id) == [opened] },
-                                            report: { "the GitHub page is not alone in a focused pane of its own: " + Self.describe(content, opened) })
-            // The close that empties its pane goes back to the chat's pane, not a neighbour: the record a close reads
-            // (two panes alone would focus the chat's pane either way).
+            try await PinnedPageTests.until({ content.focusedPane === right && right.pane.tabs.contains { $0.id == opened } },
+                                            report: { "the GitHub page is not in the focused pane on the right: " + Self.describe(content, opened) })
+            // A close that empties its pane goes back to the chat's pane, not a neighbour: the record that close reads.
             let shown = try #require(content.focusedPane)
             #expect(services.linkOpener.returnPane(closing: TabID(opened), in: shown, emptiesPane: true) === pane,
                     "the GitHub tab's close does not give the focus back to the chat's pane")

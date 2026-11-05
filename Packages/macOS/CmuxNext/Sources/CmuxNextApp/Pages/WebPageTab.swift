@@ -126,14 +126,15 @@ extension WebPageTab {
             guard let tab, let window = services.windowController(showing: pane) else { return false }
             let key = LocalPageTab.makeKey(.github), opener = pane === source && placed == nil && !HomeDockOpens.opensBeside(pane.pane, services: services) ? pane.selectedTab : nil
             tab.restore(link.route, for: key)
-            // In the chat's own pane the chat is its opener, as for its web tab: right after it, and its close selects the chat.
+            // As for its web tab: in the chat's own pane the chat is its opener (right after it, its close selects the chat); in
+            // another pane its close, emptying that pane, gives the focus back to the chat.
             let adopt = opener.flatMap { o in NewTabSlot.placing(after: o, services: services) { [weak services] in services?.cache.pageRequests.openers.adopt($0, opener: o.surface) } }
             let made = placed ?? adopt ?? HomeDockOpens.placing(pane.pane, services: services, focus: true, then: nil)
-            // In another pane, as the web tab's open: its close, emptying that pane, gives the focus back to the chat.
-            let created: (@MainActor (SurfaceID) -> Void)? = pane === source && placed == nil ? made : { [weak source] surface in
+            var created = made
+            if pane !== source || placed != nil { created = { @MainActor [weak source] surface in
                 if let source, let content = source.workspace { services.linkOpener.returnFocus(of: surface, to: source.layoutPaneID, in: content) }
                 made?(surface)
-            }
+            } }
             return services.pages.openStoreTab(.github, in: pane, window: window, focus: placed == nil, key: key, created: created,
                                                requiresSurface: placed != nil) != nil
         }
