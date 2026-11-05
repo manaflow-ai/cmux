@@ -30,3 +30,19 @@ export function imageLabel(t: Translate, { name, source, width, height }: ImageF
   const label = source?.trim() ? t("image.screenshotFrom", { source: source.trim() }) : t("image.screenshot");
   return width && height ? t("image.withSize", { label, width, height }) : label;
 }
+
+/// A list's name for each image in it, in the order given (Leo, 2026-11-05, on Session Info's
+/// Sources reading "image.png" five times: "instead of, like screenshot number one, two, three,
+/// four"): an image with no name of its own is "Screenshot 1", "Screenshot 2", ... (or
+/// "<source> screenshot 3") counting only those, so two pasted images never read alike; a real
+/// file name shows as itself and takes no number.
+export function numberedImageLabels(t: Translate, images: readonly Pick<ImageFacts, "name" | "source">[]): string[] {
+  let number = 0;
+  return images.map(({ name, source }) => {
+    if (!isPlaceholderImageName(name)) return name!.trim();
+    number += 1;
+    return source?.trim()
+      ? t("image.screenshotFromNumbered", { source: source.trim(), number })
+      : t("image.screenshotNumbered", { number });
+  });
+}

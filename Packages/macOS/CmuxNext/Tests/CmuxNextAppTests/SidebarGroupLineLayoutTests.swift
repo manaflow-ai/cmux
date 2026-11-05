@@ -129,7 +129,9 @@ import Testing
                 #expect(line.maxX <= member.frame.minX, "\(layout): \(id.rawValue)'s fill covers the line")
             }
 
-            // One color: the line is the bar's rest color.
+            // One color: the line is the solid bar's rest color (on glass it is the pane's vivid tint, `GroupHeaderGlassTests`).
+            TunableStore.shared.set(SidebarGroupGlass.tunable.key, SidebarGroupGlass.solid.tunableValue)
+            defer { TunableStore.shared.set(SidebarGroupGlass.tunable.key, nil) }
             header.updateLayer()
             view.updateLayer()
             let barColor = try GroupPaletteDefaultTests.rgb(header.pill.backgroundColor)

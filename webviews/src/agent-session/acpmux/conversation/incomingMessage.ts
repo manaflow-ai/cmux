@@ -28,6 +28,7 @@
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
+import { relayEnvelope, withoutRelayEnvelope } from "./relayEnvelope";
 import { legacyNotice, noticeBody, provenanceNotice, renderedNotice, type AgentNotice } from "./agentNotice";
 
 /// Who a family message's sender is to this chat (acpmux `fromRole`, subsession_send.rs
@@ -276,8 +277,42 @@ export function cliHost(client: unknown): string | undefined {
   return /^acpmux-(?:cli|peer|outbox)#[^@\s]*@([A-Za-z0-9._-]{1,64})$/.exec(String(client ?? ""))?.[1];
 }
 
+/// Provenance kinds acpmux gives only another agent's message (or a tool's notice).
+const AGENT_KINDS = new Set([
+  "agent_message",
+  "session_message",
+  "subsession_message",
+  "task_result",
+  "lane_report",
+  "notice",
+]);
+
+/// Whether acpmux recorded the message as another agent's: its provenance says so, or (an older
+/// acpmux with none) it came by `acpmux send` at a shell or its outbox.
+function fromAgent(msg: Parameters<typeof promptOf>[1]): boolean {
+  const provenance = msg?._meta?.provenance as { kind?: unknown } | undefined;
+  if (provenance) return typeof provenance.kind === "string" && AGENT_KINDS.has(provenance.kind);
+  return typeof msg?.client === "string" && (CLI_CLIENT.test(msg.client) || OUTBOX_CLIENT.test(msg.client));
+}
+
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
+  text: string,
+  msg: Parameters<typeof promptOf>[1],
+  context?: IncomingContext,
+): IncomingPrompt | undefined {
+  // A lane VM's message the lane-gh broker relayed (relayEnvelope.ts): the message inside its
+  // label, read as any other; the label names the sender when nothing else does. The prompt the
+  // agent got, label and all, stays the row's `raw` (behind Details). Only a record acpmux keeps
+  // as another agent's is read so: anyone can type a label, and the person's own prompt stays theirs.
+  const relay = fromAgent(msg) ? relayEnvelope(text) : undefined;
+  if (!relay) return promptOf(text, msg, context);
+  const inner = promptOf(relay.body, msg, context);
+  if (inner?.kind === "message") return { kind: "message", message: { ...inner.message, raw: text } };
+  return { kind: "message", message: { name: relay.sender, text: relay.body, raw: text } };
+}
+
+function promptOf(
   text: string,
   msg:
     | {
@@ -675,7 +710,7 @@ function digestBody(text: string): string {
   const messages = parts.map((part, index) => {
     const sender = part[1]!.trim();
     const end = parts[index + 1]?.index ?? rest.length;
-    const body = rest.slice(part.index! + part[0].length, end).trim();
+    const body = withoutRelayEnvelope(rest.slice(part.index! + part[0].length, end)).trim();
     const signed = agentSigned(body, [sender]);
     return { sender: signed?.name ?? sender, text: signed?.text ?? body };
   });

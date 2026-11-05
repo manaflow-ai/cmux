@@ -45,7 +45,7 @@ struct GhosttyOutputSurface: TerminalOutputSurface {
         let sink = SnapshotSink()
         let ok = withExtendedLifetime(sink) {
             ghostty_surface_encode_snapshot(ref.surface, { userdata, bytes, length in
-                guard let userdata, let bytes else { return }
+                guard let userdata else { return }
                 // Copy now: the bytes are valid only during the call.
                 Unmanaged<SnapshotSink>.fromOpaque(userdata).takeUnretainedValue().data.append(bytes, count: length)
             }, Unmanaged.passUnretained(sink).toOpaque(), phase.ghostty)
