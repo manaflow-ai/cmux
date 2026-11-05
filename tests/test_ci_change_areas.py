@@ -1406,6 +1406,15 @@ def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> Non
     two = base + '\n[[test]]\npath = "tests/native2.py"\nlane = "macos-shell"\n'
     swapped = 'version = 1\n[[test]]\npath = "tests/native2.py"\nlane = "macos-shell"\n' + base.removeprefix('version = 1\n')
     assert module.test_registry_change_is_linux_only(two, swapped)
+    # The registry has serial entries; one is no reason to treat every edit as native.
+    serial_native = base + 'serial = true\n'
+    assert module.test_registry_change_is_linux_only(serial_native, serial_native + guard)
+    assert module.test_registry_change_is_linux_only(base, base + guard + 'serial = true\n')
+    assert not module.test_registry_change_is_linux_only(base, serial_native), "a native entry's serial is native"
+    # An unchanged guard entry with requirements (the registry's fish one) does not make every edit native.
+    fish_guard = '\n[[test]]\npath = "tests/fish.py"\nlane = "linux-guard"\nrequirements = ["fish"]\n'
+    assert module.test_registry_change_is_linux_only(base + fish_guard, base + fish_guard + guard)
+    assert not module.test_registry_change_is_linux_only(base, base + fish_guard), "adding one still needs fish"
     for candidate in (
         base.replace('macos-shell', 'linux-guard'),
         base.replace('native.py', 'other.py'),
