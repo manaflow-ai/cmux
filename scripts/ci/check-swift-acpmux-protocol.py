@@ -44,7 +44,20 @@ def strip_comments(text: str) -> str:
     n = len(text)
     while i < n:
         c = text[i]
-        if c == '"':
+        if text.startswith('"""', i) or text.startswith('#"""', i):
+            # A multiline string: kept whole, so a `//` inside it is not a comment.
+            start = i + (1 if c == "#" else 0)
+            end = text.find('"""', start + 3)
+            end = n if end < 0 else end + 3
+            out.append(text[i:end])
+            i = end
+        elif c == "#" and text.startswith('#"', i):
+            # A raw string `#"..."#`: no escapes, so a backslash never ends it early.
+            end = text.find('"#', i + 2)
+            end = n if end < 0 else end + 2
+            out.append(text[i:end])
+            i = end
+        elif c == '"':
             j = i + 1
             while j < n and text[j] != '"' and text[j] != "\n":
                 j += 2 if text[j] == "\\" else 1
@@ -86,7 +99,8 @@ class Protocol:
             schema = self._resolve(stack.pop())
             if not isinstance(schema, dict):
                 return None
-            if schema.get("additionalProperties") not in (None, False):
+            # A JSON Schema object takes keys beyond its properties unless additionalProperties is false.
+            if "properties" in schema and schema.get("additionalProperties") is not False:
                 return None
             names.update(schema.get("properties", {}))
             for key in ("allOf", "anyOf", "oneOf"):
@@ -179,6 +193,8 @@ def check(root: Path) -> list[str]:
     # 2. The agent pane's frame policy: every method it lets through, and their param keys.
     pane = "".join(strip_comments(p.read_text()) for p in sorted((root / PANE).glob("AcpmuxPaneMethods*.swift")))
     methods = set(set_literal(pane, "requests")) | set(set_literal(pane, "notifications"))
+    # The first frame of every connection (`static let initialize = "initialize"`).
+    methods |= set(re.findall(r'static let initialize\s*=\s*"([^"]+)"', pane))
     params = known_params(pane)
     for method in sorted(methods | set(params)):
         if method not in protocol.methods:
