@@ -38,7 +38,11 @@ extension SidebarViewComponents {
             aboveFade.animator().alphaValue = target.topBand
             belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: target.bottomBand == 0)
             footerRegion.animator().alphaValue = target.footer
-            searchButton.animator().alphaValue = target.footer
+            // `sidebar.topLeftCluster`: Search in the header row fades with the +, as do the New Workspace row and
+            // the tab strip's +.
+            searchButton.animator().alphaValue = searchLivesInHeader ? target.newButton : target.footer
+            newWorkspaceRowIfBuilt?.animator().alphaValue = target.newButton
+            tabLeadButton.animator().alphaValue = target.newButton
         }
         fadeLine(aboveLine, to: target.topBand)
     }

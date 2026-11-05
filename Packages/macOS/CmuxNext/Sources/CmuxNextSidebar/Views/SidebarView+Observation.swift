@@ -128,6 +128,11 @@ extension SidebarViewComponents {
         if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
+        // `sidebar.topLeftCluster` moves the + (and in `tabLead` the window's top row and its first tab strip).
+        if lastState?.preferences.topLeftCluster != state.preferences.topLeftCluster || lastState?.preferences.density != state.preferences.density {
+            topLeftClusterChanged()
+            setChromeRevealed(isChromeRevealed)
+        }
         model.groupByStatus(state.groupsByStatus)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
         // Controls on hover too (`sidebar.controlsOnHover`): its controls fade to the new rule.

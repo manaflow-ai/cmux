@@ -1,5 +1,17 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: `sidebar.topLeftCluster` (Top Corner Layout; default `standard`, today's corner unchanged; compact density
+  always draws `standard`). Leo, verbatim: "There's just this extremely awful corner area where it's like, okay, you
+  have this plus symbol, and then you have the divider, and then you have like the workspaces, and then you have the
+  top horizontal tab", and "that search button, that like magnifying glass, it isn't aligned. And the new workspace,
+  like those two things, like they're just not aligned." `aligned`: the header + takes the footer Search's frame rule
+  (`SidebarFooterBand.searchPlacement`, its side and snap) and glyph size (`Metrics.iconSize`), one center x and one
+  box; the chooser chevron stays on the +'s right-click there. `headerRow`: aligned, and Search moves up one slot
+  before the + on the header's line (the footer leaves its slot empty). `listRow`: a full-width New Workspace row at
+  the top of the list on the rows' icon and title columns (`SidebarNewWorkspaceRow`); the header has no +. `tabLead`:
+  the + sits in the first tab strip's leading slot (`SidebarContainerView+TabLead`, the window's
+  `WindowControlsAvoiders.leadingSlot`; the strip starts its tabs after it). Gallery and pixel measurements:
+  `AATopLeftClusterGalleryTests`.
 - 2026-11-05: sidebar corners follow the one concentric corner rule. Lawrence, verbatim (2026-11-04): "all nested
   radius everywhere, for all types of panes where it applies, must be concentric, where inner radius is outer minus
   padding, where padding is configurable too". Rows and rail tiles take the one corner radius

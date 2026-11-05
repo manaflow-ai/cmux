@@ -87,6 +87,12 @@ public final class SidebarView: NSView {
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press runs ``onSearch`` (the centered Search palette). `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
+    /// `sidebar.topLeftCluster` (SidebarView+TopLeftCluster): the + the window puts in the first tab strip's leading
+    /// slot (`tabLead`), the list's New Workspace row (`listRow`, made on first use), and whether the header + draws
+    /// at Search's glyph size.
+    let tabLeadButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.iconSize }, label: Strings.newWorkspace)
+    var newWorkspaceRowIfBuilt: SidebarNewWorkspaceRow?
+    var plusTakesSearchSize = false
     /// The Priority view, its titlebar bell and the bell's dot (SidebarView+Priority); nil `priority` hides all three.
     let priorityPanelView = SidebarPriorityPanelView(), priorityButton = SidebarIconButton(icon: .notification, label: Strings.priorityTitle)
     /// The quiet Update Available button (``showUpdateAvailable(_:)``).
@@ -304,6 +310,7 @@ public final class SidebarView: NSView {
         cardSlot.install(in: self)
         buildPriority()
         buildUpdateAvailable()
+        buildTopLeftCluster()
     }
 
     /// The + and its chevron segment share one rounded outline: their hover and pressed fills
@@ -338,7 +345,8 @@ public final class SidebarView: NSView {
         let b = bounds
         // Tokens are read here, never cached, so density changes apply live.
         // The list starts right under the titlebar row: no search field.
-        let y = titlebarHeight
+        // `sidebar.topLeftCluster = listRow`: the New Workspace row sits between the titlebar row and the rest.
+        let y = titlebarHeight + topLeftListRowSpace
 
         // Titlebar row: buttons trail the traffic lights at a stable frame.
         // Every control in the row centers on the traffic lights' line (the
@@ -362,7 +370,7 @@ public final class SidebarView: NSView {
         newButton.frame = NSRect(x: trailing - button - (showsChevron ? segment : 0), y: buttonY, width: button, height: button)
         newWorkspaceOptionsButton.frame = NSRect(x: newButton.frame.maxX, y: buttonY, width: segment, height: button)
         joinSplitButtonCorners(showsChevron)
-        let titlebarButtonsMinX = layoutPriorityButton(before: newButton.frame)
+        let titlebarButtonsMinX = layoutPriorityButton(before: layoutTopLeftCluster(rowMidY: rowMidY, standardPlusFrame: newButton.frame))
         if let accessory = titlebarAccessory {
             let size = accessory.fittingSize
             let width = max(0, min(size.width, titlebarButtonsMinX - Metrics.space2 - x))
@@ -450,7 +458,7 @@ extension SidebarView: TitlebarPressDeciding {
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
         let point = convert(windowPoint, from: nil)
         guard point.y < titlebarHeight else { return .staysPut }
-        let controls = [newButton as NSView?, newWorkspaceOptionsButton, priorityButton, titlebarAccessory].compactMap { $0 }.filter { !$0.isHidden }
+        let controls = [newButton as NSView?, newWorkspaceOptionsButton, priorityButton, titlebarAccessory, searchButton].compactMap { $0 }.filter { !$0.isHidden }
         return controls.contains { $0.frame.contains(point) } ? .staysPut : .movesWindow
     }
 }

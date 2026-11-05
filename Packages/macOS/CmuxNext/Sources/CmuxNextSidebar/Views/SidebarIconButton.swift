@@ -40,8 +40,9 @@ final class SidebarIconButton: ClickableButton {
     private static let mouseEvents: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
                                                                .otherMouseDown, .otherMouseUp]
     private lazy var keyRepaint = KeyWindowRepaint(self)
-    /// The label point size the icon sits beside, read at layout time so density changes apply live.
-    private let pointSize: () -> CGFloat
+    /// The label point size the icon sits beside, read at layout time so density changes apply live. A new
+    /// closure redraws the icon if its size differs (the titlebar + takes Search's size, `sidebar.topLeftCluster`).
+    var pointSize: () -> CGFloat { didSet { renderIcon() } }
     private var renderedSize: CGFloat = 0
     /// An SF Symbol drawn through the pack (`NSImage.icon(symbol:)`) for a glyph
     /// the pack has no name for, such as the group editor's emoji button.

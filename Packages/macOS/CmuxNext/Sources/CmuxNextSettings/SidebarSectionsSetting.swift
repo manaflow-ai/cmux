@@ -218,6 +218,8 @@ public nonisolated enum SidebarSectionsSetting {
                                                        "A chevron beside the + in the sidebar's titlebar opens the New Workspace menu. Off, right-click the + for the same menu."),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showNewWorkspaceChooser),
                               keywords: ["sidebar", "new workspace", "chevron", "dropdown", "menu", "titlebar", "hide", "show"]),
+            // The top-left corner group's look (2026-11-05 sidebar corner thunderdome, top-left cluster).
+            SidebarTopLeftClusterSetting.descriptor(group: group),
             // Leo's sidebar prototypes as toggles (2026-10-21: "They're just toggles in the app store area").
             SettingDescriptor(workspacesAsTabsPath, section: .appearance, group: group,
                               title: SettingsText.keyed("settings.sidebar.workspacesAsTabs", "Workspaces as Tabs"),
@@ -327,6 +329,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
         result.showSearchButton = flag(root, showSearchButtonPath, fallback: result.showSearchButton, &diagnostics)
         result.showNewWorkspaceChooser = flag(root, showNewWorkspaceChooserPath, fallback: result.showNewWorkspaceChooser, &diagnostics)
+        result.topLeftCluster = SidebarTopLeftClusterSetting.parse(root, fallback: result.topLeftCluster, &diagnostics)
         result.workspacesAsTabs = flag(root, workspacesAsTabsPath, fallback: result.workspacesAsTabs, &diagnostics)
         result.chromeGroups = flag(root, chromeGroupsPath, fallback: result.chromeGroups, &diagnostics)
         result.sideBySide = flag(root, sideBySidePath, fallback: result.sideBySide, &diagnostics)

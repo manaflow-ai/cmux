@@ -336,6 +336,7 @@ public final class SidebarContainerView: NSView {
     /// always decides which view is hovered.
     override public func layout() {
         super.layout()
+        placeTabLeadNewWorkspace()
         guard isWidthAnimating else {
             refreshHover()
             return

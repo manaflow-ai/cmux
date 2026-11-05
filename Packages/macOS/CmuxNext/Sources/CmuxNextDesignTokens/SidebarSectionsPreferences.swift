@@ -79,6 +79,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// workspace titlebar dropdowns at all, i just want to have linear list of workspaces"): the +
     /// stands alone, and its right-click menu still holds the same chooser.
     public var showNewWorkspaceChooser = false
+    /// `sidebar.topLeftCluster`: the top-left corner group's look (``SidebarTopLeftCluster``); standard by default.
+    public var topLeftCluster: SidebarTopLeftCluster = .standard
     /// The sidebar prototypes Leo asked for as first-class toggles instead of palette or Debug
     /// switches (2026-10-21: "They're just toggles in the app store area"), each off by default and
     /// on when its key or its Debug tunable is (`SidebarFeatures`):
