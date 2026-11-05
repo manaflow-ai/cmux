@@ -331,6 +331,52 @@ fn folders_that_cannot_be_seeded_are_copied_and_say_why() {
     assert!(w.remote("gitlab").join(".git").is_dir());
 }
 
+/// `--seed-only` (the App's chat start): a folder the seed cannot take is
+/// refused in words, with what a copy would send, and nothing goes to the
+/// machine; the person then picks the copy or not. RED before the flag: a
+/// chat start copied a 12.8 GB folder without asking when the seed was
+/// refused (a submodule with local work), and the machine's disk ran out.
+#[test]
+fn seed_only_refuses_instead_of_copying_and_says_what_a_copy_would_send() {
+    let w = World::new(Serves::Seed);
+    let plain = w.root.join("plain");
+    write(&plain.join("a.txt"), "a\n");
+    write(&plain.join("b.txt"), "bb\n");
+    let remote = w.remote("plain");
+    let socket = w.socket.to_str().unwrap();
+    let (ok, refused, _) = w.seed(&[
+        "push",
+        "--seed-only",
+        "--socket",
+        socket,
+        plain.to_str().unwrap(),
+        remote.to_str().unwrap(),
+    ]);
+    assert!(!ok, "{refused}");
+    assert_eq!(refused["error_code"], json!("seed_refused"), "{refused}");
+    assert_eq!(refused["fallback_code"], json!("not_git"), "{refused}");
+    assert_eq!(refused["copy_files"], json!(2), "{refused}");
+    assert_eq!(refused["copy_bytes"], json!(5), "{refused}");
+    let error = refused["error"].as_str().unwrap();
+    assert!(error.contains("is not a git working copy"), "{error}");
+    assert!(error.contains("2 files (5 bytes)"), "{error}");
+    assert!(!remote.exists(), "--seed-only copied");
+    assert_eq!(w.writes.load(std::sync::atomic::Ordering::SeqCst), 0, "a file went");
+
+    // A folder the seed takes goes as before.
+    let widget = w.remote("widget");
+    let (ok, seeded, _) = w.seed(&[
+        "push",
+        "--seed-only",
+        "--socket",
+        socket,
+        w.work.to_str().unwrap(),
+        widget.to_str().unwrap(),
+    ]);
+    assert!(ok, "{seeded}");
+    assert_eq!(seeded["mode"], json!("seed"), "{seeded}");
+}
+
 #[test]
 fn a_repository_the_machine_cannot_clone_is_copied_and_leaves_nothing_behind() {
     let w = World::new(Serves::Seed);
