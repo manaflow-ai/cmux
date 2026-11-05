@@ -736,12 +736,22 @@ def main():
     parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
     parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
                         help="extra app environment, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=... (repeatable)")
+    parser.add_argument("--tunable", action="append", default=[], metavar="KEY=JSON",
+                        help="a Debug Settings value for this run (repeatable), e.g. browserPage.sparePage=true: the arms of an A/B")
     parser.add_argument("--neighbor-gap", type=float, default=7, help="seconds before each neighbors-scenario switch")
     parser.add_argument("--neighbor-rounds", type=int, default=10)
     parser.add_argument("--sample-idle", action="store_true",
                         help="sample the app's stacks inside each idle window; keep the sample when the app is above 1 mW")
     parser.add_argument("--out")
     args = parser.parse_args()
+    if args.tunable:
+        # The build reads its Debug Settings from this file (DebugSettingsService), as chromium-host-bench.py does.
+        tunables = os.path.join(tempfile.mkdtemp(prefix="bench-power-tunables-"), "debug-tunables.json")
+        values = {k: json.loads(v) for k, v in (item.split("=", 1) for item in args.tunable)}
+        with open(tunables, "w") as f:
+            json.dump({"version": 1, "values": values}, f)
+        args.env.append(f"CMUX_NEXT_DEBUG_TUNABLES_FILE={tunables}")
+        print(f"PERF-TUNABLES {json.dumps(values)}", flush=True)
     if args.compare:
         before, after = (loaded_result(path) for path in args.compare)
         print("\n".join(perf_rows(before, after, args.harness or before.get("harness", "bench_power.py loaded"))))

@@ -8,6 +8,7 @@
 #   cmux-ci run --class exclusive --measurement --label measure \
 #     --script scripts/measure/perf-idle-power.sh --ref SHA [--arg=measure=60] [--arg=config=Release]
 #     [--arg=scenarios=terminal,tab1] [--arg=settings={"browser":{...}}]
+#     [--arg=tunable=KEY=JSON] (a Debug Settings value, repeatable, e.g. browserPage.sparePage=true)
 #     [--arg=freeze=SECONDS] [--arg=neighbors=0..3]  (browser.freezeHiddenTabs and
 #     browser.keepNeighborTabsAwake without JSON, which the fleet's argument check refuses)
 # Each idle scenario settles 120 s first (Chromium's post-load work), so a
@@ -31,6 +32,7 @@ scenarios=""
 settings="{}"
 freeze=""
 neighbors=""
+tunables=()
 for arg in "$@"; do
   case "$arg" in
     measure=*) measure="${arg#measure=}"; [[ "$measure" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: measure=SECONDS" >&2; exit 2; } ;;
@@ -41,6 +43,7 @@ for arg in "$@"; do
     scenarios=*) scenarios="${arg#scenarios=}" ;;
     settings=*) settings="${arg#settings=}" ;;
     freeze=*) freeze="${arg#freeze=}"; [[ "$freeze" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: freeze=SECONDS" >&2; exit 2; } ;;
+    tunable=*) tunables+=(--tunable "${arg#tunable=}") ;;
     neighbors=*) neighbors="${arg#neighbors=}"; [[ "$neighbors" =~ ^[0-3]$ ]] || { echo "perf-idle-power.sh: neighbors=0..3" >&2; exit 2; } ;;
     *) echo "perf-idle-power.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
@@ -79,5 +82,6 @@ extra=()
 [ -n "$settle" ] && extra+=(--settle "$settle")
 [ -n "$chats" ] && extra+=(--load-local "$chats")
 [ -n "$budget" ] && extra+=(--process-budget "$budget")
+extra+=(${tunables[@]+"${tunables[@]}"})
 python3 scripts/cmux-next/bench_power.py --app "$app" --config "$settings" \
   --out artifacts/perf-idle-power.json --md artifacts/perf-idle-power.md ${extra[@]+"${extra[@]}"}
