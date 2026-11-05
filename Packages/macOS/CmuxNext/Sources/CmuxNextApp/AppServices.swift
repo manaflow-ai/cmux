@@ -897,9 +897,9 @@ final class AppServices {
         agentPaneStateLoss.deadlineEnd(files: agentPaneStateFiles, alsoCutOff: { [watch = iphone.pairedQuitWatch] in watch.markCutOffIfSaving() })
     }
 
-    /// The quit's state-file saves (the agent panes' drafts and scroll places, the paired phones' list),
-    /// awaited together holding no thread and with no limit of their own: the quit awaits them after its
-    /// deadline is armed, and that deadline records what was still saving (``quitDeadlineEnd()``).
+    /// The quit's state-file saves (the agent panes' drafts, scroll places and chat tails (`AgentPaneStateFiles.tails(in:)`),
+    /// the paired phones' list), awaited together holding no thread and with no limit of their own: the quit awaits them after
+    /// its deadline is armed, and that deadline records what was still saving (``quitDeadlineEnd()``).
     func stateFilesDrained() async {
         let files = agentPaneStateFiles
         async let panes: Void = files.drained()
