@@ -97,7 +97,8 @@ import Testing
         var socketClosed = false
         var copied: [String] = []
         var mintResult: Result<PairInvite, PairInviteFailure>?
-        lazy var invite = PairInvite(code: "ABCDE12345", expiresAt: now.addingTimeInterval(600), watchSecret: "w1")
+        // Ten minutes after the clock's start.
+        var invite = PairInvite(code: "ABCDE12345", expiresAt: Date(timeIntervalSince1970: 1_000_600), watchSecret: "w1")
 
         func service() -> PairInviteService {
             PairInviteService(
