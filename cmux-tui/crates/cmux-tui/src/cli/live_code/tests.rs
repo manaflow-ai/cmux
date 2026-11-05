@@ -119,6 +119,14 @@ fn status_says_whether_the_app_still_runs() {
         "executable": std::env::current_exe().expect("exe").display().to_string(), "patches": []});
     std::fs::write(live.path().join("status.json"), ours.to_string()).expect("write");
     assert_eq!(status(live.path()).expect("status").get("watching"), Some(&Value::Bool(true)));
+    // An app that watches another folder does not watch this one.
+    let elsewhere = tempfile::tempdir().expect("tempdir");
+    let moved = json!({"pid": std::process::id(), "folder": elsewhere.path().display().to_string(), "patches": []});
+    std::fs::write(live.path().join("status.json"), moved.to_string()).expect("write");
+    assert_eq!(status(live.path()).expect("status").get("watching"), Some(&Value::Bool(false)));
+    let here = json!({"pid": std::process::id(), "folder": live.path().display().to_string(), "patches": []});
+    std::fs::write(live.path().join("status.json"), here.to_string()).expect("write");
+    assert_eq!(status(live.path()).expect("status").get("watching"), Some(&Value::Bool(true)));
     // A pid that cannot exist is not running.
     let gone = json!({"pid": i32::MAX, "patches": []});
     std::fs::write(live.path().join("status.json"), gone.to_string()).expect("write");
