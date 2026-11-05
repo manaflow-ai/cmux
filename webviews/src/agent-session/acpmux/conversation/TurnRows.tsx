@@ -700,7 +700,7 @@ function TurnFailure({
   );
   return (
     <div
-      className={`cv-turn-note cv-turn-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}`}
+      className={`cv-turn-note cv-turn-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""}${onDismiss ? " cv-turn-error--dismissible" : ""}`}
       data-failure-kind={kind}
     >
       <span className="cv-turn-error__cause">
@@ -714,7 +714,6 @@ function TurnFailure({
             </>
           )}
         </span>
-        {onDismiss && <NoticeDismiss onDismiss={onDismiss} className="cv-turn-error__dismiss" />}
       </span>
       <span className="cv-turn-error__actions">
         {accessButtons}
@@ -794,6 +793,8 @@ function TurnFailure({
           </details>
         )}
       </span>
+      {/* Last in the card, so its lead stays the first tab stop; drawn at the cause line's end. */}
+      {onDismiss && <NoticeDismiss onDismiss={onDismiss} className="cv-turn-error__dismiss" />}
     </div>
   );
 }
