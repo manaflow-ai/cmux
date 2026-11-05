@@ -46,7 +46,7 @@ final class SurfaceResumeApprovalRecordsCache: @unchecked Sendable {
     ///     change notification, so a write in this process is never missed
     ///     even within one timestamp tick.
     init(
-        stamp: @escaping @Sendable (URL) -> FileStamp? = SurfaceResumeApprovalRecordsCache.fileStamp,
+        stamp: @escaping @Sendable (URL) -> FileStamp? = { SurfaceResumeApprovalRecordsCache.fileStamp($0) },
         observesStoreWrites: Bool = true
     ) {
         self.stamp = stamp
@@ -76,7 +76,24 @@ final class SurfaceResumeApprovalRecordsCache: @unchecked Sendable {
         secret: Data,
         load: () -> [SurfaceResumeApprovalRecord]
     ) -> [SurfaceResumeApprovalRecord] {
-        load().filter { $0.hasValidSignature(secret: secret) }
+        let path = fileURL.standardizedFileURL.path
+        let key = Key(stamps: dependencies.map(stamp), secret: secret)
+        let startGeneration: UInt64 = lock.withLock {
+            generation
+        }
+        if let cached = lock.withLock({ entries[path] }), cached.key == key {
+            return cached.records
+        }
+        let records = load().filter { $0.hasValidSignature(secret: secret) }
+        // Cache only an answer read from files that did not change while
+        // loading. A concurrent edit, or a load that migrated legacy records
+        // into the store, is reread on the next lookup instead.
+        let settledKey = Key(stamps: dependencies.map(stamp), secret: secret)
+        lock.withLock {
+            guard generation == startGeneration, settledKey == key else { return }
+            entries[path] = Entry(key: key, records: records)
+        }
+        return records
     }
 
     /// Drops every cached answer.
@@ -101,6 +118,15 @@ final class SurfaceResumeApprovalRecordsCache: @unchecked Sendable {
 }
 
 extension SurfaceResumeApprovalStore {
+    /// The approval store for this process. Resolving it reads the process
+    /// environment and the home directory, which every terminal's session
+    /// snapshot used to repeat; neither changes while the app runs.
+    static func defaultURL() -> URL {
+        processDefaultURL
+    }
+
+    private static let processDefaultURL = defaultURL(environment: ProcessInfo.processInfo.environment)
+
     /// The files whose contents determine `loadRecords(fileURL:)`.
     static func recordDependencies(for fileURL: URL) -> [URL] {
         guard fileURL.lastPathComponent == "cmux.json" else { return [fileURL] }

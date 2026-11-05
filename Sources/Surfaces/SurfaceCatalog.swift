@@ -34,7 +34,8 @@ final class SurfaceCatalog {
     private struct CloudProjectionKey: Hashable { let panelID: UUID; let workspaceID: UUID }
     /// Derived storage must not publish when a SwiftUI read rebuilds it.
     @ObservationIgnored private var cloudProjectionIndex: Set<CloudProjectionKey>?
-    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndex = nil; noteProjectionChanges(from: oldValue) } }
+    @ObservationIgnored private var projectionsByWorkspace: [UUID: [SurfaceProjection]]?
+    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndex = nil; projectionsByWorkspace = nil; noteProjectionChanges(from: oldValue) } }
     var projectionVersions: [SurfaceMachineID: UInt64] = [:]; var projectionMachinesByWorkspace: [UUID: Set<SurfaceMachineID>] = [:]
     /// Resource IDs grouped by machine so providers can answer presence checks
     /// without sorting the full catalog snapshot on every refresh.
@@ -1397,16 +1398,13 @@ final class SurfaceCatalog {
     }
 
     func projectionRecords(forWorkspace workspaceID: UUID) -> [SurfaceProjectionRecord] {
-        var records = projections
-            .filter { $0.workspaceID == workspaceID }
-            .map {
-                SurfaceProjectionRecord(
-                    panelID: $0.panelID,
-                    resource: $0.resource,
-                    remoteWorkspaceID: $0.remoteWorkspaceID,
-                    remoteTabID: $0.remoteTabID
-                )
-            }
+        // Session autosave asks once per workspace; group once, not filter every projection each time.
+        access(keyPath: \.projections)
+        let byWorkspace = projectionsByWorkspace ?? Dictionary(grouping: projections, by: \.workspaceID)
+        projectionsByWorkspace = byWorkspace
+        var records = (byWorkspace[workspaceID] ?? []).map {
+            SurfaceProjectionRecord(panelID: $0.panelID, resource: $0.resource, remoteWorkspaceID: $0.remoteWorkspaceID, remoteTabID: $0.remoteTabID)
+        }
         pendingRestoredProjections.mergeRecords(into: &records, for: workspaceID)
         return records.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
     }

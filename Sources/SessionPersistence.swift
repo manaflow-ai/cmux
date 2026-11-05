@@ -1041,7 +1041,7 @@ enum SurfaceResumeApprovalStore {
         case parsed([String: Any])
     }
 
-    static func defaultURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+    static func defaultURL(environment: [String: String]) -> URL {
         if let override = environment["CMUX_SURFACE_RESUME_APPROVAL_STORE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath, isDirectory: false)
