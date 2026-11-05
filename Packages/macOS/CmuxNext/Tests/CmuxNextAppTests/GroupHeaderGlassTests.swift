@@ -7,8 +7,9 @@ import Testing
 
 /// Leo 2026-11-05: "Why is it just one solid opaque block? Why does it not have any sort of rim at all?", "still
 /// keeping the colors, it's just, like, but just make it glassier", and "this strange f***ing font of the group on the
-/// side". A band header is a translucent pane of its color raised in chroma, with a hairline rim, its name in the theme's
-/// ink at the rows' own size, semibold; the solid bar stays a Debug choice. The palette is unchanged.
+/// side". A band header is the shared `group` surface role (`SurfaceRole.group`): its veil tinted by the color raised in
+/// chroma, `GlassRimView`'s rim, its name in the theme's ink at the rows' own size, semibold, and the role's opaque
+/// fallback under Reduce Transparency; the solid bar stays a Debug choice. The palette is unchanged.
 @MainActor @Suite(.serialized) struct GroupHeaderGlassTests {
     static func withGlass(_ glass: SidebarGroupGlass, _ body: () throws -> Void) throws {
         TunableStore.shared.activate(file: nil)
@@ -32,9 +33,9 @@ import Testing
                     header.updateLayer()
                     let fill = try #require(header.pill.backgroundColor.flatMap(NSColor.init(cgColor:)))
                     #expect(fill.alphaComponent > 0.05 && fill.alphaComponent < 0.6, "\(glass) \(name): the pane is \(fill.alphaComponent) opaque")
-                    #expect(header.pill.borderWidth > 0, "\(glass) \(name): no rim")
-                    let rim = try #require(header.pill.borderColor.flatMap(NSColor.init(cgColor:)))
-                    #expect(rim.alphaComponent > 0.2, "\(glass) \(name): the rim is \(rim.alphaComponent)")
+                    #expect(!header.rim.isHidden, "\(glass) \(name): no rim")
+                    #expect(header.rim.look == FloatingGlassStyle.group.look(isDark: scope.tokens.isDark), "\(glass) \(name): not the group role's rim")
+                    #expect(header.rim.frame == header.pill.frame)
                     let shown = try GroupPaletteDefaultTests.rgb(header.pill.backgroundColor).withAlpha(fill.alphaComponent)
                         .composited(over: scope.tokens.sidebarBackground)
                     let ink = try GroupPaletteDefaultTests.rgb(header.name.textColor?.cgColor)
@@ -62,7 +63,21 @@ import Testing
             let header = try #require(sidebar.list.rowViews[.group(ids[0])] as? GroupHeaderRowView)
             header.updateLayer()
             #expect(header.pill.backgroundColor.flatMap(NSColor.init(cgColor:))?.alphaComponent == 1)
-            #expect(header.pill.borderWidth == 0)
+            #expect(header.rim.isHidden)
+        }
+    }
+
+    @Test func reduceTransparencyDrawsTheOpaqueFallback() throws {
+        ReduceTransparency.shared.override = true
+        defer { ReduceTransparency.shared.override = nil }
+        try Self.withGlass(.glass) {
+            let (sidebar, ids) = try GroupPaletteDefaultTests.sidebar([.red])
+            sidebar.layoutSubtreeIfNeeded()
+            let header = try #require(sidebar.list.rowViews[.group(ids[0])] as? GroupHeaderRowView)
+            header.updateLayer()
+            #expect(header.rim.isHidden)
+            #expect(header.pill.backgroundColor.flatMap(NSColor.init(cgColor:))?.alphaComponent == 1)
+            #expect(header.pill.borderWidth > 0)
         }
     }
 

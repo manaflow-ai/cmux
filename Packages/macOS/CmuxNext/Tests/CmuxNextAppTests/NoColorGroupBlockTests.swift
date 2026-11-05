@@ -132,9 +132,9 @@ import Testing
         }
     }
 
-    /// Every look is the theme's own ink, no hue, and fainter than a hovered row, so an uncolored group never reads
-    /// as hovered and a hover over it still shows, dark and light.
-    @Test func everyLookIsAFaintNeutralStepUnderTheHover() throws {
+    /// Every look is the shared `group` surface role's veil (`SurfaceRole.group`), no hue, fainter than a hovered row, so
+    /// an uncolored group never reads as hovered and a hover over it still shows; the glass look adds the role's rim.
+    @Test func everyLookIsTheGroupRolesVeilUnderTheHover() throws {
         for look in [SidebarNoColorGroupLook.tray, .glass, .lit] {
             try Self.withLook(look) {
                 for (name, scope) in try GroupPaletteDefaultTests.themes() where name != "wallpaper" {
@@ -143,19 +143,32 @@ import Testing
                     scope.root(sidebar)
                     let block = try Self.lineView(sidebar, Self.open)
                     block.updateLayer()
-                    let tokens = scope.tokens
-                    let hover = tokens.hoverFill.alpha
-                    let fills = look == .lit ? (block.layer?.sublayers?.compactMap { $0 as? CAGradientLayer }.first?.colors as? [CGColor] ?? [])
-                        : [try #require(block.layer?.backgroundColor)]
-                    #expect(!fills.isEmpty, "\(look) \(name): nothing drawn")
-                    for fill in fills {
-                        let rgb = try GroupPaletteDefaultTests.rgb(fill)
-                        let alpha = try #require(NSColor(cgColor: fill)?.alphaComponent)
-                        #expect(alpha > 0 && alpha < hover, "\(look) \(name): alpha \(alpha), hover \(hover)")
-                        #expect(GroupPaletteDefaultTests.same(rgb, tokens.textPrimary.withAlpha(1)), "\(look) \(name): \(rgb) is not the ink")
-                    }
+                    let role = FloatingGlassStyle.group.look(isDark: scope.tokens.isDark).veil
+                    let fill = try #require(look == .lit
+                        ? (block.layer?.sublayers?.compactMap { $0 as? CAGradientLayer }.first?.colors as? [CGColor])?.last
+                        : block.layer?.backgroundColor)
+                    let ns = try #require(NSColor(cgColor: fill)?.usingColorSpace(.sRGB))
+                    #expect(abs(ns.redComponent - role.white) < 0.01 && abs(ns.blueComponent - role.white) < 0.01, "\(look) \(name): not the role's grey")
+                    #expect(abs(ns.alphaComponent - role.alpha) < 0.01, "\(look) \(name): alpha \(ns.alphaComponent), the role's \(role.alpha)")
+                    #expect(ns.alphaComponent < 0.9 * SurfaceRole.nearOpaque, "\(look) \(name): glass, never opaque")
+                    #expect(block.rim.isHidden == (look != .glass), "\(look) \(name): the rim")
                 }
             }
+        }
+    }
+
+    /// Under Reduce Transparency the pane is the role's opaque fallback: no rim, a hairline.
+    @Test func reduceTransparencyDrawsTheOpaqueFallback() throws {
+        ReduceTransparency.shared.override = true
+        defer { ReduceTransparency.shared.override = nil }
+        try Self.withLook(.glass) {
+            let (sidebar, window) = Self.sidebar()
+            defer { window.close() }
+            let block = try Self.lineView(sidebar, Self.open)
+            block.updateLayer()
+            #expect(block.rim.isHidden)
+            #expect(NSColor(cgColor: try #require(block.layer?.backgroundColor))?.alphaComponent == 1)
+            #expect((block.layer?.borderWidth ?? 0) > 0)
         }
     }
 }

@@ -167,6 +167,8 @@ final class GroupLineView: NSView {
     }
     /// The lit block's light (`SidebarNoColorGroupLook.lit`).
     private let light = CAGradientLayer()
+    /// The block's specular rim (`SurfaceRole.group`, `SidebarNoColorGroupLook.glass`).
+    let rim = GlassRimView(cornerRadius: SidebarStyle.rowCornerRadius, look: FloatingGlassStyle.group.look(isDark: true))
 
     init() {
         super.init(frame: .zero)
@@ -177,6 +179,10 @@ final class GroupLineView: NSView {
         light.isHidden = true
         light.actions = ["bounds": NSNull(), "position": NSNull(), "colors": NSNull(), "locations": NSNull(), "hidden": NSNull()]
         layer?.addSublayer(light)
+        rim.isHidden = true
+        rim.autoresizingMask = [.width, .height]
+        addSubview(rim)
+        ReduceTransparency.shared.register(repainting: self)
     }
 
     @available(*, unavailable)
@@ -200,6 +206,7 @@ final class GroupLineView: NSView {
         let look = observedLook()
         if isBlock { return paintBlock(look.noColor) }
         light.isHidden = true
+        rim.isHidden = true
         layer?.borderWidth = 0
         performWithTheme {
             // Under the solid band, the band's rest color (Leo 2026-10-19: bar and line are one color);
@@ -213,22 +220,25 @@ final class GroupLineView: NSView {
         updateShape()
     }
 
-    /// A block's surface: a faint step of the sidebar's ink, under the rows' hover (6%) and selection, so both still read
-    /// on top of it and an uncolored group never looks hovered at rest.
+    /// A block's surface: the shared `group` surface role untinted (`SurfaceRole.group`), its veil over the sidebar's own
+    /// glass and, in the glass look, its rim (`GlassRimView`), under the rows' own hover and selection. Under Reduce
+    /// Transparency the role's opaque fallback: the veil composited over the sidebar's opaque background, a hairline.
     private func paintBlock(_ look: SidebarNoColorGroupLook) {
         performWithTheme {
-            let tokens = themeTokens, dark = tokens.isDark
-            func ink(_ alpha: Double) -> CGColor { tokens.textPrimary.withAlpha(alpha * strength).cgColor }
+            let tokens = themeTokens, opaque = ReduceTransparency.shared.isEnabled
+            let role = FloatingGlassStyle.group.look(isDark: tokens.isDark)
+            let veil = ThemeRGB(red: role.veil.white, green: role.veil.white, blue: role.veil.white, alpha: role.veil.alpha * strength)
             railShape.fillColor = nil
-            layer?.backgroundColor = switch look {
-            case .tray: ink(dark ? 0.03 : 0.025)
-            case .glass: ink(dark ? 0.035 : 0.03)
-            case .lit, .plain: NSColor.clear.cgColor
-            }
-            layer?.borderWidth = look == .glass ? 1 / (window?.backingScaleFactor ?? 2) : 0
-            layer?.borderColor = ink(dark ? 0.16 : 0.12) // the rim, as a glass header's (`SidebarGroupGlass.rim`)
-            light.isHidden = look != .lit
-            light.colors = [ink(dark ? 0.06 : 0.05), ink(0.012), ink(0.012)]
+            let fill = opaque ? veil.composited(over: tokens.sidebarBackground) : veil
+            layer?.backgroundColor = look == .lit && !opaque ? NSColor.clear.cgColor : fill.cgColor
+            layer?.borderWidth = opaque ? Metrics.lineWidth(1) : 0
+            layer?.borderColor = tokens.separator.cgColor
+            rim.look = role
+            rim.cornerRadius = SidebarStyle.rowCornerRadius
+            rim.isHidden = opaque || look != .glass
+            light.isHidden = opaque || look != .lit
+            let top = role.rimTop.nsColor.withAlphaComponent(role.rimTop.alpha * 0.25).cgColor
+            light.colors = [top, veil.cgColor, veil.cgColor]
         }
         updateShape()
     }
@@ -242,6 +252,7 @@ final class GroupLineView: NSView {
             layer?.cornerRadius = SidebarStyle.rowCornerRadius
             layer?.maskedCorners = SidebarGroupLine.barCorners(open: false, flipped: true)
             railShape.path = nil
+            rim.frame = bounds
             light.frame = bounds
             light.locations = [0, NSNumber(value: Double(min(1, 2 * SidebarDensityTokens.rowHeight / max(bounds.height, 1)))), 1]
             return

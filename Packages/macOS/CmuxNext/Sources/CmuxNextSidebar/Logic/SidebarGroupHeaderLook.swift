@@ -86,11 +86,11 @@ public nonisolated enum SidebarGroupLineLayout: String, Sendable, CaseIterable, 
 /// differently highlighted, differently refracted, differently transparented thing ... a grouped up thing", and "we're
 /// not necessarily into that indentation thing". A colored group draws as before in every look.
 public nonisolated enum SidebarNoColorGroupLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// Untinted glass, as a glass header's pane with no color: a faint step of the sidebar's ink and a hairline rim.
+    /// Untinted glass: the `group` surface role's veil and rim (`SurfaceRole.group`), a glass header's pane with no color.
     case glass
-    /// One flat, faint step of the sidebar's ink behind the block, no rim.
+    /// The role's veil alone, no rim.
     case tray
-    /// Lit from the header: brightest behind it, fading down the members.
+    /// The role's veil lit from the header: the rim's top light behind it, fading down the members.
     case lit
     /// Nothing: the header and members draw as plain rows (the look since #32198).
     case plain
@@ -110,41 +110,29 @@ public nonisolated enum SidebarNoColorGroupLook: String, Sendable, CaseIterable,
         default: .glass, code: "SidebarNoColorGroupLook.tunable")
 }
 
-/// How the solid band header draws its color (`sidebar.groupGlass`). Leo 2026-11-05: "We can afford to put glass
-/// here, so why the f*** do we not have glass for this? ... still keeping the colors, it's just, like, but just make
-/// it glassier", "Why is it just one solid opaque block? Why does it not have any sort of rim at all?" Every glass look
-/// is the group's color raised in chroma (`GroupTint.glassRGB`) as a translucent wash with a hairline rim, the name in
-/// the theme's ink; the palette is unchanged.
+/// How much of its color a group header's glass takes (`sidebar.groupGlass`). Leo 2026-11-05: "We can afford to put
+/// glass here, so why the f*** do we not have glass for this? ... still keeping the colors, it's just, like, but just
+/// make it glassier", "Why is it just one solid opaque block? Why does it not have any sort of rim at all?" The glass
+/// itself is the shared `group` surface role (`SurfaceRole.group`: its veil over the sidebar's glass, `GlassRimView`'s
+/// rim, the opaque Reduce Transparency fallback); this choice sets only how strongly the group's color, raised in chroma
+/// (`GroupTint.glassRGB`), tints that veil. The palette is unchanged.
 public nonisolated enum SidebarGroupGlass: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// A clear tinted pane: a moderate wash of the color and a rim lit toward white.
+    /// A clear tint of the color.
     case glass
     /// More of the color, for a louder group.
     case vivid
-    /// A frosted pane: less color under a pale veil, with a brighter rim.
+    /// A light tint: mostly the role's frost.
     case frost
     /// The opaque bar before (cx-qno.22).
     case solid
 
-    /// The share of the color the pane takes, dark and light.
+    /// The share of the color over the role's veil, dark and light; 1 for the solid bar.
     public func tint(dark: Bool) -> Double {
         switch self {
         case .glass: dark ? 0.30 : 0.22
         case .vivid: dark ? 0.44 : 0.34
-        case .frost: dark ? 0.18 : 0.14
+        case .frost: dark ? 0.16 : 0.12
         case .solid: 1
-        }
-    }
-
-    /// A pale veil over the tint (frost only), dark and light.
-    public func veil(dark: Bool) -> Double { self == .frost ? (dark ? 0.06 : 0.40) : 0 }
-
-    /// The rim's opacity: the color lit toward white on dark, the color itself on light.
-    public func rim(dark: Bool) -> Double {
-        switch self {
-        case .glass: dark ? 0.38 : 0.42
-        case .vivid: dark ? 0.50 : 0.55
-        case .frost: dark ? 0.30 : 0.36
-        case .solid: 0
         }
     }
 
@@ -159,6 +147,6 @@ public nonisolated enum SidebarGroupGlass: String, Sendable, CaseIterable, Hasha
 
     public static let tunable = Tunable<SidebarGroupGlass>.choice(
         "sidebar.groupGlass", .sidebar, "Group header glass",
-        help: "How a group header's bar draws its color: tinted, vivid or frosted glass with a rim, or the solid bar.",
+        help: "How strongly a group header's glass takes its color: tinted, vivid or frosted glass with a rim, or the solid bar.",
         default: .glass, code: "SidebarGroupGlass.tunable")
 }

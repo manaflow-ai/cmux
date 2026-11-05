@@ -15,6 +15,8 @@ public nonisolated enum SurfaceRole: String, CaseIterable, Sendable {
     case menu
     /// The sidebar's cards (Update Ready, the Updated card, notices and tips) over the sidebar's own glass.
     case card
+    /// The sidebar's group headers and a group's pane behind its members, over the sidebar's own glass: the group's color tints the veil.
+    case group
     /// Toasts: a rounded rect, never a capsule, even on one line.
     case toast
     /// Dialogs, confirms, prompt bars and sheets: a little denser veil for longer text.
@@ -30,6 +32,7 @@ public nonisolated enum SurfaceRole: String, CaseIterable, Sendable {
     public var neutralStyle: FloatingGlassStyle? {
         switch self {
         case .card: return .card
+        case .group: return .group
         case .toast: return .toast
         case .sheet: return .dialog
         default: return nil
@@ -46,6 +49,7 @@ public nonisolated enum SurfaceRole: String, CaseIterable, Sendable {
     public var cornerRadius: CGFloat? {
         switch self {
         case .card: return 10
+        case .group: return 6
         case .toast: return 9
         case .sheet: return 14
         case .tooltip: return 5
@@ -64,6 +68,7 @@ public nonisolated enum SurfaceRole: String, CaseIterable, Sendable {
         case .popover: return "the opaque popup surface (--surface-popup) with its hairline"
         case .menu: return "the opaque popup surface (--surface-popup) with its hairline"
         case .card: return "the opaque elevated fill (Palette.elevatedBackground) with a hairline"
+        case .group: return "the veil and tint composited over the sidebar's opaque background, with a hairline"
         case .toast: return "the opaque popup surface, no rim"
         case .sheet: return "the opaque popup surface, no rim"
         case .tooltip: return "the opaque popup surface (--tooltip-tint becomes --surface-popup)"
@@ -75,6 +80,9 @@ extension FloatingGlassStyle {
     /// The sidebar's cards (Update Ready, the Updated card, notices and tips) over the sidebar's own glass.
     nonisolated public static let card = FloatingGlassStyle(cornerRadius: 10, darkVeilAlpha: 0.42, lightVeilAlpha: 0.45,
                                                          darkRim: (0.22, 0.04), lightRim: (0.8, 0.08), castsShadow: false)
+    /// The sidebar's group headers and a group's pane behind its members, over the sidebar's own glass: the group's color tints the veil.
+    nonisolated public static let group = FloatingGlassStyle(cornerRadius: 6, darkVeilAlpha: 0.06, lightVeilAlpha: 0.2,
+                                                         darkRim: (0.24, 0.04), lightRim: (0.75, 0.08), castsShadow: false)
     /// Toasts: a rounded rect, never a capsule, even on one line.
     nonisolated public static let toast = FloatingGlassStyle(cornerRadius: 9, darkVeilAlpha: 0.42, lightVeilAlpha: 0.55,
                                                          darkRim: (0.3, 0.06), lightRim: (0.85, 0.1), castsShadow: true)

@@ -312,6 +312,10 @@
   --surface-card-veil: light-dark(rgb(252 252 252 / 45%), rgb(28 28 28 / 42%));
   --surface-card-rim-top: light-dark(rgb(255 255 255 / 80%), rgb(255 255 255 / 22%));
   --surface-card-rim-bottom: light-dark(rgb(0 0 0 / 8%), rgb(255 255 255 / 4%));
+  --surface-group-radius: 6px; /* the sidebar's group headers and a group's pane behind its members, over the sidebar's own glass: the group's color tints the veil */
+  --surface-group-veil: light-dark(rgb(252 252 252 / 20%), rgb(28 28 28 / 6%));
+  --surface-group-rim-top: light-dark(rgb(255 255 255 / 75%), rgb(255 255 255 / 24%));
+  --surface-group-rim-bottom: light-dark(rgb(0 0 0 / 8%), rgb(255 255 255 / 4%));
   --surface-toast-radius: 9px; /* toasts: a rounded rect, never a capsule, even on one line */
   --surface-toast-veil: light-dark(rgb(252 252 252 / 55%), rgb(28 28 28 / 42%));
   --surface-toast-rim-top: light-dark(rgb(255 255 255 / 85%), rgb(255 255 255 / 30%));
