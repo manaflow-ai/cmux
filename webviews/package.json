@@ -41,6 +41,7 @@
     "strings": "node scripts/pages/gen-strings.mjs",
     "strings:settings": "node scripts/pages/gen-strings.mjs settings",
     "compare:agent-pane": "node scripts/agent-pane/compare.mjs",
+    "hot-reload:proof": "node scripts/hot-reload-proof.mjs",
     "fmt": "vp fmt",
     "lint": "vp lint",
     "lint:fix": "vp lint --fix",

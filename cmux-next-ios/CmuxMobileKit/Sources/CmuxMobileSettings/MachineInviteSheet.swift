@@ -38,7 +38,7 @@ public struct MachineInviteSheet: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 8)
-                copyRow("Copy Code", text: invite.code, id: "machineInvite.copyCode")
+                copyRow("Copy Code", text: invite.copyableCode, id: "machineInvite.copyCode")
             }
             Section {
                 command(invite.line, id: "machineInvite.line")

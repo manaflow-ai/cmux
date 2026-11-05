@@ -229,7 +229,7 @@ struct CloudStartChat {
                                                  idempotencyKey: tabKey)
         let opened = try await pending.value()
         await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(
-            appLink: machine.appLink, link: machine.link).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
+            appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
         services.agentTabs.pageChats.cloudStarted[opened.key] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace,

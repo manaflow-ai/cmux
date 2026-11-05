@@ -87,6 +87,7 @@ async fn cloud_broker_refuses_tokens_for_another_host_or_service() {
         (HOST, vec!["daemon"]),
         (HOST, vec!["ssh", "owner_session"]),
         (HOST, vec!["ssh", "ssh"]),
+        (HOST, vec!["ssh", "desktop"]),
     ] {
         let (link, mut parent) = UnixStream::pair().unwrap();
         let (source, driver) = channel(link);

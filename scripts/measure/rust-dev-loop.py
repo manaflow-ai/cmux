@@ -191,28 +191,37 @@ class PeakRss:
         self.peak_mb = max(self.peak_mb, blaze_rss_mb())
 
 
-def blaze_reset(log) -> None:
+def blaze_reset(log, env: dict | None = None) -> None:
     """Stop the daemon and remove blaze's build state, keeping its downloaded toolchain, so the
     next blaze build is cold."""
     subprocess.run(["blaze", "stop"], capture_output=True, text=True)
     home = Path(os.environ.get("BLAZE_HOME", "")).resolve() if os.environ.get("BLAZE_HOME") else None
-    if home is None or ".build" not in home.parts:
-        raise SystemExit("blaze variant: BLAZE_HOME must be set under .build (rust-dev-loop.sh sets it); "
-                         "refusing to reset any other blaze home")
+    if home is None or not home.name.startswith("cmux-rust-dev-loop-blaze-home-"):
+        raise SystemExit("blaze variant: BLAZE_HOME must be this run's cmux-rust-dev-loop-blaze-home-* "
+                         "(rust-dev-loop.sh sets it); refusing to reset any other blaze home")
     for child in home.iterdir() if home.is_dir() else []:
         if child.name in ("toolchains", "native"):
             continue
         size = subprocess.run(["du", "-sk", str(child)], capture_output=True, text=True).stdout.split()[:1]
         log(f"DEVLOOP-BLAZE-RESET rm {child.name} {size[0] if size else '?'}KB")
         shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink(missing_ok=True)
-    blaze_start(log)
+    blaze_start(log, env)
 
 
-def blaze_start(log) -> None:
+def blaze_env(target: Path) -> dict:
+    """clean_env without the empty wrapper and rustflags overrides: blaze refuses any set
+    wrapper variable, empty included ("blaze runs no rustc wrapper"), and reads no rustflags."""
+    env = clean_env(target)
+    for name in ("RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER", "CARGO_ENCODED_RUSTFLAGS"):
+        env.pop(name, None)
+    return env
+
+
+def blaze_start(log, env: dict | None = None) -> None:
     """Start the daemon before a timed build. A client that starts it itself can find its socket
     not ready ("v2.sock changed and can't be read: No such device or address", Linux, 0.20261105.1)."""
     for attempt in range(10):
-        r = subprocess.run(["blaze", "status"], capture_output=True, text=True)
+        r = subprocess.run(["blaze", "status"], capture_output=True, text=True, env=env)
         if r.returncode == 0:
             log(f"DEVLOOP-BLAZE-START ready after {attempt + 1} status call(s)")
             return
@@ -226,6 +235,7 @@ LAST_PEAK: dict[str, float] = {}
 def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[float, int, int]:
     env = clean_env(target)
     if spec.get("blaze"):
+        env = blaze_env(target)
         # blaze takes cargo's flags but refuses --locked; its build directory is under BLAZE_HOME.
         cmd = ["blaze", *[x for x in args if x != "--locked"]]
         t0 = time.monotonic()
@@ -238,7 +248,7 @@ def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[fl
         dt = time.monotonic() - t0
         LAST_PEAK["blaze"] = peak.peak_mb
         if r.returncode != 0:
-            for line in r.stderr.strip().splitlines()[-15:]:
+            for line in r.stderr.strip().splitlines()[-25:]:
                 print(f"DEVLOOP-LOG {line}", flush=True)
         return dt, r.returncode, len(re.findall(r"^\s+Compiling ", r.stderr, re.M))
     env["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(spec.get("rustflags", []))
@@ -298,6 +308,9 @@ def main() -> int:
     ap.add_argument("--clean-n", type=int, default=1, help="clean builds per variant (the first warms it)")
     ap.add_argument("--scenarios", default="core,tui,acpmux,switch")
     ap.add_argument("--tests", default="", help="packages to time cargo test vs cargo nextest on (base variant)")
+    ap.add_argument("--custom", action="append", default=[],
+                    help="NAME:CONFIG[;CONFIG...] a variant of cargo --config entries (repeatable)")
+    ap.add_argument("--timings", action="store_true", help="after the rounds, per-unit --timings of one edit per crate (base)")
     ap.add_argument("--zig-packages", default="", help="a zig global cache p/ already holding Ghostty's packages")
     ap.add_argument("--target-root", default="", help="where the per-variant target directories go (default OUT/target)")
     a = ap.parse_args()
@@ -313,6 +326,11 @@ def main() -> int:
         print(msg, flush=True)
 
     allv = variants(out / "tools")
+    for c in a.custom:
+        name, _, cfg = c.partition(":")
+        allv[name] = {"config": [x for x in cfg.split(";") if x]}
+        if name not in a.variants.split(","):
+            a.variants += f",{name}"
     names = [x for x in a.variants.split(",") if x]
     chosen: dict[str, dict] = {}
     for name in names:
@@ -360,9 +378,13 @@ def main() -> int:
     if "blaze" in chosen:
         # blaze fetches its own toolchain on its first build (v2 has no `blaze toolchain`): a tiny
         # untimed build takes that download out of the timed clean build.
-        blaze_start(log)
-        r = subprocess.run(["blaze", "build", "-p", "acpmux-build-id"], capture_output=True, text=True)
-        log(f"DEVLOOP-BLAZE-WARMUP exit {r.returncode} {r.stderr.strip().splitlines()[-1:]}")
+        warm_env = blaze_env(Path(a.target_root or out / "target").resolve() / "blaze-warmup")
+        blaze_start(log, warm_env)
+        r = subprocess.run(["blaze", "build", "-p", "acpmux-build-id"], capture_output=True, text=True, env=warm_env)
+        log(f"DEVLOOP-BLAZE-WARMUP exit {r.returncode}")
+        if r.returncode != 0:
+            for line in r.stderr.strip().splitlines()[-25:]:
+                log(f"DEVLOOP-LOG {line}")
         v = subprocess.run(["blaze", "--version"], capture_output=True, text=True)
         log(f"DEVLOOP-TOOLCHAIN blaze: {v.stdout.strip() or v.stderr.strip()} (its own pinned nightly)")
     troot = Path(a.target_root).resolve() if a.target_root else out / "target"
@@ -371,9 +393,11 @@ def main() -> int:
     targets = {k: troot / re.sub(r"[^A-Za-z0-9_.-]", "_", k) for k in chosen}
     for c in range(a.clean_n):
         for k, spec in chosen.items():
-            if spec.get("blaze"):
-                blaze_reset(log)
             shutil.rmtree(targets[k], ignore_errors=True)
+            if spec.get("blaze"):
+                # The daemon starts here, untimed and in the variant's clean env: the clean blaze
+                # time is its build, not its startup.
+                blaze_reset(log, blaze_env(targets[k]))
             for p in EDITS.values():
                 restore(ws / p)
             dt, rc, comp = cargo(spec, targets[k], BUILD, out / f"{targets[k].name}.log")
@@ -411,6 +435,33 @@ def main() -> int:
             st = subprocess.run(["blaze", "status", "--json"], capture_output=True, text=True)
             log(f"DEVLOOP-BLAZE-STATUS {st.stdout.strip()[:2000]}")
             subprocess.run(["blaze", "stop"], capture_output=True, text=True)
+            home = os.environ.get("BLAZE_HOME", "")
+            if Path(home).name.startswith("cmux-rust-dev-loop-blaze-home-"):
+                shutil.rmtree(home, ignore_errors=True)
+
+    if a.timings and "base" in chosen:
+        # Where one edit's time goes: cargo's --timings report for one more edit of each crate,
+        # per unit (crate or build script): total seconds and seconds to its metadata (rmeta).
+        env_t = targets["base"]
+        cargo({}, env_t, BUILD, out / "timings.log")  # the restored tree, untimed
+        for s_name, rel in EDITS.items():
+            edit(ws / rel, 9999)
+            cargo({}, env_t, [*BUILD, "--timings"], out / "timings.log")
+            html = sorted((env_t / "cargo-timings").glob("cargo-timing-*.html"))
+            restore(ws / rel)
+            cargo({}, env_t, BUILD, out / "timings.log")  # so the next report holds only its own edit
+            if not html:
+                log(f"DEVLOOP-UNIT {s_name} no timing report")
+                continue
+            m = re.search(r"const UNIT_DATA = (\[.*?\]);", html[-1].read_text(), re.S)
+            try:
+                units = json.loads(m.group(1)) if m else []
+            except ValueError:
+                units = []
+            for u in sorted(units, key=lambda u: -u.get("duration", 0))[:8]:
+                log(f"DEVLOOP-UNIT {s_name} {u.get('name')} {u.get('target', '').strip() or 'lib'} "
+                    f"total={u.get('duration', 0):.2f}s rmeta={u.get('rmeta_time') or 0:.2f}s "
+                    f"mode={u.get('mode')}")
 
     if a.tests and "base" in chosen:
         lp = out / "tests.log"
