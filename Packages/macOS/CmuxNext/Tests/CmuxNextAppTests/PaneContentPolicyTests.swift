@@ -53,7 +53,7 @@ struct PaneContentPolicyTests {
     /// moves). In every frame each surface keeps its place against the pane edge that does not move, and the host
     /// follows the pane. With `motion.frameOwner.terminals` on (cmux-ad m6) the surface fills its area, so it is on that
     /// edge because it is on every edge; aKeyPressShowsEachSurfaceAtItsPanesSizeAndSendsOneGrid checks the size. This case
-    /// guards the switch-off path and the low-prompt bottom hold (aPromptOnTheLastRowRidesTheBottomOfAPaneAKeyGrowsDown).
+    /// guards the switch-off path and its low-prompt bottom hold (aPromptOnTheLastRowStaysInViewInAPaneAKeyGrowsDown).
     nonisolated struct Side: Sendable, CustomTestStringConvertible {
         let vertical: Bool
         let pressed: PaneID
@@ -308,11 +308,15 @@ struct PaneContentPolicyTests {
     /// Review of #35470 (F2): a pane that a key press grows down keeps a prompt on its last row in view, as S3 did (and as
     /// a split or a close does, TerminalPaneMotionFinalGridTests): the PTY gets the final, taller grid at the press, and a
     /// surface at the pane's size in each frame showed that grid's top rows, cut off at the bottom, so the prompt was out
-    /// of view for the whole spring. The surface keeps its final size on the moving bottom edge instead: the prompt rides
-    /// the bottom of the pane, and the rows above it come into view as the pane grows.
-    /// Both states of `motion.frameOwner.terminals` (review of #35470, T5): with it off, S3's hold keeps the same rule.
+    /// of view for the whole spring.
+    /// - With `motion.frameOwner.terminals` off (the default; review of #35470, T5), S3's hold: the surface keeps its final
+    ///   size on the moving bottom edge, so the prompt rides the bottom of the pane and the rows above it come into view as
+    ///   the pane grows.
+    /// - With it on (cmux-ad m14, which replaced that hold, F2: the surface was taller than its pane and its top rows were
+    ///   cut), the surface has its pane's size in every frame and holds nothing: it draws the grid that size fits, and the
+    ///   reflow keeps the prompt in view (TerminalKeyResizeFrameTests checks what it draws, in a window that draws).
     @Test(arguments: [false, true])
-    func aPromptOnTheLastRowRidesTheBottomOfAPaneAKeyGrowsDown(switchOn: Bool) async throws {
+    func aPromptOnTheLastRowStaysInViewInAPaneAKeyGrowsDown(switchOn: Bool) async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.stack), focused: "p1")
         defer { rig.close() }
         defer { PaneGroundCoversPaneTests.releaseFrames() }
@@ -324,8 +328,12 @@ struct PaneContentPolicyTests {
         #expect(PaneResize.press("p1", .down, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
-        var taller = 0, cut: [String] = []
+        var taller = 0, cut: [String] = [], unfollowed: [String] = []
         let frames = try Self.run(rig) { frame in
+            if switchOn {
+                unfollowed += try Self.offTheirPanes(["p1"], in: rig, "frame \(frame)")
+                if terminal.session.view.surfaceHold != nil { unfollowed.append("frame \(frame): p1's surface keeps a hold") }
+            }
             let clip: NSView = terminal.session.view
             let surface = terminal.session.surfaceView.convert(terminal.session.surfaceView.bounds, to: clip)
             let visible = clip.bounds
@@ -335,15 +343,22 @@ struct PaneContentPolicyTests {
             if abs(off) >= 1 { cut.append("frame \(frame): \(off) pt of the terminal's bottom is cut off") }
         }
         #expect(frames > 3, "the press did not spring (\(frames) frames)")
-        #expect(taller > 3, "the terminal kept its final size on \(taller) of \(frames) frames: its prompt went out of view")
-        #expect(cut.isEmpty, "\(cut.prefix(3))")
+        if switchOn {
+            #expect(taller == 0, "the terminal was taller than its pane on \(taller) of \(frames) frames: a hold cut its top rows")
+            #expect(unfollowed.isEmpty, "\(unfollowed.count) frames showed p1's surface off its pane's size or holding: \(unfollowed.prefix(3))")
+        } else {
+            #expect(taller > 3, "the terminal kept its final size on \(taller) of \(frames) frames: its prompt went out of view")
+            #expect(cut.isEmpty, "\(cut.prefix(3))")
+        }
     }
 
-    /// Review of #35470 at c4d6c936c92 (H1 a, switch on): in a 2x2 grid, Ctrl-Shift-H on p4 (bottom right) moves its
-    /// left edge, then Ctrl-Shift-K on p4 before the landing grows it up with its prompt in the lower half, so `restAt`
-    /// holds its surface on the bottom edge. That hold kept the final width on the hold's trailing edge: the moving left
-    /// edge cut off the start of every line. In every frame, p4's surface has its area's leading edge and width.
-    @Test func aLowPromptBottomHoldAfterAPressOnTheOtherAxisKeepsItsPanesWidth() async throws {
+    /// Review of #35470 at c4d6c936c92 (H1 a), with `motion.frameOwner.terminals` on: in a 2x2 grid, Ctrl-Shift-H on p4
+    /// (bottom right) moves its left edge, then Ctrl-Shift-K on p4 before the landing grows it up with its prompt in the
+    /// lower half. `restAt` held its surface on the bottom edge then (F2), and that hold kept the final width on the
+    /// hold's trailing edge: the moving left edge cut off the start of every line (#35914 gave the hold the area's width).
+    /// cmux-ad m14 replaced the hold: in every frame p4's surface has its area's frame (its leading edge, width, top and
+    /// height) and holds nothing.
+    @Test func aLowPromptPressOnTheOtherAxisKeepsTheSurfaceOnItsArea() async throws {
         let grid: SplitNode = .split("x", axis: .horizontal, ratio: 0.5,
                                      a: .split("l", axis: .vertical, ratio: 0.5, a: .leaf("p1"), b: .leaf("p3")),
                                      b: .split("r", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .leaf("p4")))
@@ -360,27 +375,28 @@ struct PaneContentPolicyTests {
         for _ in 1...4 { _ = rig.frame() }
         #expect(PaneResize.press("p4", .up, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
-        var off: [String] = [], held = 0
+        var off: [String] = []
         func check(_ label: String) {
             let host = terminal.session.view, surface = terminal.session.surfaceView.frame
             let area = host.surfaceSize(forHostSize: host.bounds.size)
-            if surface.height > area.height + 1 { held += 1 }
-            if abs(surface.minX - host.bounds.minX) > 0.5 || abs(surface.width - area.width) > 0.5 {
-                off.append("\(label): p4's surface x \(surface.minX) width \(surface.width), its area's x \(host.bounds.minX) width \(area.width)")
+            if host.surfaceHold != nil { off.append("\(label): p4's surface keeps a hold") }
+            if abs(surface.minX - host.bounds.minX) > 0.5 || abs(surface.width - area.width) > 0.5
+                || abs(surface.maxY - host.bounds.maxY) > 0.5 || abs(surface.height - area.height) > 0.5 {
+                off.append("\(label): p4's surface \(surface), its area x \(host.bounds.minX) top \(host.bounds.maxY) size \(area)")
             }
         }
         let frames = try Self.run(rig) { frame in check("frame \(frame)") }
         check("after the landing")
         #expect(frames > 3, "the presses did not spring (\(frames) frames)")
-        #expect(held > 0, "p4 kept no bottom hold: the case under test did not happen")
-        #expect(off.isEmpty, "\(off.count) frames showed p4's surface off its pane's width: \(off.prefix(3))")
+        #expect(off.isEmpty, "\(off.count) frames showed p4's surface off its area or holding: \(off.prefix(3))")
     }
 
-    /// Review of #35470 at c4d6c936c92 (H1 b, switch on): Ctrl-Shift-J on p1 twice (its prompt in the lower half), then
-    /// Ctrl-Shift-K before the landing. The rest is still taller than at the start of the hold, so the K press keeps the
-    /// bottom hold at the K press's final size, which is shorter than p1's area mid-spring: a band of the terminal's ground
-    /// showed at the top of the pane until the landing. In every frame p1's surface is at least as tall as its area.
-    @Test func aLowPromptBottomHoldNeverLeavesABandAboveTheTerminal() async throws {
+    /// Review of #35470 at c4d6c936c92 (H1 b), with `motion.frameOwner.terminals` on: Ctrl-Shift-J on p1 twice (its prompt
+    /// in the lower half), then Ctrl-Shift-K before the landing. The rest is still taller than at the start of the hold,
+    /// so the K press kept a bottom hold at its final size, shorter than p1's area mid-spring: a band of the terminal's
+    /// ground showed at the top of the pane until the landing (#35914 gave such a hold the area's frame). cmux-ad m14
+    /// replaced the hold: in every frame p1's surface has its area's height, on its top edge, and holds nothing.
+    @Test func aLowPromptGrowDownTwiceThenUpKeepsTheSurfaceOnItsArea() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.stack), focused: "p1")
         defer { rig.close() }
         defer { PaneGroundCoversPaneTests.releaseFrames() }
@@ -395,28 +411,29 @@ struct PaneContentPolicyTests {
         }
         #expect(PaneResize.press("p1", .up, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
-        var short: [String] = [], held = 0
+        var off: [String] = []
         func check(_ label: String) {
             let host = terminal.session.view, surface = terminal.session.surfaceView.frame
             let area = host.surfaceSize(forHostSize: host.bounds.size)
-            if host.surfaceHold?.anchor == .bottom { held += 1 }
-            if surface.height < area.height - 0.5 {
-                short.append("\(label): p1's surface \(surface.height) pt tall in a \(area.height) pt area")
+            if host.surfaceHold != nil { off.append("\(label): p1's surface keeps a hold") }
+            if abs(surface.height - area.height) > 0.5 || abs(surface.maxY - host.bounds.maxY) > 0.5 {
+                off.append("\(label): p1's surface \(surface.height) pt tall, top \(surface.maxY), in a \(area.height) pt area, top \(host.bounds.maxY)")
             }
         }
         check("the K press's first frame")
         let frames = try Self.run(rig) { frame in check("frame \(frame)") }
         #expect(frames > 3, "the presses did not spring (\(frames) frames)")
-        #expect(held > 0, "p1 kept no bottom hold after the K press: the case under test did not happen")
-        #expect(short.isEmpty, "\(short.count) frames left a band above p1's terminal: \(short.prefix(3))")
+        #expect(off.isEmpty, "\(off.count) frames showed p1's surface off its area or holding: \(off.prefix(3))")
     }
 
-    /// Review of #35470 at 447f784c3cf (G1 a): Ctrl-Shift-J grows p1 down with its prompt in the lower half, so its
-    /// surface keeps the final size on the bottom edge (F2); Ctrl-Shift-K before the landing reverses it. From the reverse
-    /// press's first frame each surface has its pane's size again: the newest press's anchor (`.top`) wins. The bottom
-    /// hold stayed until the landing, so the shrinking pane showed the text with its top step cut off over an empty band.
-    /// With the switch off (the default; T5), the reverse press ends the bottom hold too: from its first frame each surface
-    /// keeps one size, the size the reverse press rests at (for p1 its start size, shorter than the bottom hold's).
+    /// Review of #35470 at 447f784c3cf (G1 a): Ctrl-Shift-J grows p1 down with its prompt in the lower half;
+    /// Ctrl-Shift-K before the landing reverses it.
+    /// - With `motion.frameOwner.terminals` off (the default; T5), the J press keeps p1's surface at its final size on the
+    ///   bottom edge (F2), and the reverse press ends that hold: from its first frame each surface keeps one size, the size
+    ///   the reverse press rests at (for p1 its start size, shorter than the bottom hold's). The bottom hold stayed until
+    ///   the landing, so the shrinking pane showed the text with its top step cut off over an empty band.
+    /// - With it on, the J press holds nothing (cmux-ad m14 replaced F2's hold), and each surface has its pane's size in
+    ///   every frame of both presses.
     @Test(arguments: [false, true])
     func aReversePressAfterALowPromptGrowsDownFollowsItsPane(switchOn: Bool) async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.stack), focused: "p1")
@@ -435,7 +452,11 @@ struct PaneContentPolicyTests {
             let surface = terminal.session.surfaceView.frame.size, host = terminal.session.view
             if surface.height > host.surfaceSize(forHostSize: host.bounds.size).height + 1 { held += 1 }
         }
-        try #require(held > 0, "the grow-down press kept no bottom hold: the case under test did not happen")
+        if switchOn {
+            #expect(held == 0, "the grow-down press held p1's surface taller than its pane on \(held) frames")
+        } else {
+            try #require(held > 0, "the grow-down press kept no bottom hold: the case under test did not happen")
+        }
         #expect(PaneResize.press("p1", .up, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         var off: [String] = [], firstFrame: [PaneID: CGSize] = [:]
