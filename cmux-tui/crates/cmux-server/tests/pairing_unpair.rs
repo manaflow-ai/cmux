@@ -6,7 +6,8 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use base64::Engine as _;
-use cmux_server::pairing::{self, Transport, unpair};
+use cmux_server::pairing::unpair::UNREACHABLE;
+use cmux_server::pairing::{self, Transport};
 use cmux_server::{Error, ExitKind, Result};
 use cmux_server_core::pairing::enrollment::{Begun, Paired, Waited};
 use serde_json::{Value, json};
@@ -177,7 +178,7 @@ fn server_unpair_keeps_the_record_when_cmux_cloud_cannot_be_reached() {
     let before = std::fs::read(&path).unwrap();
     let down = Api::new(Cloud::Down);
     let error = pairing::unpair(&path, &down, false).unwrap_err();
-    assert_eq!((error.kind, error.message.as_str()), (ExitKind::Unreachable, unpair::UNREACHABLE));
+    assert_eq!((error.kind, error.message.as_str()), (ExitKind::Unreachable, UNREACHABLE));
     assert_eq!(std::fs::read(&path).unwrap(), before);
     assert_eq!(pairing::status(&path).unwrap()["state"], "paired");
 }
