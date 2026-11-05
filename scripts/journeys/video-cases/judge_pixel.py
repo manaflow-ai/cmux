@@ -2475,7 +2475,7 @@ def surface_rows_m20(film, surfaces, m20_frames, wrap=None):
     as m20 fails. None without SURFACES."""
     if surfaces is None:
         return None
-    held, stale, lag = set(), set(), set()
+    held, stale, lag, worst_pt, worst_px = set(), set(), set(), 0.0, 0.0
     for f, per in surfaces["frames"].items():
         oks = surfaces["lag_ok"].get(f) or {}
         for pid, (off_pt, off_px) in per.items():
@@ -2483,9 +2483,13 @@ def surface_rows_m20(film, surfaces, m20_frames, wrap=None):
             held_ok, stale_ok = oks.get(pid, (False, False))
             if off_pt > SURFACE_TOL_PT:
                 (lag if held_ok else held).add(f)
+                if not held_ok:
+                    worst_pt = max(worst_pt, off_pt)
                 m20_frames["terminal"][f].append(("lag" if held_ok else "held", None, where))
             if off_px is not None and off_px > STALE_TOL_PX:
                 (lag if stale_ok else stale).add(f)
+                if not stale_ok:
+                    worst_px = max(worst_px, off_px)
                 m20_frames["terminal"][f].append(("lag" if stale_ok else "stale", None, where))
     wrap = wrap or {"frames": {}, "m20": {}, "lag": set(), "judged": set(), "rows": 0, "short": set()}
     for f in wrap["judged"]:
@@ -2495,6 +2499,7 @@ def surface_rows_m20(film, surfaces, m20_frames, wrap=None):
         if not wheres:
             m20_frames["terminal"][f].append(("lag" if f in wrap["lag"] else "pass", None, "text wrap"))
     return {"wrap_rows": wrap["rows"], "wrap_short": len(wrap["short"]), "wrap_short_ranges": ranges(wrap["short"]),
+            "held_worst_pt": worst_pt, "stale_worst_px": worst_px,
             "surface_lag": len(lag), "surface_lag_ranges": ranges(lag), "stale_judged": bool(surfaces["stale"]),
             "surface_frames": len(surfaces["frames"]), "surface_phase": surfaces["phase"], "surface_votes": surfaces["votes"],
             "surface_unmatched": surfaces["unmatched"]}
