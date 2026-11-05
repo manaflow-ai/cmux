@@ -29,6 +29,8 @@ public final class SidebarContainerView: NSView {
     /// Debug `sidebar.cornerMorph`: reshapes the window's chrome shade when a morph anchor moves
     /// (`SidebarContainerView+CornerMorph`).
     var cornerMorphReshape: (@MainActor () -> Void)?
+    /// A morph is on, so the edge hairline steps aside (`updateResizeLine`).
+    var cornerMorphHidesLine = false
     /// Clips the sliding panel to the container's (animating) width.
     private let clip = NSView()
     /// The reach currently visible during a slide, derived from the clip rather than the logical
