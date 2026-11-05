@@ -231,6 +231,7 @@ mod pull_requests;
 mod touched;
 pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
+mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
 pub mod vm_boundary;

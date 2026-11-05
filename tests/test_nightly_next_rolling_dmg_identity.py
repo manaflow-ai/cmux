@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """The rolling nightly-next download is the cmux NIGHTLY build (user msg 20276, a979).
 
-cmux-next ships under the existing nightly bundle id (`com.cmuxterm.app.nightly`),
-not cmux NEXT's `com.cmuxterm.app.nightly.cmux-next`. cmux.com/next, the release
-body and every "latest" link name the rolling asset
-releases/download/nightly-next/cmux-nightly-next-macos-arm64.dmg, so that asset
-must hold the cmux NIGHTLY-identity copy, and only its publisher may write it.
+cmux-next ships once, under the existing nightly bundle id (`com.cmuxterm.app.nightly`;
+hq#7156). cmux.com/next, the release body and every "latest" link name the rolling
+asset releases/download/nightly-next/cmux-nightly-next-macos-arm64.dmg, which
+publish-nightly-next-github-names moves to the build it just published, only while
+that build is the feed's newest.
 
-The publish step script runs here against a fake `gh`, `curl` and publisher,
-and the recorded calls are checked.
+The step script runs here against a fake publisher, and the recorded call is checked.
 """
 from __future__ import annotations
 
@@ -42,55 +41,51 @@ def fake(bin_dir: Path, name: str, body: str) -> None:
 
 
 class RollingDmgIdentity(unittest.TestCase):
-    def test_names_job_no_longer_writes_the_rolling_name(self):
-        names = job(nightly_text(), "publish-nightly-next-github-names")
-        self.assertNotIn("--alias", names, "the cmux NEXT DMG must not take the rolling name")
-
     def test_release_body_names_cmux_nightly(self):
         text = nightly_text()
         step = text[text.index("NOTES_APP_NAME:"):][:400]
         self.assertIn("'cmux NIGHTLY'", step)
         self.assertIn("'com.cmuxterm.app.nightly'", step)
 
-    def test_legacy_publish_writes_the_rolling_name_from_the_nightly_copy(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            work = Path(tmp)
-            bin_dir = work / "bin"
-            bin_dir.mkdir()
-            log = work / "calls.log"
-            (work / "scripts" / "ci").mkdir(parents=True)
-            fake(work / "scripts" / "ci", "nightly-next-guard.py", "exit 0\n")
-            fake(work / "scripts" / "ci", "upload-r2-object.py", f'echo "r2 $*" >> {log}\n')
-            fake(work / "scripts" / "ci", "publish-release-assets.py", f'echo "publish $*" >> {log}\n')
-            fake(bin_dir, "python3", 'case "$1" in -I) exec /usr/bin/python3 "$@";; *) exec "$@";; esac\n')
-            fake(bin_dir, "gh", f'echo "gh $*" >> {log}\n')
-            # The DMG's HEAD check passes; the best-effort notes copy fails, which never blocks the feed.
-            fake(bin_dir, "curl", 'case " $* " in *" -fsSIL "*) exit 0;; esac; exit 1\n')
-            out = work / "legacy-out"
-            out.mkdir()
-            build = "4200000000001"
-            (out / f"cmux-nightly-next-macos-nightlyid-arm64-{build}.dmg").write_bytes(b"nightly")
-            (out / "appcast-arm64.xml").write_text(f"<sparkle:version>{build}</sparkle:version>")
-            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}",
-                       NIGHTLY_NEXT_LEGACY_FEED_BASE="https://files-next.cmux.com/nightly-next",
-                       NIGHTLY_NEXT_FEED_BASE="https://files-next.cmux.com/nightly-next/next",
-                       NIGHTLY_NEXT_R2_BUCKET="b", R2_ENDPOINT="https://r2", NIGHTLY_BUILD=build,
-                       LEGACY_DMG_PREFIX="cmux-nightly-next-macos-nightlyid-arm64-",
-                       LEGACY_APPCAST="appcast-arm64.xml", CHANNEL_RELEASE_TAG="nightly-next",
-                       CHANNEL_DMG_PREFIX="cmux-nightly-next-macos", GITHUB_REPOSITORY="manaflow-ai/cmux",
-                       GITHUB_STEP_SUMMARY=str(work / "summary.md"))
-            env.pop("RELEASE_POKE_URL", None)
-            result = subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/legacy-identity-publish.sh")],
-                                    cwd=work, env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            calls = log.read_text()
-            publish = [line for line in calls.splitlines() if line.startswith("publish ")]
-            self.assertEqual(len(publish), 1, calls)
-            self.assertIn(f"--alias legacy-out/{ROLLING}", publish[0])
-            self.assertIn(f"--immutable legacy-out/cmux-nightly-next-macos-nightlyid-arm64-{build}.dmg", publish[0])
-            self.assertEqual((out / ROLLING).read_bytes(), b"nightly")
-            # The feed goes live before the rolling name moves, so the link never runs ahead of it.
-            self.assertLess(calls.index("r2 "), calls.index("publish "))
+    def run_names(self, newest: bool) -> tuple[subprocess.CompletedProcess, Path, Path]:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        work = Path(tmp.name)
+        log = work / "calls.log"
+        (work / "tooling" / "ci").mkdir(parents=True)
+        fake(work / "tooling" / "ci", "publish-release-assets.py", f'echo "publish $*" >> {log}\n')
+        fake(work, "still-newest", "exit 0\n" if newest else "exit 1\n")
+        bin_dir = work / "bin"
+        bin_dir.mkdir()
+        fake(bin_dir, "python3", 'exec "$@"\n')
+        out = work / "nightly-out"
+        out.mkdir()
+        build = "4200000000001"
+        (out / f"cmux-nightly-next-macos-arm64-{build}.dmg").write_bytes(b"nightly")
+        (out / "appcast-arm64.xml").write_text(f"<sparkle:version>{build}</sparkle:version>")
+        env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", RUNNER_TEMP=str(work),
+                   PUBLISH_TOOLING=str(work / "tooling"), NIGHTLY_FEEDS="appcast-arm64.xml", NIGHTLY_BUILD=build,
+                   CHANNEL_RELEASE_TAG="nightly-next", CHANNEL_DMG_PREFIX="cmux-nightly-next-macos",
+                   GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=str(work / "output"))
+        result = subprocess.run(["bash", str(ROOT / "scripts/ci/nightly-steps/github-names-publish-rolling-name.sh")],
+                                cwd=work, env=env, capture_output=True, text=True)
+        return result, log, out
+
+    def test_the_names_job_moves_the_rolling_name_to_the_published_build(self):
+        result, log, out = self.run_names(newest=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        publish = log.read_text().splitlines()
+        self.assertEqual(len(publish), 1, publish)
+        self.assertIn(f"--alias nightly-out/{ROLLING}", publish[0])
+        self.assertIn("--immutable nightly-out/cmux-nightly-next-macos-arm64-4200000000001.dmg", publish[0])
+        self.assertIn("--replace-feeds --feed nightly-out/appcast-arm64.xml", publish[0])
+        self.assertEqual((out / ROLLING).read_bytes(), b"nightly")
+
+    def test_a_build_no_longer_newest_moves_nothing(self):
+        result, log, out = self.run_names(newest=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(log.exists())
+        self.assertFalse((out / ROLLING).exists())
 
 
 if __name__ == "__main__":
