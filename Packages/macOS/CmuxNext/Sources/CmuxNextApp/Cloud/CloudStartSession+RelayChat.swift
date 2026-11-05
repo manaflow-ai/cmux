@@ -91,8 +91,9 @@ extension CloudStartSession {
                     refusal = decided
                 } catch let failure as ActionFailure { return notSent("cloud.relay.refused", failure.message) }
                 if let refusal {
-                    // The rules' reason with the code, so a caller words its own recovery (no token or provider output).
+                    // The rules' reason, and the start-session command that recovers (its `--login` choice is the caller's).
                     var fields = notSent(refusal.code, refusal.message)
+                    fields["command"] = .string(started.asked(machine: machine.machine.title).command)
                     if let reason = machine.harnessLogin?.reason { fields["login_reason"] = .string(reason.rawValue) }
                     return fields
                 }

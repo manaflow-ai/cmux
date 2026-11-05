@@ -131,6 +131,7 @@ struct CloudRelayChatLoginTests {
         #expect(fields["delivered"] == .bool(false) && fields["error_code"] == .string("cloud.relay.login_missing"))
         guard case .string(let message) = fields["error_message"] else { Issue.record("no message"); return }
         #expect(message.contains("Sign in to Claude") && message.contains("`cmux cloud start-session --target machine:"))
+        #expect(fields["command"].map { "\($0)".contains("cmux cloud start-session --target machine:") } == true)
     }
 
     /// The copy failed: nothing is sent, and the answer carries the copy's fixed text only.
@@ -155,6 +156,9 @@ struct CloudRelayChatLoginTests {
         #expect(fields["login_reason"] == .string("needs-login-choice"))
         guard case .string(let message) = fields["error_message"] else { Issue.record("no message"); return }
         #expect(message.contains("--login machine") && message.contains("claude on Icon VM"), "\(message)")
+        // The command the refusal's `--login` words go with: one the CLI runs.
+        guard case .string(let command) = fields["command"] else { Issue.record("no recovery command"); return }
+        #expect(command.hasPrefix("cmux cloud start-session --target machine:vm_") && command.hasSuffix(" --agent claude"), "\(command)")
     }
 
     /// The person said no to the copy, on a machine with no login: nothing is sent.
