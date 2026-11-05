@@ -100,6 +100,8 @@ struct ChatRowView: View {
                        editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil,
                        polish: ChatPolishMenuButtons(store: context.store, turnID: turnID, prompt: text))
                 .frame(maxWidth: .infinity, alignment: .trailing)
+        case .incoming(let incoming, let at):
+            AgentIncomingCard(incoming: incoming, at: at)
         case .block(let messageID, let block):
             MarkdownBlockRow(block: block) { context.messageText(messageID) }
         case .thought(let text, let isLive):

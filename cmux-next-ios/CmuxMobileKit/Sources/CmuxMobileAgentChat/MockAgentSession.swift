@@ -197,6 +197,7 @@ public final class MockAgentSession: AgentSessionSource {
         ))))
         emit(.update(.agentMessageChunk(text: MockScript.historyAnswer, messageId: "h-m1")))
         emit(.turnResult(turnId: turnID, status: .completed, errorText: nil, at: start.addingTimeInterval(41)))
+        replayAgentMessageTurns(at: Date().addingTimeInterval(-2700))
         let second = Date().addingTimeInterval(-1800)
         replaySubagentTurn(at: second)
         replayStressTurns(ListStressSettings.shared.historyTurns)

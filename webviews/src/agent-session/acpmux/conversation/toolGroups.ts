@@ -13,6 +13,7 @@ import { whoElseCall, type WhoElseCall } from "./whoElseCalls";
 import { isCmuxExec } from "./cmuxExec";
 import { mcpCall, mcpDescription, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
+import { agentCall, type AgentCall } from "./agentCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
 
@@ -47,6 +48,8 @@ export type ToolGroup =
       items: AcpmuxActivity[];
       calls: Extract<SubsessionCall, { tool: "start" }>[];
     }
+  /// A Claude Task or Agent call no subagent record claimed (agentCalls.ts): its subagent's card.
+  | { type: "agentCall"; item: AcpmuxActivity; call: AgentCall }
   /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
   | { type: "mcp"; items: AcpmuxActivity[] }
   | { type: "item"; item: AcpmuxActivity };
@@ -172,6 +175,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     const named = tool && !dispatch && !whoElse && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
+    const agent = tool && !dispatch && !whoElse && !send && !message && !named ? agentCall(tool) : undefined;
     // A cmux script is its own row even beside another: each says what it did (cmuxExec.ts).
     // So is a described call, as Claude Code desktop draws each with its own words (mcpDescription).
     const key = call && (isCmuxExec(call) || mcpDescription(call) ? `${mcpKey(call)}\u0000${tool!.id}` : mcpKey(call));
@@ -287,7 +291,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       rememberMessageFiles();
       continue;
     }
-    const kind = tool && !whoElse && !send && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
+    const kind = tool && !whoElse && !send && !message && !subsession && !call && !agent ? toolGroupKind(tool) : undefined;
     if (kind && run?.kind === kind) {
       run.items.push(...held, item);
       held = [];
@@ -307,6 +311,7 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
     else if (send) for (const part of send) groups.push({ type: "send", item, send: part });
     else if (message) groups.push({ type: "message", item, message });
     else if (subsession) groups.push({ type: "subsession", item, call: subsession });
+    else if (agent) groups.push({ type: "agentCall", item, call: agent });
     else if (key) mcp = { key, items: [item] };
     else if (kind) run = { kind, items: [item], lead: 0 };
     else groups.push({ type: "item", item });
@@ -527,6 +532,7 @@ export function staysInSight(group: ToolGroup): boolean {
     group.type === "sendGroup" ||
     group.type === "subsession" ||
     group.type === "subsessionGroup" ||
+    group.type === "agentCall" ||
     group.type === "dispatch"
   )
     return true;

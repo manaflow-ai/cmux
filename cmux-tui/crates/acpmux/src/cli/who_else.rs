@@ -6,7 +6,7 @@
 //! Outside a session, for the current folder.
 
 use anyhow::Result;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::cli::output::print_json;
 use crate::rpc::method;
@@ -50,47 +50,50 @@ pub(crate) fn duration_ms(text: &str) -> Result<u64> {
 
 /// The request params for `args`, in folder `cwd`, from a shell whose session is `env_session`.
 fn params(args: &WhoElseArgs, cwd: &std::path::Path, env_session: Option<String>) -> Result<Value> {
-    let mut p = json!({"cwd": cwd.to_string_lossy()});
+    let mut p = Map::new();
+    p.insert("cwd".into(), json!(cwd.to_string_lossy()));
     if !args.files.is_empty() {
-        p["files"] = json!(args.files);
+        p.insert("files".into(), json!(args.files));
     }
     if let Some(t) = &args.topic {
-        p["topic"] = json!(t);
+        p.insert("topic".into(), json!(t));
     }
     if let Some(s) = args.session.clone().or(env_session).filter(|s| !s.is_empty()) {
-        p["sessionId"] = json!(s);
+        p.insert("sessionId".into(), json!(s));
         // Its own folder, not the shell's, unless files are named relative to the shell's.
         if args.files.is_empty() {
-            p.as_object_mut().map(|o| o.remove("cwd"));
+            p.remove("cwd");
         }
     }
     if let Some(s) = &args.since {
-        p["sinceMs"] = json!(duration_ms(s)?);
+        p.insert("sinceMs".into(), json!(duration_ms(s)?));
     }
     if args.local {
-        p["peers"] = json!(false);
+        p.insert("peers".into(), json!(false));
     }
-    Ok(p)
+    Ok(Value::Object(p))
 }
 
 /// What `who-else` prints for an answer.
 fn text(answer: &Value) -> String {
-    let rows = answer["sessions"].as_array().cloned().unwrap_or_default();
+    let list = |k: &str| answer.get(k).and_then(Value::as_array).into_iter().flatten();
+    let rows: Vec<&Value> = list("sessions").collect();
     let mut out = String::new();
     if rows.is_empty() {
         out.push_str("No other session works on these.\n");
     } else {
-        for line in answer["lines"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+        for line in list("lines").filter_map(Value::as_str) {
             out.push_str(line);
             out.push('\n');
         }
-        if let Some(more) = answer["more"].as_u64().filter(|n| *n > 0) {
+        if let Some(more) = answer.get("more").and_then(Value::as_u64).filter(|n| *n > 0) {
             out.push_str(&format!("+{more} more (--json lists the first 50 in full)\n"));
         }
     }
-    for u in answer["unreached"].as_array().into_iter().flatten() {
-        let host = u["host"].as_str().unwrap_or("?");
-        out.push_str(&format!("(not asked: {host}: {})\n", u["error"].as_str().unwrap_or("")));
+    for u in list("unreached") {
+        let field = |k: &str| u.get(k).and_then(Value::as_str);
+        let host = field("host").unwrap_or("?");
+        out.push_str(&format!("(not asked: {host}: {})\n", field("error").unwrap_or("")));
     }
     out
 }

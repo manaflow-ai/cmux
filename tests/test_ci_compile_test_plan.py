@@ -337,28 +337,25 @@ def step_script() -> str:
     return "\n".join(body) + "\n"
 
 
-def workflow_skip() -> str:
-    return re.search(r"^env:\n(?:  #.*\n)*  SKIP: (\S+)$", WORKFLOW.read_text(), re.M).group(1)
+class PullRequestCompilesCmuxNextTests(unittest.TestCase):
+    """The pull-request check compiles CmuxNext's test targets again: cmux-next.yml's swift test job
+    runs on a pull request only with full-ci (2026-11-05), so nothing else builds them on a PR."""
 
-
-class PullRequestSkipsCmuxNextTests(unittest.TestCase):
-    """The pull-request check leaves CmuxNext to cmux-next.yml's swift test job, which builds its test targets."""
-
-    def test_the_workflow_skips_cmuxnext_in_both_plans(self) -> None:
-        self.assertEqual(workflow_skip(), CMUXNEXT)
+    def test_the_workflow_skips_no_package_in_either_plan(self) -> None:
         text = WORKFLOW.read_text()
-        self.assertIn('compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" --skip-package "$SKIP"', text)
-        # The fleet lane plans again on the Mac: it must get the same skip.
-        self.assertIn('--arg="--skip-package=$SKIP"', step_script())
+        self.assertNotIn("SKIP:", text)
+        self.assertIn('compile_test_plan.py --changed-files "$RUNNER_TEMP/changed.txt" > ', text)
+        # The fleet lane plans again on the Mac: it gets no skip either.
+        self.assertNotIn("--skip-package", step_script())
 
-    def test_swift_test_still_builds_every_cmuxnext_test_target(self) -> None:
-        # The skip is only sound while swift test runs `swift build --build-tests` for same-repository PRs.
+    def test_swift_test_runs_on_a_pull_request_only_with_full_ci(self) -> None:
+        # If swift test ran on every same-repository PR again, this check would compile CmuxNext twice.
         text = (ROOT / ".github" / "workflows" / "cmux-next.yml").read_text()
         job = re.split(r"\n  [A-Za-z0-9_-]+:[^\n]*\n", text.split("\n  swift-test:\n", 1)[1], maxsplit=1)[0]
         condition = re.search(r"^    if: (.*)$", job, re.M).group(1)
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("--role swift-test", job)
-        self.assertIn("-- swift build --build-tests", job)
+        self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
+        self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
+                      condition)
 
     def test_the_tip_compile_keeps_cmuxnext(self) -> None:
         tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
@@ -377,7 +374,7 @@ class AdvisoryVerdictTests(unittest.TestCase):
                 fake.chmod(0o755)
             env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
             env.update(NEEDED=needed, REF="a" * 40, BASE="b" * 40, RUNNER_TEMP=scratch, RUNNER_NAME="gateway",
-                       CMUX_CI_CLIENT=str(fake), SKIP=workflow_skip())
+                       CMUX_CI_CLIENT=str(fake))
             return subprocess.run(["bash", "-c", step_script()], env=env, capture_output=True, text=True, timeout=60)
 
     def assert_green(self, done, warned: bool) -> None:

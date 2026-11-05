@@ -1,9 +1,10 @@
+import AppKit
 import Foundation
 @testable import CmuxNextServer
 import Testing
 
-/// Add Device's "Any machine: one line" way (Labs `labs.machineJoin`): hidden while the switch is
-/// off, a line only on Make Line, joined when a listed machine carries the line's `joinTokenId`,
+/// Add Device's "Any machine" way (the default, no Labs switch): hidden when the app offers no join,
+/// first and opened on by default with ssh behind Advanced, a line only on Make Line, joined when a listed machine carries the line's `joinTokenId`,
 /// expired at `expiresAt`, the list read on a trigger (the line shown, the focus, a mesh change) and
 /// never on a timer, and the countdown and mesh watch stopped on close, on the flip and at expiry.
 @MainActor @Suite(.serialized) struct MachineJoinLineFlowTests {
@@ -43,24 +44,27 @@ import Testing
         }
     }
 
-    @Test func theWayIsHiddenWhileTheLabsSwitchIsOff() async {
+    @Test func theWayIsHiddenWhenTheAppOffersNoJoin() async {
         let devices = AddDeviceFlowTests.Fake()
         let model = AddDeviceModel(services: devices.services())
         await model.begin(way: .joinLine)
         #expect(model.joinLine == nil)
-        #expect(!model.ways.contains(.joinLine), "no fourth way without labs.machineJoin")
+        #expect(!model.ways.contains(.joinLine), "no join way without a join service")
+        #expect(model.advancedWays.isEmpty, "the ssh way stays in the switch, with no Advanced")
         #expect(model.way == .network, "asking for the hidden way opens the card as it opens on its own")
         model.choose(.joinLine)
         #expect(model.way == .network)
     }
 
-    @Test func theWayShowsWithTheSwitchAndMintsOnlyOnMakeLine() async {
+    @Test func theWayIsTheDefaultAndMintsOnlyOnMakeLine() async {
         let fake = Fake()
         let devices = AddDeviceFlowTests.Fake()
         let model = fake.deviceModel(Self.services(devices, fake))
         await model.begin()
-        #expect(model.ways == [.network, .code, .newDevice, .joinLine])
-        #expect(model.way == .network, "the default way is unchanged")
+        #expect(model.ways == [.joinLine, .code, .newDevice])
+        #expect(model.advancedWays == [.network], "ssh moves behind Advanced")
+        #expect(model.way == .joinLine, "the card opens on the no-ssh way, though the network lists a computer")
+        #expect(!model.showsAdvanced)
         model.choose(.joinLine)
         #expect(model.joinLine?.phase == .idle)
         #expect(fake.mints.isEmpty, "choosing the way mints nothing")
@@ -182,6 +186,27 @@ import Testing
         #expect(JoinedMachine.list(from: Data("{}".utf8)) == nil)
     }
 
+    /// Online is the machine's own heartbeat within the hub's 90 s row TTL, read at `now`, whatever
+    /// window the CLI used; RFC 3339 text and epoch milliseconds both read. No heartbeat: the CLI's word.
+    @Test func aJoinedRowIsOnlineWhenItsHeartbeatIsWithinNinetySeconds() throws {
+        let now = try #require(JoinLine.date("2026-11-05T12:00:00.000Z"))
+        let ms = Int(now.timeIntervalSince1970 * 1000) - 30_000
+        let json = """
+        [{"kind":"joined","id":"m_1","state":"offline","lastHeartbeat":"2026-11-05T11:58:31.000Z"},
+         {"kind":"joined","id":"m_2","state":"online","lastHeartbeat":"2026-11-05T11:58:29.000Z"},
+         {"kind":"joined","id":"m_3","state":"offline","lastHeartbeat":\(ms)},
+         {"kind":"joined","id":"m_4","state":"online"},
+         {"kind":"joined","id":"m_5","lastHeartbeat":"2026-11-05T11:59:59Z","revoked":true},
+         {"kind":"joined","id":"m_6","state":"revoked","lastHeartbeat":"2026-11-05T11:59:59Z"},
+         {"kind":"joined","id":"m_7","state":"offline","lastHeartbeat":\(ms / 1000)},
+         {"kind":"joined","id":"m_8","state":"offline","lastHeartbeat":"\(ms)"}]
+        """
+        let rows = try #require(JoinedMachine.list(from: Data(json.utf8), now: now))
+        // m_6: the CLI says revoked and keeps its last heartbeat; a fresh heartbeat never brings it back.
+        // m_7: epoch seconds; m_8: milliseconds as digits.
+        #expect(rows.map(\.state) == [.online, .offline, .online, .online, .revoked, .revoked, .online, .online])
+    }
+
     @Test func aMintDecodesThePlatformsISOExpiry() throws {
         // The platform's exact shape: `Date.toISOString()`, milliseconds and Z.
         let mint = try #require(JoinLine.decode(Data(#"{"line":" curl x | CMUX_JOIN=cmj_A sh","token":"cmj_A","joinTokenId":"jt","expiresAt":"2026-10-29T03:30:00.123Z"}"#.utf8)))
@@ -190,6 +215,41 @@ import Testing
         // Epoch milliseconds are not a time the platform sends: such a mint is unreadable.
         #expect(JoinLine.decode(Data(#"{"line":"l","joinTokenId":"jt","expiresAt":1793244600123}"#.utf8)) == nil)
         #expect(JoinLine.decode(Data(#"{"line":"l","expiresAt":"2026-10-29T03:30:00.123Z"}"#.utf8)) == nil)
+    }
+
+    /// ssh is not removed, only moved: Advanced opens the network way, which lists and adds as it did
+    /// when it was the default; closing Advanced goes back to the way the card was on.
+    @Test func advancedOpensTheSSHWayWhichStillAdds() async throws {
+        let fake = Fake()
+        let devices = AddDeviceFlowTests.Fake()
+        let model = fake.deviceModel(Self.services(devices, fake))
+        await model.begin()
+        model.choose(.code)
+        #expect(model.perform(.toggleAdvanced) == false, "the disclosure keeps the card open")
+        #expect(model.way == .network)
+        #expect(model.showsAdvanced)
+        #expect(model.available.map(\.name) == ["studio"])
+        #expect(model.buttons.map(\.action) == [.cancel, .newCloudMachine, .otherComputer])
+        let texts = AddDeviceFlowTests.texts(in: AddDeviceView(model: model))
+        #expect(texts.contains(AddDeviceStrings.sshKeyHint), "the ssh way's body shows under Advanced")
+        model.perform(.toggleAdvanced)
+        #expect(model.way == .code, "closing Advanced goes back to the way it was on")
+        model.perform(.toggleAdvanced)
+        let studio = try #require(model.available.first)
+        #expect(model.perform(.pick(studio)), "Add still hands off to Add Machine")
+        #expect(devices.added.map(\.0) == ["studio.tail1234.ts.net"])
+    }
+
+    /// A caller that names the ssh way (`device.add way=network`, `machine.add`) still opens on it.
+    @Test func askingForTheSSHWayOpensItUnderAdvanced() async {
+        let fake = Fake()
+        let devices = AddDeviceFlowTests.Fake()
+        let model = fake.deviceModel(Self.services(devices, fake))
+        await model.begin(way: .network)
+        #expect(model.way == .network)
+        #expect(model.showsAdvanced)
+        model.toggleAdvanced()
+        #expect(model.way == .joinLine, "closed, it falls back to the default way")
     }
 
     static func services(_ devices: AddDeviceFlowTests.Fake, _ fake: Fake) -> AddDeviceServices {

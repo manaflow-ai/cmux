@@ -73,6 +73,8 @@ public final class PaneToolbarView: NSView {
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
     public private(set) lazy var reveal = HoverReveal(region: self, tracksPointer: false)
     private var corner: NSTrackingArea?
+    /// The layout screen whose one tracking area tells the corner the pointer (``PanePointerRegion``); nil: its own area.
+    private weak var cornerArea: (any PanePointerArea)?
     private var restObservation: Task<Void, Never>?
     private weak var cornerHost: NSView?
 
@@ -473,6 +475,19 @@ public final class PaneToolbarView: NSView {
         let rect = strip.map { $0.frame.union(frame) } ?? frame
         // Any control that shows (Search Tabs with a chat selected has no "…") brightens on hover.
         let live = superview != nil && window != nil && (hasMore || !buttons.isEmpty || !nativeButtons.isEmpty) && !isHiddenOrHasHiddenAncestor
+        // In a pane the screen's one area serves the corner by its geometry: no own area, which a resize moved with the
+        // strip in every layout pass (RESIZE MAIN BUDGET, PaneMotionPointerAreasTests).
+        let serving = live ? enclosingPanePointerArea : nil
+        if serving !== cornerArea {
+            cornerArea?.removePointerRegion(self)
+            cornerArea = serving
+            serving?.addPointerRegion(self)
+        }
+        if serving != nil {
+            if let corner { cornerHost?.removeTrackingArea(corner) }
+            (corner, cornerHost) = (nil, nil)
+            return
+        }
         if live, let corner, corner.rect == rect, cornerHost === superview { return }
         if let corner { cornerHost?.removeTrackingArea(corner) }
         corner = nil
@@ -533,4 +548,14 @@ extension PaneToolbarView: TitlebarPressDeciding {
         let onButton = ((buttons + nativeButtons).map { $0 as NSView } + [moreButton]).contains { !$0.isHidden && $0.frame.contains(point) }
         return !onButton && WindowTitlebar.isInTopRow(self) ? .movesWindow : .staysPut
     }
+}
+
+/// In a pane the layout screen's one tracking area tells the toolbar's corner (its strip and itself, in its host's
+/// coordinates) where the pointer is.
+extension PaneToolbarView: PanePointerRegion {
+    public var panePointerRegion: (view: NSView, rect: CGRect)? {
+        superview.map { ($0, strip.map { $0.frame.union(frame) } ?? frame) }
+    }
+
+    public func panePointerInside(_ inside: Bool) { reveal.setPointerInside(inside) }
 }

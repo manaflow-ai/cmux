@@ -95,7 +95,8 @@ move only the tab. Classic agent chats resume by session id.
 
 ## Hot reload for the web UI
 
-A Debug or NIGHTLY app picks up web UI edits from your own checkout live, with no build or
-relaunch: `scripts/cmux-next/web-overlay.sh server --local`. A NIGHTLY can also follow each merge's
+Every cmux build picks up web UI edits from your own checkout live, with no build or relaunch:
+`cmux live start` in a checkout, or Cmd-Shift-P > **Edit cmux Live…** (also at the end of Settings >
+General). `cmux live stop` goes back. A NIGHTLY can also follow each merge's
 web UI (Settings > Updates > Web UI Updates > Every Merge). Details and troubleshooting are in
 [hot-reload.md](hot-reload.md).

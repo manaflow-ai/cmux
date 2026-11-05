@@ -214,20 +214,13 @@ impl Hub {
             .collect();
         let mut notice = json!({"sender": NOTICE_SENDER, "severity": "info", "title": title});
         if !links.is_empty() {
-            notice["links"] = Value::Array(links);
+            set(&mut notice, "links", Value::Array(links));
         }
         let text = crate::prompt_provenance::notice_text(&notice, &notice_body(row));
         let mut provenance = crate::prompt_provenance::notice(&notice, &to.id);
-        provenance["kind"] = json!(NOTICE_KIND);
-        provenance["whoElse"] = row.clone();
-        let opts = PromptOptions {
-            prompt_id: Some(format!("who-else-{}-{other_id}", turn.turn_id)),
-            resend: true,
-            // Into this turn or nowhere: a turn that ended meanwhile hears it at its next edit.
-            steer_only: true,
-            provenance: Some(provenance),
-            ..PromptOptions::default()
-        };
+        set(&mut provenance, "kind", json!(NOTICE_KIND));
+        set(&mut provenance, "whoElse", row.clone());
+        let opts = notice_options(&turn.turn_id, other_id, provenance);
         let blocks = vec![json!({"type": "text", "text": text})];
         let (hub, to, other) = (self.clone(), to.clone(), other_id.to_owned());
         tokio::spawn(async move {
@@ -349,8 +342,8 @@ impl Hub {
                         {
                             let session =
                                 r.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
-                            r["host"] = json!(name);
-                            r["ref"] = json!(format!("{name}/{session}"));
+                            set(&mut r, "host", json!(name));
+                            set(&mut r, "ref", json!(format!("{name}/{session}")));
                             rows.push(r);
                         }
                     }
@@ -360,7 +353,8 @@ impl Hub {
             }
         }
         for r in rows.iter_mut().filter(|r| r.get("ref").is_none()) {
-            r["ref"] = r.get("name").cloned().unwrap_or(Value::Null);
+            let name = r.get("name").cloned().unwrap_or(Value::Null);
+            set(r, "ref", name);
         }
         tf::rank(&mut rows);
         let more = rows.len().saturating_sub(MAX_ROWS);
@@ -375,6 +369,27 @@ impl Hub {
             "unreached": unreached,
             "lines": text,
         }))
+    }
+}
+
+/// Sets `key` of the object `v` (nothing when `v` is not an object).
+/// The notice's prompt options: steered into turn `turn_id` or nowhere. A turn that ended before
+/// the steer ran refuses it (`turns.rs`), so the notice never lands in the next turn; that turn
+/// hears it at its next shared edit.
+fn notice_options(turn_id: &str, other_id: &str, provenance: Value) -> PromptOptions {
+    PromptOptions {
+        prompt_id: Some(format!("who-else-{turn_id}-{other_id}")),
+        resend: true,
+        steer_only: true,
+        interrupt_turn: Some(turn_id.to_owned()),
+        provenance: Some(provenance),
+        ..PromptOptions::default()
+    }
+}
+
+fn set(v: &mut Value, key: &str, value: Value) {
+    if let Some(o) = v.as_object_mut() {
+        o.insert(key.to_owned(), value);
     }
 }
 

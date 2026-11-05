@@ -44,8 +44,8 @@ from signing_runner import SIGNING_JOBS  # noqa: E402
 
 DRIFTED = ("glaeda-nightly-std-xcode-26.6", "glaeda-side-std-xcode-26.6")
 LABEL = "glaeda-trusted-next-signing"
-# Upload-only exclusive publishers: they hold the release App key and sign nothing, so they stay off the signer.
-UPLOADS = ("publish-nightly-next-github", "publish-nightly-next-github-names")
+# Upload-only exclusive publisher: it holds the release App key and signs nothing, so it stays off the signer.
+UPLOADS = ("publish-nightly-next-github",)
 # signing_runner.SIGNING_JOBS names the keychain jobs; promote-nightly-next keeps its earlier route
 # (test_promote_keeps_its_earlier_route)
 JOBS = tuple(name for name in SIGNING_JOBS["nightly.yml"] if name not in UPLOADS)
@@ -61,7 +61,7 @@ def route(name: str, context: dict) -> object:
 
 class SigningOnCmux15Test(unittest.TestCase):
     def test_a_nightly_next_push_takes_the_pick_then_the_signer(self) -> None:
-        self.assertEqual(len(JOBS), 5)
+        self.assertEqual(len(JOBS), 4)
         rng = random.Random(15)
         for name in JOBS:
             source = manaflow_route(name)

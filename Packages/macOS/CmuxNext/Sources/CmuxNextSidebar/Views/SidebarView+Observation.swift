@@ -52,6 +52,9 @@ extension SidebarViewComponents {
         /// Whether a joined line runs out of its header's bar (`SidebarGroupLine.joinsBar`, the band header style)
         /// or starts after the cut: its frame moves, so the list lays out again.
         var groupLineJoinsBar: Bool
+        /// Whether a group with no color draws its block (`sidebar.noColorGroup` not plain) or nothing: the
+        /// group's line view changes kind, so the list lays out again.
+        var noColorBlocks: Bool
         /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
         var leadingColumn: SidebarLeadingColumnLook
         init(_ model: SidebarModel, _ design: DesignSettings) {
@@ -84,6 +87,7 @@ extension SidebarViewComponents {
             groupLineLayout = SidebarGroupLineLayout.tunable.value
             groupChromeShape = SidebarStyle.groupChromeShape
             groupLineJoinsBar = SidebarGroupLine.joinsBar
+            noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
             leadingColumn = SidebarLeadingColumnLook.tunable.value
         }
     }
@@ -122,7 +126,7 @@ extension SidebarViewComponents {
             || lastState?.groupsByStatus != state.groupsByStatus
             || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout
             || lastState?.groupChromeShape != state.groupChromeShape
-            || lastState?.groupLineJoinsBar != state.groupLineJoinsBar
+            || lastState?.groupLineJoinsBar != state.groupLineJoinsBar || lastState?.noColorBlocks != state.noColorBlocks
         let listChanged = rowsChanged || selectionChanged
         // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
         if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }

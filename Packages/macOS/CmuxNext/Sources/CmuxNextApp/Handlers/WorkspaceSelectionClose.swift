@@ -9,8 +9,9 @@ import CmuxNextSettings
 /// App's wiring of its sidebar pass, question, toast and window.
 @MainActor
 enum WorkspaceSelectionClose {
-    /// Closes the workspaces `ids` that window `state` lists.
-    static func close(_ ids: [String], in state: WindowState, _ services: AppServices) {
+    /// Closes the workspaces `ids` that window `state` lists. `asked`: the person already answered this
+    /// close's question (a palette or menu bulk close, `DestructiveConfirmation`), so none is asked again.
+    static func close(_ ids: [String], in state: WindowState, _ services: AppServices, asked: Bool = false) {
         let windows = services.windows, controller = windows.controller(for: state.id), shownAtPress = controller?.state.workspaceID
         let members = ids.compactMap { services.machines.workspace(id: $0) }.filter { workspace, _ in
             workspace.key != nil && !HomeRules.isHome(workspace) && services.selectionCloses.canStart(workspace.id)
@@ -28,9 +29,9 @@ enum WorkspaceSelectionClose {
                 return InstantClose.begin(ids, in: state.id, windows: windows)
             },
             // A terminal that may run a program, or nothing left to undo it: the rows stay until the person answers.
-            mayAsk: { WorkspaceBulkClose.mayAsk(members, warn: warn, askWithoutUndo: undoWindow == nil) },
+            mayAsk: { !asked && WorkspaceClose.mayAsk(members, warn: warn, askWithoutUndo: undoWindow == nil) },
             question: {
-                guard var prompt = await WorkspaceBulkClose.prompt(members, warn: warn, askWithoutUndo: undoWindow == nil, incognito: incognito) else { return nil }
+                guard !asked, var prompt = await WorkspaceBulkClose.prompt(members, warn: warn, askWithoutUndo: undoWindow == nil, incognito: incognito) else { return nil }
                 prompt.returnConfirms = false
                 return { await withCheckedContinuation { answer in
                     DestructiveConfirmation.present(prompt, in: controller?.window ?? windows.active?.window, settings: services.settings) { answer.resume(returning: $0) }

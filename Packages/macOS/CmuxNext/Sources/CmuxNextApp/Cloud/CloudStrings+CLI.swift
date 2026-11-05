@@ -200,7 +200,7 @@ extension CloudStrings {
     /// `cloud new-machine --repo` that is not a GitHub repository in an accepted form.
     static var repoUnrecognized: String {
         String(localized: "cloud.cli.repoUnrecognized",
-               defaultValue: "--repo takes a GitHub repository: OWNER/NAME, https://github.com/OWNER/NAME or git@github.com:OWNER/NAME.git, with an optional @REF.",
+               defaultValue: "--repo takes a GitHub repository (OWNER/NAME, https://github.com/OWNER/NAME or git@github.com:OWNER/NAME.git) or another host's https URL (https://gitlab.com/GROUP/NAME), with an optional @REF.",
                table: "Cloud", bundle: .module)
     }
 

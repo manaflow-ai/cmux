@@ -18,6 +18,7 @@ import type { HoverCard } from "./useHoverCard";
 // The card's rules, for every page that shows it (the agent pane, the changelog).
 import "./linkCard.css";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
+import { chatUnderHoverCard, hoverCardGlass } from "../chatUnderGlass";
 
 /// `href`'s host, or `href` when it doesn't parse.
 export function linkHost(href: string): string {
@@ -99,6 +100,8 @@ export function LinkHoverCard({
       side={side}
       interactive
       hoverBridgeId={hover.card["data-cmux-hover-bridge"]}
+      under={chatUnderHoverCard}
+      underOptions={hoverCardGlass}
       onPointerEnter={hover.card.onPointerEnter}
       onPointerLeave={hover.card.onPointerLeave}
       // A pull request's page title only repeats its own title: the card is named by its reference.

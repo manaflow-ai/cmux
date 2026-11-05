@@ -8,6 +8,8 @@ public import Foundation
 /// poll the machine list continuously: reads continue only while an operation is pending.
 /// Successful lists use ``settleDelay``; failed reads back off to at most 30 seconds. A settled
 /// list or ``stop()`` ends the run. There is no client deadline for an unbounded provider operation.
+/// A machine whose state is pushed (``push``, a ``CloudMachineStatePush`` watching the machines each list shows) is
+/// not read at all: its push brings the record, and the reads stay only for machines without a live push.
 /// What holds a Cloud machine's record in the app (its session), for ``CloudMachineChanges/run(_:of:_:)``.
 @MainActor
 public protocol CloudMachineHolder: AnyObject {
@@ -39,6 +41,27 @@ public final class CloudMachineChanges {
         var requestReturnedRead: Int?
     }
     private var mutations: [String: [Mutation]] = [:]
+    /// The machines' state sockets: each list watches the machines it shows, ``stop()`` closes them.
+    public var push: CloudMachineStatePush?
+    /// The last list's refresh: what a lost push falls back to.
+    private var lastRefresh: (@MainActor () async -> Void)?
+    /// Takes `push` (nil: the classic client, nothing is pushed) with the daemon connection its frames go to and where
+    /// its records are shown; the next list opens its sockets.
+    public func startPush(_ push: CloudMachineStatePush?, connection: @escaping @MainActor () -> DaemonConnection?,
+                          record: @escaping @MainActor (CloudMachine) -> Void) {
+        guard self.push == nil, let push else { return }
+        push.connection = connection
+        push.onRecord = record
+        // A dead push leaves its machine to the reads again, starting from the last list's refresh.
+        push.onLost = { [weak self] _ in
+            guard let self, let refresh = self.lastRefresh else { return }
+            self.began(refresh)
+        }
+        self.push = push
+    }
+
+    /// Whether a machine's record is pushed now; such a machine keeps no settle read going.
+    public func isPushed(_ machineID: String) -> Bool { push?.isLive(machineID) == true }
     /// Between ``stop()`` and ``start()``: a list read already on its way when the service
     /// stopped still lands in ``listed(_:refresh:)``, and must not schedule another.
     private var stopped = false
@@ -188,7 +211,7 @@ public final class CloudMachineChanges {
     }
 
     /// Compare unsigned decimal revisions without truncation, overflow or lexical digit-count mistakes.
-    private static func newerRevision(_ current: String?, than previous: String?) -> Bool {
+    static func newerRevision(_ current: String?, than previous: String?) -> Bool {
         func normalized(_ value: String?) -> String? {
             guard let value, !value.isEmpty,
                   value.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }) else { return nil }
@@ -213,15 +236,25 @@ public final class CloudMachineChanges {
         schedule(refresh)
     }
 
+    /// A change of `machineID` sent from here: like ``began(_:)``, but a machine whose record is pushed needs no read.
+    public func began(machineID: String, _ refresh: @escaping @MainActor () async -> Void) {
+        guard !isPushed(machineID) else { return }
+        began(refresh)
+    }
+
     /// After each successful machine list: retain reads only while a machine is changing.
     public func listed(_ list: [CloudMachine], refresh: @escaping @MainActor () async -> Void) {
         // began/stop cancel the old task, including callbacks delivered from inside its refresh.
         guard !stopped, !Task.isCancelled else { return }
         listRevision += 1
+        lastRefresh = refresh
+        push?.watch(list.filter { $0.status != .destroyed })
         // CloudService already reconciled these records with their read tickets. Replaying
         // settlement here without tickets could let a rejected stale response clear a mutation.
         delay = Self.settleDelay
-        pending = list.contains(where: \.status.isChanging) || !mutations.isEmpty
+        // A machine whose record is pushed settles from its push, not from a read.
+        pending = list.contains(where: { $0.status.isChanging && !isPushed($0.id) })
+            || mutations.keys.contains(where: { !isPushed($0) })
         guard pending else {
             cancelRead()
             return
@@ -230,6 +263,8 @@ public final class CloudMachineChanges {
     }
 
     public func stop() {
+        push?.stop()
+        lastRefresh = nil
         stopped = true
         pending = false
         mutations.removeAll()

@@ -1022,6 +1022,10 @@ async fn dispatch_request_with_identity(
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
         return reply;
     }
+    // A session on a machine only the mesh hub reaches (`mesh_read.rs`).
+    if let Some(reply) = super::mesh_relay::read::forward(hub, conn, m, &params).await {
+        return reply;
+    }
     if matches!(
         m,
         method::MUX_FILE_PUT_BEGIN
@@ -1274,6 +1278,9 @@ async fn dispatch_request_with_identity(
                     return Err(RpcError::new(-32000, "the peer's audit token is unknown")
                         .with_data(json!({"reason": crate::hub::person::ENROLL_REFUSED})));
                 }
+                // The VM provisioning exec (root) gives an unsigned daemon its key
+                // (`daemon/provision.rs`); an agent, the daemon's own user, never can.
+                (false, _) if conn.provisioner => return hub.person.provision(key),
                 (false, _) => false,
             };
             hub.person.enroll(key, verified)
@@ -1752,6 +1759,7 @@ async fn dispatch_request_with_identity(
                 agent,
                 class,
                 after_turn: None,
+                goal_mark: None,
                 supersede,
                 display_parts: {
                     let parts = crate::hub::prompt_images::validated_display_parts(
