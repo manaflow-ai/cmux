@@ -37179,6 +37179,37 @@
     },
     {
       "args" : [
+
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action debug-view-window",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.viewWindow",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open View Window",
+      "title_key" : "action.debug.viewWindow",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
         {
           "kind" : "string",
           "name" : "server",
@@ -44903,6 +44934,78 @@
       "palette_suggested" : null,
       "title" : "Snooze Chat for 1 Hour…",
       "title_key" : "action.sidebar.priority.snooze",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "target",
+          "name" : "chat",
+          "required" : true,
+          "target_kind" : "agent-chat"
+        }
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-priority-move-earlier",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.priority.moveEarlier",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Chat Earlier in Priority…",
+      "title_key" : "action.sidebar.priority.moveEarlier",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "target",
+          "name" : "chat",
+          "required" : true,
+          "target_kind" : "agent-chat"
+        }
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-priority-move-later",
+      "context_menu" : "stepAdjust",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.priority.moveLater",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Chat Later in Priority…",
+      "title_key" : "action.sidebar.priority.moveLater",
       "title_table" : "SidebarSectionActions"
     },
     {
