@@ -1507,8 +1507,8 @@ for expected in \
   "LEASE_KEY: nightly-next/locks/legacy-identity-publish.json" \
   "needs.sign-nightly-identity-legacy.result != 'cancelled'" \
   "needs.publish-nightly.outputs.refused != 'true'" \
-  "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" \
-  "needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue'" \
+  "needs.publish-nightly.outputs.build == (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_build || needs.legacy-identity-target.outputs.build)" \
+  "needs.publish-nightly.result == 'skipped' && (needs.build-sign-notarize-nightly.outputs.legacy_ran == 'true' && needs.build-sign-notarize-nightly.outputs.legacy_target_action || needs.legacy-identity-target.outputs.action) == 'continue'" \
   "scripts/ci/nightly-next-legacy-attempt.py --sign-result"; do
   grep -Fq -- "$expected" <<<"$publish_job" || { echo "FAIL: publish-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
