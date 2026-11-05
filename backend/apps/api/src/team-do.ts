@@ -599,7 +599,8 @@ export class TeamDO extends OwnerDO<TeamState> {
   ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
     this.bind(entity)
     if (principal.kind !== "session" || principal.agent || !principal.user) return { ok: false, code: "auth.forbidden", message: "only a signed-in user may approve a server" }
-    const res = this.submitSystem("server.enrolled", { ...params, owner_user: principal.user, approved_by: principal.user }, idempotencyKey)
+    const { pairing, ...enrolled } = params
+    const res = this.submitSystem("server.enrolled", { ...enrolled, owner_user: principal.user, approved_by: principal.user }, idempotencyKey)
     const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
     const value = reply.value as { id: string } | ServerEnrollRefused
@@ -607,6 +608,15 @@ export class TeamDO extends OwnerDO<TeamState> {
       // Push this install's revocation now unless pushes are backing off; the alarm retries the rest.
       if (this.revokeRetryAt === null || Date.now() >= this.revokeRetryAt) await this.flushServerRevocations(entity, value.install)
       return { ok: false, code: "auth.forbidden", message: value.message, refused: true }
+    }
+    // Keep the pairing that made it, so a revoke can spend its code and invite. Best effort: a lost
+    // record only means a later revoke leaves those to expire on their own (minutes).
+    if (pairing) {
+      try {
+        this.submitSystem("server.pairing.recorded", { host: value.id, install: params.install, code: pairing.code, invite: pairing.invite }, `${idempotencyKey}:pairing`)
+      } catch (e) {
+        console.error(JSON.stringify({ msg: "server pairing record failed", host: value.id, error: String(e) }))
+      }
     }
     return { ok: true, host: value.id }
   }

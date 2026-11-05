@@ -84,7 +84,7 @@ const expectSpent = async (p: Awaited<ReturnType<typeof pairedThroughInvite>>) =
   // Neither a replay of the approval nor a fresh one passes on that record, and preview finds nothing.
   expect((await op(p.owner.token, "server.pair.approve", { code: p.code, team: p.owner.team, name: "Studio" }, p.approveKey)).json).toMatchObject({ ok: false, error: { code: "selector.not_found" } })
   expect((await op(p.owner.token, "server.pair.approve", { code: p.code, team: p.owner.team, name: "Studio" })).json).toMatchObject({ ok: false, error: { code: "selector.not_found" } })
-  expect((await read(p.owner.token, "server.pair.preview", { code: p.code })).json.ok).toBe(false)
+  expect((await read(p.owner.token, "server.pair.preview", { code: p.code })).status).toBe(400)
   const hosts = (await read(p.owner.token, "team.directory", {})).json.value.hosts as Array<{ id: string }>
   expect(hosts.some((h) => h.id === p.result.host)).toBe(false)
 }

@@ -58,12 +58,15 @@ describe("servers in the team directory (TeamDO reducer)", () => {
     const start = { ...base(), members: { ...base().members, [ADMIN]: { user: ADMIN, role: "admin", display_name: "a" } } } as TeamState
     rows = new MemoryRows()
     const pairing = { code: "7KQ4M2XD", invite: "ABCDE12345" }
-    const r = reduce(start, "server.enrolled", { ...enrolled, owner_user: ADMIN, approved_by: ADMIN, pairing }, ctx(null))
+    const r = reduce(start, "server.enrolled", { ...enrolled, owner_user: ADMIN, approved_by: ADMIN }, ctx(null))
     if (!r.ok) throw new Error(r.message)
     const host = (r.value as { id: string }).id
-    expect((r.state as TeamState).server_pairings?.[host]).toMatchObject(pairing)
+    const rec = reduce(r.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, ...pairing }, ctx(null))
+    if (!rec.ok) throw new Error(rec.message)
+    expect((rec.state as TeamState).server_pairings?.[host]).toMatchObject(pairing)
+    expect(reduce(rec.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, ...pairing }, ctx(ADMIN))).toMatchObject({ ok: false, code: "auth.forbidden" })
     // The inviter is now a plain member: still the owner, so still allowed; another member is not.
-    const demoted = { ...(r.state as TeamState), members: { ...(r.state as TeamState).members, [ADMIN]: { user: ADMIN, role: "member", display_name: "a" } } } as TeamState
+    const demoted = { ...(rec.state as TeamState), members: { ...(rec.state as TeamState).members, [ADMIN]: { user: ADMIN, role: "member", display_name: "a" } } } as TeamState
     expect(reduce(demoted, "server.revoke", { host }, ctx(MEMBER))).toMatchObject({ ok: false, code: "auth.forbidden" })
     const gone = reduce(demoted, "server.revoke", { host }, ctx(ADMIN))
     if (!gone.ok) throw new Error(gone.message)
@@ -72,23 +75,27 @@ describe("servers in the team directory (TeamDO reducer)", () => {
   })
 
   it("forgets a pairing once its code and invite have ended, and ignores a malformed one", () => {
-    const r = reduce(base(), "server.enrolled", { ...enrolled, pairing: { code: "7KQ4M2XD", invite: null } }, ctx(null))
+    const r = reduce(base(), "server.enrolled", enrolled, ctx(null))
     if (!r.ok) throw new Error(r.message)
     const host = (r.value as { id: string }).id
+    const rec = reduce(r.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, code: "7KQ4M2XD", invite: null }, ctx(null))
+    if (!rec.ok) throw new Error(rec.message)
     const late = { ...ctx(OWNER), now: 1_000_000 + txn + 20 * 60_000 + 1 }
-    const gone = reduce(r.state as TeamState, "server.revoke", { host }, late)
+    const gone = reduce(rec.state as TeamState, "server.revoke", { host }, late)
     if (!gone.ok) throw new Error(gone.message)
     expect(gone.value).toEqual({ host, install: INSTALL, owner_user: OWNER })
-    const bad = reduce(base(), "server.enrolled", { ...enrolled, pairing: { code: "nope", invite: "x" } }, ctx(null))
-    if (!bad.ok) throw new Error(bad.message)
-    expect((bad.state as TeamState).server_pairings).toEqual({})
+    expect(reduce(r.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, code: "nope", invite: "x" }, ctx(null))).toMatchObject({ ok: false, code: "validation.invalid" })
+    // Another install's host, or a host that is gone: nothing recorded.
+    expect(reduce(r.state as TeamState, "server.pairing.recorded", { host, install: "inst_00000000000000000077", code: "7KQ4M2XD", invite: null }, ctx(null))).toMatchObject({ ok: true, changed: false, value: { recorded: false } })
   })
 
   it("server.signed_out (the box's own install signed out) removes its host without queueing a revocation; a repeat changes nothing", () => {
     const pairing = { code: "7KQ4M2XD", invite: null }
-    const r = reduce(base(), "server.enrolled", { ...enrolled, pairing }, ctx(null))
+    const enr = reduce(base(), "server.enrolled", enrolled, ctx(null))
+    if (!enr.ok) throw new Error(enr.message)
+    const host = (enr.value as { id: string }).id
+    const r = reduce(enr.state as TeamState, "server.pairing.recorded", { host, install: INSTALL, ...pairing }, ctx(null))
     if (!r.ok) throw new Error(r.message)
-    const host = (r.value as { id: string }).id
     expect(reduce(r.state as TeamState, "server.signed_out", { install: INSTALL }, ctx(OWNER))).toMatchObject({ ok: false, code: "auth.forbidden" })
     const out = reduce(r.state as TeamState, "server.signed_out", { install: INSTALL }, ctx(null))
     if (!out.ok) throw new Error(out.message)

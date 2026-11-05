@@ -71,6 +71,20 @@ const validPairing = (p: unknown): p is { code: string; invite: string | null } 
   return typeof v?.code === "string" && /^[0-9A-Z]{8}$/.test(v.code) && (v.invite === null || (typeof v.invite === "string" && /^[0-9A-Z]{10}$/.test(v.invite)))
 }
 
+/**
+ * TeamDO.enrollServer, right after `server.enrolled` added the host: keep the pairing that made it
+ * (pair-routes.ts passes it). Only for the live server host of that install; a malformed pairing
+ * is ignored. Its own op, so `server.enrolled`'s params (and their replays) stay as they were.
+ */
+export const reduceServerPairingRecorded = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
+  const v = params as { host?: unknown; install?: unknown; code?: unknown; invite?: unknown }
+  if (typeof v.host !== "string" || typeof v.install !== "string" || !validPairing(v)) return reject("validation.invalid", "invalid server pairing")
+  if (!serverPlacementActive(state, ctx.rows, v.host, v.install)) return { ok: true, state, value: { host: v.host, recorded: false }, changed: false }
+  const pairings = livePairings(state, ctx.now)
+  pairings[v.host] = { code: v.code, invite: v.invite, at: ctx.now }
+  return { ok: true, state: { ...state, server_pairings: pairings }, value: { host: v.host, recorded: true } }
+}
+
 /** UserDO confirmed the revocation: drop it from the retry set. */
 export const reduceServerInstallRevoked = (state: TeamState, params: unknown): Out => {
   const install = (params as { install: string }).install
@@ -90,7 +104,7 @@ const ENROLL_REFUSED = "only team owners and admins may add a server"
 
 export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
   if (!state.team) return reject("validation.invalid", "team not initialized")
-  const v = params as { install: string; name: string; platform: typeof Host.Type["platform"]; wg_public_key: string; owner_user: string; approved_by: string; network?: unknown; pairing?: unknown }
+  const v = params as { install: string; name: string; platform: typeof Host.Type["platform"]; wg_public_key: string; owner_user: string; approved_by: string; network?: unknown }
   // One host per install: a replayed or repeated approval of the same install keeps the host id.
   const existing = hostByInstall(state, ctx.rows, v.install)
   if (existing && existing.kind !== "server") return reject("validation.invalid", "this install is already a device host")
@@ -121,9 +135,7 @@ export const reduceServerEnrolled = (state: TeamState, params: unknown, ctx: Red
     ...(persistedNetwork ? { network: persistedNetwork } : {})
   }
   if (existing && JSON.stringify(existing) === JSON.stringify(host)) return { ok: true, state, value: host, changed: false }
-  const pairings = livePairings(state, ctx.now)
-  if (validPairing(v.pairing)) pairings[host.id] = { code: v.pairing.code, invite: v.pairing.invite, at: ctx.now }
-  const next = { ...state, host_count: (state.host_count ?? 0) + (existing ? 0 : 1), server_pairings: pairings }
+  const next = { ...state, host_count: (state.host_count ?? 0) + (existing ? 0 : 1) }
   return withWrites(
     audited(next, ctx, "server.enrolled", host, { kind: "host.upsert", entity: host.id, payload: { ...host, team: state.team.id } }, `server ${host.name} paired`, {
       host: host.id,

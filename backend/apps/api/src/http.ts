@@ -380,11 +380,15 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         // directory first and the pairing code and invite that made it are spent, then UserDO revokes the
         // install. In this order a failure leaves the install's token working, so the box's retry (the
         // same steps, all idempotent) finishes the job; the other order would strand the host.
-        if (payload.op === "install.sign_out" && principal.kind === "install" && principal.install_kind === "daemon" && principal.install && principal.team) {
-          const team = principal.team
-          const install = principal.install
-          const out = yield* Effect.tryPromise({ try: () => rpc<{ host: string | null; pairing?: ServerPairingRef }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).serverSignedOut(team, install)), catch: unreachable })
-          if (out.pairing) yield* Effect.tryPromise({ try: () => revokeServerPairing(env, out.pairing!), catch: unreachable })
+        if (payload.op === "install.sign_out" && principal.kind === "install" && principal.install && principal.team) {
+          // UserDO's principal carries no install kind: ask once (a live grant only). Any other install's sign-out goes on unchanged.
+          const enriched = yield* Effect.tryPromise({ try: () => principalForOwner(env, "cloud:TeamDO", principal), catch: unreachable })
+          if (enriched && !("refused" in enriched) && enriched.install_kind === "daemon") {
+            const team = principal.team
+            const install = principal.install
+            const out = yield* Effect.tryPromise({ try: () => rpc<{ host: string | null; pairing?: ServerPairingRef }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).serverSignedOut(team, install)), catch: unreachable })
+            if (out.pairing) yield* Effect.tryPromise({ try: () => revokeServerPairing(env, out.pairing!), catch: unreachable })
+          }
         }
         const { frames } = yield* submitTo(def.owner, payload.op === "user.ensure" ? personalPrincipal(submitter) : submitter, frame)
         const response = toResponse(payload.op, frames)

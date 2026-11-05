@@ -441,6 +441,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
     } as CloudOpDef
   ],
   [
+    "server.pairing.recorded",
+    {
+      name: "server.pairing.recorded",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({ host: HostId, install: InstallId, code: Schema.String, invite: Schema.NullOr(Schema.String) }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: the pairing code and invite that made a server, kept a while so a revoke can spend them.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "server.signed_out",
     {
       name: "server.signed_out",
@@ -473,9 +490,7 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
         wg_public_key: WgPublicKey,
         network: Schema.optionalKey(ServerNetworkReservation),
         owner_user: UserId,
-        approved_by: UserId,
-        /** The pairing code and invite that made it, kept a while so a revoke can spend them. */
-        pairing: Schema.optionalKey(Schema.Struct({ code: Schema.String, invite: Schema.NullOr(Schema.String) }))
+        approved_by: UserId
       }),
       result: Schema.Unknown,
       errors: [],
