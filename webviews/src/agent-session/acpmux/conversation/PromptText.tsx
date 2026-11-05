@@ -82,9 +82,7 @@ export function PromptText({
       // `display: contents`, so the bubble insets its text as before), and its lines measure it.
       let height = node.scrollHeight;
       if (!node.classList.contains("is-clamped")) {
-        const range = node.ownerDocument.createRange();
-        range.selectNodeContents(node);
-        height = typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect().height : 0;
+        height = drawnBox(node)?.height ?? 0;
       }
       // No layout (a test DOM) keeps the guess.
       if (!height || !Number.isFinite(lineHeight)) return;
@@ -224,6 +222,32 @@ export function PromptText({
       )}
     </>
   );
+}
+
+/// The box `node`'s content is drawn in, for a prompt drawn whole (no box of its own): its text's,
+/// except that a paste card counts as its own box. A range over a closed card's text would count the
+/// lines its preview clips too, so the prompt would measure long, clamp, measure short and unclamp
+/// without end.
+function drawnBox(node: Node): { top: number; bottom: number; height: number } | undefined {
+  const element = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : undefined;
+  if (element?.classList.contains("cv-user__paste-block")) return element.getBoundingClientRect();
+  if (!element || !element.querySelector(".cv-user__paste-block")) {
+    const range = node.ownerDocument?.createRange();
+    if (!range) return undefined;
+    range.selectNodeContents(node);
+    if (typeof range.getBoundingClientRect !== "function") return undefined;
+    const rect = range.getBoundingClientRect();
+    return rect.height ? rect : undefined;
+  }
+  let box: { top: number; bottom: number; height: number } | undefined;
+  for (const child of element.childNodes) {
+    const part = drawnBox(child);
+    if (!part) continue;
+    const top = Math.min(box?.top ?? part.top, part.top);
+    const bottom = Math.max(box?.bottom ?? part.bottom, part.bottom);
+    box = { top, bottom, height: bottom - top };
+  }
+  return box;
 }
 
 /// One typed block of a sent prompt: Markdown when it is written in Markdown (promptMarkdown.ts),

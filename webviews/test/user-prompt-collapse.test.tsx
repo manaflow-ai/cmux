@@ -393,6 +393,67 @@ try {
     expect(host.querySelector(".cv-user__paste")?.getAttribute("aria-expanded")).toBe("true");
   });
 
+  // In a browser the closed card's preview runs past its three lines, clipped. A range over the
+  // prompt's text counted those lines, so the prompt measured long, clamped, measured short (its
+  // clamped box) and unclamped, until React gave up and the pane could not be drawn.
+  test("a closed paste card's clipped preview never makes the prompt measure long", () => {
+    act(() => root.unmount());
+    resetTranscriptDisclosure();
+    root = createRoot(host);
+    const computed = dom.window.getComputedStyle;
+    const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
+    const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
+    const elementBox = dom.window.Element.prototype.getBoundingClientRect;
+    Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
+    // Clamped, the box is the typed line and the card.
+    Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 140 });
+    // Its text: the typed line, and the preview's 30 wrapped lines, most of them clipped.
+    Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value(this: Range) {
+        const start = this.startContainer as Element;
+        const preview =
+          start.nodeType === 1 &&
+          (start.matches(".cv-user__paste-text") || start.querySelector(".cv-user__paste-text"));
+        return preview ? { top: 28, bottom: 628, height: 600 } : { top: 0, bottom: 20, height: 20 };
+      },
+    });
+    dom.window.Element.prototype.getBoundingClientRect = function (this: Element) {
+      return this.classList.contains("cv-user__paste-block")
+        ? ({ top: 20, bottom: 128, height: 108 } as DOMRect)
+        : elementBox.call(this);
+    };
+    try {
+      const typed = "Can you tighten this up?";
+      const paste = Array.from({ length: 900 }, (_, index) => `word${index}`).join(" ");
+      const text = `${typed}\n${paste}`;
+      const start = typed.length + 1;
+      act(() =>
+        root.render(
+          <div className="cv-user__bubble">
+            <PromptText
+              rowId="clipped-preview"
+              text={text}
+              pasted={[{ start, end: text.length }]}
+              show={(value) => value}
+            />
+          </div>,
+        ),
+      );
+      expect(body().classList.contains("is-clamped")).toBe(false);
+      expect(toggle()).toBeNull();
+    } finally {
+      act(() => root.unmount());
+      root = createRoot(host);
+      Object.assign(dom.window, { getComputedStyle: computed });
+      dom.window.Element.prototype.getBoundingClientRect = elementBox;
+      if (lineBox) Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", lineBox);
+      else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
+      if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
+      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+    }
+  });
+
   test("Find opens the closed paste chip that holds the match", () => {
     resetTranscriptDisclosure();
     const typed = "See the log";
@@ -451,11 +512,11 @@ try {
     const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
     Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 1000 });
     Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
-    // Drawn whole, the prompt is measured by its lines.
+    // Drawn whole, the prompt is measured by its parts' lines (a paste card by its own box).
     const lineBox = Object.getOwnPropertyDescriptor(dom.window.Range.prototype, "getBoundingClientRect");
     Object.defineProperty(dom.window.Range.prototype, "getBoundingClientRect", {
       configurable: true,
-      value: () => ({ height: 1000 }),
+      value: () => ({ top: 0, bottom: 1000, height: 1000 }),
     });
     try {
       act(() => root.unmount());
