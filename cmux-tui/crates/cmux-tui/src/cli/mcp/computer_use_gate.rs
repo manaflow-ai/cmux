@@ -353,6 +353,44 @@ mod tests {
         assert!(matches!(decide("click", None, status, None), Decision::Run));
     }
 
+    /// cmux Remote holds the grants under the upstream driver (`grant_holder:
+    /// cmux_remote`): a call before setup asks the person on the card, the
+    /// same as the legacy helper, instead of failing in the worker.
+    #[test]
+    fn cmux_remotes_missing_grants_wait_for_the_card() {
+        for (accessibility, screen_recording) in [(false, false), (true, false), (false, true)] {
+            let status = Ok(json!({"phase": "ready", "accessibility": accessibility,
+                                   "screen_recording": screen_recording, "driver": "upstream",
+                                   "grant_holder": "cmux_remote"}));
+            let Decision::Wait { params, .. } = decide("click", None, status, None) else {
+                panic!("cmux Remote without {accessibility}/{screen_recording} must ask the person");
+            };
+            assert_eq!(params["kind"], "computer_use");
+        }
+        let granted = Ok(json!({"phase": "ready", "accessibility": true, "screen_recording": true,
+                                "driver": "upstream", "grant_holder": "cmux_remote"}));
+        assert!(matches!(decide("click", None, granted, None), Decision::Run));
+        // Grants still being read: the worker's own answer decides.
+        let reading = Ok(json!({"phase": "starting", "accessibility": null, "screen_recording": null,
+                                "driver": "upstream", "grant_holder": "cmux_remote"}));
+        assert!(matches!(decide("click", None, reading, None), Decision::Run));
+        // Computer Use off under cmux Remote: the card turns it on, as under the legacy helper.
+        let off = Ok(json!({"phase": "off", "accessibility": null, "screen_recording": null,
+                            "driver": "upstream", "grant_holder": "cmux_remote"}));
+        assert!(matches!(decide("click", None, off, None), Decision::Wait { .. }));
+    }
+
+    /// The whole status the app answers (`computer_use.status`: setup and
+    /// approvals in one object) still gates on the setup fields.
+    #[test]
+    fn the_merged_status_with_approval_fields_still_gates() {
+        let status = Ok(json!({"phase": "ready", "accessibility": false, "screen_recording": false,
+                               "driver": "upstream", "grant_holder": "cmux_remote",
+                               "mode": "standard", "phone_always_allow": false, "worker": "running",
+                               "saved": [], "pending": []}));
+        assert!(matches!(decide("click", None, status, None), Decision::Wait { .. }));
+    }
+
     #[test]
     fn a_missing_grant_waits_for_the_card_within_the_calls_limit() {
         let Decision::Wait { params, wait } =

@@ -309,6 +309,25 @@ fn wait_step() -> Value {
 mod tests {
     use super::*;
 
+    /// Under cmux Remote the grant goes to cmux Remote, named as macOS 27 shows it.
+    #[test]
+    fn cmux_remotes_grants_name_cmux_remote_and_the_macos_27_names() {
+        let status = json!({"phase": "ready", "accessibility": false, "screen_recording": false,
+                            "driver": "upstream", "grant_holder": "cmux_remote"});
+        let step = next_step(&status).expect("accessibility step");
+        let text = step["text"].as_str().unwrap();
+        assert!(text.contains("cmux Remote"), "{text}");
+        assert!(text.contains("Device Control and Data Access (Accessibility)"), "{text}");
+        let status = json!({"phase": "ready", "accessibility": true, "screen_recording": false,
+                            "driver": "upstream", "grant_holder": "cmux_remote"});
+        let text = next_step(&status).unwrap()["text"].as_str().unwrap().to_owned();
+        assert!(text.contains("Screen & System Audio Recording (Screen Recording)"), "{text}");
+        // The legacy helper keeps its words.
+        let legacy = json!({"phase": "ready", "accessibility": false, "screen_recording": true});
+        let text = next_step(&legacy).unwrap()["text"].as_str().unwrap().to_owned();
+        assert!(text.contains("cmux Computer Use"), "{text}");
+    }
+
     #[test]
     fn a_failed_helper_offers_restart_instead_of_waiting() {
         let step = next_step(&json!({"phase": "failed", "accessibility": null,
