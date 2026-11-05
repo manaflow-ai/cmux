@@ -11,6 +11,8 @@ export type StatusVerbConfig =
   | { mode: "custom"; verbs: readonly string[] };
 
 const THINKING_VERBS = ["Thinking"] as const;
+// l10n-allow: selector fallback; rendered callers use the translated `thinking` string.
+const FALLBACK_STATUS_VERB = "Thinking";
 
 export const DEFAULT_STATUS_VERB_CONFIG: StatusVerbConfig = {
   mode: "thinking",
@@ -80,10 +82,10 @@ export function useStatusVerbConfig(): StatusVerbConfig {
 /// Select a verb without reading time or mutating state. A negative elapsed time is treated as the
 /// first frame, which keeps a clock correction from selecting a surprising word.
 export function statusVerbAt(elapsedMs: number, config: StatusVerbConfig = DEFAULT_STATUS_VERB_CONFIG): string {
-  if (config.mode === "thinking" || config.verbs.length === 0) return "Thinking";
+  if (config.mode === "thinking" || config.verbs.length === 0) return FALLBACK_STATUS_VERB;
   const elapsed = Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0;
   const index = Math.floor(elapsed / STATUS_VERB_INTERVAL_MS) % config.verbs.length;
-  return config.verbs[index] ?? "Thinking";
+  return config.verbs[index] ?? FALLBACK_STATUS_VERB;
 }
 
 /// Custom words remain verbatim. The built-in per-turn list is English wordplay and is supplied by

@@ -17,6 +17,29 @@ import "../../src/agent-session/acpmux/conversation/conversation.css";
 const root = createRoot(document.getElementById("root")!);
 let generation = 0;
 let mode = "thinking";
+let rowCount = 0;
+let rowElapsed: number | undefined;
+
+function renderRows(remount: boolean): void {
+  const since = rowElapsed === undefined ? Date.now() : 0;
+  const now = rowElapsed === undefined ? Date.now : () => rowElapsed!;
+  flushSync(() =>
+    root.render(
+      <>
+        <ThinkingVerbsContext.Provider value={mode === "rotate" ? THINKING_VERBS : undefined}>
+          {Array.from({ length: rowCount }, (_, index) => (
+            <div
+              key={remount ? `${generation}-${index}` : `status-verb-${index}`}
+              style={{ width: 360, padding: 12, boxSizing: "border-box", flex: "none" }}
+            >
+              <Thinking since={since} now={now} verbKey="status-verbs" />
+            </div>
+          ))}
+        </ThinkingVerbsContext.Provider>
+      </>,
+    ),
+  );
+}
 
 export type StatusVerbsHarness = {
   ready: Promise<void>;
@@ -41,35 +64,20 @@ window.__statusVerbs = {
     setPaneLanguage("en");
   }),
   show(count, elapsed) {
+    rowCount = count;
+    rowElapsed = elapsed;
     generation += 1;
-    const since = elapsed === undefined ? Date.now() : 0;
-    const now = elapsed === undefined ? Date.now : () => elapsed;
     // Deliberate remount for deterministic timeline samples; the real-clock test mounts only once.
-    flushSync(() =>
-      root.render(
-        <>
-          <ThinkingVerbsContext.Provider value={mode === "rotate" ? THINKING_VERBS : undefined}>
-            {Array.from({ length: count }, (_, index) => (
-              <div
-                key={`${generation}-${index}`}
-                style={{ width: 360, padding: 12, boxSizing: "border-box", flex: "none" }}
-              >
-                <Thinking since={since} now={now} verbKey="status-verbs" />
-              </div>
-            ))}
-          </ThinkingVerbsContext.Provider>
-        </>,
-      ),
-    );
+    renderRows(true);
   },
   mode(nextMode, custom = "Planning, Reading, Testing") {
     mode = nextMode;
-    flushSync(() =>
-      setChatDisplay({
-        "agentPane.display.statusVerbs.mode": nextMode,
-        "agentPane.display.statusVerbs.custom": custom,
-      }),
-    );
+    setChatDisplay({
+      "agentPane.display.statusVerbs.mode": nextMode,
+      "agentPane.display.statusVerbs.custom": custom,
+    });
+    // Update the provider without remounting rows so a setting change is exercised in place.
+    renderRows(false);
   },
   clocks: pageClocks,
   hidden(value) {
@@ -80,6 +88,7 @@ window.__statusVerbs = {
     document.dispatchEvent(new Event("visibilitychange"));
   },
   clear() {
+    rowCount = 0;
     flushSync(() => root.render(null));
   },
   async gallery(variant) {

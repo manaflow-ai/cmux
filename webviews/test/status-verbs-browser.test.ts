@@ -204,10 +204,9 @@ await requireBrowserLane("status-verbs-browser.test.ts", async () => {
         expect((await sample(page))[0]!.label).toBe("Thinking");
         await page.getByRole("combobox", { name: "Working status" }).selectOption("rotate");
         const first = (await sample(page))[0]!.label;
-        await page.waitForFunction(
-          (first) => document.querySelector(".cv-shimmer__base")?.textContent !== first,
-          first,
-        );
+        expect(first).not.toBe("Thinking");
+        // Rotate selects one playful verb for the turn; it remains stable while that turn works.
+        expect((await sample(page))[0]!.label).toBe(first);
       } finally {
         await page.close();
       }
