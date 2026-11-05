@@ -158496,127 +158496,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inter, tuned"
+            "value": "cmux Inter (default)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter، مضبوط"
+            "value": "cmux Inter (افتراضي)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, podešen"
+            "value": "cmux Inter (Zadano)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, justeret"
+            "value": "cmux Inter (Standard)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, abgestimmt"
+            "value": "cmux Inter (Standard)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, ajustada"
+            "value": "cmux Inter (Predeterminado)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, ajustée"
+            "value": "cmux Inter (Par défaut)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, calibrata"
+            "value": "cmux Inter (Predefinito)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter（調整済み）"
+            "value": "cmux Inter (デフォルト)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, បានកែតម្រូវ"
+            "value": "cmux Inter (លំនាំដើម)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter (조정됨)"
+            "value": "cmux Inter (기본값)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, justert"
+            "value": "cmux Inter (Standard)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, dostrojona"
+            "value": "cmux Inter (Domyślne)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, ajustada"
+            "value": "cmux Inter (Padrão)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, настроенный"
+            "value": "cmux Inter (По умолчанию)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter แบบปรับแต่ง"
+            "value": "cmux Inter (ค่าเริ่มต้น)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, ayarlı"
+            "value": "cmux Inter (Varsayılan)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, налаштований"
+            "value": "cmux Inter (Типово)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter, đã tinh chỉnh"
+            "value": "cmux Inter (Mặc định)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter（已调校）"
+            "value": "cmux Inter (默认)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inter（已調校）"
+            "value": "cmux Inter (預設)"
           }
         }
       }

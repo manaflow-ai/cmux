@@ -3,7 +3,9 @@
 // Font preset sets. Leo, 2026-11-05: "right now it's just Apple System, right? But, like, I feel like
 // we can look into a hell of a lot more and try out a hell of a lot more. Actually, I haven't tried
 // switching fonts in my own app yet." The default is today's: Inter with its calculated tracking
-// (#24100), the face the Linux gallery captures share with the app. Each other choice sets
+// (#24100), the face the Linux gallery captures share with the app. On a Mac too that is the
+// bundled InterVariable every cmux web view declares at document start (BundledFonts.pageScript),
+// not SF, so the default sets nothing and renders as today; System UI is the system font (SF). Each other choice sets
 // `--font-ui` on the page and its own tracking on the type scale's letter-spacing tokens (Inter's
 // curve is tuned to Inter, so the others draw at their designed spacing, and System UI, tight a
 // step under it). Roboto, IBM Plex Sans, Source Sans 3 and Geist are bundled (chatFonts/FONTS.md)

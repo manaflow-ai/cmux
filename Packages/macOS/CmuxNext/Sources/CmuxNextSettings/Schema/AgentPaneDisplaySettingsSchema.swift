@@ -108,7 +108,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 help: SettingsText.keyed("settings.agentPane.display.uiFont.help",
                                          "The font of the whole chat: replies, the composer, cards and menus."),
                 .choice([
-                    SettingChoice("inter-tuned", SettingsText.keyed("settings.choice.agentChatUiFontInterTuned", "Inter, tuned")),
+                    SettingChoice("inter-tuned", SettingsText.keyed("settings.choice.agentChatUiFontInterTuned", "cmux Inter (default)")),
                     SettingChoice("inter", SettingsText.keyed("settings.choice.agentChatUiFontInter", "Inter")),
                     SettingChoice("verdana", SettingsText.keyed("settings.choice.agentChatUiFontVerdana", "Verdana")),
                     SettingChoice("roboto", SettingsText.keyed("settings.choice.agentChatUiFontRoboto", "Roboto")),
