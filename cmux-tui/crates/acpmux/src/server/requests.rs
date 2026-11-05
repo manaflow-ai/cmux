@@ -1749,6 +1749,7 @@ async fn dispatch_request_with_identity(
                 agent,
                 class,
                 after_turn: None,
+                goal_mark: None,
                 supersede,
                 display_parts: {
                     let parts = crate::hub::prompt_images::validated_display_parts(
