@@ -27,5 +27,7 @@ nonisolated extension ActionCatalog {
         "chief.openSubagent",
         // Windows
         "showMainWindow", "showHideAllWindows",
+        // A projection window (HQ#7149 L10): opening it shows its page there, from `cmux action run` too
+        "debug.projection",
     ]
 }

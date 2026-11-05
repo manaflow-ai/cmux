@@ -73,7 +73,7 @@ public final class RemoteDesktopPane {
         source: any RemoteViewStreamSource,
         inputSink: (any RemoteViewInputSink)?,
         settings: RemoteDesktopSettings = RemoteDesktopSettings(),
-        presenter: RemotePresenterKind = RemoteViewTunables().presenter.value,
+        presenter: RemotePresenterKind = .metal,
         initialMode: RemoteControlMode = .control,
         scaling: RemoteViewGeometry.Scaling = .native,
         viaCloudTunnel: Bool = false

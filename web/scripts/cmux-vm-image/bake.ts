@@ -80,14 +80,15 @@ import {
 } from "../devbox-image-common";
 import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
-import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
+import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines, RD_SOCKET, RD_SOCKET_UNIT, rdHostPath, rdSetupCommand } from "./agent-tools";
+import { BROWSER_ROLE } from "./browser-probe";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
 import { aptUpdateCommand } from "./apt-update";
-import { baseInputTree, cachedInstallCommand, imagePackagesCommand, isAppProgram, layerKeys, layerName, overlayPrepareCommand, overlayPruneCommand, type LayerName } from "./layers";
-import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, hostConfig, hostUnit } from "./host-agent";
+import { baseInputTree, cachedInstallCommand, imagePackagesCommand, layerLabel, isAppProgram, layerKeys, layerName, overlayPrepareCommand, overlayPruneCommand, type LayerName } from "./layers";
+import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, SELF_UPDATE_OFF, hostConfig, hostUnit } from "./host-agent";
 import {
   METADATA_GUARD_FILE,
   METADATA_GUARD_UNIT,
@@ -164,6 +165,11 @@ export type BakeOptions = {
    * missing one on its parent), then bake only the app layer (this lock's cmux-tui) on top. Dev snapshots only.
    */
   layered?: boolean;
+  /**
+   * Snapshot before the SBOM and file manifest, keep the builder, and leave them to inventory.ts (run beside the
+   * smoke): they were 73 s of a warm per-commit bake. --layered only.
+   */
+  deferInventory?: boolean;
 };
 
 /**
@@ -324,6 +330,8 @@ function parkCommand(): string {
     'rm -rf "$CMUX_TUI_HOME/.local/state/cmux-tui" "$CMUX_TUI_HOME/.local/state/cmux" /etc/cmux/daemon-instance-id /etc/cmux/first-terminal.json /etc/cmux/daemon-layout /tmp/cmux-tui-websocket-smoke',
     "mkdir -p /run/cmux && find /run/cmux -mindepth 1 -delete",
     "! grep -qi ':0539 ' /proc/net/tcp6",
+    // The roles are parked now; a clone of this snapshot updates itself.
+    `rm -f ${SELF_UPDATE_OFF}`,
     "echo daemon-parked",
   ].join(" && ");
 }
@@ -592,15 +600,25 @@ async function configureSshd(ctx: Ctx): Promise<void> {
   await L.step(vm, "team-ssh-sync", `systemctl daemon-reload && systemctl enable --now --quiet ${SSH_SYNC_UNIT} && systemctl is-active ${SSH_SYNC_UNIT}`);
 }
 
+/**
+ * The first-use packages roles-off refuses: every first-use closure, less the browser role's closure when
+ * --agent-tools bakes that role (browserRoleBakePhases). A layered bake reruns roles-off in the agents layer, on a
+ * system layer whose agent tools already installed the browser closure (fontconfig, which display-wm shares).
+ */
+export function refusedFirstUsePackages(lock: InputsLock, agentTools: boolean): string[] {
+  const baked = new Set(agentTools ? Object.keys(lock.apt.ubuntu.firstUse[BROWSER_ROLE] ?? {}) : []);
+  return [...new Set(Object.values(lock.apt.ubuntu.firstUse).flatMap((closure) => Object.keys(closure)))].filter((p) => !baked.has(p)).sort();
+}
+
 /** The roles file for `cmux host`; baked role packages stay off (no unit, no process), first-use closures stay uninstalled. */
 async function configureRoles(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
   await writeGuestFile(vm, ROLES_MANIFEST_PATH, `${JSON.stringify(rolesManifest(lock), null, 2)}\n`, 0o644);
-  const firstUse = Object.values(lock.apt.ubuntu.firstUse).flatMap((closure) => Object.keys(closure));
+  const firstUse = refusedFirstUsePackages(lock, Boolean(ctx.options.agentTools));
   ctx.result.roles = await L.step(vm, "roles-off", [
     `python3 -c 'import json,sys; json.load(open(sys.argv[1]))' ${ROLES_MANIFEST_PATH}`,
     "! pgrep -x Xvfb >/dev/null",
-    `for p in ${[...new Set(firstUse)].sort().join(" ")}; do if dpkg-query -W -f='\${Status}' "$p" 2>/dev/null | grep -q 'ok installed'; then echo "first-use package $p is installed"; exit 1; fi; done`,
+    `for p in ${firstUse.join(" ")}; do if dpkg-query -W -f='\${Status}' "$p" 2>/dev/null | grep -q 'ok installed'; then echo "first-use package $p is installed"; exit 1; fi; done`,
     "dpkg-query -W -f='${Status}' fonts-noto-cjk | grep -q 'ok installed' && ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK'",
     "echo roles-ok",
   ].join(" && "));
@@ -666,9 +684,23 @@ async function installMachineHealth(ctx: Ctx): Promise<void> {
 /** Agent tools (agent-tools.ts): after configureRoles, whose check refuses any installed first-use package. */
 async function installAgentTools(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
+  // Before anything runs on the builder: a lock without cmux-rd fails here (rdHostPath).
+  const files = agentToolsFiles(lock);
   for (const phase of browserRoleBakePhases(lock)) await L.step(vm, phase.name, phase.command);
-  for (const file of agentToolsFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
+  for (const file of files) await writeGuestFile(vm, file.path, file.text, file.mode);
   ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand()}`)).trim().split("\n").at(-2);
+  await L.step(vm, "agent-tools-desktop", rdSetupCommand());
+}
+
+/**
+ * Role desktop in the image record (the platform's desktop capability): an --agent-tools image carries the
+ * cmux-rd host. Recorded by bake() from the lock, so a layered bake whose agents layer came from cache records
+ * it too.
+ */
+export function desktopRecord(lock: InputsLock): { role: "desktop"; program: string; version: string; socketUnit: string; socket: string } {
+  rdHostPath(lock);
+  const rd = lock.programs.find((p) => p.name === "cmux-rd")!;
+  return { role: "desktop", program: rd.name, version: rd.version, socketUnit: RD_SOCKET_UNIT, socket: RD_SOCKET };
 }
 
 /**
@@ -702,7 +734,9 @@ async function startDaemon(ctx: Ctx): Promise<void> {
     ctx.result.nativeReceiver = true;
   }
   await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(ctx.options.agentTools ? agentToolsDaemonEnv(ctx.lock) : {}, ctx.options.nativeReceiver), 0o644);
-  await L.step(vm, "daemon-unit", `systemd-analyze verify /etc/systemd/system/${DAEMON_UNIT} && rm -f /etc/cmux/bake-instance-id && systemctl daemon-reload && systemctl enable ${DAEMON_UNIT} >/dev/null 2>&1 && systemctl restart ${DAEMON_UNIT} && systemctl is-active ${DAEMON_UNIT}`);
+  // The builder never updates itself (cmux host update): the snapshot carries the lock's
+  // cmux-tui, and parkCommand removes the marker so every clone does update.
+  await L.step(vm, "daemon-unit", `systemd-analyze verify /etc/systemd/system/${DAEMON_UNIT} && mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF} && rm -f /etc/cmux/bake-instance-id && systemctl daemon-reload && systemctl enable ${DAEMON_UNIT} >/dev/null 2>&1 && systemctl restart ${DAEMON_UNIT} && systemctl is-active ${DAEMON_UNIT}`);
   await L.step(vm, "daemon-ready", devboxWaitForDaemonCommand(120));
   await L.step(vm, "daemon-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
   await recordDaemonInfo(ctx);
@@ -730,7 +764,21 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, "/root/cmux-clean.py", readFileSync(path.join(GUEST_DIR, "clean.py")), 0o755);
   const clean = await L.step(vm, "clean", `python3 /root/cmux-clean.py && rm -f /root/cmux-clean.py && ${devboxJournalResetCommand}`);
   result.clean = JSON.parse(clean.split("CLEAN_JSON ")[1].split("\n")[0]);
-  // SBOM and file-hash manifest of the final tree, written under /tmp (excluded from both) and downloaded.
+  // The SBOM and file manifest: here, or after the snapshot on the same builder (--defer-inventory).
+  if (!options.deferInventory) await collectInventory(vm, L, options, lock, result, name);
+  await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
+  result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
+  result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
+  result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
+  await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
+}
+
+/**
+ * The SBOM and file-hash manifest of the final tree, written under /tmp (excluded from both) and downloaded.
+ * With --defer-inventory it runs on the builder right after the snapshot (inventory.ts, beside the smoke), so the
+ * tree it reads is the snapshot's: nothing else runs on the builder in between.
+ */
+export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", "mkdir -p /tmp/cmux-out");
   await writeGuestFile(vm, "/tmp/cmux-out/manifest.py", readFileSync(path.join(GUEST_DIR, "manifest.py")), 0o755);
@@ -749,17 +797,14 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   ].join(" && "))]);
   result.manifest = manifest.trim();
   result.syft = sbomOut.trim();
-  result.sbomFile = path.join(options.outDir, `sbom-${name}.cdx.json`);
-  result.manifestFile = path.join(options.outDir, `manifest-${name}.tsv`);
-  writeFileSync(result.sbomFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/sbom.cdx.json.gz"))));
-  writeFileSync(result.manifestFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/manifest.tsv.gz"))));
-  const sbom = JSON.parse(readFileSync(result.sbomFile, "utf8")) as { components?: unknown[] };
+  const sbomFile = path.join(options.outDir, `sbom-${name}.cdx.json`);
+  const manifestFile = path.join(options.outDir, `manifest-${name}.tsv`);
+  Object.assign(result, { sbomFile, manifestFile });
+  writeFileSync(sbomFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/sbom.cdx.json.gz"))));
+  writeFileSync(manifestFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/manifest.tsv.gz"))));
+  const sbom = JSON.parse(readFileSync(sbomFile, "utf8")) as { components?: unknown[] };
   result.sbomComponents = sbom.components?.length ?? 0;
-  await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
-  result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
-  result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
-  result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
-  await L.step(vm, "machine-health-arm", MACHINE_HEALTH_ARM_COMMAND);
+  await L.step(vm, "inventory-tmp-clean", "rm -rf /tmp/cmux-out /tmp/cmux-syft");
 }
 
 /** Every step of a full bake, from the provider base to the finalized tree (before the snapshot). */
@@ -835,6 +880,17 @@ export function layerFlags(options: BakeOptions): string[] {
   return [options.agentTools && "agent-tools", options.teamVm && "team-vm", options.devTree && "dev-tree", options.nativeReceiver && "native-receiver"].filter((f): f is string => Boolean(f));
 }
 
+/** Every snapshot on the account, page by page (one default page can miss a cached layer's slug). */
+async function allSnapshots(fs: ReturnType<typeof freestyleClient>): Promise<Array<{ id: string; slug?: string | null }>> {
+  const all: Array<{ id: string; slug?: string | null }> = [];
+  for (let offset = 0; ; offset += SNAPSHOT_PAGE) {
+    const page = await fs.vms.snapshots.list({ limit: SNAPSHOT_PAGE, offset });
+    all.push(...page.snapshots);
+    if (page.snapshots.length < SNAPSHOT_PAGE || all.length >= (page.totalCount ?? Infinity)) return all;
+  }
+}
+const SNAPSHOT_PAGE = 100;
+
 /** One builder from `from`, `steps` on it, its snapshot slugged `name`; the builder is deleted unless kept. */
 async function bakeOn(
   fs: ReturnType<typeof freestyleClient>,
@@ -845,8 +901,11 @@ async function bakeOn(
   steps: (vm: Vm) => Promise<void>,
   result: Record<string, unknown>,
   L: StepLog,
+  keepForInventory = false,
+  parentSlug?: string,
 ): Promise<string> {
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
+  let kept = false;
   try {
     builder = await createVm(fs, ledger, { name, snapshotId: from, allowUnprefixed: options.promotion || options.prodCopy === true });
     result.builderVmId = builder.vmId;
@@ -854,14 +913,19 @@ async function bakeOn(
     result.builderFirstExecMs = await firstExec(builder.vm, builder.t0);
     await steps(builder.vm);
     const tSnap = Date.now();
-    const snap = await builder.vm.snapshot({ displayName: name, slug: name });
+    // A layered snapshot records its parent layer in its label (layers.ts layerLabel), which gc-layers.ts follows
+    // so it never deletes a layer a kept image was built on.
+    const snap = await builder.vm.snapshot({ displayName: options.layered ? layerLabel(name, parentSlug) : name, slug: name });
     if (!snap?.snapshotId) throw new Error("snapshot response carried no id");
     ledger.record(snap.snapshotId, "snapshot", name);
     result.snapshotMs = Date.now() - tSnap;
     L.log(`SNAPSHOT ${name} ${snap.snapshotId} (${result.snapshotMs} ms)`);
+    // inventory.ts reads this builder next and deletes it; the run's cleanup deletes it from the ledger if not.
+    kept = keepForInventory;
+    if (kept) result.inventoryVmId = builder.vmId;
     return snap.snapshotId;
   } finally {
-    if (builder && !options.keepBuilder) await deleteVm(builder.vm, builder.vmId, name, ledger);
+    if (builder && !options.keepBuilder && !kept) await deleteVm(builder.vm, builder.vmId, name, ledger);
   }
 }
 
@@ -874,20 +938,27 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
   const name = imageResourceName({ promotion: options.promotion, prodCopy: options.prodCopy, tag: options.tag, date: new Date().toISOString().slice(0, 10).replace(/-/g, ""), sha });
   const ledger = new Ledger(path.join(options.outDir, "resources.tsv"));
   const L = new StepLog(path.join(options.outDir, `bake-${name}.log`));
-  const result: BakeResult = { name, lockSha256: lockDigest(lockText), base: lock.base.snapshot };
+  // lockPath: inventory.ts reads the same lock (its Syft pin) after a deferred snapshot.
+  const result: BakeResult = { name, lockSha256: lockDigest(lockText), base: lock.base.snapshot, lockPath: options.lockPath };
   const fs = freestyleClient();
   const t0 = Date.now();
   const ctxFor = (vm: Vm, as: string): Ctx => ({ vm, L, lock, lockText, options, result, name: as });
   try {
+    // --agent-tools needs the cmux-rd release pinned: fail before any builder exists.
+    if (options.agentTools) {
+      agentToolsFiles(lock);
+      result.desktop = desktopRecord(lock);
+    }
     if (options.layered) {
       // layers.ts: system -> agents -> app. A cached layer is reused by its slug; a missing one is built on its
       // parent and kept (its builder is on a ledger of its own, which the run's cleanup never reads).
       const keys = layerKeys(lockText, layerFlags(options), baseInputTree(REPO_ROOT));
       const layerLedger = new Ledger(path.join(options.outDir, "layers", "resources.tsv"));
-      const { snapshots } = await fs.vms.snapshots.list();
+      const snapshots = await allSnapshots(fs);
       const layers: Array<Record<string, unknown>> = [];
       result.layers = layers;
       let parent = lock.base.snapshot;
+      let parentSlug: string | undefined;
       for (const layer of ["system", "agents"] as LayerName[]) {
         const slug = layerName(layer, keys[layer]);
         const cached = snapshots.find((snapshot) => snapshot.slug === slug)?.id;
@@ -897,15 +968,17 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
         if (!cached) {
           const t = Date.now();
           const steps = layer === "system" ? (vm: Vm) => baseSteps(ctxFor(vm, slug)) : (vm: Vm) => overlaySteps(ctxFor(vm, slug), "agents");
-          parent = await bakeOn(fs, layerLedger, parent, slug, options, steps, row, L);
+          parent = await bakeOn(fs, layerLedger, parent, slug, options, steps, row, L, false, parentSlug);
           row.ms = Date.now() - t;
         } else parent = cached;
         row.snapshotId = parent;
+        parentSlug = slug;
       }
       const app: Record<string, unknown> = { layer: "app", hit: false, parent };
       layers.push(app);
       const t = Date.now();
-      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L);
+      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory), parentSlug);
+      if (app.inventoryVmId) result.inventoryVmId = app.inventoryVmId;
       app.ms = Date.now() - t;
       app.snapshotId = result.snapshotId;
     } else {
@@ -924,9 +997,10 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--native-receiver] [--layered]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--prod-copy] [--agent-tools] [--team-vm] [--dev-tree] [--native-receiver] [--layered [--defer-inventory]]");
   if (hasFlag("--prod-copy", argv) && hasFlag("--promotion", argv)) throw new Error("--prod-copy cannot be combined with --promotion");
   if (hasFlag("--layered", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv) || hasFlag("--update-lock", argv))) throw new Error("--layered is for dev snapshots from a fixed lock; the full bake makes production copies and promotions");
+  if (hasFlag("--defer-inventory", argv) && !hasFlag("--layered", argv)) throw new Error("--defer-inventory needs --layered; the full bake records its SBOM and manifest before the snapshot");
   // The dev tree is a checkout of this commit, so a cached system layer would carry a stale one.
   if (hasFlag("--layered", argv) && hasFlag("--dev-tree", argv)) throw new Error("--layered cannot cache --dev-tree (a per-commit checkout); use the full bake");
   if (hasFlag("--native-receiver", argv) && (hasFlag("--prod-copy", argv) || hasFlag("--promotion", argv))) throw new Error("--native-receiver is for dedicated development VM API images only");
@@ -947,6 +1021,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     devTree: hasFlag("--dev-tree", argv),
     prodCopy: hasFlag("--prod-copy", argv),
     layered: hasFlag("--layered", argv),
+    deferInventory: hasFlag("--defer-inventory", argv),
   };
 }
 

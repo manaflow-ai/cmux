@@ -46,7 +46,7 @@ import { argValue, createVm, deleteVm, firstExec, freestyleClient, Ledger, run, 
 import { bakedPrograms, CURRENT_BIN, DEFAULT_LOCK_PATH, type InputsLock, percentile, readInputsLock, ROLES_MANIFEST_PATH, sq } from "./lock";
 import { browserRoleProbe } from "./browser-probe";
 import { GH_SHIM } from "./github-auth";
-import { HOST_CLI, NATIVE_RECEIVER_SMOKE } from "./host-agent";
+import { HOST_CLI, NATIVE_RECEIVER_SMOKE, SELF_UPDATE_OFF } from "./host-agent";
 import { agentBindProbe, resizeProbe } from "./probes";
 import { daemonHoldCommand, daemonUptimeDetail, daemonUptimeProblems, forcedRebindCommand, HOLD_SECONDS } from "./daemon-uptime";
 import { sshdCertSmokeCommand, sshdListenProblems, sshdPolicyProblems } from "./sshd";
@@ -231,7 +231,10 @@ export async function measureClone(fs: ReturnType<typeof freestyleClient>, ledge
   const { vm, vmId, createMs, t0 } = await createVm(fs, ledger, { name, snapshotId });
   const clone = { vm, vmId, name };
   const firstExecMs = await firstExec(vm, t0);
-  const listen = await run(vm, LISTEN_POLL, 60_000);
+  // A smoke clone measures the snapshot as baked: the marker goes down with the first command,
+  // well before its updater's first check (30 s after cmux host run starts), which reads it
+  // again right before it changes anything.
+  const listen = await run(vm, `mkdir -p /etc/cmux && touch ${SELF_UPDATE_OFF}; ${LISTEN_POLL}`, 60_000);
   const listeningMs = Date.now() - t0;
   const ready = await run(vm, devboxWaitForDaemonCommand(60), 90_000);
   const readyMs = Date.now() - t0;
@@ -382,26 +385,23 @@ export async function smoke(options: { snapshotId: string; tag: string; clones: 
   const kept: Clone[] = [];
   const rows: Array<Record<string, number | string>> = [];
   try {
-    // Clones at once: each row times its own create to ready, and five serial creates were most of the wait.
-    const measured = await Promise.allSettled(Array.from({ length: options.clones }, async (_, k) => {
-      const i = k + 1;
+    // One at a time: creating them at once made every create wait about 13 s at the provider (run
+    // 42012003953, against about 0.5 s each one by one), and create latency is what this measures.
+    for (let i = 1; i <= options.clones; i++) {
       const { clone, row } = await measureClone(fs, ledger, `cmuxnp-dev-vmimg-${options.tag}-smoke-${i}`, options.snapshotId);
+      rows.push(row);
+      // Track the clone before the extra probe so a refused/failed exec still cleans it up.
+      kept.push(clone);
       if (options.nativeReceiver) {
         const receiver = await run(clone.vm, NATIVE_RECEIVER_SMOKE);
         check(report, `native-receiver-root-${i}`, receiver.code === 0, receiver.stdout.trim() || receiver.stderr.slice(-200));
       }
       console.log(`clone ${i} ${clone.vmId}: ${JSON.stringify(row)}`);
-      return { clone, row };
-    }));
-    for (const m of measured) {
-      if (m.status !== "fulfilled") continue;
-      rows.push(m.value.row);
-      // Clones 1 and 2 stay for the checks; the rest only measured latency.
-      if (kept.length < 2) kept.push(m.value.clone);
-      else await deleteVm(m.value.clone.vm, m.value.clone.vmId, m.value.clone.name, ledger);
+      if (kept.length > 2) {
+        await deleteVm(clone.vm, clone.vmId, clone.name, ledger);
+        kept.pop();
+      }
     }
-    const failed = measured.find((m): m is PromiseRejectedResult => m.status === "rejected");
-    if (failed) throw failed.reason;
     report.clones = rows;
     report.latency = summarize(rows);
     check(report, "daemon-listening", rows.every((r) => Number(r.createToListeningMs) > 0 && Number(r.createToReadyMs) > 0), JSON.stringify(report.latency));

@@ -33,6 +33,11 @@ pub enum Service {
     /// (full tree). Only the server's owner (`owner_session`); every other
     /// peer is refused.
     OwnerSession,
+    /// The machine's agent display as `cmux.rd/1` (the root-only socket
+    /// `/run/cmux-rd/desktop.sock`). Cloud hosts only, and only for the
+    /// machine's creator: the platform mints it for no one else and the
+    /// receiving policy lists it for no other peer.
+    Desktop,
 }
 
 /// How the stream reaches the peer. Lane 10's UI shows "same network only"
@@ -305,6 +310,8 @@ mod tests {
         let cloud =
             ServiceHello { service: Service::Ssh, link_token: Some("tok".into()), epoch: Some(3) };
         assert_eq!(line(&cloud), "{\"service\":\"ssh\",\"link_token\":\"tok\",\"epoch\":3}\n");
+        let desktop = ServiceHello { service: Service::Desktop, link_token: None, epoch: None };
+        assert_eq!(line(&desktop), "{\"service\":\"desktop\"}\n");
         assert_eq!(
             line(&DialReply::failed(DialError::HostPaused)),
             "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"host_paused\"}\n"

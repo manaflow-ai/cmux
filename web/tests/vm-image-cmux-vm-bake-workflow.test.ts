@@ -26,7 +26,7 @@ const step = (name: string) => {
   return found;
 };
 
-type Inputs = { mode: string; clones: string; keep_snapshot: boolean; probes: boolean; agent_tools: boolean; team_vm: boolean; dev_tree: boolean; dev_snapshot?: string; native_receiver?: boolean };
+type Inputs = { mode: string; clones: string; keep_snapshot: boolean; probes: boolean; agent_tools: boolean; team_vm: boolean; dev_tree: boolean; dev_snapshot?: string; native_receiver?: boolean; layered?: boolean };
 const BASE: Inputs = { mode: "bake", clones: "2", keep_snapshot: true, probes: false, agent_tools: true, team_vm: false, dev_tree: false };
 const PROD_COPY: Inputs = { mode: "prod-copy", clones: "2", keep_snapshot: false, probes: false, agent_tools: false, team_vm: false, dev_tree: false, dev_snapshot: `sh-${"3".repeat(32)}` };
 
@@ -112,6 +112,25 @@ describe("cloud-vm-image-bake.yml", () => {
     for (const mode of ["repro", "prod-copy"]) {
       expect((await runStep("Validate the input lock", { ...inputs, mode }, dir)).result.status).not.toBe(0);
     }
+  });
+
+  test("layered is the default; it defers the inventory to beside the smoke; a dev tree bake stays a full bake", async () => {
+    expect(workflow.on.workflow_dispatch.inputs.layered).toMatchObject({ type: "boolean", default: true });
+    const dir = mkdtempSync(path.join(tmpdir(), "cmux-layered-"));
+    dirs.push(dir);
+    const inputs = { ...BASE, layered: true };
+    const bake = await runStep("Bake", inputs, dir);
+    expect(bake.result.status).toBe(0);
+    expect(bake.argv.at(-1)).toBe(`../images/cmux-vm/bake.ts --tag ci-4242-1 --out-dir ${bake.out} --agent-tools --layered --defer-inventory`);
+    writeFileSync(path.join(bake.out, "bake-x.json"), JSON.stringify({ name: "x", inventoryVmId: "vm-1" }));
+    const smoke = await runStep("Smoke", inputs, dir);
+    expect(smoke.result.status).toBe(0);
+    expect(smoke.argv.some((a) => a.startsWith("../images/cmux-vm/inventory.ts --out-dir"))).toBe(true);
+    expect(smoke.argv.some((a) => a.startsWith("../images/cmux-vm/smoke.ts"))).toBe(true);
+    const dir2 = mkdtempSync(path.join(tmpdir(), "cmux-layered-devtree-"));
+    dirs.push(dir2);
+    const devTree = await runStep("Bake", { ...inputs, dev_tree: true }, dir2);
+    expect(devTree.argv.at(-1)).toBe(`../images/cmux-vm/bake.ts --tag ci-4242-1 --out-dir ${devTree.out} --agent-tools --dev-tree`);
   });
 
   test("team_vm is a boolean input that defaults to off", () => {

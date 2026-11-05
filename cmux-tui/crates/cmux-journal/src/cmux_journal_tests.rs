@@ -273,6 +273,31 @@ fn check_append_says_what_append_would_do() {
     assert_eq!(journal.check_append(1), Err(AppendError::Closed));
 }
 
+/// A control record (`append_control`) is taken while the queue is full, and becomes durable as
+/// any record; a sealed journal refuses it too.
+#[test]
+fn a_control_record_is_taken_while_the_queue_is_full() {
+    let storage = SimStorage::new(37);
+    let config = Config { max_pending_bytes: 4096, ..quick() };
+    let (journal, _, _) = open_at(&storage, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    storage.set_sync_delay(Duration::from_millis(500));
+    let big = vec![b'a'; 1000];
+    let full = (0..50).any(|_| journal.append(1, Class::Ack, &big) == Err(AppendError::Backlog));
+    assert!(full, "the pending cap never refused an append");
+    let control = journal
+        .append_control(2, Class::Ack, b"frozen")
+        .unwrap_or_else(|e| panic!("a full queue refused a control record: {e}"));
+    assert_eq!(journal.append(1, Class::Ack, &big), Err(AppendError::Backlog));
+    storage.set_sync_delay(Duration::ZERO);
+    journal.wait_durable(control, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    assert!(journal.seal(WAIT).is_ok());
+    assert_eq!(journal.append_control(2, Class::Ack, b"frozen"), Err(AppendError::Closed));
+    assert_eq!(
+        journal.append_control(2, Class::Ack, &vec![0u8; crate::MAX_PAYLOAD_LEN + 1]),
+        Err(AppendError::TooLarge)
+    );
+}
+
 #[test]
 fn a_sealed_journal_refuses_appends() {
     let storage = SimStorage::new(10);
