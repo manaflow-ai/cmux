@@ -41,7 +41,8 @@ root="${CMUX_SIDE_ROOT:-$HOME/Library/Application Support/cmux-side}"
 # The physical path (/tmp and /var are links to /private/...): a process started through
 # Launch Services reports its executable by its physical path, and the pid checks compare paths.
 mkdir -p "$root"; root="$(cd "$root" && pwd -P)"
-buddy=/usr/libexec/PlistBuddy
+# SIDE_INSTANCE_PLISTBUDDY: a stand-in for tests (tests/test_side_instance_remake_clears_old_identity.py).
+buddy="${SIDE_INSTANCE_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
 
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 [[ "$cmd" == -h || "$cmd" == --help ]] && usage
