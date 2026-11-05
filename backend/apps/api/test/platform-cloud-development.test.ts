@@ -46,7 +46,8 @@ describe("development routes NEXT Cloud to cmux-platform-development", () => {
     expect(dev.services).toContainEqual({ binding: "PLATFORM", service: "cmux-platform-development" })
     expect(cloudDo(dev)).toEqual({ name: "CLOUD_DO", class_name: "CloudDO", script_name: "cmux-platform-development" })
     // The class left this Worker: its last migration deletes the old namespace here.
-    expect(dev.migrations?.at(-1)).toEqual({ tag: "v21", deleted_classes: ["CloudDO"] })
+    // The retired local namespace stays (src/cloud-do-retired.ts): no migration deletes CloudDO and its rows.
+    expect(JSON.stringify(dev.migrations)).not.toContain("deleted_classes")
   })
 
   it("forwards staging's cloud surface to cmux-platform-staging and binds its CloudDO", () => {
@@ -55,7 +56,8 @@ describe("development routes NEXT Cloud to cmux-platform-development", () => {
     expect(staging.vars.PLATFORM_SURFACES).toBe("cloud")
     expect(staging.services).toContainEqual({ binding: "PLATFORM", service: "cmux-platform-staging" })
     expect(cloudDo(staging)).toEqual({ name: "CLOUD_DO", class_name: "CloudDO", script_name: "cmux-platform-staging" })
-    expect(staging.migrations?.at(-1)).toEqual({ tag: "v21", deleted_classes: ["CloudDO"] })
+    // The retired local namespace stays (src/cloud-do-retired.ts): no migration deletes CloudDO and its rows.
+    expect(JSON.stringify(staging.migrations)).not.toContain("deleted_classes")
   })
 
   it("forwards production's cloud surface to cmux-platform-production and binds its CloudDO", () => {
@@ -64,7 +66,8 @@ describe("development routes NEXT Cloud to cmux-platform-development", () => {
     expect(production.vars.PLATFORM_SURFACES).toBe("cloud")
     expect(production.services).toContainEqual({ binding: "PLATFORM", service: "cmux-platform-production" })
     expect(cloudDo(production)).toEqual({ name: "CLOUD_DO", class_name: "CloudDO", script_name: "cmux-platform-production" })
-    expect(production.migrations?.at(-1)).toEqual({ tag: "v21", deleted_classes: ["CloudDO"] })
+    // The retired local namespace stays (src/cloud-do-retired.ts): no migration deletes CloudDO and its rows.
+    expect(JSON.stringify(production.migrations)).not.toContain("deleted_classes")
     // Machine-inert, as before the cutover: production lists no stub-plan teams and no paid entitlements.
     expect(production.vars.CLOUD_ALLOWED_TEAMS).toBeUndefined()
     expect(production.vars.CLOUD_PLAN_ENTITLEMENTS).toBeUndefined()
