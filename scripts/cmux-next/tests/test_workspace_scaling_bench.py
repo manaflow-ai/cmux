@@ -29,6 +29,12 @@ class WorkspaceScalingTests(unittest.TestCase):
                 {"interaction": "type", "workspaces": 1000, "p95": 11}]
         self.assertEqual(bench.scaling_warnings(rows), [])
 
+    def test_single_workspace_switch_is_explicitly_undefined(self):
+        rows = bench.collect({1: {"instant": {}, "sidebar": {}, "typing": {}}})
+        switch = next(row for row in rows if row["interaction"] == "switch")
+        self.assertEqual(switch["status"], "undefined")
+        self.assertIsNone(switch["p95"])
+
 
 if __name__ == "__main__":
     unittest.main()
