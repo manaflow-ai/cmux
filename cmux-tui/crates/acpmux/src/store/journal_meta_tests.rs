@@ -1196,3 +1196,44 @@ fn a_seal_while_a_freeze_is_under_way_keeps_the_rewrite() {
         if first == "returned" { "closed the journal at once" } else { "waited for the sync" }
     );
 }
+
+/// Delta review of #35866, D1, fail closed: a `frozen` record the journal still refuses (its
+/// writer stopped: `AppendError::Closed`; test seam `FAIL_FROZEN_RECORD`) leaves a durable marker
+/// (`journal-frozen`) instead, and the restart writes every replayed chat's lines again for it as
+/// for the record. The first checkpoint after that restart removes the marker.
+#[test]
+fn a_refused_frozen_record_falls_back_to_a_durable_marker() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(99);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    super::journal_store::FAIL_FROZEN_RECORD.with(|fail| fail.set(true));
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    let failed = store.flush_session(CHAT);
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    super::journal_store::FAIL_FROZEN_RECORD.with(|fail| fail.set(false));
+    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    let marker = home.path().join("journal-frozen");
+    assert!(marker.exists(), "a refused frozen record left no marker");
+    // The restart in the same boot: the marker makes it write the lines again, and its first
+    // checkpoint removes the marker.
+    drop(store);
+    let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(!marker.exists(), "the checkpoint after the rewrite kept the marker");
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "a refused frozen record left the restart nothing: it trusted the log's pages and lost acked lines"
+    );
+}

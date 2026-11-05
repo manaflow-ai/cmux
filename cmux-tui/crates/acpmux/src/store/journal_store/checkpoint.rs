@@ -273,7 +273,16 @@ impl Inner {
         let mut order = self.order.lock_or_recover();
         if !order.frozen {
             order.frozen = true;
-            match self.journal.append_control(KIND_FROZEN, Class::Ack, frozen_reason(&why)) {
+            #[cfg(test)]
+            let refused = super::FAIL_FROZEN_RECORD.with(|fail| fail.replace(false));
+            #[cfg(not(test))]
+            let refused = false;
+            let appended = if refused {
+                Err(AppendError::Closed)
+            } else {
+                self.journal.append_control(KIND_FROZEN, Class::Ack, frozen_reason(&why))
+            };
+            match appended {
                 Ok(lsn) => order.applied = order.applied.max(lsn),
                 Err(error) => tracing::error!(
                     "journal the freeze: {error}: the next start may trust pages the failed sync dropped"

@@ -155,6 +155,10 @@ thread_local! {
     /// the LSN and the chats to sync.
     pub(crate) static HOLD_AFTER_START: log_sync::HoldSlot =
         const { std::cell::RefCell::new(None) };
+    /// Tests: the next `frozen` record a freeze on this thread appends is refused, as when the
+    /// journal's writer stopped (`AppendError::Closed`).
+    pub(crate) static FAIL_FROZEN_RECORD: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
 }
 
 /// Tests: the stop of [`HOLD_AFTER_START`].
