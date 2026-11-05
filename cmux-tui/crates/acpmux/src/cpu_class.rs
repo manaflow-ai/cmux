@@ -313,11 +313,13 @@ mod imp {
             // SAFETY: the buffer holds `bytes` bytes of pids, which the kernel fills.
             let n = unsafe { libc::proc_listchildpids(all[next], kids.as_mut_ptr().cast(), bytes) };
             let n = usize::try_from(n).unwrap_or(0).min(TREE_MAX);
-            for kid in kids[..n].iter().copied().filter(|k| *k > 0 && !all.contains(k)) {
+            for kid in kids[..n].iter().copied() {
                 if all.len() == TREE_MAX {
                     break;
                 }
-                all.push(kid);
+                if kid > 0 && !all.contains(&kid) {
+                    all.push(kid);
+                }
             }
             next += 1;
         }
