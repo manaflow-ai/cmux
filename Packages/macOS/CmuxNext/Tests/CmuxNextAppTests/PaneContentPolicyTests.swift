@@ -395,10 +395,11 @@ struct PaneContentPolicyTests {
         }
         #expect(PaneResize.press("p1", .up, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
-        var short: [String] = []
+        var short: [String] = [], held = 0
         func check(_ label: String) {
             let host = terminal.session.view, surface = terminal.session.surfaceView.frame
             let area = host.surfaceSize(forHostSize: host.bounds.size)
+            if host.surfaceHold?.anchor == .bottom { held += 1 }
             if surface.height < area.height - 0.5 {
                 short.append("\(label): p1's surface \(surface.height) pt tall in a \(area.height) pt area")
             }
@@ -406,6 +407,7 @@ struct PaneContentPolicyTests {
         check("the K press's first frame")
         let frames = try Self.run(rig) { frame in check("frame \(frame)") }
         #expect(frames > 3, "the presses did not spring (\(frames) frames)")
+        #expect(held > 0, "p1 kept no bottom hold after the K press: the case under test did not happen")
         #expect(short.isEmpty, "\(short.count) frames left a band above p1's terminal: \(short.prefix(3))")
     }
 
