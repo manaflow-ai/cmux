@@ -162,4 +162,13 @@ import Testing
         #expect(keys.filter { if case .group = $0 { true } else { false } } == (0..<7).map { Self.g("z\($0)") })
         #expect(!keys.contains(.showMore(.projects)))
     }
+    /// A project past the first five whose workspace needs you lists, as a row past the row limit does.
+    @Test func aProjectThatNeedsYouListsPastFive() {
+        var sections = Self.manyGroups()
+        guard case var .group(sixth) = sections[0].nodes[6] else { Issue.record("no seventh group"); return }
+        sixth.workspaces[0].agentChip = .needsYou
+        sections[0].nodes[6] = .group(sixth)
+        let keys = Self.keys(Self.options(), sections)
+        #expect(keys.contains(Self.g("g6")) && !keys.contains(Self.g("g5")))
+    }
 }

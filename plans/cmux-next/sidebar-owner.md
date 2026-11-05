@@ -1449,6 +1449,7 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - Design: [sidebar-recents-and-freeing-DESIGN.md](sidebar-recents-and-freeing-DESIGN.md). Tests:
   `SidebarRecentsLayoutTests`. Tour: `scripts/cmux-next/media/tours/sidebar-recents.json`.
 - Review fixes: the opened Archive lists its rows whole in Projects and Recents (no Show more inside it, no blank gaps); Cmd-1...9 and Reveal in Sidebar reach projects past the first five.
+- A group whose workspace needs you lists above Show more, as a row past the row limit does.
 
 ## Pinned summary follows the density and text size (2026-11-03)
 

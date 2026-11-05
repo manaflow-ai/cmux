@@ -32,7 +32,7 @@ nonisolated extension SidebarLayout {
         o.grouping.groupsByRecents && o.filterMatches == nil && o.sessionTree == nil
     }
 
-    /// Splits `sections` for Projects and Recents. The group holding the active workspace always lists.
+    /// Splits `sections` for Projects and Recents. A group holding the active workspace, or one that needs you, always lists.
     static func splittingRecents(_ sections: [SidebarSection], options o: SidebarLayoutOptions) -> RecentsSplit {
         var recents: [(ws: SidebarWorkspace, section: SidebarSection, index: Int)] = []
         var topGroups: [GroupID] = []
@@ -42,8 +42,9 @@ nonisolated extension SidebarLayout {
             for node in section.nodes {
                 guard case let .group(group) = node else { continue }
                 if let parent = group.parent { parents[group.id] = parent } else { topGroups.append(group.id) }
-                guard let active = o.activeWorkspaceID, group.workspaces.contains(where: { $0.id == active }) else { continue }
-                // A subgroup's active row keeps its top-level group listed (bounded: a bad parent cycle ends).
+                // The active row, or a row that needs you, keeps its group out of Show more (as the row limit does).
+                guard group.workspaces.contains(where: { $0.id == o.activeWorkspaceID || $0.agentChip == .needsYou }) else { continue }
+                // A subgroup's row keeps its top-level group listed (bounded: a bad parent cycle ends).
                 var top = group.id
                 for _ in 0..<64 { guard let parent = parents[top] else { break }; top = parent }
                 holdsActive.insert(top)
