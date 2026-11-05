@@ -7,17 +7,20 @@
 import { useCallback, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { chatColumnOf, uiScale, useChatSizing, type ChatColumn } from "../chatWidth";
 import { useChatDisplay } from "../chatDisplay";
+import { transcriptColumn } from "../model";
 
 /// The inline summary column is only useful when the chat keeps a readable width beside it.
 export const SUMMARY_COLUMN_WIDTH = 300;
 const CHAT_MIN_WIDTH = 660;
 
-/// The chat beside the inline summary keeps its whole Chat Text Width column, and never less than a
-/// readable 660px; with Chat Full Width, the readable floor alone. Both follow the effective page scale
-/// as the column's cap does. A caller can pass a column and scale explicitly for geometry tests; the
-/// live summary uses the page's.
+/// The chat's width beside the inline summary: its whole Chat Text Width column with the page edge on
+/// each side (model.ts transcriptColumn), and never less than a readable 660px; with Chat Full Width,
+/// the readable floor alone. Both follow the effective page scale as the column's cap does. A caller
+/// can pass a column and scale explicitly for geometry tests; the live summary uses the page's.
 export const inlineChatFloor = (column: ChatColumn = chatColumnOf(), scale: number = uiScale()) =>
-  Number.isFinite(column.max) ? Math.max(CHAT_MIN_WIDTH / scale, column.max) : CHAT_MIN_WIDTH / scale;
+  Number.isFinite(column.max)
+    ? Math.max(CHAT_MIN_WIDTH / scale, column.max + 2 * transcriptColumn(0, column).inset)
+    : CHAT_MIN_WIDTH / scale;
 
 const PANEL_KEY = "cmux.acpmux.summaryPanel";
 let panelHidden: boolean | undefined;
