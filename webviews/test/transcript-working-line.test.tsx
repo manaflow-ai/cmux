@@ -154,5 +154,3 @@ test("no dots loop on the running line; only the word Thinking shimmers, in the 
   expect(lit![1]).toContain("var(--agent-accent");
   expect(lit![1]).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|orange/i);
 });
-
-
