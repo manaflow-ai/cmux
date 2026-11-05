@@ -34,7 +34,16 @@ import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
 import { useNewTabCommand, type NewTabCommandActions } from "./newtab/useNewTabCommand";
-import { TAB_KINDS, type TabKind, type NewTabChat, FOCUS_LOCATION_EVENT, NEW_TAB_LABELS, prefixedEdit, cycleKind, recentSessions } from "./newTabModel";
+import {
+  TAB_KINDS,
+  type TabKind,
+  type NewTabChat,
+  FOCUS_LOCATION_EVENT,
+  NEW_TAB_LABELS,
+  prefixedEdit,
+  cycleKind,
+  recentSessions,
+} from "./newTabModel";
 
 function escapedLiteral(value: string): string {
   return value.replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n");

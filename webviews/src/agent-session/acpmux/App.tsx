@@ -245,7 +245,13 @@ import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.exper
 import { settleTrayExit } from "./subagents/trayMotion";
 import { runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/WorkflowCard";
-import { type DoneLineCache, finishedTrayItems, trayItems, useSubagentTray, withSubagentLines } from "./subagents/runningTray";
+import {
+  type DoneLineCache,
+  finishedTrayItems,
+  trayItems,
+  useSubagentTray,
+  withSubagentLines,
+} from "./subagents/runningTray";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
 import { SelectionReplyChip, setQuoteReplySink } from "./conversation/SelectionReply";
 import { AgentTonesContext, agentTone, agentTones } from "./subagents/agentTones";

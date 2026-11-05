@@ -104,11 +104,16 @@ try {
     const git = (...gitArgs) => execFileSync("git", ["-C", root, ...gitArgs], { encoding: "utf8", maxBuffer: 1 << 28 });
     const exported = (text) =>
       new Set([
-        ...[...text.matchAll(/^export\s+(?:async\s+)?(?:const|let|function|class|type|interface|enum)\s+([\w$]+)/gm)].map(
-          (match) => match[1],
-        ),
+        ...[
+          ...text.matchAll(/^export\s+(?:async\s+)?(?:const|let|function|class|type|interface|enum)\s+([\w$]+)/gm),
+        ].map((match) => match[1]),
         ...[...text.matchAll(/^export\s+(?:type\s+)?\{([^}]*)\}/gm)].flatMap((match) =>
-          match[1].split(",").map((name) => name.trim().split(/\s+as\s+/).pop()),
+          match[1].split(",").map((name) =>
+            name
+              .trim()
+              .split(/\s+as\s+/)
+              .pop(),
+          ),
         ),
       ]);
     const changed = git("diff", "--name-status", "--no-renames", base, head, "--", "webviews")
@@ -122,7 +127,8 @@ try {
       const inCopy = path.join(scratch, file);
       if (before === undefined) await fs.rm(inCopy, { force: true });
       else await fs.writeFile(inCopy, before);
-      const drops = before !== undefined && text !== undefined && [...exported(before)].some((name) => !exported(text).has(name));
+      const drops =
+        before !== undefined && text !== undefined && [...exported(before)].some((name) => !exported(text).has(name));
       saves.push({ status, file, text, rank: status === "A" ? 0 : status === "D" ? 3 : drops ? 2 : 1 });
     }
     saves.sort((a, b) => a.rank - b.rank);
@@ -308,10 +314,12 @@ try {
   const replayRows = [];
   for (const save of saves) {
     // A save that broke the page (a build error) leaves no composer: load it again to go on.
-    if (!(await editor()
-      .waitFor({ timeout: 10_000 })
-      .then(() => true)
-      .catch(() => false))) {
+    if (
+      !(await editor()
+        .waitFor({ timeout: 10_000 })
+        .then(() => true)
+        .catch(() => false))
+    ) {
       await page.reload();
       await editor().waitFor({ timeout: 60_000 });
     }
@@ -322,7 +330,9 @@ try {
       await page.keyboard.press("Enter");
       await page.getByText(PROMPT).first().waitFor();
     }
-    if (!(await inPage((draft) => (document.querySelector(".ProseMirror")?.textContent ?? "").includes(draft), DRAFT))) {
+    if (
+      !(await inPage((draft) => (document.querySelector(".ProseMirror")?.textContent ?? "").includes(draft), DRAFT))
+    ) {
       await editor().click();
       await page.keyboard.type(DRAFT);
     }
@@ -382,15 +392,15 @@ try {
   const ok = replay
     ? replayRows.every((row) => !row.broke && !row.reloaded && row.samePage && row.draftKept && row.transcriptKept)
     : results.every(
-      (row) =>
-        row.midTurn &&
-        row.shown &&
-        !row.reloaded &&
-        row.samePage &&
-        row.draftKept &&
-        row.transcriptKept &&
-        row.turnFinished,
-    ) && errors.length === 0;
+        (row) =>
+          row.midTurn &&
+          row.shown &&
+          !row.reloaded &&
+          row.samePage &&
+          row.draftKept &&
+          row.transcriptKept &&
+          row.turnFinished,
+      ) && errors.length === 0;
   process.exitCode = ok ? 0 : 1;
 } finally {
   await browser?.close();
