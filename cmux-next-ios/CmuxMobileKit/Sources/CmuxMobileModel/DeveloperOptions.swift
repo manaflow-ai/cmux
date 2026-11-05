@@ -21,9 +21,11 @@ public enum DeveloperOptions {
     /// reliable `browser` channel even over WebRTC (no media lane), the
     /// baseline of verify/browser-video-track.md. Applies at the next dial.
     public static let browserVideoOnChannelKey = "cmuxMobile.dev.browserVideoOnChannel"
-    /// `UserDefaults` key: mock approvals wait 2 s for "Face ID" so the waiting state
-    /// can be seen and captured (`-cmuxMobile.dev.slowFaceID YES`). DEBUG mock content only.
-    public static let slowFaceIDKey = "cmuxMobile.dev.slowFaceID"
+    /// `UserDefaults` key: mock approvals wait 2 s so the sending state
+    /// can be seen and captured (`-cmuxMobile.dev.slowApproval YES`). DEBUG mock content only.
+    public static let slowApprovalKey = "cmuxMobile.dev.slowApproval"
+    /// The key of builds that called it slow mock Face ID; removed with the others.
+    static let retiredSlowFaceIDKey = "cmuxMobile.dev.slowFaceID"
     /// `UserDefaults` key: the terminal demo's phases (`-CmuxMobileTerminalDemoPhases`).
     public static let terminalDemoPhasesKey = "CmuxMobileTerminalDemoPhases"
 
@@ -32,7 +34,7 @@ public enum DeveloperOptions {
     /// same container can never apply.
     public static let storedKeys = [
         mockDataKey, launchDemoKey, relayOnlyKey, blockUDPKey, browserVideoOnChannelKey, terminalDemoPhasesKey,
-        slowFaceIDKey,
+        slowApprovalKey, retiredSlowFaceIDKey,
     ]
 
     /// Removes every stored developer setting (Production launch).
@@ -50,11 +52,11 @@ public enum DeveloperOptions {
         #endif
     }
 
-    /// How long a mock approval waits for "Face ID" (2 s with the developer switch).
+    /// How long a mock approval waits (2 s with the developer switch).
     /// Always zero outside DEBUG builds.
-    public static var mockFaceIDDelay: Duration {
+    public static var mockApprovalDelay: Duration {
         #if DEBUG
-        UserDefaults.standard.bool(forKey: slowFaceIDKey) ? .seconds(2) : .zero
+        UserDefaults.standard.bool(forKey: slowApprovalKey) ? .seconds(2) : .zero
         #else
         .zero
         #endif

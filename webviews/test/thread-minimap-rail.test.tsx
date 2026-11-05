@@ -188,7 +188,7 @@ test("the rail shows from one prompt, at any pane width", async () => {
   }
 });
 
-test("rows are 10 px tab stops; every prompt on screen is current; hover magnifies like the Dock", async () => {
+test("rows are 20 px tab stops; every prompt on screen is current; hover magnifies like the Dock", async () => {
   const view = await mount(12);
   try {
     expect(ticks()).toHaveLength(12);
@@ -285,7 +285,7 @@ test("the tall initial rail does not make empty space a hit target", async () =>
     await advance(260);
     expect(card()?.textContent).toContain("Question 1");
     const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
-    // Four rows occupy the first 40 px; the rest of the initial rail is intentionally empty.
+    // Four rows occupy the first 80 px; the rest of the initial rail is intentionally empty.
     await pointer("pointermove", list, { clientY: 100 });
     expect(card()).toBeNull();
     await pointer("pointerdown", list, { clientY: 100, pointerId: 1 });
@@ -356,15 +356,15 @@ test("the rail never outgrows a short transcript", async () => {
   expect(railHeight(18, 720, 720, 720, 4, RAIL_HEIGHTS["initial-240-max-80"])).toBe(240);
 });
 
-test("the rail is one height, the Codex rail's, whatever the prompt count or the pane's height", async () => {
+test("the rail is twice its original height, whatever the prompt count or the pane's height", async () => {
   const { railHeight } = await import("../src/agent-session/acpmux/threadMinimap/model");
   // Leo, 2026-11-04: "make it look like codex's size" and "the height of the left scroll rail should
   // never be affected by anything". Past 24 prompts the rail's own list scrolls.
   for (const count of [1, 4, 12, 24, 70, 1000])
-    for (const view of [400, 720, 1100, 2100]) expect(railHeight(count, view, view)).toBe(240);
-  // Nor the prompts on screen: a view showing 50 short prompts at once keeps 240, and its list
+    for (const view of [540, 720, 1100, 2100]) expect(railHeight(count, view, view)).toBe(480);
+  // Nor the prompts on screen: a view showing 50 short prompts at once keeps 480, and its list
   // scrolls to keep them in view (railScrollTop).
-  for (const band of [1, 24, 50, 1000]) expect(railHeight(1000, 1000, 1000, 1000, band)).toBe(240);
+  for (const band of [1, 24, 50, 1000]) expect(railHeight(1000, 1000, 1000, 1000, band)).toBe(480);
 });
 
 test("wheel browsing belongs to the rail and is not snapped back by transcript scrolling", async () => {
@@ -594,17 +594,17 @@ test("dragging on the rail scrubs: each row crossed jumps the transcript to it, 
   const view = await mount(12);
   try {
     const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
-    // jsdom lays nothing out: the list's top is 0, so row n spans n*10 to n*10+10.
-    await pointer("pointerdown", tick(1), { clientY: 15 });
-    await pointer("pointermove", list, { clientY: 45 });
+    // jsdom lays nothing out: the list's top is 0, so row n spans n*20 to n*20+20.
+    await pointer("pointerdown", tick(1), { clientY: 30 });
+    await pointer("pointermove", list, { clientY: 90 });
     await view.scrolled();
     expect(list.closest("nav")!.hasAttribute("data-scrubbing")).toBe(true);
     expect(view.scroller.scrollTop).toBe(landing(4));
-    await pointer("pointermove", list, { clientY: 75 });
+    await pointer("pointermove", list, { clientY: 150 });
     await view.scrolled();
     expect(view.scroller.scrollTop).toBe(landing(7));
     expect(Math.round(length(7))).toBe(26);
-    await pointer("pointerup", list, { clientY: 75 });
+    await pointer("pointerup", list, { clientY: 150 });
     await act(async () => tick(1).click());
     await view.scrolled();
     expect(view.scroller.scrollTop).toBe(landing(7));
@@ -619,11 +619,11 @@ test("a press released off the rail ends there: a later hover does not scrub", a
   try {
     const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
     const before = view.scroller.scrollTop;
-    await pointer("pointerdown", tick(1), { clientY: 15 });
+    await pointer("pointerdown", tick(1), { clientY: 30 });
     // Slid sideways off the rail and released over the transcript.
-    await pointer("pointerup", document.body, { clientY: 15 });
-    await pointer("pointermove", list, { clientY: 45 });
-    await pointer("pointermove", list, { clientY: 75 });
+    await pointer("pointerup", document.body, { clientY: 30 });
+    await pointer("pointermove", list, { clientY: 90 });
+    await pointer("pointermove", list, { clientY: 150 });
     await view.scrolled();
     expect(list.closest("nav")!.hasAttribute("data-scrubbing")).toBe(false);
     expect(view.scroller.scrollTop).toBe(before);

@@ -114,10 +114,11 @@ extension UpdaterService {
 
     func apply(_ updates: UpdatesSettings) {
         WebUpdates.shared.follow(updates)
+        WebDevOverride.setAllowed(updates.liveWebReload)
         let preferences = UpdatePreferences(
             installOnQuit: updates.installOnQuit,
             notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,
-            keepPreviousVersions: updates.keepPreviousVersions)
+            keepPreviousVersions: updates.keepPreviousVersions, oneClickInstall: updates.oneClickInstall)
         if self.preferences != preferences { self.preferences = preferences }
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically,

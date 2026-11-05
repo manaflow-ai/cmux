@@ -23,6 +23,7 @@ import { useNt } from "./strings";
 import { useMinuteClock } from "../clock";
 import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
 import { AllChatsLoading } from "./AllChatsLoading";
+import { useLasting } from "../../../ui/lasting";
 
 export type AllChatsRow = { key: string; harness: string; title?: string; cwd?: string; updatedAt: number };
 export type AllChatsDesign = "quiet" | "age" | "project";
@@ -61,6 +62,9 @@ const FILTER_STATES: Record<Exclude<ChatStatusFilter, "all">, ReadonlySet<Active
 };
 
 const PAGE = 100;
+/// How long a first read may go unanswered before the list says it couldn't load and offers Try
+/// again: a read that never answers (a stuck daemon) otherwise keeps the skeleton up for good.
+export const CHATS_READ_CEILING_MS = 15_000;
 const ROW_HEIGHT = 30;
 
 type State = {
@@ -472,6 +476,10 @@ export function AllChatsList({
   const menuKey = useRef<string | undefined>(undefined);
   const [menuTarget, setMenuTarget] = useState<string | undefined>(undefined);
   const { rows, nextCursor } = state;
+  // The skeleton holds the rows' layout while a read is out (no text, no shift when it lands); a read
+  // that never answers is said as the failure line, with Try again, once it passes the ceiling.
+  const waiting = rows.length === 0 && (!state.loaded || state.loading || (!state.ready && !state.failed));
+  const unanswered = useLasting(rows.length === 0 && (!state.loaded || state.loading), CHATS_READ_CEILING_MS);
   const [view, setView] = useState<"chats" | "projects">("chats");
   const [filter, setFilter] = useState<ChatStatusFilter>("all");
   // Working and Needs input are live chats only; the indexed rows are finished chats.
@@ -776,16 +784,17 @@ export function AllChatsList({
       )}
       {!indexed ? (
         activeShown.length === 0 && <p className="nt-chats-empty">{t("sidebar.noMatches")}</p>
-      ) : rows.length === 0 && (!state.loaded || state.loading || (!state.ready && !state.failed)) ? (
+      ) : waiting && !unanswered ? (
         <AllChatsLoading rowHeight={ROW_HEIGHT} design={state.design} view={view} />
-      ) : state.loaded && rows.length === 0 ? (
-        state.failed ? (
+      ) : (state.loaded || unanswered) && rows.length === 0 ? (
+        state.failed || unanswered ? (
           <output className="nt-chats-empty nt-chats-failed">
             {nt("chatsLoadFailed")}
             <button
               type="button"
               className="nt-chats-retry"
-              disabled={state.loading}
+              // A read past the ceiling is still in flight: Try again starts a new one over it.
+              disabled={state.loading && !unanswered}
               onClick={() => fetchPage(state.query, undefined)}
             >
               {t("picker.tryAgain")}

@@ -40,11 +40,14 @@ public import Foundation
     public let allowsCreatorTeamGuest: Bool
     /// How long the first guest check waits for a new guest's bind (``guestCheckBudget``; tests shorten it).
     var guestBudget = Self.guestCheckBudget
+    /// The account's other teams (nil: its personal scope) whose cached login this transfer reuses when
+    /// ``teamID`` holds none (``CloudCredentialLogin/loadAny(provider:teamID:otherTeams:userID:)``).
+    public var otherTeams: [String?] = []
 
     public init(provider: Provider, machineID: String, teamID: String?, userID: String, allowsCreatorTeamGuest: Bool = false,
-                openTerminal: @escaping @MainActor (String) async -> Bool) {
+                otherTeams: [String?] = [], openTerminal: @escaping @MainActor (String) async -> Bool) {
         self.provider = provider; self.machineID = machineID; self.teamID = teamID; self.userID = userID
-        self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.openTerminal = openTerminal
+        self.allowsCreatorTeamGuest = allowsCreatorTeamGuest; self.otherTeams = otherTeams; self.openTerminal = openTerminal
     }
 
     /// The guest check this transfer runs before and after the login.
@@ -67,9 +70,17 @@ public import Foundation
     /// `operation`, cancelled at `deadline`: nil once the deadline is reached, before or while it runs.
     nonisolated static func before<T: Sendable>(_ deadline: ContinuousClock.Instant,
                                                 _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
-        let left = deadline - .now
+        try await before(deadline, clock: ContinuousClock(), operation)
+    }
+
+    /// ``before(_:_:)`` with `deadline` and the cut-off read on `clock`, so a test proves the budget on a
+    /// clock it advances by hand instead of waiting for it in real time.
+    nonisolated static func before<T: Sendable, C: Clock & Sendable>(_ deadline: C.Instant, clock: C,
+                                                _ operation: @escaping @Sendable () async throws -> T) async throws -> T?
+        where C.Duration == Duration {
+        let left = clock.now.duration(to: deadline)
         guard left > .zero else { return nil }
-        do { return try await withDeadline(left, label: "cloud guest bind", operation) } catch is DeadlineExceeded { return nil }
+        do { return try await withDeadline(left, label: "cloud guest bind", clock: clock, operation) } catch is DeadlineExceeded { return nil }
     }
 
     /// The guest-kind line of the chat restart after this transfer (the app's credential recovery):
@@ -101,7 +112,7 @@ public import Foundation
                 write: { try await Self.stage($1, at: $0, on: pinned, machineID: machineID) },
             // Codex auth.json is never reused as a seed: its refresh token is VM-bound and may
             // rotate. A new device login is required for every transfer; a broker can supersede this.
-            load: { provider == .codex ? nil : try await CloudCredentialLogin.load(provider: provider, teamID: teamID, userID: userID, machineID: machineID) },
+            load: { [otherTeams] in provider == .codex ? nil : try await CloudCredentialLogin.loadAny(provider: provider, teamID: teamID, otherTeams: otherTeams, userID: userID) },
                 acquire: { try await CloudCredentialLogin.acquire(provider: provider, openTerminal: openTerminal) },
                 // Codex auth.json contains a VM-bound refresh token. Never retain a second Mac copy;
                 // each VM gets a fresh device login until a broker owns refresh persistence.
@@ -126,9 +137,9 @@ public import Foundation
 
     /// Whether cmux already holds this account's login for `provider` (Claude only: a Codex login is
     /// never kept on the Mac), so a transfer needs no sign-in. Reads the Keychain; prompts nothing.
-    public static func hasCachedLogin(provider: Provider, teamID: String?, userID: String) async -> Bool {
+    public static func hasCachedLogin(provider: Provider, teamID: String?, userID: String, otherTeams: [String?] = []) async -> Bool {
         guard provider == .claude else { return false }
-        return ((try? await CloudCredentialLogin.load(provider: provider, teamID: teamID, userID: userID)) ?? nil) != nil
+        return ((try? await CloudCredentialLogin.loadAny(provider: provider, teamID: teamID, otherTeams: otherTeams, userID: userID)) ?? nil) != nil
     }
 
     nonisolated struct Effects: Sendable {

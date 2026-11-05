@@ -58,7 +58,7 @@ enum SidebarDensityTokens {
     /// so their fills line up at each density. One `space1` rounder than the app's item corner (8 compact,
     /// 9 comfortable), near ChatGPT's soft row corner for its height (about 9 to 10 pt on a 30 pt row).
     /// Leo 2026-11-02: "SMOOTH OUT A BIT MORE OF OUR CORNERS ON THE SIDEBAR WORKSPACES".
-    static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius + Metrics.space1 }
+    static var rowCornerRadius: CGFloat { Metrics.surfaceCornerRadius }
     static var sectionSpacing: CGFloat { isComfortable ? Metrics.space5 : Metrics.space4 }
     static var topPadding: CGFloat { isComfortable ? Metrics.space3 : Metrics.space2 }
 }

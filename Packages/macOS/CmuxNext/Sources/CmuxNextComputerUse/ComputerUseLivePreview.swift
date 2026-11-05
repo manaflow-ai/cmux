@@ -51,6 +51,8 @@ public final class ComputerUseLivePreview {
     private var appLoads: Set<ComputerUsePreviewApp.Key> = []
     /// Chats that were given a card, so a card that goes is taken off.
     private var shown: Set<String> = []
+    /// Chats the live capture changed since its last batch (``ComputerUseLiveCapture/onBatch``).
+    private var livePushes: Set<String> = []
     /// Follows the turn state of the acpmux sessions whose chats have a card (``AgentLaneStore``'s
     /// per-session links: a new step does not wake it), so a card turns done when its turn ends.
     private var turnObservation: Task<Void, Never>?
@@ -101,7 +103,9 @@ public final class ComputerUseLivePreview {
         self.sight = sight
         host.computerUsePreviewFollowChats { [weak self] in self?.chatsChanged() }
         self.capture.onFrame = { [weak self] target, frame in self?.liveFrame(target, frame) }
-        self.capture.onCursor = { [weak self] session, cursor in self?.liveCursor(cursor, session: session) }
+        self.capture.onCursor = { [weak self] session, cursor, at in self?.liveCursor(cursor, session: session, at: at) }
+        self.capture.onPerson = { [weak self] session, pointer in self?.livePerson(pointer, session: session) }
+        self.capture.onBatch = { [weak self] in self?.pushLive() }
         self.capture.sees = { [weak self] target in self?.sight?.canSee(target.chat) ?? false }
     }
 
@@ -216,17 +220,31 @@ public final class ComputerUseLivePreview {
     }
 
     /// The agent cursor moved in `session`'s streamed window, or left it (nil).
-    private func liveCursor(_ cursor: ComputerUseAgentCursor?, session: String) {
+    private func liveCursor(_ cursor: ComputerUseAgentCursor?, session: String, at: Date) {
         guard source != nil, board.entries[session] != nil else { return }
-        board.apply(cursor: cursor, session: session)
-        if let chat = board.entries[session]?.chat { push(chat) }
+        board.apply(cursor: cursor, session: session, at: at)
+        if let chat = board.entries[session]?.chat { livePushes.insert(chat) }
     }
 
-    /// A live frame of `target`'s window: the card shows it at once.
+    /// The person's pointer over `session`'s streamed window moved, entered, left or turned idle (nil: the stream ended).
+    private func livePerson(_ pointer: ComputerUsePreviewTelepointer?, session: String) {
+        guard source != nil, board.entries[session] != nil else { return }
+        board.apply(person: pointer, session: session)
+        if let chat = board.entries[session]?.chat { livePushes.insert(chat) }
+    }
+
+    /// A live frame of `target`'s window: the card shows it with the tick's pointers.
     private func liveFrame(_ target: ComputerUseLiveCapture.Target, _ frame: ComputerUsePreviewBoard.Frame) {
         guard source != nil, board.entries[target.session] != nil else { return }
         board.loaded(frame, session: target.session)
-        if let chat = board.entries[target.session]?.chat { push(chat) }
+        if let chat = board.entries[target.session]?.chat { livePushes.insert(chat) }
+    }
+
+    /// One read's (or the stream end's) changes: each chat they touched gets its card once.
+    private func pushLive() {
+        let chats = livePushes
+        livePushes = []
+        for chat in chats.sorted() { push(chat) }
     }
 
     // MARK: Frames and apps

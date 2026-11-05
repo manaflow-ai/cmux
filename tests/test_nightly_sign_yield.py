@@ -2,6 +2,7 @@
 (scripts/ci/nightly_sign_yield.py, cmuxterm-hq#7079)."""
 
 from pathlib import Path
+import datetime as dt
 import importlib.util
 import os
 import subprocess
@@ -20,6 +21,25 @@ spec.loader.exec_module(sy)
 
 REPO = "manaflow-ai/cmux"
 SIGN = "build-sign-notarize-nightly (arm64)"
+NOW = dt.datetime(2026, 11, 5, 1, 0, tzinfo=dt.timezone.utc)
+
+
+# The other tests read a feed published 5 minutes before NOW and a clock at NOW, never the network.
+sy.utcnow = lambda: NOW
+
+
+def at(minutes):
+    return NOW + dt.timedelta(minutes=minutes)
+
+
+def feed(*runs):
+    """A NEXT feed whose items are attempt 1 of these runs (an empty feed for none)."""
+    items = "".join(f"<item><sparkle:version>{rid}01</sparkle:version></item>" for rid in runs)
+    return f"<rss><channel><title>cmux NEXT</title>{items}</channel></rss>".encode()
+
+
+def iso(when):
+    return when.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def env(run_id=100, **over):
@@ -37,8 +57,9 @@ class Fake:
     """runs: {run id: [jobs]} of the unfinished nightly-next push runs; statuses: {run id: run status}, in_progress
     unless given. A run listing answers only the runs in the status it asks for."""
 
-    def __init__(self, runs, fail=None, statuses=None):
+    def __init__(self, runs, fail=None, statuses=None, created=None):
         self.runs, self.fail, self.paths, self.statuses = runs, fail, [], statuses or {}
+        self.created = created or {}  # {run id: when it landed}; NOW unless given
 
     def __call__(self, path):
         self.paths.append(path)
@@ -48,15 +69,85 @@ class Fake:
         if "/actions/workflows/nightly.yml/runs" in path:
             status = path.split("status=", 1)[1].split("&", 1)[0]
             matching = [rid for rid in self.runs if self.statuses.get(rid, "in_progress") == status]
-            items = [{"id": rid} for rid in matching] if first else []
+            items = [{"id": rid, "created_at": iso(self.created.get(rid, NOW))} for rid in matching] if first else []
             return {"total_count": len(matching) + 7, "workflow_runs": items}  # total_count runs ahead, as GitHub's can
-        rid = int(path.split("/actions/runs/")[1].split("/")[0])
+        rest = path.split("/actions/runs/")[1]
+        rid = int(rest.split("/")[0])
+        if rest.isdigit():
+            return {"id": rid, "created_at": iso(self.created.get(rid, NOW))}
         jobs = self.runs[rid] if first else []
         return {"total_count": len(self.runs[rid]), "jobs": jobs}
 
 
-def decide(run_id, runs, **over):
-    return sy.decide(env(run_id, **over), Fake(runs), log=lambda _: None)
+sy.read_feed = lambda url=sy.NEXT_FEED: feed(1)
+
+
+def decide(run_id, runs, created=None, published=(1,), **over):
+    return sy.decide(env(run_id, **over), Fake(runs, created=created), log=lambda _: None,
+                     feed=lambda: feed(*published), now=lambda: NOW)
+
+
+class Sim:
+    """nightly-next as it runs: a landing every EVERY minutes, each its own push run, built BUILD minutes later on
+    the parallel builders, then its sign job queued FIFO for the one signer (GitHub hands a free runner the oldest
+    queued job). The signer runs nightly_sign_yield.decide on each job it takes; a job that yields frees it at once,
+    one that signs holds it SIGN minutes (sign, notarize, publish) and then publishes. never_runs names runs whose
+    sign job is queued but never gets a runner (a pinned runner that went offline)."""
+
+    def __init__(self, every=8, hours=3, build=15, sign=20, never_runs=()):
+        self.every, self.build, self.sign, self.never_runs = every, build, sign, set(never_runs)
+        self.landings = [i * every for i in range(int(hours * 60 // every) + 1)]
+        self.end = self.landings[-1] + build + 4 * sign
+        self.state = {}  # run index -> queued | stuck | in_progress | signed | yielded
+        self.published = []  # (minute, run index of the build published)
+        # Minutes each build that yielded to a newer run that was not due had waited since its landing.
+        self.yielded_due_to_undue = []
+
+    def runs_view(self):
+        status = {"queued": ("queued", None), "stuck": ("queued", None), "in_progress": ("in_progress", None)}
+        active = {}
+        for i, landed in enumerate(self.landings):
+            st = self.state.get(i)
+            if st in (None, "queued", "stuck", "in_progress") and landed <= self.t:
+                active[1000 + i] = [job(SIGN, *status[st])] if st else [job("build-nightly-app", "in_progress")]
+        return active
+
+    def decide(self, i):
+        runs = self.runs_view()
+        created = {1000 + k: NOW + dt.timedelta(minutes=m) for k, m in enumerate(self.landings)}
+        pubs = [1000 + i for _, i in self.published]
+        return sy.decide(env(1000 + i), Fake(runs, created=created), log=lambda _: None,
+                         feed=lambda: feed(*pubs), now=lambda: NOW + dt.timedelta(minutes=self.t))
+
+    def run(self):
+        holder, free_at = None, 0
+        for self.t in range(self.end + 1):
+            for i, landed in enumerate(self.landings):
+                if landed + self.build == self.t:
+                    self.state[i] = "stuck" if i in self.never_runs else "queued"
+            if holder is not None and self.t >= free_at:
+                self.state[holder] = "signed"
+                self.published.append((self.t, holder))
+                holder = None
+            while holder is None:
+                queued = [i for i, st in sorted(self.state.items()) if st == "queued"]
+                if not queued:
+                    break
+                i = queued[0]
+                yielded, why = self.decide(i)
+                if yielded:
+                    self.state[i] = "yielded"
+                    if "also waiting 30 min" not in why:
+                        self.yielded_due_to_undue.append(self.t - self.landings[i])
+                else:
+                    self.state[i], holder, free_at = "in_progress", i, self.t + self.sign
+        return self
+
+    def gaps(self, until=None):
+        """Minutes between publishes, from the first landing, over the landing window."""
+        until = self.landings[-1] if until is None else until
+        times = [0] + [m for m, _ in self.published if m <= until + self.build + self.sign]
+        return [b - a for a, b in zip(times, times[1:])]
 
 
 class SignYieldTest(unittest.TestCase):
@@ -142,6 +233,70 @@ class SignYieldTest(unittest.TestCase):
                                        "GITHUB_API_URL": "http://127.0.0.1:9"})
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertEqual(out.read_text(), "yielded=false\n")
+
+
+class NeverPast30MinutesTest(unittest.TestCase):
+    """Leo, 2026-11-05: "If something hasn't f***ing ran for thirty minutes, f***ing build it. Stop f***ing
+    canceling it." The newest run whose landing has waited 30 min unpublished signs to the end."""
+
+    NEWER = {103: [job(SIGN, "queued")], 105: [job(SIGN, "queued")]}
+
+    def test_a_due_landing_never_yields_to_a_newer_run_that_is_not_due(self):
+        yielded, why = decide(103, self.NEWER, created={103: at(-31), 105: at(-10)}, published=(90,))
+        self.assertFalse(yielded)
+        self.assertIn("due", why)
+        # An empty feed counts as nothing published.
+        self.assertFalse(decide(103, self.NEWER, created={103: at(-31), 105: at(-10)}, published=())[0])
+
+    def test_under_30_min_or_already_published_it_still_yields_to_the_newest(self):
+        self.assertTrue(decide(103, self.NEWER, created={103: at(-29), 105: at(-10)}, published=(90,))[0])
+        # The feed already has a build at or after this run: its commits are out, so it is not due.
+        self.assertTrue(decide(103, self.NEWER, created={103: at(-45), 105: at(-10)}, published=(104,))[0])
+
+    def test_due_runs_sign_newest_first(self):
+        # Both waited 30 min unpublished: the older one yields to the newer one, which then never yields.
+        created = {103: at(-50), 105: at(-35), 107: at(-5)}
+        runs = {**self.NEWER, 107: [job(SIGN, "queued")]}
+        yielded, why = decide(103, runs, created=created, published=(90,))
+        self.assertTrue(yielded)
+        self.assertIn("105", why)
+        self.assertFalse(decide(105, runs, created=created, published=(90,))[0])
+
+    def test_an_unreadable_feed_signs(self):
+        huge = b"<item><sparkle:version>" + b"9" * 5000 + b"</sparkle:version></item>"
+        mixed = b"<item><sparkle:version>4190094575701</sparkle:version></item><item><sparkle:version>x</sparkle:version></item>"
+        for reader in (lambda: b"<item><title>no build</title></item>", lambda: b"x" * 2_000_001,
+                       lambda: huge, lambda: mixed):
+            with self.subTest():
+                fake = Fake(self.NEWER)
+                self.assertFalse(sy.decide(env(103), fake, log=lambda _: None, feed=reader, now=lambda: NOW)[0])
+
+        # A run start with no zone is doubt too, never a crash.
+        fake = Fake(self.NEWER)
+        fake_get = lambda path: ({"id": 103, "created_at": "2026-11-05T00:00:00"} if path.endswith("/runs/103")
+                                 else fake(path))
+        self.assertFalse(sy.decide(env(103), fake_get, log=lambda _: None, now=lambda: NOW)[0])
+
+        def refused():
+            raise sy.Unreadable("refused")
+        self.assertFalse(sy.decide(env(103), Fake(self.NEWER), log=lambda _: None, feed=refused,
+                                   now=lambda: NOW)[0])
+
+    def test_a_landing_every_8_min_for_3_hours_publishes_at_least_every_30_min(self):
+        sim = Sim(every=8, hours=3, build=15, sign=20).run()
+        gaps = sim.gaps()
+        self.assertTrue(gaps, "nothing published")
+        self.assertLessEqual(gaps[0], 15 + 20, gaps)  # the first landing: built, then signed and published
+        self.assertLessEqual(max(gaps[1:]), 30, gaps)
+        # Nothing that waited 30 min unpublished gave its build up to a run that was not due.
+        self.assertTrue(all(w < sy.PIN_AFTER_S / 60 for w in sim.yielded_due_to_undue), sim.yielded_due_to_undue)
+
+    def test_a_newer_sign_job_that_never_gets_a_runner_cannot_starve_the_feed(self):
+        # Every fourth run's sign job waits for a runner that never comes. Before the 30-minute rule an older build
+        # yielded to it and nothing published; now a build that waited 30 min signs anyway.
+        sim = Sim(every=8, hours=3, build=15, sign=20, never_runs=range(3, 40, 4)).run()
+        gaps = sim.gaps()
+        self.assertLessEqual(max(gaps[1:]), 30, gaps)
 
 
 class SignYieldWiringTest(unittest.TestCase):

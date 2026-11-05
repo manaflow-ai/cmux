@@ -448,18 +448,17 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
   const after = title.getBoundingClientRect();
   if (after.left !== before.left || after.width !== before.width)
     throw new Error("The title moved when the grip showed");
-  if (handle.getBoundingClientRect().right > after.left + 0.5) throw new Error("The grip is not left of the title");
-  const icon = head.querySelector(".acpmux-session-info-section__icon");
-  if (icon && handle.getBoundingClientRect().right > icon.getBoundingClientRect().left + 0.5)
-    throw new Error("The grip overlaps the head's icon");
   // Leo, 2026-11-03: "just align the draggable. in fact, make it a more horizontally wide symbol". The
-  // dots are wider than tall, centred on the head's left edge (where its hover pill starts) and on its
-  // middle line.
+  // dots are wider than tall and on the head's middle line. Leo, 2026-11-04: "this is off", of the dots
+  // centred on the pill's left edge: they sit wholly inside the pill, left of its icon or title.
   const dots = handle.querySelector("svg")!.getBoundingClientRect();
   const pill = head.getBoundingClientRect();
+  if (dots.right > after.left + 0.5) throw new Error("The grip is not left of the title");
+  const icon = head.querySelector(".acpmux-session-info-section__icon");
+  if (icon && dots.right > icon.getBoundingClientRect().left + 0.5)
+    throw new Error("The grip overlaps the head's icon");
   if (!(dots.width > dots.height)) throw new Error(`The grip is ${dots.width}x${dots.height}, not wider than tall`);
-  if (Math.abs(dots.left + dots.width / 2 - pill.left) > 0.5)
-    throw new Error("The grip is not centred on its head's left edge");
+  if (dots.left < pill.left + 0.5) throw new Error("The grip is not wholly inside its head's pill");
   if (Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) > 0.5)
     throw new Error("The grip is not on its head's middle line");
 };
@@ -481,7 +480,8 @@ const gripLeftOfEveryTitle: Play = async (ctx) => {
   for (const section of sections()) {
     const handle = section.querySelector(":scope > .acpmux-session-info-section__handle");
     if (!handle || handle.getClientRects().length === 0) continue;
-    const grip = handle.getBoundingClientRect();
+    // The dots: the handle's hit box reaches over the icon box's empty margin.
+    const grip = handle.querySelector("svg")!.getBoundingClientRect();
     const first = section.querySelector(
       ":scope > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger, :scope > .acpmux-session-info-section__head",
     );
@@ -1405,7 +1405,7 @@ export default componentEntry<Props>({
       },
     },
     "reorder-dragging": {
-      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (a raised surface and a shadow, only while held) and follows the pointer; Usage and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
+      note: 'Mid-drag (Leo, 2026-10-31: "THE CLICK DRAG" ... "WHERE IS MY FUCKING PARITY"): Outputs held by its six-dot handle and carried up into where it runs, over Context. The held section is lifted (the head hover tint over the glass and a shadow, only while held, never a near-opaque slab) and follows the pointer; a neighbour makes way once its leading edge passes the middle of that neighbour; Usage and the sections under it have slid out of the way, and the hairlines follow the blocks now adjacent. Released, it settles there and the order is kept; Escape puts it back.',
       props: full,
       play: dragOutputsOverContext,
     },
@@ -1748,13 +1748,13 @@ export default componentEntry<Props>({
       play: chevronOnHoverAfterTitle,
     },
     "header-grip-hover": {
-      note: "A section head under the pointer: the six-dot grip shows left of the title, in the head's leading padding (Leo, 2026-11-03: \"why dont we have the drag grabber to the left of the title\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
+      note: 'A section head under the pointer: the six-dot grip shows left of the title, wholly inside the head\'s pill in its leading padding and on its middle line (Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title"; 2026-11-04, of the grip centred on the pill\'s edge: "this is off"). The title does not move. At rest no grip draws, and a pointer over the section\'s other rows shows none.',
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
     },
-    "header-grip-inside": {
-      note: "Compared, not chosen: the wide grip inside the head's pill, in its leading padding. It crowds the icon or title it ends at.",
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:var(--grid-base)" },
+    "header-grip-edge": {
+      note: 'Before, for comparison: the grip centred on the head\'s left edge, half on and half off its pill, as cmux#34269 drew it (Leo, 2026-11-04: "this is off").',
+      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:0px" },
       play: hoverFirstHead,
     },
     "header-grip-gutter": {
@@ -1763,7 +1763,7 @@ export default componentEntry<Props>({
       play: hoverFirstHead,
     },
     "header-grip-tall": {
-      note: "Before, for comparison: the grip turned upright (two across, three down), as cmux#32930 drew it, half on the pill's edge.",
+      note: "Before, for comparison: the grip turned upright (two across, three down), as cmux#32930 drew it.",
       props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-turn:rotate(90deg)" },
       play: hoverFirstHead,
     },

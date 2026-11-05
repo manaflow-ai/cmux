@@ -3,10 +3,9 @@ import { runInDurableObject } from "cloudflare:test"
 import type { Principal } from "@cmux/ownership"
 import type { Connection } from "@cmux/protocol"
 import { describe, expect, it, vi } from "vitest"
-import { TABLE_MACHINE } from "../src/domains/cloud.ts"
 import type { ConnectionsState } from "../src/domains/connections.ts"
 import { drainTokenRevocations, githubRepos, githubStatus, githubToken, nextLedgerAt, type LedgerHost } from "../src/integrations/github-tokens.ts"
-import { bindFile, cloudStub, DAEMON, post, signedInWithInstall, SIZE, vmKey, WG_KEY, worker } from "./cloud-bind-support.ts"
+import { post, signedInWithInstall, worker } from "./cloud-bind-support.ts"
 import { settlePolicy } from "./integration-policy-settle.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
@@ -542,38 +541,9 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     expect((await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "write" } })).status).toBe(401)
   })
 
-  it("a VM install mints for its own machine's team only; a chief-less phone install is refused", async () => {
-    const a = await signedInWithInstall("cloud-ghtoken-1", "mac")
-    const { gh } = await linkGitHub(a.session, a.team)
-    // A bound machine and its VM install's token (as cloud-vm-install.test.ts makes them).
-    const machine = (await op(a.session, "cloud.machine.create", { size: SIZE })).body.value.machine.id as string
-    const [{ json }, key] = [await bindFile(cloudStub(a.team), machine), await vmKey()]
-    const install = (await post("/v1/cloud/bind", undefined, { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: key.jwk })).body.value.install as { id: string; user: string }
-    const ch = (await post("/v1/auth/challenge", undefined, { user: install.user, install: install.id })).body
-    const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.pair.privateKey, new TextEncoder().encode(`${ch.message_prefix}${ch.nonce}`))
-    const signature = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-    const vm = (await post("/v1/auth/token", undefined, { user: install.user, install: install.id, nonce: ch.nonce, signature })).body.access_token as string
-
-    const mine = await token(vm, { repo: "acme/web", permissions: { contents: "write" } })
-    expect(mine.body.token, JSON.stringify(mine.body)).toBe("ghs_secret_1")
-    expect((await token(vm, { team: "team_00000000000000000000", repo: "acme/web", permissions: { contents: "write" } })).body.error.code).toBe("auth.forbidden")
-    // A live machine naming a different install refuses this VM, even with a cached token.
-    const bindInstall = (id: string) => inDO(cloudStub(a.team), async (instance) => {
-      const rows = instance.bind(a.team).rows
-      const current = rows.get(TABLE_MACHINE, machine)
-      rows.apply([{ table: TABLE_MACHINE, op: "upsert", key: machine, n: current.n, row: { ...current.row, vm_install: id } }])
-    })
-    await bindInstall("inst_00000000000000000009")
-    const other = await token(vm, { repo: "acme/web", permissions: { contents: "write" } })
-    expect([other.status, other.body.error?.code]).toEqual([403, "auth.forbidden"])
-    expect(gh.mints()).toHaveLength(1)
-    await bindInstall(install.id)
-    // Deleting the machine ends the VM install, and with it the VM's tokens.
-    expect((await op(a.session, "cloud.machine.delete", { machine })).body.ok).toBe(true)
-    expect((await token(vm, { repo: "acme/web", permissions: { contents: "write" } })).status).toBeGreaterThanOrEqual(401)
-    const user = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(a.user))
-    for (let i = 0; i < 20 && !gh.deletes().some((c) => c.auth === `Bearer ${mine.body.token}`); i++) [await fireAlarm(cloudStub(a.team) as unknown), await fireAlarm(user)]
-    expect(gh.deletes().map((c) => c.auth)).toContain(`Bearer ${mine.body.token}`)
+  // A VM install's token is gated on CloudDO's vm-self read of its own machine (github-token-route.ts); CloudDO and its
+  // VM installs are cmux-platform's, which tests the gate's other half.
+  it("a chief-less phone install is refused", async () => {
     const phone = await signedInWithInstall("gh-token-5", "ios")
     expect((await token(phone.installToken, { team: phone.team, repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("auth.forbidden")
   })

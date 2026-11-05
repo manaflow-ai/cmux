@@ -339,17 +339,59 @@ public struct ACPPermissionRequest: Hashable, Sendable, Identifiable {
     public var toolCall: ACPToolCall
     public var options: [ACPPermissionOption]
     public var cwd: String?
+    /// The plan a plan approval asks about, as Markdown (Claude Code's ExitPlanMode, Grok's and
+    /// Cursor's plan modes; `plan(toolCall:)`). Nil for any other ask.
+    public var plan: String?
 
-    public init(id: String, toolCall: ACPToolCall, options: [ACPPermissionOption], cwd: String? = nil) {
+    public init(id: String, toolCall: ACPToolCall, options: [ACPPermissionOption], cwd: String? = nil, plan: String? = nil) {
         self.id = id
         self.toolCall = toolCall
         self.options = options
         self.cwd = cwd
+        self.plan = plan
+    }
+
+    /// The plan of a `session/request_permission` tool call, as the Mac pane reads it (webviews
+    /// direct.ts `permissionPlan`): one acpmux attached (`_meta.acpmux.plan.markdown`), Claude
+    /// Code's ExitPlanMode input `plan`, or the plan of the
+    /// `switch_mode` ask acpmux builds from Grok's and Cursor's plan approvals, from its input or
+    /// else its text content. Nil for any other ask and for a plan approval with no plan text.
+    public static func plan(toolCall: JSONValue) -> String? {
+        if let attached = toolCall["_meta"]?["acpmux"]?["plan"]?["markdown"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !attached.isEmpty {
+            return attached
+        }
+        let exitPlanMode = toolCall["_meta"]?["claude"]?["tool"]?.stringValue == "ExitPlanMode"
+        guard exitPlanMode || toolCall["kind"]?.stringValue == "switch_mode" else { return nil }
+        if let input = toolCall["rawInput"]?["plan"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !input.isEmpty {
+            return input
+        }
+        let text = (toolCall["content"]?.arrayValue ?? [])
+            .compactMap { item -> String? in
+                guard item["type"]?.stringValue == "content", item["content"]?["type"]?.stringValue == "text" else { return nil }
+                return item["content"]?["text"]?.stringValue
+            }
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    /// An option's button words: a plan approval's Approve plan and Keep planning, as the Mac
+    /// pane's plan card says them; any other ask's `phoneLabel`.
+    public func label(for option: ACPPermissionOption) -> String {
+        guard plan != nil else { return option.phoneLabel }
+        switch option.kind {
+        case .allowOnce: return "Approve plan"
+        case .rejectOnce: return "Keep planning"
+        default: return option.phoneLabel
+        }
     }
 
     /// What a phone may answer: allow once or deny once. acpmux refuses a lasting grant
     /// (`allow_always`, `reject_always`) from a paired device (`remote.lasting_grant_refused`),
-    /// so offering one cost a Face ID and then failed. A request with no single-use option
+    /// so offering one only failed. A request with no single-use option
     /// keeps its options, so acpmux's refusal says why.
     public var phoneOptions: [ACPPermissionOption] {
         // Without a single-use Allow the options stay as the agent sent them (acpmux's
