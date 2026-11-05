@@ -17,8 +17,8 @@ set -euo pipefail
 UPSTREAM_REPO="https://github.com/trycua/cua.git"
 # CUA_SDK_TAG and CUA_SDK_COMMIT override the pin for a local trial of a newer
 # upstream release. Both must be set together; the tag check below still runs.
-UPSTREAM_TAG="${CUA_SDK_TAG:-cua-driver-rs-v0.34.0}"
-UPSTREAM_COMMIT="${CUA_SDK_COMMIT:-b0968e1b12834e485dda68789541a3cc57664a9f}"
+UPSTREAM_TAG="${CUA_SDK_TAG:-cua-driver-rs-v0.38.0}"
+UPSTREAM_COMMIT="${CUA_SDK_COMMIT:-85e2b1318bd77ccf3cfa88ccdf875a4bb7eaed19}"
 if [[ -n "${CUA_SDK_TAG:-}" && -z "${CUA_SDK_COMMIT:-}" ]] || [[ -z "${CUA_SDK_TAG:-}" && -n "${CUA_SDK_COMMIT:-}" ]]; then
   echo "error: set CUA_SDK_TAG and CUA_SDK_COMMIT together" >&2; exit 2
 fi
