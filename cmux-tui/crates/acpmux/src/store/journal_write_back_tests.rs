@@ -6,7 +6,7 @@
 //!
 //! The journal runs on `cmux_journal::SimStorage`; the chat logs are real files.
 
-use super::journal_store::FAIL_NEXT_WRITE_BACK;
+use super::journal_store::{FAIL_NEXT_WRITE_BACK, HELD_CAP, JournalStore};
 use super::sync_model;
 use super::*;
 use cmux_journal::{Crash, SimStorage};
@@ -271,4 +271,66 @@ fn a_failed_write_back_at_the_open_writes_the_lines_again() {
         (1..=5).collect::<Vec<_>>(),
         "a failed write-back at the open: the lines were not written again and synced"
     );
+}
+
+/// The open keeps at most its cap of written-back segments open for the checkpoint's sync
+/// (`repair::held_cap`, a quarter of the open-file limit) and closes the rest, which the
+/// checkpoint syncs by path: a limit the daemon could not raise is never used up by them. Either
+/// way, after the checkpoint and an OS crash, every acknowledged line is there.
+#[test]
+fn the_written_back_segments_past_the_cap_are_synced_by_path() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    assert!(
+        mode_stops_writes(home.path()),
+        "this test needs a user that a folder's mode stops (not root)"
+    );
+    let chats = ["chat-a", "chat-c", "chat-d"];
+    let journal = SimStorage::new(115);
+    let store = open(home.path(), &journal);
+    for chat in chats {
+        store.append(chat, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for chat in chats {
+        for seq in 2..=5 {
+            store.append(chat, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+        }
+    }
+    store.save(&meta("chat-b", "renamed")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    // chat-b's folder takes no new file: every checkpoint fails before it syncs the segments
+    // the open wrote back, so the list stays as the open made it.
+    let folder_b = home.path().join("sessions").join("chat-b");
+    set_mode(&folder_b, 0o500);
+    let guard = Writable(folder_b);
+    HELD_CAP.with(|cap| cap.set(Some(1)));
+    let opened =
+        JournalStore::open(&config(), home.path(), Arc::new(killed.clone()), journal_config());
+    HELD_CAP.with(|cap| cap.set(None));
+    let store = opened.unwrap_or_else(|e| panic!("open the store: {e:#}"));
+    assert!(
+        store.flush().is_err(),
+        "the checkpoint went on although chat-b's image cannot be written"
+    );
+    assert_eq!(
+        store.written_back(),
+        (1, 2),
+        "the open kept a written-back segment open past its cap, or closed one within it"
+    );
+    drop(guard);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = killed.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    for chat in chats {
+        assert_eq!(
+            seqs(store.as_ref(), chat),
+            (1..=5).collect::<Vec<_>>(),
+            "{chat}: a written-back segment was not synced before its records were retired"
+        );
+    }
 }
