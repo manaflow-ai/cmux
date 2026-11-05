@@ -1,8 +1,5 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
-import CmuxNextControl
-import CmuxNextDesign
-import CmuxNextSettings
 import CmuxNextWakeups
 
 /// `debug.frames`: display-link frame intervals for the CLI storm bench.
@@ -16,9 +13,10 @@ import CmuxNextWakeups
 /// observers that exist only between `start` and `stop`) and the
 /// `NSView.layout()` calls and window layout passes in it (`LayoutPassGuard`'s
 /// counters), for the app gesture bench (scripts/cmux-next/app-perf.py).
-/// `raw: true` adds the per-frame arrays to the reply.
+/// `raw: true` adds the per-frame arrays to the reply. The reply is plain Foundation values (the App's route makes it
+/// the socket's JSON).
 @MainActor
-final class DebugFrameProbe {
+public final class DebugFrameProbe {
     static let maximumRun: Duration = .seconds(600)
     private lazy var client = FrameClient(owner: "debug.frames", isAnimation: false, on: .app) { [weak self] tick in
         self?.tick(tick)
@@ -37,9 +35,11 @@ final class DebugFrameProbe {
     private var awake: CFTimeInterval = 0
     private var observers: [CFRunLoopObserver] = []
 
-    func handle(_ params: [String: JSONValue]) -> JSONValue {
-        let raw = params["raw"]?.boolValue == true
-        switch params["action"]?.stringValue ?? "read" {
+    public init() {}
+
+    /// `action`: "start", "stop", "reset", or anything else to read the record; `raw` adds the per-frame arrays.
+    public func handle(action: String?, raw: Bool) -> [String: Any] {
+        switch action ?? "read" {
         case "start":
             start()
         case "stop":
@@ -133,34 +133,34 @@ final class DebugFrameProbe {
         }
     }
 
-    private func stats(raw: Bool) -> JSONValue {
+    private func stats(raw: Bool) -> [String: Any] {
         let sorted = intervals.sorted()
         let work = busy.sorted()
         let budget = 1_000.0 / 60.0
-        var stats: [String: JSONValue] = [
-            "running": .bool(client.isActive),
-            "frames": JSONValue(sorted.count),
-            "refresh_ms": .number(expected * 1_000),
-            "p50_ms": .number(sorted.sortedPercentile(0.5)),
-            "p95_ms": .number(sorted.sortedPercentile(0.95)),
-            "p99_ms": .number(sorted.sortedPercentile(0.99)),
-            "max_ms": .number(sorted.last ?? 0),
-            "over_16_7_ms": JSONValue(sorted.filter { $0 > budget }.count),
+        var stats: [String: Any] = [
+            "running": client.isActive,
+            "frames": sorted.count,
+            "refresh_ms": expected * 1_000,
+            "p50_ms": sorted.sortedPercentile(0.5),
+            "p95_ms": sorted.sortedPercentile(0.95),
+            "p99_ms": sorted.sortedPercentile(0.99),
+            "max_ms": sorted.last ?? 0,
+            "over_16_7_ms": sorted.filter { $0 > budget }.count,
             // Missed vsyncs: intervals longer than 1.5 refresh periods.
-            "missed": JSONValue(expected > 0 ? sorted.filter { $0 > expected * 1_500 }.count : 0),
+            "missed": expected > 0 ? sorted.filter { $0 > expected * 1_500 }.count : 0,
             // When the missed vsyncs happened: ms from the first frame to the end of each (at most 16).
-            "missed_at_ms": .array(missedOffsets.prefix(16).map { .number($0.rounded()) }),
+            "missed_at_ms": missedOffsets.prefix(16).map { $0.rounded() },
             // The main thread's busy ms per frame; over 8.33 ms misses a 120 Hz vsync.
-            "main_p50_ms": .number(work.sortedPercentile(0.5)),
-            "main_p95_ms": .number(work.sortedPercentile(0.95)),
-            "main_max_ms": .number(work.last ?? 0),
-            "main_total_ms": .number(busy.reduce(0, +)),
-            "main_over_8_3_ms": JSONValue(work.filter { $0 > 1_000.0 / 120.0 }.count),
-        ].merging(layouts.report(raw: raw).compactMapValues(JSONValue.init(foundation:))) { $1 }
+            "main_p50_ms": work.sortedPercentile(0.5),
+            "main_p95_ms": work.sortedPercentile(0.95),
+            "main_max_ms": work.last ?? 0,
+            "main_total_ms": busy.reduce(0, +),
+            "main_over_8_3_ms": work.filter { $0 > 1_000.0 / 120.0 }.count,
+        ].merging(layouts.report(raw: raw)) { $1 }
         if raw {
-            stats["intervals_ms"] = .array(intervals.map { .number(($0 * 100).rounded() / 100) })
-            stats["main_ms"] = .array(busy.map { .number(($0 * 100).rounded() / 100) })
+            stats["intervals_ms"] = intervals.map { ($0 * 100).rounded() / 100 }
+            stats["main_ms"] = busy.map { ($0 * 100).rounded() / 100 }
         }
-        return .object(stats)
+        return stats
     }
 }
