@@ -64,7 +64,7 @@ sample (`repeats` in the JSON). When the layout due in that frame differs where 
 line moved by 1 device px or more), the window presented an old picture: the frame is late as a whole (m6), and no layer
 finding comes from it.
 m14 (cmux-ad m14, Lead 2026-11-05): from the same edges as the m6 check, per kind, m6's allowances fail: a frame takes
-the first class of scaled (E5, or rings 2 and 3 narrower than at rest: squeezed), gap (E4), edge (E2, E3, page early 1),
+the first class of scaled (E5, or all three rings narrower by one scale: squeezed), gap (E4), edge (E2, E3, page early 1),
 allowed (m6 late: the previous size, anchored top-left, clipped), page_late (m6 page late 1), pass (`m14` in the JSON,
 information lines here; the verdict is judge_m14.py's). Per kind also the worst edge offset from its pane edge.
 Motions (an edge of the trace that moves, then rests 3 samples): settle_frames (from the first frame that shows the
@@ -1574,11 +1574,8 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
                 rule_frames[kind][rule].add(f)
             frames[kind][f].append(verdict)
             edge_counts[kind][verdict] += 1
-            # m14: the same edge's class. Squeezed (rings 2 and 3 both narrower than at rest; a clip cuts only the ring it
-            # reaches, so it is never both): content scaled down, as E5 is content scaled up.
-            squeezed = m.get("status") == "found" and all(
-                rings_rest[r] and 0 < m["rings"][r] < rings_rest[r] - TOL_PX for r in (1, 2))
-            if rule == "E5" or squeezed:
+            # m14: the same edge's class. Squeezed (m14_squeezed): content scaled down, as E5 is content scaled up.
+            if rule == "E5" or m14_squeezed(m, rings_rest):
                 m14_class = "scaled"
             elif rule == "E4":
                 m14_class = "gap"
@@ -1611,6 +1608,20 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
     out["late_as_a_whole"], out["late_as_a_whole_ranges"] = len(late), ranges(late)
     out["m14"] = m14_rows(m14_frames, touch_edges, touch_frames, out)
     return out
+
+
+def m14_squeezed(m, rings_rest):
+    """Whether side M shows its content scaled down (cmux-ad m14): all three rings found, rings 2 and 3 narrower than at
+    rest by more than TOL_PX, and ring 1 not wider than its rest width at the larger of rings 2's and 3's scales plus
+    TOL_PX (one scale for all three rings). A clip cuts only the ring it reaches, and an overlay (a menu over rings 2 and 3,
+    ring 1 left at its rest width: R-HARNESS's review of 7cfd91442ece) does not scale ring 1: neither is a squeeze."""
+    rings = m.get("rings") or [0.0, 0.0, 0.0]
+    if m.get("status") != "found" or any(not rings_rest[r] or rings[r] <= 0 for r in range(3)):
+        return False
+    if not all(rings[r] < rings_rest[r] - TOL_PX for r in (1, 2)):
+        return False
+    scale = max(rings[1] / rings_rest[1], rings[2] / rings_rest[2])
+    return rings[0] <= rings_rest[0] * scale + TOL_PX
 
 
 def m14_rows(m14_frames, touch_edges, touch_frames, m6):

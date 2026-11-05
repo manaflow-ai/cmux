@@ -13,7 +13,8 @@ page_late), the worst edge offset in device px (its frame and edge), scaled fram
 not judged (3e.3), and late as a whole (the window presented a whole old frame: information, not a content class).
 
 Verdict per film: fail when a kind has a failing frame; not judged when no kind has a judged frame (never a pass); else
-pass. Exit 0 when every film passes, 1 when a film fails, 2 when a film is not judged and none fails.
+pass. The status word names the frames not judged and the touching edges not judged, so a pass is read with them; late
+as a whole is on every line. Exit 0 when every film passes, 1 when a film fails, 2 when a film is not judged and none fails.
 """
 from __future__ import annotations
 
@@ -41,7 +42,10 @@ def film_verdict(report: dict) -> dict:
     kinds = {k: v for k, v in (m14.get("kinds") or {}).items()}
     judged = {k: v for k, v in kinds.items() if v.get("judged", 0) > 0}
     status = "not judged" if not judged else ("fail" if any(v["fail"] for v in judged.values()) else "pass")
-    return {"base": report.get("base"), "status": status, "kinds": kinds,
+    unjudged = sum(v.get("not_judged", 0) for v in kinds.values())
+    touching = sum(v.get("touch_not_judged", 0) for v in kinds.values())
+    return {"base": report.get("base"), "status": status, "not_judged_frames": unjudged, "touch_not_judged_edges": touching,
+            "kinds": kinds,
             "late_as_a_whole": m14.get("late_as_a_whole"), "late_as_a_whole_ranges": m14.get("late_as_a_whole_ranges"),
             "notes": report.get("notes") or []}
 
@@ -56,7 +60,10 @@ def line_of(film: dict, classes) -> str:
         parts.append(f"{kind}: {v['fail']} of {v['judged']} judged frames fail" + (f" ({by}; frames {v['fail_ranges']})" if v["fail"] else "")
                      + f", worst {v['worst_px']:g} px" + (f" (frame {v['worst_frame']}, {v['worst_edge']})" if v["worst_frame"] is not None else "")
                      + f", scaled {v['scaled']}, not judged {v['not_judged']} (+{v['touch_not_judged']} touching edges)")
-    return f"{name}: m14 {film['status'].upper()} | " + " | ".join(parts) + f" | late as a whole {film['late_as_a_whole']}"
+    # The status word carries what was not judged (R-HARNESS review of 7cfd91442ece): a pass reads with it.
+    word = film["status"].upper() + (f", {film['not_judged_frames']} frames not judged" if film["not_judged_frames"] else "") \
+        + (f", {film['touch_not_judged_edges']} touching edges not judged" if film["touch_not_judged_edges"] else "")
+    return f"{name}: m14 {word} | " + " | ".join(parts) + f" | late as a whole {film['late_as_a_whole']} (the window showed a whole old frame)"
 
 
 def main(argv: list[str] | None = None) -> int:
