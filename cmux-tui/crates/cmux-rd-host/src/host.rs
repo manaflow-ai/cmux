@@ -213,7 +213,10 @@ fn run_systemd(opts: &Opts) -> Res<()> {
     );
     loop {
         let Some(stream) = crate::systemd::accept_within(&listener, idle_ms)? else {
-            eprintln!("cmux-rd host: idle for {} s; exiting (the socket unit starts it again)", idle_ms / 1000);
+            eprintln!(
+                "cmux-rd host: idle for {} s; exiting (the socket unit starts it again)",
+                idle_ms / 1000
+            );
             return Ok(());
         };
         let stream = match crate::systemd::admit_peer(stream, peer_uid) {
@@ -484,9 +487,12 @@ fn serve_viewer<S: ViewerStream>(
         Admission::Token(_) => Principal { user, install, class: parse_class(&class), interactive },
         // The link's owner, a person at the app: the hello's user, class and interactive
         // claims are not used.
-        Admission::LinkOwner(owner) => {
-            Principal { user: owner.to_string(), install, class: PrincipalClass::User, interactive: true }
-        }
+        Admission::LinkOwner(owner) => Principal {
+            user: owner.to_string(),
+            install,
+            class: PrincipalClass::User,
+            interactive: true,
+        },
     };
     // Never larger than the viewer asked for: a smaller path MTU would fragment or drop.
     if max_datagram < 512 {

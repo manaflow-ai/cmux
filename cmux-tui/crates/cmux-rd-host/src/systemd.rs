@@ -26,7 +26,8 @@ pub fn listen_fd_from_env(
          (cmux-agent-rd.socket)",
     )?;
     let pid = listen_pid.ok_or("--listen-systemd: LISTEN_PID is not set")?;
-    let pid: u32 = pid.parse().map_err(|_| format!("--listen-systemd: LISTEN_PID {pid:?} is not a pid"))?;
+    let pid: u32 =
+        pid.parse().map_err(|_| format!("--listen-systemd: LISTEN_PID {pid:?} is not a pid"))?;
     if pid != my_pid {
         return Err(format!("--listen-systemd: LISTEN_PID {pid} is not this process ({my_pid})"));
     }
@@ -41,7 +42,13 @@ fn sockopt_int(fd: RawFd, name: libc::c_int) -> io::Result<libc::c_int> {
     let mut len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
     // SAFETY: getsockopt with a valid out pointer and its length.
     let rc = unsafe {
-        libc::getsockopt(fd, libc::SOL_SOCKET, name, (&mut value as *mut libc::c_int).cast(), &mut len)
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            name,
+            (&mut value as *mut libc::c_int).cast(),
+            &mut len,
+        )
     };
     if rc != 0 {
         return Err(io::Error::last_os_error());
@@ -54,7 +61,9 @@ fn sockopt_int(fd: RawFd, name: libc::c_int) -> io::Result<libc::c_int> {
 /// `LISTEN_*` variables.
 pub fn take_listener(fd: RawFd) -> Result<UnixListener, String> {
     let bad = |what: String| format!("--listen-systemd: fd {fd} {what}");
-    if sockopt_int(fd, libc::SO_DOMAIN).map_err(|e| bad(format!("is not a socket: {e}")))? != libc::AF_UNIX {
+    if sockopt_int(fd, libc::SO_DOMAIN).map_err(|e| bad(format!("is not a socket: {e}")))?
+        != libc::AF_UNIX
+    {
         return Err(bad("is not a Unix socket (ListenStream= must be a path)".into()));
     }
     if sockopt_int(fd, libc::SO_TYPE).map_err(|e| bad(e.to_string()))? != libc::SOCK_STREAM {
@@ -109,7 +118,9 @@ pub fn admit_peer(stream: UnixStream, expected: u32) -> Result<UnixStream, Strin
         Ok(uid) if uid == expected => Ok(stream),
         Ok(uid) => {
             let _ = stream.shutdown(std::net::Shutdown::Both);
-            Err(format!("refused peer uid {uid}: only uid {expected} (the link receiver) may connect"))
+            Err(format!(
+                "refused peer uid {uid}: only uid {expected} (the link receiver) may connect"
+            ))
         }
         Err(e) => {
             let _ = stream.shutdown(std::net::Shutdown::Both);
@@ -136,7 +147,8 @@ pub fn accept_within(listener: &UnixListener, idle_ms: u64) -> io::Result<Option
                 stream.set_nonblocking(false)?;
                 return Ok(Some(stream));
             }
-            Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted) => {}
+            Err(e)
+                if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted) => {}
             Err(e) => return Err(e),
         }
     }
@@ -157,7 +169,9 @@ mod tests {
 
     #[test]
     fn listen_fds_for_another_process_or_count_refuses() {
-        assert!(listen_fd_from_env(Some("41"), Some("1"), 42).expect_err("pid").contains("not this process"));
+        assert!(listen_fd_from_env(Some("41"), Some("1"), 42)
+            .expect_err("pid")
+            .contains("not this process"));
         assert!(listen_fd_from_env(Some("x"), Some("1"), 42).is_err());
         for n in ["0", "2", "", "one"] {
             assert!(listen_fd_from_env(Some("42"), Some(n), 42).is_err(), "{n}");
@@ -238,7 +252,8 @@ mod tests {
             pub fn new() -> Self {
                 static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
                 let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let p = std::env::temp_dir().join(format!("cmux-rd-systemd-{}-{n}", std::process::id()));
+                let p = std::env::temp_dir()
+                    .join(format!("cmux-rd-systemd-{}-{n}", std::process::id()));
                 let _ = std::fs::remove_dir_all(&p);
                 std::fs::create_dir(&p).expect("mkdir");
                 Self(p)
