@@ -36,6 +36,9 @@ public final class HomeChiefComputerControlBar: NSStackView {
     var source: HomeChiefComputerControlSource? {
         didSet { follow() }
     }
+    /// Runs before Give Back asks the owner: the person's queued inputs are dropped and the one in
+    /// flight lands first, so none reaches the computer after it is handed back.
+    var beforeGiveBack: () async -> Void = {}
     /// The lease changed (the screen takes input only while the person holds it).
     var onChange: () -> Void = {}
     /// The line on show; nil while hidden (tests).
@@ -114,7 +117,12 @@ public final class HomeChiefComputerControlBar: NSStackView {
         // task-owner: one Take Over or Give Back gesture; the button stays off until it ends
         let task = Task { [weak self] in
             do {
-                if take { try await source.takeOver() } else { try await source.handBack() }
+                if take {
+                    try await source.takeOver()
+                } else {
+                    await self?.beforeGiveBack()
+                    try await source.handBack()
+                }
                 if take { source.openInteractive?() }
                 self?.failed = false
             } catch {

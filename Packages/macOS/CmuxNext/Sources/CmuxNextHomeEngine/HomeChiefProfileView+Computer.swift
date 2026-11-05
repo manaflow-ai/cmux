@@ -40,10 +40,11 @@ extension HomeChiefProfileView {
         let shown = control != nil && showsControl
         controlBar.isHidden = !shown || controlBar.shown == nil
         let takesInput = shown && shownGate == nil && tabs.selected == .computer && controlBar.personDrives && control?.send != nil && isOpen
-        if !takesInput {
+        if takesInput {
+            inputs.resume()
+        } else {
             // Inputs still queued must not reach a computer the person gave back.
-            sending?.cancel()
-            sending = nil
+            inputs.drop()
         }
         if takesInput, computer.screen.input == nil {
             computer.screen.input = { [weak self] in self?.send($0) }
@@ -52,21 +53,10 @@ extension HomeChiefProfileView {
         }
     }
 
-    /// Sends `input` after the ones before it, in order. A send the computer refuses (the Chief took
-    /// it back, the computer is gone) says so in the bar.
+    /// Sends `input` after the ones before it, in order (one consumer; inputs queued behind a send
+    /// coalesce). A send the computer refuses while the person still drives says so in the bar.
     func send(_ input: HomeChiefComputerInput) {
-        guard let send = control?.send else { return }
-        let previous = sending
-        // task-owner: one input of the person's, after the one before; cancelled when the profile closes
-        sending = Task { [weak self] in
-            await previous?.value
-            guard !Task.isCancelled else { return }
-            do {
-                try await send(input)
-            } catch {
-                guard !Task.isCancelled else { return }
-                self?.controlBar.sendFailed()
-            }
-        }
+        inputs.send = control?.send
+        inputs.enqueue(input)
     }
 }

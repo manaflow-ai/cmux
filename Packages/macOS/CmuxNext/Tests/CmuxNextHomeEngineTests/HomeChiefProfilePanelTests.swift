@@ -181,32 +181,187 @@ import Testing
         #expect(key(123, "\u{F702}", nil, .shift) == .key("shift+Left"))
         #expect(key(37, "l", "l", .command) == .key("ctrl+l"), "Command stands for Control on the computer")
         #expect(key(8, "\u{3}", "c", .control) == .key("ctrl+c"))
-        #expect(key(44, "÷", "/", .option) == .key("alt+slash"))
+        #expect(key(44, "÷", "/", .option) == .type("÷"), "Option-composed text is typed, not a chord")
+        #expect(key(37, "@", "l", .option) == .type("@"), "@ on a German layout (Option-L) types @")
+        #expect(key(123, "\u{F702}", nil, .option) == .key("alt+Left"), "Option with a named key stays a chord")
+        #expect(key(32, "", "u", .option) == nil, "a dead key sends nothing until it composes")
+        #expect(key(44, "?", "?", [.command, .shift]) == .key("ctrl+shift+question"), "Shift+punctuation chords have a name")
+        #expect(key(18, "!", "!", [.control, .shift]) == .key("ctrl+shift+exclam"))
+        #expect(key(37, "¬", "l", [.command, .option]) == .key("ctrl+alt+l"), "Command keeps Option a chord")
         #expect(key(53, "\u{1B}") == .key("Escape"))
         #expect(key(99, "\u{1}") == .key("F3"))
         #expect(key(55, "") == nil, "a bare modifier sends nothing")
+    }
+
+    @Test func inputsQueuedBehindASendCoalesceAndScrollsAreClamped() async {
+        let hold = Hold()
+        var sent: [HomeChiefComputerInput] = []
+        let queue = HomeChiefComputerInputQueue()
+        queue.send = { input in
+            await hold.wait()
+            sent.append(input)
+        }
+        queue.enqueue(.scroll(x: 1, y: 1, direction: "down", amount: 100))
+        #expect(queue.waiting.isEmpty, "nothing in flight: the first input goes at once")
+        queue.enqueue(.scroll(x: 1, y: 1, direction: "down", amount: 5))
+        queue.enqueue(.scroll(x: 2, y: 2, direction: "down", amount: 7))
+        queue.enqueue(.type("a"))
+        queue.enqueue(.type("b"))
+        queue.enqueue(.scroll(x: 2, y: 2, direction: "up", amount: 0))
+        queue.enqueue(.scroll(x: 2, y: 2, direction: "up", amount: 29))
+        queue.enqueue(.scroll(x: 2, y: 2, direction: "up", amount: 29))
+        #expect(queue.waiting == [.scroll(x: 2, y: 2, direction: "down", amount: 12), .type("ab"),
+                                  .scroll(x: 2, y: 2, direction: "up", amount: 30)])
+        hold.open()
+        await until { sent.count == 4 }
+        #expect(sent == [.scroll(x: 1, y: 1, direction: "down", amount: 30), .scroll(x: 2, y: 2, direction: "down", amount: 12),
+                         .type("ab"), .scroll(x: 2, y: 2, direction: "up", amount: 30)])
+    }
+
+    @Test func aDoubleClickIsOneClickWithItsCountAndItsFirstPressIsNotCountedTwice() async {
+        let hold = Hold()
+        var sent: [HomeChiefComputerInput] = []
+        let queue = HomeChiefComputerInputQueue()
+        queue.send = { input in
+            await hold.wait()
+            sent.append(input)
+        }
+        // The first press goes at once (single-click latency), the second sends count 2.
+        queue.enqueue(.click(x: 5, y: 6, button: 1, count: 1))
+        queue.enqueue(.click(x: 5, y: 6, button: 1, count: 2))
+        #expect(queue.waiting == [.click(x: 5, y: 6, button: 1, count: 2)])
+        // Behind a send, the queued first press is replaced by the double-click, not followed by it.
+        queue.enqueue(.type("x"))
+        queue.enqueue(.click(x: 9, y: 9, button: 1, count: 1))
+        queue.enqueue(.click(x: 9, y: 9, button: 1, count: 2))
+        queue.enqueue(.click(x: 9, y: 9, button: 1, count: 3))
+        #expect(queue.waiting == [.click(x: 5, y: 6, button: 1, count: 2), .type("x"), .click(x: 9, y: 9, button: 1, count: 3)])
+        // Two single clicks in different places stay two.
+        #expect(HomeChiefComputerInputQueue.coalesce(.click(x: 1, y: 1, button: 1, count: 1), .click(x: 2, y: 2, button: 1, count: 2)) == nil)
+        #expect(HomeChiefComputerInputQueue.coalesce(.click(x: 1, y: 1, button: 1, count: 1), .click(x: 1, y: 1, button: 1, count: 1)) == nil)
+        hold.open()
+        await until { sent.count == 4 }
+        // The screen sends the press's own click count.
+        let press = HomeChiefComputerScreenView.press(from: (5, 6), startPoint: .zero, to: (5, 6), endPoint: .zero, button: 1, count: 2)
+        #expect(press == .click(x: 5, y: 6, button: 1, count: 2))
+    }
+
+    @Test func dropForgetsEveryQueuedInputAndARefusalAfterItSaysNothing() async {
+        let hold = Hold()
+        var sent: [HomeChiefComputerInput] = []
+        var failures = 0
+        let queue = HomeChiefComputerInputQueue()
+        queue.failed = { failures += 1 }
+        queue.send = { input in
+            await hold.wait()
+            sent.append(input)
+            throw CancellationError()  // computer.not_human
+        }
+        queue.enqueue(.click(x: 1, y: 1, button: 1, count: 1))
+        queue.enqueue(.type("a"))
+        queue.enqueue(.key("Return"))
+        queue.enqueue(.click(x: 2, y: 2, button: 1, count: 1))
+        let inFlight = queue.drop()
+        #expect(inFlight != nil)
+        #expect(queue.waiting.isEmpty)
+        queue.enqueue(.type("late"))
+        #expect(queue.waiting.isEmpty, "a dropped queue takes nothing until the person drives again")
+        hold.open()
+        await inFlight?.value
+        #expect(sent == [.click(x: 1, y: 1, button: 1, count: 1)], "only the input already on its way was sent")
+        #expect(failures == 0, "a refusal after Give Back is not a failure")
+        // Driving again: a refusal says so.
+        queue.resume()
+        queue.enqueue(.type("b"))
+        await until { failures == 1 }
+        #expect(sent.last == .type("b"))
+    }
+
+    @Test func giveBackDropsQueuedInputsAndWaitsForTheOneInFlight() async throws {
+        let lease = Lease()
+        let panel = HomeChiefProfileView()
+        panel.name = { "mario" }
+        panel.paid = { true }
+        panel.cloudChief = { true }
+        let feed = Feed()
+        panel.computer.source = feed.source()
+        panel.control = lease.source(machine: false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(panel)
+        defer { window.close() }
+        await until { panel.computer.frames >= 1 }
+        await panel.controlBar.act()?.value
+        let input = try #require(panel.computer.screen.input)
+        let hold = Hold()
+        lease.hold = hold
+        lease.refusesInput = true
+        input(.click(x: 1, y: 1, button: 1, count: 1))
+        input(.type("one"))
+        input(.key("Return"))
+        input(.click(x: 2, y: 2, button: 1, count: 1))
+        let giveBack = panel.controlBar.act()
+        for _ in 0..<50 { await Task.yield() }
+        #expect(lease.calls == ["take_over"], "Give Back waits for the input in flight")
+        input(.type("during"))
+        hold.open()
+        await giveBack?.value
+        #expect(lease.log == ["take_over", "send", "hand_back"], "the in-flight input lands, then Give Back; nothing queued follows")
+        #expect(lease.sent == [.click(x: 1, y: 1, button: 1, count: 1)])
+        #expect(panel.controlBar.status.stringValue == HomeEngineStrings.computerChiefDriving("mario"), "no failure line after Give Back")
+        #expect(panel.computer.screen.input == nil)
+    }
+
+    @MainActor final class Hold {
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+        private var isOpen = false
+
+        func wait() async {
+            guard !isOpen else { return }
+            await withCheckedContinuation { waiters.append($0) }
+        }
+
+        func open() {
+            isOpen = true
+            let all = waiters
+            waiters = []
+            for waiter in all { waiter.resume() }
+        }
     }
 
     @MainActor final class Lease {
         var state = HomeChiefComputerControlState.chief
         var calls: [String] = []
         var sent: [HomeChiefComputerInput] = []
+        /// Sends and lease calls in the order they reached the owner.
+        var log: [String] = []
         var refuses = false
+        /// Sends wait for it to open.
+        var hold: Hold?
+        /// Sends land, then are refused (computer.not_human).
+        var refusesInput = false
         private var watchers: [@MainActor () -> Void] = []
 
         func source(machine: Bool) -> HomeChiefComputerControlSource {
-            HomeChiefComputerControlSource(
+            let send: (HomeChiefComputerInput) async throws -> Void = { [self] input in
+                await hold?.wait()
+                sent.append(input)
+                log.append("send")
+                if refusesInput { throw CancellationError() }
+            }
+            return HomeChiefComputerControlSource(
                 state: { [self] in state },
                 observe: { [self] change in watchers.append(change); return NSObject() },
                 takeOver: { [self] in try change("take_over", to: .human) },
                 handBack: { [self] in try change("hand_back", to: .chief) },
-                send: machine ? nil : { [self] input in sent.append(input) },
+                send: machine ? nil : send,
                 openInteractive: machine ? { [self] in calls.append("open") } : nil)
         }
 
         private func change(_ call: String, to holder: HomeChiefComputerHolder) throws {
             guard !refuses else { throw CancellationError() }
             calls.append(call)
+            log.append(call)
             state = .init(holder: holder)
             for watcher in watchers { watcher() }
         }
