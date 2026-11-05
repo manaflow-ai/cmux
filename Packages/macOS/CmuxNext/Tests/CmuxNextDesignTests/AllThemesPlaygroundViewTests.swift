@@ -40,7 +40,7 @@ import Testing
         #expect(model.entries.count == 2)
         #expect(view.rowCount == 2)
         #expect(view.summaryText == AllThemesPlaygroundStrings.summary(failing: model.failingCount, total: 2))
-        #expect(!descendants(of: view).contains { String(describing: type(of: $0)).contains("Hosting") })
+        #expect(!descendants(of: view).contains { NSStringFromClass(type(of: $0)).contains("NSHostingView") })
     }
 
     @Test func failuresOnlyBoxShowsOnlyFailingThemes() async throws {
