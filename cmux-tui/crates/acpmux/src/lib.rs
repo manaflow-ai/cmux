@@ -14,6 +14,7 @@
 // there, code only its Unix paths reach is unused on Windows.
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
+pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod adopt;
 pub mod adopt_live;

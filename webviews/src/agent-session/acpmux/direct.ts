@@ -110,7 +110,7 @@ import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { isMuseTodoCall, isPlumbingCall, showsNothing } from "./hiddenTools";
+import { isMuseTodoCall, isPlanToolCall, isPlumbingCall, showsNothing } from "./hiddenTools";
 import { SubagentFold, subagentsLeft, subagentStops, type SubagentStopReason } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { promptContext } from "./composer/videoTranscript";
@@ -6743,9 +6743,10 @@ export class AcpmuxDirectClient {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
       const tool = update._meta?.claude?.tool ?? update.title;
       if (event.kind === "tool_call" && tool === "TodoWrite" && this.planRow) this.planCalls.add(callId);
-      // Muse's write_todos announces its call before the plan it makes, so it is hidden on sight; a
-      // failed one leaves no plan and keeps its row.
-      if (isMuseTodoCall(update)) {
+      // Muse's write_todos, and a todo call acpmux makes the plan of (DeepSeek Harness's todo_write),
+      // announce their call before the plan they make, so they are hidden on sight; a failed one
+      // leaves no plan and keeps its row.
+      if (isMuseTodoCall(update) || isPlanToolCall(update)) {
         if (update.status === "failed") this.planCalls.delete(callId);
         else if (event.kind === "tool_call") this.planCalls.add(callId);
       }
