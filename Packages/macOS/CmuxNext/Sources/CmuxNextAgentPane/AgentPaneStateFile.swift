@@ -78,6 +78,7 @@ public nonisolated final class AgentPaneStateFile: Sendable {
 /// its queue and so its order, and the quit waits for exactly the app's files.
 public nonisolated final class AgentPaneStateFiles: Sendable {
     private let files = Mutex<[String: AgentPaneStateFile]>([:])
+    private let tailDisks = Mutex<[String: AgentPaneTailDisk]>([:])
     private let drainBegan: @Sendable () -> Void
 
     /// - Parameter drainBegan: Told each time a ``drained()`` begins, before it waits (a test
@@ -97,9 +98,17 @@ public nonisolated final class AgentPaneStateFiles: Sendable {
         }
     }
 
-    /// The writer for the chat tails kept in `directory` (``AgentPaneTailDisk``).
+    /// The one writer for the chat tails kept in `directory` (``AgentPaneTailDisk``), so the quit
+    /// awaits their saves with the files' (#36492 review F3: a quit during a save backlog relaunched
+    /// without the tail).
     public func tails(in directory: URL) -> AgentPaneTailDisk {
-        AgentPaneTailDisk(directory: directory)
+        tailDisks.withLock { disks in
+            let key = directory.standardizedFileURL.path
+            if let disk = disks[key] { return disk }
+            let disk = AgentPaneTailDisk(directory: directory)
+            disks[key] = disk
+            return disk
+        }
     }
 
     /// Returns, holding no thread, once every file's saves queued before this call have run. It has no
@@ -109,10 +118,13 @@ public nonisolated final class AgentPaneStateFiles: Sendable {
     public func drained() async {
         drainBegan()
         for file in files.withLock({ Array($0.values) }) { await file.saved() }
+        for disk in tailDisks.withLock({ Array($0.values) }) { await disk.settled() }
     }
 
-    /// The names of the files with a save still queued (no content), sorted.
+    /// The names of the files (and chat tail folders) with a save still queued (no content), sorted.
     public func savingFileNames() -> [String] {
-        files.withLock { $0.values.filter(\.isSaving).map(\.url.lastPathComponent) }.sorted()
+        let files = files.withLock { $0.values.filter(\.isSaving).map(\.url.lastPathComponent) }
+        let tails = tailDisks.withLock { $0.values.filter(\.isSaving).map(\.directory.lastPathComponent) }
+        return (files + tails).sorted()
     }
 }
