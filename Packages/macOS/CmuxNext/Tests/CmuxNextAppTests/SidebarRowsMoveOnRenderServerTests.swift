@@ -394,6 +394,32 @@ struct SidebarRowsMoveOnRenderServerTests {
         }
     }
 
+    /// Leo 2026-11-05 (ask-71821f1cda): "when you're collapsing a group, the text needs to fade faster ... you still see
+    /// like overlapping text sometimes". The members' text fades out on the short `fadeOut`, well inside the `.move`
+    /// spring the slot closes on, so no member's text is still showing when the rows below rise over its place.
+    @Test(.enabled("needs an awake display and animations on, or every fold snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func collapsingAGroupFadesItsMembersOutBeforeTheSlotCloses() throws {
+        let (model, list, _, restore) = try Self.sidebar(Self.workThenBelow())
+        defer { restore() }
+        let members = try ["docs", "web", "api"].map { member in
+            (member, try #require(list.rowViews[.workspace(CmuxNextSidebar.WorkspaceID(member))], "\(member) has no view"))
+        }
+        model.noteUserIntent()
+        model.setGroupCollapsed(GroupID("g-work"), true)
+        let moveDuration = Motion.sidebar.springAnimation(.move, "position", from: 0, to: 0).duration
+        let fadeOut = Motion.sidebar.duration(.fadeOut)
+        try #require(fadeOut > 0 && fadeOut < moveDuration / 2, "fadeOut (\(fadeOut) s) is not well under .move (\(moveDuration) s)")
+        for (name, view) in members {
+            let fade = try #require(view.layer?.animation(forKey: "opacity") as? CABasicAnimation, "\(name) does not fade on its layer")
+            #expect(!(fade is CASpringAnimation), "\(name) fades on a spring, over the slot's whole close")
+            #expect(abs(fade.duration - fadeOut) < 0.001, "\(name) fades for \(fade.duration) s, fadeOut is \(fadeOut) s")
+            #expect((fade.toValue as? Float) == 0)
+            #expect(view.alphaValue == 0, "\(name)'s opacity does not end at 0")
+        }
+    }
+
     /// The reverse: an opened group's members show at their own frames under a slot that opens down with the rows below.
     @Test(.enabled("needs an awake display and animations on, or every fold snaps anyway") {
         await SidebarInsertWhileDisplayAsleepTests.animatesHere()
