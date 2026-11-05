@@ -112,13 +112,6 @@ impl Client {
     }
 }
 
-fn client(hub: &Arc<Hub>, origin: Origin) -> Client {
-    let (in_tx, in_rx) = mpsc::channel(64);
-    let (out_tx, out_rx) = mpsc::channel(4096);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
-    Client(in_tx, out_rx, 0)
-}
-
 fn hub(root: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake-codex": {"argv": ["python3", FAKE], "family": "codex",
