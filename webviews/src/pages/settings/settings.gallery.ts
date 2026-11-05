@@ -308,6 +308,15 @@ const providerAccounts: ProviderAccount[] = [
     email: "alex@example.com",
     enabled: true,
     builtin: true,
+    // Read when Settings opened (`_acpmux/account/usage`); no reset times, so the capture holds still.
+    usage: {
+      windows: [
+        { id: "session", usedPercent: 22, windowMins: 300 },
+        { id: "weekly", usedPercent: 41, windowMins: 10080 },
+      ],
+      plan: "pro",
+      credits: { balance: "56766" },
+    },
   },
   {
     id: "codex-2",
@@ -321,6 +330,7 @@ const providerAccounts: ProviderAccount[] = [
     email: "sam@example.com",
     enabled: false,
     builtin: false,
+    usage: { windows: [{ id: "session", usedPercent: 87.5, windowMins: 300 }], plan: "plus" },
   },
   {
     id: "claude-login",
@@ -339,7 +349,7 @@ const providerAccounts: ProviderAccount[] = [
 
 Object.assign(variants, {
   "agents-harnesses-registry": variant("agents", {
-    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch, and Codex offers Add account.",
+    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch and, for Codex, its plan's 5-hour and weekly usage read at rest, and Codex offers Add account.",
     harnesses: {
       loading: false,
       problem: null,
