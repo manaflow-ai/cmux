@@ -16,6 +16,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Removals kept to refuse older upserts of a removed machine.
 const TOMBSTONES: usize = 1024;
+/// Machines marked pushed at most (one per machine the app shows).
+const PUSHED_MAX: usize = 4096;
 
 /// One `cloud.machine.watch` event. Events of one projection change share
 /// its revision; revisions only grow.
@@ -57,9 +59,23 @@ pub struct Projection {
     tombstones: BTreeMap<String, Revision>,
     tombstone_order: VecDeque<String>,
     sweep: Option<Sweep>,
+    /// Machines whose state the host pushes (`cloud.machine.state`): a parked
+    /// op on one of them waits for the push, and reads only as a fallback.
+    pushed: BTreeSet<String>,
 }
 
 impl Projection {
+    /// Whether the host pushes `id`'s state (a `cloud.machine.state` came).
+    pub fn is_pushed(&self, id: &str) -> bool {
+        self.pushed.contains(id)
+    }
+
+    pub(crate) fn mark_pushed(&mut self, id: &str) {
+        if self.pushed.len() < PUSHED_MAX || self.pushed.contains(id) {
+            self.pushed.insert(id.to_owned());
+        }
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }
