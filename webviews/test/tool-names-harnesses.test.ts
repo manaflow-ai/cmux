@@ -5,6 +5,7 @@
 // Leo, 2026-11-05: "idk how much we wanna potentially improve acpmux and cmux-next's rendering? We
 // have a pretty good situation as-is but could we potentially do even better?"
 import { describe, expect, test } from "bun:test";
+import { agentCall } from "../src/agent-session/acpmux/conversation/agentCalls";
 import { toolGroupKind, toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 import { toolRunSummary } from "../src/agent-session/acpmux/conversation/toolRunSummary";
 import { writeCall } from "../src/agent-session/acpmux/conversation/WriteLabel";
@@ -113,6 +114,13 @@ test("a raw tool name takes the canonical verb; a pending Gemini write keeps its
   );
   expect(label(call("NotebookRead", "read", at(`${CWD}/a.ipynb`)))).toBe("Read a.ipynb");
   expect(label(call(`Writing to ${CWD}/notes.md`, "edit", { status: "pending" }))).toBe(`Writing to ${CWD}/notes.md`);
+});
+
+test("opencode's task reads as the same subagent card as Claude Code's Agent", () => {
+  const input = { inputSummary: JSON.stringify({ description: "Find the bug", prompt: "Look for it" }) };
+  expect(agentCall(call("task", "think", input))?.description).toBe("Find the bug");
+  expect(agentCall(call("Agent: Find the bug", "think", input))?.description).toBe("Find the bug");
+  expect(agentCall(call("read", "think", input))).toBeUndefined();
 });
 
 test("an acpmux dispatch run as a shell keeps its dispatch card", () => {
