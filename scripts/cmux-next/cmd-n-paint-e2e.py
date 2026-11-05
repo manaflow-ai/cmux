@@ -152,7 +152,7 @@ if opts.split > 1:
         # Split Right, then Split Down: each opens a New Tab page in the new pane (NewTabPage.split).
         rpc("debug.key", {"key": "d", "modifiers": ["command"] + (["shift"] if index else [])})
         time.sleep(1.0)  # test harness wait: the split's pane shows
-    # The spare draws the focused pane's context once that settles (NewTabSparePool.fitSettle); it keeps its size while hidden.
+    # The spare draws the focused pane's context and takes its size once that settles and the layout is still (NewTabSparePool.fitSettle).
     time.sleep(1.0)  # test harness wait
 OPENINGS = []
 

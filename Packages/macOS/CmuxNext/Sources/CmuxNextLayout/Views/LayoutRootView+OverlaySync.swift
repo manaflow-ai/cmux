@@ -67,6 +67,18 @@ extension LayoutRootView {
         runStillWork()
     }
 
+    /// ``whenStill(_:on:_:)`` once `delay` passed with no later call for `key`. For hidden content that follows changes
+    /// which come in every frame with no spring (a sidebar drag or reveal, a window resized in steps): it lays out once,
+    /// after the last change, never in a motion's frames. Hidden work only: the wait delays nothing the person sees.
+    public func whenSettled(_ key: String, after delay: Duration, on queue: FrameBatchQueue, _ work: @escaping @MainActor () -> Void) {
+        let timer = settlingWork[key]?.timer ?? DemandTimer(owner: key)
+        settlingWork[key] = (timer, queue, work)
+        timer.schedule(after: delay) { @MainActor [weak self] in
+            guard let self, let entry = self.settlingWork.removeValue(forKey: key) else { return }
+            self.whenStill(key, on: entry.queue, entry.work)
+        }
+    }
+
     private var isStill: Bool { !isInLayoutMotion && window?.inLiveResize != true }
 
     /// Queues the waiting ``whenStill(_:on:_:)`` work when the layout is still.
@@ -76,8 +88,13 @@ extension LayoutRootView {
         stillWork.removeAll()
         for (key, entry) in ready {
             entry.queue.enqueue { [weak self] in
-                guard let self, !self.isStill else { return entry.work() }
-                if self.stillWork[key] == nil { self.stillWork[key] = entry }
+                guard let self else { return } // the layout is gone: so is what the work would lay out
+                guard self.isStill else {
+                    // A motion began after it was queued: it waits for that one to land.
+                    if self.stillWork[key] == nil { self.stillWork[key] = entry }
+                    return
+                }
+                entry.work()
             }
         }
     }

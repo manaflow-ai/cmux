@@ -263,12 +263,12 @@ final class NewTabSparePool {
         if !refills.isOpening { slot.all.forEach(snapshotParked) }
     }
 
-    /// A pane of `window` changed size, or its focus or tab moved: the spare draws the context Cmd-T there gives (``fitSettle``)
-    /// and takes the pane's size in one background fit once the layout is still (`LayoutRootView.whenStill`, RESIZE MAIN BUDGET).
+    /// A pane of `window` changed size, or its focus or tab moved: the spare draws the context Cmd-T there gives and takes the
+    /// pane's size in one background fit once the sizes settled (``fitSettle``) and the layout is still (`whenSettled`).
     func paneLayoutDidChange(in window: NSWindow?) {
         guard let window, window === target, parking.superview != nil else { return }
         if targetIdentity != preparedFor { schedulePrepare() }
-        services.windows.controllers.first { $0.window === window }?.content?.layoutView.whenStill("NewTabSparePool.fit", on: fits) { [weak self] in self?.fitParked() }
+        services.windows.controllers.first { $0.window === window }?.content?.layoutView.whenSettled("NewTabSparePool.fit", after: Self.fitSettle, on: fits) { [weak self] in self?.fitParked() }
     }
     private lazy var fits = FrameBatchQueue(owner: "NewTabSparePool.fit", budgeted: .background, on: services.mainWork)
 

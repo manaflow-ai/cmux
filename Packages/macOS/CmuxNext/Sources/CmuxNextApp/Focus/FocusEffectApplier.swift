@@ -91,7 +91,7 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     private func moveResponder(_ resolved: FocusState.Resolved, state: FocusState) {
         guard let window = controller.window else { return }
-        // The parked New Tab spare draws the context a Cmd-T in the focused pane gives (NewTabSparePool; it keeps its size).
+        // The parked New Tab spare draws the context a Cmd-T in the focused pane gives and takes its size once still (NewTabSparePool).
         controller.services.newTabSpares.paneLayoutDidChange(in: window)
         switch resolved {
         case .terminal(let pane, let tab):
