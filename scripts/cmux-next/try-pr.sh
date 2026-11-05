@@ -115,7 +115,11 @@ for reason, paths in sorted(json.load(sys.stdin)["reasons"].items()):
 # the Swift the PR was written against.
 if [[ "$verdict" == web-live && -f "$from/Contents/Info.plist" ]]; then
   recorded="$("$buddy" -c 'Print :CMUXCommit' "$from/Contents/Info.plist" 2>/dev/null || true)"
-  app_commit="$(git -C "$ROOT" rev-parse --verify -q "${recorded:-none}^{commit}" 2>/dev/null || true)"
+  # Only a hex commit id is looked up: an empty or other value never resolves as a ref name.
+  app_commit=""
+  if [[ "$recorded" =~ ^[0-9a-f]{7,40}$ ]]; then
+    app_commit="$(git -C "$ROOT" rev-parse --verify -q "${recorded}^{commit}" 2>/dev/null || true)"
+  fi
   # A reload build stamps CMUXCommitDirty when tracked files had local edits. Those are not in the
   # commit and may change or remove Swift the PR leans on, so no sort from the commit vouches for it.
   dirty="$("$buddy" -c 'Print :CMUXCommitDirty' "$from/Contents/Info.plist" 2>/dev/null || true)"
