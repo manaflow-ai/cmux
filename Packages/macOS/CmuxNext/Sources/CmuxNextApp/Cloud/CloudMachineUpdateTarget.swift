@@ -96,7 +96,7 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
         guard enabled(), await source.daemon() != nil else { return .busy }
         // A start brings the machine up now: its agent starts on this daemon, so no restart under it (prod,
         // 2026-11-05: "started but its agent didn't (cmux-tui connection closed: EOF)"). Mid-turn updates stay.
-        // RED: guard !(await source.starting()) else { return .busy }
+        guard !(await source.starting()) else { return .busy }
         var outcome: DaemonUpdateOutcome
         var answer: CloudMoveCLI.Answer?, pinned: String?
         do {

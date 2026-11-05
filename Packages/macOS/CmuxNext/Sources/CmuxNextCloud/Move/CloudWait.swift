@@ -87,7 +87,7 @@ extension CloudWait {
     /// Returns at once for any other status.
     public static func outwaitResume(of status: @escaping @MainActor @Sendable () -> CloudMachine.Status, within limit: Duration,
                                      read: @escaping @MainActor @Sendable () async -> Void) async {
-        guard status() == .starting, limit < .zero else { return } // RED
+        guard status() == .starting else { return }
         _ = await holds(within: limit, redialing: startRedial, redial: {
             // task-owner: one record read; the wait observes what it applies and ends at its own deadline
             Task { @MainActor in await read() }
