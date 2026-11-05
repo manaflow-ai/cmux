@@ -712,8 +712,6 @@ impl Store for JournalStore {
             }),
         })
     }
-    /// The logs refuse writes, and the journal fully syncs every record (the shutdown's `flush`
-    /// then checkpoints).
     /// No write lands after this returns; then the shutdown's last checkpoint, while the journal is
     /// still open; then the journal closes, every record fully synced. The last checkpoint runs
     /// here and not after (delta review of #35866, D1): a log sync that fails in it, or in a sync
