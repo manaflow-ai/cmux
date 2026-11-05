@@ -29,9 +29,10 @@ const project = (dir: string) =>
 
 /** One first session's installs, each timed alone, in a fresh dir. */
 export const FIRST_SESSION_WORKLOADS: Record<string, string> = {
+  // First, so the npm cache measured right after it holds only what dep-cache.ts bakes.
+  "npm-install": `${project("/tmp/fs-npm")} && npm install --no-audit --no-fund --loglevel=error ${NODE_DEPS.join(" ")}`,
   "npx-pnpm": "npx --yes pnpm@10 --version",
   "npx-yarn": "npx --yes yarn@1 --version",
-  "npm-install": `${project("/tmp/fs-npm")} && npm install --no-audit --no-fund --loglevel=error ${NODE_DEPS.join(" ")}`,
   "bun-install": `${project("/tmp/fs-bun")} && bun add ${NODE_DEPS.join(" ")} >/dev/null`,
   "pnpm-install": `${project("/tmp/fs-pnpm")} && npx --yes pnpm@10 add ${NODE_DEPS.join(" ")} >/dev/null`,
   "uv-install": `rm -rf /tmp/fs-uv && mkdir -p /tmp/fs-uv && cd /tmp/fs-uv && uv venv -q && uv pip install -q ${PY_DEPS.join(" ")}`,
@@ -89,17 +90,21 @@ export async function main(argv = process.argv): Promise<number> {
       timeWorkloads(cold.vm),
       (async () => {
         const t = Date.now();
-        for (const step of PREWARM_STEPS) {
+        const readSizes = async () => Object.fromEntries((await run(seed.vm, CACHE_SIZES)).stdout.trim().split("\n").filter(Boolean).map((l) => { const [b, p] = l.split("\t"); return [p, Number(b)]; }));
+        let npmOnly: Record<string, number> = {};
+        for (const [i, step] of PREWARM_STEPS.entries()) {
           const r = await run(seed.vm, step, 290_000);
           if (r.code !== 0) throw new Error(`prewarm failed: ${(r.stderr || r.stdout).slice(-600)}`);
+          // The npm cache right after the npm install alone: what the image bakes (dep-cache.ts), before npx adds to it.
+          if (Object.keys(FIRST_SESSION_WORKLOADS)[i] === "npm-install") npmOnly = await readSizes();
         }
         const ms = Date.now() - t;
-        const sizes = Object.fromEntries((await run(seed.vm, CACHE_SIZES)).stdout.trim().split("\n").filter(Boolean).map((l) => { const [b, p] = l.split("\t"); return [p, Number(b)]; }));
-        return { ms, cacheBytes: sizes };
+        return { ms, npmInstallCacheBytes: npmOnly[`${DEVBOX_WORK_HOME}/.npm/_cacache`], cacheBytes: await readSizes() };
       })(),
     ]);
     report.cold = { vmId: cold.vmId, firstExecMs: cold.firstExecMs, ...coldTimes } satisfies Side;
     report.prewarm = prewarm;
+    console.log(`FIRST_SESSION cache npm-install-only ${(Number(prewarm.npmInstallCacheBytes) / 1048576).toFixed(1)} MB`);
     for (const [dir, bytes] of Object.entries(prewarm.cacheBytes)) console.log(`FIRST_SESSION cache ${dir} ${(Number(bytes) / 1048576).toFixed(1)} MB`);
     report.rootUsedBytes = { before: (await run(cold.vm, "df -B1 --output=used / | tail -1")).stdout.trim(), afterPrewarm: (await run(seed.vm, "df -B1 --output=used / | tail -1")).stdout.trim() };
     const snap = await seed.vm.snapshot({ displayName: `cmuxnp-dev-vmimg-${tag}-fs-warm`, slug: `cmuxnp-dev-vmimg-${tag}-fs-warm` });

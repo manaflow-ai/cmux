@@ -38,6 +38,9 @@ public final class CloudAuth {
     public var teams: [CMUXAuthTeam] { activeTeam.teams }
     /// The team API calls use (``ActiveTeam/id``).
     public var teamID: String? { activeTeam.id }
+    /// Who is signed in and in which team, nil signed out: a change means the account's data (its
+    /// machines, its team's lists) belongs to someone else now. Observable (both halves are).
+    public var accountKey: String? { isSignedIn ? "\(user?.id ?? "")|\(teamID ?? "")" : nil }
 
     /// How a launch signs in from the credentials it was given (``DogfoodCredentials``).
     struct LaunchSignIn: Equatable {

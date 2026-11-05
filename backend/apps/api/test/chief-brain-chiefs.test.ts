@@ -122,4 +122,25 @@ describe("a Cloud Chief's chiefs tool", () => {
     expect(await refusal(manageChiefs(testEnv, lead, user, { action: "create", display_name: "Late" }, "r-8"))).toContain("chief_manage_denied")
     expect((await chiefs(token)).length).toBe(before + 2)
   }, SLOW_DO)
+  // Chief channels (plans/cmux-next/chief-channels-DESIGN.md): a Chief makes a channel with its own Chief and invites people.
+  it("creates a channel with its own scoped Chief and invites people in the person's name", async () => {
+    const { token, user, lead } = await owner("chiefs-tool-channel")
+    const out = await manageChiefs(testEnv, lead, user, { action: "create_channel", title: "Launch", role: "Launch lead", people: ["launch-guest@example.com"] }, "ch-1")
+    expect(out).toContain('"state": "started"')
+    const made = JSON.parse(out.slice(0, out.lastIndexOf("}") + 1)) as { id: string; channel: { conversation: string; title: string }; invited: Array<{ who: string; ok: boolean; code?: string }> }
+    expect(made.channel.title).toBe("Launch")
+    expect(made.invited).toEqual([{ who: "launch-guest@example.com", ok: true }])
+    // The person owns the channel; the channel Chief is a member; the guest is invited.
+    const snap = (await http("POST", "/v1/read", token, { op: "conversation.snapshot", params: { conversation: made.channel.conversation } })).json
+    expect(snap.value.state).toMatchObject({ kind: "group", title: "Launch", channel_chief: made.id, created_by: user })
+    expect(snap.value.state.invites).toHaveLength(1)
+    await settle(user, token, made.id)
+    expect(await brain(token, made.id)).toMatchObject({ enabled: true, role: "Launch lead", chiefs: true })
+    // invite by the channel Chief's name; a bad entry is reported, not thrown.
+    const again = JSON.parse(await manageChiefs(testEnv, lead, user, { action: "invite", chief: made.id, people: ["second@example.com", "nobody"] }, "ch-2"))
+    expect(again.invited).toEqual([{ who: "second@example.com", ok: true }, { who: "nobody", ok: false, code: "invalid_participant" }])
+    // A Chief that is not a channel Chief is no invite target.
+    const refusal = await manageChiefs(testEnv, lead, user, { action: "invite", chief: lead, people: ["x@example.com"] }, "ch-3").then(() => "committed", (e: Error) => e.message)
+    expect(refusal).toContain("selector.not_found")
+  }, SLOW_DO)
 })

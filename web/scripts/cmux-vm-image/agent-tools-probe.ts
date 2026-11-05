@@ -50,6 +50,10 @@ const RECORDER_DIR = `${PROBE_DIR}/recorder`;
 const LAUNCHES = `${PROBE_DIR}/claude-launches.txt`;
 /** Ends one recorded launch (ASCII record separator on its own line). */
 const RECORD_END = "\x1e";
+/** Prefixes the recorded contents of the launch's --mcp-config file (the recorder's last line before RECORD_END). */
+const MCP_CONFIG_LINE = "MCP_CONFIG_FILE ";
+/** acpmux folds every other server into the cmux server's env under this name (acpmux agent_tools.rs UPSTREAMS_ENV). */
+const UPSTREAMS_ENV = "CMUX_MCP_UPSTREAMS";
 
 /** Tools and skills the agent must name (Claude Code prefixes MCP tools with mcp__<server>__). */
 export const REQUIRED_TOOLS = ["mcp__cmux-cua__get_desktop_state", "mcp__cmux-cua__click", "mcp__cmux__browser_repl_eval", "mcp__cmux__browser_repl_open"] as const;
@@ -98,7 +102,8 @@ export function recorderScript(out: string): string {
   return [
     "#!/bin/sh",
     "# cmux agent tools probe: records the launch acpmux makes; calls no model.",
-    `{ for a in "$@"; do printf '%s\\n' "$a"; done; printf '\\036\\n'; } >> ${sq(out)}`,
+    // acpmux passes --mcp-config as a 0600 file it deletes when the session ends: keep its JSON (one line) too.
+    `{ cfg=; prev=; for a in "$@"; do printf '%s\\n' "$a"; [ "$prev" = --mcp-config ] && cfg="$a"; prev="$a"; done; if [ -n "$cfg" ] && [ -f "$cfg" ]; then printf '${MCP_CONFIG_LINE}%s\\n' "$(tr -d '\\n' < "$cfg")"; fi; printf '\\036\\n'; } >> ${sq(out)}`,
     `if [ "\${1:-}" = --version ]; then echo "2.1.267 (Claude Code)"; exit 0; fi`,
     `echo "cmux agent tools probe: recorder, no model" >&2`,
     "exit 3",
@@ -113,8 +118,19 @@ export function parseRecordedLaunch(text: string): { servers: RecordedServer[]; 
   const launches = text.split(`${RECORD_END}\n`).map((block) => block.split("\n").filter((line, i, all) => i < all.length - 1 || line !== ""));
   const launch = launches.reverse().find((args) => args.includes("--mcp-config"));
   if (!launch) return { servers: [] };
-  const config = JSON.parse(launch[launch.indexOf("--mcp-config") + 1] ?? "{}") as { mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> };
-  const servers = Object.entries(config.mcpServers ?? {}).map(([name, s]) => ({ name, command: s.command, args: s.args ?? [], env: s.env ?? {} }));
+  // The value is a file path (acpmux writes the config to a 0600 file); an inline JSON value is read as it is.
+  const value = launch[launch.indexOf("--mcp-config") + 1] ?? "";
+  const fileLine = launch.find((line) => line.startsWith(MCP_CONFIG_LINE));
+  const json = value.trimStart().startsWith("{") ? value : (fileLine?.slice(MCP_CONFIG_LINE.length) ?? "{}");
+  const config = JSON.parse(json) as { mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> };
+  const servers: RecordedServer[] = [];
+  for (const [name, s] of Object.entries(config.mcpServers ?? {})) {
+    const env = { ...(s.env ?? {}) };
+    // Code mode: the other servers ride in the cmux server's upstreams; each is started as its own server here.
+    const upstreams = env[UPSTREAMS_ENV] ? (JSON.parse(env[UPSTREAMS_ENV]) as Array<{ name: string; command: string; args?: string[]; env?: Record<string, string> }>) : [];
+    servers.push({ name, command: s.command, args: s.args ?? [], env });
+    for (const u of upstreams) servers.push({ name: u.name, command: u.command, args: u.args ?? [], env: u.env ?? {} });
+  }
   const plugin = launch.indexOf("--plugin-dir");
   return { servers, pluginDir: plugin >= 0 ? launch[plugin + 1] : undefined };
 }
@@ -270,7 +286,11 @@ async function prepare(vm: Vm, check: Checker, result: ProbeResult): Promise<boo
 /** The launch acpmux builds for a Claude Code session, captured by the recorder (no model). */
 async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir: string): Promise<RecordedServer[]> {
   const body = [
-    `export ACPMUX_HOME=${PROBE_DIR}/acpmux-recorder PATH=${RECORDER_DIR}:$PATH`,
+    // acpmux never creates a missing ACPMUX_HOME (it refuses to start a daemon there): make it first.
+    `install -d -m 0700 ${PROBE_DIR}/acpmux-recorder`,
+    // The daemon puts the login shell's PATH first (acpmux login_env.rs), where the image's real claude is;
+    // ACPMUX_LOGIN_ENV=0 keeps this PATH, so the recorder is the claude it launches.
+    `export ACPMUX_HOME=${PROBE_DIR}/acpmux-recorder ACPMUX_LOGIN_ENV=0 PATH=${RECORDER_DIR}:$PATH`,
     `{ ${CURRENT_BIN}/cmux-tui acp new -d -m claude -n recorder --cwd ${WORK_DIR}; echo "exit $?"; } > ${PROBE_DIR}/recorder-new.txt 2>&1`,
     `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp send recorder hello; echo "exit $?"; } > ${PROBE_DIR}/recorder-send.txt 2>&1`,
     `{ timeout 60 ${CURRENT_BIN}/cmux-tui acp daemon shutdown --end-agents; echo "exit $?"; } > ${PROBE_DIR}/recorder-shutdown.txt 2>&1`,
@@ -283,9 +303,16 @@ async function recordLaunch(vm: Vm, check: Checker, result: ProbeResult, outDir:
     text = "";
   }
   writeFileSync(path.join(outDir, "claude-launches.txt"), text);
+  // What acpmux said: without a recorded launch these are the only evidence of why.
+  const said: string[] = [];
+  for (const name of ["recorder-new", "recorder-send", "recorder-shutdown"]) {
+    const out = await readGuest(vm, `${PROBE_DIR}/${name}.txt`).catch((error) => `unreadable: ${String(error).slice(0, 120)}`);
+    writeFileSync(path.join(outDir, `${name}.txt`), out);
+    said.push(`${name}: ${out.trim().replace(/\s+/g, " ").slice(-240)}`);
+  }
   const launch = parseRecordedLaunch(text);
   const names = launch.servers.map((s) => `${s.name}=${s.command} ${s.args.join(" ")}`);
-  check("acpmux-attaches-servers", ["cmux-cua", "cmux"].every((n) => launch.servers.some((s) => s.name === n && s.command.startsWith(`${AGENT_TOOLS_BIN}/`))), names.join("; ") || "no launch with --mcp-config was recorded");
+  check("acpmux-attaches-servers", ["cmux-cua", "cmux"].every((n) => launch.servers.some((s) => s.name === n && s.command.startsWith(`${AGENT_TOOLS_BIN}/`))), names.join("; ") || `no launch with --mcp-config was recorded (${text ? "launches without it" : "no launch at all"}); ${said.join(" | ")}`);
   const skills = launch.pluginDir ? await run(vm, `ls ${sq(`${launch.pluginDir}/skills`)} && test -s ${sq(`${launch.pluginDir}/skills/cmux-browser/SKILL.md`)} && echo skill-ok`) : { stdout: "", code: 1 };
   check("acpmux-attaches-skills", skills.stdout.includes("skill-ok"), `plugin dir ${launch.pluginDir ?? "absent"}: ${skills.stdout.trim().replace(/\n/g, " ")}`);
   return launch.servers;
@@ -324,6 +351,8 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
   result.timings.mcpMs = await inTerminal(vm, "mcp", terminalScript("mcp", lines.join("\n")), 600);
   for (const name of Object.keys(calls)) {
     let report: { tools: string[]; initialize: string; calls: Array<{ name: string; isError: boolean; text: string; expect_error?: boolean }> };
+    const stderr = await readGuest(vm, `${PROBE_DIR}/mcp-${name}.stderr`).catch(() => "");
+    if (stderr) writeFileSync(path.join(outDir, `mcp-${name}.stderr`), stderr);
     try {
       report = JSON.parse(await readGuest(vm, `${PROBE_DIR}/mcp-${name}.json`));
     } catch (error) {

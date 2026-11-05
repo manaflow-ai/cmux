@@ -47,7 +47,11 @@ const label = (name: string): string | undefined => {
  * retry finishes it.
  */
 export const mintPairMachineJoin = async (env: Pick<Env, "PLATFORM" | "INTERNAL_TOKEN">, input: { team: string; user: string; name: string }): Promise<Minted> => {
-  if (!env.PLATFORM || !env.INTERNAL_TOKEN) return { ok: true, join: null }
+  if (!env.PLATFORM || !env.INTERNAL_TOKEN) {
+    // Says which is missing (never a value): a deployment that should mint shows why it did not.
+    console.warn(JSON.stringify({ msg: env.PLATFORM ? "pair.machine_join.no_platform_token" : "pair.machine_join.no_platform" }))
+    return { ok: true, join: null }
+  }
   const unavailable = (message = "the machine credential could not be made, try again"): Minted => ({ ok: false, code: "owner.unreachable", message, retryable: true })
   let response: Response
   try {

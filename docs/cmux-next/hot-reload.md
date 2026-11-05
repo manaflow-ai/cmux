@@ -322,6 +322,39 @@ daemon's process and its client connections, but on the same box it is slower: 6
 in cmux-tui-core (dx replays cmux-tui-core's rustc, then rebuilds the program crate), after a 353 s
 first build. So the loop swaps instead.
 
+### Editing while it runs: what survives
+
+`bun run hot-reload:proof` (in `webviews/`) checks this on the real agent pane with no app: it
+starts the dev server `server --local` runs and opens `/agent-pane/?mock`. For each source edit it
+sends a prompt so a fresh turn streams, types a draft, saves the edit, and checks that it shows up
+in the same page with the draft, the transcript and the streaming turn kept. `--audit` also saves every pane
+component the page loaded, one at a time, and lists the ones that reload the page instead. It
+edits a copy of your checkout in a temporary directory, not the checkout itself, so a file you save
+while it runs is never touched; the copy is deleted when it exits. Run it on the fleet with
+`cmux-ci test -- bash -c 'cd webviews && node scripts/hot-reload-proof.mjs --audit "$FAST_CHECKS_OUT"'`.
+
+Measured on `feat-cmux-next` (2026-11-05, fleet Linux runner, Chromium):
+
+| Edit, mid-turn | Result |
+|---|---|
+| A stylesheet (`bottomStack.css`) | Shown in 0.7 s, same page; the draft, transcript and turn are kept |
+| A component (`ComposerFoot.tsx`) | The page reloads (2.2 s); the draft and transcript are lost and the turn stops streaming |
+| Every loaded pane component (`--audit`) | 246 of 369 hot-swap in place; 123 reload the page |
+
+A component reloads the page when React Fast Refresh can't swap its module: the file also exports
+something that is not a component (a context, a constant, a helper), so Vite passes the update up
+to the files that import it. `ComposerFoot.tsx` exports the `InQuietRow` context; its importer
+`NewTabPage.tsx` (constants and helpers) can't take the update either, nor can `App.tsx`, which
+imports that (`applyPaneTheme`, `saveSnapshot` and others), and the update reaches the page root,
+which reloads. Vite logs
+`Could not Fast Refresh ("NAME" export is incompatible)` for each. Moving those exports into
+sibling `.ts` files makes the component edits swap in place.
+
+Beyond the web UI, Swift views take live code today only in the view shell
+(`Prototypes/ViewShell`, "Live code" in its README): function bodies and new files apply to the
+running shell with no relaunch. The app itself still needs a build for Swift; `try-pr.sh` says
+which PRs do.
+
 ## Every merge, no checkout
 
 Settings > Updates > **Web UI Updates**:
