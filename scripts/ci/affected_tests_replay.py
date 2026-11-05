@@ -226,7 +226,7 @@ def replay_worktree() -> Path:
 
 
 def selected(plan: dict) -> dict:
-    sel = {"all": plan["all"], "python": set(), "web": set(), "swift": set(), "rust": False, "guards": False}
+    sel = {"all": plan["all"], "python": set(), "web": set(), "swift": set(), "rust": False, "guards": False, "native": set(), "rust_all": False}
     for unit in plan["units"]:
         argv = unit["argv"]
         if unit["kind"] == "guards":
@@ -246,6 +246,8 @@ def selected(plan: dict) -> dict:
             sel["swift"] |= {(args[1], t) for t in args[2].split(",")}
         elif unit["kind"] == "rust":
             sel["rust"] = True
+        elif unit["kind"] == "native":
+            sel["native"].add(unit["why"])
     return sel
 
 
@@ -308,6 +310,11 @@ def check(path: Path, metadata: Path, out: Path | None) -> int:
             targets = swift_target_of(p["tree"], test, kind)
             hit = bool(targets) and bool(targets & sel["swift"])
             why = f"targets {sorted(t for _, t in targets)[:3]} vs {len(sel['swift'])} selected"
+        elif kind == "rust" and f.get("workflow") == "rust-workspaces.yml" and "Native/" in f.get("job", ""):
+            # A separate cargo workspace (Native/OptChat/optchat-chief): the plan runs it as a native unit.
+            manifest = f["job"][f["job"].index("Native/"):].split()[0].rstrip("/") + "/Cargo.toml"
+            hit = manifest in sel["native"] or sel["rust_all"]
+            why = f"native {manifest}"
         elif kind == "rust":
             c = p["crates"]
             hit = sel["rust"] and (c.workspace or test in c.crates)

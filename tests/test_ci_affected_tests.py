@@ -62,6 +62,30 @@ class AffectedTests(unittest.TestCase):
                 self.assertIn("--all", guards[0]["argv"])
         self.assertTrue(affected_tests.guard_tests(ROOT))
 
+    def test_webviews_source_change_runs_every_web_test_with_the_browser_lane(self):
+        # Browser and gallery tests load the whole app through vite, not through imports.
+        result = plan(["webviews/src/agent-session/acpmux/App.tsx"])
+        browser = [u for u in result["units"] if u["name"].startswith("web-browser")]
+        plain = [u for u in result["units"] if u["kind"] == "web" and not u["name"].startswith("web-browser")]
+        self.assertTrue(browser and plain)
+        self.assertTrue(all("--env" in u["argv"] and "CMUX_BROWSER_TESTS=1" in u["argv"] for u in browser))
+        sent = set()
+        for u in browser + plain:
+            env = next(a for a in u["argv"] if a.startswith("CMUX_WEB_TEST_FILES="))
+            sent |= set(env.split("=", 1)[1].splitlines())
+        self.assertEqual(sent, set(affected_tests.web_tests(ROOT)))
+
+    def test_no_empty_web_unit(self):
+        for u in plan(["plans/cmux-next/actions.md"])["units"]:
+            for a in u["argv"]:
+                self.assertNotEqual(a, "CMUX_WEB_TEST_FILES=")
+
+    def test_a_plans_file_a_swift_test_reads_selects_that_target(self):
+        # ActionSurfaceParityTests reads plans/cmux-next/actions.md by path.
+        swift = [u for u in plan(["plans/cmux-next/actions.md"])["units"] if u["kind"] == "swift"]
+        self.assertTrue(any("--arg=CmuxNextActionsTests" in ",".join(u["argv"]) or
+                            any("CmuxNextActionsTests" in a for a in u["argv"]) for u in swift), swift)
+
     def test_unmapped_path_runs_everything(self):
         # Built at run time, so no test file (this one included) names the path.
         result = plan(["/".join(("zz-unmapped", "nothing", "names" + "-this.bin"))])

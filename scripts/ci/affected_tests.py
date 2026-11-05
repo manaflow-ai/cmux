@@ -107,6 +107,36 @@ def web_tests(root: Path) -> list[str]:
                   if focused_tests.WEB_TEST.search(p) and "/node_modules/" not in p)
 
 
+def webviews_source_changed(files: list[str]) -> list[str]:
+    """Non-test webviews sources a change touches. Browser and gallery tests render the whole app
+    through vite or read sources by path, so no import edge links them to what they load: any such
+    change runs every webviews test (a replay of merged PRs found reds the import graph skipped)."""
+    return [f for f in files if f.startswith(focused_tests.WEB + "src/") and not focused_tests.WEB_TEST.search(f)]
+
+
+def tests_naming(root: Path, paths: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+    """Swift test targets and webviews tests whose source names one of `paths` (a docs or plans file a
+    test reads by path, such as plans/cmux-next/actions.md): ({package: [targets]}, [web tests])."""
+    # Not a conventional name many directories share (AGENTS.md, README.md, SKILL.md, index.json).
+    names = sorted({Path(p).name for p in paths if len(Path(p).name) >= 8 and Path(p).name not in focused_tests.COMMON
+                    and not re.fullmatch(r"[A-Z0-9_-]+\.md", Path(p).name)})
+    swift: dict[str, set[str]] = {}
+    web: set[str] = set()
+    if not names:
+        return {}, []
+    args = ["grep", "-l", "-F"] + [x for n in names for x in ("-e", n)]
+    out = subprocess.run(["git", "-C", str(root), *args, "--", "Packages/**/Tests/**/*.swift", focused_tests.WEB + "test"],
+                         capture_output=True, text=True).stdout.split()
+    for path in out:
+        if path.startswith(focused_tests.WEB):
+            if focused_tests.WEB_TEST.search(path):
+                web.add(path[len(focused_tests.WEB):])
+        elif "/Tests/" in path:
+            package, rest = path.split("/Tests/", 1)
+            swift.setdefault(package, set()).add(rest.split("/", 1)[0])
+    return {k: sorted(v) for k, v in swift.items()}, sorted(web)
+
+
 def unregistered_python_tests(root: Path) -> list[str]:
     """test_*.py files outside the lane registry's directories (scripts/cmux-next/tests, cmux-tui/scripts,
     cmux-tui/bindings, ...): their own workflows run them, so the lane runner cannot."""
@@ -164,11 +194,18 @@ class Planner:
 
     def web(self, files: list[dict] | None) -> None:
         if files is None:
-            plain, browser = web_tests(self.root), []
+            # A browser test (requireBrowserLane, playwright) skips unless CMUX_BROWSER_TESTS=1: it goes
+            # to the browser units, the rest to the plain ones.
+            plain, browser = [], []
+            for test in web_tests(self.root):
+                text = (self.root / focused_tests.WEB / test).read_text(encoding="utf-8", errors="replace")
+                (browser if "requireBrowserLane" in text or "playwright" in text else plain).append(test)
         else:
             plain = [f["path"] for f in files if not f.get("browser")]
             browser = [f["path"] for f in files if f.get("browser")]
         for label, chosen, env in (("web", plain, {}), ("web-browser", browser, {"CMUX_BROWSER_TESTS": "1"})):
+            if not chosen:
+                continue
             parts = split(chosen, self.shards)
             for i, part in enumerate(parts, 1):
                 name = label + (f"-{i}of{len(parts)}" if len(parts) > 1 else "")
@@ -282,9 +319,15 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
                     (focused_tests.swift_package(root, path) or (None,))[0] or focused_tests.swift_package_root(root, path))
                 if pkg:
                     targets[pkg] = swift_test_targets(root, pkg)
+        named_swift, named_web = tests_naming(root, focused.get("docs", []))
+        for pkg, names in named_swift.items():
+            targets.setdefault(pkg, []).extend(names)
         p.swift({k: sorted(set(v)) for k, v in targets.items() if v}, focused["swift_deferred"] or "test targets that import a changed target")
-        if focused["web"]:
-            p.web(focused["web"])
+        if webviews_source_changed(files):
+            p.web(None)
+        elif focused["web"] or named_web:
+            p.web(focused["web"] + [{"path": t, "why": "names a changed file"} for t in named_web
+                                    if t not in {f["path"] for f in focused["web"]}])
         p.python([item["path"] for item in focused["python"]])
         extra = extra_python(root, files)
         if extra:
