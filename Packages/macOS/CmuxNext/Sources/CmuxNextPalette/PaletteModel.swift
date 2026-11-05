@@ -318,8 +318,12 @@ public final class PaletteModel {
     /// Reloads every provider of the current page (after a keep-open command
     /// or when the App's data changed). The selection stays on its row.
     public func reload() {
+        reload(reading: [])
+    }
+
+    private func reload(reading providerIDs: Set<String>) {
         guard let current else { return }
-        load(current, defers: false)
+        load(current, reading: providerIDs)
         send(.refresh)
     }
 
@@ -352,7 +356,10 @@ public final class PaletteModel {
             perform(handler, rowID: item.id, closing: true)
         case .performKeepingOpen(let handler):
             perform(handler, rowID: item.id, closing: false)
-            reload()
+            // The run row's own provider reads now: a hidden one's kept Recent row was kept before the run,
+            // so a toggled setting showed its old value for a frame (Leo, 2026-11-05: "It goes like on and off").
+            let owners = current?.providerItems.filter { $0.value.contains { $0.id == item.id } }.keys
+            reload(reading: Set(owners ?? []))
         case .push(let page):
             push(page)
         case .replace(let page):

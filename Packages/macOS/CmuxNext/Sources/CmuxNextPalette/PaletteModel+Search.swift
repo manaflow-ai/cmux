@@ -3,8 +3,8 @@ import CmuxNextActions
 extension PaletteModel {
     /// Asks every provider of a list page for items: immediate items land
     /// now (the first frame is never empty), async ones merge as they arrive.
-    /// `defers` false (a reload of the open page) reads the hidden providers now too.
-    func load(_ state: PageState, defers: Bool = true) {
+    /// The hidden providers in `reading` read now, not after the frame.
+    func load(_ state: PageState, reading: Set<String> = []) {
         state.needsLoad = false
         guard case .list(let page) = state.kind else { return }
         state.cancel()
@@ -13,12 +13,10 @@ extension PaletteModel {
         // A filtering page's empty query lists none of a hidden provider's rows (the command
         // page's workspaces and tabs), only the few it showed as Recent: those stand in, and the
         // provider reads its source after the first frame (Cmd-Shift-P with thousands of tabs).
-        // A reload does not: those Recent rows were kept before the change that reloads, so a toggled
-        // setting's row showed its old value for a frame (Leo, 2026-11-05: "It goes like on and off").
-        let defersHidden = defers && page.filtersByQuery && state.query.allSatisfy(\.isWhitespace)
+        let defersHidden = page.filtersByQuery && state.query.allSatisfy(\.isWhitespace)
         var deferred: [any PaletteProvider] = []
         for provider in page.providers {
-            if defersHidden, !provider.showsItemsForEmptyQuery {
+            if defersHidden, !provider.showsItemsForEmptyQuery, !reading.contains(provider.id) {
                 state.providerItems[provider.id] = shownDeferredItems[page.id]?[provider.id] ?? []
                 deferred.append(provider)
                 continue
