@@ -111,6 +111,21 @@ impl<T> SignaledMutex<T> {
 
     #[track_caller]
     pub(crate) fn lock(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
+        let diag_from = Instant::now();
+        let r = self.lock_inner();
+        let w = diag_from.elapsed();
+        DIAG_REG.with(|d| {
+            d.borrow_mut().push((
+                std::panic::Location::caller().line(),
+                std::panic::Location::caller().file().rsplit('/').next().unwrap_or("").to_string(),
+                w.as_secs_f64() * 1000.0,
+            ))
+        });
+        r
+    }
+
+    #[track_caller]
+    fn lock_inner(&self) -> LockResult<SignaledMutexGuard<'_, T>> {
         debug_assert_not_journal_writer_commit();
         HeldRank::check(LockRank::WorkspaceRegistry, REGISTRY_LOCK_NAME);
         let site = std::panic::Location::caller();
@@ -402,6 +417,11 @@ impl<'a> StateGuard<'a> {
 }
 
 const STATE_LOCK_NAME: &str = "mux.state";
+
+thread_local! {
+    /// DIAG (not for merge): registry lock takes on this thread: (line, file, wait ms).
+    pub(crate) static DIAG_REG: std::cell::RefCell<Vec<(u32, String, f64)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
 
 #[cfg(test)]
 thread_local! {

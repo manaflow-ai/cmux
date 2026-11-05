@@ -252,9 +252,21 @@ fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry() {
             .unwrap_or_else(|error| panic!("workspace.place failed: {error:?}"));
         });
         std::thread::sleep(CLICK_PAUSE);
+        crate::mux::signaled_mutex::DIAG_REG.with(|d| d.borrow_mut().clear());
+        let state_before = crate::mux::signaled_mutex::state_locks_taken_on_this_thread();
+        let diag_from = Instant::now();
         timed(&mut latencies, "new-conversation-tab", || {
             open_chat_tab(&mux, chat_workspace, format!("person-{click}"));
         });
+        let total = diag_from.elapsed().as_secs_f64() * 1000.0;
+        let takes = crate::mux::signaled_mutex::DIAG_REG.with(|d| d.borrow().clone());
+        let reg_wait: f64 = takes.iter().map(|t| t.2).sum();
+        eprintln!(
+            "DIAGTAB click={click} total={total:.1}ms reg_takes={} reg_wait={reg_wait:.1}ms state_takes={} takes={:?}",
+            takes.len(),
+            crate::mux::signaled_mutex::state_locks_taken_on_this_thread() - state_before,
+            takes.iter().map(|t| format!("{}:{}={:.1}", t.1, t.0, t.2)).collect::<Vec<_>>()
+        );
         std::thread::sleep(CLICK_PAUSE);
     }
     let window = measured_from.elapsed();

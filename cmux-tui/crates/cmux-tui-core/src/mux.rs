@@ -278,7 +278,7 @@ mod resource_workspace;
 mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
-mod signaled_mutex;
+pub(crate) mod signaled_mutex;
 #[cfg(test)]
 pub(crate) use signaled_mutex::state_locks_taken_on_this_thread;
 pub(crate) use signaled_mutex::{SignaledMutex, interactive_scope};
