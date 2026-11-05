@@ -1,5 +1,6 @@
 public import CmuxNextCompat
 public import Foundation
+import CmuxNextWakeups
 import os
 
 /// Both phone transports share base's sealed file and serial I/O queue. Selection and
@@ -191,7 +192,9 @@ public final class MobileHostPairedStore: Sendable {
                 let clock = clock
                 // task-owner: stored in `sealRetry`; a new account, a sign-out or the next refusal replaces it
                 state.sealRetry = Task { [weak self] in
-                    do { try await clock.sleep(for: wait) } catch { return }
+                    var backoff = Backoff(initial: wait, maximum: wait, jitter: 0)
+                    // concurrency-allow: Backoff.wait is an async sleep after a failure (a refused Keychain read), not a blocking wait.
+                    do { try await backoff.wait(owner: "iphone-host.pairing-seal", clock: clock) } catch { return }
                     await self?.reload()
                 }
                 return nil
