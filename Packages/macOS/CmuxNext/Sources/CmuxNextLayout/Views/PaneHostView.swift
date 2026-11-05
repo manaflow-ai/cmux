@@ -183,8 +183,8 @@ final class PaneHostView: NSView, RestingPlacement {
     /// and that once is at the start, never at the landing (Leo 2026-11-05: "the main pane waits for the right pane to
     /// shift before it shifts. Like, why are you waiting?"), as a terminal hears its final grid at the start. It is
     /// pinned at the edge nearer its rest, so it rides that edge: a pane opening on the right slides in from the right
-    /// while the chat, already at its final width, keeps its place beside it. A retarget lays it out once more
-    /// (`announceRest`). The clip shows what each frame shows of it.
+    /// while the chat, already at its final width, keeps its place beside it. A retarget to a larger rest lays it out
+    /// once more; one to a smaller rest keeps it (`announceRest`, #26118). The clip shows what each frame shows of it.
     /// A host at its rest place and size holds nothing, whatever its spring flag says.
     private func contentFrame(in clip: CGRect) -> CGRect {
         if holdsUntilAfterLanding, let held = heldContentSize {
@@ -202,11 +202,13 @@ final class PaneHostView: NSView, RestingPlacement {
             return CGRect(x: pin.trailing ? clip.maxX - held.width : clip.minX, y: pin.bottom == isFlipped ? clip.maxY - held.height : clip.minY,
                           width: held.width, height: held.height)
         }
-        guard heldContentSize != nil, let restSize, restOffset != .zero || frame.size != restSize else { return clip }
+        guard let held = heldContentSize, let restSize, restOffset != .zero || frame.size != restSize else { return clip }
         // The clip at rest, from the rest cell itself: a frame narrower than twice the padding
         // (a new pane's first frames) has a zero clip, and the clip's growth then is no measure of
         // the rest, so the page would shrink and resize on every one of those frames.
-        let size = clipRect(forCell: CGRect(origin: .zero, size: restSize)).size
+        let rest = clipRect(forCell: CGRect(origin: .zero, size: restSize)).size
+        // The held size is the rest from the spring's first frame; a retarget keeps the larger (`announceRest`).
+        let size = CGSize(width: max(held.width, rest.width), height: max(held.height, rest.height))
         // The far edge's distance from its rest against the near edge's (`restOffset`).
         let trailing = abs(restOffset.dx + restSize.width - frame.width) < abs(restOffset.dx) - 0.5
         let bottom = heldAnchor.map { $0 == .bottom } ?? (abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5)
@@ -365,8 +367,15 @@ final class PaneHostView: NSView, RestingPlacement {
         if heldArea != nil { announcedRest = restContentSize }
         heldAnchor = content.notifyPaneMotionWillRest(sizeChange: change)
         // A keyboard resize keeps the start size through retargets too (fast presses): one layout, after the landing.
-        // Held content on any other spring takes the new rest now, once (`contentFrame`), never on the frames after.
-        if heldContentSize != nil, !holdsUntilAfterLanding { layoutClip() }
+        // Held content on any other spring keeps the largest size this motion laid it out at (#26118): a close
+        // retargeted back by an early reopen grows it once, to the new rest, and a retarget to a smaller rest keeps it,
+        // so an interruption never reflows the chat to a size it leaves again (`contentFrame`).
+        if let held = heldContentSize, !holdsUntilAfterLanding {
+            if let rest = restContentSize {
+                heldContentSize = CGSize(width: max(held.width, rest.width), height: max(held.height, rest.height))
+            }
+            layoutClip()
+        }
     }
 
     /// FRAME OWNER S3 (a key hold whose containers follow): the content-area rest size the content last heard in this hold.
