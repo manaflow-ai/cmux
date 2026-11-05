@@ -19,7 +19,7 @@ vertical divider left and right, one `debug.mouse` move per display frame:
   stress   the STRESS session (perf-stress-session.py: 60 workspaces, 4x3 panes + nested splits, 6
            tabs each, 10 busy terminals); the divider between its first two columns. Every terminal
            in those columns must change size with its pane in each frame. A build that holds terminals
-           through a drag (`terminalDrag.holdSurface`, on by default since #32006) fails: they keep their
+           through a drag (`terminalDrag.holdSurface`, on by default from #32006 until cmux-ad m19, 2026-11-05) fails: they keep their
            size through the drag (each round reports `holds_terminals` as it ran, as data). Before its timed
            rounds each drag layout runs a probe (one drag that ends --probe-pt away, then one back) and prints
            it as its own TERMINAL-RESIZE-PROBE line: the divider moved, a terminal fits a new grid, and its

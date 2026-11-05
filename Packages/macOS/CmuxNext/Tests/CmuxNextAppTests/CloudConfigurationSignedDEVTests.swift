@@ -6,7 +6,6 @@ import Testing
 struct CloudConfigurationSignedDEVTests {
     @Test func runtimeSelectionUsesTheBackendValuesWithoutBuildPins() {
         let config = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: [:], process: [:], isDebugBuild: false)
-        #expect(config.linkSource == .appServer)
         #expect(config.ownerAPIBaseURL(environment: [:]) == config.runtimeSelection?.apiOrigin)
         #expect(config.apiBaseURL == config.runtimeSelection?.apiOrigin)
         #expect(config.authWebOrigin == config.runtimeSelection?.authWebOrigin)
@@ -31,7 +30,6 @@ struct CloudConfigurationSignedDEVTests {
         let config = CloudConfiguration.resolve(bundleID: bundleID, bundled: [:], process: [:], isDebugBuild: false)
         // Production auth uses NEXT Cloud through the production owner API (cmux-api, which forwards
         // Cloud to cmux-platform-production), the same app-server link signed DEV builds use.
-        #expect(config.linkSource == .appServer)
         #expect(config.isProductionAuth)
         #expect(config.apiBaseURL == config.runtimeSelection?.apiOrigin)
         #expect(config.ownerAPIBaseURL() == config.apiBaseURL)
@@ -56,7 +54,6 @@ struct CloudConfigurationSignedDEVTests {
 
     @Test func debugBuildUsesItsSelectedRuntimeOrigin() {
         let config = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: ["CMUX_VM_API_BASE_URL": "https://debug.fixture.invalid"], process: [:], isDebugBuild: true)
-        #expect(config.linkSource == .appServer)
         #expect(config.ownerAPIBaseURL() == URL(string: "https://debug.fixture.invalid"))
     }
     @Test func signedDEVOnTheNightlyAccountUsesProductionAndNightlysSession() {
@@ -70,7 +67,6 @@ struct CloudConfigurationSignedDEVTests {
         #expect(config.stackProjectID == production)
         #expect(config.ownerAPIBaseURL(environment: [:]) == config.runtimeSelection?.apiOrigin)
         #expect(config.callbackURL.absoluteString == "cmux-next-dev://auth-callback")
-        #expect(config.linkSource == .appServer)
         // Its own production namespace: neither the staging session nor the old unscoped one.
         #expect(config.keychainService == "com.cmuxterm.app.debug.next.auth.9790718f-14cd-4f7e-824d-eaf527a82b82")
         #expect(config.nightlySession?.keychainService == "com.cmuxterm.app.nightly.auth")

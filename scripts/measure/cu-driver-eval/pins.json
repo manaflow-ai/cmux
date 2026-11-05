@@ -25,5 +25,11 @@
     "tag": "26.5.2",
     "digest": "sha256:ed1783e80e08e888889b54a8c0387105a37fbcfc995079f76db48e2280081487",
     "why": "macOS 26.5.2 (25F84) with SIP off: the image and OS Cua Driver Bench v2's registered runs used; SIP off lets the bench grant TCC to each setup"
+  },
+  "claude_code": {
+    "version": "2.1.289",
+    "url": "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/2.1.289/darwin-arm64/claude",
+    "sha256": "03d66745e3bb69ec727d66023696f3820bc0a00a8a5ba725eb6706d0c67cbe69",
+    "why": "the Claude Code Cua Driver Bench v2's registered runs used (its pins.json claude_code_version); the native binary, so the guest needs no Node"
   }
 }

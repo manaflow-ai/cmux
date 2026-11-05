@@ -115,6 +115,20 @@ class FocusedTestMap(unittest.TestCase):
             self.assertEqual(got["docs"], ["docs/README.md"], "docs need no test and are not unmapped")
             self.assertEqual(got["unmapped"], [])
 
+    def test_a_test_registry_fragment_selects_the_tests_that_read_the_registry(self):
+        """tests/test-execution.toml became tests/test-execution.d/<area>.toml; no test names a fragment
+        by its own path, so each one maps to the tests that read the registry, as the single file did."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = repo(tmp, {
+                "tests/test-execution.d/app.toml": '[[test]]\npath = "tests/test_app_x.py"\nlane = "linux-guard"\n',
+                "tests/test_app_x.py": "",
+                "tests/test_reads_old.py": 'REGISTRY = "tests/test-execution.toml"\n',
+                "tests/test_reads_new.py": 'FRAGMENTS = "tests/test-execution.d"\n',
+            })
+            got = plan(root, "tests/test-execution.d/app.toml")
+            self.assertEqual(got["unmapped"], [])
+            self.assertEqual([p["path"] for p in got["python"]], ["tests/test_reads_new.py", "tests/test_reads_old.py"])
+
     def test_webviews_tests_cover_what_they_import_transitively_nearest_first(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = repo(tmp, {
