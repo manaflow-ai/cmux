@@ -132,9 +132,14 @@ fn restart_swaps_the_owner_and_keeps_its_terminals() {
     let old = pid_of(&fixture.server("ensure", &[]));
     let created =
         fixture.request(json!({"cmd": "run", "argv": ["/bin/sh"], "new_workspace": true}));
-    let (terminal, incarnation) = (created["terminal_id"].clone(), created["terminal_incarnation"].clone());
-    fixture.request(json!({"cmd": "send", "surface": created["surface"], "text": "echo before-$((20+1))\n"}));
-    wait_for("the shell before the restart", || fixture.screen_has(&created["surface"], "before-21"));
+    let (terminal, incarnation) =
+        (created["terminal_id"].clone(), created["terminal_incarnation"].clone());
+    fixture.request(
+        json!({"cmd": "send", "surface": created["surface"], "text": "echo before-$((20+1))\n"}),
+    );
+    wait_for("the shell before the restart", || {
+        fixture.screen_has(&created["surface"], "before-21")
+    });
 
     let restarted = fixture.server("restart", &[]);
     let new = pid_of(&restarted);
