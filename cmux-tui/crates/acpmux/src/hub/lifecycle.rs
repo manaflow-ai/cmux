@@ -11,6 +11,10 @@ use super::resolve::{Draft, Resolved, draft_meta};
 
 /// How often the person's agent start that is still under way says so (`person_start`).
 const START_PROGRESS: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long a start that waits on its harness (`Session::wait_start`) lets the harness use no CPU
+/// with no thread ready before it ends the start: minutes, since a harness on a loaded host waits
+/// on its disk, but one that truly works moves its CPU time within them.
+const START_HUNG: std::time::Duration = std::time::Duration::from_secs(5 * 60);
 
 /// Owns a session while a creation future is still configuring it. If that future is cancelled
 /// after publication, the guard purges the exact session rather than guessing from its name.
@@ -107,6 +111,7 @@ impl Hub {
             checked_cwd,
             additional_directories,
             person,
+            wait_start,
         } = req;
         // The proven agent session that asked for this one, as it is now; never for a remote
         // chat, and never one a remote connection started (`remote_origin`).
@@ -337,6 +342,7 @@ impl Hub {
             };
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
+            session.wait_start.store(wait_start, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
             // Read before the session is published: a stop from then on ends its first start.
@@ -863,16 +869,19 @@ impl Hub {
             // Boxed: a cold start is a deep future, and this loop keeps it beside the retry's
             // state on the stack its caller polls it on.
             let started = Box::pin(self.cold_start(session, profile, stops, off));
-            // The person's start has no deadline (`person_start`); an agent's or a lane's has.
+            // The person's start has no deadline, one that asked to wait on its harness ends when
+            // the harness stops working (`waiting_start`); an agent's or a lane's has a deadline.
             let started = if session.person.load(Ordering::SeqCst) {
-                Ok(self.person_start(session, budget, started).await)
+                self.waiting_start(session, budget, started, None).await
+            } else if session.wait_start.load(Ordering::SeqCst) {
+                self.waiting_start(session, budget, started, Some(StartWatch::default())).await
             } else {
-                tokio::time::timeout(budget, started).await
+                tokio::time::timeout(budget, started).await.ok()
             };
             let failed = match started {
-                Ok(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),
-                Ok(Err(e)) => Some(e),
-                Err(_) => None,
+                Some(Ok(child)) => return Ok(self.keep_account_home(session, profile, child)),
+                Some(Err(e)) => Some(e),
+                None => None,
             };
             // What its harness was doing, read before it is ended (`cpu_class.rs`).
             let harness = Self::starting_harness(session).await;
@@ -901,6 +910,16 @@ impl Hub {
                 }
             });
         }
+    }
+
+    /// Its starting harness while the start itself is not being polled: the start may hold the
+    /// locks this reads, so a held one answers None (nothing known this tick) rather than waiting.
+    async fn harness_now(session: &Session) -> Option<crate::cpu_class::HarnessSeen> {
+        let child = session.child.try_lock().ok()?.clone();
+        let Some(child) = child else {
+            return Some(crate::cpu_class::HarnessSeen::NotStarted);
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(1), child.harness_seen()).await.ok()
     }
 
     /// Its starting harness, as a deadline error says it (`cpu_class::HarnessSeen`).
@@ -935,12 +954,17 @@ impl Hub {
     /// (sooner when `agentStartTimeoutMs` is shorter) its log says it is still starting
     /// (`agent_start_waiting`, `waitedMs`), so the app can show that the host is busy. An agent's
     /// or a lane's start keeps `agentStartTimeoutMs` (cx-m5up).
-    async fn person_start<T>(
+    ///
+    /// A start that asked to wait on its harness (`Session::wait_start`) waits the same way under
+    /// `watch`, and answers None when its harness stopped working (`StartWatch`), which the caller
+    /// ends as a missed deadline.
+    async fn waiting_start<T>(
         &self,
         session: &Arc<Session>,
         budget: std::time::Duration,
         start: impl std::future::Future<Output = T>,
-    ) -> T {
+        mut watch: Option<StartWatch>,
+    ) -> Option<T> {
         let every = START_PROGRESS.min(budget).max(std::time::Duration::from_millis(100));
         let began = tokio::time::Instant::now();
         let mut tick = tokio::time::interval_at(began + every, every);
@@ -949,15 +973,22 @@ impl Hub {
         let mut said = false;
         loop {
             tokio::select! {
-                done = &mut start => return done,
+                done = &mut start => return Some(done),
                 _ = tick.tick() => {
                     let waited = began.elapsed();
                     if !said && waited >= budget {
                         said = true;
                         tracing::warn!(
                             session = %session.id,
-                            "the person's agent start is past {budget:?}; it keeps waiting"
+                            "the agent start is past {budget:?}; it keeps waiting"
                         );
+                    }
+                    if let Some(watch) = &mut watch
+                        && let Some(seen) = Self::harness_now(session).await
+                        && watch.hung(&seen, waited)
+                    {
+                        tracing::warn!(session = %session.id, "the agent start's harness stopped working ({seen:?})");
+                        return None;
                     }
                     let waited_ms = u64::try_from(waited.as_millis()).unwrap_or(u64::MAX);
                     let waiting = json!({"waitedMs": waited_ms});
@@ -1959,6 +1990,38 @@ mod fixed_id_tests {
         assert!(!crate::adopt::is_bare_id(&"x".repeat(129)));
     }
 }
+
+/// Whether a start's harness still works: it has a thread on a CPU or ready for one, or its CPU
+/// time moved since the last read. A loaded host slows that down, it does not stop it. A harness
+/// not spawned yet, or one whose state cannot be read (not macOS), is never called hung here: its
+/// creator's own wait bounds that.
+#[derive(Default)]
+struct StartWatch {
+    cpu_ms: Option<u64>,
+    idle_since: Option<std::time::Duration>,
+}
+
+impl StartWatch {
+    /// `seen` at `waited` into the start: whether its harness has not worked for `START_HUNG`.
+    fn hung(&mut self, seen: &crate::cpu_class::HarnessSeen, waited: std::time::Duration) -> bool {
+        let crate::cpu_class::HarnessSeen::Running(state) = seen else {
+            self.cpu_ms = None;
+            self.idle_since = None;
+            return false;
+        };
+        let worked = state.threads_running > 0 || self.cpu_ms != Some(state.cpu_ms);
+        self.cpu_ms = Some(state.cpu_ms);
+        if worked {
+            self.idle_since = None;
+            return false;
+        }
+        waited.saturating_sub(*self.idle_since.get_or_insert(waited)) >= START_HUNG
+    }
+}
+
+#[cfg(test)]
+#[path = "start_watch_tests.rs"]
+mod start_watch_tests;
 
 #[cfg(test)]
 #[path = "stop_fence_tests.rs"]

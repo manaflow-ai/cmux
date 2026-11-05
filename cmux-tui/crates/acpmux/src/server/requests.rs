@@ -79,6 +79,15 @@ pub(super) fn person_asks(conn: &Conn) -> bool {
     conn.is_person() || conn.origin == Origin::LocalApp
 }
 
+/// `_meta.acpmux.waitStart` from a local connection that is no agent's or lane's: those keep the
+/// start deadline (cx-m5up), as does a remote connection.
+fn asks_to_wait_on_its_harness(conn: &Conn, params: &Value) -> bool {
+    conn.caller().is_none()
+        && conn.unproven_caller.get().is_none()
+        && !conn.origin.web_class()
+        && mux_meta(params).and_then(|m| m.get("waitStart")).and_then(Value::as_bool) == Some(true)
+}
+
 /// The create's name, as `session/new` and `session/fork` read it.
 fn create_name(params: &Value) -> Option<String> {
     mux_meta(params)
@@ -1433,6 +1442,7 @@ async fn dispatch_request_with_identity(
                 checked_cwd: None,
                 additional_directories,
                 person: person_asks(conn),
+                wait_start: asks_to_wait_on_its_harness(conn, &params),
             };
             let s = match &admitted {
                 Some(admitted) => {

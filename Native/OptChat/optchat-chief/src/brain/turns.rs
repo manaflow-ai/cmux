@@ -41,9 +41,11 @@ pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
         Some(e) if e.starts_with(optchat_host::SETUP_ERROR) => {
             format!("a {}", optchat_core::cut_at_bytes(e, 240))
         }
-        e => e
-            .and_then(optchat_host::error_class)
-            .map_or_else(|| "a request error".to_owned(), |c| c.to_string()),
+        Some(e) => optchat_host::error_class(e).map_or_else(
+            || optchat_core::cut_at_bytes(e, 240).to_owned(),
+            |c| c.to_string(),
+        ),
+        None => "no error recorded for it yet".to_owned(),
     };
     Some(format!(
         "The Chief's memory cannot summarize line {} ({class}). Replies go on without that summary; the line stays unsummarized (zoom opens it) until the compactor can build it.",
@@ -196,8 +198,14 @@ impl Brain {
                         let run_update = |u: crate::run::RunUpdate| {
                             let _ = tx.send(Input::Run(Box::new(u)));
                         };
+                        // How long its session has taken to start, for the app.
+                        let starting = |secs: Option<u64>| {
+                            if let Some(settle) = &settle_status {
+                                settle.starting(secs);
+                            }
+                        };
                         let outcome =
-                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft, &run_update);
+                            turn::run_with_drafts(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace, &draft, &run_update, &starting);
                         // Claude Code placed all four cache breakpoints
                         // itself: the same turn again without the marker
                         // (the refused request did nothing), and later
@@ -260,7 +268,7 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:{}", start.prompt_id, retry.as_str());
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update, &starting)
                             }
                             (Some(e), _) if marked && is_marker_limit_error(e) => {
                                 marker_refused.refused();
@@ -286,12 +294,12 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:unmarked", start.prompt_id);
-                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
+                                turn::run_with_drafts(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace, &draft, &run_update, &starting)
                             }
                             _ => outcome,
                         };
                         crate::turn::run_after_capacity_waits(outcome, &start, &interrupt, &*log, &trace, |again| {
-                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft, &run_update)
+                            turn::run_with_drafts(&*agents, &chat, again, &interrupt, &*log, &progress, &trace, &draft, &run_update, &starting)
                         })
                     }
                     Engine::Native(native) => {
@@ -2360,6 +2368,46 @@ impl Brain {
                     (self.log)(&format!("ending turn session {}: {e}", kept.session));
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod stuck_notice_tests {
+    use super::stuck_notice;
+    use optchat_core::NodeId;
+    use optchat_host::{Failure, Status};
+
+    fn status(error: &str) -> Status {
+        let node = NodeId::new(0, 3);
+        Status {
+            messages: 0,
+            view_lines: 0,
+            view_size: 0,
+            budget: 0,
+            unbuilt: 0,
+            built: 0,
+            busy: Vec::new(),
+            failures: vec![Failure {
+                node,
+                error: error.to_owned(),
+            }],
+            stuck: vec![node],
+            recovered: false,
+            fatal: None,
+            closed: false,
+        }
+    }
+
+    #[test]
+    fn a_notice_names_the_error_it_has_never_a_request_error() {
+        for error in [
+            "compactor session: You've hit your session limit",
+            "the compactor session did not answer within 300 s",
+        ] {
+            let text = stuck_notice(&status(error)).unwrap();
+            assert!(text.contains(error), "{text}");
+            assert!(!text.contains("a request error"), "{text}");
         }
     }
 }

@@ -229,6 +229,11 @@ pub struct Session {
     /// its agent start has no deadline while its harness works on it, and says it is still
     /// starting (`lifecycle.rs` `person_start`). Never set by an agent's or a lane's request.
     pub(super) person: AtomicBool,
+    /// Its creator asked its agent start to wait on the harness rather than a wall clock
+    /// (`NewRequest::wait_start`; the Chief, whose turn answers a person's message): the start
+    /// ends when the harness stops working (`lifecycle.rs` `StartWatch`), and says it is still
+    /// starting. Unlike `person` it proves nothing about who asks and opens nothing else.
+    pub(super) wait_start: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
