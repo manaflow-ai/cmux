@@ -42,6 +42,8 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import os
@@ -237,6 +239,7 @@ after=$(stat -f '%m %z %i' "$bin" 2>/dev/null || stat -c '%Y %s %i' "$bin" 2>/de
 sha=""
 if [ "$rc" = 0 ] && [ "$before" != "$after" ]; then
   sha=$(shasum -a 256 "$bin" 2>/dev/null | cut -c1-64 || sha256sum "$bin" | cut -c1-64)
+  ln -sfn "$PWD/$bin" "$keep/framework"  # the framework's path has spaces; rsync fetches this link
 fi
 printf '{"rc": %d, "build_seconds": %d, "binary": "%s", "sha256": "%s"}\n' "$rc" $((t1 - t0)) "$bin" "$sha"
 """
@@ -249,9 +252,13 @@ cd "$src"
 # The tree's own copy of each path, kept once and before the edit lands, so stop can put it back.
 for rel in "$@"; do
   case "$rel" in /*|*..*) echo "refusing $rel" >&2; exit 64;; esac
-  if [ ! -e "$keep/orig/$rel" ] && [ ! -e "$keep/orig/$rel.absent" ]; then
-    mkdir -p "$(dirname "$keep/orig/$rel")"
-    if [ -e "$rel" ]; then cp -p "$rel" "$keep/orig/$rel"; else : > "$keep/orig/$rel.absent"; fi
+  # A path the tree did not have is marked under absent/, apart from orig/, so no real name can collide.
+  if [ ! -e "$keep/orig/$rel" ] && [ ! -e "$keep/absent/$rel" ]; then
+    if [ -e "$rel" ]; then
+      mkdir -p "$(dirname "$keep/orig/$rel")"; cp -p "$rel" "$keep/orig/$rel"
+    else
+      mkdir -p "$(dirname "$keep/absent/$rel")"; : > "$keep/absent/$rel"
+    fi
   fi
 done
 """
@@ -259,14 +266,13 @@ done
 RESTORE_SCRIPT = r"""
 set -euo pipefail
 src="$1"; keep="$2"; shift 2
-[ -d "$keep/orig" ] || { echo 0; exit 0; }
+[ -d "$keep/orig" ] || [ -d "$keep/absent" ] || { echo 0; exit 0; }
 cd "$src"
 n=0
-put_back() {  # $1: a kept file under $keep/orig
-  local rel="${1#$keep/orig/}"
-  case "$rel" in
-    *.absent) rm -f "${rel%.absent}" ;;
-    *) mkdir -p "$(dirname "$rel")"; cp "$1" "$rel" ;;
+put_back() {  # $1: a kept file under $keep/orig, or a marker under $keep/absent
+  case "$1" in
+    "$keep/absent/"*) rm -f "${1#$keep/absent/}" ;;
+    *) local rel="${1#$keep/orig/}"; mkdir -p "$(dirname "$rel")"; cp "$1" "$rel" ;;
   esac
   rm -f "$1"
   n=$((n + 1))
@@ -274,10 +280,10 @@ put_back() {  # $1: a kept file under $keep/orig
 if [ "$#" -gt 0 ]; then  # only these paths (edits deleted while watching); the rest stay kept
   for rel in "$@"; do
     case "$rel" in /*|*..*) echo "refusing $rel" >&2; exit 64;; esac
-    for f in "$keep/orig/$rel" "$keep/orig/$rel.absent"; do [ -e "$f" ] && put_back "$f"; done
+    for f in "$keep/orig/$rel" "$keep/absent/$rel"; do if [ -e "$f" ]; then put_back "$f"; fi; done
   done
 else
-  while IFS= read -r -d '' f; do put_back "$f"; done < <(find "$keep/orig" -type f -print0)
+  while IFS= read -r -d '' f; do put_back "$f"; done < <(find "$keep/orig" "$keep/absent" -type f -print0 2>/dev/null)
   rm -rf "$keep"
 fi
 echo "$n"
@@ -323,6 +329,13 @@ class Builder:
         cmd = "bash -s -- " + " ".join(shlex.quote(a) for a in args)
         return run(self.ssh() + [cmd], input=script.encode()).stdout.decode(errors="replace")
 
+    def rsync_remote(self, path: str) -> str:
+        """HOST:PATH for rsync. rsync 3.2.4+ protects remote arguments and older ones split them in the
+        remote shell, so no quoting is right for both: PATH must need none."""
+        if shlex.quote(path) != path:
+            raise LiveError(f"{path!r} on {self.host} has a space or shell character rsync cannot carry")
+        return f"{self.host}:{path}"
+
     def sync(self, edits: Path, rels: list[str]) -> None:
         if not rels:
             return
@@ -332,7 +345,7 @@ class Builder:
         files_from.write_text(listing)
         rsh = shlex.join(self.ssh()[:-1])
         run(["rsync", "-a", "-z", "--files-from", str(files_from), "-e", rsh,
-             str(edits) + "/", f"{self.host}:{shlex.quote(self.src + '/')}"])
+             str(edits) + "/", self.rsync_remote(self.src + "/")])
 
     def build(self) -> dict:
         script = f"BINARY={shlex.quote(self.binary_rel)}\n" + BUILD_SCRIPT
@@ -348,10 +361,13 @@ class Builder:
         if previous:
             shutil.copy2(previous[-1] / BINARY_NAME, dest)  # rsync sends only the delta
         rsh = shlex.join(self.ssh()[:-1])
-        run(["rsync", "-a", "-z", "--inplace", "-e", rsh,
-             f"{self.host}:{shlex.quote(self.src + '/' + report['binary'])}", str(dest)])
+        # -L: the build's link to the framework (its own path has spaces) comes back as the file.
+        run(["rsync", "-a", "-L", "-z", "--inplace", "-e", rsh,
+             self.rsync_remote(self.keep + "/framework"), str(dest)])
         if sha256(dest) != report["sha256"]:
             raise LiveError("the fetched framework does not match the build host's sha256")
+        for old in previous:  # only the newest build is kept, as the next fetch's delta base
+            shutil.rmtree(old, ignore_errors=True)
         return dest
 
     def restore(self, rels: list[str] | None = None) -> int:
@@ -408,6 +424,19 @@ def cycle(cfg: dict, state: Path, builder: Builder, rels: list[str], saved_at: f
     entry["seconds"] = {k: round(v, 3) for k, v in t.items()}
     record(state, entry)
     return entry
+
+
+@contextmanager
+def exclusive(state: Path):
+    """Held by `start` until the watcher's pid is written and by `stop` throughout, so a stop never sees a
+    config without its pid and two starts never both find no watcher."""
+    state.mkdir(parents=True, exist_ok=True)
+    with (state / "lock").open("a") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
 
 
 def pid_file(state: Path) -> Path:
@@ -482,7 +511,21 @@ def checkout(worktree: str | None) -> Path:
 
 def command_start(args) -> int:
     state = state_dir()
-    state.mkdir(parents=True, exist_ok=True)
+    with exclusive(state):
+        cfg = start_locked(args, state)
+    if args.foreground:
+        try:
+            return watch(cfg, state)
+        finally:
+            pid_file(state).unlink(missing_ok=True)
+    print(f"Watching {cfg['edits']}: a saved file under it lands at chromium/src/<same path> on "
+          f"{args.build_host} and builds {args.target}; open Chromium pages reload on the build. "
+          f"`cmux live status` shows the last swap.")
+    return 0
+
+
+def start_locked(args, state: Path) -> dict:
+    """Write the config and the watcher's pid together (the caller holds the lock); returns the config."""
     if running_pid(state):
         raise LiveError("already watching; `chromium-live.py stop` first")
     tree = checkout(args.worktree)
@@ -497,22 +540,21 @@ def command_start(args) -> int:
     (state / "stop").unlink(missing_ok=True)
     if args.foreground:
         pid_file(state).write_text(f"{os.getpid()} {tree}\n")
-        try:
-            return watch(cfg, state)
-        finally:
-            pid_file(state).unlink(missing_ok=True)
-    logf = (state / "watch.log").open("a")
-    proc = subprocess.Popen([sys.executable, __file__, "_watch"], stdout=logf, stderr=logf,
-                            stdin=subprocess.DEVNULL, start_new_session=True)
+        return cfg
+    with (state / "watch.log").open("a") as logf:
+        proc = subprocess.Popen([sys.executable, __file__, "_watch"], stdout=logf, stderr=logf,
+                                stdin=subprocess.DEVNULL, start_new_session=True)
     pid_file(state).write_text(f"{proc.pid} {tree}\n")
-    print(f"Watching {edits}: a saved file under it lands at chromium/src/<same path> on "
-          f"{args.build_host} and builds {args.target}; open Chromium pages reload on the build. "
-          f"`cmux live status` shows the last swap.")
-    return 0
+    return cfg
 
 
 def command_stop(_args) -> int:
     state = state_dir()
+    with exclusive(state):
+        return stop_locked(state)
+
+
+def stop_locked(state: Path) -> int:
     pid = running_pid(state)
     if pid:
         (state / "stop").write_text("stop\n")
