@@ -87,7 +87,10 @@ enum LiveWebHandlers {
                 show(on ? LiveWebStrings.swiftStarting : LiveWebStrings.swiftStopping, in: window, duration: .seconds(20))
                 return .applied(result: {
                     // Only a write that took skips the script's own confirmation.
-                    let set = byPerson && (try? await settings?.setSetting(at: CmuxConfigSnapshot.liveCodePath, to: .bool(on), by: .user)) != nil
+                    var set = false
+                    if byPerson {
+                        set = (try? await settings?.setSetting(at: CmuxConfigSnapshot.liveCodePath, to: .bool(on), by: .user)) != nil
+                    }
                     var arguments = ["live", on ? "start" : "stop", "--swift", "--detach", "--worktree", tree]
                     if set { arguments.append("--setting-done") }
                     return await run(cli, arguments, timeout: .seconds(30),
