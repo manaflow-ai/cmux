@@ -27,7 +27,7 @@ for arg in "$@"; do
   esac
 done
 # Only what this script writes goes before a run: OUT may be a folder the caller owns.
-mkdir -p "$out" && rm -f "$out"/{result.json,report.json,report.tgz,run.log,bun-install.log,fetch.log,ocr-build.log,applied.png,fresh-home.png}
+mkdir -p "$out" && rm -f "$out"/{result.json,report.json,report.tgz,run.log,bun-install.log,fetch.log,ocr-build.log,base-overlay.log,applied.png,fresh-home.png}
 rm -f "$out"/live-apply-*.log
 if [[ -z "$url" ]]; then
   url="$(curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$feed" | grep -o -E 'enclosure url="https://[^"]+\.dmg"' | head -n 1 | cut -d'"' -f2)"
