@@ -5,7 +5,7 @@ import Testing
 /// SCRATCH (-nomerge): CPU load while TerminalSurfaceCommitSizeTests runs, to test whether a starved Ghostty renderer
 /// thread is the cause of its red runs. `threads` busy threads at the main thread's QoS; 0 runs without load.
 nonisolated final class RenderLoad: @unchecked Sendable {
-    static let threads = 0
+    static let threads = ProcessInfo.processInfo.activeProcessorCount
     static let shared = RenderLoad()
     private let lock = NSLock()
     private var on = false
