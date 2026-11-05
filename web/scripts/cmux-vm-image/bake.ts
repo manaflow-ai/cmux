@@ -873,6 +873,7 @@ async function bakeOn(
   result: Record<string, unknown>,
   L: StepLog,
   keepForInventory = false,
+  parentSlug?: string,
 ): Promise<string> {
   let builder: Awaited<ReturnType<typeof createVm>> | null = null;
   let kept = false;
@@ -883,9 +884,9 @@ async function bakeOn(
     result.builderFirstExecMs = await firstExec(builder.vm, builder.t0);
     await steps(builder.vm);
     const tSnap = Date.now();
-    // A layered snapshot records its parent in its label (layers.ts layerLabel), which gc-layers.ts follows so it
-    // never deletes a layer a kept image was built on.
-    const snap = await builder.vm.snapshot({ displayName: options.layered ? layerLabel(name, from) : name, slug: name });
+    // A layered snapshot records its parent layer in its label (layers.ts layerLabel), which gc-layers.ts follows
+    // so it never deletes a layer a kept image was built on.
+    const snap = await builder.vm.snapshot({ displayName: options.layered ? layerLabel(name, parentSlug) : name, slug: name });
     if (!snap?.snapshotId) throw new Error("snapshot response carried no id");
     ledger.record(snap.snapshotId, "snapshot", name);
     result.snapshotMs = Date.now() - tSnap;
@@ -922,6 +923,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
       const layers: Array<Record<string, unknown>> = [];
       result.layers = layers;
       let parent = lock.base.snapshot;
+      let parentSlug: string | undefined;
       for (const layer of ["system", "agents"] as LayerName[]) {
         const slug = layerName(layer, keys[layer]);
         const cached = snapshots.find((snapshot) => snapshot.slug === slug)?.id;
@@ -931,15 +933,16 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
         if (!cached) {
           const t = Date.now();
           const steps = layer === "system" ? (vm: Vm) => baseSteps(ctxFor(vm, slug)) : (vm: Vm) => overlaySteps(ctxFor(vm, slug), "agents");
-          parent = await bakeOn(fs, layerLedger, parent, slug, options, steps, row, L);
+          parent = await bakeOn(fs, layerLedger, parent, slug, options, steps, row, L, false, parentSlug);
           row.ms = Date.now() - t;
         } else parent = cached;
         row.snapshotId = parent;
+        parentSlug = slug;
       }
       const app: Record<string, unknown> = { layer: "app", hit: false, parent };
       layers.push(app);
       const t = Date.now();
-      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory));
+      result.snapshotId = await bakeOn(fs, ledger, parent, name, options, (vm) => overlaySteps(ctxFor(vm, name), "app"), app, L, Boolean(options.deferInventory), parentSlug);
       if (app.inventoryVmId) result.inventoryVmId = app.inventoryVmId;
       app.ms = Date.now() - t;
       app.snapshotId = result.snapshotId;

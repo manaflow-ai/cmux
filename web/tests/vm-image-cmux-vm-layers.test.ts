@@ -120,40 +120,43 @@ describe("per-user layer inventory", () => {
 describe("layer snapshot GC", () => {
   const at = (h: number) => new Date(Date.UTC(2026, 10, 1) + h * 3600_000).toISOString();
   const now = Date.UTC(2026, 10, 3);
-  const sys = (n: number, h: number) => ({ id: `sh-sys${n}`, slug: `cmuxnp-dev-vmimg-sys-${n}`, displayName: `cmuxnp-dev-vmimg-sys-${n} from sc-base`, createdAt: at(h) });
-  const agt = (n: number, h: number, parent: string, label = true) => ({ id: `sh-agt${n}`, slug: `cmuxnp-dev-vmimg-agt-${n}`, displayName: label ? `cmuxnp-dev-vmimg-agt-${n} from ${parent}` : `cmuxnp-dev-vmimg-agt-${n}`, createdAt: at(h) });
+  const key = (c: string) => c.repeat(16);
+  const sys = (c: string, h: number) => ({ id: `sh-sys${c}`, slug: `cmuxnp-dev-vmimg-sys-${key(c)}`, displayName: `cmuxnp-dev-vmimg-sys-${key(c)}`, createdAt: at(h) });
+  const agt = (c: string, h: number, sysC?: string) => ({ id: `sh-agt${c}`, slug: `cmuxnp-dev-vmimg-agt-${key(c)}`, displayName: sysC ? `cmuxnp-dev-vmimg-agt-${key(c)} ^sys-${key(sysC)}` : `cmuxnp-dev-vmimg-agt-${key(c)}`, createdAt: at(h) });
+  const app = (n: number, h: number, agtC?: string) => ({ id: `sh-app${n}`, slug: `cmuxnp-dev-vmimg-ci-${n}-1`, displayName: agtC ? `cmuxnp-dev-vmimg-ci-${n}-1 ^agt-${key(agtC)}` : `cmuxnp-dev-vmimg-ci-${n}-1`, createdAt: at(h) });
 
-  test("keeps the newest per layer, referenced images and their whole chain; deletes only layers", async () => {
+  test("a label names the parent layer and fits 64 characters; a provider parent gives the bare name", async () => {
+    const { layerLabel, labelParent, LABEL_MAX } = await import("../scripts/cmux-vm-image/layers");
+    const label = layerLabel("cmuxnp-dev-vmimg-ci-team-42014180836-12", `cmuxnp-dev-vmimg-agt-${key("a")}`);
+    expect(label.length).toBeLessThanOrEqual(LABEL_MAX);
+    expect(labelParent(label)).toBe(`cmuxnp-dev-vmimg-agt-${key("a")}`);
+    expect(layerLabel(`cmuxnp-dev-vmimg-agt-${key("a")}`, `cmuxnp-dev-vmimg-sys-${key("b")}`).length).toBeLessThanOrEqual(LABEL_MAX);
+    expect(layerLabel(`cmuxnp-dev-vmimg-sys-${key("b")}`, "sc-provider-base")).toBe(`cmuxnp-dev-vmimg-sys-${key("b")}`);
+    expect(layerLabel(`cmuxnp-dev-vmimg-${"x".repeat(41)}`, `cmuxnp-dev-vmimg-agt-${key("a")}`)).toBe(`cmuxnp-dev-vmimg-${"x".repeat(41)}`);
+  });
+
+  test("keeps the newest per layer and every labeled chain under a live image; deletes the rest of the layers", async () => {
     const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
-    const all = [
-      sys(1, 1), sys(2, 2), sys(3, 3),
-      agt(1, 1, "sh-sys1"), agt(2, 2, "sh-sys2"), agt(3, 3, "sh-sys3"),
-      { id: "sh-app1", slug: "cmuxnp-dev-vmimg-ci-1", displayName: "cmuxnp-dev-vmimg-ci-1 from sh-agt1", createdAt: at(1) },
-      { id: "sh-other", slug: "cmuxnp-dev-vmimg-ci-0", displayName: "cmuxnp-dev-vmimg-ci-0", createdAt: at(0) },
-    ];
-    const plan = planLayerGc(all, new Set(["sh-app1"]), { keep: 1, recentMs: 0, now });
+    const all = [sys("1", 1), sys("2", 2), sys("3", 3), agt("4", 1, "1"), agt("5", 2, "2"), agt("6", 3, "3"), app(1, 1.5, "4")];
+    const plan = planLayerGc(all, new Set(), { keep: 1, recentMs: 0, now });
     expect(plan.keep.get("sh-sys3")).toBe("newest 1 of system");
-    expect(plan.keep.has("sh-agt1")).toBe(true);
-    expect(plan.keep.has("sh-sys1")).toBe(true);
-    expect(plan.remove.map((s) => s.id).sort()).toEqual(["sh-agt2", "sh-sys2"]);
+    expect(plan.keep.has("sh-agt4") && plan.keep.has("sh-sys1")).toBe(true);
+    expect(plan.remove.map((s) => s.id).sort()).toEqual(["sh-agt5", "sh-sys2"]);
   });
 
-  test("an image still on the account keeps its layers even when no file names it", async () => {
+  test("an image or overlay with no recorded parent keeps every layer older than itself", async () => {
     const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
-    const all = [sys(1, 1), sys(2, 2), agt(1, 1, "sh-sys1"), agt(2, 2, "sh-sys2"), { id: "sh-app", slug: "cmuxnp-dev-vmimg-ci-9", displayName: "cmuxnp-dev-vmimg-ci-9 from sh-agt1", createdAt: at(1) }];
-    expect(planLayerGc(all, new Set(), { keep: 1, recentMs: 0, now }).remove).toEqual([]);
+    const all = [sys("1", 1), sys("2", 2), agt("4", 1.5), agt("5", 2.5, "2"), sys("3", 4), agt("6", 4, "3"), app(1, 3)];
+    const plan = planLayerGc(all, new Set(), { keep: 1, recentMs: 0, now });
+    expect(plan.remove).toEqual([]);
+    const later = planLayerGc([sys("1", 1), sys("2", 2), sys("3", 3), app(2, 0.5)], new Set(), { keep: 1, recentMs: 0, now });
+    expect(later.remove.map((s) => s.id).sort()).toEqual(["sh-sys1", "sh-sys2"]);
   });
 
-  test("an agents layer without a recorded parent keeps every system layer", async () => {
+  test("a referenced snapshot and a recently booted layer stay", async () => {
     const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
-    const all = [sys(1, 1), sys(2, 2), agt(1, 2, "", false)];
-    expect(planLayerGc(all, new Set(), { keep: 1, recentMs: 0, now }).remove).toEqual([]);
-  });
-
-  test("a recently booted layer stays", async () => {
-    const { planLayerGc } = await import("../scripts/cmux-vm-image/gc-layers");
-    const all = [sys(1, 1), { ...sys(2, 2), lastUsedAt: new Date(now - 60_000).toISOString() }, sys(3, 3)];
-    expect(planLayerGc(all, new Set(), { keep: 1, recentMs: 3600_000, now }).remove.map((s) => s.id)).toEqual(["sh-sys1"]);
+    const all = [sys("1", 1), { ...sys("2", 2), lastUsedAt: new Date(now - 60_000).toISOString() }, sys("3", 3), sys("4", 4)];
+    expect(planLayerGc(all, new Set([`cmuxnp-dev-vmimg-sys-${key("1")}`]), { keep: 1, recentMs: 3600_000, now }).remove.map((s) => s.id)).toEqual(["sh-sys3"]);
   });
 });
 

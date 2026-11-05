@@ -5,10 +5,10 @@
  *   - every snapshot a channel file, backend/apps/api/wrangler.jsonc or workers/cmux-vm/wrangler.jsonc
  *     (VM_BOOT_IMAGES) names, by id or slug, at this checkout,
  *   - every snapshot a recently booted one (`--recent-hours`, a bake in flight) is,
- *   - and every layer any kept snapshot or any image still on the account was built on, following the parent each layered snapshot's label records
- *     (layers.ts layerLabel), so no image loses its parent.
- * A kept overlay layer with no recorded parent (baked before labels) keeps every system layer: its parent is
- * unknown. Only layer snapshots are ever deleted; app images belong to cleanup.ts and the promote workflow.
+ *   - and every layer any kept snapshot or any dev image still on the account was built on, following the parent
+ *     layer each layered snapshot's label records (layers.ts layerLabel), so no image loses its parent.
+ * A snapshot with no recorded parent (baked before labels) keeps every layer older than itself. Only layer
+ * snapshots are ever deleted; app images belong to cleanup.ts and the promote workflow.
  *
  * Usage (from web/): bun ../images/cmux-vm/gc-layers.ts [--keep 3] [--recent-hours 6] [--dry-run]
  */
@@ -58,26 +58,33 @@ export function planLayerGc(all: readonly GcSnapshot[], refs: ReadonlySet<string
     const used = s.lastUsedAt ? Date.parse(s.lastUsedAt) : Number.NaN;
     if (layerOf(s) && options.now - used < options.recentMs) mark(s.id, "booted recently");
   }
-  // Every ancestor of a kept snapshot, and of every image that still exists on the account (an app image's label
-  // names the agents layer it was built on): deleting a layer under a live image is never this tool's call.
-  let unknownParent = false;
-  const queue = [...keep.keys(), ...all.filter((s) => !layerOf(s) && labelParent(s.displayName)).map((s) => s.id)];
+  // Every ancestor of a kept snapshot, and of every image still on the account: deleting a layer under a live
+  // image is never this tool's call. A label names the parent layer by slug (layers.ts layerLabel). A snapshot
+  // with no recorded parent (an overlay or image baked before labels, or one whose label did not fit) could have
+  // been built on any layer older than itself, so every such layer stays.
+  const devImage = (s: GcSnapshot) => !layerOf(s) && Boolean(s.slug?.startsWith("cmuxnp-dev-vmimg-"));
+  const queue = [...keep.keys(), ...all.filter(devImage).map((s) => s.id)];
   const seen = new Set<string>();
   for (let id = queue.shift(); id; id = queue.shift()) {
     if (seen.has(id)) continue;
     seen.add(id);
     const s = byId.get(id);
-    if (!s) continue;
+    if (!s || layerOf(s) === "system") continue;
     const parent = labelParent(s.displayName);
-    if (parent) {
-      const p = byId.get(parent) ?? all.find((x) => x.slug === parent);
-      if (p) {
-        mark(p.id, `parent of ${s.slug ?? s.id}`);
-        queue.push(p.id);
+    const p = parent ? all.find((x) => x.slug === parent) : undefined;
+    if (p) {
+      mark(p.id, `parent of ${s.slug ?? s.id}`);
+      queue.push(p.id);
+      continue;
+    }
+    const born = Date.parse(s.createdAt);
+    for (const older of all) {
+      if (layerOf(older) && Date.parse(older.createdAt) < born && !keep.has(older.id)) {
+        mark(older.id, `older than ${s.slug ?? s.id}, whose parent is not recorded`);
+        queue.push(older.id);
       }
-    } else if (layerOf(s) === "agents") unknownParent = true;
+    }
   }
-  if (unknownParent) for (const s of all) if (layerOf(s) === "system") mark(s.id, "an agents layer without a recorded parent is kept");
   return { keep, remove: all.filter((s) => layerOf(s) && !keep.has(s.id)) };
 }
 

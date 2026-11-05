@@ -101,10 +101,16 @@ export async function main(argv = process.argv): Promise<number> {
   } catch (error) {
     report.error = String(error);
   } finally {
-    for (const c of live) await deleteVm(c.vm, c.vmId, c.name, ledger);
+    // Every resource gets its delete whatever another one's does; only a delete that went through is recorded.
+    await Promise.allSettled(live.map((c) => deleteVm(c.vm, c.vmId, c.name, ledger)));
     if (warmSnapshot) {
-      await fs.vms.snapshots.delete(warmSnapshot).catch((error) => console.error(`could not delete ${warmSnapshot}: ${String(error)}`));
-      ledger.record(warmSnapshot, "snapshot", `cmuxnp-dev-vmimg-${tag}-fs-warm`, "deleted");
+      const id = warmSnapshot;
+      try {
+        await fs.vms.snapshots.delete(id);
+        ledger.record(id, "snapshot", `cmuxnp-dev-vmimg-${tag}-fs-warm`, "deleted");
+      } catch (error) {
+        console.error(`could not delete ${id}: ${String(error)}; the run's cleanup retries it from the ledger`);
+      }
     }
   }
   const cold = report.cold as Side | undefined;
