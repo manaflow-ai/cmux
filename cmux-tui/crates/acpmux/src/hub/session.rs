@@ -94,8 +94,10 @@ pub struct Session {
     /// next agent's load begins. None is ever dropped unended: only such an abandoned start
     /// (one past the agent start budget) leaves one behind, a few bytes for the session's life.
     pub(super) replaying: StdMutex<Vec<u64>>,
-    /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`).
-    /// False from a deferred daemon start until the first append or the log load.
+    /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`): set only
+    /// once the count is done, under `append_lock`. False from a deferred daemon start until the
+    /// first append, the first replay or the log load. `Hub::scan_events` reads it without the
+    /// lock: true means its `last_seq` already counts the tail.
     pub(super) caught_up: AtomicBool,
     /// Whether its log is read after a deferred daemon start (`log_load.rs`): once, by the
     /// background pass or the first request for it, under this lock. `log_loaded` mirrors it

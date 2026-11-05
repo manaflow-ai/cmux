@@ -74,8 +74,13 @@ import Testing
     }
 
     /// tabs.patch (tab_close_button.cc): the x's hover is a rounded rect, `kCornerRadius` 4, not
-    /// Chrome's circle.
+    /// Chrome's circle. It is concentric with the pill (2026-11-04): the default 16 pt button sits
+    /// 4 pt inside the 24 pt, 8 pt pill, which is Helium's 4.
     @Test func tabCloseHoverIsAFourPointRoundedRect() {
-        #expect(TabStripMetrics.standard.closeCornerRadius == 4)
+        let metrics = TabStripMetrics.standard
+        let side = metrics.closeButtonSize
+        let pill = CGRect(x: 0, y: 0, width: 120, height: metrics.tabHeight)
+        let close = CGRect(x: pill.maxX - metrics.contentTrailingInset - side, y: (pill.height - side) / 2, width: side, height: side)
+        #expect(metrics.nestedCornerRadius(close, in: pill) == 4)
     }
 }

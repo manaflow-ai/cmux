@@ -1,7 +1,7 @@
 //! The backend owns client configuration. Build-time values are an origin
 //! allowlist and a temporary fallback for deployments predating this endpoint.
 
-use crate::{namespace, Configuration, Environment, Resolver, Selection};
+use crate::{Configuration, Environment, Resolver, Selection, namespace};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs::{self, OpenOptions};

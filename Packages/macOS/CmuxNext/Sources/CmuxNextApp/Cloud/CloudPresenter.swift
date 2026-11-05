@@ -113,7 +113,8 @@ enum CloudPresenter {
         guard await CloudStartChat.loginCopyGate(services).recoveryAllowed(claude: provider == .claude, automatic: request.automatic) else { return false }
         if request.automatic {
             guard provider == .claude, CloudHarnessLoginChoices.allowsAutomaticCopy(session.harnessLogin, stored: CloudHarnessLoginChoices().load(userID: userID)),
-                  await CloudCredentialTransfer.hasCachedLogin(provider: provider, teamID: teamID, userID: userID) else { return false }
+                  await CloudCredentialTransfer.hasCachedLogin(provider: provider, teamID: teamID, userID: userID,
+                                                               otherTeams: CloudStartChat.loginScopes(services.cloud)) else { return false }
         }
         let providerName = provider == .claude ? "Claude" : "Codex"
         let teamName = teamID.flatMap { id in services.cloud.auth.teams.first(where: { $0.id == id })?.displayName } ?? String(localized: "cloud.credentialRecovery.personalAccount", defaultValue: "Personal account", table: "CloudCredentialRecovery", bundle: .module)
@@ -145,6 +146,7 @@ enum CloudPresenter {
             provider: provider, machineID: session.machineID, teamID: teamID,
             userID: userID,
             allowsCreatorTeamGuest: CloudCredentialTransfer.allowsCreatorTeamGuest(isDogfoodBuild: DevTools.isEnabled, defaults: .standard),
+            otherTeams: CloudStartChat.loginScopes(services.cloud),
             openTerminal: { [weak services] line in
                 await services?.openLocalProviderLogin(line) ?? false
             })

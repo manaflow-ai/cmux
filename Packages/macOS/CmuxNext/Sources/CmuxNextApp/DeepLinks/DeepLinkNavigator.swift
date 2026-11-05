@@ -37,7 +37,7 @@ struct DeepLinkNavigator {
     /// - Throws: `ActionFailure` when the target is closed, deleted or on a
     ///   machine that is not connected, or (nightly pane and tab links)
     ///   when only its workspace could be shown.
-    func open(_ link: DeepLink, background: Bool, asking: Bool = true) throws {
+    func open(_ link: DeepLink, background: Bool, asking: Bool = true, beside: String? = nil) throws { // beside: the tab clicked in
         let intent: WindowActivation.Intent = background ? .bringForward : .raise
         switch link.target {
         case .tab(let id):
@@ -66,7 +66,7 @@ struct DeepLinkNavigator {
             try openSession(id, turn: turn, intent, asking: asking)
         case .chiefSession(let home, let session):
             // This app's Chief home only; its tab, else its chat as the subagent's sidebar row opens it (ChiefSidebar).
-            guard ChiefSidebar.shared.openSubagentLink(session: session, chiefHost: "chief:" + home, registry: services.registry,
+            guard ChiefSidebar.shared.openSubagentLink(session: session, chiefHost: "chief:" + home, registry: services.registry, besideTab: beside,
                                                        reveal: { services.revealTab($0, intent: intent) }) else { throw Self.gone }
         case .agent:
             try openAgentLink(link, intent, asking: asking)

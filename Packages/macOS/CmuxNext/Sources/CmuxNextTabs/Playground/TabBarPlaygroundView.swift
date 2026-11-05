@@ -110,7 +110,8 @@ public final class TabBarPlaygroundView: NSView {
             caption.textColor = Palette.textSecondary
             let content = variant.make(tabCount)
             content.translatesAutoresizingMaskIntoConstraints = false
-            let height = content is TabBarPlaygroundTrailingRows ? TabBarPlaygroundTrailingRows.preferredHeight : TabStripView.preferredHeight
+            let height = content is TabBarPlaygroundTrailingRows ? TabBarPlaygroundTrailingRows.preferredHeight
+                : content is ConcentricCornerPlaygroundRow ? ConcentricCornerPlaygroundRow.preferredHeight : TabStripView.preferredHeight
             stack.addArrangedSubview(caption)
             stack.addArrangedSubview(content)
             NSLayoutConstraint.activate([

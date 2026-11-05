@@ -184,4 +184,26 @@ import Testing
                                          session: HomeAgentSessionRef(peer: "a1", session: "s-99", place: "cloud", moveEpoch: 2))
         #expect(other.place == nil && other.workspaceLink == URL(string: "cmux://chief/0123abcd/session/s-81"))
     }
+
+    /// User 2026-11-04 (msg 21663): "i dont like these splits … just open it as pane to right side". A click on a
+    /// linked agent's pill hands its link to the host (as its `aN` link does), which opens a real tab right of
+    /// Home, never the chat's own inline split; its report is seen. An agent with no link, or a host that cannot
+    /// open it, keeps the inline pane so the click still shows something.
+    @Test func aLinkedPillOpensARealPaneBesideHomeNotTheInlineSplit() throws {
+        let link = try #require(URL(string: "cmux://chief/0123abcd/session/s-81"))
+        let threads = Threads()
+        threads.threads = ["a1": Self.thread("a1", title: "Linked", link: link), "a2": Self.thread("a2", title: "Not linked")]
+        let pane = HomeAgentPane(conversation: ConversationID("c"), threads: threads)
+        var opened: [URL] = []
+        pane.open("a1", outside: { opened.append($0); return true })
+        #expect(opened == [link])
+        #expect(!pane.isShown && pane.tabs.isEmpty)
+        #expect(threads.seen == ["a1"])
+        // No link: nothing to open beside Home, so the inline pane shows it.
+        pane.open("a2", outside: { opened.append($0); return true })
+        #expect(opened == [link] && pane.tabs == ["a2"])
+        // A host that could not open it: the inline pane, never nothing.
+        pane.open("a1", outside: { _ in false })
+        #expect(pane.tabs == ["a2", "a1"] && pane.selected == "a1")
+    }
 }

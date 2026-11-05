@@ -33,6 +33,14 @@ describe("chatUnavailable", () => {
     ).toEqual({ reason: "deleted", machine: "box" });
   });
 
+  test("an id that names more than one listed chat is gone, whatever machine is down", () => {
+    const down = { box: { connected: false, state: "reconnecting", attempts: 5 } };
+    expect(chatUnavailable({ peers: down, waitedMs: 60_000, ambiguousName: true })).toEqual({ reason: "gone" });
+    expect(chatUnavailable({ peers: {}, waitedMs: 0, ambiguousName: true })).toEqual({ reason: "gone" });
+    // Without it, a machine down still reads as offline (its chat may be there).
+    expect(chatUnavailable({ peers: down, waitedMs: 60_000 }).reason).toBe("offline");
+  });
+
   test("a machine still on its first attempts is loading until the grace ends", () => {
     const peers = { box: { connected: false, state: "connecting", attempts: 0 } };
     expect(chatUnavailable({ peers, waitedMs: 1_000 })).toEqual({ reason: "connecting", machine: "box" });
@@ -147,10 +155,19 @@ describe("ChatUnavailableState", () => {
     expect(html).toContain("Close Tab");
   });
 
+  test("a session no longer here says so plainly, with no Reconnect", () => {
+    const html = render({ reason: "gone" }, "Studio");
+    expect(html).toContain("This session no longer exists");
+    expect(html).toContain("More than one chat here goes by this name.");
+    expect(html).not.toMatch(/Reconnecting|>Reconnect</);
+    expect(html).toContain("Close Tab");
+  });
+
   test("every case keeps the session id and Resume; Close Tab on all but deleted (Remove from Sidebar)", () => {
     const cases = [
       { reason: "deleted" as const },
       { reason: "notFound" as const },
+      { reason: "gone" as const },
       { reason: "offline" as const, machine: "box" },
     ];
     for (const unavailable of cases) {

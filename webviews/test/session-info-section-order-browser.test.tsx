@@ -253,5 +253,63 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
         await page.close();
       }
     });
+
+    // Leo, 2026-11-04, of the grip centred on the Subagents head's left edge, half on its pill and half
+    // off: "this is off". On every head the dots sit wholly inside the pill, on its middle line, and
+    // left of the icon (Context's) or the title, with about the same gap to the pill's edge as to it.
+    test("a head's grip sits inside its pill, on its middle line, with an even gap", async () => {
+      const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
+      try {
+        await show(page, { grid: true });
+        for (const id of ["subagents", "context", "outputs"]) {
+          const head = `section[data-section="${id}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`;
+          await page.hover(head);
+          const fit = await page.evaluate((head) => {
+            const trigger = document.querySelector(head)!;
+            const pill = trigger.getBoundingClientRect();
+            const dots = trigger
+              .closest("section")!
+              .querySelector(":scope > .acpmux-session-info-section__handle svg")!
+              .getBoundingClientRect();
+            // The icon's ink (its shapes, not its 16px box), else the title.
+            const icon = trigger.querySelector(".acpmux-session-info-section__icon");
+            const nextLeft = icon
+              ? Math.min(
+                  ...[...icon.querySelectorAll("path, circle, rect, line, polyline, polygon, ellipse")].map(
+                    (shape) => shape.getBoundingClientRect().left,
+                  ),
+                )
+              : trigger.querySelector(".acpmux-session-info-section__title")!.getBoundingClientRect().left;
+            const gapToEdge = dots.left - pill.left;
+            const gapToNext = nextLeft - dots.right;
+            return {
+              inside: gapToEdge >= 0.5,
+              beforeNext: gapToNext >= 0.5,
+              onMiddleLine: Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) <= 0.5,
+              wide: dots.width > dots.height,
+              gapToEdge,
+              gapToNext,
+            };
+          }, head);
+          expect({
+            id,
+            inside: fit.inside,
+            beforeNext: fit.beforeNext,
+            onMiddleLine: fit.onMiddleLine,
+            wide: fit.wide,
+          }).toEqual({
+            id,
+            inside: true,
+            beforeNext: true,
+            onMiddleLine: true,
+            wide: true,
+          });
+          // Context's icon is the tight case: the room left of it is shared about evenly.
+          if (id === "context") expect(Math.abs(fit.gapToEdge - fit.gapToNext)).toBeLessThanOrEqual(1);
+        }
+      } finally {
+        await page.close();
+      }
+    });
   });
 });

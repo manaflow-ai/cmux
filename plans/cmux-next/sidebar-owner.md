@@ -1,5 +1,12 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-05: Update in One Click (`updates.oneClickInstall`, off by default; #35951). Leo, verbatim, on the Codex app's
+  Update available pill: "codex having this update available and then me clicking it enabling it to auto install and
+  restart is... interesting". On, the footer's Update Available button (tooltip "…: Click to Update and Restart") and
+  the found update card's Update download with their progress, then install and relaunch once staged. No look changes:
+  the footer's Update Available button (`SidebarIconButton.ignorePointer`) and a notice card's newly built buttons
+  ignore pointer presses for 1 s after they show (`SidebarUpdateButton.appearGuard`, as the Restart card since #34612);
+  keys and VoiceOver still press them. Regression: `UpdateOneClickInstallTests`.
 - 2026-11-03: a machine's name drawn in its colour reads in every theme. The user, verbatim: "we need to make sure
   every single theme, all the UI elements are colored properly". A priority row's place tag and a workspace hover
   card's host drew the raw machine colour as text: a person's `#FFFF00` read 1.1:1 on a light theme, `#000080` 1.6:1
@@ -446,6 +453,16 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 2. Do not take back a look another commit chose in the last week without naming that commit here.
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
+
+## A dropped card covers no leaving row (2026-11-05)
+
+Leo 2026-11-05: "When I click and drag a workspace on the sidebar, it, like, briefly flickers for a bit." His
+recording: claude-sr2-coord, the Coordinators group's one workspace, dropped where the header stood. The emptied
+header faded in place under the landing card, which draws no material in a translucent window (#32330), so
+"Coordinators" read through "claude-sr2-coord" for the fade. A row the drop or the model takes away now goes at
+once when a settling or flying card's path covers it, from where its flight began to its slot (`flightStart`,
+`isUnderCard`, `dropLeavingRows`); rows elsewhere still fade. The lift's see-through look (Leo 2026-10-23) and the held drag are unchanged. Regression:
+`SidebarDropUnderCardTests`.
 
 ## Rename field on a whole pixel (2026-11-02)
 

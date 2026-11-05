@@ -21,11 +21,13 @@ use crate::state::{Batch, ChildRef, ChildStatus, HostState, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
 use optchat_host::{Appended, NewMessage};
 
-/// The notice for the first stuck view line (its node fails with a request
-/// error on every try); None when no line is stuck.
-/// A line held only by an exhausted route (a capacity error) or a compactor
-/// harness slow to start (`host::start_stall`) is a quiet wait, logged by the
-/// host: no notice.
+/// The notice for the first stuck view line whose node cannot be built as
+/// things stand: a setup error, or a request error the same call repeats on
+/// every try (`ErrorClass::permanent`). None when no line is stuck so.
+/// A line held by a transient failure that ran out of tries (a session that
+/// did not answer under load, a 5xx, an exhausted route) is a quiet wait,
+/// logged and retried by the host: no notice. It said "a request error"
+/// for such timeouts (https://github.com/manaflow-ai/cmux/issues/36026).
 pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
     let error = |node: &optchat_core::NodeId| {
         status
@@ -34,11 +36,14 @@ pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
             .find(|f| f.node == *node)
             .map(|f| f.error.as_str())
     };
-    let node = status.stuck.iter().find(|n| {
-        error(n).is_none_or(|e| {
-            optchat_host::capacity_wait(e).is_none() && !crate::host::start_stall(e)
-        })
-    })?;
+    let lasting = |e: &str| {
+        e.starts_with(optchat_host::SETUP_ERROR)
+            || optchat_host::error_class(e).is_some_and(|c| c.permanent())
+    };
+    let node = status
+        .stuck
+        .iter()
+        .find(|n| error(n).is_some_and(lasting))?;
     let class = match error(node) {
         Some(e) if e.starts_with(optchat_host::SETUP_ERROR) => {
             format!("a {}", optchat_core::cut_at_bytes(e, 240))
@@ -162,13 +167,18 @@ impl Brain {
                     settle.clear();
                 }
                 if settled {
-                    // A stuck node (a request error on every try) no longer
-                    // holds the turn: one notice says so, retracted once
-                    // every stuck node is built.
+                    // A stuck node no longer holds the turn; one that
+                    // cannot be built as things stand (a setup error, a
+                    // request error on every try) posts one notice,
+                    // retracted once no such line is left, even while
+                    // another line waits out timeouts (issue 36026).
                     let status = chat.status();
-                    if let Some(text) = stuck_notice(&status) {
-                        let _ = tx.send(Input::CompactorStatus(Err(text)));
-                    } else if status.recovered {
+                    let notice = stuck_notice(&status);
+                    let cleared = notice.is_none();
+                    let _ = tx.send(Input::CompactorStuck(notice));
+                    // Every stuck node built: the compactor works, which
+                    // also answers the probe's notice.
+                    if cleared && status.recovered {
                         let _ = tx.send(Input::CompactorStatus(Ok(())));
                     }
                 }

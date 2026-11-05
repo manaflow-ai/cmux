@@ -34,6 +34,13 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
         "The edits card's header is one full-width toggle (headerToggle.ts); its chevron is that toggle's keyboard control and shares its wash, never a second box.",
     },
     {
+      selector: ".cv-turn-retry",
+      kind: "hover",
+      control: ".cv-turn-retry > .cv-iconbtn",
+      reason:
+        "A reply footer's Retry and its model switch are one split control (TurnRows.tsx TurnFooter); both halves share one pill, never a box around the row.",
+    },
+    {
       selector: '.diff-pill[role="toolbar"]',
       kind: "plate",
       reason: "The standalone floating diff toolbar is its own glass surface, not trailing tools on a row.",
