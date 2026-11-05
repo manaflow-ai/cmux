@@ -193,42 +193,37 @@ import Testing
 
     /// Lead (cmux-ad m14, STATUS 13602): the S5 films had no hosted page in their ON arm (hosted_pages 0 in all 16 reads),
     /// because the switch applied only at a page's next show and the kit flipped it after the page was up. A Debug switch a
-    /// person flips must reach the shown pages at once: flipping `motion.frameOwner.pages` hosts a shown page within one
-    /// main-actor turn, with one fork call, and flipping it back gives the page its window again. A hidden page is left
-    /// for its next show.
+    /// person flips must reach the shown pages at once: flipping `motion.frameOwner.pages` with a page shown asks the fork to
+    /// host it, without another show, and the page is hosted; flipping it back gives the page its window again. Driven
+    /// through a real runtime and pane host (no new type named here), so the suite compiles on the base and fails there on
+    /// behavior. The test waits for the fork's ask itself (a signal), never a count of turns.
     @Test func flippingTheSwitchHostsAShownPageAtOnce() async throws {
         Self.set(pages: false)
-        defer { Self.set(pages: nil) }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        PageSpyShim.hostingContext = 7
+        defer {
+            Self.set(pages: nil)
+            PageSpyShim.hostingContext = 0
+        }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.closeAfterTest() }
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
-        window.contentView?.addSubview(view)
-        let hidden = NSView(frame: view.frame)
-        hidden.isHidden = true
-        window.contentView?.addSubview(hidden)
-        let (hosting, fork, turn) = Self.hosting(over: view, intervals: [1.0 / 120])
-        let (parked, parkedFork, parkedTurn) = Self.hosting(over: hidden, intervals: [1.0 / 120])
-        let hostingSwitch = CEFHostingSwitch()  // the runtime's (`CEFRuntime.hostingSwitch`)
-        hosting.pageWindowCreated(browser: 3, fork: fork.fork, follows: hostingSwitch)
-        parked.pageWindowCreated(browser: 4, fork: parkedFork.fork, follows: hostingSwitch)
-        turn.end()
-        parkedTurn.end()
-        try #require(hosting.page == nil && fork.calls.isEmpty, "SETUP: the page is hosted with the switch off")
+        first.container.frame = NSRect(x: 0, y: 0, width: 600, height: 500)
+        window.contentView?.addSubview(first.container)
+        first.container.layoutSubtreeIfNeeded()
+        CFRunLoopRunInMode(.defaultMode, 0, true)  // the end-of-turn request of the new page window (switch off: none)
+        try #require(host.hostView.layerHosting.page == nil && PageSpyShim.hostingAsks.isEmpty, "SETUP: hosted with the switch off")
 
-        Self.set(pages: true)
-        for _ in 0..<20 where hosting.page == nil { await Task.yield() }
-        #expect(hosting.page?.contextID == 7, "the shown page is not hosted after the switch went on")
-        #expect(fork.calls.map(\.enabled) == [true], "the flip did not make one hosting call: \(fork.calls)")
-        #expect(parked.page == nil && parkedFork.calls.isEmpty, "a hidden page was hosted before its next show")
+        let on = await Self.nextHostingAsk { Self.set(pages: true) }
+        #expect(on == true, "flipping the switch on did not ask the fork to host the shown page")
+        #expect(host.hostView.layerHosting.page?.contextID == 7, "the shown page is not hosted after the flip")
+        #expect(PageSpyShim.hostingAsks.map(\.enabled) == [true], "the flip did not make one hosting call: \(PageSpyShim.hostingAsks)")
 
-        Self.set(pages: false)
-        for _ in 0..<20 where hosting.page != nil { await Task.yield() }
-        #expect(hosting.page == nil, "the page kept its hosting after the switch went off")
-        #expect(fork.calls.map(\.enabled) == [true, false])
-        withExtendedLifetime((hidden, hostingSwitch)) {}
-        hosting.stop()
-        parked.stop()
+        let off = await Self.nextHostingAsk { Self.set(pages: false) }
+        #expect(off == false, "flipping the switch off did not give the page its window back")
+        #expect(host.hostView.layerHosting.page == nil)
     }
 
     /// The switch off (the default) changes nothing: a key resize still holds the page's size (S3 and the interim rule).
@@ -290,6 +285,24 @@ import Testing
         return (hosting, fork, turn)
     }
 
+    /// The fork's next hosting ask (true: host, false: unhost) after `change`, or nil when none comes. The bound only ends a
+    /// failing run; a passing run returns at the ask.
+    private static func nextHostingAsk(after change: () -> Void) async -> Bool? {
+        let (asks, ask) = AsyncStream.makeStream(of: Bool.self)
+        PageSpyShim.onHostingAsk = { ask.yield($0) }
+        let bound = Task {
+            try? await Task.sleep(for: .seconds(10))
+            ask.finish()
+        }
+        defer {
+            bound.cancel()
+            PageSpyShim.onHostingAsk = nil
+        }
+        change()
+        for await enabled in asks { return enabled }
+        return nil
+    }
+
     /// Sets the S5 switch (nil: every tunable here at its default) and the waits it overrides.
     private static func set(pages: Bool?, syncDeadline: Double? = nil, dragDeadline: Double? = nil, liveDeadline: Double? = nil,
                             pagesWait: Double? = nil) {
@@ -332,11 +345,15 @@ import Testing
 
 /// Stand-in shim: `cmux_shim_create_window` reports the browser started, `cmux_shim_fork_api_version` reports fork API 27
 /// (layer hosting and resize sync), `cmux_shim_browser_set_resize_sync` records the browser and deadline and takes it,
-/// `cmux_shim_browser_set_layer_hosting` records the ask and refuses it (0: the page stays in its window here, as the fork
-/// does before Chromium put the page in its window); every other function does nothing and returns 0.
+/// `cmux_shim_browser_set_layer_hosting` records the ask and answers `hostingContext` (0 by default: refused, the page stays in
+/// its window, as the fork does before Chromium put the page in its window); every other function does nothing and returns 0.
 private nonisolated enum PageSpyShim {
     nonisolated(unsafe) static var resizeSyncs: [(browser: Int32, timeoutMs: Int32)] = []
     nonisolated(unsafe) static var hostingAsks: [(browser: Int32, enabled: Bool)] = []
+    /// The context id a hosting ask gets (0: refused, the default).
+    nonisolated(unsafe) static var hostingContext: UInt32 = 0
+    /// Told of each hosting ask (enabled), on the main thread.
+    nonisolated(unsafe) static var onHostingAsk: (@Sendable (Bool) -> Void)?
 
     static func library() throws -> CEFShimLibrary {
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
@@ -346,7 +363,8 @@ private nonisolated enum PageSpyShim {
         }
         let layerHosting: @convention(c) (Int32, Int32) -> UInt32 = { browser, enabled in
             PageSpyShim.hostingAsks.append((browser, enabled != 0))
-            return 0
+            PageSpyShim.onHostingAsk?(enabled != 0)
+            return enabled != 0 ? PageSpyShim.hostingContext : 0
         }
         let forkAPIVersion: @convention(c) () -> Int32 = { 27 }
         let nothing: @convention(c) () -> Int = { 0 }

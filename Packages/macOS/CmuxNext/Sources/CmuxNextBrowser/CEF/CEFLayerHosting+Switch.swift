@@ -11,7 +11,9 @@ import CmuxNextDesign
 final class CEFHostingSwitch {
     /// The page windows it follows (`CEFLayerHosting.pageWindowCreated`), weakly; `CEFLayerHosting.stop()` takes one out.
     private let followed = NSHashTable<CEFLayerHosting>.weakObjects()
-    /// Lives with the runtime; it ends at its first wake after the switch is gone.
+    /// Lives as long as its runtime, which lives as long as the app. A switch freed before that (a test's runtime) leaves the
+    /// task suspended until the next real flip, which then ends it (`guard let self`): no deinit cancel, because a deinit that
+    /// reaches main-actor state needs `MainActor.assumeIsolated` (arch-ratchet, seam adapters only).
     private var observation: Task<Void, Never>?
 
     init() {}
