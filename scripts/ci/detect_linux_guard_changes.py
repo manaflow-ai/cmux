@@ -163,6 +163,8 @@ RELEASE_NOTARY_INPUTS = (
     "cmux-tui/dist/",
     "cmux-tui/build-support/notices/",
     "cmux-tui/rust-toolchain.toml",
+    # The nightly version test reads [workspace.package] version, the one cmux-next version nightly.yml stamps.
+    "cmux-tui/Cargo.toml",
     # The Chief cache and web-bundle order tests require the committed inspector page.
     "Native/OptChat/optchat-chief/inspector/index.html",
     # Inputs other groups own that release-notary tests also read.
