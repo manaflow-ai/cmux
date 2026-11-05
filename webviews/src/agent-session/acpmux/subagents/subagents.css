@@ -331,6 +331,7 @@ button.cv-subagent > :last-child {
   align-items: center;
   flex: none;
   position: relative;
+  line-height: 0;
 }
 .acpmux-agent-identity[data-identity-look="tint"] {
   color: var(--agent-tone-ink, var(--agent-muted));
