@@ -83,7 +83,8 @@ struct GhosttyRightClickActionTests {
             let contents = "right-click-action = \(rightClickAction)"
             try harness.configure(surface, contents: contents)
             let app = GhosttyApp.shared
-            let appConfig = try #require(ghostty_config_clone(try #require(app.config)))
+            let baseConfig = try #require(app.config)
+            let appConfig = try #require(ghostty_config_clone(baseConfig))
             contents.withCString { pointer in
                 ghostty_config_load_string(appConfig, pointer, UInt(contents.utf8.count), "/__cmux_test__/4177.conf")
             }
