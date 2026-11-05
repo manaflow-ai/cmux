@@ -114,7 +114,11 @@ async fn only_a_change_is_announced_and_a_stop_empties_the_list() {
     assert!(first.iter().all(|(kind, _)| kind == "status"), "{first:?}");
     let writes = hub.remote_sessions.lock().unwrap().writes;
 
-    hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+    let mut later = book();
+    for d in &mut later.daemons {
+        d.last_seen_at += 30_000;
+    }
+    hub.apply_mesh_book(later, "person-1", Some("d-a"));
     assert_eq!(notices(&mut events), [], "an unchanged book announces nothing");
     assert_eq!(hub.remote_sessions.lock().unwrap().writes, writes, "nor rebuilds the list");
 
@@ -124,6 +128,8 @@ async fn only_a_change_is_announced_and_a_stop_empties_the_list() {
     let changed = notices(&mut events);
     assert_eq!(changed.len(), 1, "{changed:?}");
     assert_eq!(changed[0].1["status"], "waiting");
+    let pending = hub.pending_session_summaries();
+    assert_eq!(pending.len(), 1, "a waiting hub chat is listed with the asks: {pending:?}");
 
     hub.set_mesh_book(Default::default(), Vec::new());
     let gone = notices(&mut events);

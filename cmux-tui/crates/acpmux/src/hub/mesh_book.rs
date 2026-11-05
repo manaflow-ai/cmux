@@ -64,6 +64,8 @@ fn row_of(s: &BookSession) -> Value {
         "name": s.name,
         "harness": s.harness,
         "status": s.state,
+        // A waiting session waits on its person: listed with the asks (`pendingOnly`).
+        "pendingPermissions": u64::from(s.state == "waiting"),
         "via": "hub",
         "stale": false,
     })
@@ -118,7 +120,8 @@ impl Hub {
                 .filter(|(key, _)| !rows.contains_key(*key))
                 .map(|(_, (_, r))| (r.peer.clone(), r.summary.clone()))
                 .collect();
-            let moved = book.hosts != hosts;
+            // A heartbeat's time alone changes no row: only a machine coming or going does.
+            let moved = !book.hosts.keys().eq(hosts.keys());
             book.rows = rows;
             book.hosts = hosts;
             (gone, changed, moved)
