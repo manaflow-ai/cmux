@@ -72,6 +72,8 @@ pub struct MediaSession {
 
 /// No feedback for this long ends the session.
 const LIVENESS_NS: u64 = 3_000_000_000;
+/// How soon the loop looks again at viewer input waiting to be injected.
+const INPUT_WAIT_NS: u64 = 20_000_000;
 
 fn now_us() -> u64 {
     now_ns() / 1000
@@ -152,6 +154,7 @@ impl MediaSession {
     ) -> String {
         let mut damage = Vec::new();
         let mut incoming = Vec::new();
+        let mut had_control = table.may_inject_input(session, viewer);
         // The first frame covers the whole screen (an IDR).
         if let Some(req) = self.engine.start(now_us()) {
             if let Err(e) = self.encode(carrier, &req) {
@@ -179,6 +182,13 @@ impl MediaSession {
             let stats_in = self.next_stats_ns.saturating_sub(now_ns());
             // The engine's deadline covers held frames and input held behind a gap.
             let timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(LIVENESS_NS);
+            // Viewer input waiting behind the agent's held button: look again in 20 ms.
+            let waiting = table.may_inject_input(session, viewer)
+                && self.desktop.pump().unwrap_or_else(|e| {
+                    eprintln!("inject failed: {e}");
+                    false
+                });
+            let timeout = if waiting { timeout.min(INPUT_WAIT_NS) } else { timeout };
             let timeout = Some(timeout.max(1_000_000));
             let mut fds = carrier.fds();
             fds.push(self.desktop.fd());
@@ -224,6 +234,11 @@ impl MediaSession {
                 }
             }
             let may_inject = table.may_inject_input(session, viewer);
+            if had_control && !may_inject {
+                // Control just ended: release what the viewer holds and drop queued input.
+                self.release_input();
+            }
+            had_control = may_inject;
             if !may_inject {
                 // Control ended: the viewer's microphone and camera stop with it.
                 for closed in self.upstreams.close_all(&mut self.engine) {
