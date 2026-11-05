@@ -10621,7 +10621,9 @@ export class AcpmuxDirectClient {
       live.progressRow !== undefined ? live.progressSuperseded : this.progressRow !== undefined;
     Object.assign(this, live, { forkedAtSeq, messageRows, progressRow, progressSuperseded });
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
-    for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
+    // A model change line the page moved back (`drawRunChanges` dropped it) stays gone.
+    for (const [id, row] of held)
+      if (!this.rows.has(id) && (row.kind !== "sessionStart" || this.runChangeRows.has(id))) this.rows.set(id, row);
     // A held page can start at a prompt sent now whose cancel only this page holds: its row,
     // drawn before, goes on with that turn now, so the turn never reads as stopped.
     for (const event of this.events) {

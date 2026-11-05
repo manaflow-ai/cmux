@@ -287,6 +287,31 @@ test("an older page landing late never takes the summary back to an older versio
   expect(summary()?.sessionStart?.version).toBe("2.1.312");
 });
 
+test("an older page that moves a change point back leaves one line, at the earlier turn", async () => {
+  // The chat's own model is Opus; both turns ran on Sonnet. The first page holds only the second
+  // turn, whose line moves to the first turn once the older page shows Sonnet began there.
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "user_message", { text: "hello" }],
+      ["in", "session_info_update", init("2.1.303", "claude-sonnet-5-5")],
+      ["mux", "user_message", { text: "again" }],
+      ["in", "session_info_update", init("2.1.303", "claude-sonnet-5-5")],
+    ]),
+    "claude-sr2",
+    2,
+    { model: "claude-opus-5-5" },
+  );
+  const { client, rows } = await connect(daemon);
+  const lines = () =>
+    rows()
+      .filter((row) => row.kind === "sessionStart")
+      .map((row) => row.seq);
+  expect(lines()).toEqual([4]);
+  await client.loadOlder();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(lines()).toEqual([2]);
+});
+
 test("a replay seeking back draws the change lines up to that point, and none after", () => {
   const steps = record([
     ["mux", "user_message", { text: "hello" }],
