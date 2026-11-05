@@ -108,7 +108,8 @@ mod tests {
         ] {
             assert!(looks_like_claude_model_id(id), "{id}");
         }
-        for name in ["claude-sr2", "claude-sr2-pipe", "claude", "claude-opus", "claude-work", "claude-"]
+        for name in
+            ["claude-sr2", "claude-sr2-pipe", "claude", "claude-opus", "claude-work", "claude-"]
         {
             assert!(!looks_like_claude_model_id(name), "{name}");
         }
@@ -130,11 +131,17 @@ mod tests {
         assert!(looks_like_claude_model_id("claude-opus-5-5"));
         let hits = vec!["claude/claude-opus-5-5".to_owned()];
         let out = hint_text("unknown harness".into(), "claude-opus-5-5", &hits, Some("claude"));
-        assert!(out.contains("\"claude-opus-5-5\" is a model id: write claude/claude-opus-5-5"), "{out}");
+        assert!(
+            out.contains("\"claude-opus-5-5\" is a model id: write claude/claude-opus-5-5"),
+            "{out}"
+        );
     }
 
     #[test]
     fn other_names_keep_the_bare_error() {
-        assert_eq!(hint_text("unknown harness \"gpt\"".into(), "gpt", &[], None), "unknown harness \"gpt\"");
+        assert_eq!(
+            hint_text("unknown harness \"gpt\"".into(), "gpt", &[], None),
+            "unknown harness \"gpt\""
+        );
     }
 }

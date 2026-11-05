@@ -1,40 +1,57 @@
 import CmuxNextCloud
-import CmuxNextDaemonService
-import CmuxNextServer
-import Foundation
+public import Foundation
 
-/// "Pair Another Machine…" in the app: `server.pair.invite` (origin user) through the API Worker as
-/// the signed-in user, and the invite's watch socket (`GET /v1/pair/invite/wait?invite=CODE`,
+/// "Pair Another Machine…" over the cmux cloud: `server.pair.invite` (origin user) through the API
+/// Worker as the signed-in user, and the invite's watch socket (`GET /v1/pair/invite/wait?invite=CODE`,
 /// subprotocols `cmux.pair-invite.v1, watch.<secret>`). The socket pushes every change; nothing
-/// polls. Preview and approve are Add Server's own (``CloudPairingSource``).
+/// polls. Preview and approve are Add Server's own. The App supplies the Worker call, the team and
+/// the refusal texts.
 extension PairInviteService {
+    /// The refusal texts the invite shows (the App's refusal catalog).
+    public nonisolated struct CloudTexts: Sendable {
+        /// The Worker refused to mint: its message in a sentence.
+        public var failed: @Sendable (String) -> String
+        /// The Worker could not be reached.
+        public var unreachable: String
+        /// The Worker answered with no invite in it.
+        public var notMade: String
+
+        public init(failed: @escaping @Sendable (String) -> String, unreachable: String, notMade: String) {
+            self.failed = failed
+            self.unreachable = unreachable
+            self.notMade = notMade
+        }
+    }
+
     /// - Parameters:
-    ///   - pairing: The approver's source: its Worker team is the team the invite enrolls into, and
-    ///     its call (`FeedService.call`, as the signed-in user) mints the invite.
+    ///   - team: The id of the Worker team the invite enrolls into, or nil when signed out.
+    ///   - call: One POST to the API Worker as the signed-in user, returning the reply's `value`
+    ///     (a Worker error reply throws ``FeedServiceError/owner(code:message:)``).
     ///   - apiBaseURL: The API Worker the socket opens on.
     @MainActor
-    static func app(pairing: CloudPairingSource, apiBaseURL: URL) -> PairInviteService {
+    public static func cloud(team: @escaping @MainActor @Sendable () async throws -> String?,
+                             call: @escaping @MainActor @Sendable (_ path: String, _ body: [String: Any]) async throws -> Any?,
+                             texts: CloudTexts, apiBaseURL: URL) -> PairInviteService {
         PairInviteService(
             mint: { @MainActor in
                 do {
-                    guard let team = try await pairing.workerTeam() else { return .failure(.signedOut) }
+                    guard let team = try await team() else { return .failure(.signedOut) }
                     let body: [String: Any] = [
                         "op": "server.pair.invite",
-                        "params": ["team": team.id],
+                        "params": ["team": team],
                         "idempotency_key": "server-pair-invite-\(UUID().uuidString)",
                         "origin": "user",
                     ]
-                    let reply = try await pairing.call("v1/ops", body)
-                    guard let invite = PairInvite.decode(try CloudPairingSource.okValue(reply)) else {
-                        return .failure(.refused(Self.notMade))
+                    guard let invite = PairInvite.decode(try await call("v1/ops", body)) else {
+                        return .failure(.refused(texts.notMade))
                     }
                     return .success(invite)
                 } catch FeedServiceError.signedOut {
                     return .failure(.signedOut)
                 } catch let FeedServiceError.owner(_, message) {
-                    return .failure(.refused(RefusalStrings.format("refusal.server.inviteFailed", "Could not make a pairing code: %@", message)))
+                    return .failure(.refused(texts.failed(message)))
                 } catch {
-                    return .failure(.refused(RefusalStrings.text("refusal.server.pairUnreachable", "Could not reach cmux. Check the connection and try again.")))
+                    return .failure(.refused(texts.unreachable))
                 }
             },
             watch: { invite in
@@ -101,8 +118,24 @@ extension PairInviteService {
 
     /// How early a close still reads as the expiry (the Worker's alarm and this Mac's clock differ).
     nonisolated static let expirySlack: TimeInterval = 15
+}
 
-    private static var notMade: String {
-        RefusalStrings.text("refusal.server.inviteNotMade", "cmux could not make a pairing code. Try again.")
+extension PairInviteCardPanel {
+    /// The previews' and tests' card: the mock invite over the mock server's preview.
+    @MainActor
+    public static func mock() -> PairInviteCardPanel {
+        let approver = ServerModel(source: MockServerSource(scenario: .healthyMac))
+        approver.start()
+        return PairInviteCardPanel(model: PairInviteModel(service: .mock(), approver: approver))
     }
+}
+
+/// A server source with no local server behind it: a cloud-only approver (the invite card's: preview
+/// and approve go to the cloud) wraps it, so it answers nothing.
+@MainActor
+public final class NoLocalServerSource: ServerSource {
+    public init() {}
+    public func start(_ sink: @escaping @MainActor (ServerSourceEvent) -> Void) {}
+    public func send(_ intent: ServerIntent) {}
+    public func stop() {}
 }

@@ -291,6 +291,28 @@ import Testing
         hosting.stop()
     }
 
+    /// m20 item 1 (Lawrence): the gap beside a page smaller than its pane (its last frame while Chromium draws the new
+    /// size) shows the PAGE's own color in every motion frame: a key resize, a divider drag, a spring, not only the
+    /// window's live resize. The host view under the hosted page paints the page's backdrop whenever one is known.
+    @Test func theGapBesideASmallerPageShowsThePagesColorOutsideALiveResize() throws {
+        let host = CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        window.contentView?.addSubview(host)
+        try #require(!host.inLiveResize, "SETUP: the window is in a live resize")
+        let pageColor = CGColor(srgbRed: 0.1, green: 0.4, blue: 0.2, alpha: 1)
+        host.pageBackdrop = pageColor
+        #expect(host.layer?.backgroundColor == pageColor, "the gap shows the pane ground, not the page's color")
+        // A page that is see-through (a cmux page) keeps showing what is under it.
+        host.pageSeeThrough = true
+        #expect(host.layer?.backgroundColor == nil)
+        host.pageSeeThrough = false
+        // No page color known yet (before the first real page): the pane ground, as before.
+        host.pageBackdrop = nil
+        #expect(host.layer?.backgroundColor != nil && host.layer?.backgroundColor != pageColor)
+    }
+
     /// The switch off (the default) changes nothing: a key resize still holds the page's size (S3 and the interim rule).
     @Test func theSwitchOffKeepsTodaysKeyResizeHold() throws {
         Self.set(pages: false)
@@ -397,6 +419,9 @@ import Testing
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(tunables.all)
         TunableStore.shared.set(tunables.dragResize.key, nil)
+        // Hosting follows S5 alone here: `browserResize.layerHosting` is on by default since #36311 (hosting is wanted
+        // when either is on), so pin it off with S5 set, and reset it with S5.
+        TunableStore.shared.set(tunables.layerHosting.key, pages.map { _ in .bool(false) })
         // By key: the S5 tunables are not on the base, where a set is refused and the suite fails on behavior.
         TunableStore.shared.set("motion.frameOwner.pages", pages.map { .bool($0) })
         TunableStore.shared.set(tunables.syncDeadline.key, syncDeadline.map { .number($0) })

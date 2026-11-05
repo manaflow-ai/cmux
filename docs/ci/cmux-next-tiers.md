@@ -227,6 +227,31 @@ No runner waits for the tree. `cmux-next path routing` probes it once
   scheme compile. A new linked library changes `Package.swift`, which runs
   every tier, so a source-only CmuxNext change cannot add one.
 
+## Changes that need only a blaze build
+
+`scripts/ci/build_class.py [--base REF | --changed-files FILE]` says, from the
+changed files alone, which build a change needs:
+
+- `blaze`: only files inside cmux-tui crates that only Cargo builds read. The
+  blaze (or cargo) builds of the Rust workspaces it names are the whole build:
+  the crate's own workspace and every workspace outside cmux-tui with a path
+  dependency on it (optchat-chief on cmux-chief). Skip the Xcode build, the
+  Swift compiles and the app build.
+- `app`: anything else, including any file it cannot place and every file
+  outside cmux-tui crates (docs too: a crate can `include_str!` one).
+
+A crate is `app` when it is in the Cargo dependency closure of a crate another
+language links (any `staticlib`, `cdylib` or `*-ffi` crate in the repo, or a
+crate a `Package.swift` names, such as the cmux-terminal-client xcframework),
+or in the router's CCmuxAppFFI and app scheme build-phase lists (read from
+`cmux.xcodeproj`; the cmux-tui `Cargo.toml` and `Cargo.lock` are among them).
+A change takes its heavier file's class. The class covers builds only: a
+daemon change still runs the daemon tier's live-daemon suites.
+`tests/test_ci_build_class.py` checks it on the real tree; run it yourself.
+On 2026-11-05, 17 of the 93 cmux-tui workspace crates were `blaze` (acpmux and
+cmux-tui among them). In the last 500 `feat-cmux-next` commits, 43 were
+`blaze`: 39% of the 109 that touched cmux-tui.
+
 ## Generated files fix themselves
 
 When the action contracts or the graph are stale, `cmux-next generated files`

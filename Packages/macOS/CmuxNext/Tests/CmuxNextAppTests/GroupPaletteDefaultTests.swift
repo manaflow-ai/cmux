@@ -84,6 +84,11 @@ import Testing
     /// name background (moved only as far as its ink needs for 4.5:1), and the members'
     /// line the bar's color.
     @Test func sidebarGroupHeadersAndLinesDrawLawrencesPaletteInEveryTheme() throws {
+        // The solid bar (`sidebar.groupGlass` solid); the glass panes are pinned in `GroupHeaderGlassTests`.
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        TunableStore.shared.set(SidebarGroupGlass.tunable.key, SidebarGroupGlass.solid.tunableValue)
+        defer { TunableStore.shared.set(SidebarGroupGlass.tunable.key, nil) }
         for (name, scope) in try Self.themes() {
             let (sidebar, ids) = try Self.sidebar(Self.order)
             scope.root(sidebar)

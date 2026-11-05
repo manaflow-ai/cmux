@@ -1341,7 +1341,7 @@ extension ChatRow {
         }
     }
 
-    static let hostedReuseKeys = ["prompt", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
+    static let hostedReuseKeys = ["prompt", "incoming", "block", "thought", "tool", "toolGroup", "edit", "plan", "permission", "question",
                                   "subagents", "working", "editedFiles", "stopped", "failed", "actions", "nextStep", "other"]
 
     /// The SwiftUI reuse pool: one per kind, so a reused cell keeps its view structure.
@@ -1349,6 +1349,7 @@ extension ChatRow {
         switch kind {
         case .sessionStart: "other"
         case .prompt: "prompt"
+        case .incoming: "incoming"
         case .block: "block"
         case .thought: "thought"
         case .tool: "tool"
@@ -1367,11 +1368,11 @@ extension ChatRow {
         }
     }
 
-    /// Views of this row keep state of their own (`QuestionCard`'s answers, a code card or a
-    /// failure's disclosure).
+    /// Views of this row keep state of their own (`QuestionCard`'s answers, a code card, a
+    /// failure's disclosure or an incoming stack's open lines).
     var keepsViewState: Bool {
         switch kind {
-        case .question, .failed, .block, .nextStep: true
+        case .question, .failed, .block, .nextStep, .incoming: true
         default: false
         }
     }
@@ -1404,6 +1405,8 @@ extension ChatRow {
         case .sessionStart: return 46
         case .prompt(let text, let attachments, _, _):
             return lines(text) * perLine + 22 + (attachments.isEmpty ? 0 : 156)
+        case .incoming(let incoming, _):
+            return incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40
         case .block(_, let block):
             switch block.kind {
             case .heading: return 30
