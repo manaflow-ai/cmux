@@ -485,4 +485,38 @@ mod tests {
         assert_eq!(ranges.len(), CHUNKS_PER_READ + 1);
         assert_eq!(ranges[1], "bytes=4-7");
     }
+
+    /// RED before the fix: a failed later chunk returned the error and dropped the lines the
+    /// earlier chunks had completed, while the offset already stood past them, so they were lost.
+    #[tokio::test]
+    async fn a_failed_later_chunk_keeps_the_lines_already_read() {
+        let answers: Vec<Reply> = vec![
+            (206, cr("bytes 0-3/*"), b"abc\n".to_vec()),
+            (502, Vec::new(), Vec::new()),
+            (206, cr("bytes 4-5/*"), b"z\n".to_vec()),
+        ];
+        let (url, server) = server(answers).await;
+        let http = reqwest::Client::new();
+        let mut tail = TranscriptTail::with_chunk(4);
+        let first = read_next(&http, url.clone(), &mut tail).await.unwrap();
+        assert_eq!(first, vec!["abc"], "the first chunk's line is delivered");
+        assert_eq!(tail.offset(), 4);
+        assert!(tail.more(), "the caller reads again for the bytes after the failure");
+        assert_eq!(read_next(&http, url.clone(), &mut tail).await.unwrap(), vec!["z"]);
+        let ranges = server.await.unwrap();
+        assert_eq!(ranges, vec!["bytes=0-3", "bytes=4-7", "bytes=4-7"]);
+    }
+
+    #[tokio::test]
+    async fn a_first_chunk_that_fails_is_an_error() {
+        let (url, server) = server(vec![(502, Vec::new(), Vec::new())]).await;
+        let http = reqwest::Client::new();
+        let mut tail = TranscriptTail::with_chunk(4);
+        assert!(matches!(
+            read_next(&http, url, &mut tail).await,
+            Err(TailError::Status(502))
+        ));
+        assert_eq!(tail.offset(), 0);
+        server.await.unwrap();
+    }
 }
