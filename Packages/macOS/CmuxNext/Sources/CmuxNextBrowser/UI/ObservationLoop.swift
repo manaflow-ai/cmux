@@ -24,7 +24,7 @@ final class ObservationLoop {
         guard isActive else { return }
         withObservationTracking {
             render()
-        } onChange: { [weak self] in
+        } onChange: { [weak self, site] in
             ObservationWakes.record(site: site)
             Task { @MainActor in self?.arm() }
         }
