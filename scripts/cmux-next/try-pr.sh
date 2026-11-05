@@ -14,7 +14,8 @@
 #   try-pr.sh PR --stop             quit and remove the PR's side instance and its dev server
 #
 # By default the PR opens in a side instance, "cmux PR #N" (side-instance.sh pr-N): a copy of APP
-# (default /Applications/cmux NEXT.app; a nightly or a DEV build) with its own data, socket,
+# (default /Applications/cmux NEXT.app; a nightly, or a DEV build for rebuilds only: a DEV copy
+# cannot load a web overlay) with its own data, socket,
 # daemon, settings and web overlay, so your app and its sessions are not touched. Like every cmux
 # build on the Mac, it shares two folders: agent-home (the folder a chat with no folder runs in)
 # and Chat Uploads. A rebuild opens the PR's own build
@@ -58,7 +59,10 @@ run() {
 # The side instance's environment for web-overlay.sh, in this shell.
 side_env() { if [[ -z "$dry" ]] || "$side" path "$name" >/dev/null 2>&1; then eval "$("$side" env "$name")"; fi; }
 
+# One physical root for this script and side-instance.sh (which resolves it the same way), so the
+# marker, pid and build paths both use agree.
 side_root="${CMUX_SIDE_ROOT:-$HOME/Library/Application Support/cmux-side}"
+mkdir -p "$side_root"; side_root="$(cd "$side_root" && pwd -P)"; export CMUX_SIDE_ROOT="$side_root"
 if [[ -n "$stop" ]]; then
   if "$side" path "$name" >/dev/null 2>&1; then
     side_env
@@ -114,6 +118,10 @@ case "$verdict" in
     echo "web only: no build, the PR's web UI is patched in and hot-reloads"
     if [[ -z "$here" ]]; then
       [[ -n "$dry" || -d "$from" ]] || { echo "no app at $from to copy (--from APP names another)" >&2; exit 1; }
+      # A DEV copy has its own bundle id, and the app reads web-dev.json only under DEV's own.
+      if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$from/Contents/Info.plist" 2>/dev/null || true)" == com.cmuxterm.app.debug.next ]]; then
+        echo "a copy of cmux NEXT DEV cannot load the PR's web UI (it reads web-dev.json only under DEV's own bundle id): --from a nightly, or --here to patch your DEV" >&2; exit 1
+      fi
       open_side "$from"
       side_env
       # The side instance keeps the port it was given; a new one takes the first free port from

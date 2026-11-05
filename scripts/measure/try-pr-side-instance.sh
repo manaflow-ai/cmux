@@ -11,7 +11,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 mkdir -p "$out"
 now() { python3 -c 'import time; print(f"{time.time():.3f}")'; }
 work="$(mktemp -d "${TMPDIR:-/tmp}/try-pr-measure.XXXXXX")"
-export CMUX_SIDE_ROOT="$work/side"
+# Physical, as side-instance.sh and try-pr.sh resolve it ($TMPDIR is under a /var link).
+mkdir -p "$work/side"; CMUX_SIDE_ROOT="$(cd "$work/side" && pwd -P)"; export CMUX_SIDE_ROOT
 trap 'rm -rf "$work"' EXIT
 
 # try-pr.sh reads the base branch's history for the merge base.

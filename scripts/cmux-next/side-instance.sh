@@ -23,7 +23,10 @@
 #                   off (no feed, no key), no document types or login items, one URL scheme of its
 #                   own for sign-in callbacks (cmux links stay with the original), re-sealed ad hoc
 #                   with its unrestricted entitlements (no Keychain group)
-#   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment)
+#   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment), and
+#                   its debug-tunables.json (CMUX_NEXT_DEBUG_TUNABLES_FILE) with Live web reload on, so it
+#                   loads its web overlay. A copy of cmux NEXT DEV cannot: the app reads web-dev.json
+#                   only under DEV's own bundle id (WebDevOverride.isAvailable); a nightly's copy can.
 #   web-overlay/    its web overlay (CMUX_WEB_OVERLAY_DIR), web-slot/ its dev server state
 # A side instance starts signed out with fresh settings. Like every cmux build on the Mac, it shares
 # two folders with the others: ~/Library/Application Support/cmux/agent-home (the folder a chat
@@ -112,6 +115,18 @@ case "$cmd" in
     "$buddy" -c "Print :LSEnvironment" "$plist" >/dev/null 2>&1 || "$buddy" -c "Add :LSEnvironment dict" "$plist"
     plist_set "$plist" LSEnvironment:CMUX_NEXT_CONFIG_FILE "$dir/config/cmux-next.json"
     plist_set "$plist" LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME "$scheme"
+    # Live web reload (Debug Settings, webDev.override) on in its own tunables file, kept with any
+    # other tunable set there; without it the app ignores web-dev.json and shows the bundled pages.
+    python3 - "$dir/config/debug-tunables.json" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+try: data = json.load(open(p)) if os.path.exists(p) else {}
+except ValueError: data = {}
+if not isinstance(data, dict) or not isinstance(data.get("values"), dict): data = {"version": 1, "values": {}}
+data.setdefault("version", 1); data["values"]["webDev.override"] = True
+json.dump(data, open(p, "w"), indent=2)
+PY
+    plist_set "$plist" LSEnvironment:CMUX_NEXT_DEBUG_TUNABLES_FILE "$dir/config/debug-tunables.json"
     # The seal covers Info.plist: re-sign the outer bundle ad hoc (nested code keeps its own
     # signatures), and check it. An ad hoc signature may carry only unrestricted entitlements: one
     # that needs the team's provisioning profile (the Keychain group, application-identifier, any
