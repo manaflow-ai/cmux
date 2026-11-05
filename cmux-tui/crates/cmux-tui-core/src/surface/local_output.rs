@@ -257,7 +257,7 @@ impl LocalOutput {
 }
 
 impl OutputPublisher {
-    pub(super) fn publish(&self, surface: &Surface, events: Vec<ParsedOutput>) {
+    pub(super) fn publish(&self, surface: &Arc<Surface>, events: Vec<ParsedOutput>) {
         let Some(pty) = surface.as_pty() else { return };
         let mux = &pty.mux;
         for ParsedOutput {
@@ -268,8 +268,9 @@ impl OutputPublisher {
             finished_commands,
         } in events
         {
-            surface.publish_pending_directory();
-            surface.publish_pending_progress();
+            // Durable publications commit on the mux's terminal publisher: the
+            // next output must not wait for the registry (#35413).
+            surface.queue_pending_publications();
             pty.stream_progress.notify();
             // Published by the frame producer, once per frame (FrameRequests).
             if let Some((offset, at_bottom)) = scroll_changed {
@@ -287,7 +288,7 @@ impl OutputPublisher {
             if !terminal_notifications.is_empty()
                 && let Some(mux) = mux.upgrade()
             {
-                mux.post_terminal_notifications(surface.id, terminal_notifications);
+                mux.queue_terminal_notifications(surface.id, terminal_notifications);
             }
             if !finished_commands.is_empty()
                 && let Some(mux) = mux.upgrade()

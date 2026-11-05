@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 801,
-    "mcp": 715
+    "verbs": 802,
+    "mcp": 716
   },
   "nouns": [
     {
@@ -1532,6 +1532,13 @@
           "id": "cloudPublicationList",
           "mcp": true,
           "mcpTool": "app_cloud_publication_list"
+        },
+        {
+          "command": "cmux cloud relay-chat",
+          "title": "Chat on Cloud Machine over the Relay…",
+          "id": "cloudRelayChat",
+          "mcp": true,
+          "mcpTool": "app_cloud_relay_chat"
         },
         {
           "command": "cmux cloud rename-machine",

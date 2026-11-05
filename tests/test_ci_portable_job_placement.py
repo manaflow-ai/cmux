@@ -16,6 +16,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -882,6 +883,78 @@ class Wiring(unittest.TestCase):
             with self.subTest(workflow=workflow):
                 checkout = jobs(workflow)["portable-placement"]["steps"][0]
                 self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")
+
+
+class SkippedPlacementKeepsRouting(unittest.TestCase):
+    """A skipped portable-placement never skips the jobs it only places.
+
+    The bootstrap skips on a re-run (attempt 3, or a person's attempt 2), on a fork and under
+    CI_PORTABLE_LIGHT_JOBS_OFF. A job whose if calls no status function gets GitHub's implicit
+    success(), which reads every ancestor, not just its needs: so after `changes` (always())
+    routed web=true, run 41892308895's whole-run attempt 3 skipped `web`, its shards and the webview
+    verdict, and the verdict could not be refreshed without a new commit. Each descendant says
+    !cancelled() (or always()) and checks the result of each job it needs instead.
+    """
+
+    WORKFLOWS = ("ci.yml", "cmux-next.yml", "cmux-next-guards.yml")
+    STATUS = re.compile(r"\b(always|cancelled|failure)\(\)")
+    # Push-only and gated on its needs' results already; its 'skipped' generated-files branch would
+    # start running on a first attempt with a status function, so it keeps the implicit success().
+    EXEMPT = {("cmux-next.yml", "swift-exports-cache")}
+    # The jobs this guard was added for: each checks every need's result, so a failed or skipped
+    # router still skips them as the implicit success() did on a first attempt.
+    RESULT_CHECKED = {"ci.yml": ("guards", "ghosttykit-release-check", "browser", "remote-daemon", "web",
+                                 "dogfood-build"),
+                      "cmux-next.yml": ("web-bundles", "request-nightly-next")}
+
+    @staticmethod
+    def needs(job: dict) -> list[str]:
+        value = job.get("needs") or []
+        return [value] if isinstance(value, str) else list(value)
+
+    def descendants(self, workflow_jobs: dict, root: str) -> set[str]:
+        found: set[str] = set()
+        changed = True
+        while changed:
+            changed = False
+            for name, job in workflow_jobs.items():
+                if name not in found and any(need == root or need in found for need in self.needs(job or {})):
+                    found.add(name)
+                    changed = True
+        return found
+
+    def test_no_job_skips_because_the_placement_bootstrap_skipped(self):
+        checked = 0
+        for workflow in self.WORKFLOWS:
+            workflow_jobs = jobs(workflow)
+            self.assertIn("portable-placement", workflow_jobs, workflow)
+            for name in sorted(self.descendants(workflow_jobs, "portable-placement")):
+                if (workflow, name) in self.EXEMPT:
+                    continue
+                with self.subTest(job=f"{workflow}#{name}"):
+                    condition = str(workflow_jobs[name].get("if") or "")
+                    self.assertRegex(condition, self.STATUS,
+                                     "a skipped portable-placement skips this job through the implicit success()")
+                    checked += 1
+        self.assertGreater(checked, 20)
+
+    def test_web_and_the_other_routed_jobs_still_skip_on_a_failed_need(self):
+        for workflow, names in self.RESULT_CHECKED.items():
+            workflow_jobs = jobs(workflow)
+            for name in names:
+                with self.subTest(job=f"{workflow}#{name}"):
+                    job = workflow_jobs[name]
+                    condition = " ".join(str(job["if"]).split())
+                    self.assertIn("!cancelled()", condition)
+                    for need in self.needs(job):
+                        self.assertIn(f"needs.{need}.result == 'success'", condition)
+
+    def test_the_skip_is_what_a_rerun_or_a_fork_gets(self):
+        bootstrap = str(jobs("ci.yml")["portable-placement"]["if"])
+        self.assertIn("github.run_attempt == 1", bootstrap)
+        self.assertIn("head.repo.full_name == github.repository", bootstrap)
+        changes = str(jobs("ci.yml")["changes"]["if"])
+        self.assertIn("always()", changes)
 
 
 if __name__ == "__main__":

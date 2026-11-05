@@ -1415,6 +1415,40 @@ a.hc-slack-source:focus-visible {
 .lg-run-block {
   margin: 0 0 var(--ds-space-2);
 }
+.lg-home-tool-group {
+  margin: 0 0 var(--ds-space-2);
+  border-inline-start: var(--lg-run-rail) solid var(--lg-line);
+  padding-inline-start: var(--ds-space-2);
+}
+.lg-home-tool-summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  cursor: default;
+  color: var(--page-text);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.lg-home-tool-titles {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1;
+  gap: var(--ds-space-2);
+  overflow: hidden;
+  color: var(--page-text-3);
+}
+.lg-home-tool-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lg-home-tool-title + .lg-home-tool-title::before {
+  content: "·";
+  margin-inline-end: var(--ds-space-2);
+}
+.lg-home-tool-details {
+  margin-block-start: var(--ds-space-1);
+}
 .lg-run-block.note {
   color: var(--page-text-2);
   font-size: var(--text-detail);

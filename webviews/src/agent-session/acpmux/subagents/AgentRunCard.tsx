@@ -1,9 +1,8 @@
 // An explicit acpmux child session (subagentFold.ts `reduceChild`) where its parent call started
-// in the transcript, as a sub-session's card (AgentCard.tsx): its harness's mark, the
-// first line of what it was asked, its state (the working spinner while it
-// runs, never a dot) and time, under them its harness, model and effort and the machine it
-// runs on, and once it ended, what it finally
-// said, cut to three lines. Raw opens the command as the call ran it; Show output opens the run's
+// in the transcript, as a sub-session's one-line row (AgentCard.tsx `disclosure`): its harness's
+// mark, the first line of what it was asked, its harness, model and effort and the machine it runs
+// on, and its state (the working spinner while it runs, never a dot) and time; its panel holds what
+// it finally said, cut to three lines. Raw opens the command as the call ran it; Show output opens the run's
 // own view (the command and all it printed). When the run has an acpmux session in the session list,
 // its card row opens that chat instead.
 // Its state, time and reply also show in the tray above the composer and the summary card's
@@ -52,9 +51,11 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
       harness={agent.harness}
       identity={agent.id}
       sessionId={chat}
-      // The model and the machine on the line under the name, which keeps the head's room for the
-      // name at a narrow width.
-      doing={[agent.kind, agent.host].filter(Boolean).join(" · ") || undefined}
+      // One line, as a sub-session's start draws (Leo, 2026-11-04: "how Claude code just has one
+      // lines too"): the model and the machine beside the name, its reply and Raw in the panel.
+      model={[agent.kind, agent.host].filter(Boolean).join(" · ") || undefined}
+      disclosure
+      disclosureKey={`agent-run:${agent.id}`}
       state={cardState(agent)}
       time={formatDuration(elapsed(agent, now))}
       stateLabel={stopped(agent.state) ? t(STATE_LABEL[agent.state]) : undefined}

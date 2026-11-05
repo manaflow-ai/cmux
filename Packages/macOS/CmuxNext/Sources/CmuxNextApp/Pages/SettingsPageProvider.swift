@@ -414,7 +414,7 @@ final class SettingsPageProvider: PageProvider {
             "schema_hash": "",
             "effective": settings.snapshot.root,
             "managed": .object(managed),
-            "diagnostics": .array(settings.diagnostics.map { ["path": .string($0.path), "message": .string($0.message)] }),
+            "diagnostics": .array(settings.pageDiagnostics.map { ["path": .string($0.path), "message": .string($0.pageMessage)] }),
             "domains": .object(published),
         ]
     }

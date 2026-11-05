@@ -17,9 +17,18 @@ public final class KernelMemoryPressureSource: MemoryPressureSource {
     // nonisolated deinit on any thread; the critical sections set a flag and make, activate or
     // cancel the source, none of which waits or runs the event handler inline.
     private let state = Mutex(State())
+    private let read: @Sendable () -> MemoryPressureLevel
 
     /// Makes an idle source; the dispatch source is made and activated in ``start(delivering:)``.
-    public init() {}
+    ///
+    /// - Parameter read: Reads the level now (``currentLevel()``); the kernel's sysctl by default, a test
+    ///   passes its own.
+    public init(read: @escaping @Sendable () -> MemoryPressureLevel = { KernelMemoryPressureLevel().read() }) {
+        self.read = read
+    }
+
+    /// The kernel's level now (`kern.memorystatus_vm_pressure_level`).
+    public func currentLevel() -> MemoryPressureLevel? { read() }
 
     /// Makes the dispatch source, sets its event handler and activates it. Does nothing after
     /// ``cancel()`` or a second time.

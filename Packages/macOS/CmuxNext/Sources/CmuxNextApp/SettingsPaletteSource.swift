@@ -103,7 +103,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         } else if isFont {
             settings.recentFonts.options(current: current?.stringValue, families: SettingsPageDomains().fontFamilies, defaultLabel: descriptor.defaultLabel ?? descriptor.title)
         } else {
-            descriptor.paletteOptions(current: current, themeColors: colors)
+            settings.paletteOptions(descriptor, current: current, themeColors: colors)
         }
         let currentOption = options.first(where: \.isCurrent)
         let label = currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""

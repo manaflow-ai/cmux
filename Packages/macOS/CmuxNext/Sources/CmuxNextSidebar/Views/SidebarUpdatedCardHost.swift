@@ -40,6 +40,7 @@ final class SidebarUpdatedCardHost: NSView {
     var surfaces: (any SidebarUpdateSurfaces)? {
         didSet {
             island?.close()
+            pageReported = false
             island = card == nil ? nil : surfaces?.island(.updated)
             isHidden = card == nil || island == nil
         }
@@ -52,9 +53,35 @@ final class SidebarUpdatedCardHost: NSView {
             island.view.autoresizingMask = [.width, .height]
             // Under the x: the page never covers it.
             addSubview(island.view, positioned: .below, relativeTo: closeButton)
-            island.onHeightChange = { [weak self] in self?.onHeightChange?() }
+            island.onHeightChange = { [weak self] in self?.pageDidReportHeight() }
             island.onDismiss = { [weak self] in self?.onDismiss?() }
         }
+    }
+
+    /// The height the card's page last reported, kept across launches: a relaunch after an update
+    /// lays the card out at it in its first frame instead of making room once the page has drawn
+    /// (Leo 2026-11-04: "i feel like the restarted after nightly update does too many layout
+    /// shifts/flicker renderings"). The card's words and its shape change little between builds, so
+    /// the previous build's height is the guess when this build's card has not drawn yet.
+    static let rememberedHeightKey = "cmux.sidebar.updatedCard.height"
+    static var rememberedHeight: CGFloat { max(0, CGFloat(UserDefaults.standard.double(forKey: rememberedHeightKey))) }
+
+    /// The card's next height lands at once: its first layout (at the remembered height) and the
+    /// page's first report (its real one). The list then has its final room in the frame the card
+    /// shows, never on a spring; later changes (the notes of a new build) still spring.
+    private(set) var landsAtOnce = false
+    /// The page has reported a height since the card showed.
+    private var pageReported = false
+
+    /// The sidebar laid the card out at its height without motion.
+    func landed() { landsAtOnce = false }
+
+    private func pageDidReportHeight() {
+        if !pageReported { (pageReported, landsAtOnce) = (true, true) }
+        if let height = island?.contentHeight, height > 0, height != Self.rememberedHeight {
+            UserDefaults.standard.set(Double(height), forKey: Self.rememberedHeightKey)
+        }
+        onHeightChange?()
     }
 
     /// The card's sizes at the sidebar's density (Lawrence 2026-11-01: "the card must reflect my
@@ -96,6 +123,8 @@ final class SidebarUpdatedCardHost: NSView {
     /// closes its page.
     func configure(_ card: SidebarUpdatedCard?) {
         guard card != self.card else { return }
+        // A card that shows (at launch, after the update) takes its room at once.
+        if card != nil, self.card == nil { (landsAtOnce, pageReported) = (true, false) }
         self.card = card
         closeButton.label = card?.dismissLabel ?? ""
         if card != nil, island == nil { island = surfaces?.island(.updated) }
@@ -112,8 +141,14 @@ final class SidebarUpdatedCardHost: NSView {
         isHidden = card == nil || island == nil
     }
 
-    /// The card's height: the page's content height (0 until it drew).
-    var height: CGFloat { card == nil ? 0 : island?.contentHeight ?? 0 }
+    /// The card's height: the page's content height once it has reported one (0 for a page with
+    /// nothing to show, which hides the card), and until then the height it last reported
+    /// (``rememberedHeight``; 0 when it never drew), so the room is there from the first frame and
+    /// the words fill in where they stay.
+    var height: CGFloat {
+        guard card != nil, let island else { return 0 }
+        return pageReported ? island.contentHeight : Self.rememberedHeight
+    }
 
     /// Shows the x while the pointer is on the card, with the hover-reveal fade (instant under Reduce Motion).
     func setHovered(_ hovered: Bool) {

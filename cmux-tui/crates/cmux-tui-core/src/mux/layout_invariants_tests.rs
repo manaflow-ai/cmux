@@ -916,3 +916,26 @@ proptest! {
         }
     }
 }
+
+/// The case `layout_ops_conserve_tabs` shrank to on feat (78ee0e108e1, 2 of 15 full Linux
+/// runs, BASE RED SUITE 2026-11-04): after a tab moves to another workspace, a close, a
+/// replayed tab move and a second close, the scoped projection's patch left out a pane whose
+/// active tab changed ("only the full projection writes UpsertPane"). Debug builds run the
+/// scoped-vs-full cross-check on every step, so this replays the shrunk sequence as is.
+#[test]
+fn a_close_after_a_replayed_move_restates_the_pane_whose_active_tab_changed() {
+    let mux = test_mux("layout-invariants-shrunk-active-tab");
+    build(&mux, &[vec![2], vec![1, 2], vec![1, 1, 1, 1]]);
+    let mut groups = 0;
+    for op in [
+        Op::ToWorkspace { tab: 5, workspace: Some(28) },
+        Op::Close { tab: 30 },
+        Op::ReplayedMove { tab: 8, pane: 18, index: 0 },
+        Op::Close { tab: 10 },
+    ] {
+        let mut before = mux.with_state(Clone::clone);
+        let mut rejections = rejections_on_this_thread();
+        let outcome = run(&mux, &op, &mut groups, &mut before, &mut rejections);
+        check_step(&mux, &before, &outcome, rejections);
+    }
+}

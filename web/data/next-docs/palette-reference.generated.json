@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1292,
+    "entries": 1294,
     "shortcuts": 189
   },
   "sections": [
@@ -140,6 +140,12 @@
           "title": "Enable Channels",
           "shortcut": null,
           "command": "cmux home enable-channels"
+        },
+        {
+          "id": "gallery.openStage",
+          "title": "Gallery Stage",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "focusHistoryBack",
@@ -6446,6 +6452,12 @@
           "title": "Bring Back Local",
           "shortcut": null,
           "command": "cmux cloud bring-back"
+        },
+        {
+          "id": "cloudRelayChat",
+          "title": "Chat on Cloud Machine over the Relay…",
+          "shortcut": null,
+          "command": "cmux cloud relay-chat"
         },
         {
           "id": "cloudPortClose",

@@ -106,7 +106,10 @@ class StubTest(unittest.TestCase):
         _, text = post(self.base + "/v1/messages/count_tokens", {"messages": []})
         self.assertEqual(json.loads(text), {"input_tokens": 10})
         with urllib.request.urlopen(self.base + "/v1/models", timeout=10) as r:
-            self.assertEqual(json.loads(r.read())["data"][0]["id"], "stub-model")
+            models = json.loads(r.read())
+        self.assertEqual(models["data"][0]["id"], "stub-model")
+        # Codex decodes {"models": [ModelInfo]}; an empty list leaves it on its fallback model metadata.
+        self.assertEqual(models["models"], [])
         with urllib.request.urlopen(self.base + "/__stub/info", timeout=10) as r:
             self.assertEqual(json.loads(r.read())["version"], model_stub.STUB_VERSION)
 
