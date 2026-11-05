@@ -106,7 +106,7 @@ struct HomeAgentRunMappingTests {
                               "tool": ["name": name, "input": ["tasks": tasks, "cwd": "~/fun/cmux"], "output": output]]])
         #expect(run.messages.map(\.peer) == ["a988", "a989"])
         #expect(run.messages.map(\.text) == tasks)
-        #expect(run.messages.allSatisfy(\.outgoing))
+        #expect(run.messages.map(\.outgoing) == [true, true])
         #expect(Set(run.messages.map(\.id)).count == 2)
     }
 
