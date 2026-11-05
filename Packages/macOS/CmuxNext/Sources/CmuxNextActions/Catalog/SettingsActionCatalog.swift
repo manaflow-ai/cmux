@@ -92,14 +92,14 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.installCLI", defaultValue: "Install cmux CLI in PATH", bundle: .module),
                 keywords: ["command line", "shell"], category: .settings, symbol: "terminal", surfaces: [.palette],
                 // Another app's `cmux` at /usr/local/bin is never replaced
-                // silently: `--replace` replaces it, `--cmux_next` installs
+                // silently: `--replace` replaces it, `--cmux-next` installs
                 // /usr/local/bin/cmux-next beside it; without either the app
                 // installs cmux-next beside it and its toast offers Replace.
                 arguments: [
                     ActionArgument(name: "replace",
                                    title: String(localized: "argument.installCLI.replace", defaultValue: "Replace Another App's cmux", bundle: .module),
                                    kind: .bool, isRequired: false),
-                    ActionArgument(name: "cmux_next",
+                    ActionArgument(name: "cmuxNext",
                                    title: String(localized: "argument.installCLI.cmuxNext", defaultValue: "Install as cmux-next", bundle: .module),
                                    kind: .bool, isRequired: false),
                 ],
@@ -558,6 +558,18 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.debug.sidebarStatesPlayground", defaultValue: "Sidebar States Playground", bundle: .module),
                 keywords: ["sidebar", "states", "rows", "playground", "gallery", "density", "text size", "dots", "spinner", "sizes", "debug"],
                 category: .settings, symbol: "sidebar.left", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Leo 2026-11-04: "shouldn't the nightly itself or whatever stable app be able to simply do this? Like the
+            // view if you wanna separate it out". The app's UI from your checkout's gallery dev server in a window of
+            // the running app (`ViewWindow`), no DEV or shell build; `port`, `width`, `height` and any mock app key
+            // (`fixture`, `density`, `script`, ...) as arguments (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.viewWindow",
+                title: String(localized: "action.debug.viewWindow", defaultValue: "Open View Window", bundle: .module),
+                keywords: ["view", "window", "preview", "shell", "live", "hot reload", "dev server", "gallery", "mock app", "checkout", "debug"],
+                category: .settings, symbol: "macwindow.on.rectangle", surfaces: [.palette, .menu], mainMenu: .debug,
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),

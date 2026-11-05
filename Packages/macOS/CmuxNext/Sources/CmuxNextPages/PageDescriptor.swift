@@ -83,15 +83,27 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// `cmux-page://<id>`.
     public var origin: String { "\(Self.scheme)://\(id)" }
 
-    /// The page URL, with `route` as the fragment (`#/settings/appearance?focus=<key>`).
+    /// The page URL, with `route` as the fragment (`#/settings/appearance?focus=<key>`). A route's
+    /// valid escapes stay as they are (a fragment the page read from `location.hash`, where `%26`
+    /// is a `&` inside a value, not a separator); everything else the fragment may not hold is encoded.
     public func url(route: String? = nil) -> URL {
         var components = URLComponents()
         components.scheme = Self.scheme
         components.host = id
         components.path = "/"
-        if let route, !route.isEmpty { components.fragment = route.hasPrefix("#") ? String(route.dropFirst()) : route }
+        if let route, !route.isEmpty {
+            let fragment = route.hasPrefix("#") ? String(route.dropFirst()) : route
+            if fragment.removingPercentEncoding != nil, let encoded = fragment.addingPercentEncoding(withAllowedCharacters: Self.encodedFragmentCharacters) {
+                components.percentEncodedFragment = encoded
+            } else {
+                components.fragment = fragment
+            }
+        }
         return components.url ?? URL(fileURLWithPath: "/")
     }
+
+    /// What an already encoded fragment may hold as is: the fragment's characters and the escapes' `%`.
+    private static let encodedFragmentCharacters = CharacterSet.urlFragmentAllowed.union(CharacterSet(charactersIn: "%"))
 
     /// Whether `url` is a document of this page (its own origin).
     public func owns(_ url: URL?) -> Bool {
@@ -217,6 +229,12 @@ public extension PageDescriptor {
         id: "cmux.changelog", resource: "changelog", namespaces: ["cmux.changelog."],
         nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions,
         csp: PageCSP(media: ["data:", changelogReelSource]))
+
+    /// The GitHub page (webviews/src/pages/github, its owner CmuxNextGitHubViewer's GitHubPageProvider): a pull
+    /// request drawn from the app's pull request cache, with no github.com page load. One tab per workspace, which
+    /// every pull request link of a chat moves to its own route (`#/pull?url=`), so a second link is a route change
+    /// in a page already running, never a new tab or a new web page.
+    static let github = PageDescriptor(id: "cmux.github", resource: "github", namespaces: ["cmux.github."])
 
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.

@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
-use super::{Command, Swift, parse, recorded_swift_tree, recorded_tree, tool_path};
+use super::{
+    Command, RustVerb, Swift, parse, recorded_swift_tree, recorded_tree, recorded_watch_tree,
+    tool_path,
+};
 
 fn words(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
@@ -68,6 +71,39 @@ fn a_short_gui_path_gains_bun_and_homebrew() {
 }
 
 #[test]
+fn rust_takes_a_build_host_and_a_session_on_start() {
+    assert_eq!(
+        parse(&words(&[
+            "start",
+            "--rust",
+            "--build-host",
+            "build-box",
+            "--session=cmux-app-nightly"
+        ]))
+        .unwrap(),
+        Command::Rust {
+            verb: RustVerb::Start,
+            worktree: None,
+            build_host: Some("build-box".to_owned()),
+            session: Some("cmux-app-nightly".to_owned()),
+        }
+    );
+    assert_eq!(
+        parse(&words(&["status", "--rust"])).unwrap(),
+        Command::Rust { verb: RustVerb::Status, worktree: None, build_host: None, session: None }
+    );
+    assert_eq!(
+        parse(&words(&["stop", "--rust", "--worktree", "/src/wt"])).unwrap(),
+        Command::Rust {
+            verb: RustVerb::Stop,
+            worktree: Some(PathBuf::from("/src/wt")),
+            build_host: None,
+            session: None,
+        }
+    );
+}
+
+#[test]
 fn swift_switches_start_and_stop_with_a_tag() {
     assert_eq!(
         parse(&words(&["start", "--swift", "--tag", "mine"])).unwrap(),
@@ -99,6 +135,24 @@ fn swift_switches_start_and_stop_with_a_tag() {
             discard: true,
         })
     );
+}
+
+#[test]
+fn rust_flags_need_rust_and_the_right_verb() {
+    assert!(parse(&words(&["start", "--build-host", "h"])).is_err());
+    assert!(parse(&words(&["stop", "--rust", "--build-host", "h"])).is_err());
+    assert!(parse(&words(&["start", "--rust", "--port", "4300"])).is_err());
+    assert!(parse(&words(&["start", "--rust=yes"])).is_err());
+}
+
+#[test]
+fn reads_the_tree_the_rust_loop_watches() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("watch.pid");
+    std::fs::write(&file, "4242 /src/my tree\n").unwrap();
+    assert_eq!(recorded_watch_tree(&file), Some(PathBuf::from("/src/my tree")));
+    std::fs::write(&file, "nope\n").unwrap();
+    assert_eq!(recorded_watch_tree(&file), None);
 }
 
 #[test]

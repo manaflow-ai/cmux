@@ -355,8 +355,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
                 for case let old? in [previous, outgoing] where old !== view { withdraw(old) }
             }
         }
-        // Mid-slide the content keeps the slide's one width (`MainPaneCardView.contentHold`).
-        let frame = contentHost.heldContentFrame ?? contentHost.bounds
+        let frame = contentHost.bounds
         if view.superview !== contentHost {
             view.frame = frame
             contentHost.addSubview(view)

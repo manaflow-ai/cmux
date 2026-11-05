@@ -124,7 +124,7 @@ final class HomeAgentSidePane: NSView {
     }
 
     private func makeChip(peer: String, title: String) -> NSView {
-        let chip = HomeAgentFillView(fill: .clear, radius: 7)
+        let chip = HomeAgentFillView(fill: .clear, radius: Metrics.insetCornerRadius)
         let name = TabButton(title: title, target: self, action: #selector(tabClicked))
         name.peer = peer
         name.isBordered = false

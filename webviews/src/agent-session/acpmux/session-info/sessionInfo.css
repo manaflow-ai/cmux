@@ -1100,6 +1100,24 @@ button.acpmux-session-info-port:hover,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A pull request source's ⋯ (View diff), shown as a Changes row's is: on the row you point at or tab
+   into, lit while its menu is open, always on touch screens. */
+.acpmux-session-info-source .acpmux-session-info-source__more {
+  opacity: 0;
+}
+.acpmux-session-info-source:is(:hover, :focus-within) .acpmux-session-info-source__more,
+.acpmux-session-info-source:is(:has([data-popup-open]), :focus-within) .acpmux-session-info-source__more,
+.acpmux-session-info-source__more:is([data-popup-open], [aria-expanded="true"]) {
+  opacity: 1;
+}
+.acpmux-session-info-source__more[data-popup-open] {
+  color: var(--agent-text);
+}
+@media (hover: none) {
+  .acpmux-session-info-source .acpmux-session-info-source__more {
+    opacity: 1;
+  }
+}
 .acpmux-session-info-sources-fold {
   margin-top: 0;
 }

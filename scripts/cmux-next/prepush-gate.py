@@ -41,6 +41,8 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match)
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf; local only: the pre-push hook and a plain
                local run, never --base/--head, --commits or GitHub Actions (no new CI gate, lead 2026-10-27)
+  rustfmt      changed cmux-tui/**/*.rs through the pinned rustfmt (cmux-tui/rustfmt.toml); local only, like
+               swiftformat; a file the base already left unformatted does not block
   swiftlint    swift-syntax rules only (scripts/cmux-next/lint/swiftlint.yml), no SourceKit
 Tool versions are pinned in scripts/cmux-next/lint-tools.lock and downloaded once (sha256 checked)
 to $CMUX_LINT_TOOLS_DIR (default ~/Library/Caches/cmux-lint-tools, ~/.cache/cmux-lint-tools on Linux).
@@ -754,6 +756,52 @@ def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str
     return "\n".join(l for l in out.splitlines() if SWIFTFORMAT_FINDING.match(l))
 
 
+RUST_SCOPE = "cmux-tui/"
+
+
+def rust_edition(repo: Path) -> str:
+    """The cmux-tui workspace's Rust edition (`[workspace.package] edition`), else 2024."""
+    try:
+        text = (repo / RUST_SCOPE / "Cargo.toml").read_text()
+    except OSError:
+        return "2024"
+    found = re.search(r'^\s*edition\s*=\s*"(\d{4})"', text, re.M)
+    return found.group(1) if found else "2024"
+
+
+def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
+    """One finding per changed cmux-tui Rust file that rustfmt would change: `<path>: not rustfmt-clean ...`.
+
+    Each file goes through rustfmt's stdin mode, so only that file is judged (a path argument would also format the
+    files its `mod` lines name). The rustfmt is the one the cmux-tui checkout pins (rust-toolchain.toml, run in
+    cmux-tui/), never installed for this check; with no such rustfmt the layer warns and finds nothing. The tip's
+    `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
+    present = [p for p in rust if (tree / p).is_file()]
+    if not present or not config.is_file():
+        return ""
+    env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0"}
+    args = ["rustfmt", "--edition", rust_edition(repo), "--config-path", str(config), "--emit", "stdout"]
+    findings = []
+    for path in present:
+        source = (tree / path).read_bytes()
+        try:
+            done = subprocess.run(args, cwd=repo / RUST_SCOPE, input=source, env=env, capture_output=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            log(f"prepush-gate: WARNING: rustfmt did not run ({type(error).__name__}); Rust formatting NOT checked")
+            return ""
+        if done.returncode != 0:
+            if b"error[" in done.stderr or (b"error:" in done.stderr and b"toolchain" not in done.stderr and b"not installed" not in done.stderr):
+                findings.append(f"{path}: rustfmt cannot parse it: "
+                                f"{done.stderr.decode(errors='replace').strip().splitlines()[0][:200]}")
+                continue
+            log("prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in "
+                f"cmux-tui/); Rust formatting NOT checked: {done.stderr.decode(errors='replace').strip()[:200]}")
+            return ""
+        if done.stdout != source:
+            findings.append(f"{path}: not rustfmt-clean; run `cargo fmt` in cmux-tui/ (the pre-commit hook does this)")
+    return "\n".join(findings)
+
+
 def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
@@ -1232,7 +1280,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if bad:
             reserved.append((HIGHLIGHTS_CHECK, bad))
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
-    if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint"}:
+    if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint", "rustfmt"}:
         return reserved
     changed = changed_files(repo, base, head)
     deleted = deleted_package_swift(repo, base, head) if only is None or "scanners" in only else []
@@ -1286,6 +1334,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if swift and (swiftformat_layer if only is None else "swiftformat" in only):
             jobs["SwiftFormat --lint"] = ("fn", swiftformat, ensure_tool(lock, "swiftformat"),
                                           lint / "swiftformat.conf", swift)
+        # Local only, like SwiftFormat (lead 2026-11-05: PRs merge before CI's fmt check ends; no new CI gate).
+        rust = [p for p in changed if p.startswith(RUST_SCOPE) and p.endswith(".rs")]
+        if rust and (swiftformat_layer if only is None else "rustfmt" in only):
+            jobs["rustfmt (cmux-tui)"] = ("fn", rustfmt, repo, repo / RUST_SCOPE / "rustfmt.toml", rust)
         if swift and (only is None or "swiftlint" in only):
             jobs["SwiftLint (syntax rules)"] = ("fn", swiftlint, ensure_tool(lock, "swiftlint"),
                                                 lint / "swiftlint.yml", swift)
@@ -1639,7 +1691,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--own-range", help="sidebar sweep on a pull request: the PR's own commits (BASE..HEAD). A "
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
-    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,leo-bans,conflicts,"
+    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,leo-bans,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,freeze,highlights")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")

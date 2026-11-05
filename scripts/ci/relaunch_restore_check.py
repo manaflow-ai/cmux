@@ -23,12 +23,21 @@ Two halves, one file:
   caller's own HOME, which would put the harness profile in the account's real home.
 
   The check, on a fresh home (fresh_home_launch_smoke.py launches it, as the nightly gate does):
-    relaunch_restore_check.py (--app APP | --dmg DMG) [--rounds 3] [--budget-ms 3000] [--out DIR]
-        [--fake-agent PATH]
-  seeds, reads the state, then each round: Quit and Keep Sessions (`action.run quitKeepSessions`), waits for
-  the process to end, starts the same app with the same environment, and polls every POLL_S until it is
-  usable: the control socket answers snapshot.get with the topology loaded, a visible window, both l5
-  workspaces and the chat's tab back, and the state probe equal to before. Each round prints
+    relaunch_restore_check.py (--app APP | --dmg DMG) [--rounds 3] [--fronts terminal,chat] [--budget-ms 3000]
+        [--out DIR] [--fake-agent PATH]
+  seeds, reads the state, then each round: puts the round's front in the front window (--fronts, cycled over
+  the rounds: `terminal` l5-a's terminal tab, `chat` l5-b's chat tab, `home` Home on its home-dock tab,
+  `first-run` the fresh home's first-run Home with no tab selected, round 1 only), Quit and Keep Sessions
+  (`action.run quitKeepSessions`), waits for the process to end, starts the same app with the same
+  environment, and polls every POLL_S until it is usable: the control socket answers snapshot.get with the
+  topology loaded, both l5 workspaces and the chat's tab back, the front window showing what it showed at
+  the quit (workspace and selected tabs), the state probe equal to before, and the launch settled (the app's
+  `reveal.pane` launch mark: its control socket also opens at a 4 s backstop when the launch never settles,
+  cmux#36274). A `chat` round also needs the shown chat page drawn (`agent_pane.painted`), and after it is
+  usable a new turn sent to the chat must be answered (live_ms), so the chat is reattached to its agent, not
+  only bound to its tab; where the build serves `debug.agent_pane` (a DEV build; a NIGHTLY's release router
+  drops `debug.*`), the shown page must also report a live event (`liveEvent`, as bench_relaunch_reconnect.py
+  reads it). `first-run` (the #36274 case) stays out of the default until cmux#36306 (its fix) lands. Each round prints
   `L5-ROUND {json}` (quit_ms: quit asked to process gone; quit_to_usable_ms: quit asked to the end of the
   poll that found it usable, the budgeted number; ready_ms: to the start of that poll, a lower bound), and the
   run prints `L5 {json}` with the verdict. Exit 0 only when every round restored everything within budget.
@@ -93,6 +102,7 @@ class Instance:
         self.sock, self.app, self.home = sock, app, home
         self.cli = os.path.join(app, "Contents", "Resources", "bin", "cmux")
         self.record = sock + ".l5-seed.json"
+        self.last_rows: list[str] = []
 
     def cmux(self, *argv: str, timeout: float = 30.0):
         """The bundled CLI with --json: the parsed answer, or {"error": ...}."""
@@ -172,7 +182,7 @@ def write_harness(home: str, fake_agent: str) -> None:
     profile.chmod(0o600)
 
 
-def seed(inst: Instance, fake_agent: str, work: str) -> dict:
+def seed(inst: Instance, fake_agent: str, work: str, front_terminal: bool = True) -> dict:
     """Makes the probed state and records it; raises RuntimeError naming the step that failed."""
     os.makedirs(work, exist_ok=True)
     pidfile = os.path.join(work, "l5-terminal.pid")
@@ -226,9 +236,13 @@ def seed(inst: Instance, fake_agent: str, work: str) -> dict:
     # home's first-run Home, whose pane has no selected tab; that relaunch never settles its launch (no pane
     # content), so the control socket opens only at its 4 s backstop (nightly 4191131679101: 5.3-5.6 s).
     made["front_workspace"] = a.get("workspace_id")
-    focused = inst.cmux("workspace", a["workspace_id"], "focus")
-    if isinstance(focused, dict) and focused.get("error"):
-        raise RuntimeError(f"focusing l5-a failed: {focused['error']}")
+    made.update(workspace_a=a.get("workspace_id"), terminal_tab=a.get("tab_id"), workspace_b=ws_b,
+                chat_tab=chat_tab_id(inst.topology(), made["chat"]))
+    # The check sets each round's front itself (put_front), so a `first-run` round can find the first-run Home.
+    if front_terminal:
+        focused = inst.cmux("workspace", a["workspace_id"], "focus")
+        if isinstance(focused, dict) and focused.get("error"):
+            raise RuntimeError(f"focusing l5-a failed: {focused['error']}")
     with open(inst.record, "w") as handle:
         json.dump(made, handle)
     return made
@@ -237,7 +251,12 @@ def seed(inst: Instance, fake_agent: str, work: str) -> dict:
 # ---- state ----------------------------------------------------------------------------------
 
 def scrollback_sha256(inst: Instance, term: str) -> str | None:
-    """sha256 of every scrollback row (oldest first, paged back from the newest) and the screen's text."""
+    """sha256 of the terminal's whole text: every scrollback row (oldest first, paged back from the newest), then
+    the screen's rows, as one list. Independent of the terminal's size: a terminal first given a view after the
+    relaunch resizes, which moves rows between scrollback and screen, pads rows to the new width and rewraps long
+    lines at it, so the digest is of the text with every space and row break taken out (nightly 4198271655001
+    reported every round "changed" for the same text wrapped at another width). The rows are kept on the instance
+    (`last_rows`) for a failure's evidence."""
     rows, before = [], None
     for _ in range(100):
         page = unwrap(inst.cmux("terminal", term, "history", "read", "--limit", "1000",
@@ -254,7 +273,11 @@ def scrollback_sha256(inst: Instance, term: str) -> str | None:
     text = screen.get("text") if isinstance(screen, dict) else None
     if text is None:
         return None
-    return hashlib.sha256(("\n".join(rows) + "\n\0\n" + text.rstrip()).encode()).hexdigest()
+    rows = rows + [line.rstrip() for line in text.split("\n")]
+    while rows and not rows[-1]:
+        rows.pop()
+    inst.last_rows = rows
+    return hashlib.sha256("".join("".join(rows).split()).encode()).hexdigest()
 
 
 def chat_messages(inst: Instance, chat: str) -> int:
@@ -272,6 +295,15 @@ def chat_tab(topo: dict | None, chat: str) -> str | None:
     for workspace in (topo or {}).get("workspaces") or []:
         if isinstance(workspace, dict) and any(str(t.get("agent_session") or "") == chat for t in tabs_of(workspace)):
             return str(workspace.get("name") or workspace.get("id"))
+    return None
+
+
+def chat_tab_id(topo: dict | None, chat: str) -> str | None:
+    """The id of the tab bound to the chat's session, or None."""
+    for workspace in (topo or {}).get("workspaces") or []:
+        for tab in tabs_of(workspace if isinstance(workspace, dict) else None):
+            if str(tab.get("agent_session") or "") == chat:
+                return tab.get("id")
     return None
 
 
@@ -326,40 +358,125 @@ def launch(app: Path, env: dict, out_log: Path) -> tuple[subprocess.Popen, int, 
     return process, marks_read, marks_write
 
 
-def usable(inst: Instance, before: dict, chat: str) -> tuple[bool, dict | None, str]:
-    """(usable, state, why not): topology loaded, a visible window, both l5 workspaces and the chat tab back, state equal."""
+def usable(inst: Instance, before: dict, chat: str, shown_before: list[dict], which: str,
+           marks: dict) -> tuple[bool, dict | None, str]:
+    """(usable, state, why not): topology loaded, both l5 workspaces and the chat tab back, the front window showing
+    what it showed at the quit, the state equal, and the launch settled (and the shown chat drawn, for `chat`)."""
     topo = inst.topology()
     if not topo:
         return False, None, "no snapshot"
     if topo.get("loaded") is False:
         return False, None, "topology not loaded"
-    if not any(isinstance(w, dict) and w.get("visible") for w in topo.get("windows") or []):
-        return False, None, "no visible window"
     if not (workspace_named(topo, "l5-a") and workspace_named(topo, "l5-b")):
         return False, None, "l5 workspaces not back"
     if not chat_tab(topo, chat):
         return False, None, f"chat tab not bound (tabs {json.dumps(chat_tabs(topo))[:400]})"
+    shown = front(topo)
+    if shown != shown_before:
+        return False, None, f"front window differs ({json.dumps(shown)[:300]})"
     now = state(inst, topo)
     changed = [k for k in KEYS if before.get(k) != now.get(k)]
-    return (not changed), now, ("changed: " + ", ".join(changed)) if changed else ""
+    if changed:
+        return False, now, "changed: " + ", ".join(changed)
+    if "reveal.pane" not in marks:
+        return False, now, "launch not settled (no reveal.pane mark)"
+    if which == "chat" and "agent_pane.painted" not in marks:
+        return False, now, "shown chat not drawn (no agent_pane.painted mark)"
+    return True, now, ""
+
+
+def live_turn(inst: Instance, chat: str, n: int, seconds: float = 30.0) -> tuple[int | None, str]:
+    """(ms from send to answer, why not): a new turn through the reattached chat, answered by the test agent."""
+    had = chat_messages(inst, chat)
+    if had < 0:
+        return None, "the chat could not be read before the live turn"
+    started = time.monotonic()
+    sent = inst.cmux("agents", "chat", "send", chat, "--", f"{PROMPT} live {n}", timeout=30)
+    if isinstance(sent, dict) and sent.get("error"):
+        return None, f"chat send failed: {sent['error']}"
+    if not wait(lambda: chat_messages(inst, chat) >= had + 2, seconds, 0.1):
+        return None, f"the live turn was not answered within {seconds:.0f} s ({chat_messages(inst, chat)} messages, had {had})"
+    return round((time.monotonic() - started) * 1000), ""
+
+
+def page_live_event(inst: Instance, seconds: float = 20.0) -> tuple[bool | None, str]:
+    """(the shown chat page reported a live event, detail); None when the build does not serve debug.agent_pane."""
+    first = call(inst.sock, "debug.agent_pane", {"action": "perf_stats"}, timeout=10)
+    if first.get("error"):
+        return None, f"not served by this build ({str(first['error'])[:120]})"
+    def live():
+        stats = call(inst.sock, "debug.agent_pane", {"action": "perf_stats"}, timeout=10)
+        launch = stats.get("launch") if isinstance(stats, dict) else None
+        return isinstance(launch, dict) and "liveEvent_epoch_ms" in launch
+    return bool(wait(live, seconds, 0.25)), ""
 
 
 def front(topo: dict | None) -> list[dict]:
-    """What each visible window shows: its workspace's name and every pane's selected tab (kind, page)."""
+    """What each visible window shows: its workspace (name, kind) and every pane's selected tab (kind, page, session).
+    Ids are left out: a relaunch keeps them, but the compare is about what a person sees."""
     shown = []
     for window in (topo or {}).get("windows") or []:
         if not (isinstance(window, dict) and window.get("visible")):
             continue
         ws = next((w for w in topo.get("workspaces") or [] if isinstance(w, dict) and w.get("id") == window.get("workspace")), {})
-        tabs = [{k: t.get(k) for k in ("kind", "page")} for s_ in ws.get("screens") or [] for p in (s_ or {}).get("panes") or []
+        tabs = [{k: t.get(k) for k in ("kind", "page", "agent_session")} for s_ in ws.get("screens") or []
+                for p in (s_ or {}).get("panes") or []
                 for t in (p or {}).get("tabs") or [] if isinstance(t, dict) and t.get("id") == p.get("selected_tab")]
-        shown.append({"workspace": ws.get("name"), "selected": tabs})
+        shown.append({"workspace": ws.get("name"), "kind": ws.get("kind"), "selected": tabs})
     return shown
 
 
+FRONTS = ("terminal", "chat", "home", "first-run")
+
+
+def fronted(shown: list[dict], which: str, made: dict) -> bool:
+    """`shown` (front()) has the round's front in a visible window: l5-a on its terminal, l5-b on the chat, or Home."""
+    for window in shown:
+        selected = window.get("selected") or []
+        if which == "terminal" and window.get("workspace") == "l5-a" and any(t.get("kind") == "terminal" for t in selected):
+            return True
+        if which == "chat" and window.get("workspace") == "l5-b" and any(t.get("agent_session") == made["chat"] for t in selected):
+            return True
+        # Home's workspace has no kind in the topology (null on nightly 4191131679101): its name and page say it.
+        home = window.get("kind") == "home" or window.get("workspace") == "Home"
+        if which == "home" and home and any(t.get("page") == "home-dock" for t in selected):
+            return True
+        # The fresh home's first-run Home: its cover leaves the pane with no selected tab (cmux#36274).
+        if which == "first-run" and home and not selected:
+            return True
+    return False
+
+
+def put_front(inst: Instance, which: str, made: dict) -> str | None:
+    """Puts the round's front in the front window before the quit, as a person leaves it; None, or why it failed."""
+    if which == "first-run":
+        steps = []  # nothing to do: it holds only while nothing has changed the front since the first launch
+    elif which == "home":
+        steps = [lambda: call(inst.sock, "action.run", {"action": "home.show", "focus": True}, timeout=15)]
+    else:
+        ws, tab = (made["workspace_a"], made["terminal_tab"]) if which == "terminal" else (made["workspace_b"], made["chat_tab"])
+        if not (ws and tab):
+            return f"no {which} tab recorded at seed"
+        steps = [lambda: inst.cmux("workspace", ws, "focus"), lambda: inst.cmux("tab", tab, "focus")]
+    for step in steps:
+        answer = step()
+        if isinstance(answer, dict) and answer.get("error"):
+            return f"putting {which} in front failed: {answer['error']}"
+    if not wait(lambda: fronted(front(inst.topology()), which, made), 0 if which == "first-run" else 10, 0.1):
+        return f"{which} never showed in the front window: {json.dumps(front(inst.topology()))[:300]}"
+    return None
+
+
 def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: dict, made: dict, args, out: Path):
-    """One quit and relaunch; returns (row, the new process)."""
-    row: dict = {"round": n, "pid_before": process.pid, "front_before": front(inst.topology())}
+    """One quit and relaunch; returns (row, the new process). `before` takes the chat's state after a live turn."""
+    which = args.fronts[(n - 1) % len(args.fronts)]
+    row: dict = {"round": n, "front": which, "pid_before": process.pid}
+    failed = put_front(inst, which, made)
+    row["front_before"] = front(inst.topology())
+    if failed:
+        row["failures"] = [failed]
+        print("L5-ROUND " + json.dumps(row, default=str), flush=True)
+        return row, process
     asked = time.monotonic()
     reply = call(inst.sock, "action.run", {"action": "quitKeepSessions"}, timeout=10)
     row["quit_reply"] = reply.get("error") or "ok"
@@ -391,6 +508,9 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
     ok, now, why = False, None, "never polled"
     done = launched
     marks_text = b""
+    # The app's own launch marks (ms since its process started, LaunchMarkSink), first of each, read as they come:
+    # usable needs the launch settled (reveal.pane), and they say which wait the control socket sat behind.
+    marks: dict[str, float] = {}
 
     def drain():
         nonlocal marks_text
@@ -399,13 +519,20 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
                 marks_text += chunk
         except (BlockingIOError, OSError):
             pass
+        whole, _, marks_text = marks_text.rpartition(b"\n")
+        for line in whole.decode(errors="replace").splitlines():
+            name, _, ms = line.rpartition(" ")
+            try:
+                marks.setdefault(name, round(float(ms)))
+            except ValueError:
+                pass
     timeline = row.setdefault("timeline", [])  # [ms since the quit, what still stops it], one entry per change
     while time.monotonic() < deadline and process.poll() is None:
         # Usable counts to the end of the poll that found it so: a field may only have matched during the poll's
         # own reads, so its start would undercount. ready_ms keeps the start as the lower bound.
         drain()
         polled = time.monotonic()
-        ok, now, why = usable(inst, before, made["chat"])
+        ok, now, why = usable(inst, before, made["chat"], row["front_before"], which, marks)
         reason = why.split(" (")[0] if not ok else "usable"
         if not timeline or timeline[-1][1] != reason:
             timeline.append([round((polled - asked) * 1000), reason])
@@ -416,15 +543,6 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
         time.sleep(POLL_S)
     drain()
     os.close(marks_read)
-    # The app's own launch marks (ms since its process started, LaunchMarkSink), first of each: which wait the
-    # control socket sat behind (it opens after LaunchSettle, or 4 s).
-    marks: dict[str, float] = {}
-    for line in marks_text.decode(errors="replace").splitlines():
-        name, _, ms = line.rpartition(" ")
-        try:
-            marks.setdefault(name, round(float(ms)))
-        except ValueError:
-            pass
     row["marks"] = marks
     row["front_after"] = front(inst.topology())
     row["usable"] = ok
@@ -440,6 +558,20 @@ def round_once(n: int, process, inst: Instance, app: Path, env: dict, before: di
         failures.append(f"usable {row['quit_to_usable_ms']} ms after the quit, over the {args.budget_ms} ms budget")
     if not row["terminal_alive_while_quit"]:
         failures.append(f"the terminal's process {made['terminal_pid']} ended with the app")
+    if ok and which == "chat":
+        # After the budgeted time: the chat answers through the relaunched app's reattached session.
+        row["live_ms"], why_not = live_turn(inst, made["chat"], n)
+        if row["live_ms"] is None:
+            failures.append(why_not)
+        row["page_live_event"], detail = page_live_event(inst)
+        if row["page_live_event"] is False:
+            failures.append("the shown chat page reported no live event within 20 s (debug.agent_pane perf_stats)")
+        elif detail:
+            row["page_live_event_detail"] = detail
+        # The next rounds compare against the chat with its new turn.
+        after = state(inst)
+        if "chat" in after:
+            before["chat"] = after["chat"]
     print("L5-ROUND " + json.dumps(row, default=str), flush=True)
     return row, process
 
@@ -453,12 +585,13 @@ def check(args) -> int:
         out = Path(out) if out else Path(env["HOME"]).parent
         inst = Instance(str(socket_path), str(app), env["HOME"])
         try:
-            made = seed(inst, args.fake_agent, os.path.join(env["HOME"], "l5-work"))
+            made = seed(inst, args.fake_agent, os.path.join(env["HOME"], "l5-work"), front_terminal=False)
         except RuntimeError as error:
             result["seed_error"] = str(error)
             return [f"seed: {error}"]
         before = state(inst)
         result["before"] = before
+        rows_before = list(inst.last_rows)
         missing = [k for k in KEYS if k not in before or (k == "workspaces" and before[k] < 2)
                    or (k == "chat" and before[k].endswith(":no-tab"))]
         if missing:
@@ -466,6 +599,10 @@ def check(args) -> int:
         failures = []
         for n in range(1, args.rounds + 1):
             row, process = round_once(n, process, inst, Path(app), env, before, made, args, out)
+            if any("scrollback_sha256" in f for f in row["failures"]) and args.out:
+                # Both texts, so the change can be read (a size-dependent digest looks the same as a lost line).
+                for name, rows in (("before", rows_before), (f"round{n}-after", inst.last_rows)):
+                    Path(args.out, f"scrollback-{name}.txt").write_text("\n".join(rows) + "\n")
             result["rounds"].append(row)
             failures += [f"round {n}: {f}" for f in row["failures"]]
             if process.poll() is not None:
@@ -536,6 +673,8 @@ def main(argv: list[str] | None = None) -> int:
     source.add_argument("--app")
     source.add_argument("--dmg")
     parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--fronts", default="terminal,chat",
+                        help="what each round leaves in front at the quit, cycled over the rounds: " + ", ".join(FRONTS))
     parser.add_argument("--budget-ms", type=int, default=3000)
     parser.add_argument("--settle", type=float, default=30.0, help="seconds a relaunch may take to become usable")
     parser.add_argument("--fake-agent", default=str(DEFAULT_FAKE_AGENT))
@@ -543,6 +682,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.rounds < 1:
         parser.error("--rounds must be at least 1")
+    args.fronts = [f.strip() for f in args.fronts.split(",") if f.strip()]
+    if not args.fronts or any(f not in FRONTS for f in args.fronts):
+        parser.error(f"--fronts takes {', '.join(FRONTS)}")
     return check(args)
 
 

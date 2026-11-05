@@ -10,7 +10,7 @@
  *   bun scripts/cmux-next/cloud-devloop.ts --credentials F --snapshot                             # the dev machine as an image
  *
  * Flags: --machine NAME|vm_ID (default cloud-devloop; made on first use), --backend prod|staging|... (default prod),
- * --build-host HOST (or CLOUD_DEVLOOP_BUILD_HOST: an ssh host with cargo, zig at /opt/zig-*, bun, zstd), --no-build, --no-push,
+ * --build-host HOST (or CLOUD_DEVLOOP_BUILD_HOST: an ssh host with cargo, bun, zstd; the build installs the Zig ghostty-next names), --no-build, --no-push,
  * --no-journey, --units host,acpmux (what to restart; default both), --restore, --snapshot.
  *
  * What runs where:
@@ -190,14 +190,16 @@ export function guestInstallScript(sha: string, mode: "patch" | "full", units: s
     `orig="/opt/cmux/$(cat original-profile)"`,
     `P=/opt/cmux/profiles/devloop-${short}`,
     `sudo -n install -D -m 755 current.bin /opt/cmux/devloop/cmux-tui-${short}`,
-    `sudo -n rm -rf "$P" && sudo -n cp -a "$orig" "$P"`,
+    // cp -a keeps the image profile's mtime: touch it, or the prune below sorts it among the oldest.
+    `sudo -n rm -rf "$P" && sudo -n cp -a "$orig" "$P" && sudo -n touch "$P"`,
     `for n in cmux-tui cmux acpmux; do sudo -n ln -sfn /opt/cmux/devloop/cmux-tui-${short} "$P/bin/$n"; done`,
     `sudo -n ln -sfn "profiles/devloop-${short}" /opt/cmux/current.devloop && sudo -n mv -Tf /opt/cmux/current.devloop /opt/cmux/current`,
     // The session daemon runs ~/.cmux/bin/cmux-tui; an earlier in-place update may have left a real file there.
     `if [ ! -L /home/cmux/.cmux/bin/cmux-tui ]; then mv -f /home/cmux/.cmux/bin/cmux-tui "$D/home-cmux-tui.orig"; ln -s /opt/cmux/current/bin/cmux-tui /home/cmux/.cmux/bin/cmux-tui; fi`,
-    // Old dev profiles and binaries but this one and the last.
-    `ls -1dt /opt/cmux/profiles/devloop-* 2>/dev/null | tail -n +3 | xargs -r sudo -n rm -rf`,
-    `ls -1t /opt/cmux/devloop/cmux-tui-* 2>/dev/null | tail -n +3 | xargs -r sudo -n rm -f`,
+    // Old dev profiles and binaries but this one and the last (never the one just made).
+    // grep -v exits 1 when nothing else is left: under pipefail that would stop the install here.
+    `ls -1dt /opt/cmux/profiles/devloop-* 2>/dev/null | { grep -vxF "$P" || true; } | tail -n +2 | xargs -r sudo -n rm -rf`,
+    `ls -1t /opt/cmux/devloop/cmux-tui-* 2>/dev/null | { grep -vxF /opt/cmux/devloop/cmux-tui-${short} || true; } | tail -n +2 | xargs -r sudo -n rm -f`,
     ...restartLines(units),
     `echo "installed ${short}: $(/opt/cmux/current/bin/cmux-tui --version)"`,
   ].join("\n");
@@ -251,7 +253,7 @@ async function main(argv = process.argv.slice(2)): Promise<number> {
   const journeyArgs = dash >= 0 ? argv.slice(dash + 1) : [];
   const backend = resolveBackend(argValue("--backend", own) ?? "prod");
   const buildHost = argValue("--build-host", own) ?? process.env.CLOUD_DEVLOOP_BUILD_HOST ?? "";
-  if (!buildHost && !own.includes("--no-build")) throw new Error("--build-host HOST or CLOUD_DEVLOOP_BUILD_HOST: an ssh host with cargo, zig under /opt/zig-*, bun and zstd");
+  if (!buildHost && !own.includes("--no-build")) throw new Error("--build-host HOST or CLOUD_DEVLOOP_BUILD_HOST: an ssh host with cargo, bun and zstd (the build installs the Zig ghostty-next names)");
   const machineArg = argValue("--machine", own) ?? "cloud-devloop";
   const units = (argValue("--units", own) ?? "host,acpmux").split(",").filter(Boolean);
   const credFile = argValue("--credentials", own);
@@ -310,8 +312,17 @@ async function main(argv = process.argv.slice(2)): Promise<number> {
     const build = ssh(buildHost, [
       "set -euo pipefail",
       `cd ~/${REMOTE_DIR}/cmux-tui`,
-      'zig=$(ls -d /opt/zig-* 2>/dev/null | sort -V | tail -1)',
+      // The Zig ghostty-next names (minimum_zig_version, 0.17.0 since ghostty-next moved on), installed once per
+      // version by the checkout's own installer (signature, sha256 and the reviewed-std check) under ~/.cache:
+      // never a newest /opt/zig-*, which built against the wrong Zig when the host's lagged (0.16 vs 0.17).
+      'want=$(source ../scripts/ghostty-zig-version.sh && GHOSTTY_ZIG_SOURCE=ghostty-next ghostty_minimum_zig_version ..)',
+      'zig="$HOME/.cache/cloud-devloop/zig/zig-$(uname -m)-linux-$want"',
+      'if [ "$("$zig/zig" version 2>/dev/null)" != "$want" ]; then',
+      '  ZIG_REQUIRED="$want" GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=DEVLOOP_ZIG ZIG_INSTALL_ROOT="$zig" RUNNER_TEMP="$HOME/.cache/cloud-devloop/zig-tmp" GITHUB_ENV=/dev/null ../scripts/install-zig-ci.sh >/dev/null',
+      "fi",
+      'test "$("$zig/zig" version)" = "$want"',
       'export PATH="$zig:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH" ZIG="$zig/zig" CMUX_GHOSTTY_SRC= CMUX_GHOSTTY_VT_ZIG_CPU=baseline CARGO_PROFILE_DEV_DEBUG=false CARGO_PROFILE_DEV_STRIP=true',
+      'echo "zig $($zig/zig version)" >&2',
       `export CMUX_TUI_BUILD_COMMIT=${base}`,
       "log=~/.cache/cloud-devloop/build.log; mkdir -p ~/.cache/cloud-devloop",
       "if ! cargo build -p cmux-tui --bin cmux-tui --locked --message-format short > $log 2>&1; then grep -E '^(error|[^ ]+:[0-9]+:[0-9]+: error)' $log | head -40; tail -5 $log; exit 1; fi",

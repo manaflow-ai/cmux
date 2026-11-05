@@ -69,12 +69,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeFeedInChief = true
     /// `home.server`: cmux Cloud (`hosted`) when unset or invalid, else the self-hosted server's origin.
     public var homeServer: HomeServerSetting.Value = .hosted
-    /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
-    public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault, classicHome = CmuxConfigSnapshot.classicHomeDefault
+    /// `labs.previewFeatures`; off when unset.
+    public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault
     /// `labs.voiceRoom` (off when unset) and `labs.voiceRoomURL` (trimmed; empty is the local room server).
     public var voiceRoom = CmuxConfigSnapshot.voiceRoomDefault, voiceRoomURL = CmuxConfigSnapshot.voiceRoomURLDefault
-    /// `labs.machineJoin`: the one-line machine join surfaces (Add Device's way, joined Machines rows, This Mac's
-    /// consent switches); off when unset.
+    /// `labs.machineJoin`: This Mac's Screen sharing and Control consent switches for a joined Mac (Add Device's
+    /// join way and the joined Machines rows no longer read it); off when unset.
     public var machineJoin = CmuxConfigSnapshot.machineJoinDefault
     /// `labs.liveCode`: a live code build applies Swift patches from ~/Library/Caches/cmux-next/live-code (read at launch); off when unset.
     public var liveCode = CmuxConfigSnapshot.liveCodeDefault
@@ -284,6 +284,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sessions = SessionSettings()
     /// `agents.subsessions.*`: sub-session limits; the acpmux daemon enforces them.
     public var subsessions = SubsessionSettings()
+    public var agentGuidance = AgentGuidanceSettings()
     /// `agents.autoRetry.*`: the retry loop after a rate limit or lost connection; the acpmux
     /// daemon runs it.
     public var agentRetry = AgentRetrySettings()
@@ -344,7 +345,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(AgentMouseSetting().parse(root), \.browserAgentMouse)
         snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
-        snapshot.take(Self.parseLabsToggle(root, path: classicHomePath, fallback: classicHomeDefault), \.classicHome)
         snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
         snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
@@ -470,6 +470,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.freeModel = FreeModelSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.sessions = SessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.subsessions = SubsessionSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.agentGuidance = AgentGuidanceSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.agentRetry = AgentRetrySettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.trust = TrustSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.mobile = MobileSettings.parse(root, diagnostics: &snapshot.diagnostics)
