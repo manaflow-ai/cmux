@@ -9,8 +9,11 @@ Chromium, and it's on by default.
 
 ```sh
 git clone https://github.com/manaflow-ai/cmux && cd cmux      # or any checkout you already have
-scripts/cmux-next/web-overlay.sh server --local
+cmux live start
 ```
+
+Or, without a terminal: press Cmd-Shift-P, run **Edit cmux Live…** and pick the checkout. The same
+button is at the end of Settings > General.
 
 Now edit anything under `webviews/src/` and save. Open pages and chats reload once onto your
 code, then every save shows up in about a second, keeping each page's state (React Fast Refresh).
@@ -18,21 +21,26 @@ code, then every save shows up in about a second, keeping each page's state (Rea
 Done for now?
 
 ```sh
-scripts/cmux-next/web-overlay.sh off      # the web UI the app shipped with; your files stay
+cmux live stop      # the web UI the app shipped with; your files stay
 ```
+
+Or run **Stop Editing cmux Live**. `cmux live` runs this checkout's `scripts/cmux-next/web-overlay.sh`
+(`start` is `server --local`, `stop` is `server off`, `status` is `status`); the script's other modes
+below are for slots, pull requests and built bundles. Agents in cmux learn all of this from the
+`cmux-live` skill.
 
 | You want | Do this |
 |---|---|
-| Your edits live in your app | `scripts/cmux-next/web-overlay.sh server --local` |
-| Another worktree's edits live | `scripts/cmux-next/web-overlay.sh server --local --worktree <path>` |
+| Your edits live in your app | `cmux live start`, or Cmd-Shift-P > **Edit cmux Live…** |
+| Another worktree's edits live | `cmux live start --worktree <path>` |
 | A worktree's web UI in one window of your app, the others untouched | `scripts/cmux-next/projection.sh open <worktree> [--test CMD]` ([below](#a-projection-window)) |
 | Several versions of one change live side by side, keep the best | `scripts/cmux-next/live-copies.sh start 3 [--from <PR\|branch>]...` ([below](#live-copies-side-by-side)) |
 | A pull request's web UI, live | `scripts/cmux-next/web-overlay.sh follow <PR>` (again after each push) |
 | Try any pull request the cheapest way | `scripts/cmux-next/try-pr.sh <PR>`: live when it can be, else it names the dev build |
 | The web UI of every merge, no checkout | Settings > Updates > Web UI Updates > **Every Merge** |
-| Stop your dev server | `scripts/cmux-next/web-overlay.sh server off` (an installed overlay, if any, still serves) |
+| Stop your dev server | `cmux live stop`, or **Stop Editing cmux Live** (an installed overlay, if any, still serves) |
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
-| What's running | `scripts/cmux-next/web-overlay.sh status` |
+| What's running | `cmux live status` |
 | Turn the feature off | Settings > General > **Live Web Reload**, or `cmux settings set updates.liveWebReload false` |
 
 ## On and off
@@ -207,11 +215,12 @@ again there. When every change is an edit to an existing `CmuxNextApp` Swift fil
 --tree` compiles those files against the build into the side instance's `live-code/` folder, and the running
 copy loads them. With `--here`, the files go to your own app's live folder (Labs > Live Code). A new or deleted
 file, a change outside `CmuxNextApp`, a commit this checkout lacks, a failed compile or a patch the app refuses
-all take the dev build instead, and the script says which one it was. A reload or DEV build records no commit (`CMUXCommit`), so the script uses the HEAD of the checkout
-the build's log compiled, as long as that checkout has no uncommitted CmuxNextApp changes and has not moved since the build.
-`scripts/measure/try-pr-live-code.sh` runs the whole path on a fleet Mac: a live code bench build, a fixture PR that
-turns Home red, and captures before and after. Only Debug and bench builds load patches
-today, so the installed nightly still takes the dev build.
+all take the dev build instead, and the script says which one it was. The build's commit comes from its
+`CMUXCommit`, which reload.sh, the fleet and the nightly stamp. A build marked `CMUXCommitDirty` (tracked files had
+local changes) or one that records no commit takes the dev build too. Only Debug and bench builds load patches
+today, so the installed nightly still takes the dev build. `scripts/measure/try-pr-live-code.sh` runs the whole
+path on a fleet Mac: a live code bench build, a PR that turns Home red (it applies, captured before and after) and
+one that calls a method only its newer base has (it takes the dev build).
 `scripts/measure/try-pr-side-instance.sh` times a set of PRs from the command to the PR's page
 loading in the side instance.
 

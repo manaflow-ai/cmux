@@ -93,8 +93,8 @@ nonisolated struct TerminalInputSink: Sendable {
 
 /// `io_write_cb`: runs on Ghostty's IO thread. Copies the bytes and hands them
 /// to the session's ordered writer.
-nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<CChar>?, _ length: UInt) {
-    guard let bridge = SurfaceBridge.from(userdata), let bytes, length > 0 else { return }
+nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<CChar>, _ length: UInt) {
+    guard let bridge = SurfaceBridge.from(userdata), length > 0 else { return }
     TypingLatencyProbe.shared.mark(.ioWrite)
     bridge.input.send(Data(bytes: bytes, count: Int(length)))
 }
