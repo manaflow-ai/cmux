@@ -2,6 +2,7 @@
 import CmuxMobileDesign
 import CmuxMobileMarkdown
 import SwiftUI
+import UIKit
 
 /// Another agent's message in the transcript (AgentIncoming): at the left with the agent's rows,
 /// never the person's bubble at the right. The sender's chip, "agent" so it never reads as the
@@ -32,6 +33,17 @@ struct AgentIncomingCard: View {
         .background(Color.cmuxMobileBubble.opacity(0.55), in: .rect(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.contextMenuPreview, .rect(cornerRadius: 16, style: .continuous))
+        .contextMenu {
+            Section(AgentTurn.menuTimestamp(at)) {
+                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = incoming.text }
+                // The prompt the agent got, envelope and all.
+                Button("Copy as Sent", systemImage: "envelope") { UIPasteboard.general.string = incoming.raw }
+                if let id = incoming.messageID {
+                    Button("Copy Message ID \(id)", systemImage: "number") { UIPasteboard.general.string = id }
+                }
+            }
+        }
         .accessibilityElement(children: .contain)
     }
 

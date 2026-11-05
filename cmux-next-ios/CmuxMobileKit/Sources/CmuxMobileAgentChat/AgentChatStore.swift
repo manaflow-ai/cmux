@@ -274,6 +274,8 @@ public final class AgentChatStore {
     private var currentMessageID: String?
     /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
     private var startsNewAttempt = false
+    /// The turn the latest `userMessage` opened (nil for a steer into a running turn): the one a `promptFrom` may mark.
+    @ObservationIgnored private var promptedTurnID: String?
     private var task: Task<Void, Never>?
     /// The chat's edit diffs, computed once each off the main thread (the transcript, its
     /// grid card and the subagent screens share them).
@@ -764,7 +766,10 @@ public final class AgentChatStore {
             retryRequested = false
             currentMessageID = nil
             reached(promptId)
+            // A steer into a running turn shares its id: only the message that opened the turn is its prompt.
+            promptedTurnID = nil
             if !turns.contains(where: { $0.id == turnId }) {
+                promptedTurnID = turnId
                 startsNewAttempt = false
                 turns.append(AgentTurn(id: turnId, prompt: text, attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
                                        promptAt: at))
@@ -793,6 +798,7 @@ public final class AgentChatStore {
         case .turnSeq(let turnId, let seq):
             turnSeqs[turnId] = seq
         case .promptFrom(let turnId, let incoming):
+            guard promptedTurnID == turnId else { return }
             mutateTurn(turnId) { $0.incoming = incoming }
         case .promptSeq(let turnId, let seq):
             promptSeqs[turnId] = seq

@@ -1368,11 +1368,11 @@ extension ChatRow {
         }
     }
 
-    /// Views of this row keep state of their own (`QuestionCard`'s answers, a code card or a
-    /// failure's disclosure).
+    /// Views of this row keep state of their own (`QuestionCard`'s answers, a code card, a
+    /// failure's disclosure or an incoming stack's open lines).
     var keepsViewState: Bool {
         switch kind {
-        case .question, .failed, .block, .nextStep: true
+        case .question, .failed, .block, .nextStep, .incoming: true
         default: false
         }
     }
