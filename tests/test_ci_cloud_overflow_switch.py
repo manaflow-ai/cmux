@@ -955,5 +955,67 @@ class RepoVariableCheckTests(unittest.TestCase):
         self.assertTrue(any("MACOS_RUNNER_26" in p for p in check.problems(env)))
 
 
+class ReadTokenTests(unittest.TestCase):
+    """The watch's reads go out on cmux-bot's token, its writes and refused reads on the workflow token."""
+
+    def client(self, refuse: int | None = None) -> tuple[switch.GitHub, list[tuple[str, str, str]]]:
+        import urllib.error
+        api = switch.GitHub("bot", "manaflow-ai/cmux", "workflow")
+        sent: list[tuple[str, str, str]] = []
+
+        def send(method: str, path: str, data: bytes | None, token: str) -> dict:
+            sent.append((method, path.split("?")[0], token))
+            if refuse is not None and token == "bot":
+                raise urllib.error.HTTPError(path, refuse, "refused", {}, None)  # type: ignore[arg-type]
+            return {"jobs": [], "workflow_runs": []}
+
+        api._send = send  # type: ignore[method-assign]
+        return api, sent
+
+    def test_reads_use_the_bot_and_writes_the_workflow_token(self) -> None:
+        api, sent = self.client()
+        api.jobs(7, 1)
+        api.runs("queued")
+        api.force_cancel(8)
+        api.rerun(8)
+        self.assertEqual([token for *_, token in sent], ["bot", "bot", "workflow", "workflow"])
+
+    def test_a_refused_read_is_asked_once_on_the_workflow_token(self) -> None:
+        for code in (401, 403, 429):
+            api, sent = self.client(refuse=code)
+            self.assertEqual(api.jobs(7, 1), [])
+            self.assertEqual([token for *_, token in sent], ["bot", "workflow"], code)
+
+    def test_other_read_errors_are_not_retried(self) -> None:
+        api, sent = self.client(refuse=404)
+        with self.assertRaises(RuntimeError):
+            api.jobs(7, 1)
+        self.assertEqual(len(sent), 1)
+
+    def test_without_a_fallback_everything_uses_the_one_token(self) -> None:
+        api = switch.GitHub("only", "manaflow-ai/cmux")
+        sent: list[str] = []
+        api._send = lambda method, path, data, token: sent.append(token) or {}  # type: ignore[method-assign]
+        api.request("GET", "/actions/runs/1")
+        api.request("POST", "/actions/runs/1/rerun")
+        self.assertEqual(sent, ["only", "only"])
+
+    def test_the_watch_reads_as_cmux_bot_with_the_workflow_token_as_fallback(self) -> None:
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["watch"]["steps"]
+        [mint] = [s for s in steps if s.get("id") == "cmux-bot-token"]
+        self.assertEqual(mint["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
+        self.assertEqual(mint["with"]["private-key"], "${{ secrets.CMUX_BOT_APP_KEY }}")
+        # Read-only: the bot token can never cancel, re-run or write a variable.
+        self.assertEqual({k: v for k, v in mint["with"].items() if k.startswith("permission-")},
+                         {"permission-actions": "read"})
+        self.assertTrue(mint["continue-on-error"])
+        [step] = [s for s in steps if s.get("id") == "switch"]
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        self.assertEqual(step["env"]["GH_FALLBACK_TOKEN"], "${{ github.token }}")
+        self.assertEqual(step["env"]["SWITCH_TOKEN"], "${{ steps.switch-token.outputs.token }}")
+        self.assertNotIn("GLAEDA_ROUTE", step["env"]["GH_TOKEN"])
+        self.assertLess(steps.index(mint), steps.index(step))
+
+
 if __name__ == "__main__":
     unittest.main()
