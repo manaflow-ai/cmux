@@ -213,6 +213,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_FORUM_ANNOUNCE, Request),
         untyped(method::MUX_FORUM_RULES, Request),
         untyped(method::MUX_SET_TOOLS, Request),
+        untyped(method::MUX_SET_DIRECTORIES, Request),
         untyped(method::MUX_MCP_RECONNECT, Request),
         untyped(method::MUX_SUBAGENT_STOP, Request),
         untyped(method::MUX_SUBAGENT_TRANSCRIPT, Request),
@@ -409,6 +410,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_ROUTE_TEST, Request),
         untyped(method::MUX_ROUTE_DEFAULT_SET, Request),
         untyped(method::MUX_CHAT_ROUTE_SET, Request),
+        untyped(method::MUX_ACCOUNTS, Request),
+        untyped(method::MUX_ACCOUNT_SET, Request),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),

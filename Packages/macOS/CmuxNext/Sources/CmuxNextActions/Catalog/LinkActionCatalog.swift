@@ -18,6 +18,10 @@ nonisolated enum LinkActionCatalog: ActionCatalogGroup {
                     ActionArgument(name: "background",
                                    title: String(localized: "argument.link.background", defaultValue: "Open in Background", bundle: .module),
                                    kind: .bool, isRequired: false),
+                    // The tab the link was clicked in: a Chief subagent's chat opens on its right (a Home pill).
+                    ActionArgument(name: "source",
+                                   title: String(localized: "argument.link.source", defaultValue: "Beside Tab", bundle: .module),
+                                   kind: .string, isRequired: false),
                 ],
                 cliName: "link open",
                 // A link names its own target, so there is no object to

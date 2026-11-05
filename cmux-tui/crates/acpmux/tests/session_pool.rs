@@ -119,6 +119,9 @@ impl Daemon {
             // Each marker file here stalls one agent host's hello (debug
             // builds' seam): `stall_hellos`.
             .env("ACPMUX_TEST_HOST_HELLO_STALL_DIR", self.stall_dir())
+            // Each marker file here closes one agent host's hello link
+            // (debug builds' seam): `exit_hellos`.
+            .env("ACPMUX_TEST_HOST_HELLO_EXIT_DIR", self.exit_dir())
             // A mode in this file is reported by the next pooled agent a chat takes, after the
             // take's check (debug builds' seam): `adopt_report`.
             .env("ACPMUX_TEST_POOL_ADOPT_REPORT_FILE", self.home.join("adopt-report"))
@@ -148,17 +151,20 @@ impl Daemon {
         self.home.join("stall")
     }
 
-    /// The next `n` agent hosts never answer hello, as a wedged host.
-    fn stall_hellos(&self, n: usize) {
-        std::fs::create_dir_all(self.stall_dir()).unwrap();
+    fn exit_dir(&self) -> PathBuf {
+        self.home.join("exit")
+    }
+
+    /// The next `n` agent hosts close their controller link before hello.
+    fn exit_hellos(&self, n: usize) {
+        std::fs::create_dir_all(self.exit_dir()).unwrap();
         for i in 0..n {
-            std::fs::write(self.stall_dir().join(format!("stall-{i}")), "").unwrap();
+            std::fs::write(self.exit_dir().join(format!("exit-{i}")), "").unwrap();
         }
     }
 
-    /// Stall markers no host took yet.
-    fn stalls_left(&self) -> usize {
-        std::fs::read_dir(self.stall_dir()).map(|d| d.count()).unwrap_or(0)
+    fn exits_left(&self) -> usize {
+        std::fs::read_dir(self.exit_dir()).map(|d| d.count()).unwrap_or(0)
     }
 
     fn sigkill(&mut self) {
@@ -519,6 +525,37 @@ async fn a_pooled_start_still_running_ends_with_the_daemon() {
     daemon.wait_exit();
     assert!(gone_within(harness, Duration::from_secs(10)), "a start in flight outlived shutdown");
     assert!(daemon.pool_records().is_empty());
+}
+
+/// A live harness may take longer than the historical 90 s pooled-start
+/// budget on a loaded machine. The fake really waits 95 s before answering
+/// `initialize`, so the historical 90 s cutoff fails this test while the
+/// liveness-based pooled start keeps waiting for the live process.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_slow_but_alive_pooled_start_eventually_becomes_ready() {
+    let mut slow = profile("b");
+    slow["env"]["FAKE_INIT_DELAY_MS"] = json!("95000");
+    let mut daemon = Daemon::with_fakeb("long-alive", 0, &slow);
+    let home = daemon.home.clone();
+    let mut rpc = daemon.rpc().await;
+    let hint = rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home})).await;
+    assert_eq!(hint["accepted"], true, "{hint}");
+    let deadline = Instant::now() + Duration::from_secs(120);
+    loop {
+        let status = rpc.call("_acpmux/status", json!({})).await;
+        let ready = status["pool"]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["harness"] == "fakeb" && e["state"] == "ready");
+        if ready {
+            break;
+        }
+        assert!(Instant::now() < deadline, "slow live pooled start failed: {status}");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    rpc.call("_acpmux/shutdown", json!({})).await;
+    daemon.wait_exit();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1216,18 +1253,17 @@ fn end_group(pid: i64) {
     }
 }
 
-/// The Chief's subagent died on "agent host did not answer hello within 5s"
-/// (2026-10-14). A host that misses its hello is ended and one fresh host
-/// takes its place: the session/new succeeds and the session works.
+/// A host whose controller link closes during hello is ended and one fresh
+/// host takes its place: the session/new succeeds and the session works.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_session_whose_host_misses_hello_starts_on_a_fresh_host() {
     let daemon = Daemon::new("hello1", 0);
     let mut rpc = daemon.rpc().await;
     let home = daemon.home.clone();
-    daemon.stall_hellos(1);
+    daemon.exit_hellos(1);
     let (id, took) = new_session(&mut rpc, &home, "fake").await;
     eprintln!("session/new with one wedged host: {took:?}");
-    assert_eq!(daemon.stalls_left(), 0, "the first host took the stall");
+    assert_eq!(daemon.exits_left(), 0, "the first host took the exit marker");
     let events = daemon.events(&id);
     let started = kinds(&events, "host_started");
     let unanswered = kinds(&events, "host_unanswered");
@@ -1250,33 +1286,34 @@ async fn a_new_session_whose_host_misses_hello_starts_on_a_fresh_host() {
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
 }
 
-/// No retry loop: when the fresh host also misses its hello, session/new
+/// No retry loop: when the fresh host also closes during hello, session/new
 /// fails with both causes, and both hosts are ended.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_session_fails_clearly_when_the_fresh_host_also_misses_hello() {
     let daemon = Daemon::new("hello2", 0);
     let mut rpc = daemon.rpc().await;
     let home = daemon.home.clone();
-    daemon.stall_hellos(3);
+    daemon.exit_hellos(3);
     let err = rpc
         .call_err(
             "session/new",
             json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}}),
         )
         .await;
-    assert!(err.contains("did not answer hello"), "{err}");
+    assert!(err.contains("closed the connection during hello"), "{err}");
     assert!(err.contains("a fresh agent host also failed"), "{err}");
-    assert_eq!(daemon.stalls_left(), 1, "exactly two hosts started");
+    assert_eq!(daemon.exits_left(), 1, "exactly two hosts started");
     assert!(daemon.host_records().is_empty(), "both hosts were ended");
     let status = rpc.call("_acpmux/status", json!({})).await;
     assert_eq!(status["liveAgents"], 0, "{status}");
     assert_eq!(status["sessions"], 0, "the failed session is not left behind: {status}");
 }
 
-/// A pooled host that stopped answering (wedged: its link stays open) is
-/// not served: it is ended and the session starts on a fresh host.
+/// A pooled host whose process exits is not served: it is ended and the
+/// session starts on a fresh host. A live but slow host is covered by the
+/// slow pooled-start regression above and remains in place.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_wedged_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() {
+async fn a_dead_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() {
     let daemon = Daemon::new("wedge", 0);
     let mut rpc = daemon.rpc().await;
     let home = daemon.home.clone();
@@ -1295,7 +1332,8 @@ async fn a_wedged_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() 
     // one too, in its own file.
     let helper = helper_of(&helper_file, harness);
     // SAFETY: the exact pooled host this test's daemon started (its record).
-    unsafe { libc::kill(host as i32, libc::SIGSTOP) };
+    // Exiting the host is the only terminal condition for a live start.
+    unsafe { libc::kill(host as i32, libc::SIGKILL) };
     let (id, took) = new_session(&mut rpc, &home, "fakeb").await;
     eprintln!("session/new past a wedged pooled host: {took:?}");
     assert!(!taken(&daemon, &id), "the wedged entry was served");
@@ -1306,15 +1344,17 @@ async fn a_wedged_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() 
         )
         .await;
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
-    assert!(gone_within(host, Duration::from_secs(15)), "the wedged pooled host still runs");
-    // It could not end what runs under it: the daemon ended that with it.
+    assert!(gone_within(host, Duration::from_secs(15)), "the dead pooled host still runs");
+    // A host killed outright ends nothing under it, and its harness exits on the closed pipe, so
+    // its setsid helper is left with no parent link: the daemon finds it by the host's mark in
+    // its environment (cx-jlxm2l) and ends it with the host.
     let ended = gone_within(helper, Duration::from_secs(10));
     end_group(harness);
     if !ended {
         // SAFETY: the exact helper pid the fake harness reported.
         unsafe { libc::kill(helper as i32, libc::SIGKILL) };
     }
-    assert!(ended, "a process under the wedged host runs on without an owner");
+    assert!(ended, "a process under the dead pooled host runs on without an owner");
 }
 
 /// A pooled host whose link stopped reading (an acknowledgement failed while its socket still
@@ -1620,4 +1660,67 @@ async fn with_spares_off_a_session_leaves_no_spare() {
     new_session(&mut rpc, &home, "fake").await;
     tokio::time::sleep(Duration::from_millis(INIT_MS + NEW_MS + 500)).await;
     assert!(daemon.pool_records().is_empty(), "ACPMUX_SPARE_HARNESS=0 starts no spare");
+}
+
+/// The names the fake Claude Code at `path` was renamed to (`/rename`, FAKE_CLAUDE_RENAMED), once it holds
+/// `want` or after 20 s.
+fn renamed_to(path: &Path, want: &str) -> Vec<String> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let names: Vec<String> =
+            std::fs::read_to_string(path).unwrap_or_default().lines().map(str::to_owned).collect();
+        if names.iter().any(|n| n == want) || Instant::now() > deadline {
+            return names;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// A pooled Claude Code starts under the pool's name (`--name claude-N`); a session taken from the pool under
+/// its own name renames the running process to it, so Claude Code's peer list says what `acpmux ls` says
+/// (`hub/live_name.rs`). A rename after that reaches it too. Leo: "it's kinda weird how it's called
+/// projects-34 but it's named differnetly in cmux-next".
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_claude_taken_under_a_name_runs_under_it_and_follows_a_rename() {
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let renamed = std::env::temp_dir().join(format!(
+        "acpmux-pool-renamed-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let fakeb = json!({
+        "kind": "claude-stdio",
+        "family": "claude",
+        "argv": ["python3", fake_claude],
+        "env": {"FAKE_CLAUDE_RENAMED": renamed.display().to_string()},
+    });
+    let daemon = Daemon::with_fakeb("claudenamed", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let created = rpc
+        .call(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb", "name": "reviewer"}}}),
+        )
+        .await;
+    let claimed = created["sessionId"].as_str().expect("session id").to_owned();
+    assert!(taken(&daemon, &claimed), "the session came from the pool");
+    let names = renamed_to(&renamed, "reviewer");
+    assert_eq!(names.last().map(String::as_str), Some("reviewer"), "{names:?}");
+    rpc.call("_acpmux/rename", json!({"sessionId": claimed, "newName": "lead"})).await;
+    let names = renamed_to(&renamed, "lead");
+    assert_eq!(names.last().map(String::as_str), Some("lead"), "{names:?}");
+    // None of it is the chat's: no update carries it (the event log also keeps Claude Code's raw
+    // lines, which do).
+    let events = daemon.events(&claimed);
+    assert!(
+        !events.iter().any(|e| e["msg"]["method"] == "session/update"
+            && e.to_string().contains("Session renamed to")),
+        "the chat saw a rename: {events:?}"
+    );
+    let _ = std::fs::remove_file(&renamed);
 }

@@ -507,7 +507,9 @@ class WorkflowTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
         job = workflow[workflow.index("\n  publish-nightly:\n"):]
         job = job[:re.search(r"\n  [A-Za-z0-9_-]+:\n", job[1:]).start() + 1]
-        job_timeout = int(re.search(r"^    timeout-minutes: (\d+)$", job, re.M).group(1))
+        # One-mini mode adds room for glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py);
+        # the smaller limit, the mode off, is the one that must hold.
+        job_timeout = min(int(n) for n in re.findall(r"\b\d+\b", re.search(r"^    timeout-minutes: (.+)$", job, re.M).group(1)))
         step = job[job.index("- name: Prepare nightly release notes and appcast summaries"):]
         step = step[:step.index("\n      - name:", 1)]
         bound = re.search(r"^        timeout-minutes: (\d+)$", step, re.M)

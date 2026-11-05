@@ -143,11 +143,12 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
       }
     });
 
-    // Since #27570 the section list owns the spacing (sessionInfo.css, design/grid.md section 3, with
-    // 5.5's gap tokens: `--grid-gap-inner` 12 "inside a block", `--grid-gap-block` 24): one inner gap
-    // between any two sections of a block, About's included, and one block gap between blocks with
-    // the hairline centred in it. Before the grid it was 6px
-    // inside a block, none inside About, and 8px, a hairline, 8px between blocks.
+    // Since #27570 the section list owns the spacing (sessionInfo.css): one gap between any two
+    // sections of a block, About's included, and one larger gap between blocks with the hairline
+    // centred in it. Since Leo's "there's a bit too big of a gap between sections" (2026-11-04) those
+    // are `--grid-base` 4 inside a block and `--grid-gap-inner` 12 between blocks, tighter than the
+    // transcript's 12 and 24. Before the grid it was 6px inside a block, none inside About, and 8px,
+    // a hairline, 8px between blocks.
     test("the default order draws the blocks: the inner gap inside a block, the block gap with a hairline between", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
@@ -187,10 +188,10 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             rules: ruled.map(rule),
           };
         });
-        const inner = gridLength("gap-inner");
+        const inner = gridLength("base");
         for (const gap of geometry.inner) expect(gap).toBeCloseTo(inner, 1);
         // The hairline is drawn inside the block gap (absolutely placed), so it adds no height.
-        for (const gap of geometry.between) expect(gap).toBeCloseTo(gridLength("gap-block"), 1);
+        for (const gap of geometry.between) expect(gap).toBeCloseTo(gridLength("gap-inner"), 1);
         // The hairline over the first section of each block but the first, and nowhere else.
         expect(geometry.rules).toEqual([false, false, false, true, false, true, false, false, true]);
       } finally {
@@ -248,6 +249,64 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
           // starts its title on that column (#27570).
           titleAtTextColumn: 32,
         });
+      } finally {
+        await page.close();
+      }
+    });
+
+    // Leo, 2026-11-04, of the grip centred on the Subagents head's left edge, half on its pill and half
+    // off: "this is off". On every head the dots sit wholly inside the pill, on its middle line, and
+    // left of the icon (Context's) or the title, with about the same gap to the pill's edge as to it.
+    test("a head's grip sits inside its pill, on its middle line, with an even gap", async () => {
+      const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
+      try {
+        await show(page, { grid: true });
+        for (const id of ["subagents", "context", "outputs"]) {
+          const head = `section[data-section="${id}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`;
+          await page.hover(head);
+          const fit = await page.evaluate((head) => {
+            const trigger = document.querySelector(head)!;
+            const pill = trigger.getBoundingClientRect();
+            const dots = trigger
+              .closest("section")!
+              .querySelector(":scope > .acpmux-session-info-section__handle svg")!
+              .getBoundingClientRect();
+            // The icon's ink (its shapes, not its 16px box), else the title.
+            const icon = trigger.querySelector(".acpmux-session-info-section__icon");
+            const nextLeft = icon
+              ? Math.min(
+                  ...[...icon.querySelectorAll("path, circle, rect, line, polyline, polygon, ellipse")].map(
+                    (shape) => shape.getBoundingClientRect().left,
+                  ),
+                )
+              : trigger.querySelector(".acpmux-session-info-section__title")!.getBoundingClientRect().left;
+            const gapToEdge = dots.left - pill.left;
+            const gapToNext = nextLeft - dots.right;
+            return {
+              inside: gapToEdge >= 0.5,
+              beforeNext: gapToNext >= 0.5,
+              onMiddleLine: Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) <= 0.5,
+              wide: dots.width > dots.height,
+              gapToEdge,
+              gapToNext,
+            };
+          }, head);
+          expect({
+            id,
+            inside: fit.inside,
+            beforeNext: fit.beforeNext,
+            onMiddleLine: fit.onMiddleLine,
+            wide: fit.wide,
+          }).toEqual({
+            id,
+            inside: true,
+            beforeNext: true,
+            onMiddleLine: true,
+            wide: true,
+          });
+          // Context's icon is the tight case: the room left of it is shared about evenly.
+          if (id === "context") expect(Math.abs(fit.gapToEdge - fit.gapToNext)).toBeLessThanOrEqual(1);
+        }
       } finally {
         await page.close();
       }

@@ -11,6 +11,16 @@
 version = 1
 
 [[test]]
+path = "tests/test_web_overlay_manifest_commit.py"
+lane = "manual"
+reason = "Run by the lane that changes web-overlay.sh (no new CI tests): python3 tests/test_web_overlay_manifest_commit.py; needs only bash, git and python3."
+
+[[test]]
+path = "tests/test_side_instance_remake_clears_old_identity.py"
+lane = "manual"
+reason = "Run by the lane that changes side-instance.sh (no new CI tests): python3 tests/test_side_instance_remake_clears_old_identity.py; needs only bash and python3."
+
+[[test]]
 path = "tests/test_prepush_fast_tier.py"
 lane = "manual"
 reason = "Bounded pre-push tier: cmux-ci test -- python3 tests/test_prepush_fast_tier.py; sandbox behavior needs warm Bun and Linux bubblewrap."
@@ -377,16 +387,6 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_pr_runner_pool.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_nightly_next_control_runner.py"
-lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. #30657 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks scripts/ci/nightly_next_control_runner.py; run python3 tests/test_nightly_next_control_runner.py yourself after changing it or the nightly-next control placement in nightly.yml (under 1 s, no build)."
-
-[[test]]
-path = "tests/test_nightly_next_control_rescue.py"
-lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. #30657 registered it as linux-guard with no ci-guards.yml step, which reddened tooling-tests on every pull request. Checks scripts/ci/nightly_next_control_rescue.py; run python3 tests/test_nightly_next_control_rescue.py yourself after changing it or the nightly-next control rescue in nightly.yml (under 1 s, no build)."
 
 [[test]]
 path = "tests/test_ci_fast_checks_runner.py"
@@ -2570,6 +2570,10 @@ path = "tests/test_nightly_next_rolling_dmg_identity.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_sign_yield.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_identity_probe.py"
 lane = "linux-guard"
 
@@ -2590,6 +2594,10 @@ path = "tests/test_classic_api_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_classic_frozen_guard.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_notary_wait_recover.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Drives scripts/ci/lib/notary-wait-recover.sh with a fake xcrun; run python3 tests/test_notary_wait_recover.py yourself after changing it (under 1 s, no Mac)."
@@ -2598,3 +2606,17 @@ reason = "Lawrence 2026-10-23: no new CI tests. Drives scripts/ci/lib/notary-wai
 path = "tests/test_cloud_chat_proof_failure_evidence.py"
 lane = "manual"
 reason = "Run by hand when cloud-chat-proof.py changes: python3 tests/test_cloud_chat_proof_failure_evidence.py (fake app CLI and log tool, no app)."
+
+[[test]]
+path = "tests/test_nightly_never_blacksmith.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_one_mini.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks the one-mini routing (vars.CI_NIGHTLY_MINI) of nightly.yml and the tag permission probe; run python3 tests/test_nightly_one_mini.py yourself after changing either (about 1 s, no Mac)."
+
+[[test]]
+path = "tests/test_nightly_mini_gate_timeouts.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Checks that a job vars.CI_NIGHTLY_MINI sends to cmux15 has room in its timeout for glaeda's capacity wait; run python3 tests/test_nightly_mini_gate_timeouts.py yourself after changing a nightly.yml timeout or route (about 1 s, no Mac)."

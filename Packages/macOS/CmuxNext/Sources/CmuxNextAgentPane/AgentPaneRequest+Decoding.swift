@@ -71,6 +71,10 @@ extension AgentPaneRequest {
             self = AgentPaneIMessageAction(rawValue: String(method.dropFirst("imessage.".count))).map(Self.imessage) ?? .unsupported(method)
             return
         }
+        if AgentPaneCloudReservationRequest.methods.contains(method) {
+            self = AgentPaneCloudReservationRequest(method: method, params: params).map(Self.cloudReservation) ?? .unsupported(method)
+            return
+        }
         if AgentPaneCloudEnvironmentRequest.methods.contains(method) {
             self = AgentPaneCloudEnvironmentRequest(method: method, params: params).map(Self.cloudEnvironment) ?? .unsupported(method)
             return

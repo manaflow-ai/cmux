@@ -131,6 +131,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     let tuiSelection = TerminalSelectionController()
     /// Find… over the rows (the system find bar), scrollback included.
     let finder = TerminalFindController()
+    /// Copy Mode (the Mac's Toggle Copy Mode): vi keys over the rows, Select Text… by touch.
+    let copyMode = TerminalCopyModeController()
+    /// The whole screen's rows, read once per scrollbar state while Copy Mode walks rows
+    /// Ghostty cannot address one at a time (deep scrollback).
+    private var copyModeRows: (key: [Int], rows: [String])?
     /// The shell's tap, and whether its touch landed on a moving page (that tap only
     /// stops the page, as in UIKit; it never opens the link under it).
     private weak var shellTap: UITapGestureRecognizer?
@@ -561,6 +566,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         dockChanged()
         installSelection()
         installFind()
+        installCopyMode()
         installTUIScroll()
 
         surface.configurePasteControlTarget()
@@ -1182,8 +1188,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         setContentHeight(next.contentHeight(cellHeight: cell.height))
         settingOffset = false
         place(atRow: presentedTop)
+        // Copy Mode first: the selection it drew moves with it, so the selection's shift
+        // below reads as its own drawing, not a finger's change.
+        copyMode.shiftRows(by: -rows)
         selection.shiftRows(by: -rows)
         finder.shiftRows(by: -rows)
+        copyModeRows = nil
     }
 
     /// Ghostty's rows in the scrollbar's numbering (`TerminalRowSpace`): the
@@ -2013,6 +2023,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if hadFocus, !surface.isFirstResponder { surface.becomeFirstResponder() }
         }
         if tui {
+            copyMode.exit()
             selection.clear()
             tuiSizing.tuiStarted()
             scrollView.isScrollEnabled = false
@@ -2318,6 +2329,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// Find… (the page menu, Cmd-F).
     func presentFind() {
+        copyMode.exit()
         selection.clear()
         tuiSelection.clear()
         finder.present(terminalHadFocus: surface.isFirstResponder)
@@ -2360,13 +2372,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Scrolls the shell so `match` shows, a third of the way down the rows, unless it
     /// shows already. A full-screen app's matches are all on its screen.
     private func revealFindMatch(_ match: TerminalFindResults.Match) {
+        reveal(row: match.row)
+    }
+
+    /// Scrolls the shell so `row` shows, a third of the way down the rows, unless it shows already.
+    private func reveal(row: Int) {
         guard !model.isTUI, let document, cell.height > 0 else { return }
-        let rowY = document.contentY(ofRow: match.row, cellHeight: cell.height)
+        let rowY = document.contentY(ofRow: row, cellHeight: cell.height)
         let visibleTop = scrollView.contentOffset.y + scrollView.adjustedContentInset.top
         let visibleBottom = scrollView.contentOffset.y + scrollView.bounds.height - scrollView.adjustedContentInset.bottom
         if rowY >= visibleTop, rowY + cell.height <= visibleBottom { return }
         let visibleRows = max(1, Int((visibleBottom - visibleTop) / cell.height))
-        let top = max(document.originRow, match.row - visibleRows / 3)
+        let top = max(document.originRow, row - visibleRows / 3)
         let topY = document.contentY(ofRow: top, cellHeight: cell.height) - scrollView.adjustedContentInset.top
         fling?.stop()
         fling = nil
@@ -2378,6 +2395,100 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         placesFromReport = false
         applyScroll()
+    }
+
+    // MARK: Copy Mode, Select All, Scroll to Top
+
+    private func installCopyMode() {
+        copyMode.install(in: view, above: bottomStack.topAnchor)
+        copyMode.isAvailable = { [weak self] in
+            guard let self else { return false }
+            return !model.isTUI && document != nil && cell.height > 0
+        }
+        copyMode.documentRows = { [weak self] in self?.selection.documentRows() ?? 0..<0 }
+        copyMode.columns = { [weak self] in max(1, self?.surface.grid.columns ?? 1) }
+        copyMode.rowText = { [weak self] row in self?.copyModeRowText(row) ?? "" }
+        copyMode.reveal = { [weak self] row in self?.reveal(row: row) }
+        copyMode.draw = { [weak self] selection, handles in self?.selection.show(selection, handles: handles) }
+        copyMode.text = { [weak self] start, end in self?.selection.text(start, end) }
+        copyMode.activeChanged = { [weak self] active in
+            self?.model.copyModeActive = active
+            if !active { self?.copyModeRows = nil }
+        }
+        copyMode.ended = { [weak self] restoreFocus in
+            if restoreFocus { self?.focusTerminal() }
+        }
+        selection.selectionChanged = { [weak self] selection in self?.copyMode.selectionChanged(selection) }
+    }
+
+    /// A row's text for Copy Mode: the rows Ghostty holds, else the whole screen read once.
+    private func copyModeRowText(_ row: Int) -> String {
+        if let text = rowReader.text(TerminalAbsoluteRow(row)) { return text }
+        let key = [scrollbar.total, scrollbar.offset]
+        if copyModeRows?.key != key, let screen = surface.screenRows() { copyModeRows = (key, screen.rows) }
+        guard let rows = copyModeRows?.rows, rows.indices.contains(row) else { return "" }
+        return rows[row]
+    }
+
+    /// Select Text… (the page menu): Copy Mode with the cursor's row selected.
+    func presentCopyMode() {
+        finder.dismiss()
+        tuiSelection.clear()
+        copyMode.enter(selectLine: true, terminalHadFocus: surface.isFirstResponder)
+    }
+
+    /// The Mac's Toggle Copy Mode (Shift-Cmd-M).
+    @objc func toggleCopyMode() {
+        guard !copyMode.isActive else { return copyMode.exit() }
+        finder.dismiss()
+        tuiSelection.clear()
+        copyMode.enter(selectLine: false, terminalHadFocus: surface.isFirstResponder)
+    }
+
+    /// The Mac's Select All: every row, scrollback included, with Copy in the edit menu
+    /// (a full-screen app: its screen).
+    func selectAllText() {
+        copyMode.exit()
+        if model.isTUI { tuiSelection.selectAll() } else { selection.selectAll() }
+    }
+
+    /// The Mac's Scroll to Top: the first row the phone holds. The page stops following.
+    func scrollToTop() {
+        guard !model.isTUI, let document, cell.height > 0 else { return }
+        fling?.stop()
+        fling = nil
+        scroll.reveal(row: document.originRow, delta: -scrollView.adjustedContentInset.top)
+        placesFromReport = false
+        applyScroll()
+    }
+
+    /// The Mac's Send Text…: a field whose text is typed into the terminal as is, no Return.
+    func presentSendText() {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: String(localized: "Send Text"),
+                                      message: String(localized: "Typed into the terminal as is, without Return."),
+                                      preferredStyle: .alert)
+        alert.addTextField { field in
+            field.placeholder = String(localized: "Text")
+            field.autocapitalizationType = .none
+            field.autocorrectionType = .no
+            field.accessibilityIdentifier = "terminal.sendText.field"
+        }
+        alert.addAction(UIAlertAction(title: String(localized: "Cancel"), style: .cancel))
+        let send = UIAlertAction(title: String(localized: "Send"), style: .default) { @MainActor [weak self, weak alert] _ in
+            guard let text = alert?.textFields?.first?.text else { return }
+            self?.model.sendText(text)
+        }
+        alert.addAction(send)
+        alert.preferredAction = send
+        present(alert, animated: true)
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        let toggle = UIKeyCommand(title: String(localized: "Toggle Copy Mode"), action: #selector(toggleCopyMode),
+                                  input: "m", modifierFlags: [.command, .shift])
+        toggle.wantsPriorityOverSystemBehavior = true
+        return [toggle]
     }
 
     // MARK: Find commands

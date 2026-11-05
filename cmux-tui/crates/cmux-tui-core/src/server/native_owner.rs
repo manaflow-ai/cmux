@@ -89,7 +89,25 @@ const CAPABILITIES: &[&str] = &[
     agent_inventory::watch::CAPABILITY,
     agent_inventory::watch::FENCED_CAPABILITY,
     agent_inventory::watch::ADMISSION_CAPABILITY,
+    // A Cloud chat's folder copy (`cmux link start-chat copy`, `seed push`, `sync push`) reaches
+    // the owner's own machine over this carrier. Its frames pass the entry's `FsGate` and the
+    // fs_wire principal check as on the classic entry; only the owner's Native dial may send them
+    // (`fs_wire::native_dial_admits`). Listed only while the host serves them (identify's own
+    // advertised set is filtered through this list), so a host without the file owner says so.
+    crate::fs_ops::FS_CAPABILITY,
+    crate::fs_ops::FS_SYMLINK_CAPABILITY,
+    crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY,
+    crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY,
+    crate::git_seed::GIT_SEED_CAPABILITY,
+    crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
+    crate::blob_fetch::BLOB_FETCH_CAPABILITY,
 ];
+
+/// Whether identify on this carrier lists `capability` (tests read the policy through this).
+#[cfg(test)]
+pub(super) fn carries(capability: &str) -> bool {
+    CAPABILITIES.contains(&capability)
+}
 
 pub(super) fn admits(frame: &str) -> bool {
     let Ok(Value::Object(fields)) = serde_json::from_str::<Value>(frame) else { return false };

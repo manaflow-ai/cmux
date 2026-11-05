@@ -8,8 +8,8 @@ extension AgentPaneCloudMachines {
     static let listAge: Duration = .seconds(60)
 
     /// The App's answers to `cloudMachine.*`: the machines of the account signed in now
-    /// (``CloudService``, never another user's or team's list), and Open Machine, Resume Machine
-    /// and Pause Machine on one of them, run as the person's own.
+    /// (``CloudService``, never another user's or team's list), and Open Machine, Resume Machine,
+    /// Pause Machine and passive typing prewarm on one of them, run as the person's own.
     func wire(_ services: AppServices) {
         let inventory: @MainActor (Duration) async -> Inventory = { [weak services] age in
             guard let services, services.cloud.isSignedIn else { return Inventory(signedIn: false, loaded: false, machines: []) }
@@ -49,6 +49,12 @@ extension AgentPaneCloudMachines {
         }
         pause = { [weak services] id in
             services.map { Self.perform("cloudPauseMachine", on: id, services: $0) { $0.effectiveStatus == .running } } ?? false
+        }
+        prewarm = { [weak services] id in
+            guard let services else { return false }
+            let cloud = services.cloud, status = services.machines.cloud.first(where: { $0.machineID == id })?.effectiveStatus
+            let allowed = !services.registry.disabledFeatures.contains(.cloud) && cloud.mayCallCloud && cloud.unavailableReason == nil
+            return await Self.prewarmIfPaused(allowed: allowed && cloud.isSignedIn && cloud.hasLoadedCurrentMachines, status: status) { try await cloud.resumeMachine(id, origin: .script) }
         }
     }
 

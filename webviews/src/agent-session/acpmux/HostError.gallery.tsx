@@ -75,8 +75,10 @@ const retry: Play = async (ctx) => {
 };
 
 const restart: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Restart acpmux" });
-  await ctx.waitFor(() => ctx.find({ role: "button", name: "Restarting acpmux…" }).getAttribute("disabled") !== null);
+  await ctx.click({ role: "button", name: "Restart agent service" });
+  await ctx.waitFor(
+    () => ctx.find({ role: "button", name: "Restarting agent service…" }).getAttribute("disabled") !== null,
+  );
 };
 
 const details: Play = async (ctx) => {
@@ -85,7 +87,7 @@ const details: Play = async (ctx) => {
 };
 
 const PEER_WORDS =
-  "peer_unreachable: box (reconnecting, last seen 3m ago: connect timed out); the request was not sent; run `acpmux host ls` and retry after the peer reconnects";
+  "peer_unreachable: box (reconnecting, last seen 3m ago: connect timed out); the request was not sent; run `acpmux machine ls` and retry after the peer reconnects";
 
 const restartService: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Restart agent service" });
@@ -217,7 +219,7 @@ export default componentEntry<Props>({
     },
     "too-large": {
       props: {
-        message: "This chat is too large to open. Update acpmux, then Retry.",
+        message: "This chat is too large for this version of cmux to open. Update cmux, then Retry.",
         initialRetrying: false,
         withRetry: true,
       },

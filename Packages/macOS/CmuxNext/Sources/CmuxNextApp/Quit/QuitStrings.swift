@@ -111,7 +111,7 @@ enum QuitStrings {
     /// acpmux is already shutting down; it may not have ended its agents.
     static var agentsShutdownInProgress: String {
         String(localized: "quit.failed.agentsShutdownInProgress",
-               defaultValue: "acpmux is already shutting down, so agents may still be running. Retry waits for the shutdown to finish.",
+               defaultValue: "Agents are still shutting down. Retry waits for them to finish.",
                table: "Quit", bundle: .module)
     }
 

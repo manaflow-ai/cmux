@@ -151,11 +151,11 @@ final class OnboardingService {
         }
     }
 
-    /// First-run routing only: remember the presentation per app channel, including existing
-    /// installations, so an upgrade never turns an existing workspace into onboarding.
+    /// First-run routing only, once per app channel (an upgrade is no first run). Never under showcase: its
+    /// scene captures are fresh homes, and the page over Home parks the workspace their seed fills.
     func showHistoryAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) {
         let key = "home.firstRun.historyImportShown"
-        guard !defaults.bool(forKey: key) else { return }
+        guard !services.environment.showcase, !defaults.bool(forKey: key) else { return }
         if isFirstRun {
             // On top: launch can replace its first Home pane. Consume only once shown. The
             // mark tells the fresh-home launch smoke this page covers Home on purpose.

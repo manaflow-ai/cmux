@@ -307,35 +307,56 @@ class App:
         return path
 
     def read_text(self, image):
-        """The text lines of IMAGE (a Read: the reader's bands that read no text go with the lines)."""
+        """The text lines of IMAGE (a Read: whether the reader read it in bands, and its bands that show ink and read no
+        text (unread) or show no ink at all (blank))."""
         done = subprocess.run([self.ocr, str(image)], capture_output=True, text=True, timeout=120)
         if done.returncode != 0:
             raise StepError(f"text recognition failed on {Path(image).name}: {(done.stderr or done.stdout).strip()[-200:]}")
-        silent = re.search(r"no text in bands? ([0-9][0-9, ]*)", done.stderr or "")
-        return Read([line for line in done.stdout.splitlines() if line.strip()],
-                    [int(b) for b in re.findall(r"[0-9]+", silent.group(1))] if silent else [])
+        err = done.stderr or ""
+
+        def bands(pattern):
+            found = re.search(pattern, err)
+            return [int(b) for b in re.findall(r"[0-9]+", found.group(1))] if found else []
+
+        return Read([line for line in done.stdout.splitlines() if line.strip()], bands(r"no text in bands? ([0-9][0-9, ]*)"),
+                    blank=bands(r"blank bands? ([0-9][0-9, ]*)"), banded="lines in 4 bands" in err)
 
 
 class Read(list):
     """The text lines of one image, and the bands of it (1 is the top) in which the reader read no text.
     scripts/ci/pr_media_ocr.swift reads an image in which Vision finds no text at all again in 4 horizontal bands; on
     macOS 27 a band can read nothing although it shows text, so such a read is partial: a check that text is absent
-    must not pass on it (cmux-ad m10 1, review 1 of #35282)."""
+    must not pass on it (cmux-ad m10 1, review 1 of #35282). UNREAD: the bands that show ink and read no text; BLANK:
+    the bands that show no ink at all (empty terminal rows: they hold no text, so they do not make the read partial;
+    review 2 of #35282); BANDED: the read came from bands."""
 
-    def __init__(self, lines=(), unread=()):
+    def __init__(self, lines=(), unread=(), blank=(), banded=None):
         super().__init__(lines)
         self.unread = list(unread)
+        self.blank = list(blank)
+        self.banded = bool(self.unread or self.blank) if banded is None else bool(banded)
 
 
 def unread_bands(lines):
-    """The bands of a read that read no text ([] for a whole read or a plain list)."""
+    """The bands of a read that show ink and read no text ([] for a whole read or a plain list)."""
     return list(getattr(lines, "unread", None) or [])
 
 
-def lacks_not_judged(want, lines):
-    """Why a `lacks` check of WANT cannot be judged on LINES (a band read nothing), or None."""
+def blank_bands(lines):
+    """The bands of a read that show no ink ([] for a whole read or a plain list)."""
+    return list(getattr(lines, "blank", None) or [])
+
+
+def band_detail(lines):
+    """{"bands": {"unread": [...], "blank": [...]}} for a frame check's detail when LINES came from a band read, else {}."""
+    return {"bands": {"unread": unread_bands(lines), "blank": blank_bands(lines)}} if getattr(lines, "banded", False) else {}
+
+
+def lacks_not_judged(want, lines, present=()):
+    """Why a `lacks` check of WANT cannot be judged on LINES (a band that shows ink read nothing), or None. A forbidden
+    text the read does find (PRESENT) is there, partial read or not: the check fails (None here)."""
     unread = unread_bands(lines)
-    if not want.get("lacks") or not unread:
+    if not want.get("lacks") or not unread or present:
         return None
     return (f"band{'s' if len(unread) > 1 else ''} {', '.join(map(str, unread))} of the reader's 4 read no text: "
             "a lacks check needs the whole frame read")
@@ -934,8 +955,9 @@ class Journey:
         lines = self.app.read_text(image)
         missing = [t for t in want.get("shows", []) if not ocr_contains(lines, t)]
         present = [t for t in want.get("lacks", []) if ocr_contains(lines, t)]
-        detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present}
-        partial = lacks_not_judged(want, lines)
+        detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present,
+                  **band_detail(lines)}
+        partial = lacks_not_judged(want, lines, present)
         if partial:
             return False, dict(detail, lacks_not_judged=partial)
         return bool(want.get("shows")) and not missing and not present, detail

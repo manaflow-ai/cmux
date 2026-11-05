@@ -14,9 +14,10 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ### The embedder presents a new host size with its bounds (ghostty-next)
 
-- Fork release branch `release/cmux-9ce9b7d0-e2` at the merge commit `7d43bb68b` (fork PR #71, on `635c6c12a` = fork
-  PR #70 on `dfd07de4a`, the earlier pin `34e73ba8b` plus fork PR #69). GhosttyNextKit
-  `xcframework-7d43bb68b05e1bad433267fe28cd7205041fc4f5-apple-v6` (zip sha256 `12f7ac05...4be2f`, run 41705275916).
+- Fork release branch `release/cmux-9ce9b7d0-e2` at the merge commit `12ec155e1` (fork PR #79, on `ae7c1f741` = fork
+  PR #77 on `6cc749a8a` = fork PR #75 on `bd7ff2687` = fork PRs #72 and #73 on `7d43bb68b`, fork PR #71 on
+  `635c6c12a` = fork PR #70 on `dfd07de4a`, the earlier pin `34e73ba8b` plus fork PR #69). GhosttyNextKit
+  `xcframework-12ec155e1e67f8f33a1cee5fd2e129f59277465c-apple-v6` (zip sha256 `5defd8f8...30aa7`, run 41955494921).
 - What: opt-in on macOS host-sized surfaces, `ghostty_surface_set_host_present(surface, GHOSTTY_HOST_PRESENT_EMBEDDER)`.
   The renderer still draws each new host size at once with cells rebuilt for it, but never shows a frame of another
   size than the shown one itself. A new size asks for no display pass, and a display pass never waits.
@@ -24,7 +25,12 @@ When we change the fork, update this document and the parent submodule SHA.
   `present`, a READY frame becomes the layer's contents in the caller's Core Animation transaction, ordered by the
   present sequence. From the mode's start, and after the main thread changes the shown size, frames go through the
   main thread until `ghostty_surface_host_frame_committed`. An off-main present never commits while it holds the
-  CA lock (fork PR #71: #70 committed under the lock and deadlocked against main's commit).
+  CA lock (fork PR #71: #70 committed under the lock and deadlocked against main's commit). A frame kept for the
+  embedder's present that the layer cannot show in its bounds goes to no main-queue block (fork PR #75: it was
+  dropped on main, one main wake per moving terminal and frame); the skip is decided under the CA lock and then
+  the fresh-frame mutex, only while the kept frame is still that frame. An off-main present begins a CA
+  transaction only for a frame it shows (fork PR #79: each frame that went through main, or that a newer frame
+  superseded, committed an empty transaction on the GPU completion thread).
 - Why: cmux FRAME OWNER REFACTOR stage S4 (ready-or-keep). In every commit a terminal's bounds and pixels change
   together, or both keep their last size. Before, a new-size frame landed in the old bounds 2-4 refreshes after the
   geometry. The waiting present (G1) cost main 4-9 ms per drag frame.
@@ -36,13 +42,17 @@ When we change the fork, update this document and the parent submodule SHA.
   the mode per surface and changes it only when the Debug switch changes).
 - Fork PR #71 (the deadlock): with the switch on and the film recorder's load, main hung in
   `CA::Transaction::commit` and the Metal completion thread in `setSurfaceOffMain`, which committed while it held
-  `[CATransaction lock]`. Now every off-main present does `begin`, lock, checks, unlock, `commit`. `ghostty.h`: the
+  `[CATransaction lock]`. Since fork PR #79 an off-main present does lock, checks, then (only for a frame it shows)
+  `begin`, set contents, unlock, `commit`; a frame that goes through main or that a newer frame superseded unlocks and
+  commits nothing. `ghostty.h`: the
   embedder presents and sets the bounds in one explicit lock span (fork PR #72: not a layout or display pass), and
   never commits, flushes or draws in it (`ghostty_surface_draw`, a first frame's display pass). Test: `host present:
   an off-main present never commits while it holds the Core Animation lock` (red run 41694823112, green run
   41694827381; Codex SHIP at `3163f4b73`).
-- Conflict notes: keep `setSurfaceOffMain` in the order `begin`, lock, checks, unlock, `commit` in both modes (never
-  commit under the lock), and its gate check (`main_pending`) after the shown-size and sequence checks. Keep
+- Conflict notes: keep `setSurfaceOffMain` in the order lock, checks (`offMainDecisionLocked`), then `begin`, set
+  contents, unlock, `commit` only for a frame it shows, in both modes: never commit under the lock, and never begin a
+  transaction for a frame it does not show (fork PR #79, test `host present: an off-main present that does not show
+  its frame commits no transaction`). Keep its gate check (`main_pending`) after the shown-size and sequence checks. Keep
   `changesShownSize` as the only condition that closes the gate in `setSurfaceCallback` and `setSurfaceSync`.
   `publishFresh` keeps the newest frame by present sequence.
 - When cmux moves to fork `main`, port #70 to `main` (it is based on the release branch).

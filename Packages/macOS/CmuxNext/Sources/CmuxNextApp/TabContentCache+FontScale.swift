@@ -50,18 +50,8 @@ extension TabContentCache {
     /// Saves `scale` on the record of tab `key` when it differs.
     static func saveFontScale(_ scale: Double?, tab key: String, daemon: DaemonService) {
         guard daemon.store.servesStateResources, let tab = daemon.store.tab(id: key),
-              let resource = tab.resourceID, !sameScale(tab.zoom, scale) else { return }
+              let resource = tab.resourceID, !TerminalFontScale.sameScale(tab.zoom, scale) else { return }
         let zoom: FieldUpdate<Double> = scale.map(FieldUpdate.set) ?? .clear
         daemon.send("tab.update") { try await $0.state.updateTabRecord(resource, zoom: zoom) }
-    }
-
-    /// True for scales within the rounding `TerminalFontScale.apply` does (0.01 points), so a
-    /// view that applied its record's scale writes nothing back.
-    private static func sameScale(_ a: Double?, _ b: Double?) -> Bool {
-        switch (a, b) {
-        case (nil, nil): true
-        case let (a?, b?): abs(a - b) < 0.001
-        default: false
-        }
     }
 }
