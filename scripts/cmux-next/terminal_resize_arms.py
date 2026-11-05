@@ -4,7 +4,7 @@ With `--ab KEY` each round runs once with the boolean tunable KEY off and once w
 (`debug.tunables set`), and the order alternates per round (off then on, then on then off), so a difference between
 launches (a whole-window +1 refresh that comes and goes between launches, STATUS 11574) cannot read as a difference
 between the arms. ``summaries`` pools each arm's rounds: frame intervals and main-thread ms per frame as
-distributions (p50, p95, p99, max), missed refreshes, and the grids each terminal got per key press.
+distributions (p50, p95, p99, max), missed refreshes (and per cause, `missed_split`), and the grids each terminal got per key press.
 """
 
 
@@ -45,12 +45,15 @@ def summaries(rounds):
         if entry.get("error"):
             continue
         arm = out.setdefault(label(entry.get("arm")), {"rounds": 0, "frames": 0, "missed": 0, "intervals": [], "main": [],
-                                                         "motion": [], "max_grids_per_press": 0, "presses_over_one_grid": 0})
+                                                         "motion": [], "max_grids_per_press": 0, "presses_over_one_grid": 0,
+                                                         "missed_split": {}})
         frames = entry.get("frames") or {}
         raw = entry.get("raw") or {}
         arm["rounds"] += 1
         arm["frames"] += int(frames.get("frames") or 0)
         arm["missed"] += int(frames.get("missed") or 0)
+        for cause, count in (frames.get("missed_split") or {}).items():
+            arm["missed_split"][cause] = arm["missed_split"].get(cause, 0) + int(count or 0)
         arm["intervals"] += raw.get("intervals_ms") or []
         arm["main"] += raw.get("main_ms") or []
         arm["motion"] += raw.get("motion_main_ms") or []

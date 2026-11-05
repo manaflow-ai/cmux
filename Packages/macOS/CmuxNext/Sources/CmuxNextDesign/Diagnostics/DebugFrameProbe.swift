@@ -13,7 +13,11 @@ import CmuxNextWakeups
 /// observers that exist only between `start` and `stop`) and the
 /// `NSView.layout()` calls and window layout passes in it (`LayoutPassGuard`'s
 /// counters), for the app gesture bench (scripts/cmux-next/app-perf.py).
-/// `raw: true` adds the per-frame arrays to the reply. The reply is plain Foundation values (the App's route makes it
+/// `raw: true` adds the per-frame arrays to the reply.
+///
+/// It also says why each missed refresh was late (``FrameMissSplit``): `missed_split` counts `main_late`, `commit_late`
+/// and `presented_late`, and `missed_frames` lists the first misses with their stamps. A third observer, just before
+/// Core Animation's commit, stamps the end of each turn's main work. The reply is plain Foundation values (the App's route makes it
 /// the socket's JSON).
 @MainActor
 public final class DebugFrameProbe {
@@ -34,6 +38,12 @@ public final class DebugFrameProbe {
     private var awakeSince: CFTimeInterval = 0
     private var awake: CFTimeInterval = 0
     private var observers: [CFRunLoopObserver] = []
+    /// The missed refreshes' causes, and the current turn's stamps for it: when it woke and when its main work ended.
+    private var split = FrameMissSplit()
+    private var turnWoke: CFTimeInterval = 0
+    private var turnMainEnd: CFTimeInterval?
+    /// Just before Core Animation's commit (2,000,000) and the frame presenter's pass (1,999,999).
+    static let mainEndOrder: CFIndex = 1_999_998
 
     public init() {}
 
@@ -76,6 +86,8 @@ public final class DebugFrameProbe {
         last = 0
         awake = 0
         awakeSince = CACurrentMediaTime()
+        split = FrameMissSplit()
+        (turnWoke, turnMainEnd) = (awakeSince, nil)
     }
 
     /// Two observers of the main run loop: one when it wakes (first of the
@@ -91,24 +103,33 @@ public final class DebugFrameProbe {
         let sleeps: CFRunLoopObserver? = MainRunLoopObserver.afterCommitObserver(activities: .beforeWaiting, order: CFIndex.max) { [weak self] _ in
             MainActor.assumeIsolated { self?.willWait() } // main-proof: an observer of the main run loop
         }
-        guard let woke, let sleeps else { return }
+        let mainEnds = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, Self.mainEndOrder) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.turnMainEnd = CACurrentMediaTime() } // main-proof: an observer of the main run loop
+        }
+        guard let woke, let sleeps, let mainEnds else { return }
         CFRunLoopAddObserver(CFRunLoopGetMain(), woke, .commonModes)
+        CFRunLoopAddObserver(CFRunLoopGetMain(), mainEnds, .commonModes)
         CFRunLoopAddObserver(CFRunLoopGetMain(), sleeps, .commonModes)
-        observers = [woke, sleeps]
+        observers = [woke, mainEnds, sleeps]
     }
 
     private func didWake() {
         awakeSince = CACurrentMediaTime()
+        turnWoke = awakeSince
     }
 
     private func willWait() {
+        let now = CACurrentMediaTime()
+        split.turnEnded(woke: turnWoke, mainEnd: turnMainEnd, commitEnd: now)
+        turnMainEnd = nil
         guard awakeSince > 0 else { return }
-        awake += CACurrentMediaTime() - awakeSince
+        awake += now - awakeSince
         awakeSince = 0
     }
 
     private func tick(_ tick: FrameTick) {
         if let refresh = tick.refreshInterval { expected = refresh }
+        split.tick(timestamp: tick.timestamp, target: tick.targetTimestamp, refresh: expected)
         let now = CACurrentMediaTime()
         if awakeSince > 0 {
             awake += now - awakeSince
@@ -156,7 +177,7 @@ public final class DebugFrameProbe {
             "main_max_ms": work.last ?? 0,
             "main_total_ms": busy.reduce(0, +),
             "main_over_8_3_ms": work.filter { $0 > 1_000.0 / 120.0 }.count,
-        ].merging(layouts.report(raw: raw)) { $1 }
+        ].merging(layouts.report(raw: raw)) { $1 }.merging(split.report) { $1 }
         if raw {
             stats["intervals_ms"] = intervals.map { ($0 * 100).rounded() / 100 }
             stats["main_ms"] = busy.map { ($0 * 100).rounded() / 100 }

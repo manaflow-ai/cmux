@@ -39,7 +39,8 @@ vertical divider left and right, one `debug.mouse` move per display frame:
            S4's A/B.
 
 Per layout it records display-frame intervals and main-thread busy time per frame (`debug.frames`,
-missed = an interval over 1.5 refresh periods), main-thread time in Ghostty's display passes
+missed = an interval over 1.5 refresh periods, each split by cause into main late, commit late or presented late),
+main-thread time in Ghostty's display passes
 (`debug.terminal_display`: before G1 each pass drew on main with the previous size's cells and waited
 for the GPU), and the render counters of every resized terminal (`debug.surfaces`): frames drawn by
 the main thread, fresh frames presented in the commit of their size, late passes (GhosttyNextKit with
@@ -199,8 +200,12 @@ def column_divider(dividers, middle):
     return columns[len(columns) // 2 - 1] if len(columns) >= 2 else columns[0]
 
 
+# `missed_split`: each missed refresh's cause from cmux's own stamps (debug.frames, FrameMissSplit): main_late (the main
+# work ran past the frame's target time), commit_late (the Core Animation commit did), presented_late (neither: the main
+# thread was idle at the target and the frame still missed); `missed_frames`: the first misses with their stamps.
 FRAME_KEYS = ("frames", "refresh_ms", "p50_ms", "p95_ms", "p99_ms", "max_ms", "missed", "main_p50_ms", "main_p95_ms",
-              "main_max_ms", "main_total_ms", "main_over_8_3_ms", "view_layouts", "view_layouts_max")
+              "main_max_ms", "main_total_ms", "main_over_8_3_ms", "view_layouts", "view_layouts_max", "missed_split",
+              "missed_frames")
 
 
 def frame_numbers(frames):
