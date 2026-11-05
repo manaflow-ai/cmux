@@ -30,15 +30,16 @@ extension AgentTabStore {
             if let move { _ = self?.actionRegistry?.perform(move, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user)) }
             if case let .column(left) = TerminalForkPlacement(destination), let self { placeForkScoped(AgentTabKey(machine: machine ?? "", key: key), self.tabKey(provisional, machine: machine), left) } else if destination == .row, let self { placeForkScoped(AgentTabKey(machine: machine ?? "", key: key), self.tabKey(provisional, machine: machine), nil) }
         }, finished: { [weak self] _ in
-            if let key = opened.key { self?.focusForkComposer(key) }
+            if let key = opened.key { self?.focusForkComposer(key, machine: machine) }
         })
     }
 
     /// The fork's composer takes the keyboard: the person's next words go to the fork, not the chat.
-    private func focusForkComposer(_ key: String) {
-        let tab = resolve(key)
+    private func focusForkComposer(_ key: String, machine: String? = nil) {
+        let scoped = tabKey(key, machine: machine)
+        let tab = scoped.key
         _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user))
-        existingView(tab)?.focusComposer()
+        existingView(tab, machine: scoped.machine)?.focusComposer()
     }
 }
 

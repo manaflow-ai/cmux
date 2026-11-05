@@ -488,8 +488,8 @@ final class AgentTabStore {
 
     /// Scrolls tab `key`'s transcript to `turn` (a `#turn-<turnId>` link):
     /// through its page, or with the handshake of a page not made yet.
-    func revealTurn(_ turn: String, in key: String) {
-        let scoped = tabKey(key)
+    func revealTurn(_ turn: String, in key: String, machine: String? = nil) {
+        let scoped = tabKey(key, machine: machine)
         if let view = views[scoped] { view.revealTurn(turn) } else { pendingTurns[scoped] = turn }
     }
 

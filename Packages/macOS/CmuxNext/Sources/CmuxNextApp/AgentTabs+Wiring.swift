@@ -263,7 +263,7 @@ extension AgentTabStore {
                         guard let tabs else { return }
                         await TabMirror.performWhenReached(key, in: { tabs.locateScoped(AgentTabKey(machine: target.daemon.machineID, key: $0)) }) {
                             if let placed { if let surface = services?.locateTab(key, onMachine: target.daemon.machineID)?.0.surface { placed(surface) }; return }
-                            _ = tabs.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .user))
+                            _ = tabs.actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), arguments: ["machine": .string(target.daemon.machineID)], origin: .user))
                         }
                     }
                 }
