@@ -60,6 +60,16 @@ describe("Bring your history", () => {
     expect(store.getSnapshot().rows.some((row) => row.id === "dot")).toBe(false);
     expect(canImport(store.getSnapshot())).toBe(true);
   });
+  test("the host's line about Conductor shows only while detection returns it", async () => {
+    let notice: string | null = "Conductor workspaces: import them from Settings › Import.";
+    const client = host(({ op }) => (op === OPS.detect ? { sources: [], notice } : undefined));
+    const store = new ImportHistoryStore(client);
+    await store.start();
+    expect(store.getSnapshot().notice).toBe(notice);
+    notice = null;
+    await store.findExports();
+    expect(store.getSnapshot().notice).toBeUndefined();
+  });
   test("export discovery is opt-in after the passive mount scan", async () => {
     const client = host(({ op, params }) =>
       op === OPS.detect

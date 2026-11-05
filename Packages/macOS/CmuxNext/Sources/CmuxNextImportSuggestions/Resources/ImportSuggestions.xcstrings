@@ -12838,6 +12838,666 @@
           }
         }
       }
+    },
+    "conductorImport.note.title" : {
+      "comment" : "The title of the sidebar's one-time note that points to Import from Conductor.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bring your Conductor workspaces"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bring deine Conductor-Arbeitsbereiche mit"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apportez vos espaces de travail Conductor"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أحضر مساحات عمل Conductor"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trae tus espacios de trabajo de Conductor"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "帶來你的 Conductor 工作區"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "带来你的 Conductor 工作区"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor 작업 공간 가져오기"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor のワークスペースを移行"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Donesite svoje Conductor radne prostore"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tag dine Conductor-arbejdsområder med"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Porta i tuoi spazi di lavoro di Conductor"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "នាំកន្លែងធ្វើការ Conductor របស់អ្នកមក"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ta med Conductor-arbeidsområdene dine"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przenieś swoje obszary robocze Conductor"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Traga seus espaços de trabalho do Conductor"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенесите рабочие пространства Conductor"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "นำพื้นที่ทำงาน Conductor ของคุณมา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor çalışma alanlarınızı getirin"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенесіть робочі простори Conductor"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mang không gian làm việc Conductor sang đây"
+          }
+        }
+      }
+    },
+    "conductorImport.note.detail" : {
+      "comment" : "The detail of the sidebar's one-time Import from Conductor note: the deadline, and where the import is.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud shuts down on November 20. Settings › Import opens your workspaces here, in place."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud wird am 20. November eingestellt. Einstellungen › Importieren öffnet deine Arbeitsbereiche hier, an Ort und Stelle."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud ferme le 20 novembre. Réglages › Importer ouvre vos espaces de travail ici, sur place."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يتوقف Conductor Cloud في 20 نوفمبر. الإعدادات › الاستيراد يفتح مساحات عملك هنا في مكانها."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud cierra el 20 de noviembre. Ajustes › Importar abre tus espacios de trabajo aquí, en su lugar."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud 將於 11 月 20 日關閉。「設定 › 匯入」會就地在此開啟你的工作區。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud 将于 11 月 20 日关闭。“设置 › 导入”会就地在此打开你的工作区。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud는 11월 20일에 종료됩니다. 설정 › 가져오기에서 작업 공간을 그대로 여기에서 엽니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud は 11 月 20 日に終了します。設定 › 読み込みで、ワークスペースをそのままここで開けます。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud se gasi 20. novembra. Postavke › Uvoz otvara vaše radne prostore ovdje, na mjestu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud lukker den 20. november. Indstillinger › Import åbner dine arbejdsområder her, på stedet."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud chiude il 20 novembre. Impostazioni › Importa apre qui i tuoi spazi di lavoro, sul posto."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud បិទនៅថ្ងៃទី 20 ខែវិច្ឆិកា។ ការកំណត់ › នាំចូល បើកកន្លែងធ្វើការរបស់អ្នកនៅទីនេះ នៅនឹងកន្លែង។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud stenges 20. november. Innstillinger › Import åpner arbeidsområdene dine her, der de er."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud zostanie wyłączony 20 listopada. Ustawienia › Import otworzy tu Twoje obszary robocze, na miejscu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Conductor Cloud será encerrado em 20 de novembro. Ajustes › Importar abre seus espaços de trabalho aqui, no lugar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud закроется 20 ноября. Настройки › Импорт откроют ваши рабочие пространства здесь, на месте."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud ปิดให้บริการวันที่ 20 พฤศจิกายน การตั้งค่า › นำเข้า จะเปิดพื้นที่ทำงานของคุณที่นี่ในที่เดิม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud 20 Kasım'da kapanıyor. Ayarlar › İçe Aktar, çalışma alanlarınızı burada yerinde açar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud закриється 20 листопада. Налаштування › Імпорт відкриють ваші робочі простори тут, на місці."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor Cloud ngừng hoạt động vào ngày 20 tháng 11. Cài đặt › Nhập sẽ mở không gian làm việc của bạn tại chỗ ở đây."
+          }
+        }
+      }
+    },
+    "conductorImport.note.open" : {
+      "comment" : "The button of the sidebar's Import from Conductor note: opens Settings › Import.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Import"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import öffnen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir l’importation"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "فتح الاستيراد"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir Importar"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟匯入"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开导入"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "가져오기 열기"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込みを開く"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otvori uvoz"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åbn import"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apri Importa"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បើកការនាំចូល"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpne import"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otwórz import"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir Importar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открыть импорт"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เปิดการนำเข้า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "İçe Aktarmayı Aç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Відкрити імпорт"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mở Nhập"
+          }
+        }
+      }
+    },
+    "conductorImport.note.close" : {
+      "comment" : "The x of the sidebar's Import from Conductor note (tooltip and VoiceOver label): it never shows again.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Don’t Show Again"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht mehr anzeigen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ne plus afficher"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عدم الإظهار مرة أخرى"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No volver a mostrar"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不再顯示"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不再显示"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다시 보지 않기"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今後表示しない"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ne prikazuj ponovo"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis ikke igen"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non mostrare più"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កុំបង្ហាញម្តងទៀត"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ikke vis igjen"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nie pokazuj ponownie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não mostrar novamente"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Больше не показывать"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ไม่ต้องแสดงอีก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir Daha Gösterme"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Більше не показувати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Không hiển thị lại"
+          }
+        }
+      }
+    },
+    "conductorImport.onboarding.line" : {
+      "comment" : "A line on the first-run Bring your history page when this Mac has Conductor: where to import its workspaces, and the deadline.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor workspaces: import them from Settings › Import before Conductor Cloud shuts down on November 20."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor-Arbeitsbereiche: Importiere sie über Einstellungen › Importieren, bevor Conductor Cloud am 20. November eingestellt wird."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Espaces de travail Conductor : importez-les depuis Réglages › Importer avant la fermeture de Conductor Cloud le 20 novembre."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "مساحات عمل Conductor: استوردها من الإعدادات › الاستيراد قبل توقف Conductor Cloud في 20 نوفمبر."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Espacios de trabajo de Conductor: impórtalos desde Ajustes › Importar antes de que Conductor Cloud cierre el 20 de noviembre."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor 工作區：請在 Conductor Cloud 於 11 月 20 日關閉前，從「設定 › 匯入」匯入。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor 工作区：请在 Conductor Cloud 于 11 月 20 日关闭前，从“设置 › 导入”导入。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor 작업 공간: Conductor Cloud가 11월 20일에 종료되기 전에 설정 › 가져오기에서 가져오세요."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor のワークスペース: Conductor Cloud が 11 月 20 日に終了する前に、設定 › 読み込みから読み込んでください。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor radni prostori: uvezite ih iz Postavke › Uvoz prije nego što se Conductor Cloud ugasi 20. novembra."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor-arbejdsområder: Importér dem fra Indstillinger › Import, før Conductor Cloud lukker den 20. november."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spazi di lavoro di Conductor: importali da Impostazioni › Importa prima che Conductor Cloud chiuda il 20 novembre."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "កន្លែងធ្វើការ Conductor៖ នាំចូលពី ការកំណត់ › នាំចូល មុនពេល Conductor Cloud បិទនៅថ្ងៃទី 20 ខែវិច្ឆិកា។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor-arbeidsområder: Importer dem fra Innstillinger › Import før Conductor Cloud stenges 20. november."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obszary robocze Conductor: zaimportuj je w Ustawienia › Import, zanim Conductor Cloud zostanie wyłączony 20 listopada."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Espaços de trabalho do Conductor: importe-os em Ajustes › Importar antes que o Conductor Cloud seja encerrado em 20 de novembro."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рабочие пространства Conductor: импортируйте их в Настройки › Импорт до закрытия Conductor Cloud 20 ноября."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "พื้นที่ทำงาน Conductor: นำเข้าจาก การตั้งค่า › นำเข้า ก่อนที่ Conductor Cloud จะปิดให้บริการวันที่ 20 พฤศจิกายน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conductor çalışma alanları: Conductor Cloud 20 Kasım'da kapanmadan önce Ayarlar › İçe Aktar'dan içe aktarın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Робочі простори Conductor: імпортуйте їх у Налаштування › Імпорт до закриття Conductor Cloud 20 листопада."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Không gian làm việc Conductor: hãy nhập chúng từ Cài đặt › Nhập trước khi Conductor Cloud ngừng hoạt động vào ngày 20 tháng 11."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

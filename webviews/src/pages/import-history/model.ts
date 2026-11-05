@@ -42,6 +42,8 @@ export interface HistorySnapshot {
   picking?: RowID;
   copied?: RowID;
   error?: string;
+  /** A line about another tool's import from the host (Import from Conductor's), shown under the sources. */
+  notice?: string;
 }
 export const OPS = {
   detect: "cmux.importHistory.detect",
@@ -137,10 +139,12 @@ export class ImportHistoryStore {
       if (!this.client) throw new Error("cmux.importHistory.unavailable");
       const result = await this.client.call<{
         sources: { source: string; kind?: string; title?: string; path?: string }[];
+        notice?: string | null;
       }>(OPS.detect, exports ? { exports: true } : {});
       const detected = result.sources ?? [];
       this.set({
         phase: "ready",
+        notice: result.notice ?? undefined,
         rows: this.snapshot.rows
           .filter((row) => !row.id.startsWith("detected-"))
           .map((row) => {

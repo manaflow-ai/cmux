@@ -386,6 +386,12 @@ public final class ImportSuggestionsCenter {
 
     /// Settings › Import.
     public func openSettings() { host?.openSettings("#/settings/import") }
+
+    /// Closes the sidebar's Import from Conductor note for good (``conductorNote``).
+    func closeConductorNote() {
+        state.conductorNoteClosed = true
+        state.save(to: defaults)
+    }
 }
 
 /// A refused card button, for `import.card` and the pages.

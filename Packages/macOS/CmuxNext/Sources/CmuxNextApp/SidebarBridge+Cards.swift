@@ -2,6 +2,7 @@ import CmuxNextCompat
 import Foundation
 import CmuxNextActions
 import CmuxNextAgentLanes
+import CmuxNextImportCards
 import CmuxNextNowPlaying
 import CmuxNextPages
 import CmuxNextSettings
@@ -86,6 +87,8 @@ enum SidebarCardFeed {
         case .setAutomaticUpdates(let on): services.updater.setAutomaticUpdates(on)
         case .openUpdateLink(let url): openUpdateLink(url, services: services)
         case .openUpdateChanges: _ = services.updater.openStagedChangelog()
+        case .noticeAction(let card, let action) where ImportSuggestionsCenter.shared.answerConductorNote(card, action: action): break
+        case .dismissNotice(let card) where ImportSuggestionsCenter.shared.answerConductorNote(card, action: nil): break
         // A question waiting on the person (an agent's Cloud machine request, ``SidebarAsks``) takes its answer first.
         case .noticeAction(let card, let action) where !services.machineAsks.answer(card, action: action):
             noticeAction(card, action, updater: services.updater, open: { openUpdateLink($0, services: services) })
@@ -168,9 +171,9 @@ enum SidebarCardFeed {
 
     /// The shared notice card (Lawrence 2026-10-09), one message at a time:
     /// the update status (a check's progress and result, a found update),
-    /// then the active test feed, then the newest announcement, then today's
-    /// "Did you know" tip. Nil while the staged update card shows;
-    /// announcements and the tip also wait for the "cmux Updated!" card.
+    /// then the active test feed, then Import from Conductor's note (until Nov 20), then the newest
+    /// announcement, then today's "Did you know" tip. Nil while the staged update card shows;
+    /// the note, announcements and the tip also wait for the "cmux Updated!" card.
     static func noticeCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarNoticeCard? {
         guard updater.readyCard == nil else { return nil }
         if let shown = updater.cardPresentation { return notice(shown, asked: updater.flow.userAsked) }
@@ -179,6 +182,7 @@ enum SidebarCardFeed {
                                      actions: [SidebarNoticeCard.Action(id: useRealFeedActionID, title: text.useRealFeed)])
         }
         guard !updater.whatsNew.showsUpdatedCard else { return nil }
+        if let note = ImportSuggestionsCenter.shared.conductorNote { return note }
         if let item = updater.announcements.first {
             let actions = item.action.flatMap { id in
                 PageDescriptor.changelogTryItActions.contains(id) ? [SidebarNoticeCard.Action(id: id, title: UpdaterService.announcementActionTitle)] : nil
