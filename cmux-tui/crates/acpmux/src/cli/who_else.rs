@@ -135,6 +135,12 @@ mod tests {
     }
 
     #[test]
+    fn a_since_too_long_to_count_is_refused_not_wrapped() {
+        assert!(duration_ms("999999999999999999d").is_err());
+        assert!(duration_ms("18446744073709551615").is_err());
+    }
+
+    #[test]
     fn an_empty_answer_says_so_and_names_unreached_peers() {
         let a = json!({"sessions": [], "unreached": [{"host": "big-red", "error": "no answer in 5 s"}]});
         assert_eq!(

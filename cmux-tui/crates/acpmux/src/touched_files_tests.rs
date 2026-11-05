@@ -102,6 +102,21 @@ fn the_asker_and_its_own_sub_sessions_are_not_someone_else() {
 }
 
 #[test]
+fn a_recent_read_of_a_file_edited_long_ago_is_a_read_not_a_recent_edit() {
+    let mut files = vec![];
+    merge(&mut files, file(REPO, "a", true, 100));
+    merge(&mut files, file(REPO, "a", false, 900));
+    let q = Query { files: vec![file(REPO, "a", false, 0)], since: 500, ..Query::default() };
+    let r = row(&q, &candidate("reader", files.clone()), 1_000).unwrap();
+    assert_eq!(r["filesInCommon"], 1, "the recent read still counts");
+    assert_eq!(r["editedInCommon"], 0, "the edit was before the window");
+    assert_eq!(r["files"][0]["edited"], false);
+    // A window that holds the edit still sees it.
+    let q = Query { since: 50, ..q };
+    assert_eq!(row(&q, &candidate("editor", files), 1_000).unwrap()["editedInCommon"], 1);
+}
+
+#[test]
 fn old_touches_and_idle_old_sessions_do_not_count() {
     let q = Query { files: vec![file(REPO, "a", false, 0)], since: 500, ..Query::default() };
     let mut old = candidate("old", vec![file(REPO, "a", true, 100)]);
