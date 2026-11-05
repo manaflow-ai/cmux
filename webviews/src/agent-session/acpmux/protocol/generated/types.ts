@@ -680,6 +680,14 @@ export type QueuedPromptSummary = {
   heldByStop: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
   images: QueuedImage[];
+  /**
+   * acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,
+   * `hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the
+   * messages it carries and never as the person's queued prompt, also when it has not read
+   * its `queued` record (a chat reopened on a recent page). Null for any other prompt, and
+   * once edited (an edit drops the provenance).
+   */
+  inboxNotice: unknown;
   prompt: string;
   promptId: string;
   queuedAt: number;

@@ -3802,6 +3802,10 @@
           },
           "type": "array"
         },
+        "inboxNotice": {
+          "default": null,
+          "description": "acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,\n`hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the\nmessages it carries and never as the person's queued prompt, also when it has not read\nits `queued` record (a chat reopened on a recent page). Null for any other prompt, and\nonce edited (an edit drops the provenance)."
+        },
         "prompt": {
           "type": "string"
         },
@@ -3847,6 +3851,7 @@
         "held",
         "heldByStop",
         "images",
+        "inboxNotice",
         "prompt",
         "promptId",
         "queuedAt",

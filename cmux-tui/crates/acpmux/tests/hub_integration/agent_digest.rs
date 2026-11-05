@@ -412,11 +412,12 @@ async fn an_agent_slash_command_goes_in_alone() {
     assert_eq!(echoes[2], "echo: from c");
 }
 
-/// Agent messages a failed turn held never wait for a person, nor for a turn that may never come
-/// (an agent that died does not complete one): they go in again by themselves after the
-/// `autoResumeDelaysMs` wait, with no Resume. The person's held prompt still waits for them.
+/// What a failed turn held never waits for a person, nor for a turn that may never come (an
+/// agent that died does not complete one): it goes in again by itself after the
+/// `autoResumeDelaysMs` wait, with no Resume, in its order: the person's prompt (Leo,
+/// 2026-11-05: "Don't have it work this kind of way"), then the agent messages together.
 #[tokio::test]
-async fn agent_messages_a_failed_turn_held_go_in_by_themselves() {
+async fn what_a_failed_turn_held_goes_in_by_itself() {
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![50]);
     let id = busy(&mut c).await;
@@ -427,10 +428,11 @@ async fn agent_messages_a_failed_turn_held_go_in_by_themselves() {
     end_busy(&hub, &id).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "boom").await;
 
-    // Nobody sends anything: the held agent messages go in together.
+    // Nobody sends anything: the person's held prompt goes in, then the agent messages together.
     let echoes = echoes_until(&mut c, "held from b").await;
-    assert_eq!(echoes.len(), 1, "{echoes:?}");
-    assert!(echoes[0].contains("held from a") && echoes[0].contains("[agent message 2 of 2]"));
+    assert_eq!(echoes.len(), 2, "{echoes:?}");
+    assert_eq!(echoes[0], "echo: mine");
+    assert!(echoes[1].contains("held from a") && echoes[1].contains("[agent message 2 of 2]"));
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(queue_order(&mut c, &id).await, ["p-me"], "the person's held prompt still waits");
+    assert!(queue_order(&mut c, &id).await.is_empty(), "nothing waits for Resume");
 }
