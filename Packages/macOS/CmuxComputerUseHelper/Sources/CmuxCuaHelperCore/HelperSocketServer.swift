@@ -24,6 +24,9 @@ private let socketLogger = Logger(subsystem: "com.cmuxterm.cua", category: "sock
 /// `"code":"consent_required","surface":S` (plus `"reason":"host_unverified"`
 /// when the helper could not verify the cmux app that started it, never for
 /// a person's refusal), and the connection stays open.
+/// `tools/call` and `tools/list` go through `Perception`, with one
+/// `PerceptionSession` per connection: an agent is told "unchanged" only
+/// about a screenshot it was itself shown.
 public final class HelperSocketServer: Sendable {
     public let path: String
     private let admission: AdmissionState
@@ -145,6 +148,8 @@ public final class HelperSocketServer: Sendable {
             return connection.refuse(refusal)
         }
         guard let config else { return connection.refuse(.notConfigured) }
+        // What this connection's agent has been shown (unchanged screenshots, zoom).
+        let perception = PerceptionSession()
         var buffer = HelperWire.LineBuffer()
         var admitted = false
         var bytes = [UInt8](repeating: 0, count: 64 * 1024)
@@ -163,7 +168,7 @@ public final class HelperSocketServer: Sendable {
                     connection.write(Self.admittedReply)
                     continue
                 }
-                handle(line, connection: connection)
+                handle(line, connection: connection, perception: perception)
             }
         }
         connection.close()
@@ -180,7 +185,7 @@ public final class HelperSocketServer: Sendable {
         return getpeereid(descriptor, &uid, &gid) == 0 ? uid : nil
     }
 
-    private func handle(_ line: Data, connection: Connection) {
+    private func handle(_ line: Data, connection: Connection, perception: PerceptionSession) {
         guard let request = HelperWire.object(line) else {
             return connection.write(HelperWire.line(["ok": false, "error": "invalid request"]))
         }
@@ -190,15 +195,16 @@ public final class HelperSocketServer: Sendable {
         let arguments = HelperWire.json(request["arguments"] ?? [String: Any]())
         let tools = self.tools
         let consent = self.consent
+        let view = Perception(tools: tools, session: perception)
         Task.detached {
             do {
                 let result: Data
                 switch method {
-                case "tools/list": result = try await tools.listTools()
+                case "tools/list": result = Perception.listing(try await tools.listTools())
                 case "machine/consent": result = await consent.current().wire
                 case "tools/call":
                     guard let name, !name.isEmpty else { throw ToolError("tools/call needs a name") }
-                    result = try await tools.invoke(name: name, arguments: arguments)
+                    result = try await view.call(name: name, arguments: arguments)
                 default: throw ToolError("unknown method \(method)")
                 }
                 connection.write(HelperWire.line(["ok": true], raw: ["id": id, "result": result]))
