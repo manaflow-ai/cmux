@@ -192,14 +192,15 @@ struct CloudWelcomeTests {
     @Test("the rendered welcome pager advances with its movie without reading the player's time")
     @MainActor
     func renderedPagerNeverReadsPlayerTime() async throws {
-        // Reduce Motion pauses the movie and the timeline, and CI hosts turn it on.
-        exchangeReduceMotionGetter()
-        defer { exchangeReduceMotionGetter() }
         let counter = CarouselPlayheadReadCounter.install()
         defer { counter.uninstall() }
 
-        func card(headline: String) -> CloudWelcomeView {
-            CloudWelcomeView(nextStep: .upgrade, onNotNow: {}, onNext: { _ in }, posterHeadline: headline)
+        // Reduce Motion pauses the movie and the timeline, and CI hosts turn it on.
+        func card(headline: String) -> AnyView {
+            AnyView(
+                CloudWelcomeView(nextStep: .upgrade, onNotNow: {}, onNext: { _ in }, posterHeadline: headline)
+                    .environment(\._accessibilityReduceMotion, false)
+            )
         }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 720),
@@ -224,19 +225,12 @@ struct CloudWelcomeTests {
                 return player.timeControlStatus == .playing && item.duration.seconds.isFinite
             }
         }
-        let probe = ReduceMotionProbe()
-        let probeWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.borderless], backing: .buffered, defer: false)
-        probeWindow.isReleasedWhenClosed = false
-        probeWindow.contentView = NSHostingView(rootView: ReduceMotionProbeView(probe: probe))
-        probeWindow.orderFrontRegardless()
-        defer { probeWindow.contentView = nil; probeWindow.close() }
-        _ = await pump(seconds: 2) { probe.value != nil }
         let state = renderedMovieLayers(in: window).map { layer -> String in
             let player = layer.player
             let item = player?.currentItem
             return "ready \(layer.isReadyForDisplay) control \(player?.timeControlStatus.rawValue ?? -1) rate \(player?.rate ?? -1) waiting \(String(describing: player?.reasonForWaitingToPlay?.rawValue)) item \(item?.status.rawValue ?? -1) error \(String(describing: item?.error)) duration \(item?.duration.seconds ?? -1)"
         }
-        try #require(moviePlaying, "the movie never played: swiftui reduce motion \(String(describing: probe.value)), workspace \(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion), players \(state)")
+        try #require(moviePlaying, "the movie never played, so the old code path would not run either: \(state)")
 
         // Hosts without a ticking display never fire `.animation`, so each new
         // input re-runs the TimelineView body directly; a live display adds frames.
@@ -249,8 +243,7 @@ struct CloudWelcomeTests {
                 return fills.count > before
             }
         }
-        let host = "screens \(NSScreen.screens.count), window screen \(window.screen != nil), reduce motion \(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)"
-        #expect(fills.count >= 3, "the pager fill took \(fills.count) positions (\(host)), so its TimelineView body did not re-render")
+        #expect(fills.count >= 3, "the pager fill took \(fills.count) positions, so its TimelineView body did not re-render")
         #expect(counter.reads == 0)
     }
 
@@ -605,37 +598,6 @@ private func renderedFillOffsets(in window: NSWindow) -> [Int] {
     renderedViews(in: window)
         .filter { String(describing: type(of: $0)).contains("FillView") }
         .compactMap { $0.layer?.sublayers?.first.map { Int($0.frame.minX.rounded()) } }
-}
-
-@MainActor
-private final class ReduceMotionProbe {
-    var value: Bool?
-}
-
-private struct ReduceMotionProbeView: View {
-    let probe: ReduceMotionProbe
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        probe.value = reduceMotion
-        return Color.clear
-    }
-}
-
-/// Swaps `accessibilityDisplayShouldReduceMotion` for a getter returning false;
-/// a second call restores it.
-private func exchangeReduceMotionGetter() {
-    guard let original = class_getInstanceMethod(NSWorkspace.self, #selector(getter: NSWorkspace.accessibilityDisplayShouldReduceMotion)),
-          let replacement = class_getInstanceMethod(NSWorkspace.self, #selector(NSWorkspace.reduceMotionOffForTest))
-    else {
-        Issue.record("accessibilityDisplayShouldReduceMotion could not be exchanged")
-        return
-    }
-    method_exchangeImplementations(original, replacement)
-}
-
-private extension NSWorkspace {
-    @objc dynamic func reduceMotionOffForTest() -> Bool { false }
 }
 
 /// Counts `-[AVPlayerItem currentTime]` calls made from the welcome carousel,
