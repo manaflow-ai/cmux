@@ -9,6 +9,8 @@ import type { AcpmuxRow } from "../model";
 import { SubagentResultHeader } from "./SubagentResultHeader";
 import type { Subagent } from "./subagentFold";
 import "../backgroundTasks/backgroundTasks.css";
+import "../header/header.css";
+import "../styles.css";
 import "./subagents.css";
 
 const LONG_RESULT = Array.from(
@@ -16,7 +18,7 @@ const LONG_RESULT = Array.from(
   (_, index) =>
     `**${index + 1}.** Checked the worker output and kept the useful detail in this report.`,
 ).join("\n\n");
-const SHORT_RESULT = "The result is ready. The transcript below keeps the tool calls available.";
+const SHORT_RESULT = "Ready.";
 
 const baseAgent: Subagent = {
   id: "gallery-worker",
@@ -39,9 +41,14 @@ function rows(count: number): AcpmuxRow[] {
   }));
 }
 
-type Props = { report: "long" | "short"; viewport: "split" | "dock" | "one-tab"; stream: boolean };
+type Props = {
+  report: "long" | "short";
+  viewport: "split" | "dock" | "one-tab";
+  stream: boolean;
+  tabRowHeight?: number;
+};
 
-function ResultHeadScene({ report, viewport, stream }: Props) {
+function ResultHeadScene({ report, viewport, stream, tabRowHeight }: Props) {
   const [extra, setExtra] = useState("");
   const agent: Subagent = {
     ...baseAgent,
@@ -54,6 +61,9 @@ function ResultHeadScene({ report, viewport, stream }: Props) {
     width: viewport === "split" ? 760 : 420,
     height: viewport === "split" ? 620 : oneTab ? 300 : 240,
   };
+  const sceneStyle = oneTab
+    ? ({ ...style, "--acpmux-tab-row-height": `${tabRowHeight ?? 0}px` } as CSSProperties)
+    : style;
   const transcript = (
     <div className={oneTab ? "acpmux-scroll" : "acpmux-bg__transcript"} data-result-transcript>
       {rows(viewport === "split" ? 18 : 8).map((row) => (
@@ -83,7 +93,7 @@ function ResultHeadScene({ report, viewport, stream }: Props) {
         className="acpmux-shell"
         data-tab-row
         data-solo-tab
-        style={style}
+        style={sceneStyle}
         data-result-scene="one-tab"
       >
         <div className="acpmux-main" style={{ display: "flex", flex: 1, minHeight: 0 }}>
@@ -95,7 +105,7 @@ function ResultHeadScene({ report, viewport, stream }: Props) {
             <header
               className="acpmux-header"
               data-tab-row
-              style={{ flex: "0 0 var(--acpmux-tab-row-height, 28px)" }}
+              style={{ flex: "0 0 var(--acpmux-tab-row-height)" }}
             />
             <SubagentResultHeader agent={agent} />
             {transcript}
@@ -186,7 +196,7 @@ export default componentEntry<Props>({
     },
     "one-tab": {
       note: "A one-tab stage keeps the result head and the last report lines clickable below the native tab row.",
-      props: { report: "long", viewport: "one-tab", stream: false },
+      props: { report: "long", viewport: "one-tab", stream: false, tabRowHeight: 36 },
       play,
     },
   },

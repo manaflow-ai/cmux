@@ -38,6 +38,9 @@ test("App.tsx gates every line under the header by the record the transcript rea
   );
   expect(app).toContain("const soloUnder = runsUnderTabRow(soloTab, underHeader);");
   expect(app).toContain("checkpointReview: checkpoints.review != null,");
+  expect(app).toContain(
+    "const resultHead = Boolean(childRows && subagentView && freshAgentMap.has(subagentView));",
+  );
   // The stage's lines between the header and the chat body.
   const start = app.indexOf("{/* A feature tip under its header control");
   const end = app.indexOf("{viewedSandbox ? (", start);
@@ -59,4 +62,14 @@ test("App.tsx gates every line under the header by the record the transcript rea
     if (line.startsWith("<") || line.startsWith("/*")) continue;
     expect(line).toStartWith("underHeader.");
   }
+});
+
+test("result-first head keeps its cap and hairline design tokens", () => {
+  const css = fs.readFileSync(
+    path.resolve(import.meta.dir, "../src/agent-session/acpmux/subagents/subagents.css"),
+    "utf8",
+  );
+  expect(css).toContain("border-bottom: var(--cmux-hairline) solid var(--cv-divider);");
+  expect(css).toContain("flex: 0 1 auto;");
+  expect(css).toContain("max-height: 35%;");
 });

@@ -39,6 +39,8 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
   });
 
   test("long and short result heads keep the transcript reachable across pane sizes", async () => {
+    let dockLongHeadHeight = 0;
+    let dockShortHeadHeight = 0;
     for (const variant of variants) {
       const page = await browser!.newPage({
         viewport: {
@@ -68,26 +70,45 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
       console.log(`subagent-result-header ${variant} ${JSON.stringify(geometry)}`);
       expect(geometry.transcriptHeight).toBeGreaterThan(0);
       expect(geometry.transcriptTop).toBeGreaterThanOrEqual(geometry.headBottom - 0.5);
-      if (variant === "dock-long")
+      if (variant === "dock-long") {
+        dockLongHeadHeight = geometry.headHeight;
         expect(geometry.reportScrollHeight).toBeGreaterThan(geometry.reportClientHeight);
+      }
+      if (variant === "dock-short") dockShortHeadHeight = geometry.headHeight;
       if (variant === "one-tab") {
         const bottomHit = await page.evaluate(() => {
           const report = document.querySelector<HTMLElement>(".cv-subagent-result__report")!;
+          const lastLine = report.querySelector<HTMLElement>(".cv-md > :last-child");
           report.scrollTop = report.scrollHeight;
-          const rect = report.getBoundingClientRect();
-          const target = document.elementFromPoint(
-            rect.left + Math.min(12, rect.width / 2),
-            rect.bottom - 2,
+          const reportRect = report.getBoundingClientRect();
+          const lastRect = lastLine?.getBoundingClientRect();
+          if (!lastLine || !lastRect)
+            return { scrollable: false, moved: false, lastVisible: false, inLastLine: false };
+          const x = Math.max(
+            reportRect.left + 1,
+            Math.min(lastRect.left + lastRect.width / 2, reportRect.right - 1),
           );
+          const y = Math.max(
+            reportRect.top + 1,
+            Math.min(lastRect.top + lastRect.height / 2, reportRect.bottom - 1),
+          );
+          const target = document.elementFromPoint(x, y);
           return {
             scrollable: report.scrollHeight > report.clientHeight,
-            inReport: target?.closest(".cv-subagent-result__report") !== null,
+            moved: report.scrollTop > 0,
+            lastVisible:
+              lastRect.top >= reportRect.top - 0.5 && lastRect.bottom <= reportRect.bottom + 0.5,
+            inLastLine: Boolean(target && lastLine.contains(target)),
           };
         });
         expect(bottomHit.scrollable).toBe(true);
-        expect(bottomHit.inReport).toBe(true);
+        expect(bottomHit.moved).toBe(true);
+        expect(bottomHit.lastVisible).toBe(true);
+        expect(bottomHit.inLastLine).toBe(true);
       }
       await page.close();
     }
+    expect(dockShortHeadHeight).toBeGreaterThan(0);
+    expect(dockShortHeadHeight).toBeLessThan(dockLongHeadHeight);
   });
 });
