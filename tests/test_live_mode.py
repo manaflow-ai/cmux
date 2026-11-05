@@ -178,6 +178,19 @@ class LiveModeTests(unittest.TestCase):
         self.assertEqual(patchable, [app])  # a touch with the same bytes is no edit
         self.assertEqual(waiting, [new, other])
 
+    def test_the_socket_is_found_under_the_account_home_when_home_is_another(self):
+        account, step = Path(self.dir) / "account", Path(self.dir) / "step"
+        sock = account / ".local/state/cmux/cmux-debug-mine.sock"
+        sock.parent.mkdir(parents=True)
+        sock.write_text("")
+        saved, home = live_mode.account_home, os.environ.get("HOME")
+        live_mode.account_home, os.environ["HOME"] = (lambda: str(account)), str(step)
+        try:
+            self.assertEqual(live_mode.tagged_socket("mine"), str(sock))
+        finally:
+            live_mode.account_home = saved
+            os.environ["HOME"] = home or ""
+
     def test_a_scan_hashes_only_files_whose_mtime_moved(self):
         tree = Path(self.dir) / "tree"
         source = tree / live_mode.SOURCES / "CmuxNextApp/A.swift"

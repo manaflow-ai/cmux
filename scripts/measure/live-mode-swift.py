@@ -38,11 +38,9 @@ LIVE_LOG = os.path.expanduser("~/Library/Caches/cmux-next/live-code/live-code.lo
 def socket(tag):
     """The tag's socket that answers (the state path, else its /tmp link)."""
     for path in socket_candidates(tag):
-        try:
-            rpc_at(path, "system.ping", timeout=2)
+        reply = rpc_at(path, "system.ping", timeout=2)  # rpc_at answers errors as a dict, never raises
+        if not (isinstance(reply, dict) and reply.get("unreachable")):
             return path
-        except Exception:  # noqa: BLE001 (not up yet)
-            continue
     return None
 
 

@@ -43,6 +43,7 @@ import hashlib
 import json
 import os
 import plistlib
+import pwd
 import re
 import shutil
 import signal
@@ -100,12 +101,25 @@ def socket_path(args):
     raise Refused("name the tagged build: --tag TAG (or run this in one of its terminals)")
 
 
+def account_home():
+    """The home the app resolves (`FileManager.homeDirectoryForCurrentUser`): the password
+    database's, which a shell's $HOME can differ from (a fleet step sets its own)."""
+    try:
+        return pwd.getpwuid(os.getuid()).pw_dir
+    except KeyError:
+        return str(Path.home())
+
+
 def tagged_socket(tag_slug, home=None):
     """A tagged DEV build's control socket (ControlSocketPath.swift): the state folder's, which the
     app keeps a /tmp link to; the /tmp name when only it is there (a path too long to move)."""
-    home = Path(home or os.environ.get("HOME") or Path.home())
-    state, old = home / f".local/state/cmux/cmux-debug-{tag_slug}.sock", Path(f"/tmp/cmux-debug-{tag_slug}.sock")
-    return str(old if old.exists() and not state.exists() else state)
+    name = f"cmux-debug-{tag_slug}.sock"
+    homes = [home] if home else [account_home(), os.environ.get("HOME")]
+    states = [Path(h) / ".local/state/cmux" / name for h in homes if h]
+    for path in [*states, Path("/tmp") / name]:
+        if path.exists():
+            return str(path)
+    return str(states[0])
 
 
 def call(path, method, params=None, timeout=10.0):
