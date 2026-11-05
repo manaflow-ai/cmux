@@ -96,7 +96,11 @@ pub fn redeem(join: &MachineJoin, api: &str, name: &str) -> Value {
     };
     let revoked = run(&["host", "join", "--status", "--hub", hub, "--json"], None)
         .ok()
-        .is_some_and(|status| status["revoked"] == true || status["cloned"] == true);
+        .is_some_and(|status| {
+            ["revoked", "cloned"]
+                .iter()
+                .any(|k| status.get(k).and_then(Value::as_bool) == Some(true))
+        });
     let mut args = vec!["host", "join", "--hub", hub, "--json"];
     // acpmux's own name rule (1 to 63 bytes); a longer one takes acpmux's default, the host name.
     if !name.is_empty() && name.len() <= 63 {
@@ -107,17 +111,18 @@ pub fn redeem(join: &MachineJoin, api: &str, name: &str) -> Value {
     }
     match run(&args, Some(join.token())) {
         Ok(value) => {
-            let mut out = json!({"state":"joined"});
+            let mut out = serde_json::Map::new();
+            out.insert("state".into(), "joined".into());
             for (from, to) in [
                 ("machineId", "machine_id"),
                 ("teamId", "team"),
                 ("alreadyJoined", "already_joined"),
             ] {
                 if let Some(v) = value.get(from).filter(|v| v.is_string() || v.is_boolean()) {
-                    out[to] = v.clone();
+                    out.insert(to.into(), v.clone());
                 }
             }
-            out
+            Value::Object(out)
         }
         Err(code) => failed(code),
     }

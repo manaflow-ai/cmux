@@ -145,7 +145,7 @@ pub fn enroll_with_invite(
     let invite = invite.map(invite::normalize).transpose()?;
     let invite = invite.as_deref();
     let api = api_origin(api)?;
-    let name = info["name"].as_str().unwrap_or_default().to_owned();
+    let name = info.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
     if intent.is_some_and(|s| s.is_empty() || s.encode_utf16().count() > 128 || s.contains('\0')) {
         return Err(Error::usage("server.pair.invalid_intent"));
     }
