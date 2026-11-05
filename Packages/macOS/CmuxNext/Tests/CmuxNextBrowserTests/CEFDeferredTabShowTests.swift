@@ -252,6 +252,8 @@ import Testing
     /// still (on the films, 0 of 190 motion frames with the page's left edge on its pane's). The pane's leading edge moves
     /// right (the pane shrinks), then left past its start (it grows), its trailing edge still, as a key resize moves it.
     @Test func aKeyResizeHoldKeepsThePageOnThePageAreasTopLeft() throws {
+        Self.setDragResize(.live)  // the S5-off path: the key hold
+        defer { Self.setDragResize(nil) }
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, first, _) = try Self.liveHost(runtime)
@@ -431,10 +433,12 @@ import Testing
 
     // MARK: Fixtures
 
-    /// Sets Debug Settings `browserResize.dragResize` (nil: the default).
+    /// Sets Debug Settings `browserResize.dragResize` (nil: the default). These tests cover the path with S5 off
+    /// (`motion.frameOwner.pages`, on by default), so a mode pins it off; nil resets it.
     private static func setDragResize(_ mode: BrowserDragResize?) {
         TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register([BrowserResizeTunables.dragResize.descriptor])
+        TunableStore.shared.register([BrowserResizeTunables.dragResize.descriptor, BrowserResizeTunables.framesOwnedByCommit.descriptor])
+        TunableStore.shared.set(BrowserResizeTunables.framesOwnedByCommit.key, mode.map { _ in .bool(false) })
         TunableStore.shared.set(BrowserResizeTunables.dragResize.key, mode.map { .choice($0.rawValue) })
         #expect(BrowserResizeTunables.dragResize.value == mode ?? .default)
     }
