@@ -251,6 +251,7 @@ mod tests {
                 id: "phone-1".into(),
                 identity_key: "04".into(),
                 approval_key: approval_key.into(),
+                ..Default::default()
             }],
             denied: Vec::new(),
         };

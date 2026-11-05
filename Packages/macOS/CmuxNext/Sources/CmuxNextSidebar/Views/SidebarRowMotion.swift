@@ -20,6 +20,10 @@ struct RowMotion {
     var insert: SidebarInsertMotion?
     /// How far the rows' edges travel under `insert` (`SidebarInsertMotion.travel`); nil is the whole distance.
     var travel: CGFloat?
+    /// The leaving rows a collapse hides (Leo 2026-11-05, ask-71821f1cda: "when you're collapsing a group, the text needs
+    /// to fade faster ... you still see like overlapping text sometimes"): they fade out on the short `fadeOut`, not over
+    /// the whole `.move` spring, so their text is gone before the slot closes over it and the rows below rise into it.
+    var folding: [SidebarRowView] = []
 
     func run(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout, animated: Bool) {
         let moves = {
@@ -84,10 +88,22 @@ struct RowMotion {
             if list.rowMoves == move { Self.land(list) }
             list.pruneOffscreen()
         }
+        let folds = Set(folding.map(ObjectIdentifier.init))
         Self.animate(frames: targets + appearing + leaving, companions: lines.springs + companions,
-                     fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving),
+                     fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving.filter { !folds.contains(ObjectIdentifier($0.0)) }),
                      lines: lines.changes, in: list, ended: ended,
                      insert: insert, travel: travel)
+        Self.fadeOut(folding)
+    }
+
+    /// Fades `views` (rows a collapse hides) out on `fadeOut`, from the opacity on screen. Their opacity is 0 at once, so
+    /// the move's end recycles them as it does any closed row.
+    private static func fadeOut(_ views: [SidebarRowView]) {
+        for view in views {
+            let shown = view.layer?.presentation()?.opacity ?? Float(view.alphaValue)
+            Motion.withoutAnimation { view.alphaValue = 0 }
+            if let layer = view.layer { Motion.sidebar.set(layer, "opacity", to: Float(0), fade: .fadeOut, from: shown) }
+        }
     }
 
     /// The views whose opacity this move changes and to what: an opening row and a target still fading in to 1,

@@ -22,7 +22,7 @@
 // CMUX_MARKDOWN_DEV_READONLY_ROOTS (colon-separated folders whose files open read only),
 // CMUX_MARKDOWN_DEV_FILE.
 import { execFileSync, spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import type { ServerResponse } from "node:http";
 import os from "node:os";
@@ -87,6 +87,7 @@ export const DEV_SERVER_PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT) || 420
 /// All dev-server plugins, for vite.config.ts.
 export function cmuxDevServer(): Plugin[] {
   return [
+    devServerToken(),
     appHostServer(),
     devServerShell(),
     agentPaneHost(),
@@ -99,6 +100,61 @@ export function cmuxDevServer(): Plugin[] {
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
   ];
+}
+
+/// How this server proves to a cmux app that it is the user's (PageDevServer.token in CmuxNextPages):
+/// `web-dev.json` (next to cmux-next.json, 0600, written by scripts/cmux-next/web-overlay.sh) names
+/// this server and a `token`. The app sends a fresh random nonce with each request and loads only an
+/// answer whose proof header is HMAC-SHA256(token, nonce), so the token never crosses the wire and a
+/// process that takes the port of a stopped server serves the app nothing. CMUX_WEB_DEV_TOKEN wins
+/// over the file (a server on another machine behind a tunnel). Read per request, so a token
+/// written after the server started counts.
+export const DEV_NONCE_HEADER = "x-cmux-dev-nonce";
+export const DEV_PROOF_HEADER = "X-Cmux-Dev-Proof";
+
+export function devServerProof(token: string, nonce: string): string {
+  return createHmac("sha256", token).update(nonce).digest("hex");
+}
+
+export function devServerTokenFrom(
+  env: NodeJS.ProcessEnv,
+  read: (file: string) => string | undefined,
+): string | undefined {
+  const fromEnv = env.CMUX_WEB_DEV_TOKEN?.trim();
+  if (fromEnv) return fromEnv;
+  const config = env.CMUX_NEXT_CONFIG_FILE ?? path.join(os.homedir(), ".config", "cmux", "cmux-next.json");
+  const raw = read(path.join(path.dirname(config), "web-dev.json"));
+  if (!raw) return undefined;
+  try {
+    const token = (JSON.parse(raw) as { token?: unknown }).token;
+    return typeof token === "string" && token.length > 0 ? token : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function devServerToken(): Plugin {
+  const read = (file: string) => {
+    try {
+      return fs.readFileSync(file, "utf8");
+    } catch {
+      return undefined;
+    }
+  };
+  return {
+    name: "cmux-dev-server-token",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const nonce = request.headers[DEV_NONCE_HEADER];
+        if (typeof nonce === "string" && nonce.length > 0 && nonce.length <= 128) {
+          const token = devServerTokenFrom(process.env, read);
+          if (token) response.setHeader(DEV_PROOF_HEADER, devServerProof(token, nonce));
+        }
+        next();
+      });
+    },
+  };
 }
 
 /// worker-pool.ts spawns `./diff-worker.mjs` next to itself, which the build emits; in dev that

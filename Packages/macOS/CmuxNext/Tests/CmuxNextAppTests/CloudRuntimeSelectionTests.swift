@@ -32,7 +32,6 @@ struct CloudRuntimeSelectionTests {
         #expect(configuration.apiBaseURL == selection.apiOrigin)
         #expect(configuration.stackBaseURL == selection.stackOrigin)
         #expect(configuration.backend == .development(selection.apiOrigin))
-        #expect(configuration.linkSource == .appServer)
         #expect(configuration.acceptsShareAPI(selection.shareApiOrigin))
         #expect(!configuration.acceptsShareAPI(URL(string: "https://cloud-api.cmux.dev") ?? selection.shareApiOrigin))
         var otherBackend = selection

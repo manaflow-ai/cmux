@@ -1,9 +1,12 @@
 import type { Env } from "../env.ts"
-import { cloudEnvTag } from "../cloud-driver.ts"
 import { meteredOwner } from "../model-gateway/routes.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
 import { freestyleCustomer } from "../providers/freestyle/customer.ts"
 import { freestyleIdleSeconds } from "../auto-pause.ts"
+
+/** The environment tag in provider machine names (cmuxnp-<tag>-...). */
+const cloudEnvTag = (environment: string | undefined): string | null =>
+  ({ development: "dev", staging: "stg", production: "prod", test: "test" } as Record<string, string>)[environment ?? ""] ?? null
 
 /**
  * The machine side of the Claude Code route (turn.ts, backend/chief-cc/bake.sh): one Freestyle VM per

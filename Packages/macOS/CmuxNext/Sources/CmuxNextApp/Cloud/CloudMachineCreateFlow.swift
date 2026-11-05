@@ -192,21 +192,6 @@ struct CloudMachineCreateFlow {
         throw Failure.stillPending(request: approved ?? "")
     }
 
-    /// The legacy `/api/vm` create (the default link). A plan that cannot create (`gate`, or the
-    /// server's 402) sends nothing and throws for the cap card. Otherwise a create no person started
-    /// goes out at once; only the opt-in `askFirst` ("ask before creating", default off) asks first,
-    /// and a no sends nothing. The plan picks its size, so none shows.
-    static func legacy<T>(name: String?, startedByPerson: Bool, askedBy: String? = nil, askFirst: Bool = false, gate: @MainActor () -> Gate = { .allowed },
-                          confirm: @MainActor (Prompt) async -> Bool, create: @MainActor () async throws -> T) async throws -> T {
-        if case .upgrade(let need) = gate() { throw Failure.upgradeRequired(need.reason) }
-        if !startedByPerson, askFirst { guard await confirm(.agentRequest(named(name, sizeShown: false, askedBy: askedBy))) else { throw Failure.declined } }
-        do {
-            return try await create()
-        } catch CloudAPIError.http(let status, let code, _, _, _) where status == 402 { // the shared vCPU/memory pool counts only running machines
-            throw Failure.upgradeRequired(code == "vm_resource_pool_exceeded" ? .pool : .server)
-        }
-    }
-
     /// 1, 2, 4 … 8 s between the same-key retries after the approval.
     static func backoff(_ attempt: Int) -> Duration { .seconds(min(8, 1 << min(max(attempt - 1, 0), 3))) }
 }

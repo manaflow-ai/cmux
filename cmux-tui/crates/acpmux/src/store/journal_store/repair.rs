@@ -9,12 +9,70 @@ thread_local! {
     /// Tests: a repair on this thread stops the open with an error right after it cut a log, as a
     /// crash there would.
     pub(crate) static STOP_AFTER_CUT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests: the next write-back of a verified range on this thread fails, as a write error
+    /// would (not a failed sync).
+    pub(crate) static FAIL_NEXT_WRITE_BACK: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+    /// Tests: the open on this thread keeps at most this many written-back segments open
+    /// ([`held_cap`]).
+    pub(crate) static HELD_CAP: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// The most written-back segments an open keeps open until its checkpoint syncs them
+/// ([`held_cap`]): far above any real count of replayed chats, and far below any raised limit.
+#[cfg(unix)]
+const HELD_MAX: usize = 4096;
+
+/// [`held_cap`] when the open-file limit cannot be read.
+#[cfg(unix)]
+const HELD_WHEN_UNKNOWN: usize = 64;
+
+/// A log segment the open wrote its verified bytes back into (`Order::read_segments`): the next
+/// checkpoint syncs it before it retires the records of those bytes.
+#[derive(Clone, Debug)]
+pub(super) enum WrittenBack {
+    /// Through the handle the open wrote with, kept open until that sync, after which the
+    /// checkpoint's thread closes it: the file the open read, wherever a delete, a folder move
+    /// or a retention rewrite has put it since. Within [`held_cap`] the open closes nothing it
+    /// wrote: on macOS a close right after the write cost the open about a quarter of a
+    /// millisecond per replayed chat and made the first acknowledged change after it about ten
+    /// times slower (the open-time A/B of delta review 3 of #35866, on three Macs).
+    Held(Arc<File>),
+    /// By path: the open closed the file after the write (Windows, where an open file can block
+    /// its folder's rename or removal, and the segments past [`held_cap`]).
+    Closed,
+}
+
+/// How many written-back segments the open keeps open (`WrittenBack::Held`): a quarter of the
+/// daemon's open-file limit, which it raised before the store opened, at most [`HELD_MAX`]. So a
+/// limit the daemon could not raise (256 under launchd) leaves room for everything else. None
+/// on Windows.
+#[cfg(unix)]
+pub(super) fn held_cap() -> usize {
+    #[cfg(test)]
+    if let Some(cap) = HELD_CAP.with(std::cell::Cell::get) {
+        return cap;
+    }
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: getrlimit writes the struct it is given and reads nothing else.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+        return HELD_WHEN_UNKNOWN;
+    }
+    (usize::try_from(limit.rlim_cur).unwrap_or(usize::MAX) / 4).min(HELD_MAX)
+}
+
+#[cfg(not(unix))]
+pub(super) fn held_cap() -> usize {
+    0
 }
 
 /// The records after the checkpoint, by chat.
 #[derive(Default)]
 pub(super) struct Replay {
     chats: BTreeMap<String, Vec<(Lsn, Vec<u8>)>>,
+    /// A `frozen` record was replayed: a run after the checkpoint had a sync fail.
+    pub(super) frozen: bool,
     /// Each chat's newest metadata image after its last `forget` (S3a, `journal_store/meta.rs`).
     pub(super) metas: BTreeMap<String, super::meta::Replayed>,
 }
@@ -36,6 +94,7 @@ impl Replay {
                 self.metas.remove(chat);
             }
             super::meta::KIND_META => self.take_meta(&record)?,
+            KIND_FROZEN => self.frozen = true,
             other => return Err(format!("unknown event journal record kind {other}")),
         }
         Ok(())
@@ -76,7 +135,14 @@ impl Inner {
     /// keeps its lines in `journal-unapplied/` and the open goes on; only a failure to keep them
     /// fails it.
     pub(super) fn apply(&self, replay: Replay) -> Result<()> {
-        let Replay { chats, metas } = replay;
+        // `frozen` was read at the open into `Order::rewrite_all`, which `repair` reads for every
+        // replayed chat: a replayed freeze makes the open write every chat's lines again.
+        let Replay { chats, metas, frozen: _ } = replay;
+        let replayed: Vec<String> = chats
+            .iter()
+            .filter(|(_, lines)| !lines.is_empty())
+            .map(|(chat, _)| chat.clone())
+            .collect();
         // The metadata, then the logs. Neither makes a folder that is gone (`meta.rs`).
         self.apply_metas(metas)?;
         for (chat, journaled) in chats {
@@ -106,6 +172,12 @@ impl Inner {
         }
         let mut order = self.order.lock_or_recover();
         order.applied = self.journal.last_lsn();
+        // Every replayed chat has records past the checkpoint (the replay's, and the lines its
+        // repair journaled again): an upper bound for each.
+        let newest = order.applied;
+        for chat in replayed {
+            order.log_lsn.insert(chat, newest);
+        }
         Ok(())
     }
 
@@ -118,11 +190,16 @@ impl Inner {
     /// A line is a whole JSON line: bytes that do not parse (a torn tail, a hole of zeros, a line
     /// a hole ran into a later one) are not a line and go.
     ///
-    /// Every merged line is written again from the repair start, even when the log has them all:
-    /// a killed daemon's log writes may be in the page cache only, and after a failed sync the
-    /// kernel may have dropped pages it still shows and that a later sync reports as written. So
-    /// the first checkpoint after this open syncs bytes this process wrote before it retires their
-    /// records (review 2 of #34901, finding 1). The lines that only the log has from the repair
+    /// A log that already holds every merged line in order, with nothing torn, keeps its bytes:
+    /// the bytes read are written back over themselves ([`Inner::write_back`]), and the next
+    /// checkpoint syncs its segments before it retires their records.
+    ///
+    /// Otherwise every merged line is written again from the repair start; also when the
+    /// previous run froze (a failed sync: the kernel may have dropped pages it still shows and
+    /// that a later sync reports as written), which a replayed `frozen` record says, and for a
+    /// chat whose lines come from a repair file. Either way the first
+    /// checkpoint after this open syncs the bytes before it retires their records (review 2 of
+    /// #34901, finding 1). The lines that only the log has from the repair
     /// start are journaled and made durable first; then the log is cut there and the merged lines
     /// written, so a crash at any step loses no line: the next open repairs the same way.
     fn repair(
@@ -164,6 +241,36 @@ impl Inner {
         }
         let merged: Vec<(u64, &[u8])> = merged.into_iter().collect();
         let keep_merged = || merged.iter().map(|(_, line)| line.to_vec()).collect::<Vec<_>>();
+        // The log already holds every merged line, in order, with nothing torn among them: it
+        // keeps its bytes, written back over themselves, and the next checkpoint syncs them
+        // before it retires their records (a killed daemon's writes may be in the page cache
+        // only). After a frozen run (`rewrite_all`), every replayed chat's lines are written
+        // again, as are those of a chat whose earlier repair failed (its repair file's).
+        let rewrite = {
+            let order = self.order.lock_or_recover();
+            order.rewrite_all || order.rewrite.contains(id)
+        };
+        let whole = pieces.len() == merged.len()
+            && pieces.iter().zip(&merged).all(|(piece, (seq, line))| {
+                piece
+                    .line
+                    .as_ref()
+                    .is_some_and(|(at, bytes)| at == seq && bytes.as_slice() == *line)
+            });
+        if whole && !rewrite {
+            match self.write_back(id, &pieces) {
+                Ok(written) => {
+                    self.order.lock_or_recover().read_segments.extend(written);
+                    return Ok(Repaired::Done);
+                }
+                // A write error, not a failed sync: the lines are written again from the repair
+                // start below, whose cut also removes a range written back in part (delta
+                // review 3 of #35866).
+                Err(error) => {
+                    tracing::warn!(session = %id, "write the log's verified bytes back: {error:#}; its lines are written again");
+                }
+            }
+        }
         if let Some(start) = pieces.first() {
             // The lines only the log holds from the repair start: into the journal first.
             let only_logged: Vec<&[u8]> = merged
@@ -185,6 +292,51 @@ impl Inner {
                 .map_err(|error| RepairError::Chat { error, keep: keep_merged() })?;
         }
         Ok(Repaired::Done)
+    }
+
+    /// Writes each segment's verified range of `id`'s log (the pieces of a whole read) back over
+    /// itself, and returns the segments written, for the next checkpoint to sync
+    /// (`Order::read_segments`). The bytes are the ones the read checked against the journal,
+    /// never read again: a page the kernel dropped after a previous run's failed sync may read
+    /// back stale. The write marks the range dirty again, so the checkpoint's sync puts these
+    /// bytes on the disk even when an earlier sync failed and left no note of it (delta review 2
+    /// of #35866, D2). It runs here, before any other thread uses the logs, so it writes the file
+    /// it read; the checkpoint only syncs, never writes, so a file that a delete, a folder
+    /// replace or a retention rewrite put at the path since is never changed (delta review 3,
+    /// D3). Each segment keeps its handle open for that sync while the open's budget
+    /// (`Order::held_left`, [`held_cap`]) lasts, else it is closed and synced by path.
+    fn write_back(&self, id: &str, pieces: &[Piece]) -> Result<Vec<(PathBuf, WrittenBack)>> {
+        let mut written = Vec::new();
+        for (index, path) in self.local.segments(id)? {
+            // The segment's verified range: from its first piece to its last piece's end, the
+            // pieces' bytes in order (contiguous: `read_pieces` reads every byte).
+            let mut range: Option<(u64, Vec<u8>)> = None;
+            for piece in pieces.iter().filter(|piece| piece.segment == index) {
+                let Some((_, line)) = &piece.line else { continue };
+                range.get_or_insert_with(|| (piece.offset, Vec::new())).1.extend_from_slice(line);
+            }
+            let Some((offset, bytes)) = range else { continue };
+            #[cfg(test)]
+            if FAIL_NEXT_WRITE_BACK.with(|fail| fail.replace(false)) {
+                anyhow::bail!("a failed write-back of {} (a test)", path.display());
+            }
+            let file = open_segment_to_write(&path)?;
+            write_at(&file, &bytes, offset)
+                .with_context(|| format!("write back {}", path.display()))?;
+            #[cfg(all(test, unix))]
+            sync_model::rewritten(&file, offset);
+            let held = {
+                let mut order = self.order.lock_or_recover();
+                let left = order.held_left;
+                order.held_left = left.saturating_sub(1);
+                left > 0
+            };
+            written.push((
+                path,
+                if held { WrittenBack::Held(Arc::new(file)) } else { WrittenBack::Closed },
+            ));
+        }
+        Ok(written)
     }
 
     /// Appends `lines` of chat `id` to the journal and waits until they are durable.
@@ -242,7 +394,7 @@ impl Inner {
                 truncate_private(path, offset)?;
             }
         }
-        sync_directory(&self.local.dir(id).join("events"))
+        log_sync::sync_directory_ordered(&self.local.dir(id).join("events"))
     }
 
     fn forget_index_copy(&self, id: &str, index: u32) -> Result<()> {
@@ -387,6 +539,7 @@ impl Inner {
         }
         let mut removed = false;
         for (path, chat, lines) in taken {
+            self.order.lock_or_recover().rewrite.insert(chat.clone());
             replay.chats.entry(chat).or_default().extend(lines);
             match crate::config::refuse_lost_home(&path)
                 .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))
@@ -533,7 +686,7 @@ fn piece_seq(line: &[u8]) -> Option<u64> {
 /// Syncs the folder at `path`; nothing when it is not there.
 fn sync_if_there(path: &Path) -> Result<()> {
     match std::fs::symlink_metadata(path) {
-        Ok(_) => sync_directory(path),
+        Ok(_) => log_sync::sync_directory_ordered(path),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(anyhow::Error::from(error).context(format!("stat {}", path.display()))),
     }
@@ -575,6 +728,45 @@ fn truncate_private(path: &Path, len: u64) -> Result<()> {
     file.set_len(len).with_context(|| format!("shorten {}", path.display()))?;
     #[cfg(all(test, unix))]
     sync_model::cut(&file, len);
-    log_sync::sync_segment(&file, true)?;
+    log_sync::sync_segment_ordered(&file)?;
     Ok(())
+}
+
+/// The log segment at `path` opened to write in place (the open's write-back) or to sync (the
+/// checkpoint's: Windows flushes only a handle that may write): never made, never through a final
+/// link, never under a lost home, and only an owner-only file of this user (the checks of
+/// `config::private_state_file`, which every read of a segment makes).
+#[cfg(unix)]
+pub(super) fn open_segment_to_write(path: &Path) -> Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    crate::config::refuse_lost_home(path)?;
+    let file = OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open {} to write", path.display()))?;
+    crate::config::validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
+#[cfg(windows)]
+pub(super) fn open_segment_to_write(path: &Path) -> Result<File> {
+    crate::config::refuse_lost_home(path)?;
+    Ok(crate::owner_only::open_rw_existing(path)?)
+}
+
+/// Writes `bytes` at `offset` of `file`, whole.
+fn write_at(file: &File, bytes: &[u8], offset: u64) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileExt;
+        file.write_all_at(bytes, offset)
+    }
+    #[cfg(not(unix))]
+    {
+        use std::io::{Seek, SeekFrom, Write};
+        let mut file = file;
+        file.seek(SeekFrom::Start(offset))?;
+        file.write_all(bytes)
+    }
 }

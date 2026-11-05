@@ -9,6 +9,8 @@
 #                        # start WORKTREE's dev server (default: this checkout) and open the window;
 #                        # --test names the one test Debug > Run Projection Test runs there;
 #                        # --page opens a web page there (settings, history, ...); New Tab is native
+#   projection.sh serve [WORKTREE] [--port N]
+#                        # only start WORKTREE's dev server and print its URL (no window; live-copies.sh)
 #   projection.sh test [CMD]          # run the projection's test (or CMD) in its window
 #   projection.sh stop [WORKTREE]     # stop the dev server this script started for WORKTREE
 #   projection.sh status [WORKTREE]
@@ -25,8 +27,14 @@ usage() { awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0";
 # The worktree's state folder (pid file, log), keyed by its absolute path.
 state_for() {
   local key
-  key="$(printf '%s' "$1" | shasum -a 256 | cut -c1-12)"
+  key="$(printf '%s' "$1" | { command -v shasum >/dev/null && shasum -a 256 || sha256sum; } | cut -c1-12)"
   echo "${CMUX_PROJECTION_STATE_DIR:-$HOME/Library/Caches/cmux-next/projection}/$key"
+}
+
+# Whether something listens on 127.0.0.1:$1 (lsof where it is, else a connect: Linux hosts).
+port_busy() {
+  if command -v lsof >/dev/null 2>&1; then lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  else (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; fi
 }
 
 # The worktree's port, 4290-4389: the one its running server has, else the first free one from its
@@ -37,7 +45,7 @@ port_for() {
   base=$(( $(printf '%s' "$tree" | cksum | cut -d' ' -f1) % 100 ))
   for ((i = 0; i < 100; i++)); do
     port=$(( 4290 + (base + i) % 100 ))
-    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 || { echo "$port"; return; }
+    port_busy "$port" || { echo "$port"; return; }
   done
   echo "no free port in 4290-4389; pass --port N" >&2; exit 1
 }
@@ -79,6 +87,20 @@ start_server() {
 
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 case "$cmd" in
+  serve)
+    tree="$ROOT" port=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --port) port="${2:?--port needs a value}"; shift 2 ;;
+        -h|--help) usage ;;
+        -*) usage 1 ;;
+        *) tree="$(cd "$1" && pwd)"; shift ;;
+      esac
+    done
+    state="$(state_for "$tree")"
+    port="${port:-$(port_for "$tree" "$state")}"
+    start_server "$tree" "$port" "$state"
+    ;;
   open)
     tree="$ROOT" port="" test="" page=""
     while [[ $# -gt 0 ]]; do
