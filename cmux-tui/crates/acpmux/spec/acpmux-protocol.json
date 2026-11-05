@@ -4552,6 +4552,11 @@
             "null"
           ]
         },
+        "starting": {
+          "default": false,
+          "description": "Its agent is being started (a start, a wake or a mode change holds the session's spawn\nlease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update\nwaits on it as on a turn. Always sent, so a row without it is from an older acpmux,\nwhich an update reads by its row's age instead.",
+          "type": "boolean"
+        },
         "state": {
           "default": "",
           "description": "Effective liveness: `stopping` while a Stop waits for its turn to end, `stuck` after three classified harness failures, else `status`.",
@@ -5097,6 +5102,11 @@
             "string",
             "null"
           ]
+        },
+        "starting": {
+          "default": false,
+          "description": "Its agent is being started (a start, a wake or a mode change holds the session's spawn\nlease, as `stop --if-idle` reads it): a daemon restart now ends that start, so an update\nwaits on it as on a turn. Always sent, so a row without it is from an older acpmux,\nwhich an update reads by its row's age instead.",
+          "type": "boolean"
         },
         "state": {
           "default": "",

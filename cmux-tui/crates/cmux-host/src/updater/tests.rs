@@ -240,16 +240,26 @@ fn a_profile_holding_a_regular_file_is_refused() {
 #[test]
 fn busy_sessions_follow_acpmux_rules() {
     let ls = json!({"sessions": [
-        {"name": "idle", "status": "idle", "turn": null},
-        {"name": "turn", "status": "idle", "turn": {"id": 1}},
-        {"name": "running", "status": "running"},
-        {"name": "asks", "status": "idle", "pendingPermissions": 1},
+        {"name": "idle", "status": "idle", "turn": null, "starting": false},
+        {"name": "turn", "status": "idle", "turn": {"id": 1}, "starting": false},
+        {"name": "running", "status": "running", "starting": false},
+        {"name": "asks", "status": "idle", "pendingPermissions": 1, "starting": false},
+        {"name": "starting", "status": "idle", "turn": null, "starting": true},
+        {"name": "started", "status": "ready", "turn": null, "starting": false},
         {"name": "peer", "status": "running", "peer": "mac"},
     ]});
     assert_eq!(
         busy_sessions_in(&ls.to_string()).unwrap(),
-        vec!["turn".to_owned(), "running".to_owned(), "asks".to_owned()]
+        vec!["turn".to_owned(), "running".to_owned(), "asks".to_owned(), "starting".to_owned()]
     );
+    // An acpmux too old to send `starting` (the one a stale image runs): a session it made or
+    // changed in the last two minutes may be starting and holds the update; an older one does not.
+    let now = 10_000_000;
+    let old = json!({"sessions": [
+        {"name": "just-made", "status": "idle", "turn": null, "createdAt": now - 5_000, "updatedAt": now - 5_000},
+        {"name": "long-idle", "status": "ready", "turn": null, "createdAt": 1, "updatedAt": now - UNREPORTED_START_MS},
+    ]});
+    assert_eq!(busy_sessions_at(&old.to_string(), now).unwrap(), vec!["just-made".to_owned()]);
     assert_eq!(busy_sessions_in("{\"sessions\": []}").unwrap(), Vec::<String>::new());
     assert!(busy_sessions_in("not json").is_none());
 }
