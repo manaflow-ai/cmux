@@ -28,11 +28,16 @@
   height: var(--find-pill-height);
   padding: 0 var(--find-pill-padding-end) 0 var(--find-pill-padding-start);
   border-radius: calc(var(--find-pill-height) / 2);
-  background: var(--cmux-card-tint, var(--tooltip-tint, var(--surface-popup, Canvas)));
-  -webkit-backdrop-filter: var(--tooltip-blur, none);
-  backdrop-filter: var(--tooltip-blur, none);
+  /* Real glass (Leo, 2026-11-05: "I don't think it's glass enough"): the tooltip's tint (the popup
+     surface at the least alpha that keeps the text 4.5:1 over black and white), not the near-opaque
+     card tint, under the shared glass material's blur and saturation (ui/glass/glass.css) and its
+     lit rim over the popup's one hairline and drop. A page without glass.css keeps the tooltip blur
+     and the plain popup rim. */
+  background: var(--tooltip-tint, var(--cmux-card-tint, var(--surface-popup, Canvas)));
+  -webkit-backdrop-filter: var(--glass-material-backdrop, var(--tooltip-blur, none));
+  backdrop-filter: var(--glass-material-backdrop, var(--tooltip-blur, none));
   /* The popup rim and drop; a page that loads no popupSurface.css (the code editor) gets the drop. */
-  box-shadow: var(--ui-popup-shadow, var(--elevation-2));
+  box-shadow: var(--glass-material-rim, 0 0 transparent), var(--ui-popup-shadow, var(--elevation-2));
   color: var(--cmux-text, CanvasText);
   font-family: var(--font-ui);
   font-size: var(--text-body);

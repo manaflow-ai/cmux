@@ -1,7 +1,7 @@
 // Find in Chat's bar (chatFind.ts): the shared find pill (ui/FindPill.tsx, the web twin of the
 // native one) with the query, where the reader is among the matches, and the steps. Enter and
 // Cmd-G go to the next match, Shift-Enter and Shift-Cmd-G to the previous one, Escape closes.
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { FindPill, type FindPillIconRole } from "../../../ui/FindPill";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
@@ -31,6 +31,36 @@ export function ChatFindBar({ find, label }: { find: FindBarState; label?: strin
     shell?.addEventListener(FIND_HIDE_EVENT, hide);
     return () => shell?.removeEventListener(FIND_HIDE_EVENT, hide);
   }, [hide]);
+  // The transcript keeps its top fade while the bar is open, with full ink over the bar's box
+  // (conversation.css, --acpmux-find-x and --acpmux-find-width on the scroller); measured before paint
+  // and again when the bar narrows, the pane resizes, or Session Info moves it (its reach is a style
+  // on the shell, SessionInfo.tsx SESSION_INFO_CLEAR).
+  const bar = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const node = bar.current;
+    const scroller = node?.closest<HTMLElement>(".acpmux-scroll");
+    const View = node?.ownerDocument.defaultView;
+    if (!node || !scroller || !View) return;
+    const measure = () => {
+      const box = node.getBoundingClientRect();
+      const left = box.left - scroller.getBoundingClientRect().left;
+      scroller.style.setProperty("--acpmux-find-x", `${left}px`);
+      scroller.style.setProperty("--acpmux-find-width", `${box.width}px`);
+    };
+    measure();
+    const observer = new View.ResizeObserver(measure);
+    observer.observe(node);
+    observer.observe(scroller);
+    const shell = scroller.closest(".acpmux-shell");
+    const moved = new View.MutationObserver(measure);
+    if (shell) moved.observe(shell, { attributes: true, attributeFilter: ["style"] });
+    return () => {
+      observer.disconnect();
+      moved.disconnect();
+      scroller.style.removeProperty("--acpmux-find-x");
+      scroller.style.removeProperty("--acpmux-find-width");
+    };
+  }, []);
   useEffect(() => {
     field.current?.focus();
     field.current?.select();
@@ -43,7 +73,7 @@ export function ChatFindBar({ find, label }: { find: FindBarState; label?: strin
       : t("find.noResults");
   return (
     <div className="acpmux-find">
-      <div className="acpmux-find__bar">
+      <div className="acpmux-find__bar" ref={bar}>
         <FindPill
           query={find.query}
           onQueryChange={find.setQuery}
