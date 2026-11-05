@@ -20,9 +20,22 @@ extension SidebarContainerView {
     func startWidthMotion(to width: CGFloat, reach: CGFloat, collapsed: Bool, token: MotionSpring,
                           completion: @escaping @MainActor () -> Void) {
         let (edge, target) = clipReachEdge(reach, collapsed: collapsed)
-        widthLeg = WidthLeg(width: (widthConstraint.constant, width), reach: (edge.constant, target), edge: edge)
+        let (fromWidth, fromReach) = shownWidthAndReach(edge)
+        widthLeg = WidthLeg(width: (fromWidth, width), reach: (fromReach, target), edge: edge)
         let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(token) : 0
         widthMotion.run(duration: duration, in: self, trace: "sidebar.width", completion: completion)
+    }
+
+    /// Where a new slide starts: the width on screen and the reach at the same point of the slide under way. A slide
+    /// stepped earlier in this frame has moved the constraints past the laid-out frame, which is what shows until the
+    /// window's layout pass; starting from them would carry the old slide one frame further before it turns around.
+    private func shownWidthAndReach(_ edge: NSLayoutConstraint) -> (CGFloat, CGFloat) {
+        guard widthMotion.isRunning, let leg = widthLeg, leg.edge === edge, leg.width.to != leg.width.from else {
+            return (widthConstraint.constant, edge.constant)
+        }
+        let shown = frame.width
+        let p = min(max((shown - leg.width.from) / (leg.width.to - leg.width.from), 0), 1)
+        return (shown, leg.reach.from + (leg.reach.to - leg.reach.from) * p)
     }
 
     /// One frame of the slide: both constraints at `progress` of their leg; the window's layout pass resizes the
