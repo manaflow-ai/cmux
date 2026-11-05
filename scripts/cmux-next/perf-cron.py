@@ -609,6 +609,10 @@ def target_of(name, row, refresh_ms):
     refresh_ms = row_refresh(row, refresh_ms)
     unit = row.get("unit") or "ms"
     name = base_row(name)
+    if name.startswith("workspace_scaling."):
+        # Scaling rows are judged only by their 1000-vs-baseline ratio. Their absolute
+        # latency is intentionally advisory and must not inherit the generic 10 ms target.
+        return None
     if name.startswith(("diff.", "launch.", "webui.")):
         return row.get("budget")
     if unit in ("frames", "checks") or name.endswith(".dropped"):
