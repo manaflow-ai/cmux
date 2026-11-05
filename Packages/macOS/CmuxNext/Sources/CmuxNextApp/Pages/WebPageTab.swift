@@ -113,7 +113,7 @@ extension WebPageTab {
             let keys = services.pages.tabIDs(in: pane.paneKey) + pane.pane.tabs.compactMap { services.pages.storeKey(of: $0.id) }
             guard let key = keys.first(where: { LocalPageTab.page(of: $0) == .github }) else { continue }
             tab.navigate(key, to: link.route)
-            pane.select(services.pages.stripID(showing: key, in: pane) ?? StripTabID(key))
+            if let id = services.pages.stripID(showing: key, in: pane) { pane.select(id) }
             pane.focusContent()
             return true
         }
