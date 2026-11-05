@@ -69,14 +69,17 @@ struct CloudMachineCapabilityTests {
     @Test func cmuxNextRecordThatServesDesktopOpensTheRdViewer() throws {
         let record = JSONValue.object([
             "id": .string("m-desk"), "status": .string("running"), "desktop": .bool(true),
-            "capabilities": .array([.string("agent_session")]),
+            "creator": .string("user_u0000000000000000001"), "capabilities": .array([.string("agent_session")]),
         ])
         let machine = try #require(CloudMachine(next: record))
 
         #expect(machine.servesDesktop)
         #expect(machine.capabilities.desktop)
         #expect(machine.allows(.desktop))
-        #expect(machine.defaultDesktopViewer == "rd")
+        #expect(machine.defaultDesktopViewer(for: "user_u0000000000000000001") == "rd")
+        // The rd stream is the creator's alone: a teammate, or no signed-in user, keeps the noVNC page.
+        #expect(machine.defaultDesktopViewer(for: "user_u0000000000000000002") == "web")
+        #expect(machine.defaultDesktopViewer(for: nil) == "web")
         // Serving the desktop declares nothing else: the other actions keep the undeclared default.
         #expect(machine.declaredCapabilities == nil)
         #expect(machine.allows(.ports))
@@ -91,7 +94,7 @@ struct CloudMachineCapabilityTests {
             let machine = try #require(CloudMachine(next: record))
             #expect(!machine.servesDesktop)
             #expect(!machine.capabilities.desktop)
-            #expect(machine.defaultDesktopViewer == "web")
+            #expect(machine.defaultDesktopViewer(for: "user_u0000000000000000001") == "web")
         }
     }
 
