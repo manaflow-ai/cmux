@@ -530,6 +530,134 @@ class RegistryBlastRadiusTests(unittest.TestCase):
 
 # Each fake test records its start, then waits until `peers` tests have
 # started (or 5 s pass) so the runner's concurrency is observable.
+NEXT_GUARDS_PATH = ROOT / ".github" / "workflows" / "cmux-next-guards.yml"
+
+
+class RegistryFindingsJudgedAgainstTheBase(unittest.TestCase):
+    """Leo, 2026-11-05, after one direct push's unregistered test reddened every pull request:
+    "There is no way that, like, the notion of not adding tests should block CI."
+
+    A registry finding the base already has warns, naming the file and the commit that added it.
+    Only a finding this change adds fails. With --warn-only (a push) nothing fails.
+    """
+
+    def setUp(self) -> None:
+        temp = Path(tempfile.mkdtemp(prefix="cmux-registry-base-findings-"))
+        self.addCleanup(shutil.rmtree, temp, ignore_errors=True)
+        self.repo = temp
+        self.git("init", "-b", "main")
+        (temp / "tests").mkdir()
+        (temp / ".github" / "workflows").mkdir(parents=True)
+        self.write(".github/workflows/ci-guards.yml",
+                   "name: guards\njobs:\n  guard:\n    steps:\n      - run: python3 tests/test_base.py\n")
+        self.write("tests/test_base.py", "")
+        self.write("tests/test-execution.toml",
+                   'version = 1\n\n[[test]]\npath = "tests/test_base.py"\nlane = "linux-guard"\n')
+        self.commit("base")
+
+    def git(self, *args: str) -> str:
+        return subprocess.run(["git", "-c", "user.email=ci@example.com", "-c", "user.name=ci", *args],
+                              cwd=self.repo, check=True, capture_output=True, text=True).stdout.strip()
+
+    def write(self, path: str, text: str) -> None:
+        (self.repo / path).write_text(text, encoding="utf-8")
+
+    def register(self, path: str) -> None:
+        with (self.repo / "tests" / "test-execution.toml").open("a", encoding="utf-8") as registry:
+            registry.write(f'\n[[test]]\npath = "{path}"\nlane = "linux-guard"\n')
+
+    def commit(self, message: str) -> str:
+        self.git("add", "-A")
+        self.git("commit", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def run_validator(self, base: str, *extra: str) -> subprocess.CompletedProcess[str]:
+        env = {**os.environ, "GITHUB_ACTIONS": "true"}
+        env.pop("GITHUB_STEP_SUMMARY", None)
+        return subprocess.run([sys.executable, str(VALIDATOR), "--repo-root", str(self.repo),
+                               "--base-sha", base, *extra],
+                              cwd=self.repo, capture_output=True, text=True, env=env)
+
+    def direct_push_of_a_dead_registration(self) -> str:
+        """test_nightly_one_mini.py's shape: registered linux-guard, no workflow step runs it."""
+        self.write("tests/test_direct.py", "")
+        self.register("tests/test_direct.py")
+        return self.commit("direct push: a test no step runs")
+
+    def test_a_dead_registration_already_on_the_base_warns_with_its_commit(self) -> None:
+        added_by = self.direct_push_of_a_dead_registration()
+        base = self.git("rev-parse", "HEAD")
+        self.git("checkout", "-b", "feature")
+        self.write("tests/test_base.py", "# an unrelated change\n")
+        self.commit("feature")
+
+        result = self.run_validator(base)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        warning = next((line for line in result.stdout.splitlines()
+                        if line.startswith("::warning file=tests/test_direct.py")), "")
+        self.assertIn("linux-guard lane is not run by any workflow", warning, result.stdout)
+        self.assertIn(added_by[:12], warning)
+
+    def test_a_dead_registration_this_branch_adds_still_fails(self) -> None:
+        base = self.git("rev-parse", "HEAD")
+        self.git("checkout", "-b", "feature")
+        self.direct_push_of_a_dead_registration()
+
+        result = self.run_validator(base)
+
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("tests/test_direct.py: linux-guard lane is not run by any workflow", result.stderr)
+
+    def test_an_unregistered_test_already_on_the_base_names_the_commit_that_added_it(self) -> None:
+        self.write("tests/test_orphan.py", "")
+        added_by = self.commit("direct push: an unregistered test")
+        base = added_by
+        self.git("checkout", "-b", "feature")
+        self.write("tests/test_base.py", "# an unrelated change\n")
+        self.commit("feature")
+
+        result = self.run_validator(base)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        warning = next((line for line in result.stdout.splitlines()
+                        if line.startswith("::warning file=tests/test_orphan.py")), "")
+        self.assertIn(added_by[:12], warning, result.stdout)
+
+    def test_a_test_this_branch_renames_without_registering_fails_as_added(self) -> None:
+        self.write("tests/test_old.py", "print('a test long enough to be detected as a rename')\n" * 5)
+        self.commit("old test, unregistered on the base")
+        base = self.git("rev-parse", "HEAD")
+        self.git("checkout", "-b", "feature")
+        self.git("mv", "tests/test_old.py", "tests/test_new.py")
+        self.commit("rename")
+
+        result = self.run_validator(base)
+
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("tests/test_new.py: added by this pull request with no execution registry entry",
+                      result.stderr)
+
+    def test_warn_only_turns_every_finding_into_a_warning(self) -> None:
+        """A push to feat-cmux-next: the pushed commit's own finding warns too; base-red-watch reads it."""
+        base = self.git("rev-parse", "HEAD")
+        added_by = self.direct_push_of_a_dead_registration()
+
+        result = self.run_validator(base, "--warn-only")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        warning = next((line for line in result.stdout.splitlines()
+                        if line.startswith("::warning file=tests/test_direct.py")), "")
+        self.assertIn("linux-guard lane is not run by any workflow", warning, result.stdout)
+        self.assertIn(added_by[:12], warning)
+
+    def test_the_feat_cmux_next_step_warns_only_on_a_push(self) -> None:
+        text = NEXT_GUARDS_PATH.read_text(encoding="utf-8")
+        line = next(line for line in text.splitlines()
+                    if "validate_test_execution_registry.py --pr-lanes feat-cmux-next" in line)
+        self.assertIn("github.event_name == 'push' && '--warn-only'", line)
+
+
 LANE_TEST = """\
 import os, pathlib, sys, time
 log = pathlib.Path(os.environ["LANE_LOG"])

@@ -412,19 +412,6 @@ final class CloudMachineSession {
     /// stale: a legacy machine with no daemon connection that does not read
     /// paused (the idle auto-pause may have parked it while the app's copy
     /// still says running).
-    /// A machine made for this send has no daemon until it runs: reads its record (forced) at `pause`'s
-    /// pace until it runs or stops being live, so the connect after it dials a machine that is up.
-    func untilRunning(pause: @MainActor (_ attempt: Int) async throws -> Void) async {
-        guard appLink != nil, machine.status != .running, let refresher else { return }
-        for attempt in 1...80 {
-            do { try await pause(attempt) } catch { return }
-            // A read elsewhere (the change tracker's, the list's) may have seen it run during the pause.
-            if machine.status == .running { return }
-            await refresher(true)
-            guard machine.status != .running, machine.status.isLive || machine.shownStatus.isChanging, !Task.isCancelled else { return }
-        }
-    }
-
     func refreshIfMaybePaused() async {
         guard appLink == nil, daemon.connection == nil, machine.status != .paused, !disconnected, let refresher else { return }
         await refresher(true)
