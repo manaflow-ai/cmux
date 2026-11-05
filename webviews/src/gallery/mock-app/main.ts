@@ -239,18 +239,25 @@ const specs: WindowSpec[] = (params.get("windows") ?? appAxis(params, "window"))
   .map((size) => ({ size, layout: (appAxis(params, "layout") as PaneLayout) || "one" }));
 
 const zoomValue = appAxis(params, "zoom");
+/// A font study pairing draws the chrome too (the sidebar); the app is ready once its faces load.
+const fontStudy = env.fontStudy
+  ? import("../fontStudy/apply").then((study) => study.applyFontStudy(env.fontStudy))
+  : null;
 let ready = 0;
 const markReady = () => {
   ready += 1;
   // The first window ready is the app ready; the rest mount as they scroll into view.
-  if (ready === 1) {
-    root.dataset.mockAppReady = "1";
-    parent.postMessage({ type: "cmux-mock-app", status: "ready" }, "*");
-    // The native view shell (Prototypes/ViewShell) times its windows and captures them from this.
-    (
-      window as { webkit?: { messageHandlers?: Record<string, { postMessage(body: unknown): void }> } }
-    ).webkit?.messageHandlers?.cmuxPreview?.postMessage({ status: "ready", at: performance.now() });
-  }
+  if (ready !== 1) return;
+  if (fontStudy) void fontStudy.then(announceReady);
+  else announceReady();
+};
+const announceReady = () => {
+  root.dataset.mockAppReady = "1";
+  parent.postMessage({ type: "cmux-mock-app", status: "ready" }, "*");
+  // The native view shell (Prototypes/ViewShell) times its windows and captures them from this.
+  (
+    window as { webkit?: { messageHandlers?: Record<string, { postMessage(body: unknown): void }> } }
+  ).webkit?.messageHandlers?.cmuxPreview?.postMessage({ status: "ready", at: performance.now() });
 };
 
 const stages: { stage: HTMLElement; size: { width: number; height: number } }[] = [];
