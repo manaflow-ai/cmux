@@ -203,12 +203,15 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
   content: "";
   position: absolute;
   inset: 0;
-  z-index: -1;
   border-radius: inherit;
   background: var(--acpmux-header-tool-on, color-mix(in srgb, var(--agent-text) 12%, transparent));
   opacity: 0;
   transform: scale(0.5);
   pointer-events: none;
+}
+/* The glyph paints over the plate: a positioned later sibling, so no z-index is needed. */
+.acpmux-header-tools[data-header-motion] .acpmux-header-tool > .acpmux-header-glyph {
+  position: relative;
 }
 .acpmux-header-tools[data-header-motion] .acpmux-header-tool:not(:disabled):is([aria-pressed="true"], [data-popup-open])::before {
   opacity: 1;
@@ -236,10 +239,11 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
 .acpmux-header-tools[data-activity-on="panel"] .acpmux-header-panel-toggle::after {
   content: "";
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 5px;
-  height: 5px;
+  top: 0;
+  right: 0;
+  translate: -3px 3px;
+  width: 6px;
+  aspect-ratio: 1;
   border-radius: 50%;
   background: var(--agent-accent, var(--agent-text));
   box-shadow: 0 0 0 1.5px var(--agent-page-bg, Canvas);
@@ -250,7 +254,7 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
 }
 .acpmux-header-tools[data-motion-mode="full"][data-activity="working"][data-activity-on="changes"] [data-quick-action="changes"]::after,
 .acpmux-header-tools[data-motion-mode="full"][data-activity="working"][data-activity-on="panel"] .acpmux-header-panel-toggle::after {
-  animation: acpmux-header-breathe 1200ms ease-in-out infinite alternate;
+  animation: acpmux-header-breathe var(--acpmux-header-breathe-period, 1200ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)) infinite alternate;
 }
 @keyframes acpmux-header-breathe {
   from {
@@ -268,13 +272,14 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
   z-index: var(--layer-tooltip, 1000);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   box-sizing: border-box;
   padding: 0 8px 0 4px;
   border-radius: var(--ds-radius-md, 6px);
   background: color-mix(in srgb, var(--agent-text) 12%, var(--agent-page-bg, Canvas));
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
-  font: 500 12px/1 var(--agent-font, system-ui);
+  font-size: var(--text-detail);
+  line-height: 1;
   white-space: nowrap;
   overflow: hidden;
   pointer-events: none;
@@ -299,10 +304,9 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
   border-radius: 8px;
   background: var(--agent-surface-elevated, Canvas);
   color: var(--agent-text);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--agent-text) 10%, transparent),
-    0 6px 20px rgb(0 0 0 / 0.18);
-  font: 12px/1.3 var(--agent-font, system-ui);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-text) 14%, transparent);
+  font-size: var(--text-caption);
+  line-height: 1.3;
   pointer-events: none;
   animation: acpmux-header-preview-in var(--cmux-motion-micro, 120ms) var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1)) both;
 }
@@ -332,7 +336,7 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px;
-  height: 64px;
+  aspect-ratio: 5 / 2;
   margin-bottom: 8px;
 }
 .acpmux-header-preview-pane-down {
@@ -350,13 +354,12 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
   flex-direction: column;
   justify-content: flex-end;
   gap: 4px;
-  padding: 6px;
+  padding: 8px;
 }
 .acpmux-header-preview-chat > i {
   display: block;
-  height: 3px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border-top: 3px solid color-mix(in srgb, var(--agent-text) 18%, transparent);
+  border-radius: 4px;
 }
 .acpmux-header-preview-chat > i:nth-child(2) {
   width: 70%;
@@ -378,15 +381,15 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 14px;
-  border-radius: 3px;
+  width: 24px;
+  height: 20px;
+  border-radius: 4px;
   background: var(--agent-surface-elevated, Canvas);
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
 }
 .acpmux-header-preview-tab .acpmux-header-glyph {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 .acpmux-header-preview-text {
   display: flex;
@@ -395,14 +398,14 @@ html:has(.acpmux-shell[data-tab-row]){background:transparent !important}
   gap: 8px;
 }
 .acpmux-header-preview-name {
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 .acpmux-header-preview-key {
   font: inherit;
   color: var(--agent-muted);
 }
 .acpmux-header-preview-detail {
-  margin-top: 2px;
+  margin-top: 4px;
   color: var(--agent-muted);
   overflow: hidden;
   text-overflow: ellipsis;

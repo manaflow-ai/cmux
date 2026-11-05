@@ -42,7 +42,7 @@ export function HeaderToolPreview({ target }: { target: HeaderToolPreviewTarget 
         </div>
         <div className="acpmux-header-preview-panel">
           <span className="acpmux-header-preview-tab">
-            <HeaderIcon name={target.icon} size={10} />
+            <HeaderIcon name={target.icon} size={12} />
           </span>
         </div>
       </div>

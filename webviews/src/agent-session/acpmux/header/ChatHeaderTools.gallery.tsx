@@ -503,7 +503,7 @@ const motionArrive =
 const motionMorph =
   (at: number): Play =>
   async (ctx) => {
-    ctx.find({ selector: '[data-quick-action="terminal"]' }).click();
+    (ctx.find({ selector: '[data-quick-action="terminal"]' }) as HTMLElement).click();
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-morph"));
     await frozenAt(at)(ctx);
   };
