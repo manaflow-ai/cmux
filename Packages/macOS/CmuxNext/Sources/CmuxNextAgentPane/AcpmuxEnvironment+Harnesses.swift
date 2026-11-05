@@ -69,6 +69,9 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case accounts = "_acpmux/accounts"
     /// `{id, enabled?, name?}`: turns an account on or off for routing, or renames it.
     case accountSet = "_acpmux/account/set"
+    /// `{id}`: the account's plan usage limits at rest, `{id, usageLimits, skipped?}` (one short-lived
+    /// `codex app-server` in its folder; never one whose login may be in the keychain).
+    case accountUsage = "_acpmux/account/usage"
     /// Adds a route (here a direct-subscription account in a shadow home of its own).
     case routeAdd = "_acpmux/route/add"
 
@@ -82,6 +85,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .registry, .health, .models: .seconds(40)
         case .list, .add, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet: .seconds(10)
         case .routeAdd: .seconds(20)
+        // The daemon's own limit for one read is 15 s, after a wait for a free read.
+        case .accountUsage: .seconds(40)
         }
     }
 }

@@ -313,6 +313,20 @@ mark {
   overflow-wrap: anywhere;
 }
 
+/* The plan usage card under an account (PlanUsageCardBody): its pane colors from this page's. */
+.harness-account-usage {
+  --agent-text: var(--text);
+  --agent-muted: var(--muted-text);
+  --agent-accent: var(--cmux-accent, var(--text));
+  width: 300px;
+  max-width: 100%;
+  margin-top: 4px;
+}
+
+.harness-account-usage > .acpmux-plan-usage {
+  padding: 0;
+}
+
 .harness-account-name {
   display: flex;
   align-items: center;

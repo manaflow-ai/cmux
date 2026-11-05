@@ -490,6 +490,10 @@ path = "tests/test_reconcile_entitlements_with_profile.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_recovery_app_archive.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_reload_tag_lock.py"
 lane = "legacy"
 
