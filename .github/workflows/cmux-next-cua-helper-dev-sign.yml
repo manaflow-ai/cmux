@@ -13,10 +13,11 @@ name: cmux NEXT Computer Use helper (dev) signing
 #         checked against its pin again.
 # sign    the release environment (its secrets reach main only): the Developer
 #         ID certificate goes into a per-job temporary keychain
-#         (scripts/ci/signing-keychain.sh, deleted by an always() step), then
-#         feat-cmux-next's sign-cua-helper-dev.sh signs with a secure time
-#         stamp, verifies, publishes to R2 (publish-cua-pinned-asset.sh,
-#         write-once) and writes the pin. It runs no code from the helper.
+#         (scripts/ci/signing-keychain.sh, deleted by an always() step), and
+#         main's scripts/ci/sign-cua-helper-dev.sh signs with a secure time
+#         stamp, verifies and writes the pin. Only main code runs while the key
+#         is present: the feat-cmux-next build is data. After the keychain is
+#         gone, upload-r2-object.py publishes it to R2 write-once.
 #         Blacksmith macOS, trusted like GitHub-hosted for release signing:
 #         the owned signing runners admit only nightly.yml's own signing jobs.
 # pin-pr  opens the pin bump against feat-cmux-next as the glaeda-route App,
@@ -162,9 +163,9 @@ jobs:
     outputs:
       sha256: ${{ steps.sign.outputs.sha256 }}
     steps:
-      # The keychain tool from main, the signing and publishing scripts from
-      # the commit the helper was built from.
-      - name: Checkout the keychain tool
+      # Every script this job runs comes from main: the keychain tool, the
+      # signer and the R2 upload.
+      - name: Checkout main's signing tools
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
@@ -176,16 +177,6 @@ jobs:
             scripts/apple-developer-id-certs
             scripts/import-apple-developer-id-intermediates.sh
             scripts/select-ci-xcode.sh
-          sparse-checkout-cone-mode: false
-
-      - name: Checkout the signing scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ needs.build.outputs.sha }}
-          fetch-depth: 1
-          persist-credentials: false
-          path: .next
-          sparse-checkout: scripts/cmux-next
           sparse-checkout-cone-mode: false
 
       - name: Select Xcode
@@ -211,32 +202,49 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: ./scripts/ci/signing-keychain.sh create --keychain cua-helper-dev.keychain
 
-      # The R2 key goes to curl on stdin (publish-cua-pinned-asset.sh); the
-      # upload is write-once and read back before the pin is written.
-      - name: Sign, verify and publish
+      # main's own signer (scripts/ci/sign-cua-helper-dev.sh): nothing from the
+      # feat-cmux-next build runs while the key is in the keychain; the zip is
+      # only data to codesign. No R2 key in this step.
+      - name: Sign and verify
         id: sign
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
-          CMUX_CEF_R2_WRITE_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
-          CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
-          CMUX_CEF_R2_ENV_FILE: /dev/null
         run: |
           set -euo pipefail
           [[ -n "$APPLE_SIGNING_IDENTITY" ]] || { echo "::error::Missing APPLE_SIGNING_IDENTITY" >&2; exit 1; }
-          ./.next/scripts/cmux-next/sign-cua-helper-dev.sh \
+          ./scripts/ci/sign-cua-helper-dev.sh \
             "$RUNNER_TEMP/unsigned/cmux-computer-use-dev-unsigned-macos-arm64.zip" \
             --identity "$APPLE_SIGNING_IDENTITY" \
             --keychain "$HOME/Library/Keychains/cua-helper-dev.keychain-db" \
-            --timestamp --out "$RUNNER_TEMP/signed"
-          # One directory, so the artifact keeps both files at its root.
-          cp .next/scripts/cmux-next/cua-helper-dev.pin.json "$RUNNER_TEMP/signed/"
-          echo "sha256=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$RUNNER_TEMP/signed/cua-helper-dev.pin.json")" >> "$GITHUB_OUTPUT"
-          { echo '```json'; cat "$RUNNER_TEMP/signed/cua-helper-dev.pin.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            --out "$RUNNER_TEMP/signed"
+          pin="$RUNNER_TEMP/signed/cua-helper-dev.pin.json"
+          echo "sha256=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$pin")" >> "$GITHUB_OUTPUT"
+          echo "key=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["r2_key"])' "$pin")" >> "$GITHUB_OUTPUT"
+          { echo '```json'; cat "$pin"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Delete the signing keychain
         if: always()
         run: ./scripts/ci/signing-keychain.sh delete --keychain cua-helper-dev.keychain
+
+      # Content-addressed and write-once; the second call reads the object back
+      # and checks its sha256 (an identical object is accepted, any other refused).
+      - name: Publish to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          KEY: ${{ steps.sign.outputs.key }}
+        run: |
+          set -euo pipefail
+          for attempt in upload read-back; do
+            echo "R2 $attempt"
+            python3 scripts/ci/upload-r2-object.py \
+              --file "$RUNNER_TEMP/signed/cmux-computer-use-dev-macos-arm64.zip" \
+              --endpoint-url "$R2_ENDPOINT" --bucket cmux-cef --key "$KEY" \
+              --content-type application/zip --cache-control 'private, max-age=31536000, immutable' \
+              --write-once
+          done
 
       - name: Upload the pin and the signed helper
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
