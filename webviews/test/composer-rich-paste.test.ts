@@ -184,7 +184,10 @@ await requireBrowserLane("composer-rich-paste.test.ts", async () => {
       // The writer a message's Copy and an expanded card's Copy call (MessageActions.tsx MessageCopy,
       // CardCopy.tsx), as the page loads it; a sent bubble is not needed to reach it.
       const done = await page.evaluate(async () => {
-        const { copyMarkdownResult } = await import("/src/agent-session/acpmux/richClipboard.ts");
+        const { copyMarkdownResult } = await import(
+          // The pane's dev server is rooted at src/agent-session/acpmux (vite.config.acpmux-pane.mjs).
+          "/richClipboard.ts" as string
+        );
         return copyMarkdownResult("- one\n- two");
       });
       expect(done).toBe(true);
