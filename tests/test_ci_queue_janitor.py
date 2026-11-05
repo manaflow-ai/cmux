@@ -105,6 +105,63 @@ def busy_main_push(queued=7):
     return run, mac_jobs(queued=queued)
 
 
+class PaidPortablePoolSnapshotTests(unittest.TestCase):
+    def test_linux_only_workflow_filter_still_reads_portable_queue_demand(self):
+        for base in ("main", "feat-cmux-next"):
+            for path in janitor.rescue.PORTABLE_LIGHT_WORKFLOW_PATHS:
+                with self.subTest(base=base, path=path):
+                    run = make_run(path=path)
+                    run["pull_requests"] = [{"base": {"ref": base}}]
+                    api = mock.Mock()
+                    api.jobs.return_value = mac_jobs(queued=1, label=LINUX)
+                    listed, unread, unlisted = janitor.read_run_jobs(
+                        api, [run], frozenset({path}), NOW,
+                        branch_linux_only={"feat-cmux-next": frozenset({path})})
+                    self.assertEqual((unread, unlisted), (set(), set()))
+                    self.assertEqual(listed, {run["id"]: api.jobs.return_value})
+
+    def test_paid_linux_queue_and_running_demand_reach_the_rescue_snapshot(self):
+        run = make_run(path=".github/workflows/pr-checks.yml")
+        jobs = mac_jobs(queued=2, running=1)
+        jobs += [
+            {"name": "UI review advisory", "status": "queued", "labels": [LINUX], "created_at": iso(43)},
+            {"name": "post", "status": "queued", "labels": [LINUX], "created_at": iso(12)},
+            {"name": "Web validation", "status": "in_progress", "labels": [LINUX],
+             "created_at": iso(20), "started_at": iso(10), "runner_id": 1},
+            {"name": "approval", "status": "waiting", "labels": [LINUX], "created_at": iso(60)},
+        ]
+        snapshot = janitor.pool_load_snapshot([run], {run["id"]: jobs}, now=NOW)
+        self.assertEqual(snapshot["pools"][LINUX], {
+            "queued": 2, "running": 1, "reserved_queued": 0, "oldest_queued_minutes": 43,
+        })
+        self.assertEqual(snapshot["pools"][MAC]["queued"], 2)
+        self.assertEqual(snapshot["pools"][MAC]["running"], 1)
+        self.assertEqual(snapshot["label_started"][LINUX], iso(10))
+
+    def test_paid_linux_labels_share_the_rescues_narrow_label_predicate(self):
+        run = make_run()
+        labels = (LINUX, "blacksmith-2vcpu-linux-2404", "blacksmith-4vcpu-ubuntu-2404-arm")
+        excluded = ("ubuntu-24.04", "self-hosted", "glaeda-linux", "blacksmith-ubuntu-2404")
+        jobs = [{"status": "queued", "labels": [label], "created_at": iso(42)}
+                for label in (*labels, *excluded)]
+        snapshot = janitor.pool_load_snapshot([run], {run["id"]: jobs}, now=NOW)
+        self.assertEqual(set(snapshot["pools"]), set(labels))
+        self.assertTrue(all(pool["oldest_queued_minutes"] == 42 for pool in snapshot["pools"].values()))
+
+    def test_paid_linux_start_evidence_requires_an_assigned_running_or_finished_job(self):
+        run = make_run()
+        jobs = [
+            {"status": "completed", "labels": [LINUX], "started_at": iso(20), "runner_name": "paid"},
+            {"status": "in_progress", "labels": [LINUX], "started_at": iso(10), "runner_id": 7},
+            {"status": "queued", "labels": [LINUX], "started_at": iso(1), "runner_id": 7},
+            {"status": "in_progress", "labels": [LINUX], "started_at": iso(2)},
+            {"status": "completed", "conclusion": "skipped", "labels": [LINUX],
+             "started_at": iso(3), "runner_id": 7},
+            {"status": "in_progress", "labels": ["ubuntu-24.04"], "started_at": iso(4), "runner_id": 7},
+        ]
+        self.assertEqual(janitor.label_started([run], {run["id"]: jobs}), {LINUX: iso(10)})
+
+
 class ProtectionTests(unittest.TestCase):
     def test_never_touched_runs(self):
         cases = [

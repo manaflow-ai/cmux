@@ -183,9 +183,20 @@ def gh_cli(args: Sequence[str], write: bool) -> str:
     return result.stdout
 
 
+def ls_remote_sha(repo: str, branch: str) -> str:
+    """A branch's tip from git's ref advertisement of the public repository: no token and none of
+    the installation's API budget, which ran out on 2026-11-04 and failed the refs API read."""
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
+    out = subprocess.run(
+        ["git", "ls-remote", "--exit-code", f"{server}/{repo}", f"refs/heads/{branch}"],
+        capture_output=True, text=True, timeout=60, check=True, stdin=subprocess.DEVNULL,
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}).stdout
+    return out.split()[0].lower() if out.split() else ""
+
+
 class Api:
-    def __init__(self, repo: str, gh: Gh = gh_cli):
-        self.repo, self.gh = repo, gh
+    def __init__(self, repo: str, gh: Gh = gh_cli, ls_remote: Callable[[str, str], str] | None = None):
+        self.repo, self.gh, self.ls_remote = repo, gh, ls_remote
 
     def get(self, path: str) -> Any:
         text = self.gh(["api", f"repos/{self.repo}/{path}"], False)
@@ -221,6 +232,15 @@ class Api:
         return items
 
     def tip(self) -> str:
+        """nightly-next's head: git ls-remote when given one (main does), else or on its failure the refs API."""
+        if self.ls_remote is not None:
+            try:
+                sha = self.ls_remote(self.repo, "nightly-next")
+                if SHA.fullmatch(sha):
+                    return sha
+                print(f"git ls-remote nightly-next answered {sha!r}; reading it through the API")
+            except (OSError, subprocess.SubprocessError) as error:
+                print(f"git ls-remote nightly-next failed ({error!r}); reading it through the API")
         sha = field(field(self.get("git/ref/heads/nightly-next"), "object", (dict,)), "sha", (str,))
         if not SHA.fullmatch(sha):
             raise Unreadable(f"nightly-next is {sha!r}")
@@ -442,7 +462,7 @@ def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("usage: nightly_next_stuck_run.py OWNER/REPO", file=sys.stderr)
         return 2
-    tick(Api(argv[1]))
+    tick(Api(argv[1], ls_remote=ls_remote_sha))
     return 0
 
 
