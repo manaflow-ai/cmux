@@ -45,6 +45,8 @@ public final class CloudMachineChanges {
     public var push: CloudMachineStatePush?
     /// The last list's refresh: what a lost push falls back to.
     private var lastRefresh: (@MainActor () async -> Void)?
+    /// The machines the pending settle read is for; nil when it is for no one machine (a create, a lost push).
+    private var pendingMachines: Set<String>?
     /// Takes `push` (nil: the classic client, nothing is pushed) with the daemon connection its frames go to and where
     /// its records are shown; the next list opens its sockets.
     public func startPush(_ push: CloudMachineStatePush?, connection: @escaping @MainActor () -> DaemonConnection?,
@@ -57,6 +59,8 @@ public final class CloudMachineChanges {
             guard let self, let refresh = self.lastRefresh else { return }
             self.began(refresh)
         }
+        // A push that becomes live ends a settle read that only its machines needed.
+        push.onLive = { [weak self] _ in self?.pushWentLive() }
         self.push = push
     }
 
@@ -232,6 +236,7 @@ public final class CloudMachineChanges {
         guard !stopped, !Task.isCancelled else { return }
         cancelRead()
         pending = true
+        pendingMachines = nil
         delay = Self.settleDelay
         schedule(refresh)
     }
@@ -240,6 +245,13 @@ public final class CloudMachineChanges {
     public func began(machineID: String, _ refresh: @escaping @MainActor () async -> Void) {
         guard !isPushed(machineID) else { return }
         began(refresh)
+        pendingMachines = [machineID]
+    }
+
+    private func pushWentLive() {
+        guard pending, let machines = pendingMachines, !machines.contains(where: { !isPushed($0) }) else { return }
+        pending = false
+        cancelRead()
     }
 
     /// After each successful machine list: retain reads only while a machine is changing.
@@ -253,8 +265,10 @@ public final class CloudMachineChanges {
         // settlement here without tickets could let a rejected stale response clear a mutation.
         delay = Self.settleDelay
         // A machine whose record is pushed settles from its push, not from a read.
-        pending = list.contains(where: { $0.status.isChanging && !isPushed($0.id) })
-            || mutations.keys.contains(where: { !isPushed($0) })
+        let unsettled = Set(list.filter { $0.status.isChanging && !isPushed($0.id) }.map(\.id))
+            .union(mutations.keys.filter { !isPushed($0) })
+        pending = !unsettled.isEmpty
+        pendingMachines = unsettled
         guard pending else {
             cancelRead()
             return
@@ -265,6 +279,7 @@ public final class CloudMachineChanges {
     public func stop() {
         push?.stop()
         lastRefresh = nil
+        pendingMachines = nil
         stopped = true
         pending = false
         mutations.removeAll()
