@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextWakeups
 
 /// The parent view of a pane's Chromium window. The fork's
 /// `CmuxParentViewTracker` keeps the page window over this view, clips it to
@@ -403,9 +402,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         let wasEmpty = bounds.isEmpty
         super.setFrameSize(newSize)
         tab?.deviceEmulationViewDidResize()
-        // A focus ask kept while the host was empty is granted once it has an area, after this pass's commit: the fork
-        // orders a hosted page's window in after the commit, and a key change inside a layout pass re-marks the window.
-        if wasEmpty, !bounds.isEmpty, tab?.pendingFocus == true { AfterFrameCommit().run { [weak self] in self?.tab?.grantPendingFocusIfShown() } }
+        tab?.pageWindowHostDidResize(wasEmpty: wasEmpty)
     }
 
     override func viewDidMoveToWindow() {
