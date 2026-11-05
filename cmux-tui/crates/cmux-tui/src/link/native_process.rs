@@ -221,9 +221,37 @@ fn renewal_delay(left: Duration, took: Duration) -> Duration {
 /// read is reported at most once a minute. Ids and timings only.
 struct RenewalLog {
     last_slow: Option<Instant>,
+    /// Whether the last answered read carried local admission (`admit_until`); None before the first.
+    last_admits: Option<bool>,
+}
+
+/// The journal line for an answered policy read whose local admission (`admit_until`) is new:
+/// the first read, or one that gained or lost it. `admission` is how long it lasts, None when absent.
+fn admission_line(took: Duration, admission: Option<Duration>) -> String {
+    match admission {
+        Some(left) => format!(
+            "cmux link: receiver policy read took {} ms; admit_until present ({} s of local admission)",
+            took.as_millis(),
+            left.as_secs()
+        ),
+        None => format!(
+            "cmux link: receiver policy read took {} ms; admit_until absent (no local admission)",
+            took.as_millis()
+        ),
+    }
 }
 
 impl RenewalLog {
+    /// Logs the read's admission when it is new (``admission_line``), so the journal shows whether the
+    /// control plane granted local admission without a line per read.
+    fn admission(&mut self, took: Duration, admission: Option<Duration>) {
+        let admits = admission.is_some();
+        if self.last_admits != Some(admits) {
+            self.last_admits = Some(admits);
+            eprintln!("{}", admission_line(took, admission));
+        }
+    }
+
     fn read(&mut self, took: Duration, lifetime: Duration, lapsed: Option<Duration>) {
         if let Some(gap) = lapsed {
             eprintln!(
@@ -297,7 +325,7 @@ async fn renew(
     behind: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
     let mut retry = Duration::from_secs(1);
-    let mut log = RenewalLog { last_slow: None };
+    let mut log = RenewalLog { last_slow: None, last_admits: None };
     let mut last_read = Instant::now();
     loop {
         // A snapshot's own renewal deadline or a failed request's backoff,
@@ -329,6 +357,7 @@ async fn renew(
                 log.read(took, snapshot.expires() - snapshot.started(), lapsed);
                 expires = Some(snapshot.admitted_until());
                 admitted = snapshot.admits_locally().then(|| snapshot.admitted_until());
+                log.admission(took, admitted.map(|end| end.saturating_duration_since(arrived)));
                 next = renewal_at(&snapshot, took)?;
                 retry = Duration::from_secs(1);
                 send.send(Some(snapshot.native_policy()))
