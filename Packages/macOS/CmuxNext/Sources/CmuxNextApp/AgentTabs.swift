@@ -302,24 +302,23 @@ final class AgentTabStore {
     var checkpointFocusTab: String?
     /// This build's URL scheme, handed to every page for the links it copies.
     private let linkScheme: String?
-    /// Tabs a `cmux://session/<id>` link opened: their page refuses a
-    /// session the daemon does not have instead of falling back.
-    /// Links are created before the tab's machine is known to the page. The tab maps below carry
-    /// the machine-qualified state; this set remains a short-lived compatibility marker.
+    /// Tabs a `cmux://session/<id>` link opened; machine-qualified while the page is being wired.
     var linkedSessions: Set<AgentTabKey> = []
     /// A link's turn for a tab whose view is not made yet.
     var pendingTurns: AgentTabMap<String> = .init()
-    /// What each released chat page held that acpmux does not (``AgentPageHibernation``), for
-    /// the page built when its tab shows again.
+    /// What each released chat page held that acpmux does not, for its next page.
     var wakeStates: AgentTabMap<AgentPaneWakeState> = .init()
     /// What the chat pages held at the last quit, for each tab's first page at launch (``AgentPaneRelaunchWake``).
     var relaunchWake = AgentPaneRelaunchWake(file: nil)
-    /// What every chat holds for the next launch (the quit's window step). Pages that froze while
-    /// hidden thaw first and stay awake until it is collected: a frozen page answers nothing.
     func relaunchWakeStates() async -> [String: AgentPaneWakeState] {
         onCollectingPages?(true)
         defer { onCollectingPages?(false) }
-        return await relaunchWake.collect(held: wakeStates.bare, pages: views.map { (resolve($0.key), $0.value) }, live: { isAgentTab($0) })
+        let duplicateIDs = AgentTabMap<Bool>.duplicateIDs(views.entries.map(\.key) + wakeStates.entries.map(\.key) + listTabsScoped().map { AgentTabKey(machine: $0.machine, key: $0.key) })
+        let held = wakeStates.relaunchEntries(duplicateIDs); let pages = views.entries.map { ($0.key.relaunchStorageKey(duplicateIDs: duplicateIDs), $0.value) }
+        return await relaunchWake.collect(held: held, pages: pages, live: { [weak self] storageKey in
+            guard let self else { return false }; let key = AgentTabKey(relaunchStorageKey: storageKey)
+            return key.machine.isEmpty ? isAgentTab(key.key) : isAgentTab(key.key, machine: key.machine)
+        })
     }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
@@ -540,7 +539,7 @@ final class AgentTabStore {
         // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
         // A page with a kept composer (``wakeStates``) gets its own page: the spare's handshake is past.
         if local, kind == .local, sessions[tabKey] == nil, record.session == nil, let newTab = newTabPages[tabKey],
-           seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?() {
+           seed?.holdsOnlyFolder ?? true, wakeStates[tabKey] == nil, !relaunchWake.mayHold(tabKey.relaunchKeyCandidates), let spare = takeSpare?() {
             adoptSpare(spare, key: tabKey, page: newTab.page)
             track(key, in: store, machine: tabKey.machine)
             onPageBuilt?(key)
@@ -550,7 +549,7 @@ final class AgentTabStore {
         // spare too: it is loaded and connected, and switches to the chat in place.
         if let session = AgentPaneSpareAdoption(thisMac: kind == .local, session: sessions[tabKey] ?? record.session,
                                                 newTabPage: newTabPages[tabKey] != nil, seeded: seed != nil,
-                                                wake: wakeStates[tabKey] != nil || relaunchWake.mayHold(key))
+                                                wake: wakeStates[tabKey] != nil || relaunchWake.mayHold(tabKey.relaunchKeyCandidates))
             .adopted(chiefKeeps: chiefKeepsSession),
            let spare = takeConnectedSpare?(), adoptSpare(spare, key: tabKey, session: session, revealTurn: pendingTurns.removeValue(forKey: tabKey)) {
             track(key, in: store, machine: tabKey.machine)
@@ -568,7 +567,7 @@ final class AgentTabStore {
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: tabKey)
         model.pendingWake = wakeStates.removeValue(forKey: tabKey)
-        relaunchWake.hand(key, to: model)
+        relaunchWake.hand(tabKey.relaunchKeyCandidates, to: model)
         model.onCloudRepositoryLocal = cloudRepositoryLocal
         wire(model, key: key, machine: tabKey.machine)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).

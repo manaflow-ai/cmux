@@ -8,6 +8,25 @@ public struct AgentTabKey: Hashable, Sendable {
         self.machine = machine
         self.key = key
     }
+
+    /// The launch-wake file predates machine-qualified state. Encode only colliding ids so old
+    /// bare keys remain readable while relaunch can distinguish two machines' same chat.
+    public func relaunchStorageKey(duplicateIDs: Set<String>) -> String {
+        guard !machine.isEmpty, duplicateIDs.contains(key) else { return key }
+        return machine + "\u{0}" + key
+    }
+
+    public var relaunchKeyCandidates: [String] {
+        machine.isEmpty ? [key] : [machine + "\u{0}" + key, key]
+    }
+
+    public init(relaunchStorageKey storageKey: String) {
+        guard let separator = storageKey.firstIndex(of: "\u{0}"), separator > storageKey.startIndex else {
+            self.init(machine: "", key: storageKey)
+            return
+        }
+        self.init(machine: String(storageKey[..<separator]), key: String(storageKey[storageKey.index(after: separator)...]))
+    }
 }
 
 /// AgentTabs state keyed by machine and tab id. The String subscript is retained for old
@@ -25,6 +44,14 @@ public struct AgentTabMap<Value>: Sequence {
     public var keys: [String] { storage.keys.map(\.key).unique() }
     public var values: [Value] { Array(storage.values) }
     public var entries: [(key: AgentTabKey, value: Value)] { storage.map { (key: $0.key, value: $0.value) } }
+    public static func duplicateIDs(_ keys: [AgentTabKey]) -> Set<String> {
+        var counts: [String: Int] = [:]
+        keys.forEach { counts[$0.key, default: 0] += 1 }
+        return Set(counts.compactMap { $0.value > 1 ? $0.key : nil })
+    }
+    public func relaunchEntries(_ duplicateIDs: Set<String>) -> [String: Value] {
+        entries.reduce(into: [String: Value]()) { $0[$1.key.relaunchStorageKey(duplicateIDs: duplicateIDs)] = $1.value }
+    }
     public var bare: [String: Value] {
         storage.reduce(into: [:]) { result, entry in
             guard result[entry.key.key] == nil else { return }

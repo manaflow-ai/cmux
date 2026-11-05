@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextTabs
 
 /// What the quit writes of the agent chats for the next launch (their composers and page images), never an
 /// incognito window's (leo-workspace design/spaces.md "Incognito": nothing of it is kept; spaces-incognito-audit
@@ -13,7 +14,7 @@ import CmuxNextAgentPane
 
     /// Every chat's composer (its chips' files and shell command included) but an incognito one's.
     static func composers(_ tabs: AgentTabStore, isIncognito: (String) -> Bool) async -> [String: AgentPaneWakeState] {
-        await tabs.relaunchWakeStates().filter { !isIncognito($0.key) }
+        await tabs.relaunchWakeStates().filter { !isIncognito(AgentTabKey(relaunchStorageKey: $0.key).key) }
     }
 
     /// The shown chats' page images but an incognito one's.
