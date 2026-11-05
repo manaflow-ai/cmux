@@ -123,3 +123,10 @@ test("a single time with a zone, and times in code, behave as before", () => {
   expect(sources("at 01:28 UTC and 23:55")).toEqual(["01:28 UTC"]);
   expect(sources("`23:55 and 01:28 UTC` stays code")).toEqual([]);
 });
+
+test("a very long run of times without a zone scans in linear time", () => {
+  const started = performance.now();
+  expect(dateTimes("00:00, ".repeat(60_000))).toEqual([]);
+  expect(dateTimes("00:00, ".repeat(60_000) + "01:00 UTC").length).toBe(60_001);
+  expect(performance.now() - started).toBeLessThan(3000);
+});
