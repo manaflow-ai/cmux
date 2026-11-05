@@ -434,6 +434,10 @@ fn ordinary_registry_writers_progress_while_personal_writes_stay_queued() {
 /// DIAG (not for merge): idle cost of one chat tab as the session grows.
 #[test]
 fn diag_tab_cost_growth() {
+    let spans_path =
+        std::env::temp_dir().join(format!("brs-tab-spans-{}.jsonl", std::process::id()));
+    // SAFETY: set before any thread of this test process reads the environment (the sink reads it once).
+    unsafe { std::env::set_var("CMUX_TUI_DEBUG_SPANS", &spans_path) };
     let session = Session::new("diag-tab-growth");
     let mux = session.open();
     let sidebar = sidebar(&mux);
