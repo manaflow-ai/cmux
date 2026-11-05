@@ -6,7 +6,7 @@
   --acpmux-cols-pad: var(--ui-popup-padding, 4px);
   --acpmux-cols-inline: var(--ui-row-padding-inline, 8px);
   --acpmux-cols-rail-width: 3.6923em;
-  --acpmux-cols-max-height: 20em;
+  --acpmux-cols-max-height: calc(259em / 13);
   /* Follow chrome type as well as interface scale. The model column gets most of the room. */
   width: 35em;
   max-width: var(--available-width, calc(100vw - 24px));
