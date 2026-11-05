@@ -13,10 +13,13 @@ final class TerminalGridReporter {
     private weak var view: TerminalSurfaceView?
     /// The report going out now is a layout spring's final grid (the PTY owner sends it in the caller's turn).
     private var sendingFinal = false
-    private(set) lazy var coalescer = TerminalGridReportCoalescer { [weak self] in self?.deliver($0) }
+    private(set) lazy var coalescer = TerminalGridReportCoalescer(clock: clock) { [weak self] in self?.deliver($0) }
+    private let clock: any Clock<Duration>
 
-    init(view: TerminalSurfaceView) {
+    /// - Parameter clock: The coalescing window's clock; tests pass a manual one, so a drag needs no real sleep.
+    init(view: TerminalSurfaceView, clock: any Clock<Duration> = ContinuousClock()) {
         self.view = view
+        self.clock = clock
     }
 
     /// Whether a drag's grid waits in the coalescer's window.
