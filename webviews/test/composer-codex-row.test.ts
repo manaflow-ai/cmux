@@ -205,7 +205,10 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
         await page.mouse.move(0, 0);
         await settle(page);
         const send = page.locator(".acpmux-composer-box .acpmux-send");
-        const rest = await send.evaluate((el) => getComputedStyle(el).backgroundColor);
+        const rest = await send.evaluate((el) => {
+          const style = getComputedStyle(el);
+          return { color: style.backgroundColor, image: style.backgroundImage };
+        });
         await page.keyboard.press("Tab");
         await send.focus();
         await send.evaluate(async (el) => {
@@ -219,7 +222,9 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           return {
             focusVisible: el.matches(":focus-visible"),
             fill: getComputedStyle(el).backgroundColor,
-            rest,
+            image: getComputedStyle(el).backgroundImage,
+            rest: rest.color,
+            restImage: rest.image,
           };
         }, rest);
       };
@@ -237,7 +242,9 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
       const send = await focusFill("send-alt-filled-disc");
       expect(send.focusVisible).toBe(true);
       expect(send.rest).not.toBe("rgba(0, 0, 0, 0)");
-      expect(send.fill).not.toBe(send.rest);
+      // The alternate's opaque disc remains its background color; the shared focus wash is a
+      // background image layered over it, so compare the effective image rather than the color.
+      expect(send.image).not.toBe(send.restImage);
     } finally {
       await page.close();
     }
