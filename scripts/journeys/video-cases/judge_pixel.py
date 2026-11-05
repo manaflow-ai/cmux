@@ -1536,7 +1536,8 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
           clipped at the current hi edge ("late"); the previous frame is the last one whose strip differs (a dropped
           refresh does not widen the allowance); for the trace source, the previous sample;
       E4  never the shell beyond it (gap over its rest: the page's own backdrop and the terminal's own ground are no gap);
-      E5  never stretched (a ring wider than at rest by more than TOL_PX).
+      E5  never stretched (a ring wider than at rest by more than TOL_PX; the rest width of a ring is its wider one of the
+          pane's two sides on that line, and a ring with no rest width on either side is not compared: 3e.6).
     A page edge on the NEXT frame's pane edge fails as "page early 1" (the page window ahead of the main window). A frame
     of a kind: fail if an edge fails, else late, else page late 1, else pass; not judged when none of its edges can be
     judged. E7: frames where every strip edge (x on the strip rows, the strip tops on the columns) that moved into the
@@ -1569,6 +1570,12 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
         if kind not in frames:
             continue
         gap_rest, rings_rest = side_rest[key]
+        # 3e.6: each ring's rest width on whichever of the pane's two sides of this line shows it wider: a ring the pane
+        # edge cut at rest on one side (the grid's last column) is whole on the other. No rest width on either side (0):
+        # that ring is not compared.
+        other = side_rest.get((pid, name, axis, "hi" if side == "lo" else "lo"))
+        ring_ref = [max([v for v in (rings_rest[r], other[1][r] if other else None) if v is not None], default=None)
+                    for r in range(3)]
         si = 0 if side == "lo" else 1
         if axis == "row":
             strip, prev_i, next_i, source = edges.get(pid), prev_strip.get(pid), next_strip.get(pid), "strip"
@@ -1655,7 +1662,7 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
                 verdict, rule = "fail", "E4"
                 rules[kind]["E4"] += 1
                 rule_frames[kind]["E4"].add(f)
-            if any(rings_rest[r] is not None and m["rings"][r] > rings_rest[r] + TOL_PX for r in range(3)):
+            if any(ring_ref[r] and m["rings"][r] > ring_ref[r] + TOL_PX for r in range(3)):
                 verdict, rule = "fail", "E5"
                 rules[kind]["E5"] += 1
                 rule_frames[kind]["E5"].add(f)
