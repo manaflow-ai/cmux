@@ -31,7 +31,7 @@ describe("cloud journey", () => {
     const ghOk = (status: number) => async (_m: string, url: string) => (url.startsWith("https://gh.example/") ? { status: 200, body: { value: "gh-oidc-jwt-value" } } : { status, body: {} });
     const env = { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/t", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "rb" };
     await expect(oidcSignIn("https://cloud-api.cmux.dev", env, [], ghOk(404) as never)).rejects.toThrow("has no POST /v1/auth/github-actions yet");
-    await expect(oidcSignIn("https://cloud-api.cmux.dev", env, [], ghOk(401) as never)).rejects.toThrow("no CI_SESSION_TRUST row of https://cloud-api.cmux.dev trusts this job");
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", env, [], ghOk(401) as never)).rejects.toThrow("no valid CI_SESSION_TRUST row matches it");
   });
   test("backend names map to the cmux API Worker of each environment", () => {
     expect(resolveBackend("staging").api).toBe("https://cloud-api-staging.cmux.dev");
