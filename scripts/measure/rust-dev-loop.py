@@ -195,11 +195,16 @@ def blaze_reset(log) -> None:
     """Stop the daemon and remove blaze's build state, keeping its downloaded toolchain, so the
     next blaze build is cold."""
     subprocess.run(["blaze", "stop"], capture_output=True, text=True)
-    home = Path(os.environ.get("BLAZE_HOME", Path.home() / ".blaze"))
+    home = Path(os.environ.get("BLAZE_HOME", "")).resolve() if os.environ.get("BLAZE_HOME") else None
+    if home is None or ".build" not in home.parts:
+        raise SystemExit("blaze variant: BLAZE_HOME must be set under .build (rust-dev-loop.sh sets it); "
+                         "refusing to reset any other blaze home")
     for child in home.iterdir() if home.is_dir() else []:
-        if child.name not in ("toolchains", "native"):
-            shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink(missing_ok=True)
-    log(f"DEVLOOP-BLAZE-RESET {home} (kept toolchains, native)")
+        if child.name in ("toolchains", "native"):
+            continue
+        size = subprocess.run(["du", "-sk", str(child)], capture_output=True, text=True).stdout.split()[:1]
+        log(f"DEVLOOP-BLAZE-RESET rm {child.name} {size[0] if size else '?'}KB")
+        shutil.rmtree(child, ignore_errors=True) if child.is_dir() else child.unlink(missing_ok=True)
 
 
 LAST_PEAK: dict[str, float] = {}
