@@ -274,9 +274,12 @@ await requireBrowserLane("agent-pane-scrollbar-shown.test.ts", async () => {
 
   for (const [name] of launchers) {
     describe(name, () => {
-      test("the thumb stays drawn at rest, after a scroll and while a new turn comes in, on a lane that never changes", async () => {
+      test("without the fade the thumb stays drawn at rest, after a scroll and while a new turn comes in, on a lane that never changes", async () => {
         const page = await open(name);
         await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true }));
+        // The pane's theme turns the fade on (App.tsx applyPaneTheme); a page that never sets it (the
+        // guest page) keeps the shown thumb measured here.
+        await page.evaluate(() => document.documentElement.removeAttribute("data-cmux-scroller-fade"));
         await recordLanes(page);
         const seen: Record<string, Awaited<ReturnType<typeof thumb>>> = {};
         await paintedFor(page, 2000);
