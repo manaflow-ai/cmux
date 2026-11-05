@@ -21,14 +21,10 @@ extension CEFTab {
         devToolsController.diagnosticFrames
     }
 
-    /// The page's and DevTools' occlusion: the chrome's rects, plus holes
-    /// for the divider's grab area so the mouse reaches it over both. Until
-    /// the tab's first real page (the New Tab page, a blank page) the whole
-    /// page is a hole: Chromium's windowed page cannot be transparent, so
-    /// the window's backdrop shows there as in a WebKit tab (Lawrence
-    /// 2026-10-10, `PageBackground`).
-    /// `frames`: the frames the container's layout is about to give its views (by view), read instead of their current
-    /// frames, so the occlusion is set before the frames (`CEFTabContentView.layoutContent`).
+    /// The page's and DevTools' occlusion: the chrome's rects, plus holes for the divider's grab area so the mouse reaches
+    /// it over both. Until the tab's first real page (the New Tab page, a blank page) the whole page is a hole: Chromium's
+    /// windowed page cannot be transparent, so the window's backdrop shows there as in a WebKit tab (Lawrence 2026-10-10,
+    /// `PageBackground`). `placed`: the frames a layout is about to set, read before them (`layoutContent`, S5).
     func applyOcclusion(frames placed: [ObjectIdentifier: CGRect] = [:]) {
         let frames = devToolsController.frames(in: container.bounds)
         if host.visibleTab === self {
@@ -47,8 +43,7 @@ extension CEFTab {
                 return CEFClipShape.RoundedRect(rect: hole.rect.offsetBy(dx: -pageFrame.minX, dy: -pageFrame.minY), radius: hole.radius)
             }
         }
-        if let views = devToolsController.views {
-            let devToolsFrame = placed[ObjectIdentifier(views.host)] ?? views.host.frame
+        if let views = devToolsController.views, case let devToolsFrame = placed[ObjectIdentifier(views.host)] ?? views.host.frame {
             if devToolsController.deviceModeActive {
                 // Device mode: DevTools cover the content view; the page shows (and takes the mouse) through this hole.
                 views.host.occlusionRects = Self.local([frames.page], in: devToolsFrame)

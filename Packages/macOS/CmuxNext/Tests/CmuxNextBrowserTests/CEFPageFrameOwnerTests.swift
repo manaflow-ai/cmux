@@ -255,11 +255,13 @@ import Testing
         #expect(first.container.heldPageSize == nil, "the page keeps a held size")
         var misses: [String] = []
         let steps: [CGFloat] = (1...12).map { CGFloat($0) * 10 }
+        // Only the classes of views in this tab's subtree count (a window an earlier test left open lays out elsewhere).
+        let subtree = Self.classNames(under: first.container)
         for dx in steps {
             let before = Self.layoutCalls()
             first.container.frame = NSRect(x: 200 + dx, y: 0, width: 600 - dx, height: 500)
             first.container.layoutSubtreeIfNeeded()
-            let calls = Self.layoutCalls().subtracting(before)
+            let calls = Self.layoutCalls().subtracting(before).only(subtree)
             if calls.total > 1 { misses.append("step \(Int(dx)): \(calls.total) layout calls \(calls.byClass)") }
             let frames = first.devToolsController.frames(in: first.container.bounds)
             if host.hostView.frame != frames.page { misses.append("step \(Int(dx)): page \(host.hostView.frame), area \(frames.page)") }
@@ -371,8 +373,14 @@ import Testing
         LayoutCalls(byClass: Dictionary(LayoutPassGuard.shared.passesByClass.map { ($0.viewClass, $0.passes) }, uniquingKeysWith: +))
     }
 
+    /// The class names of `view` and every view under it.
+    private static func classNames(under view: NSView) -> Set<String> {
+        Set([String(describing: type(of: view))]).union(view.subviews.flatMap { classNames(under: $0) })
+    }
+
     struct LayoutCalls {
         var byClass: [String: Int]
+        func only(_ classes: Set<String>) -> LayoutCalls { LayoutCalls(byClass: byClass.filter { classes.contains($0.key) }) }
         var total: Int { byClass.values.reduce(0, +) }
         func subtracting(_ earlier: LayoutCalls) -> LayoutCalls {
             LayoutCalls(byClass: byClass.compactMapValues { $0 }.reduce(into: [:]) { out, entry in

@@ -25,7 +25,7 @@ final class CEFHostView: NSView {
     var roundedOcclusions: [CEFClipShape.RoundedRect] = [] {
         didSet {
             guard roundedOcclusions != oldValue else { return }
-            postGeometryChange()
+            if frameAtUpdate != nil { occlusionPostPending = true } else { postGeometryChange() }
         }
     }
     private var windowObserver: (any NSObjectProtocol)?
