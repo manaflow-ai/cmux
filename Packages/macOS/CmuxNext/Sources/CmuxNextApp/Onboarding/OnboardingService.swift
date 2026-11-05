@@ -177,13 +177,13 @@ final class OnboardingService {
         defaults.set(true, forKey: key)
     }
 
-    /// The first-run Agents step over Bring your history (``OnboardingWindowPresenter/showAgentsAtFirstRun``); never under showcase.
     /// A Sign In's login in a terminal tab. A top page covers the workspace, so the tab shows only once it is left.
     private func openSignIn(_ line: String) {
         if let window = services.windows.active, let page = window.shownTopPage, window.leaveTopPage() { pageLeftForSignIn = pageLeftForSignIn ?? page }
         _ = services.inFrontPane { $0.newTerminalTab(typing: line + "\r") }
     }
 
+    /// The first-run Agents step over Bring your history (``OnboardingWindowPresenter/showAgentsAtFirstRun``); never under showcase.
     func showAgentsAtFirstRun(isFirstRun: Bool) async {
         guard !services.environment.showcase else { return }
         await presenter.showAgentsAtFirstRun(isFirstRun: isFirstRun, source: signInHarnesses)
