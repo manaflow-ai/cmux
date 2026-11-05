@@ -145,7 +145,6 @@ struct CloudStartChat {
         report(.init(name: "folder", folder: folderName, machine: name, size: size))
         // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
         // copy finished opens its chat without copying again, which would overwrite what it changed.
-        // A folder the machine can't clone copies only on the person's Copy; their Cancel's Retry asks again.
         let storeAccess = await services.cloud.auth.startChatStoreAccess(account: account)
         let copy = try await CloudSeedRefusal.copying(machine: name, in: { services.windows.active?.window }, declined: { CloudMove.Failure(message: $0, retry: again) }) { refusal in do {
                 // A machine whose older cmux-tui refuses the copy is updated to this app's build, then copied again on its new link (CloudOutdatedMachine);
