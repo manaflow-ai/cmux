@@ -10,7 +10,12 @@ import Testing
         let elements: [[String: Any]]
         let degraded: Bool
         let listing: Any
-        let calls = OSAllocatedUnfairLock<[(String, [String: Any])]>(initialState: [])
+        let raw = OSAllocatedUnfairLock<[(String, Data)]>(initialState: [])
+
+        /// Every call so far: the tool's name and its decoded arguments.
+        var calls: [(String, [String: Any])] {
+            raw.withLock { $0 }.map { ($0.0, (try? JSONSerialization.jsonObject(with: $0.1)) as? [String: Any] ?? [:]) }
+        }
 
         init(elements: [[String: Any]], degraded: Bool = false,
              listing: Any = ["tools": [["name": "click"], ["name": "get_window_state"]]]) {
@@ -22,8 +27,7 @@ import Testing
         func listTools() async throws -> Data { try JSONSerialization.data(withJSONObject: listing) }
 
         func invoke(name: String, arguments: Data) async throws -> Data {
-            let args = try JSONSerialization.jsonObject(with: arguments) as? [String: Any] ?? [:]
-            calls.withLock { $0.append((name, args)) }
+            raw.withLock { $0.append((name, arguments)) }
             guard name == "get_window_state" else { return Data(#"{"ok":true}"#.utf8) }
             var structured: [String: Any] = ["elements": elements, "screenshot_width": 1000, "screenshot_height": 500,
                                              "capture_id": "cap-1"]
@@ -66,7 +70,7 @@ import Testing
         #expect(model.asked.withLock { $0.map(\.2) } == ["the brush size slider"])
         #expect(model.asked.withLock { $0.first.map { [$0.0, $0.1] } } == [1000, 500])
         // One observation through the driver (so its target guard and consent check run), never an action.
-        let calls = driver.calls.withLock { $0 }
+        let calls = driver.calls
         #expect(calls.map(\.0) == ["get_window_state"])
         #expect(calls.first?.1["pid"] as? Int == 42 && calls.first?.1["window_id"] as? Int == 7)
         #expect(calls.first?.1["session"] as? String == "s")
@@ -110,7 +114,7 @@ import Testing
         let tools = GroundingTools(inner: driver, model: Model())
         let data = try await tools.invoke(name: "click", arguments: Data(#"{"pid":1}"#.utf8))
         #expect(String(decoding: data, as: UTF8.self) == #"{"ok":true}"#)
-        #expect(driver.calls.withLock { $0.map(\.0) } == ["click"])
+        #expect(driver.calls.map(\.0) == ["click"])
     }
 
     @Test func aMissingDescriptionIsRefused() async {
