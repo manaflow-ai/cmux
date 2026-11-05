@@ -92,6 +92,12 @@ class TestIntegrity(unittest.TestCase):
 """
         self.assertFalse(any(f.kind == "new-skip" for f in module.analyze("M\ttests/test_x.py\n", diff)))
 
+    def test_approved_findings_can_be_recorded_without_blocking(self):
+        self.assertEqual(
+            module.main(["--base", "HEAD^1", "--allow-all"]),
+            0,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

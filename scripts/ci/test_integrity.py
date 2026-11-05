@@ -147,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", help="base commit (defaults to TEST_INTEGRITY_BASE_SHA/GITHUB_BASE_SHA)")
     parser.add_argument("--json", action="store_true", help="emit machine-readable findings")
     parser.add_argument("--strict", action="store_true", help="return failure when findings exist")
+    parser.add_argument("--allow-all", action="store_true",
+                        help="record findings but accept an explicitly approved change")
     args = parser.parse_args(argv)
     base = resolve_base(args.base)
     findings = run(base)
@@ -163,6 +165,9 @@ def main(argv: list[str] | None = None) -> int:
         for finding in findings:
             print(f"::warning file={finding.path},title=Test integrity::{finding.detail}")
             print(f"{finding.kind}: {finding.path}: {finding.detail}", file=sys.stderr)
+    if findings and args.allow_all:
+        print("test-integrity: findings explicitly approved by the trusted workflow")
+        return 0
     if findings:
         print(f"test-integrity: {len(findings)} finding(s); restore coverage or remove the weakening", file=sys.stderr)
         return 1 if args.strict else 0

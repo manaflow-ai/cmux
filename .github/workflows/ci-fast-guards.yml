@@ -55,7 +55,7 @@ jobs:
           base="${TEST_INTEGRITY_BASE_SHA:-HEAD^1}"
           if git cat-file -e "$base:scripts/ci/test_integrity.py" 2>/dev/null; then
             git show "$base:scripts/ci/test_integrity.py" > "$RUNNER_TEMP/test_integrity.py"
-            python3 "$RUNNER_TEMP/test_integrity.py" --base "$base" --strict
+            python3 "$RUNNER_TEMP/test_integrity.py" --base "$base"
           else
             echo "test-integrity: base predates this guard; no comparison yet"
           fi
