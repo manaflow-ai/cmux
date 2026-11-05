@@ -52,6 +52,77 @@ await requireBrowserLane("model-picker-scaling.browser.test.ts", async () => {
     });
 
   for (const engine of ["chromium", "webkit"]) {
+    for (const left of [16, 496])
+      test(`${engine}: rail hints stay outside the picker at x=${left}, with the account hint centered`, async () => {
+        const page = await open(engine, 1200, "quick-menu");
+        try {
+          await page.keyboard.press("Escape");
+          await page.locator(".acpmux-cols").waitFor({ state: "detached" });
+          await page.addStyleTag({
+            content: `.acpmux-model { position: fixed; left: ${left}px; top: 300px; margin: 0; }`,
+          });
+          await page.locator(".acpmux-model .acpmux-picker-button").click();
+          await page.addScriptTag({
+            type: "module",
+            content: `
+          import { installTooltips } from "/src/ui/titleTooltips.ts";
+          if (!document.querySelector(".ui-title-tooltip")) installTooltips(document, { delay: 0 });
+        `,
+          });
+          const tab = page.locator('.acpmux-cols-tab[aria-label="Codex"]');
+          await tab.hover();
+          const tip = page.locator(".ui-title-tooltip:visible");
+          await tip.waitFor();
+          const hint = (await tip.boundingBox())!;
+          const rail = (await tab.boundingBox())!;
+          const popup = (await page.locator(".acpmux-cols").boundingBox())!;
+          if (left === 16) expect(hint.x).toBeGreaterThanOrEqual(popup.x + popup.width + 3);
+          else expect(hint.x + hint.width).toBeLessThanOrEqual(popup.x - 3);
+          expect(Math.abs(hint.y + hint.height / 2 - rail.y - rail.height / 2)).toBeLessThanOrEqual(1);
+          const account = page.locator("button.acpmux-cols-profile");
+          await account.hover();
+          await tip.filter({ hasText: "Claude Max" }).waitFor();
+          const accountHint = (await tip.boundingBox())!;
+          const avatar = (await account.boundingBox())!;
+          expect(Math.abs(accountHint.x + accountHint.width / 2 - avatar.x - avatar.width / 2)).toBeLessThanOrEqual(1);
+        } finally {
+          await page.close();
+        }
+      });
+
+    test(`${engine}: the minimal model scrollbar keeps a narrow lane and reaches the last row`, async () => {
+      const page = await open(engine);
+      try {
+        await page.addScriptTag({
+          type: "module",
+          content: `
+          import { installScrollers } from "/src/scrollers.ts";
+          installScrollers(document);
+        `,
+        });
+        const scroll = await page.locator(".acpmux-cols-body > [role=listbox]").evaluate((list) => {
+          const node = list as HTMLElement;
+          node.scrollTop = node.scrollHeight;
+          const last = node
+            .querySelectorAll<HTMLElement>("[role=option]")
+            .item(node.querySelectorAll("[role=option]").length - 1);
+          return {
+            overflow: node.scrollHeight > node.clientHeight,
+            width: node.offsetWidth - node.clientWidth,
+            scrollbarWidth: getComputedStyle(node).scrollbarWidth,
+            lastBottom: last.getBoundingClientRect().bottom,
+            bottom: node.getBoundingClientRect().bottom,
+          };
+        });
+        expect(scroll.overflow).toBe(true);
+        expect(scroll.width).toBeLessThanOrEqual(9);
+        expect(scroll.scrollbarWidth).toBe("auto");
+        expect(scroll.lastBottom).toBeLessThanOrEqual(scroll.bottom + 1);
+      } finally {
+        await page.close();
+      }
+    });
+
     test(`${engine}: long model names truncate inside the scaled width cap`, async () => {
       const page = await open(engine, 1200, "long-model-name");
       try {

@@ -176,10 +176,13 @@
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
   border-inline-end: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
 }
 .acpmux-cols-list:last-child { border: 0; }
+.acpmux-cols-list[data-cmux-minimal-scroller] {
+  --cmux-minimal-scroller-inset: var(--acpmux-cols-pad);
+  padding-inline-end: max(0px, calc(var(--acpmux-cols-pad) - var(--cmux-scroller-size, 8px)));
+}
 .acpmux-cols-rail {
   display: flex;
   flex-direction: column;

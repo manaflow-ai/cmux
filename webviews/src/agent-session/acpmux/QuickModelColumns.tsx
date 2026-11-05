@@ -1126,6 +1126,7 @@ function Columns({
                     }
                     // tooltip-allow: the rail tab draws only the family's mark; the title names it.
                     title={family.note ? `${entry.name} · ${family.note}` : entry.name}
+                    data-tooltip-side="left"
                     className="acpmux-cols-tab"
                     data-hl={selected ? "" : undefined}
                     data-off={family.setUp ? "" : undefined}
@@ -1153,6 +1154,7 @@ function Columns({
                   className="acpmux-cols-tab acpmux-cols-tab-add"
                   aria-label={t("modelPicker.addHarness")}
                   title={t("modelPicker.addHarness")}
+                  data-tooltip-side="left"
                   onPick={() => {
                     close();
                     families.onAddHarness?.();
@@ -1168,6 +1170,7 @@ function Columns({
               kind="listbox"
               label={t("picker.model")}
               className="acpmux-cols-list"
+              data-cmux-minimal-scroller=""
               onScroll={(event) => markFades(event.currentTarget)}
               data-col-focus={col === 1 ? "" : undefined}
             >
@@ -1236,6 +1239,7 @@ function Columns({
 
             <div
               className="acpmux-cols-list acpmux-cols-tune"
+              data-cmux-minimal-scroller=""
               onScroll={(event) => markFades(event.currentTarget)}
               data-col-focus={col === 2 ? "" : undefined}
               aria-label={t("effort.title")}
