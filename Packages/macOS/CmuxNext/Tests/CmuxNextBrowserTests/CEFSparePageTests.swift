@@ -216,6 +216,35 @@ extension CEFSparePageSuites {
             #expect(SpareSpy.moved.isEmpty)
         }
 
+        /// The switch is on by default now that the real-fork journey `chromium-tab-takes-spare-page`
+        /// passed (#34252's gate): with no Debug Settings override the spare window makes its page, and
+        /// the next tab the person opens takes it with no `tab_add` (a link's first page skips Chromium's
+        /// browser creation on the main thread).
+        @Test func withNoOverrideTheSparePageIsMadeAndANewTabTakesIt() throws {
+            let (runtime, root) = try Self.runtime()
+            defer { Self.tearDown(runtime, root) }
+            let (host, _, container) = try Self.liveHost(runtime)
+            Self.setSparePage(nil) // no override: the default
+            #expect(CEFSpareWindow.makesPages, "on by default")
+            #expect(runtime.spareWindow.prepare(runtime: runtime))
+            let spare = try #require(runtime.spareWindow.host)
+            let request = try #require(runtime.pendingWindows.first { $0.value === spare }?.key)
+            SpareSpy.windows[20] = 2
+            runtime.handle(.afterCreated(browser: 20, request: request, window: 2))
+            SpareSpy.clearRecords()
+
+            runtime.spareWindow.prepare(runtime: runtime)
+            #expect(SpareSpy.added.count == 1, "the spare page is made")
+            let page = try #require(runtime.spareWindow.page?.browser)
+
+            let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            host.add(link)
+            host.present(link, in: container)
+            host.createDeferred()
+            #expect(link.browserID == page, "the person's tab takes it")
+            #expect(SpareSpy.added.count == 1, "with no tab_add")
+        }
+
         /// An extension can navigate the waiting page (`chrome.tabs.update`); its load events reach no
         /// tab. A page that started a load has history of its own: the take closes it and the tab joins
         /// with `tab_add` (review of #34252 at b4b2abd2, item 2).
