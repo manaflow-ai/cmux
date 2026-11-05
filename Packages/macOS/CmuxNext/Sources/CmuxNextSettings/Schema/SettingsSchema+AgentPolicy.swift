@@ -164,6 +164,7 @@ extension SettingsSchema {
         "appearance.colorTransition.reduceMotion",
         "layout.panePadding",
         "layout.paneCornerRadius",
+        "layout.cornerPadding",
         "layout.paneBorder",
         "layout.paneSeparation",
         "sidebar.border",
