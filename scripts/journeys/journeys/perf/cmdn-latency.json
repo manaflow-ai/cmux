@@ -1,0 +1,101 @@
+{
+ "id": "cmdn-latency",
+ "priority": "P2",
+ "title": "CMD-N LATENCY: Cmd-N key to the frame that shows the new workspace, to the daemon's confirm, and the newTab run to its commit, light and STRESS-lite, from the app's own timing",
+ "why": "cmux-ad m6 2c (2026-11-04): Lawrence, build 363e39f2: 'cmd n feels laggier than usual now too'. A per-build number for Cmd-N.",
+ "source": "scripts/cmux-next/instant-new-surfaces-bench.py warm arm (debug.new_tab bench_create) and debug.new_terminal_trace, played on an exact fleet build",
+ "budget_seconds": 260,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3,
+   "title": "the fresh profile's first window"
+  },
+  {
+   "do": "base_terminal",
+   "title": "a focused terminal to press Cmd-N from (Ctrl-`, else a script's newTab with focus)"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 3,
+   "label": "light-warmup",
+   "title": "light: 3 warm-up Cmd-N (not counted)",
+   "gap": 0.8
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 20,
+   "label": "light",
+   "title": "light: 20 Cmd-N, debug.new_tab bench_create new_workspace",
+   "gap": 0.8,
+   "runs_option": "presses"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 256
+   },
+   "title": "action budget after light"
+  },
+  {
+   "do": "grow_workspaces",
+   "count": 60,
+   "busy": 10,
+   "title": "STRESS-lite: 60 workspaces, 10 busy terminals (no Chromium, WebKit or chat tabs)"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 3,
+   "label": "stress-warmup",
+   "title": "STRESS-lite: 3 warm-up Cmd-N",
+   "gap": 0.8
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 20,
+   "label": "stress",
+   "title": "STRESS-lite: 20 Cmd-N",
+   "gap": 0.8,
+   "runs_option": "presses"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.action_budget",
+   "params": {
+    "limit": 256
+   },
+   "title": "action budget after STRESS-lite"
+  },
+  {
+   "do": "type",
+   "text": "echo cmdnlat-${nonce}",
+   "enter": true,
+   "title": "set-up check: the app still types (its result does not decide the numbers)"
+  },
+  {
+   "do": "expect",
+   "title": "the app still types into the base terminal",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_frame_text": "cmdnlat-${nonce}"
+    },
+    {
+     "daemon_contains": "cmdnlat-${nonce}"
+    },
+    {
+     "app_text_contains": "cmdnlat-${nonce}"
+    }
+   ]
+  }
+ ]
+}

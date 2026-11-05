@@ -1,0 +1,55 @@
+{
+ "id": "cmdn-trace",
+ "priority": "P2",
+ "title": "CMD-N FIRST FRAME spans: 20 light Cmd-N presses with the app's spans (on an instrumented build also its run-loop turns and commits)",
+ "why": "CMD-N FIRST FRAME (2026-11-05): split Cmd-N's key-to-first-frame time by step and by wait, for the 3-4 frame and the 6-8 frame presses.",
+ "source": "cmdn-latency",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "wait",
+   "seconds": 3
+  },
+  {
+   "do": "base_terminal"
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 3,
+   "label": "light-warmup",
+   "gap": 0.8
+  },
+  {
+   "do": "latency_runs",
+   "bench": "create",
+   "command": "new_workspace",
+   "runs": 20,
+   "label": "light",
+   "gap": 0.8,
+   "runs_option": "presses"
+  },
+  {
+   "do": "type",
+   "text": "echo cmdntrace-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "expect",
+   "title": "the app still types",
+   "timeout": 10,
+   "all": [
+    {
+     "pane_frame_text": "cmdntrace-${nonce}"
+    },
+    {
+     "daemon_contains": "cmdntrace-${nonce}"
+    },
+    {
+     "app_text_contains": "cmdntrace-${nonce}"
+    }
+   ]
+  }
+ ]
+}
