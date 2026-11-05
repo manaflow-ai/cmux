@@ -4,47 +4,63 @@ import Foundation
 import Testing
 import WebKit
 
-/// Projection windows (``WebProjection``): a page in a bound window loads from that window's server,
-/// a page in any other window keeps its own files, and unbinding gives the window its pages back.
+/// Projection windows (``WebProjection``): a page in a projection's window loads from that window's
+/// server, a page in any other window keeps its own files, and a test run finds its projection.
 @MainActor
 struct WebProjectionTests {
     @Test func onlyTheProjectionWindowsPagesLoadFromItsServer() async throws {
         let bundled = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: bundled) }
         try Data("bundled".utf8).write(to: bundled.appending(path: PageDescriptor.markdown.entry))
-        let root = try #require(URL(string: "http://127.0.0.1:4291/"))
-        let projection = window(), main = window()
-        let projected = webView(in: projection), untouched = webView(in: main)
-        defer { WebProjection.shared.unbind(projection) }
-
-        let handler = PageSchemeHandler(page: .markdown, root: bundled, devServer: nil)
+        let projection = WebProjection(), handler = PageSchemeHandler(page: .markdown, root: bundled, devServer: nil)
+        let projectionWindow = window(), mainWindow = window()
+        let projected = webView(in: projectionWindow), untouched = webView(in: mainWindow)
         handler.liveOverride = { WebDevOverride() }
+        handler.projection = projection
         handler.fetchDevServer = { url in
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/html"])
             return response.map { (Data("served by \(url.port ?? 0)".utf8), $0) }
         }
 
         #expect(try await body(handler, projected) == "bundled")
-        #expect(WebProjection.shared.bind(projection, server: PageDevServer(root: root)) != nil)
-        #expect(WebProjection.shared.server(for: projected)?.root == root)
-        #expect(WebProjection.shared.server(for: untouched) == nil)
+        let opened = try projection.open(server: "http://127.0.0.1:4291/", worktree: "~/wt", test: nil)
+        projection.windowID = { $0 === projectionWindow ? opened.windowID : "main" }
+        projection.isOpen = { _ in true }
+        #expect(projection.server(for: projected)?.root.port == 4291)
+        #expect(projection.server(for: untouched) == nil)
         #expect(try await body(handler, projected) == "served by 4291")
         #expect(try await body(handler, untouched) == "bundled")
+        #expect(projection.override(for: projected).server?.root.port == 4291)
+        #expect(projection.override(for: untouched) == WebDevOverride.current)
 
-        WebProjection.shared.unbind(projection)
-        #expect(WebProjection.shared.server(for: projected) == nil)
-        #expect(try await body(handler, projected) == "bundled")
+        projection.isOpen = { _ in false }
+        projection.windowID = { _ in nil } // the window closed
+        #expect(projection.server(for: projected) == nil)
+        #expect(!projection.isActive)
     }
 
-    @Test func theProjectionServerReplacesOnlyTheOverridesServer() throws {
-        let root = try #require(URL(string: "http://127.0.0.1:4292/"))
-        let projection = window()
-        let projected = webView(in: projection)
-        defer { WebProjection.shared.unbind(projection) }
-        WebProjection.shared.bind(projection, server: PageDevServer(root: root))
-        #expect(WebProjection.shared.override(for: projected).server?.root == root)
-        #expect(WebProjection.shared.override(for: nil) == WebDevOverride.current)
-        #expect(WebProjection.shared.isActive)
+    @Test func openRefusesARemoteServerAndKeepsTheWorktree() throws {
+        let projection = WebProjection()
+        #expect(throws: WebProjection.Refusal(message: WebProjection.notLoopback)) {
+            try projection.open(server: "http://10.0.0.2:4290/", worktree: nil, test: nil)
+        }
+        let opened = try projection.open(server: nil, worktree: "/src/wt", test: "")
+        #expect(opened.server.root.absoluteString == WebProjection.defaultServer)
+        #expect(opened.worktree == "/src/wt")
+        #expect(opened.test == nil)
+        #expect(WebProjection.workspaceName(opened.worktree).contains("wt"))
+    }
+
+    @Test func aTestRunGoesToTheActiveProjectionElseTheNewestOpenOne() throws {
+        let projection = WebProjection()
+        #expect(throws: WebProjection.Refusal(message: WebProjection.noProjection)) { try projection.testRun(in: nil, test: nil) }
+        let first = try projection.open(server: nil, worktree: "/a", test: "bun test a")
+        let second = try projection.open(server: nil, worktree: "/b", test: nil)
+        projection.isOpen = { _ in true }
+        #expect(throws: WebProjection.Refusal(message: WebProjection.noTest)) { try projection.testRun(in: nil, test: nil) }
+        #expect(try projection.testRun(in: first.windowID, test: nil).test == "bun test a")
+        let run = try projection.testRun(in: "elsewhere", test: "bun test b")
+        #expect(run.windowID == second.windowID && run.worktree == "/b" && run.test == "bun test b")
     }
 
     private func window() -> NSWindow {

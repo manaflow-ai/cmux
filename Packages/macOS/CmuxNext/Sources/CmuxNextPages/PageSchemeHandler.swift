@@ -42,6 +42,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     var fetchDevServer: @Sendable (URL) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
     /// The live override (``WebDevOverride/current``; tests replace it).
     var liveOverride: @Sendable () -> WebDevOverride = { WebDevOverride.current }
+    /// The projection windows (``WebProjection/shared``; tests replace it).
+    var projection = WebProjection.shared
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
 
@@ -72,7 +74,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
-        WebProjection.shared.served(webView) // a projection window's pages load from its server
+        projection.served(webView) // a projection window's pages load from its server
         let request = task.request
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = request.url, let served = served(url),
@@ -115,7 +117,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             return Self.artifactReply(url: url)
         }
         var live = liveOverride()
-        if let projected = WebProjection.shared.server(for: webView) { live.server = projected }
+        if let projected = projection.server(for: webView) { live.server = projected }
         if let devServer = devServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
             if let (body, response) = await fetchDevServer(remote), devServer.isOwn(response.url),
                self.devServer != nil || response.statusCode < 400 {
