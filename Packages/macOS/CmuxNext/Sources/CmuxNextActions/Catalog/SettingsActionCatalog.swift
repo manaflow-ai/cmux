@@ -544,6 +544,37 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Leo 2026-11-05 (HQ#7149 L10): "the view of the app that's separate ... with your actual config, your
+            // actual settings": a real window of this app whose pages load from a worktree's dev server, the other
+            // windows untouched (WebProjection, CmuxNextPages; Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.projection",
+                title: String(localized: "action.debug.projection", defaultValue: "Open Projection Window", bundle: .module),
+                keywords: ["projection", "worktree", "dev server", "hot reload", "live", "preview", "view", "window", "debug"],
+                category: .settings, symbol: "rectangle.on.rectangle", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "server", title: String(localized: "argument.projection.server", defaultValue: "Server", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "worktree", title: String(localized: "argument.projection.worktree", defaultValue: "Worktree", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "test", title: String(localized: "argument.projection.test", defaultValue: "Test Command", bundle: .module), kind: .string, isRequired: false),
+                ],
+                mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // One click runs the projection's one named test in its worktree, in the projection window.
+            ActionDescriptor(
+                id: "debug.projection.runTest",
+                title: String(localized: "action.debug.projection.runTest", defaultValue: "Run Projection Test", bundle: .module),
+                keywords: ["projection", "test", "run", "worktree", "debug"],
+                category: .settings, symbol: "checkmark.circle", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "test", title: String(localized: "argument.projection.test", defaultValue: "Test Command", bundle: .module), kind: .string, isRequired: false),
+                ],
+                mainMenu: .debug,
+                isDebugOnly: true,
+                startsTerminal: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs
             // and their perform-to-commit times, over-budget ones in red (Debug menu, DEV and NIGHTLY).
             ActionDescriptor(

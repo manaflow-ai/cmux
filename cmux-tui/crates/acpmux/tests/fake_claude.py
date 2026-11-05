@@ -143,6 +143,9 @@ COMMANDS = [
     {"name": "compact", "description": "Clear conversation history but keep a summary in context",
      "argumentHint": "<optional custom summarization instructions>"},
 ]
+# Claude Code lists /rename (2.1.310); only a test that renames asks for it, so other command lists stay as they were.
+if os.environ.get("FAKE_CLAUDE_RENAMED"):
+    COMMANDS.append({"name": "rename", "description": "Rename the current conversation", "argumentHint": "[name]"})
 
 
 def is_cmux_guidance(block):
@@ -569,6 +572,24 @@ while True:
     except ValueError:
         continue
     kind = msg.get("type")
+    # `/rename NAME`, answered as Claude Code 2.1.310 does (a local command, no model call); FAKE_CLAUDE_RENAMED
+    # names a file each name is added to, so a test sees the running process renamed (hub/live_name.rs).
+    content = (msg.get("message") or {}).get("content") if kind == "user" else None
+    if isinstance(content, str) and content.startswith("/rename "):
+        name = content[len("/rename "):].strip()
+        if os.environ.get("FAKE_CLAUDE_RENAMED"):
+            with open(os.environ["FAKE_CLAUDE_RENAMED"], "a") as f:
+                f.write(name + "\n")
+        said = "Session renamed to: " + name
+        send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message"),
+              "session_id": SESSION})
+        send({"type": "system", "subtype": "session_title_changed", "title": name, "session_id": SESSION})
+        send({"type": "assistant", "message": {"id": "rename", "model": "<synthetic>", "role": "assistant",
+              "content": [{"type": "text", "text": said}]}, "parent_tool_use_id": None, "session_id": SESSION,
+              "local_command_run": {"command": "rename", "args": name}})
+        send({"type": "result", "subtype": "success", "is_error": False, "num_turns": 0, "duration_api_ms": 0,
+              "result": said, "local_command": "rename", "session_id": SESSION})
+        continue
     # The answer to the late subagent's ask: the subagent says what it was answered.
     if kind == "control_response" and (msg.get("response") or {}).get("request_id") == "late-1":
         behavior = ((msg.get("response") or {}).get("response") or {}).get("behavior", "none")
@@ -672,7 +693,8 @@ while True:
             with open(os.environ["FAKE_CLAUDE_RUN_USER_MCP"], "w") as f:
                 f.write("".join(f"{pid}\n" for pid in pids))
         answer = {}
-        if request.get("subtype") == "initialize" and SKILLS:
+        # A renaming test needs `rename` listed, as Claude Code lists it (live_name.rs asks only then).
+        if request.get("subtype") == "initialize" and (SKILLS or os.environ.get("FAKE_CLAUDE_RENAMED")):
             answer = {"commands": COMMANDS}
         if (request.get("subtype") == "get_context_usage" and os.environ.get("FAKE_CLAUDE_CONTEXT") == "1"
                 and not LIMITED):

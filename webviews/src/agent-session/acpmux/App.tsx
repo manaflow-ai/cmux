@@ -215,6 +215,7 @@ import {
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
+import { noteTranscriptMount } from "./flickerLog";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
@@ -3206,6 +3207,8 @@ export function VirtualTranscript({
   };
   useEffect(() => {
     transcriptMounted.current = true;
+    // The flicker detector's remount count (flickerLog.ts): a second mount on one page is a remount.
+    noteTranscriptMount();
     return () => {
       transcriptMounted.current = false;
       scrollPacer.current?.cancel();
@@ -5658,20 +5661,25 @@ export function VirtualTranscript({
       foldRoomRef.current = end;
       setFoldRoom(end);
     };
-    const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
+    // The control a click landed on, for the hold its row's collapsible asks for in the same click
+    // (holdAsked): a long prompt's Show more asks to hold its bubble, whose top is far up the view,
+    // and the share is still the Show more's, where the reader clicked.
+    let clicked: HTMLElement | undefined;
+    const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement, at: HTMLElement = toggle): boolean => {
       // At the very bottom every disclosure pins the bottom, opening or closing (Leo, 2026-11-02:
       // "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"; 2026-11-03:
       // "it's weird to collapse and get all that empty space at the bottom"). What opens pushes the
       // text above it up; what closes pulls it down. No blank room is left under the rows. A line
-      // that opens higher up than BOTTOM_PIN_SHARE of the view from its foot opens downward instead,
-      // as anywhere else: the line and the rows over it held, the rows under it moving down (Leo,
-      // 2026-11-05: "when you get >like 50-70% up the screen from the bottom then it starts doing it
-      // normally expanding down"). A close at the bottom still pins it wherever its line is.
+      // that opens higher up than BOTTOM_PIN_SHARE of the visible view (the part above the composer
+      // and under the top inset), from its foot, opens downward instead, as anywhere else: the line
+      // and the rows over it held, the rows under it moving down (Leo, 2026-11-05: "when you get
+      // >like 50-70% up the screen from the bottom then it starts doing it normally expanding
+      // down"). A close at the bottom still pins it wherever its line is.
+      const visibleFoot = node.getBoundingClientRect().bottom - dockSpaceRef.current;
+      const visibleHeight = node.clientHeight - topInsetRef.current - dockSpaceRef.current;
       if (
         !atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX) ||
-        (opensBody(toggle) &&
-          node.getBoundingClientRect().bottom - toggle.getBoundingClientRect().top >
-            node.clientHeight * BOTTOM_PIN_SHARE)
+        (opensBody(toggle) && visibleFoot - at.getBoundingClientRect().top > visibleHeight * BOTTOM_PIN_SHARE)
       ) {
         stopBottomStackFold();
         return false;
@@ -5713,6 +5721,10 @@ export function VirtualTranscript({
       if (!toggle) return;
       const line = foldHoldTarget(toggle, node ?? undefined);
       settleFold(line);
+      clicked = toggle;
+      setTimeout(() => {
+        if (clicked === toggle) clicked = undefined;
+      });
       const bottom = beginBottomStackFold(toggle, line);
       // A keyboard click (detail 0) had no press: an older, abandoned one is not its place.
       foldAnchor.current = clickFold(line, event.detail > 0 ? pressed : undefined);
@@ -5738,7 +5750,8 @@ export function VirtualTranscript({
         return;
       event.preventDefault();
       settleFold(header);
-      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(header, header);
+      const at = clicked && clicked.closest(".acpmux-row") === header.closest(".acpmux-row") ? clicked : header;
+      const bottom = bottomStackFold.current?.toggle === header ? true : beginBottomStackFold(header, header, at);
       // The click that asked for it already holds this line at the place it was pressed at: keep it.
       foldAnchor.current = clickFold(header, foldAnchor.current);
       if (!bottom) keepFoldRoom();
@@ -9194,8 +9207,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const soloTab = inTabRow && tabRow.soloTab === true;
   /// The lines in flow under the header (header/underHeader.ts): each renders below only when its flag is set,
   /// and the transcript runs up under the row only when none is, so it never covers one.
+  /// The tab's chat is not listed yet and its last-read rows are drawn (direct.ts `drawMissingTail`):
+  /// why it is not here is a line under the header, over the transcript, not the centered state.
+  const missingRows = !!snapshot.unavailable && snapshot.missingSession !== undefined && snapshot.rows.length > 0;
   const underHeader: UnderHeaderLines = {
     checkpointReview: checkpoints.review != null,
+    unavailable: missingRows && snapshot.unavailable?.reason !== "connecting",
     liveChat: !!snapshot.liveChat,
     peerCopy: !!snapshot.peerCopy?.offline,
     watching: !!snapshot.summary?.watching,
@@ -15720,6 +15737,23 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
                   />
                 )}
+                {underHeader.unavailable && cloudUnavailable && (
+                  <ChatUnavailableState
+                    line
+                    unavailable={cloudUnavailable}
+                    onResumeMachine={cloudRecovery.resume}
+                    resuming={cloudRecovery.resuming}
+                    error={cloudRecovery.error}
+                    {...(machineName ? { machine: machineName } : {})}
+                    onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}
+                    onReconnect={() => {
+                      cloudRecovery.refresh();
+                      void directClient.current?.recheckMissing();
+                    }}
+                    onResume={showAllChats}
+                    onClose={() => runHeaderAction(HEADER_ACTIONS.close)}
+                  />
+                )}
                 {underHeader.peerCopy && snapshot.peerCopy && (
                   <PeerCopyBanner
                     key={`${snapshot.sessionId ?? ""}:${snapshot.peerCopy.peer}`}
@@ -15783,7 +15817,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
                     }
                   />
-                ) : cloudUnavailable ? (
+                ) : cloudUnavailable && !missingRows ? (
                   // The tab's chat is not here: which case it is, centered where the chat would be.
                   <ChatUnavailableState
                     unavailable={cloudUnavailable}

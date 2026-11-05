@@ -26,16 +26,15 @@ const TODO_TOOLS_ENV: &str = "CLAUDE_CODE_ENABLE_TODO_TOOLS";
 /// peer list and a held message's "From:" read as `acpmux ls` does, not as the
 /// folder name and a number Claude Code derives (Leo: "it's called projects-34
 /// but it's named differnetly in cmux-next"). A command line that names the
-/// session keeps its own; a remote-origin chain (its env policy, or its sandbox's
-/// `--strict-mcp-config`) passes no flag its plan did not check.
+/// session keeps its own; a remote-origin chain (its env policy, `hub/spawn.rs`) passes no
+/// flag its sandbox plan did not check. A local profile's `--strict-mcp-config` is still named.
 fn claude_name_args(
     env: &std::collections::BTreeMap<String, String>,
     args: &[String],
     name: &str,
 ) -> Vec<String> {
     let name = name.trim();
-    let remote = env.get(REMOTE_ENV_POLICY_KEY).is_some_and(|v| v == "1")
-        || args.iter().any(|a| a == "--strict-mcp-config");
+    let remote = env.get(REMOTE_ENV_POLICY_KEY).is_some_and(|v| v == "1");
     let own = args.iter().any(|a| a == "--name" || a == "-n" || a.starts_with("--name="));
     if name.is_empty() || remote || own { Vec::new() } else { vec!["--name".into(), name.into()] }
 }
@@ -506,10 +505,11 @@ mod tests {
         // A command line that names the session keeps its own name.
         let own = args(vec!["-p", "--name", "pinned"], "reviewer");
         assert!(!own.iter().any(|a| a == "reviewer"), "{own:?}");
-        // No name, no flag; a remote chain's sandboxed plan gets none either.
+        // No name, no flag; a remote chain (its env policy) gets none either.
         assert!(!args(vec!["-p"], " ").iter().any(|a| a == "--name"));
-        let sandboxed = args(vec!["-p", "--strict-mcp-config"], "reviewer");
-        assert!(!sandboxed.iter().any(|a| a == "--name"), "{sandboxed:?}");
+        // A local profile's own `--strict-mcp-config` is no remote chain: it is named.
+        let strict = args(vec!["-p", "--strict-mcp-config"], "reviewer");
+        assert!(strict.windows(2).any(|w| w == ["--name", "reviewer"]), "{strict:?}");
         let env =
             std::collections::BTreeMap::from([(REMOTE_ENV_POLICY_KEY.to_owned(), "1".to_owned())]);
         assert!(claude_name_args(&env, &[], "reviewer").is_empty());

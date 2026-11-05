@@ -2772,9 +2772,11 @@ export class AcpmuxDirectClient {
         this.resetSessionState();
         // The machine the chat was on, from what the app host kept of it (another tab read it).
         const missing = this.missingSession;
-        if (missing && this.missingPeer === undefined) {
+        if (missing) {
           await readHostTail(missing).catch(() => undefined);
-          if (this.missingSession === missing) this.missingPeer = keptPeer(missing);
+          if (this.missingSession === missing && this.missingPeer === undefined) this.missingPeer = keptPeer(missing);
+          if (this.missingSession === missing && this.selectedSessionId === undefined && this.drawMissingTail(missing))
+            this.releaseSnapshots(hold);
         }
       }
       this.selectedSessionId = initialSession(
@@ -3428,6 +3430,27 @@ export class AcpmuxDirectClient {
     this.drewKeptTail = false;
     this.rebuild();
     this.emit("disconnected");
+  }
+
+  /// The tab's chat is not listed at open (its machine is still connecting, or down): its rows as
+  /// this page or the app host last read them are drawn at once, with why it is not here over them,
+  /// so a restored or reconnecting tab shows its transcript on the frame it opens on instead of an
+  /// empty pane for the whole connecting grace (Leo, 2026-11-05: "It should take a lot faster of a
+  /// time to be loading, like within a few seconds, really"). Nothing of it is live: no turn runs
+  /// and nothing waits, and the open once the chat is listed (`reopenMissing`) draws the same tail
+  /// and attaches from it. True when rows were drawn.
+  private drawMissingTail(sessionId: string): boolean {
+    const kept = keptTail(sessionId);
+    if (!kept || kept.events.length === 0) return false;
+    // The tail alone, not the Mac's copy's provenance: no attach of it is out while it is unlisted.
+    // Nor what its summary said the chat was doing: a chat kept while running would read as working
+    // (`workingNow`), with a Stop for a chat this pane has not opened.
+    const { peerCopy: _copy, ...rows } = kept;
+    this.drawKeptTail(sessionId, { ...rows, summary: rows.summary && { ...rows.summary, status: undefined } });
+    this.copyLive = undefined;
+    this.turnOpen = false;
+    this.drewKeptTail = true;
+    return true;
   }
 
   private drawKeptTail(sessionId: string, kept = keptTail(sessionId)): number {
