@@ -67,7 +67,7 @@ extension CloudStartChat {
             case .askConsent:
                 guard await gate.askConsent(&decision) else { return false }
             case .confirmThenInstall:
-                guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else { decision.outcome = "declined"; return false }
+                guard await CloudPresenter.confirmFirstLogin(provider: provider, machine: machine.machine.title, services: services) else { decision.outcome = Self.loginDeclined; return false }
                 CloudHarnessLoginChoices().save(.pass, userID: userID) // Their Yes is their choice for every later machine.
             }
             guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return false }
@@ -89,8 +89,15 @@ extension CloudStartChat {
             return true
         } catch {
             // The message is the transfer's fixed text, never provider output.
-            decision.outcome = "failed: " + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
+            decision.outcome = Self.loginFailed + ((error as? LocalizedError)?.errorDescription ?? String(describing: type(of: error)))
             return false
         }
     }
+
+    /// The start record's outcome when the copy failed, before its fixed text.
+    static let loginFailed = "failed: "
+    /// The start record's outcome when the person said no to the copy.
+    static let loginDeclined = "declined"
+    /// The outcomes when this Mac held no login to give: the machine signs in with its chat's Sign in to Claude card.
+    static let signInOnMachine: Set<String?> = [CloudCredentialTransfer.CachedLogin.none.startOutcome, CloudCredentialTransfer.CachedLogin.unreadable.startOutcome]
 }
