@@ -166,7 +166,11 @@ def main():
         result["watching"] = bool(wait_log(r"live code: watching", since, 60))
         first = wait_log(r"applied \S+ functions=(\d+)", since, 60)
         time.sleep(1)
-        result["start_edit"] = {"applied": bool(first), **snap(opts.tag, opts.out, "live-red")}
+        # The edit is in one of two ways: patched in after the restart (the commit's live code build was
+        # already built), or compiled into that build (its first start builds from the checkout as it is).
+        compiled = bool(result["start"].get("built_s")) and not (result["start"].get("edits") or {}).get("files")
+        result["start_edit"] = {"applied": bool(first), "via": "patch" if first else ("live build" if compiled else None),
+                                **snap(opts.tag, opts.out, "live-red")}
         result["status_live"] = status_line(opts.tag)
 
         # 2. A save while live (Home blue) is patched in by the watcher, in the same process.
@@ -212,7 +216,7 @@ def main():
     after = result.get("after", {})
     result["ok"] = bool(
         start.get("exit") == 0 and start.get("sessions", {}).get("all") and result.get("watching")
-        and red.get("applied") and red.get("red_px", 0) > base.get("red_px", 0) + 1000
+        and red.get("via") and red.get("red_px", 0) > base.get("red_px", 0) + 1000
         and blue.get("applied") and blue.get("same_pid") and blue.get("blue_px", 0) > base.get("blue_px", 0) + 1000
         and stop.get("exit") == 0 and stop.get("sessions", {}).get("all")
         and after.get("blue_px", 0) > base.get("blue_px", 0) + 1000
