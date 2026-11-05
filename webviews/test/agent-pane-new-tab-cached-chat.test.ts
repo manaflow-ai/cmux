@@ -492,6 +492,36 @@ test("the actions that open a chat in a tab hand the chat over first", async () 
   }
 });
 
+/// The source of the call that starts at `start` (its callee and argument list), through the paren that
+/// closes it: strings, template literals and comments are skipped, so no comment or formatting
+/// inside it moves what a test reads.
+function callExpression(source: string, start: number): string {
+  const open = source.indexOf("(", start);
+  let depth = 0;
+  for (let index = open; index < source.length; index += 1) {
+    const char = source[index]!;
+    if (char === "/" && source[index + 1] === "/") {
+      index = source.indexOf("\n", index);
+      if (index < 0) break;
+      continue;
+    }
+    if (char === "/" && source[index + 1] === "*") {
+      index = source.indexOf("*/", index + 2) + 1;
+      if (index <= 0) break;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      for (index += 1; index < source.length && source[index] !== char; index += 1) {
+        if (source[index] === "\\") index += 1;
+      }
+      continue;
+    }
+    if (char === "(") depth += 1;
+    if (char === ")" && --depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`no closing paren for the call at ${start}`);
+}
+
 /// A subagent's pane is a tab on the chat's own session too (subagentPanes.ts), so the action that
 /// asks the shared navigation helper for one supplies the hand-over callback. The helper's
 /// behavioral tests check that it runs before the pane request, and only when a pane opens.
@@ -500,10 +530,12 @@ test("opening a subagent in its own pane hands the chat over first", async () =>
   const sites = [...app.matchAll(/showSubagentIn\(callNative/g)];
   expect(sites.length).toBe(1);
   for (const site of sites) {
-    const options = app.slice(site.index, site.index + 500);
+    // The whole call, so a comment beside the option never hides it (#36650).
+    const call = callExpression(app, site.index);
     expect(
-      /beforeOpen:\s*\(\)\s*=>\s*directClient\.current\?\.tailHandOver\(\)/.test(options),
-      "showSubagent does not supply the shared helper's tail-handoff callback, so the pane opens cold (tailCache.ts).",
+      /beforeOpen:\s*\(\)\s*=>\s*directClient\.current\?\.tailHandOver\(\)/.test(call),
+      "showSubagent does not supply the shared helper's tail hand-over (tailHandOver), so the pane's request " +
+        "carries no tail and the pane can open cold (tailCache.ts, #36650).",
     ).toBe(true);
   }
 });
