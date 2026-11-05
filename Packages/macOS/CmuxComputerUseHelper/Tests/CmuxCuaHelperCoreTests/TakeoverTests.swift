@@ -14,13 +14,13 @@ private final class FakeClock: Sendable {
     var now: UInt64 { nanos.withLock { $0 } }
     func advance(_ duration: Duration) { nanos.withLock { $0 += UInt64(duration.totalNanos) } }
 
-    func gate(_ rule: TakeoverRule = TakeoverRule()) -> TakeoverGate {
+    func gate(_ rule: TakeoverRule = TakeoverRule(), focus: TakeoverGate.FocusProvider? = nil) -> TakeoverGate {
         TakeoverGate(rule: rule, now: { self.now }, sleep: { duration in
             self.slept.withLock { $0.append(duration) }
             self.advance(duration)
             let next = self.duringSleep.withLock { $0.isEmpty ? nil : $0.removeFirst() }
             next?()
-        })
+        }, focus: focus)
     }
 }
 
@@ -183,6 +183,128 @@ private final class FakeClock: Sendable {
         try await gate.admit("get_window_state", requirement: .observe)
         try await gate.admit("click", requirement: .act)
         #expect(started.withLock { $0 } == 1)
+    }
+
+    // MARK: Working at the same time
+
+    private func footprint(_ json: String, tool: String = "click",
+                           owner: @escaping (UInt32) -> Int32? = { _ in nil }) -> ActingFootprint {
+        ActingFootprint(tool: tool, arguments: Data(json.utf8), owner: owner)
+    }
+
+    @Test func aBackgroundCallToOneAppTouchesOnlyThatApp() {
+        #expect(footprint(#"{"pid":200,"window_id":31,"x":5,"y":6}"#)
+            == ActingFootprint(pids: [200], windowIDs: [31], shared: false))
+        #expect(footprint(#"{"pid":200,"delivery_mode":"background","element_token":"e1"}"#)
+            == ActingFootprint(pids: [200], shared: false))
+        #expect(footprint(#"{"target":{"kind":"window","pid":200,"window_id":31}}"#)
+            == ActingFootprint(pids: [200], windowIDs: [31], shared: false))
+    }
+
+    @Test func theSharedCursorOrNoAppCollidesEverywhere() {
+        // The fallback routes drive what the person is using.
+        #expect(footprint(#"{"pid":200,"window_id":31,"delivery_mode":"foreground"}"#).shared)
+        #expect(footprint(#"{"pid":200,"scope":"desktop","x":5,"y":6}"#).shared)
+        #expect(footprint(#"{"target":{"kind":"desktop","display_id":"primary"},"pid":200}"#).shared)
+        // No app named (launch_app by name, a call we cannot read): assume the worst.
+        #expect(footprint(#"{"name":"Notes"}"#).shared)
+        #expect(footprint("not json").shared)
+        #expect(footprint(#"{"window_id":31}"#).shared)
+    }
+
+    @Test func aToolThatTakesFocusCollidesEvenWithAnotherAppsPid() {
+        // bring_to_front on another app would send the person's next keys there.
+        for tool in ["bring_to_front", "launch_app", "invoke_menu", "clipboard_write"] {
+            #expect(footprint(#"{"pid":200}"#, tool: tool).shared, "\(tool)")
+        }
+        #expect(footprint(#"{"pid":200,"steps":[{"tool":"bring_to_front","pid":300}]}"#, tool: "run_steps").shared)
+        #expect(footprint(#"{"pid":200,"actions":[{"invoke_menu":{"pid":300}}]}"#, tool: "run_actions").shared)
+        #expect(!footprint(#"{"pid":200,"steps":[{"tool":"set_value","pid":300}]}"#, tool: "run_steps").shared)
+    }
+
+    @Test func aWindowWithoutItsPidTakesItsOwner() {
+        #expect(footprint(#"{"window_id":31}"#, owner: { $0 == 31 ? 200 : nil })
+            == ActingFootprint(pids: [200], windowIDs: [31], shared: false))
+    }
+
+    @Test func aBatchTouchesEveryStepsApp() {
+        let batch = footprint(#"{"pid":200,"steps":[{"tool":"click","x":1,"y":2},{"tool":"type_text","pid":300,"text":"a"}]}"#)
+        #expect(batch == ActingFootprint(pids: [200, 300], shared: false))
+        let fallback = footprint(#"{"pid":200,"steps":[{"tool":"click","delivery_mode":"foreground","window_id":4}]}"#)
+        #expect(fallback.shared)
+    }
+
+    @Test func collisionIsTheSameAppTheSameWindowOrTheSharedCursor() {
+        let person = PersonFocus(pids: [100, 101], windowIDs: [7])
+        #expect(!person.collides(with: ActingFootprint(pids: [200], windowIDs: [31])))
+        #expect(person.collides(with: ActingFootprint(pids: [101])))
+        #expect(person.collides(with: ActingFootprint(pids: [200], windowIDs: [7])))
+        #expect(person.collides(with: ActingFootprint(pids: [200], shared: true)))
+    }
+
+    @Test func theAgentWorksOnAnotherAppWhileThePersonDrives() async throws {
+        let clock = FakeClock()
+        let gate = clock.gate(focus: { _ in PersonFocus(pids: [100], windowIDs: [7]) })
+        gate.setHealthy(true)
+        gate.observe(.person, at: clock.now)
+        try await gate.admit("click", requirement: .act, footprint: ActingFootprint(pids: [200], windowIDs: [31]))
+        #expect(clock.slept.withLock { $0 }.isEmpty)
+        #expect(gate.snapshot().alongside == 1)
+        #expect(gate.snapshot().held == 0)
+    }
+
+    @Test func theAgentWaitsOnThePersonsAppOrTheSharedCursor() async throws {
+        for call in [ActingFootprint(pids: [100]), ActingFootprint(pids: [200], windowIDs: [7]),
+                     ActingFootprint(pids: [200], shared: true)] {
+            let clock = FakeClock()
+            let gate = clock.gate(focus: { _ in PersonFocus(pids: [100], windowIDs: [7]) })
+            gate.setHealthy(true)
+            gate.observe(.person, at: clock.now)
+            try await gate.admit("click", requirement: .act, footprint: call)
+            #expect(clock.slept.withLock { $0 } == [.milliseconds(1500)])
+            #expect(gate.snapshot().held == 1)
+            #expect(gate.snapshot().alongside == 0)
+        }
+    }
+
+    @Test func anUnreadableFocusOrNoProbeCollides() async throws {
+        let providers: [TakeoverGate.FocusProvider?] = [nil, { _ in nil }]
+        for focus in providers {
+            let clock = FakeClock()
+            let gate = clock.gate(focus: focus)
+            gate.setHealthy(true)
+            gate.observe(.person, at: clock.now)
+            try await gate.admit("click", requirement: .act, footprint: ActingFootprint(pids: [200]))
+            #expect(gate.snapshot().held == 1)
+        }
+    }
+
+    @Test func aWaitingCallRunsOnceThePersonMovesToAnotherApp() async throws {
+        let clock = FakeClock()
+        let front = OSAllocatedUnfairLock<Int32>(initialState: 200)
+        let gate = clock.gate(TakeoverRule(quiet: .milliseconds(1500), hold: .seconds(3)),
+                              focus: { _ in PersonFocus(pids: [front.withLock { $0 }]) })
+        gate.setHealthy(true)
+        gate.observe(.person, at: clock.now)
+        // During the wait the person clicks into another app and keeps going.
+        clock.duringSleep.withLock { $0 = [{ front.withLock { $0 = 100 }; gate.observe(.person, at: clock.now) }] }
+        try await gate.admit("click", requirement: .act, footprint: ActingFootprint(pids: [200]))
+        #expect(clock.slept.withLock { $0 } == [.milliseconds(1500)])
+        #expect(gate.snapshot().alongside == 1)
+        #expect(gate.snapshot().refused == 0)
+    }
+
+    @Test func thePersonsFocusIsAskedWithTheirPointer() async throws {
+        let clock = FakeClock()
+        let seen = OSAllocatedUnfairLock<PointerSample?>(initialState: nil)
+        let gate = clock.gate(focus: { pointer in
+            seen.withLock { $0 = pointer }
+            return PersonFocus(pids: [100])
+        })
+        gate.setHealthy(true)
+        gate.observe(.person, x: 40, y: 50, at: clock.now)
+        try await gate.admit("scroll", requirement: .act, footprint: ActingFootprint(pids: [200]))
+        #expect(seen.withLock { $0 } == PointerSample(x: 40, y: 50, atNanos: clock.now))
     }
 
     @Test func anUntrustedHelperNeverStartsTheTap() {

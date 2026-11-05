@@ -1,4 +1,6 @@
 #if DEBUG
+import AppKit
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -62,6 +64,26 @@ struct AgentPageFlickerLogTests {
         #expect(size < AgentPageFlickerLog.maximumBytes)
         let olderSize = try #require(try FileManager.default.attributesOfItem(atPath: older.path)[.size] as? Int)
         #expect(olderSize <= AgentPageFlickerLog.maximumBytes)
+    }
+
+    /// The log observes no notification itself (the app's one window occlusion observer hands it each
+    /// flip): nothing is written before a pane asks for window lines, and a flip is one line however
+    /// many panes asked.
+    @MainActor @Test func aFlipIsOneLineOnceAPaneAsks() throws {
+        let log = AgentPageFlickerLog(directory: directory())
+        defer { try? FileManager.default.removeItem(at: log.directory) }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.borderless], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
+        log.recordOcclusion(of: window)
+        log.flush()
+        #expect(!FileManager.default.fileExists(atPath: log.url.path))
+        log.watchWindows()
+        log.watchWindows()
+        log.recordOcclusion(of: window)
+        log.flush()
+        let flips = try lines(log.url)
+        #expect(flips.map { $0["kind"] as? String } == ["window-occlusion"])
+        #expect(flips.first?["window"] as? Int == window.windowNumber)
     }
 }
 #endif

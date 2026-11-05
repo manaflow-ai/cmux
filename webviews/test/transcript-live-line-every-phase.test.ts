@@ -120,3 +120,37 @@ test("a failed send, another session's message, and a finished turn draw no live
   expect(message.some((entry) => entry.kind === THINKING)).toBe(false);
   expect(view(before, false).some((entry) => entry.kind === THINKING)).toBe(false);
 });
+
+// One slot from the send to the reply (Leo, 2026-11-05: "there's the gap between when you send off a message versus
+// otherwise, like it's like there's a one-two discontinuity. That's not good."): before the turn opens the line drew as a
+// plain status row, 28 px, and the turn opening made it the turn's last row, the footer's 32 px slot, so every row
+// above it moved 4 px in the middle of the send's glide (webviews/bench/send-status-shift.bench.ts: heights 28, 32).
+test("the live line takes the running turn's slot from the send, so the turn opening never resizes it", () => {
+  for (const [name, rows, working] of phases) {
+    const last = view(rows, working).at(-1);
+    expect({ name, below: last?.below }).toEqual({ name, below: true });
+  }
+  // The chat's first prompt, before acpmux wrote it, and one held behind its agent's start.
+  const first = row("u-0", "user", 0, { text: "Deploy main on this host", pending: true });
+  for (const prompt of [first, { ...first, queued: "starting" } as AcpmuxRow]) {
+    const last = view([prompt], false).at(-1);
+    expect({ id: last?.id, below: last?.below }).toEqual({ id: "thinking-live", below: true });
+  }
+});
+
+// The setting that puts the line below (`lineBelow`) sets its slot, so a turn shaped under one value is not reused
+// under the other: the line would keep the old slot until the turn's rows changed (router review of #36443, F1).
+test("the live line follows a change of where it draws, for a prompt already shaped", () => {
+  const first = row("u-0", "user", 0, { text: "Deploy main on this host", pending: true });
+  for (const rows of [[first], [...before, sent]]) {
+    const at = (lineBelow: boolean) =>
+      turnView(rows, new Set(), {
+        working: false,
+        liveRuns: true,
+        lineBelow,
+        agentFamily: "claude",
+        now: START + 90_000,
+      }).at(-1)?.below;
+    expect([at(false), at(true), at(false)]).toEqual([undefined, true, undefined]);
+  }
+});

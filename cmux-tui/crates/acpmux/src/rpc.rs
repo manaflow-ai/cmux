@@ -571,6 +571,9 @@ pub mod method {
     pub const MUX_TASKS: &str = "_acpmux/tasks";
     /// The session an agent link, id or name names, here or on a peer (`hub/locate.rs`).
     pub const MUX_RESOLVE: &str = "_acpmux/resolve";
+    /// The other sessions, here and on peers, that work on the files, topic, branch or folder
+    /// a query names (`hub/touched.rs`, `touched_files.rs`).
+    pub const MUX_WHO_ELSE: &str = "_acpmux/who_else";
     /// A chat's image or video, read on the machine that runs it (`hub/media_read.rs`).
     pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
     pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
@@ -701,6 +704,11 @@ pub mod method {
     pub const MUX_BG_LIST: &str = "_acpmux/bg/list";
     pub const MUX_BG_OUTPUT: &str = "_acpmux/bg/output";
     pub const MUX_BG_STOP: &str = "_acpmux/bg/stop";
+    /// A chat's goal on any harness (`hub/goal_tools.rs`, `generic_goal.rs`): its own agent
+    /// sets it, reports on it and reads it.
+    pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
+    pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
+    pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
     /// Worktree cleanup (`server/worktrees.rs`).
     pub const MUX_WORKTREE_REPORT: &str = "_acpmux/worktree/report";
     pub const MUX_WORKTREE_CLEAN: &str = "_acpmux/worktree/clean";

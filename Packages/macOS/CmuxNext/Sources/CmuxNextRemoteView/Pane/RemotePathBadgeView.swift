@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// "● direct · 4 ms": the path and its live RTT, in a capsule.
 final class RemotePathBadgeView: NSView {
@@ -10,8 +11,8 @@ final class RemotePathBadgeView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
-        layer?.cornerRadius = Self.height / 2
-        dot.cornerRadius = 3.5
+        layer?.cornerRadius = Metrics.capsuleRadius(CGSize(width: Self.height, height: Self.height))
+        dot.cornerRadius = Metrics.capsuleRadius(CGSize(width: 7, height: 7))
         layer?.addSublayer(dot)
         addSubview(label)
         NSLayoutConstraint.activate([

@@ -4,6 +4,7 @@ import CmuxNextErrorJournal
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
+import os
 
 // Chromium mode (`browser.defaultEngine` is `chromium`, ``PageEnginePolicy``): the page shows in a
 // Chromium page from ``PageWebView/chromiumHosting``, over the same router, theme and scripts. The
@@ -58,12 +59,16 @@ extension PageWebView {
             // its own reason, any other one is on WebKit because Chromium is missing.
             return PageEnginePolicy(preference: .chromium, chromiumAvailable: false).decide(for: descriptor, options: options)
         }
-        // A live web override reaches only WebKit pages; deciding also arms its watch, so a launch
-        // whose first page is a Chromium one still reads web-dev.json.
+        // Deciding arms the live web loop's watch, so a launch whose first page is a Chromium one
+        // still reads web-dev.json. Chromium serves the loop when its shim can
+        // (``PageChromiumHosting/setLivePages(_:)``); only then does a live page stay off WebKit.
         WebDevOverrideWatcher.shared.start()
+        let live = WebDevOverride.current.isActive
+        let chromiumLive = live && hosting.setLivePages(true)
         return PageEnginePolicy(preference: hosting.preference, chromiumAvailable: hosting.isAvailable,
                                 chromiumServes: hosting.serves(descriptor),
-                                liveWebOverride: WebDevOverride.current.isActive || WebProjection.shared.isActive).decide(for: descriptor, options: options)
+                                // A projection window still serves through WebKit (``WebProjection``).
+                                liveWebOverride: (live && !chromiumLive) || WebProjection.shared.isActive).decide(for: descriptor, options: options)
     }
 
     /// The view that takes the keyboard when the page is focused: Chromium's view or the WebKit view.
@@ -124,7 +129,9 @@ extension PageWebView {
                 #endif
                 page = try await hosting.makePage(descriptor)
             } catch {
-                self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
+                // A start cancelled meanwhile (the page fell back or closed) has nothing left to fall back from.
+                guard let self, self.chromiumStart?.isCancelled == false else { return }
+                self.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
                 return
             }
             guard let self, self.chromiumStart?.isCancelled == false else {
@@ -158,6 +165,8 @@ extension PageWebView {
             }
         } catch {
             session.end()
+            // A start cancelled meanwhile (the page fell back or closed) has nothing left to fall back from.
+            guard chromiumStart?.isCancelled == false else { return }
             fallBackToWebKit(.chromiumFailed, detail: "setup: \(error)")
             return
         }
@@ -206,12 +215,14 @@ extension PageWebView {
     /// Chromium failed for this page: it reopens in WebKit, at the route it showed. A host that
     /// shows the crash notice (``reloadsAfterCrash`` false) gets the notice instead when Chromium
     /// ended under a page that had loaded (`ended`), and the WebKit load waits for its Reload.
-    func fallBackToWebKit(_ reason: PageWebKitReason, detail: String, ended: Bool = false) {
+    /// `level` is the log's: an expected move (the live web loop, ``reopenForLiveOverride(hosting:)``)
+    /// is not an error.
+    func fallBackToWebKit(_ reason: PageWebKitReason, detail: String, ended: Bool = false, level: OSLogType = .error) {
         // A Chromium start that fails after the tab closed: the retired web view stays unloaded.
         guard !isClosed else { return }
         chromiumStart?.cancel()
         chromiumStart = nil
-        logger.error("page \(self.descriptor.id, privacy: .public) reopens in WebKit: \(detail, privacy: .public)")
+        logger.log(level: level, "page \(self.descriptor.id, privacy: .public) reopens in WebKit: \(detail, privacy: .public)")
         chromiumSession?.end()
         chromiumSession = nil
         chromiumUserEventUptime = nil
@@ -390,12 +401,27 @@ extension PageWebView {
     /// answers (``PageSchemeHandler/dynamicResponse(to:source:)``, or a ranged source's byte range
     /// for `range`, ``PageSchemeHandler/rangedResponse(to:range:source:)``). A URL of another
     /// origin or outside the page's dynamic prefixes is a 404 that never reaches ``dynamicResources``.
+    ///
+    /// While the live web loop runs (``WebDevOverride``, ``PageChromiumHosting/setLivePages(_:)``), the
+    /// shim sends every file of the page here: it is answered as WebKit answers it, from the dev
+    /// server, then the overlay, then a web update, then the bundle, with the policy that source
+    /// needs (a dev server's lets the page's HMR socket connect).
     func chromiumResource(_ url: URL, range: String? = nil) async -> PageChromiumResponse {
-        guard let request = PageSchemeHandler.dynamicRequest(for: url, page: descriptor) else { return .notFound }
+        guard let request = PageSchemeHandler.dynamicRequest(for: url, page: descriptor) else {
+            return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: descriptor,
+                                                                root: Self.servedRoot(for: descriptor), dynamicSource: dynamicResources)
+        }
         if let ranged = dynamicResources as? any PageRangedResourceSource {
             return await PageSchemeHandler.rangedResponse(to: request, range: range, source: ranged)
         }
         return await PageSchemeHandler.dynamicResponse(to: request, source: dynamicResources)
+    }
+
+    /// `url`'s file of `page` at `root` as the live web loop answers it, for a Chromium tab that has
+    /// no page host (a browser tab at a `cmux-page://` address). A dynamic path is a 404 there.
+    public static func liveChromiumResource(_ url: URL, range: String?, page: PageDescriptor, root: URL) async -> PageChromiumResponse {
+        guard PageSchemeHandler.dynamicRequest(for: url, page: page) == nil else { return .notFound }
+        return await PageSchemeHandler.liveChromiumResponse(to: url, range: range, page: page, root: root, dynamicSource: nil)
     }
 
     /// Runs `body` as an async function of `arguments` in the page's main world, in whichever engine

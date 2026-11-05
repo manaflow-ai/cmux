@@ -3,8 +3,8 @@
 // chip and sends it as its own ACP text block after the typed one, marked `_meta.cmux.pasted`
 // (#23396). acpmux records the prompt's text blocks joined with a newline as `user_message.text`
 // and each marked block's UTF-16 range in it as `user_message.pasted` (hub/session.rs
-// `prompt_text_parts`, #23407). The transcript draws each range as a "<first words> · N lines"
-// chip (PromptText.tsx, #23431). This test runs the real composer, the real client and the real
+// `prompt_text_parts`, #23407). The transcript draws each range as a card of its first lines over
+// "Pasted text · N lines · NK characters" (PromptText.tsx, #23431). This test runs the real composer, the real client and the real
 // bubble, with acpmux's side done here exactly as session.rs does it, and checks that the bubble
 // drawn at send (before acpmux answers) is the one drawn from acpmux's record: the same text,
 // the same chips, in the same order, so nothing moves when the echo replaces it.
@@ -70,6 +70,7 @@ const { UserBubble } = await import("../src/agent-session/acpmux/conversation/Us
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
 const { noChat } = await import("../src/gallery/fixtures/acpmux");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
+const { pastedSize } = await import("../src/agent-session/acpmux/composer/TextAttachmentCard");
 
 const CHAT = "0190a000-0000-7000-8000-0000000000f5";
 const START = Date.UTC(2026, 9, 21, 9, 0, 0);
@@ -282,6 +283,7 @@ function drawn(row: AcpmuxRow) {
       part.classList.contains("cv-user__typed")
         ? { typed: part.textContent }
         : {
+            first: part.querySelector(".cv-user__paste-text")?.textContent?.split("\n")[0],
             name: part.querySelector(".cv-user__paste-name")?.textContent,
             lines: part.querySelector(".cv-user__paste-lines")?.textContent,
             open: part.querySelector(".cv-user__paste")?.getAttribute("aria-expanded"),
@@ -332,7 +334,8 @@ const TRACE = Array.from({ length: 260 }, (_, index) => `  at handler${index + 1
 /// Typed text with a character of two UTF-16 units before the paste, so a range counted in code
 /// points (or bytes) would land off by one.
 const TYPED = "why does the build fail? 🧪";
-const linesLabel = (n: number) => translate("transcript.pastedLines", { n, count: n.toLocaleString("en-US") });
+const PASTED = translate("composer.pastedText");
+const sizeLabel = (text: string) => pastedSize(translate, "en-US", text);
 
 test("a 2,300-line paste comes back as a Pasted chip after the typed text, drawn the same before and after acpmux's echo", async () => {
   const composed = await compose(TYPED, [LOG]);
@@ -360,12 +363,13 @@ test("a 2,300-line paste comes back as a Pasted chip after the typed text, drawn
   expect(echoed.text).toBe(record.text);
   expect(echoed.pasted).toEqual(record.pasted);
 
-  // What the reader sees: the typed words first, then one closed chip naming the paste.
+  // What the reader sees: the typed words first, then one closed card of the paste's first lines.
   expect(after.parts).toHaveLength(2);
   expect(after.parts[0]!.typed?.trim()).toBe(TYPED);
   expect(after.parts[1]).toEqual({
-    name: "error at frame 1: cannot resolve module",
-    lines: linesLabel(2300),
+    first: "error at frame 1: cannot resolve module",
+    name: PASTED,
+    lines: sizeLabel(LOG),
     open: "false",
   });
   expect(transcriptHost.querySelector(".cv-user__text")!.textContent).not.toContain("error at frame 2300");
@@ -396,8 +400,8 @@ test("two pastes with nothing typed come back as two chips in the order they wer
   // Between the two chips is the newline that joined them, which draws nothing.
   const chips = after.parts.filter((part) => !("typed" in part) || part.typed?.trim());
   expect(chips).toEqual([
-    { name: "error at frame 1: cannot resolve module", lines: linesLabel(2300), open: "false" },
-    { name: "at handler1 (server.ts:10)", lines: linesLabel(260), open: "false" },
+    { first: "error at frame 1: cannot resolve module", name: PASTED, lines: sizeLabel(LOG), open: "false" },
+    { first: "  at handler1 (server.ts:10)", name: PASTED, lines: sizeLabel(TRACE), open: "false" },
   ]);
   expect(before).toEqual(after);
 });

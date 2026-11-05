@@ -193,7 +193,7 @@ describe("POST /v1/pair/begin with an invite", () => {
     expect(watcher.frames.at(-1)).toEqual({ t: "voided", reason: "second_redemption" })
     expect(watcher.closes).toEqual([4409])
     await box.until(() => box.closes.length > 0)
-    expect(box.frames.at(-1)).toEqual({ t: "refused" })
+    expect(box.frames.at(-1)).toEqual({ t: "refused", reason: "invite_voided" })
     expect(box.closes).toEqual([4403])
     expect((await read(owner.token, "server.pair.preview", { code })).status).toBe(400)
     // Still used for anyone, the first key included.

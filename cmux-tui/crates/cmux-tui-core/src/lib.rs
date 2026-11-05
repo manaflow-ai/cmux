@@ -104,6 +104,8 @@ pub mod store_schemas;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;
+#[cfg(feature = "hotpatch")]
+pub mod hotpatch;
 mod surface;
 mod terminal_activity;
 #[cfg(unix)]

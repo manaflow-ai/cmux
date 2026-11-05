@@ -31,6 +31,14 @@ enum ServerHandlers {
         })
         registry.bind("server.showPanel", run: { _ in menuBar.open(.panel(nil)) })
         registry.bind("server.showHealth", run: { _ in menuBar.open(.health(nil)) })
+        registry.bind("server.pairAnotherMachine", run: { invocation in
+            // Minting an invite lets a machine ask to join the account: a person's run only. The
+            // descriptor's person-only gate refuses every CLI, MCP, script, page and remote run first.
+            guard ServerHeadlessApproval.allows(origin: invocation.origin) else {
+                throw ActionFailure(message: RefusalStrings.text("refusal.server.inviteLocalOnly", "Pair machines from this Mac only."))
+            }
+            menuBar.openInvite()
+        })
         registry.bind("server.addServer", run: { invocation in
             // No code: the sheet. A code may come only from an in-process person action; the
             // descriptor's person-only gate refuses every CLI, MCP, script, page and remote run.

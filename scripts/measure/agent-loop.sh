@@ -17,7 +17,7 @@ export GIT_TERMINAL_PROMPT=0  # a public fetch never waits on a credential promp
 cd "$(dirname "$0")/../.." || exit 3
 root="$PWD"
 out="$root/.build/agent-loop"
-feed="https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+feed="https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one feed since #36287
 url=""
 for arg in "$@"; do
   case "$arg" in
@@ -27,8 +27,9 @@ for arg in "$@"; do
   esac
 done
 # Only what this script writes goes before a run: OUT may be a folder the caller owns.
-mkdir -p "$out" && rm -f "$out"/{result.json,report.json,report.tgz,run.log,bun-install.log,fetch.log,ocr-build.log,applied.png,fresh-home.png}
+mkdir -p "$out" && rm -f "$out"/{result.json,report.json,report.tgz,run.log,bun-install.log,fetch.log,ocr-build.log,base-overlay.log,applied.png,fresh-home.png}
 rm -f "$out"/live-apply-*.log
+rm -rf "$out/settings-first"  # the second case's folder (agent-loop.py)
 if [[ -z "$url" ]]; then
   url="$(curl -fsSL --retry 3 -H 'Cache-Control: no-cache' "$feed" | grep -o -E 'enclosure url="https://[^"]+\.dmg"' | head -n 1 | cut -d'"' -f2)"
   [[ -n "$url" ]] || { echo "AGENT-LOOP no DMG in $feed"; exit 3; }
@@ -56,7 +57,10 @@ bounded() {
   ( sleep "$seconds"; kill -TERM -- "-$pid" 2>/dev/null; sleep 5; kill -KILL -- "-$pid" 2>/dev/null ) \
     </dev/null >/dev/null 2>&1 & watchdog=$!
   set +m
+  # Their own groups no longer see a signal sent to this script's group (a step cancel): pass it on.
+  trap 'kill -TERM -- "-$pid" "-$watchdog" 2>/dev/null; exit 143' TERM INT
   wait "$pid"; status=$?
+  trap - TERM INT
   kill -TERM -- "-$watchdog" 2>/dev/null; wait "$watchdog" 2>/dev/null
   echo "AGENT-LOOP setup: $name exit $status in $((SECONDS - started))s"
   return "$status"
