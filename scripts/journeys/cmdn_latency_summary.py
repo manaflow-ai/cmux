@@ -22,6 +22,19 @@ def pct(values, q):
     return round(v[lo] + (v[hi] - v[lo]) * (k - lo), 2)
 
 
+def next_tick_after(reply):
+    frames, visible = reply.get("frames") or {}, reply.get("visible_ms")
+    first = frames.get("first_tick_ms")
+    if not isinstance(visible, (int, float)) or not isinstance(first, (int, float)):
+        return None
+    ticks, t = [first], first
+    for interval in frames.get("intervals_ms") or []:
+        t += max(0.0, interval)
+        ticks.append(t)
+    later = [x for x in ticks if x > visible + 1.0]
+    return round(later[0], 2) if later else None
+
+
 def stats(values):
     vals = [x for x in values if isinstance(x, (int, float))]
     return {"n": len(vals), "missed": len(values) - len(vals), "p50": pct(vals, .5), "p95": pct(vals, .95),
@@ -52,6 +65,9 @@ def summarize(result):
         else:
             for key in ("visible_ms", "confirmed_ms", "key_ms"):
                 s[key] = stats([(r.get("reply") or {}).get(key) for r in rows])
+            # The frame that shows the workspace is on screen only once its commit ends; the next display-link tick
+            # after the visible one comes after that commit (the link fires on the main thread), so it bounds key-to-pixels.
+            s["shown_after_commit_ms"] = stats([next_tick_after((r.get("reply") or {})) for r in rows])
             kinds[res["label"]] = sorted({str(r.get("kind_after")) for r in rows})
             s["kind_after"] = kinds[res["label"]]
     # action budget: the newTab key runs of each session (the first reply: light; the new sequences of the second: stress),
@@ -82,7 +98,7 @@ def main(argv):
     for row in rows:
         print(f"== {row['path']}  status={row.get('status')} {row.get('reason') or row.get('error', '')}")
         for label, s in (row.get("sessions") or {}).items():
-            for key in ("visible_ms", "confirmed_ms", "key_ms", "commit_ms", "prompt_ms"):
+            for key in ("visible_ms", "shown_after_commit_ms", "confirmed_ms", "key_ms", "commit_ms", "prompt_ms"):
                 v = s.get(key)
                 if v:
                     print(f"  {label:7s} {key:13s} n={v['n']:3d} missed={v['missed']} p50={v['p50']} p95={v['p95']} p99={v['p99']} max={v['max']}")
