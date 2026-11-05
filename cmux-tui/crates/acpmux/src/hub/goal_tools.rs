@@ -10,6 +10,25 @@ use crate::generic_goal::{self, GoalRequest, Reported, Step};
 
 /// The continuation's sender, as a background task's notice is.
 const SENDER: &str = "acpmux";
+/// A continuation's refusal when its goal changed while it waited (`check_goal_mark`).
+const MOVED_ON: &str = "goal.moved_on";
+
+/// For a prompt sent as a goal's continuation (`PromptOptions::goal_mark`), once it holds the
+/// turn lock: its goal must still be running and unchanged since it was sent, so one that waited
+/// behind the person's prompt never runs after that turn completed or replaced the goal.
+pub(super) fn check_goal_mark(session: &Session, mark: Option<&str>) -> Result<(), RpcError> {
+    let Some(mark) = mark else { return Ok(()) };
+    let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+    let current = m.goal.as_ref().is_some_and(|g| {
+        generic_goal::is_generic(g) && g.lifecycle() == "running" && generic_goal::mark(g) == mark
+    });
+    if current {
+        Ok(())
+    } else {
+        Err(RpcError::invalid_params("the goal changed before its continuation ran")
+            .with_data(json!({"reason": MOVED_ON})))
+    }
+}
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -38,7 +57,7 @@ impl Hub {
         let goal = generic_goal::new_goal(request, now_ms());
         let value = goal.to_value();
         session.meta.lock().unwrap_or_else(|e| e.into_inner()).goal = Some(goal);
-        self.publish_goal(session);
+        self.publish_goal(session, true)?;
         Ok(value)
     }
 
@@ -57,7 +76,7 @@ impl Hub {
             generic_goal::apply_report(goal, status, note, now_ms());
             goal.to_value()
         };
-        self.publish_goal(session);
+        self.publish_goal(session, true)?;
         Ok(value)
     }
 
@@ -67,18 +86,26 @@ impl Hub {
         m.goal.as_ref().map(crate::goal::GoalState::to_value).unwrap_or(Value::Null)
     }
 
-    /// Saves the goal and sends it to clients, as `end_loop_goal` sends its clear.
-    fn publish_goal(&self, session: &Session) {
+    /// Saves the goal and sends it to clients, as `end_loop_goal` sends its clear. `answered`: a
+    /// request reports the change (`goal_set`, `goal_update`), so it returns once the goal is on
+    /// disk, and a failed save fails the request (`meta_save.rs`), as the goal outlives a restart.
+    fn publish_goal(&self, session: &Session, answered: bool) -> Result<(), RpcError> {
         let (sid, goal) = {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let goal = m.goal.as_ref().map(crate::goal::GoalState::to_value).unwrap_or(Value::Null);
             (m.agent_session_id.clone().unwrap_or_else(|| session.id.clone()), goal)
         };
-        self.save_meta(session);
+        let saved = if answered {
+            self.save_meta_answered(session)
+        } else {
+            self.save_meta(session);
+            Ok(())
+        };
         let update = json!({"sessionUpdate": "session_info_update", "_meta": {"goal": goal}});
         let msg = json!({"jsonrpc": "2.0", "method": "session/update",
                          "params": {"sessionId": sid, "update": update}});
         self.append(session, "in", "session_info_update", msg);
+        saved
     }
 
     /// At a completed turn's end: keeps a running goal going with acpmux's own prompt, or stops it
@@ -99,23 +126,26 @@ impl Hub {
         if !running || self.claude_stdio(session) {
             return;
         }
-        let step = {
+        let (step, mark) = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             match m.goal.as_mut() {
-                Some(goal) => generic_goal::next_step(goal, turn_tokens, now_ms()),
-                None => Step::None,
+                Some(goal) => {
+                    let step = generic_goal::next_step(goal, turn_tokens, now_ms());
+                    (step, generic_goal::mark(goal))
+                }
+                None => (Step::None, String::new()),
             }
         };
         let text = match step {
             Step::None => return,
             Step::Stop(reason) => {
                 tracing::info!(session = %session.id, reason, "a goal stopped");
-                self.publish_goal(session);
+                let _ = self.publish_goal(session, false);
                 return;
             }
             Step::Continue(text) => text,
         };
-        self.publish_goal(session);
+        let _ = self.publish_goal(session, false);
         let notice =
             json!({"sender": SENDER, "severity": "info", "title": "Keep going toward the goal"});
         let text = crate::prompt_provenance::notice_text(&notice, &text);
@@ -124,6 +154,9 @@ impl Hub {
             provenance: Some(provenance),
             agent: Some(SENDER.to_owned()),
             class: Some(crate::prompt_class::PromptClass::Fyi),
+            // Refused if the goal moved on before it ran: reported complete or blocked, replaced,
+            // or stepped again by a later turn (`check_goal_mark`).
+            goal_mark: Some(mark),
             ..PromptOptions::default()
         };
         let (hub, session) = (Arc::clone(self), Arc::clone(session));
@@ -131,7 +164,7 @@ impl Hub {
             let blocks = vec![json!({"type": "text", "text": text})];
             // Never steered: it waits behind anything the person queued.
             if let Err(e) = hub.prompt_with(&session, blocks, SENDER, false, opts).await
-                && e.data.as_ref().is_none_or(|d| d["held"] != true)
+                && e.data.as_ref().is_none_or(|d| d["held"] != true && d["reason"] != MOVED_ON)
             {
                 tracing::warn!(session = %session.id, "a goal's continuation: {}", e.message);
             }
@@ -149,5 +182,79 @@ impl Hub {
             }
             Err(_) => true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hub() -> Arc<Hub> {
+        let mut config = Config::default();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        Hub::new(config, store)
+    }
+
+    fn chat(hub: &Hub) -> Arc<Session> {
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "g", "name": "pi chat", "harness": "pi",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        hub.make_session(meta)
+    }
+
+    fn request(objective: &str) -> GoalRequest {
+        GoalRequest {
+            objective: objective.into(),
+            done_when: "cargo test passes".into(),
+            token_budget: None,
+            time_budget_minutes: None,
+        }
+    }
+
+    /// The mark a continuation is sent with, as `continue_goal` takes it after its step.
+    fn step(session: &Session) -> String {
+        let mut m = session.meta.lock().unwrap();
+        let goal = m.goal.as_mut().unwrap();
+        assert!(matches!(generic_goal::next_step(goal, None, now_ms()), Step::Continue(_)));
+        generic_goal::mark(goal)
+    }
+
+    fn moved_on(result: Result<(), RpcError>) -> bool {
+        result.is_err_and(|e| e.data.is_some_and(|d| d["reason"] == MOVED_ON))
+    }
+
+    /// A continuation that waited behind the person's prompt runs only while its goal is the
+    /// one it was sent for, still running. Codex review of #36413, finding F1.
+    #[test]
+    fn a_continuation_is_refused_once_its_goal_moved_on() {
+        let hub = hub();
+        let session = chat(&hub);
+        hub.goal_set(&session, &request("Make the suite pass")).unwrap();
+        let mark = step(&session);
+        assert!(check_goal_mark(&session, Some(&mark)).is_ok());
+        assert!(check_goal_mark(&session, None).is_ok());
+
+        // That turn's agent reported it complete.
+        hub.goal_update(&session, Reported::Complete, None).unwrap();
+        assert!(moved_on(check_goal_mark(&session, Some(&mark))));
+
+        // Running again resets its count: the older continuation is still not this goal's.
+        hub.goal_update(&session, Reported::Running, None).unwrap();
+        assert!(moved_on(check_goal_mark(&session, Some(&mark))));
+
+        // A new goal replaced it.
+        let mark = step(&session);
+        hub.goal_set(&session, &request("Ship the docs")).unwrap();
+        assert!(moved_on(check_goal_mark(&session, Some(&mark))));
+
+        // A later turn's step sent a newer continuation.
+        let older = step(&session);
+        let newer = step(&session);
+        assert!(moved_on(check_goal_mark(&session, Some(&older))));
+        assert!(check_goal_mark(&session, Some(&newer)).is_ok());
     }
 }
