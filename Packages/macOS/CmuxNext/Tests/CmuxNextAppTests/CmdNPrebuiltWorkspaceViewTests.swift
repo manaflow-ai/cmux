@@ -20,12 +20,18 @@ struct CmdNPrebuiltWorkspaceViewTests {
             let window = try #require(services.windows.active?.window, "no window")
             let before = services.windows.active?.workspaceContent?.contentView
 
+            let store = services.daemon.store
+            let workspacesBefore = Set(store.workspaces.map(\.id))
             let viewsBeforeKey = Set(Self.descendants(of: window.contentView).map(ObjectIdentifier.init))
 
             let work = services.registry.capturingWork {
                 _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
             }
-            let shown = try #require(services.windows.active?.workspaceContent, "Cmd-N showed no workspace in its turn")
+            let key = try #require(store.workspaces.first { !workspacesBefore.contains($0.id) }?.id, "Cmd-N showed no workspace in its turn")
+            // The window swaps its content on the observation turn after the key's.
+            try await PasswordManagerRouteTests.until({ services.windows.active?.workspaceContent?.workspace.id == key },
+                                                      within: .seconds(2), report: { "the window does not show Cmd-N's workspace" })
+            let shown = try #require(services.windows.active?.workspaceContent)
             #expect(shown.contentView !== before, "Cmd-N kept the old workspace's view")
             #expect(viewsBeforeKey.contains(ObjectIdentifier(shown.contentView)),
                     "Cmd-N built its workspace view in the key's turn: it was not in the window before the key")
