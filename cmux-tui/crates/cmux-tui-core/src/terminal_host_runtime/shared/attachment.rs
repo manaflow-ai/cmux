@@ -44,7 +44,11 @@ use super::renderer_grant::ControlRequestUnanswered;
 mod connect;
 pub(crate) mod launch;
 mod pending_control;
+#[cfg(unix)]
+mod room_check;
 pub(crate) use pending_control::PendingControlResponse;
+#[cfg(all(test, target_vendor = "apple"))]
+pub(crate) use room_check::room_check_queues;
 mod terminate;
 // Only the Unix host calls these until the Windows host lands.
 #[cfg_attr(not(unix), allow(unused_imports))]
@@ -146,6 +150,9 @@ pub struct HostAttachment {
     /// The terminal's input port order (R-DAEMON-STATE S1.6b): every other frame this attachment writes waits until
     /// the port wrote the keys it took before, so no frame passes a key. Set by the terminal that owns the attachment.
     pub(crate) input_order: Option<crate::surface::input_port::PortOrder>,
+    /// The room check of this connection's inline keys, shared by every route of the connection.
+    #[cfg(unix)]
+    pub(crate) input_room: Arc<room_check::RoomCheck>,
 }
 
 impl std::fmt::Debug for HostAttachment {
@@ -165,6 +172,9 @@ impl std::fmt::Debug for HostAttachment {
 pub(crate) struct HostInputRoute {
     writer: Arc<Mutex<HostStream>>,
     protocol_version: u16,
+    /// The connection's room check for its inline keys (`room_check.rs`); every clone of the route shares it.
+    #[cfg(unix)]
+    room: Arc<room_check::RoomCheck>,
 }
 
 impl HostInputRoute {
@@ -191,33 +201,27 @@ impl HostInputRoute {
             Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
             Err(std::sync::TryLockError::WouldBlock) => return false,
         };
-        // Room first. On macOS a send with MSG_DONTWAIT still waits for room on a stream socket (XNU honours only
-        // the socket's own non-blocking mode there, and this socket must block: its reader shares it), so a key to a
-        // host that stopped reading waited here, holding this turn, the writer and the port lock (#35872: the
-        // stalled-host test). POLLOUT means room for at least the send low-water mark (2048 bytes on macOS, more
-        // than any inline frame; Linux reports it while under a quarter of the send buffer is used). The writer held
-        // here is the socket's only writer, so nothing takes that room before the send.
-        if !has_room_now(writer.as_raw_fd()) {
+        // Room first, where a send cannot be trusted to return at once (macOS: room_check.rs). The writer held here is
+        // the socket's only writer, so nothing takes that room before the send.
+        let Ok(payload_len) = u32::try_from(payload.len()) else { return false };
+        let Some(total) = crate::terminal_host_protocol::HEADER_LEN.checked_add(payload.len())
+        else {
+            return false;
+        };
+        if !self.room.has_room(writer.as_raw_fd(), total) {
             return false;
         }
-        let mut frame = Frame::new(kind, payload.to_vec());
-        frame.version = self.protocol_version;
-        let Ok(bytes) = crate::terminal_host_protocol::encode_frame(&frame) else { return false };
-        // MSG_DONTWAIT as well, where it is honoured. With room for the whole frame, a Unix stream socket takes it
-        // whole: a partial write cannot happen, and if one ever did the stream would be corrupt, so the connection
-        // is shut down as `send_host_frame` does after a failed write (the port's writer then sends the frame on the
-        // reconnected host).
-        // SAFETY: the descriptor is the connection's open socket, kept alive by the writer guard; `bytes` is a live
-        // buffer of the given length.
-        let sent = unsafe {
-            libc::send(
-                writer.as_raw_fd(),
-                bytes.as_ptr().cast(),
-                bytes.len(),
-                libc::MSG_DONTWAIT | SEND_NO_SIGNAL,
-            )
-        };
-        if sent == bytes.len() as isize {
+        let header = crate::terminal_host_protocol::input_frame_header(
+            self.protocol_version,
+            kind,
+            payload_len,
+        );
+        // One send of the header (on the stack) and the payload (in place): no heap copy of the key. MSG_DONTWAIT as
+        // well, where it is honoured. With room for the whole frame, a Unix stream socket takes it whole: a partial
+        // write cannot happen, and if one ever did the stream would be corrupt, so the connection is shut down as
+        // `send_host_frame` does after a failed write (the port's writer then sends the frame on the reconnected host).
+        let sent = send_frame_now(writer.as_raw_fd(), &header, payload);
+        if usize::try_from(sent).is_ok_and(|sent| sent == total) {
             return true;
         }
         if sent > 0 {
@@ -229,53 +233,32 @@ impl HostInputRoute {
 
 /// The largest frame payload [`HostInputRoute::try_send_now`] writes on the caller's turn: a person's key (a few
 /// bytes, a short paste of a word). Larger input goes through the port's writer. With its 32-byte header the frame
-/// stays under the 2048-byte send low-water mark that `has_room_now`'s POLLOUT promises on macOS.
+/// stays under the 2048-byte send low-water mark that the macOS room check promises (`room_check.rs`).
 #[cfg(unix)]
 pub(crate) const INLINE_FRAME_MAX: usize = 1024;
 
-// The room POLLOUT promises on macOS (the default 2048-byte send low-water mark) must hold a whole inline frame, or
+// The room the macOS room check promises (the default 2048-byte send low-water mark) must hold a whole inline frame, or
 // a send after it could still wait or write part of the frame.
 #[cfg(unix)]
 const _: () = assert!(
     INLINE_FRAME_MAX + crate::terminal_host_protocol::HEADER_LEN < 2048,
-    "an inline frame must fit the room POLLOUT promises"
+    "an inline frame must fit the room the room check promises"
 );
 
-/// Whether the socket `fd` can take a small write now (POLLOUT, no error or hang-up). It never waits for room or for
-/// the host. On Linux the zero-timeout poll returns at once. On macOS it returns at once when there is room; with no
-/// room, XNU's poll sleeps on its timer, which is already due (about 10 us, then one wake), before it reports none
-/// (#35872 review). XNU's poll also makes and frees a kqueue on each call, a few us per key.
+/// Sends `header` and `payload` as one message with MSG_DONTWAIT (and no SIGPIPE): the bytes the socket took, or -1.
 #[cfg(unix)]
-fn has_room_now(fd: std::os::fd::RawFd) -> bool {
-    // On XNU a poll() opens a kernel event queue for the call and frees it after (sys_generic.c poll_nocancel).
-    #[cfg(all(test, target_vendor = "apple"))]
-    room_check_queues::opened();
-    let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
-    // SAFETY: one valid pollfd for a count of 1; the zero timeout keeps poll from waiting for room.
-    let count = unsafe { libc::poll(&mut ready, 1, 0) };
-    count == 1
-        && ready.revents & libc::POLLOUT != 0
-        && ready.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) == 0
-}
-
-/// Tests: the kernel event queues that this thread's room checks ([`HostInputRoute::try_send_now`]) opened. An inline
-/// key runs its room check on its request's own thread, so a test that sends keys counts its own keys' queues.
-#[cfg(all(test, target_vendor = "apple"))]
-pub(crate) mod room_check_queues {
-    use std::cell::Cell;
-
-    thread_local! {
-        static OPENED: Cell<usize> = const { Cell::new(0) };
-    }
-
-    pub(crate) fn opened() {
-        OPENED.with(|opened| opened.set(opened.get().saturating_add(1)));
-    }
-
-    /// The queues this thread's room checks opened so far.
-    pub(crate) fn count() -> usize {
-        OPENED.with(Cell::get)
-    }
+fn send_frame_now(fd: std::os::fd::RawFd, header: &[u8], payload: &[u8]) -> isize {
+    let mut parts = [
+        libc::iovec { iov_base: header.as_ptr().cast_mut().cast(), iov_len: header.len() },
+        libc::iovec { iov_base: payload.as_ptr().cast_mut().cast(), iov_len: payload.len() },
+    ];
+    // SAFETY: zeroed msghdr is a valid empty message.
+    let mut message: libc::msghdr = unsafe { std::mem::zeroed() };
+    message.msg_iov = parts.as_mut_ptr();
+    message.msg_iovlen = 2;
+    // SAFETY: the descriptor is the connection's open socket, kept alive by the caller's writer guard; both parts are
+    // live buffers of their given lengths, and sendmsg only reads them.
+    unsafe { libc::sendmsg(fd, &message, libc::MSG_DONTWAIT | SEND_NO_SIGNAL) }
 }
 
 /// No SIGPIPE from a send to a host that closed its end: the error is returned instead. Elsewhere (Apple targets) std
@@ -361,7 +344,12 @@ impl HostAttachment {
 
     /// The route the terminal's input port writes this connection's interactive input on.
     pub(crate) fn input_route(&self) -> HostInputRoute {
-        HostInputRoute { writer: self.writer.clone(), protocol_version: self.protocol_version }
+        HostInputRoute {
+            writer: self.writer.clone(),
+            protocol_version: self.protocol_version,
+            #[cfg(unix)]
+            room: Arc::clone(&self.input_room),
+        }
     }
 
     pub(crate) fn begin_input_confirmed(

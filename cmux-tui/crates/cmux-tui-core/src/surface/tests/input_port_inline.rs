@@ -94,6 +94,29 @@ fn a_connections_keys_share_one_kernel_queue_for_their_room_check() {
     );
 }
 
+/// The inline write builds the frame header on the stack (no copy of the key): it must be the header `encode_frame`
+/// writes for the same frame, byte for byte, or the host reads a corrupt stream.
+#[test]
+fn the_inline_frame_header_is_the_encoders_header() {
+    for payload in [&b"k"[..], &[0u8; 1024][..], &b""[..]] {
+        let mut frame = Frame::new(MessageKind::Input, payload.to_vec());
+        frame.version = 7;
+        let encoded = crate::terminal_host_protocol::encode_frame(&frame).unwrap();
+        let header = crate::terminal_host_protocol::input_frame_header(
+            7,
+            MessageKind::Input,
+            u32::try_from(payload.len()).unwrap(),
+        );
+        assert_eq!(
+            &encoded[..header.len()],
+            &header[..],
+            "the header of a {}-byte key",
+            payload.len()
+        );
+        assert_eq!(&encoded[header.len()..], payload);
+    }
+}
+
 /// Another writer holds the connection (a large write of another client): the key does not wait for it. It goes to
 /// the port, returns at once, and reaches the host once the other writer is done.
 #[test]
