@@ -1,5 +1,5 @@
-import AppKit
-import CmuxNextDesign
+public import AppKit
+public import CmuxNextDesign
 
 // The flush corner (`chrome.cornerFlush`, Thunderdome r2 A): the selected tab is the content card's
 // color and runs down to the strip's bottom, into the card, and the window root learns when the
