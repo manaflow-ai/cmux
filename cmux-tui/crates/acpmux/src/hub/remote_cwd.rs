@@ -69,7 +69,7 @@ pub(super) fn check(cwd: &Path, home: Option<&Path>, tmp: &Path) -> Result<(), R
          folder, and {} isn't a checkout. Start it in {suggestion}.",
         cwd.display()
     ))
-    .with_data(json!({"reason": "remote.cwd_not_checkout", "cwd": cwd}))
+    .with_data(json!({"reason": "remote.cwd_not_checkout", "cwd": cwd})))
 }
 
 /// Whether `dir` or a folder above it holds `.git` (a folder, or the file a
