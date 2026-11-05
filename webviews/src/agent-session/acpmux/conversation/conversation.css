@@ -3110,9 +3110,9 @@ button.cv-video-frames__frame:focus-visible {
   padding-left: var(--grid-transcript-text-gap);
 }
 /* An opened run of commands, reads or searches (ToolGroupRow.tsx): the thought that led into the
-   run first in full, then a row per step. By default each step is a normal tool row in the
-   transcript's one column: its glyph in the header's glyph column, its words at the header's text
-   start, its mark at the right edge, with no card or inset (Leo, 2026-10-31:
+   run first in full, then a row per step. Each step is a normal tool row in the transcript's one
+   column: its glyph in the header's glyph column, its words at the header's text start, its mark
+   at the right edge, with the shipped sheet's card surface (Leo, 2026-10-31:
    "WHY IS IT ALGINED SO [...] SHIT" and "why are these indented for no reason"). A line under a
    step (a thought's text, a failure's cause) starts at the same text column.
    Leo, 2026-10-29, asked for the capability of Claude Code desktop's organization ("we want to have
@@ -3187,11 +3187,10 @@ button.cv-video-frames__frame:focus-visible {
   background: var(--cv-rule);
   pointer-events: none;
 }
-/* Inner calls in an opened group keep their disclosure slot, but the quiet chevron only appears
-   when that row is under the pointer (Leo, 2026-11-01). The group header keeps its own disclosure.
-   A focused or opened row stays revealed and lifted while its menu or body is open. Hover only
-   reveals the chevron: a step's words and glyph keep their tone under the pointer, as a lone tool
-   row's do (#20330: tool rows "no longer change on hover"; agent-pane-step-rows.test.ts). */
+/* Inner calls in an opened group keep their disclosure slot and visible chevron (the shipped
+   iOS-style sheet asks for the drill-in affordance at rest). A focused or opened row stays
+   revealed and lifted while its menu or body is open; hover keeps the same word and glyph tone,
+   as a lone tool row's does (#20330: tool rows "no longer change on hover"; agent-pane-step-rows.test.ts). */
 .cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
   opacity: 1;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);

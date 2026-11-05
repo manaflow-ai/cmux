@@ -46,9 +46,20 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     [
       "in",
       "tool_call",
-      update({ sessionUpdate: "tool_call", toolCallId: id, title, kind, status: "in_progress", ...extra }),
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: id,
+        title,
+        kind,
+        status: "in_progress",
+        ...extra,
+      }),
     ],
-    ["in", "tool_call_update", update({ sessionUpdate: "tool_call_update", toolCallId: id, status: "completed" })],
+    [
+      "in",
+      "tool_call_update",
+      update({ sessionUpdate: "tool_call_update", toolCallId: id, status: "completed" }),
+    ],
   ];
   const steps: Step[] = [
     ["mux", "user_message", { text: "Why does the release build fail?" }],
@@ -71,7 +82,9 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
         state: "completed",
       }),
     ],
-    ...call("c3", "Read build-acpmux.sh", "read", { locations: [{ path: "/home/dev/cmux/scripts/build-acpmux.sh" }] }),
+    ...call("c3", "Read build-acpmux.sh", "read", {
+      locations: [{ path: "/home/dev/cmux/scripts/build-acpmux.sh" }],
+    }),
     // The turn is still running. Its finished steps fold under their run's line (Debug toggle
     // agentPane.debug.codexToolRuns, on by default), which the tests open (`openRun`).
   ];
@@ -97,7 +110,10 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
   function answer(method: string): unknown {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+        };
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach":
@@ -139,7 +155,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
           .getAnimations()
           .filter(
             (animation) =>
-              animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime),
+              animation.playState === "running" &&
+              Number.isFinite(animation.effect?.getComputedTiming().endTime),
           );
       for (let moving = finite(); moving.length > 0; moving = finite())
         await Promise.allSettled(moving.map((animation) => animation.finished));
@@ -152,13 +169,17 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: undefined })
+          ? undefined
+          : new Response("acpmux", { status: 426 });
       },
       websocket: {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string };
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(
+              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }),
+            );
         },
       },
     });
@@ -244,13 +265,17 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       { timeout: 5_000 },
     );
     expect((await thought.innerText()).replace(/\s+/g, " ")).toContain(THOUGHT);
-    expect(await thought.evaluate((node) => node.closest("[title]") === null && !node.querySelector("[title]"))).toBe(
-      true,
-    );
+    expect(
+      await thought.evaluate(
+        (node) => node.closest("[title]") === null && !node.querySelector("[title]"),
+      ),
+    ).toBe(true);
     // Wrapped, not cut: it is taller than one row and nothing in it overflows.
     const box = await thought.evaluate((node) => ({
       height: node.getBoundingClientRect().height,
-      clipped: [...node.querySelectorAll<HTMLElement>("*")].some((child) => child.scrollWidth > child.clientWidth + 1),
+      clipped: [...node.querySelectorAll<HTMLElement>("*")].some(
+        (child) => child.scrollWidth > child.clientWidth + 1,
+      ),
     }));
     expect(box.height).toBeGreaterThan(26);
     expect(box.clipped).toBe(false);
@@ -309,13 +334,17 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       });
     const waitForChevron = (opacity: string) =>
       page.waitForFunction((expected) => {
-        const chevron = document.querySelector<SVGElement>(".cv-steps > .cv-step > .cv-tool .cv-tool__chevron");
+        const chevron = document.querySelector<SVGElement>(
+          ".cv-steps > .cv-step > .cv-tool .cv-tool__chevron",
+        );
         return chevron && getComputedStyle(chevron).opacity === expected;
       }, opacity);
     await page.mouse.move(0, 0);
-    await waitForChevron("0");
+    // The shipped iOS-style sheet keeps the drill-in affordance visible at rest (the step
+    // remains quiet in tone; only the chevron is always present).
+    await waitForChevron("1");
     const rest = await look();
-    expect(rest.chevron).toBe("0");
+    expect(rest.chevron).toBe("1");
     await row.hover();
     await waitForChevron("1");
     const hovered = await look();
