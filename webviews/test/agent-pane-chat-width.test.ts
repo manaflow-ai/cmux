@@ -1,11 +1,9 @@
-// The chat column's width trial (chatWidth.ts, cx-ncc.107, Leo: "try a wider max width for chat
-// content"): Debug Settings agent.chatWidth, which the app pushes with the theme, picks the
-// column's cap on a wide pane, and everything in the chat shares that one column (#20391's edge):
-//   - `standard` (no choice) keeps today's 800px cap;
-//   - `wide` caps the transcript and the composer at 960px;
-//   - `wideBlocks` gives code, tables and tools 1120px while prose keeps the 800px measure.
-// The gallery's agent-pane.chat-width frames at 1440 and 1920 pane widths, which also log the
-// density numbers the PR reports (characters per prose line, gutter, tool row height).
+// The chat column (chatWidth.ts): Settings > Agents > Chat Layout > Chat Text Width
+// (`agentPane.display.width`) sets every chat's column, its default 800 too, capped only by the pane;
+// Chat Full Width fills the pane (https://github.com/manaflow-ai/cmux/issues/36299). Everything in the
+// chat shares that one column (#20391's edge): the transcript, its prose and the composer. The gallery's
+// agent-pane.chat-width frames at 900, 1440 and 1920 pane widths, which also log density numbers
+// (characters per prose line, gutter, tool row height).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -128,36 +126,29 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
     return measured;
   };
 
-  /// The column `--cv-column: clamp(720px, share, cap)` draws in a pane of `pane` px: its insets are on
-  /// the 4 grid (`--cv-inset`, design/grid.md 5.5), so it takes the 0-7 px left over.
-  const column = (pane: number, share: number, cap: number) => {
-    const span = Math.min(cap, Math.max(720, pane * share));
+  /// The column `--cv-column: clamp(min(720px, cap), 100%, cap)` draws in a pane of `pane` px: its insets
+  /// are on the 4 grid (`--cv-inset`, design/grid.md 5.5), so it takes the 0-7 px left over.
+  const column = (pane: number, cap: number) => {
+    const span = Math.min(cap, Math.max(Math.min(720, cap), pane));
     return pane - 2 * Math.max(16, 4 * Math.floor((pane - span) / 8));
   };
 
-  for (const width of [1440, 1920]) {
-    test(`standard keeps the 800px column at ${width}`, async () => {
-      const m = await at("standard", width);
-      expect(m.column.width).toBeCloseTo(column(m.pane, 0.625, 800), -0.3);
-      expect(m.composer.left).toBeCloseTo(m.column.left, -0.3);
-      expect(m.prose).toBeCloseTo(m.column.width, -0.3);
-    });
+  const widths = { standard: 800, narrow: 640, wide: 960 } as const;
+  for (const width of [900, 1440, 1920]) {
+    for (const [variant, cap] of Object.entries(widths))
+      test(`${variant} draws its ${cap}px Chat Text Width at ${width}`, async () => {
+        const m = await at(variant, width);
+        expect(m.column.width).toBeCloseTo(column(m.pane, cap), -0.3);
+        // The column is the setting wherever the pane fits it, never a share of the pane.
+        if (m.pane >= cap + 32) expect(Math.abs(m.column.width - cap)).toBeLessThan(8);
+        expect(m.composer.left).toBeCloseTo(m.column.left, -0.3);
+        expect(m.prose).toBeCloseTo(m.column.width, -0.3);
+      });
 
-    test(`wide caps the transcript and the composer at 960px at ${width}`, async () => {
-      const m = await at("wide", width);
-      expect(m.column.width).toBeCloseTo(column(m.pane, 0.625, 960), -0.3);
-      expect(m.column.width).toBeGreaterThan(800);
+    test(`full width fills the pane at ${width}`, async () => {
+      const m = await at("full-width", width);
+      expect(m.column.width).toBeCloseTo(m.pane - 32, -0.3);
       expect(m.composer.left).toBeCloseTo(m.column.left, -0.3);
-      expect(m.prose).toBeCloseTo(m.column.width, -0.3);
-    });
-
-    test(`wideBlocks widens code and tables, not prose, at ${width}`, async () => {
-      const m = await at("wide-blocks", width);
-      expect(m.column.width).toBeCloseTo(column(m.pane, 0.7, 1120), -0.3);
-      expect(m.column.width).toBeGreaterThan(960);
-      expect(m.composer.left).toBeCloseTo(m.column.left, -0.3);
-      expect(m.prose).toBeLessThanOrEqual(800);
-      expect(m.code).toBeCloseTo(m.column.width, -0.3);
     });
   }
 });

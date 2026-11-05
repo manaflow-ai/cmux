@@ -128,8 +128,8 @@ await requireBrowserLane("session-info-no-rewrap.test.ts", async () => {
   for (const name of browsers.keys())
     for (const [width, stage] of [
       [740, "overlay"],
-      [1100, "push"],
-      [1200, "overlay"],
+      [1100, "overlay"],
+      [1200, "push"],
       [1420, "push"],
       [1600, "overlay"],
     ] as const)

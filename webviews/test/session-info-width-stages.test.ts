@@ -21,10 +21,10 @@ import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/ses
 import { transcriptColumn } from "../src/agent-session/acpmux/model";
 import type { ChatColumn } from "../src/agent-session/acpmux/chatWidth";
 
-// The standard column (chatWidth.ts COLUMNS.standard: 720px, 62.5% of a wider pane up to 800px), pinned
-// so the test does not read the page's width setting or scale.
-const STANDARD: ChatColumn = { min: 720, max: 800, share: 0.625, prose: Infinity };
-const WIDE: ChatColumn = { min: 720, max: 960, share: 0.625, prose: Infinity };
+// Chat Text Width's default column (chatWidth.ts displayColumn: the pane's width up to 800px, at least
+// 720px) and a 960px one, pinned so the test does not read the page's width setting or scale.
+const STANDARD: ChatColumn = { min: 720, max: 800 };
+const WIDE: ChatColumn = { min: 720, max: 960 };
 const WIDTH = SESSION_INFO_WIDTH.fallback;
 const TALL = 960;
 
@@ -49,8 +49,9 @@ test("where the gutter lacks a little, it pushes the column left at its own widt
   expect(transcriptColumn(1420 - room, STANDARD).width).toBe(transcriptColumn(1420, STANDARD).width);
 });
 
-test("where pushing would narrow the column (its 62.5% share), it lies over the chat instead", () => {
-  expect(stage(1240).stage).toBe("overlay");
+test("where pushing would narrow the column below its 800px, it lies over the chat instead", () => {
+  expect(stage(1240).stage).toBe("push");
+  expect(stage(1100).stage).toBe("overlay");
   expect(stage(900).stage).toBe("overlay");
 });
 
@@ -91,7 +92,8 @@ test("every pixel width from 600 to 2400: a push keeps the column's width on its
 test("Settings Push always pushes wherever its whole room keeps the column, else lies over the chat", () => {
   expect(stage(2000, TALL, "push").stage).toBe("push");
   expect(stage(2000, TALL, "push").room).toBe(WIDTH + 8);
-  expect(stage(1300, TALL, "push").stage).toBe("overlay");
+  expect(stage(1300, TALL, "push").stage).toBe("push");
+  expect(stage(1100, TALL, "push").stage).toBe("overlay");
 });
 
 test("Push always stays flush and keeps its pinned column across adjacent pane and panel widths", () => {

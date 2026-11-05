@@ -29,7 +29,7 @@ export function useRailPlacement(
 ) {
   const display = useChatDisplay();
   const chatMinimap = useChatMinimap();
-  const { width: chatWidth, scale } = useChatSizing();
+  const { scale } = useChatSizing();
   /// How the rail fits a narrow gutter (gutter.experiment.ts), read once per pane: `tight` lets its
   /// inset shrink to the smallest spacing step before it overlaps any text.
   const [gutterArm] = useState(() => experimentArm(threadMinimapGutter));
@@ -47,7 +47,7 @@ export function useRailPlacement(
         Number.parseFloat(style?.getPropertyValue(name) ?? "") || fallback;
       // Session Info never moves the chat's column (session-info/SessionInfo.tsx), so its inset is the
       // column's own.
-      const inset = transcriptColumn(columnWidth, chatColumnOf(chatWidth, display, scale)).inset;
+      const inset = transcriptColumn(columnWidth, chatColumnOf(display, scale)).inset;
       const reserve = railEdgeReserve(side, chatMinimap, inset);
       const next = {
         ...railPlacement(paneWidth, inset - reserve, {
@@ -71,7 +71,7 @@ export function useRailPlacement(
     };
     update();
     return { shell, update };
-  }, [scroller, paneWidth, columnWidth, chatWidth, display, scale, side, chatMinimap, gutterArm]);
+  }, [scroller, paneWidth, columnWidth, display, scale, side, chatMinimap, gutterArm]);
   useLayoutEffect(() => {
     measure();
   }, [measure]);

@@ -445,7 +445,6 @@ import { harnessLabel } from "./subagents/agentRuns";
 import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
-import { configureChatWidth } from "./chatWidth";
 import {
   registerChatDisplayHost,
   useChatDisplay,
@@ -1326,7 +1325,6 @@ function DefaultComposerChips({
 /** The same host theme before mount and on subsequent bridge pushes. */
 export function applyPaneTheme(theme: Record<string, unknown>): void {
   applyAgentTheme(theme as never);
-  configureChatWidth(theme.chatWidth);
   configureCodexToolRuns(theme.codexToolRuns);
   configureLiveLineBelow(theme.liveLineBelow);
   configureToolRunLook(theme.toolRunLook);

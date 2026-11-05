@@ -351,7 +351,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// The command's toggle, at the start of the turn.
   const commandToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "ls build" }).first();
 
-  test("the transcript and the composer share one column, inset by the page edge, wider in wide panes", async () => {
+  test("the transcript and the composer share one column, inset by the page edge, Chat Text Width wide", async () => {
     const chat = newChat();
     const columns: Record<number, { main: number; row: number[]; composer: number[]; edge: number }> = {};
     for (const width of [480, 900, 1400, 1900]) {
@@ -390,9 +390,12 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       expect({ viewport, composer }).toEqual({ viewport, composer: row });
     // A narrow pane leaves the page edge on each side.
     expect(columns[480]!.row).toEqual([pageEdge, pageEdge]);
-    // A wide pane gives the column more room, to a readable cap; it stays centered.
-    expect(column(1900)).toBeGreaterThan(column(900));
-    expect(column(1900)).toBeLessThanOrEqual(800);
+    // Every pane that fits it draws Chat Text Width's 800px (plus the 4 grid's 0-7 px leftover), not a
+    // share of the pane (https://github.com/manaflow-ai/cmux/issues/36299); it stays centered.
+    for (const viewport of [900, 1400, 1900]) {
+      expect(column(viewport)).toBeGreaterThanOrEqual(800);
+      expect(column(viewport)).toBeLessThan(808);
+    }
     expect(Math.abs(columns[1900]!.row[0]! - columns[1900]!.row[1]!)).toBeLessThanOrEqual(1);
   });
 

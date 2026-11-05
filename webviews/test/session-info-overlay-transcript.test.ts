@@ -78,9 +78,10 @@ await requireBrowserLane("session-info-overlay-transcript.test.ts", async () => 
     for (const { width, placement } of [
       // 1600px: the 400px gutter holds the 320px panel and its margins.
       { width: 1600, placement: "overlay" },
-      // 1080px: the 720px column centered leaves 180px each side, less than the 320px panel. Pushed (Push
-      // always), the column keeps its 720px and the rows end the chat's page edge (--cv-edge) clear of it.
-      { width: 1080, placement: "push" },
+      // 1200px: Chat Text Width's 800px column centered leaves 200px each side, less than the 320px panel.
+      // Pushed (Push always), the column keeps its 800px and the rows end the chat's page edge (--cv-edge)
+      // clear of it.
+      { width: 1200, placement: "push" },
     ] as const)
       test(`${name}: no transcript row draws under the open Session Info (${width}px, ${placement})`, async () => {
         current = browsers.get(name)!;

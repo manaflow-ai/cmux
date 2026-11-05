@@ -123,12 +123,12 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     });
 
     // Leo, 2026-11-01: "why does the session info not push the layout left ever anymore". Where the
-    // right gutter cannot hold it and pushing keeps the transcript's column at its width (1100px and
+    // right gutter cannot hold it and pushing keeps the transcript's column at its width (1200px and
     // 1420px panes) it pushes into the chat under the header, by only what the gutter lacks
     // (SessionInfo.tsx pushedRoom): the chat narrows, and the panel covers no row and not the composer.
     // Where a push would narrow the column it lies over the chat instead (the 370/528/740px cases below;
     // Leo, 2026-11-03: "if it would need to be then session info should be an overlay").
-    for (const width of [1100, 1420]) {
+    for (const width of [1200, 1420]) {
       test(`${name}: in a ${width}px pane it pushes the chat left and covers no row`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
@@ -257,7 +257,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     // "this BECAME A FUCKING SIDEBAR FOR NO FUCKING REASON ALL THIS FUCKING DEAD SPACE"): floating or
     // pushing, the panel is under half the pane's height with this chat's few short sections, and
     // the foot of the column it takes is the chat's page, not the panel.
-    for (const width of [1100, 1600]) {
+    for (const width of [1200, 1600]) {
       test(`${name}: in a ${width}px pane the panel hugs its sections and leaves the column's foot empty`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
@@ -273,7 +273,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
             placement: await panel.getAttribute("data-placement"),
             short: box.bottom - box.top < 700 * 0.5,
             foot,
-          }).toEqual({ placement: width === 1100 ? "push" : "overlay", short: true, foot: "the page" });
+          }).toEqual({ placement: width === 1200 ? "push" : "overlay", short: true, foot: "the page" });
         } finally {
           await page.close();
         }
@@ -283,11 +283,11 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
     // A pane that narrows or widens past the gutter's room (a split opening beside it, a window drag)
     // draws the panel in its new place in the frame that draws the new width (Leo 2026-10-21: "WHY
     // DOES IT FLICKER"). The pane's width was read in a ResizeObserver and set as state that React
-    // drew a frame or more later. Where the new gutter cannot hold it (1100px) it pushes the chat in
+    // drew a frame or more later. Where the new gutter cannot hold it (1200px) it pushes the chat in
     // that same frame.
     for (const [from, to] of [
-      [1600, 1100],
-      [1100, 1600],
+      [1600, 1200],
+      [1200, 1600],
     ] as const)
       test(`${name}: from ${from}px to ${to}px the first frame at the new width has the panel in its new place`, async () => {
         current = browsers.get(name)!;
@@ -314,7 +314,7 @@ await requireBrowserLane("session-info-placement.test.ts", async () => {
           await page.setViewportSize({ width: to, height: 700 });
           await page.waitForFunction(() => (window as unknown as { __placed?: unknown }).__placed !== undefined);
           const placed = await page.evaluate(() => (window as unknown as { __placed: unknown }).__placed);
-          expect(placed).toEqual({ width: to, placement: to === 1100 ? "push" : "overlay", inset: 8, overChat: false });
+          expect(placed).toEqual({ width: to, placement: to === 1200 ? "push" : "overlay", inset: 8, overChat: false });
         } finally {
           await page.close();
         }

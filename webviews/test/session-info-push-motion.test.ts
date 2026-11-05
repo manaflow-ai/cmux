@@ -109,9 +109,9 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
   for (const name of browsers.keys())
     test(`${name}: pushing, the chat narrows and widens with the panel, and neither end jumps`, async () => {
       current = browsers.get(name)!;
-      // A 1100px pane's gutter has no room for the 320px panel, and Push always's whole room keeps the
-      // transcript's column at its width there (SessionInfo.tsx pushKeepsColumn): it pushes.
-      const page = await pane!.open({ width: 1100, height: 600 });
+      // A 1200px pane's gutter has no room for the 320px panel, and Push always's whole room keeps Chat
+      // Text Width's 800px column there (SessionInfo.tsx pushKeepsColumn): it pushes.
+      const page = await pane!.open({ width: 1200, height: 600 });
       try {
         const toggle = await ready(page);
         const shell = await page.evaluate(() => document.querySelector(".acpmux-shell")!.clientWidth);
