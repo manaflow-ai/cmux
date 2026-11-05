@@ -2002,6 +2002,12 @@
       "title" : "Use My Claude Login on My Own Cloud Machines",
       "type" : "boolean"
     },
+    "cloud.useMyCodexLoginOnMyCloudMachines" : {
+      "default" : false,
+      "description" : "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead.",
+      "title" : "Use My Codex Login on My Own Cloud Machines",
+      "type" : "boolean"
+    },
     "computerUse.driver" : {
       "default" : "legacy",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
@@ -2788,6 +2794,12 @@
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
       "title" : "Classic Home",
+      "type" : "boolean"
+    },
+    "labs.liveCode" : {
+      "default" : false,
+      "description" : "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts.",
+      "title" : "Live Code",
       "type" : "boolean"
     },
     "labs.machineJoin" : {
@@ -3771,6 +3783,18 @@
       },
       "title" : "Pinned Folders",
       "type" : "array"
+    },
+    "remote.enabled" : {
+      "default" : false,
+      "description" : "cmux Remote holds Accessibility and Screen Recording for Computer Use (Upstream driver) and Screen Sharing, so a grant never needs a relaunch. Applies when cmux restarts.",
+      "title" : "Use cmux Remote",
+      "type" : "boolean"
+    },
+    "remote.endSharingOnQuit" : {
+      "default" : false,
+      "description" : "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit.",
+      "title" : "End Sharing When cmux Quits",
+      "type" : "boolean"
     },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
