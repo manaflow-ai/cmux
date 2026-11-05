@@ -37,8 +37,7 @@ extension AddDeviceServices {
             },
             copy: { CloudPresenter.copy($0) },
             installTailscale: { if let url = URL(string: "https://tailscale.com/download/mac") { NSWorkspace.shared.openInBackground(url) } },
-            // The default way (the pair code signed in, the line signed out), with no Labs switch: Leo,
-            // 2026-11-05, "I don't want to deal with SSH keys. I just want the app to handle the thing for me."
+            // The default way (the pair code signed in, the line signed out), with no Labs switch.
             machineJoin: { [weak services] in
                 guard let services else { return nil }
                 #if DEBUG
@@ -94,18 +93,14 @@ extension MachineJoinService {
             return try? await auth.tokens().access
         }
         let machines = services.machines
-        // With Labs labs.machineJoin on, every successful list read feeds the Machines section too (Add
-        // Device's flip shows the row). The read takes the store's ticket before it starts, so one that
-        // lands after a newer read is dropped; one that lands after the switch turned off feeds nothing
-        // (the store emptied itself). With the switch off the list is still read for Add Device's flip
-        // to "joined", and the section's store is left alone.
+        // A list read feeds the Machines section only with labs.machineJoin on, on the store's ticket (a
+        // read behind a newer one, or after the switch went off, feeds nothing); off, Add Device still reads.
         let beginRead = { @MainActor [weak services] () -> Int? in
             guard let services, services.settings?.snapshot.machineJoin == true else { return nil }
             return services.joinedMachines.beginRead()
         }
         let store = { @MainActor [weak services] (rows: [JoinedMachine], ticket: Int?) in
-            guard let services, let ticket, services.settings?.snapshot.machineJoin == true else { return }
-            services.joinedMachines.finishRead(rows, ticket: ticket)
+            if let ticket, services?.settings?.snapshot.machineJoin == true { services?.joinedMachines.finishRead(rows, ticket: ticket) }
         }
         return MachineJoinService(
             mint: { name in
