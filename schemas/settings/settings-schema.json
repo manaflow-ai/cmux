@@ -533,6 +533,7 @@
               "layout.paneSeparation",
               "layout.panePadding",
               "layout.paneCornerRadius",
+              "layout.cornerPadding",
               "layout.paneBorder",
               "layout.paneBorderColor",
               "layout.paneBorderWidth"
@@ -30424,11 +30425,18 @@
         "key" : "settings.group.panes",
         "text" : "Panes"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.layout.paneCornerRadius.help",
+        "text" : "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding."
+      },
       "kept_on_reset_all" : false,
       "key" : "layout.paneCornerRadius",
       "keywords" : [
-        "rounded"
+        "rounded",
+        "radius",
+        "tabs",
+        "concentric",
+        "corners"
       ],
       "kind" : "number",
       "page_hidden" : false,
@@ -30439,7 +30447,7 @@
       "range" : {
         "max" : 20,
         "min" : 0,
-        "placeholder" : 6,
+        "placeholder" : 10,
         "step" : 1,
         "unit" : "points"
       },
@@ -30538,6 +30546,151 @@
       "title" : {
         "key" : "settings.layout.paneCornerRadius",
         "text" : "Corner Radius"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        12,
+        6
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.panes",
+        "text" : "Panes"
+      },
+      "help" : {
+        "key" : "settings.layout.cornerPadding.help",
+        "text" : "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.cornerPadding",
+      "keywords" : [
+        "inset",
+        "gap",
+        "tabs",
+        "concentric",
+        "corners",
+        "radius"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "cornerPadding"
+      ],
+      "range" : {
+        "max" : 12,
+        "min" : 0,
+        "placeholder" : 2,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -12,
+        24,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:layout.cornerPadding"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.layout.cornerPadding",
+        "text" : "Corner Padding"
       },
       "validation" : "portable"
     },

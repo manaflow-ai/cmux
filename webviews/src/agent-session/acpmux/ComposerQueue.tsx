@@ -26,7 +26,7 @@
 //
 // A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
 // image viewer; while it is edited each has a remove control, and Save keeps only the images left
-// (Leo, 2026-10-21).
+// (Leo, 2026-10-21). A video is one tile, and one row of tiles at most, the rest a "+N".
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 //
@@ -44,7 +44,7 @@
 import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
-import { QueuedImages } from "./QueuedImages";
+import { QueuedImages, type QueuedVideo } from "./QueuedImages";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
@@ -137,6 +137,16 @@ function reveal(list: HTMLElement, row: HTMLElement) {
     to = starts.find((start) => start >= bottom - view - 0.5) ?? bottom - view;
   }
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
+}
+
+/// A prompt's videos in order, as its parts carry them, for their tiles (QueuedImages.tsx).
+function promptVideos(entry: QueuedEntry): QueuedVideo[] | undefined {
+  const videos = (entry.inlineParts ?? []).flatMap((part): QueuedVideo[] =>
+    part.kind !== "image" && part.kind !== "text" && part.video
+      ? [{ name: part.name, durationMs: part.video.durationMs, frames: part.video.frames.length }]
+      : [],
+  );
+  return videos.length ? videos : undefined;
 }
 
 /// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
@@ -1027,6 +1037,7 @@ export function ComposerQueue({
       {editing !== entry.id && actions(entry)}
       {/* Under the text, in its column. */}
       <QueuedImages
+        videos={promptVideos(entry)}
         images={
           editing === entry.id ? (entry.images ?? []).filter((image) => !dropped.has(image.id)) : (entry.images ?? [])
         }
