@@ -219,10 +219,11 @@ import UniformTypeIdentifiers
     /// A shared private pasteboard carries the reply's file to the chat's intake (never the user's clipboard).
     @Test func theReplyPasteboardIsPrivateAndCarriesTheFile() throws {
         let url = Self.folder().appendingPathComponent("annotated.png")
+        try Self.png(at: url, width: 40, height: 30)
         let board = HomePictureReply.pasteboard(for: url)
         defer { board.releaseGlobally() }
         #expect(board.name != NSPasteboard.Name.general)
         let urls = board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
-        #expect(urls == [url])
+        #expect(urls?.map { $0.resolvingSymlinksInPath().path } == [url.resolvingSymlinksInPath().path])
     }
 }
