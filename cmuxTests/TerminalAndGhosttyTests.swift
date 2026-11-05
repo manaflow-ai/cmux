@@ -5319,6 +5319,105 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
+    /// Repeated attaches preserve visible state; real changes still apply.
+    func testRepeatedSurfaceAttachPreservesGeometryBackgroundAndBadge() async throws {
+        let surface = makeTrackedTerminalSurface()
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try XCTUnwrap(window.contentView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+        hostedView.setVisibleInUI(true)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        // Runtime creation is asynchronous in the app host. Until it exists the
+        // attach is not a re-attach and must keep running the geometry pass.
+        // This test is async, so it runs as a main-queue job; a nested run loop
+        // cannot drain that queue, so the wait has to suspend instead.
+        let hasRuntimeSurface = await AppKitTestEventPump().waitUntil(timeout: .seconds(8)) {
+            surface.surface != nil
+        }
+        guard hasRuntimeSurface else {
+            XCTFail("Timed out waiting for live runtime surface")
+            return
+        }
+
+        // Settle: the first attaches bind the runtime surface and apply the
+        // initial fill and badge state.
+        hostedView.attachSurface(surface)
+        hostedView.attachSurface(surface)
+        XCTAssertTrue(
+            surface.isAttached(to: hostedView.surfaceView),
+            "The hosted surface must own a live runtime surface for this test"
+        )
+
+        let initialFrame = hostedView.surfaceView.frame
+        let initialBackground = hostedView.backgroundView.layer?.backgroundColor
+        let diagnostics = MobileHostDiagnostics.log
+        // Each interval is marked and measured with no suspension inside it. AppKit
+        // runs `layout()`, which also does a geometry pass, only on a run loop turn,
+        // so these counts see the attaches alone.
+        let unchangedStart = UInt64.random(in: 1...UInt64.max)
+        let unchangedEnd = UInt64.random(in: 1...UInt64.max)
+        let changedStart = UInt64.random(in: 1...UInt64.max)
+        let changedEnd = UInt64.random(in: 1...UInt64.max)
+
+        diagnostics.record(DiagnosticEvent(.error, traceID: unchangedStart))
+        for _ in 0..<5 {
+            hostedView.attachSurface(surface)
+            hostedView.syncKeyStateIndicator(text: surface.currentKeyStateIndicatorText)
+        }
+        diagnostics.record(DiagnosticEvent(.error, traceID: unchangedEnd))
+        XCTAssertEqual(hostedView.surfaceView.frame, initialFrame)
+        XCTAssertEqual(hostedView.backgroundView.layer?.backgroundColor, initialBackground)
+
+        hostedView.syncKeyStateIndicator(text: "copy")
+        hostedView.syncKeyStateIndicator(text: "copy")
+        XCTAssertEqual(hostedView.keyboardCopyModeBadgeLabel.stringValue, "copy")
+
+        hostedView.setBackgroundColor(.systemRed)
+        hostedView.setBackgroundColor(.systemRed)
+        XCTAssertEqual(hostedView.backgroundView.layer?.backgroundColor, NSColor.systemRed.cgColor)
+
+        diagnostics.record(DiagnosticEvent(.error, traceID: changedStart))
+        hostedView.frame.size.width -= 40
+        hostedView.attachSurface(surface)
+        diagnostics.record(DiagnosticEvent(.error, traceID: changedEnd))
+        XCTAssertLessThan(hostedView.surfaceView.frame.width, initialFrame.width)
+
+        while await !diagnostics.snapshot().events.contains(where: { $0.traceID == changedEnd }) {
+            await Task.yield()
+        }
+        let events = await diagnostics.snapshot().events
+        func layoutPasses(from start: UInt64, to end: UInt64) throws -> Int {
+            let startIndex = try XCTUnwrap(events.firstIndex { $0.traceID == start })
+            let endIndex = try XCTUnwrap(events.firstIndex { $0.traceID == end })
+            return events[(startIndex + 1)..<endIndex].filter {
+                $0.code == .terminalWorkStarted && $0.terminalWork?.phase == .layout
+            }.count
+        }
+        XCTAssertEqual(
+            try layoutPasses(from: unchangedStart, to: unchangedEnd),
+            0,
+            "unchanged attachments must skip geometry work"
+        )
+        XCTAssertEqual(
+            try layoutPasses(from: changedStart, to: changedEnd),
+            1,
+            "the width change must run one geometry pass"
+        )
+    }
+
     func testPreferredScrollerStyleChangePreservesSystemScrollbarStyle() {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView

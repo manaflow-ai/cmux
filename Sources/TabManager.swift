@@ -795,12 +795,15 @@ class TabManager: ObservableObject {
 #endif
     }
 
+    private var agentPIDSweepTask: Task<Void, Never>?
+
     deinit {
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
         observers.removeAll()
         agentPIDSweepTimer?.cancel()
+        agentPIDSweepTask?.cancel()
         // The sidebar git/PR services cancel their own poll, probe, snapshot,
         // and refresh tasks in their deinits; they deallocate with this
         // TabManager (the host back-references are weak).
@@ -881,9 +884,33 @@ class TabManager: ObservableObject {
     }
 
 
+    /// Reads the recorded agent PIDs on main, checks them against the process
+    /// table on a utility queue, and clears the stale ones back on main. The
+    /// `sysctl` per agent PID used to run on the main thread for every workspace.
     private func sweepStaleAgentPIDs() {
-        for tab in tabs {
-            tab.clearStaleAgentPIDs()
+        guard agentPIDSweepTask == nil else { return }
+        let probesByWorkspace = tabs.map { ($0.id, $0.agentPIDLivenessProbes()) }
+        let probeTask = Task.detached(priority: .utility) {
+            probesByWorkspace.map { workspaceId, probes in
+                (workspaceId, Workspace.staleAgentPIDProbes(probes))
+            }
+        }
+        agentPIDSweepTask = Task { @MainActor [weak self] in
+            let staleByWorkspace = await withTaskCancellationHandler {
+                await probeTask.value
+            } onCancel: {
+                probeTask.cancel()
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.agentPIDSweepTask = nil
+            self.clearStaleAgentPIDs(staleByWorkspace)
+        }
+    }
+
+    private func clearStaleAgentPIDs(_ staleByWorkspace: [(UUID, [Workspace.AgentPIDLivenessProbe])]) {
+        let workspacesById = Dictionary(tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for (workspaceId, stale) in staleByWorkspace {
+            workspacesById[workspaceId]?.clearStaleAgentPIDs(confirmedStale: stale)
         }
     }
 

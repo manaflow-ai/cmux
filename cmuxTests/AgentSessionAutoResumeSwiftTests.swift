@@ -370,6 +370,86 @@ struct AgentSessionAutoResumeSwiftTests {
     }
 
     @MainActor
+    @Test func agentPIDSweepChecksLivenessOffMainAndClearsOnlyUnchangedRecords() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let livePid = getpid()
+        let liveIdentity = try #require(Workspace.agentPIDProcessIdentity(pid: livePid))
+        let replacedIdentity = AgentPIDProcessIdentity(
+            pid: livePid,
+            startSeconds: liveIdentity.startSeconds &- 1,
+            startMicroseconds: liveIdentity.startMicroseconds
+        )
+        workspace.adoptDetachedAgentRuntimeState(
+            Workspace.DetachedAgentRuntimeState(
+                panelId: panelId,
+                statusEntries: [:],
+                agentPIDs: ["sweep-live": livePid, "sweep-replaced": livePid, "sweep-rerecorded": livePid],
+                agentPIDProcessIdentities: [
+                    "sweep-live": liveIdentity,
+                    "sweep-replaced": replacedIdentity,
+                    "sweep-rerecorded": replacedIdentity,
+                ],
+                agentPIDKeys: ["sweep-live", "sweep-replaced", "sweep-rerecorded"]
+            )
+        )
+
+        let probes = workspace.agentPIDLivenessProbes()
+        var identityReads = 0
+        let stale = Workspace.staleAgentPIDProbes(probes) { pid in
+            identityReads += 1
+            return pid == livePid ? liveIdentity : nil
+        }
+        #expect(identityReads == 3)
+        #expect(Set(stale.map(\.key)) == ["sweep-replaced", "sweep-rerecorded"])
+
+        // The agent re-registered while the check ran off main: keep its new record.
+        workspace.adoptDetachedAgentRuntimeState(
+            Workspace.DetachedAgentRuntimeState(
+                panelId: panelId,
+                statusEntries: [:],
+                agentPIDs: ["sweep-rerecorded": livePid],
+                agentPIDProcessIdentities: ["sweep-rerecorded": liveIdentity],
+                agentPIDKeys: ["sweep-rerecorded"]
+            )
+        )
+        #expect(workspace.clearStaleAgentPIDs(confirmedStale: stale, refreshPorts: false))
+        #expect(workspace.agentPIDs["sweep-replaced"] == nil)
+        #expect(workspace.agentPIDs["sweep-live"] == livePid)
+        #expect(workspace.agentPIDs["sweep-rerecorded"] == livePid)
+        #expect(workspace.agentPIDProcessIdentitiesByKey["sweep-rerecorded"] == liveIdentity)
+    }
+
+    @MainActor
+    @Test func agentPIDSweepPreservesARecordMovedToAnotherPanel() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let originalPanelId = try #require(workspace.focusedPanelId)
+        let nextPanelId = UUID()
+        let pid = getpid()
+        let identity = try #require(Workspace.agentPIDProcessIdentity(pid: pid))
+        workspace.adoptDetachedAgentRuntimeState(.init(
+            panelId: originalPanelId,
+            statusEntries: [:],
+            agentPIDs: ["moved-agent": pid],
+            agentPIDProcessIdentities: ["moved-agent": identity],
+            agentPIDKeys: ["moved-agent"]
+        ))
+        let probes = workspace.agentPIDLivenessProbes()
+        workspace.adoptDetachedAgentRuntimeState(.init(
+            panelId: nextPanelId,
+            statusEntries: [:],
+            agentPIDs: ["moved-agent": pid],
+            agentPIDProcessIdentities: ["moved-agent": identity],
+            agentPIDKeys: ["moved-agent"]
+        ))
+
+        #expect(!workspace.clearStaleAgentPIDs(confirmedStale: probes, refreshPorts: false))
+        #expect(workspace.agentPIDs["moved-agent"] == pid)
+        #expect(workspace.agentPIDPanelIdsByKey["moved-agent"] == nextPanelId)
+    }
+
+    @MainActor
     @Test func claudeAgentHookResumeBindingRestoresFromLaunchCwdWhenRuntimeCwdDrifted() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard

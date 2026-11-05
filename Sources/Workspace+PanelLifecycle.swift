@@ -222,6 +222,60 @@ extension Workspace {
         return didChange
     }
 
+    /// One recorded agent PID, captured on the main actor for an off-main liveness check.
+    struct AgentPIDLivenessProbe: Equatable, Sendable {
+        let key: String
+        let pid: pid_t
+        let recordedIdentity: AgentPIDProcessIdentity?
+        let panelId: UUID?
+    }
+
+    /// The recorded agent PIDs the periodic sweep checks off the main actor.
+    func agentPIDLivenessProbes() -> [AgentPIDLivenessProbe] {
+        agentPIDs.map { key, pid in
+            AgentPIDLivenessProbe(
+                key: key, pid: pid,
+                recordedIdentity: agentPIDProcessIdentitiesByKey[key],
+                panelId: agentPIDPanelIdsByKey[key]
+            )
+        }
+    }
+
+    /// Off-main half of the sweep: the probes whose process is gone or was
+    /// replaced. Each live check is a `sysctl` process-table read.
+    nonisolated static func staleAgentPIDProbes(
+        _ probes: [AgentPIDLivenessProbe],
+        currentIdentity: (pid_t) -> AgentPIDProcessIdentity? = { AgentPIDProcessIdentity(pid: $0) }
+    ) -> [AgentPIDLivenessProbe] {
+        probes.filter { probe in
+            guard probe.pid > 0, let recorded = probe.recordedIdentity else { return true }
+            return currentIdentity(probe.pid) != recorded
+        }
+    }
+
+    /// Main-actor half of the sweep: clears the stale probes whose record has
+    /// not changed since they were captured, then prunes like `clearStaleAgentPIDs()`.
+    @discardableResult
+    func clearStaleAgentPIDs(confirmedStale probes: [AgentPIDLivenessProbe], refreshPorts: Bool = true) -> Bool {
+        var didChange = false
+        for probe in probes
+        where agentPIDs[probe.key] == probe.pid
+            && agentPIDProcessIdentitiesByKey[probe.key] == probe.recordedIdentity
+            && agentPIDPanelIdsByKey[probe.key] == probe.panelId {
+            if clearAgentPID(key: probe.key, panelId: probe.panelId, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        if didChange {
+            if refreshPorts { refreshTrackedAgentPorts() }
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
+        }
+        if let store = AppDelegate.shared?.notificationStore {
+            pruneOrphanedRestoredAgentNotifications(store: store)
+        }
+        return didChange
+    }
+
     @discardableResult
     func clearStaleAgentPIDs(panelId: UUID, refreshPorts: Bool = true) -> Bool {
         let keys = agentPIDKeysByPanelId[panelId] ?? []

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import Foundation
 import Observation
@@ -15,13 +16,13 @@ import Observation
 final class PaneMemoryGuardrail {
     static let shared = PaneMemoryGuardrail()
 
-    private static let enabledSetting = SettingCatalog().terminal.runawayMemoryGuardrailEnabled
-    private static let thresholdGBSetting = SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB
+    nonisolated private static let enabledSetting = SettingCatalog().terminal.runawayMemoryGuardrailEnabled
+    nonisolated private static let thresholdGBSetting = SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB
     private static let pollInterval: TimeInterval = 4
     private static let scopedScanInterval: TimeInterval = 15
-    private static let defaultThresholdGB: Double = 8
-    private static let thresholdRangeGB: ClosedRange<Double> = 1...256
-    private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
+    nonisolated private static let defaultThresholdGB: Double = 8
+    nonisolated private static let thresholdRangeGB: ClosedRange<Double> = 1...256
+    nonisolated private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
 
     /// Supplies the live pane set each tick (main-actor; reads ghostty/tty).
     @ObservationIgnored
@@ -41,6 +42,13 @@ final class PaneMemoryGuardrail {
     private var lastScopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
     @ObservationIgnored
     private var lastScopedScanAt = Date.distantPast
+    @ObservationIgnored
+    private var isReadingSettings = false
+    @ObservationIgnored
+    private let settingsReadQueue = DispatchQueue(
+        label: "com.cmux.pane-memory-guardrail.settings",
+        qos: .utility
+    )
 
     func start() {
         guard timer == nil else { return }
@@ -51,7 +59,7 @@ final class PaneMemoryGuardrail {
             leeway: .seconds(1)
         )
         timer.setEventHandler { [weak self] in
-            Task { @MainActor in self?.tick() }
+            Task { @MainActor in await self?.tick() }
         }
         self.timer = timer
         timer.resume()
@@ -59,30 +67,51 @@ final class PaneMemoryGuardrail {
 
     // MARK: Settings
 
-    private var isEnabled: Bool {
-        Self.enabledSetting.value(in: .standard)
+    nonisolated static func readSettings(in defaults: UserDefaults) -> Settings {
+        let rawThresholdGB = thresholdGBSetting.value(in: defaults)
+        let gb = rawThresholdGB.isFinite
+            ? min(max(rawThresholdGB, thresholdRangeGB.lowerBound), thresholdRangeGB.upperBound)
+            : defaultThresholdGB
+        return Settings(
+            isEnabled: enabledSetting.value(in: defaults),
+            thresholdBytes: Int64(gb * bytesPerGB)
+        )
     }
 
-    private func thresholdBytes() -> Int64 {
-        let raw = Self.thresholdGBSetting.value(in: .standard)
-        let gb = raw.isFinite ? min(max(raw, Self.thresholdRangeGB.lowerBound), Self.thresholdRangeGB.upperBound) : Self.defaultThresholdGB
-        return Int64(gb * Self.bytesPerGB)
+    struct Settings: Equatable, Sendable {
+        let isEnabled: Bool
+        let thresholdBytes: Int64
     }
 
     // MARK: Tick
 
-    private func tick() {
-        guard isEnabled else {
+    private func tick() async {
+        guard !isReadingSettings else { return }
+        isReadingSettings = true
+        defer { isReadingSettings = false }
+        // Read authoritative preferences off main on each tick. A notification
+        // cache misses writes by other processes, and preferences can block.
+        let settings = await withCheckedContinuation { continuation in
+            settingsReadQueue.async {
+                continuation.resume(returning: Self.readSettings(in: .standard))
+            }
+        }
+        guard settings.isEnabled else {
             clearAll()
             return
         }
-        guard !isScanning, let paneProvider else { return }
+        guard !isScanning else { return }
+        isScanning = true
+        guard let paneProvider else {
+            isScanning = false
+            return
+        }
         let descriptors = paneProvider()
         guard !descriptors.isEmpty else {
             clearAll()
             return
         }
-        let thresholdBytes = thresholdBytes()
+        let thresholdBytes = settings.thresholdBytes
         let includeCMUXScope = consumeScopedScanIfDue(now: Date())
         isScanning = true
         let sampleTask = Task.detached(priority: .utility) {

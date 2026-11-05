@@ -141,6 +141,103 @@ struct SidebarWorkspaceRowHeightCacheRegressionTests {
         #expect(tailModel.hasHeightEquivalentContent(to: headModel))
     }
 
+    /// https://github.com/manaflow-ai/cmux/issues/22706: creating or closing
+    /// a workspace changes `accessibilityWorkspaceCount` on every row, and
+    /// holding the shortcut-hint modifier changes every row's hint. Keying
+    /// the cache on those re-measured the whole list through the prototype
+    /// cell on the main actor, the hang Sentry recorded under
+    /// `prepareHostedRows`.
+    @Test
+    func listWidePresentationChangesDoNotRemeasureRows() {
+        let cache = SidebarWorkspaceTableRowHeightCache()
+        let models = (0..<5).map { index in
+            var model = SidebarWorkspaceRowSuspensionTests.makeModel(
+                customDescription: "This workspace description wraps across several sidebar lines"
+            )
+            model.index = index
+            model.isFirstRow = index == 0
+            model.unreadCount = index % 2
+            return model
+        }
+        var measured = 0
+        _ = cache.prepare(rows: models.map(makeConfiguration), columnWidth: 300) { _, _ in
+            measured += 1
+            return 57
+        }
+        #expect(measured == 5)
+
+        let repainted = models.enumerated().map { index, model in
+            var next = model
+            next.accessibilityWorkspaceCount = 6
+            next.shortcutHintText = "⌘\(index + 1)"
+            next.showsShortcutHints = true
+            next.unreadCount = model.unreadCount * 4
+            next.rowSpacing = 4
+            next.isBeingDragged = index == 2
+            next.topDropIndicatorVisible = index == 3
+            next.bottomDropIndicatorVisible = index == 4
+            return makeConfiguration(model: next)
+        }
+        measured = 0
+        let changed = cache.prepare(rows: repainted, columnWidth: 300) { _, _ in
+            measured += 1
+            return 57
+        }
+        #expect(measured == 0, "presentation-only changes must not re-measure any row")
+        #expect(changed.isEmpty)
+    }
+
+    @Test
+    func unreadBadgeVisibilityStillRemeasures() {
+        let cache = SidebarWorkspaceTableRowHeightCache()
+        let model = SidebarWorkspaceRowSuspensionTests.makeModel()
+        _ = cache.prepare(rows: [makeConfiguration(model: model)], columnWidth: 300) { _, _ in 40 }
+        var unread = model
+        unread.unreadCount = 1
+        var measured = 0
+        _ = cache.prepare(rows: [makeConfiguration(model: unread)], columnWidth: 300) { _, _ in
+            measured += 1
+            return 40
+        }
+        #expect(measured == 1, "the badge appearing can change the title line")
+    }
+
+    /// Pins the premise of the fields `hasHeightEquivalentContent`
+    /// neutralizes beyond position: none may change the measured height.
+    @Test
+    func presentationFieldsDoNotAffectMeasuredCellHeight() {
+        var base = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: Array(
+                repeating: "wraps across several sidebar lines to exceed the estimate",
+                count: 4
+            ).joined(separator: " ")
+        )
+        base.unreadCount = 1
+        var variant = base
+        variant.accessibilityWorkspaceCount = 40
+        variant.unreadCount = 99
+        variant.shortcutHintText = "⌘9"
+        variant.showsShortcutHints = true
+        variant.rowSpacing = 2
+        variant.isBeingDragged = true
+        variant.topDropIndicatorVisible = true
+        variant.bottomDropIndicatorVisible = true
+        #expect(base.hasHeightEquivalentContent(to: variant))
+
+        func measuredHeight(_ model: SidebarWorkspaceRowModel) -> CGFloat {
+            let cell = SidebarWorkspaceRowTableCellView()
+            cell.configure(
+                model: model,
+                actions: SidebarWorkspaceRowSuspensionTests.makeActions(model: model),
+                isPointerHovering: false,
+                contextMenuDidOpen: {},
+                contextMenuDidClose: {}
+            )
+            return cell.layoutContent(model: model, width: 300, apply: false)
+        }
+        #expect(measuredHeight(base) == measuredHeight(variant))
+    }
+
     private func makeConfiguration(
         model: SidebarWorkspaceRowModel
     ) -> SidebarWorkspaceTableRowConfiguration {

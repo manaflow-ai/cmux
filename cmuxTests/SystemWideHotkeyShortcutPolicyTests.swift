@@ -277,3 +277,18 @@ extension GlobalSearchShortcutBehaviorTests {
     }
     }
 }
+
+@Suite struct ShortcutInputSourceSnapshotTests {
+    @Test func oneScanAcquiresEachInputSourceOnlyOnce() {
+        var selectedReads = 0
+        var fallbackReads = 0
+        let resolver = KeyboardLayout.shortcutCharacterResolver(
+            currentSource: { selectedReads += 1; return nil },
+            asciiSource: { fallbackReads += 1; return nil }
+        )
+        let stroke = ShortcutStroke(key: "k", command: true, shift: false, option: false, control: false)
+        #expect(stroke.resolvedKeyCode(layoutCharacterProvider: resolver) == 40)
+        #expect(selectedReads == 1)
+        #expect(fallbackReads == 1)
+    }
+}

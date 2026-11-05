@@ -43,4 +43,25 @@ struct TerminalRendererWindowVisibilityTests {
         #expect(!visible(onScreen: false))
         #expect(!visible(activeSpace: false))
     }
+
+    @Test func activeSpaceIsQueriedOnlyWhenNoEarlierInputDecides() {
+        var queries = 0
+        func visible(occlusion: Bool, reported: Bool, onScreen: Bool, key: Bool) -> Bool {
+            TerminalRendererWindowVisibility.isVisible(
+                occlusionVisible: occlusion,
+                windowHasReportedVisible: reported,
+                isWindowVisible: onScreen,
+                isMiniaturized: false,
+                isKeyWindow: key,
+                isOnActiveSpace: { queries += 1; return false }
+            )
+        }
+        #expect(visible(occlusion: true, reported: true, onScreen: true, key: false))
+        #expect(visible(occlusion: false, reported: false, onScreen: true, key: true))
+        #expect(!visible(occlusion: false, reported: true, onScreen: true, key: false))
+        #expect(!visible(occlusion: false, reported: false, onScreen: false, key: false))
+        #expect(queries == 0)
+        #expect(!visible(occlusion: false, reported: false, onScreen: true, key: false))
+        #expect(queries == 1)
+    }
 }

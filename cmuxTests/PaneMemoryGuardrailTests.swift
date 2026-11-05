@@ -421,4 +421,22 @@ struct PaneMemoryGuardrailTests {
         #expect(selectedWorkspaceIds.contains(firstWorkspace.id))
         #expect(selectedWorkspaceIds.contains(backgroundWorkspace.id))
     }
+
+    @Test
+    func guardrailSettingsReadTheCurrentPersistentValues() throws {
+        let suiteName = "cmux.paneMemoryGuardrail.settings.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "terminal.runawayMemoryGuardrail.enabled")
+        defaults.set(4.0, forKey: "terminal.runawayMemoryGuardrail.thresholdGB")
+        #expect(PaneMemoryGuardrail.readSettings(in: defaults) ==
+            .init(isEnabled: true, thresholdBytes: 4 * gb))
+
+        defaults.setPersistentDomain([
+            "terminal.runawayMemoryGuardrail.enabled": false,
+            "terminal.runawayMemoryGuardrail.thresholdGB": 9_999.0,
+        ], forName: suiteName)
+        #expect(PaneMemoryGuardrail.readSettings(in: defaults) ==
+            .init(isEnabled: false, thresholdBytes: 256 * gb))
+    }
 }

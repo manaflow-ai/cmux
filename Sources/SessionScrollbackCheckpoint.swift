@@ -26,7 +26,8 @@ import os
 //   The export itself is Ghostty formatting that terminal's whole scrollback
 //   under its renderer lock, so one export is the unit that cannot be split.
 // - One file per terminal, so an unchanged terminal costs nothing and nothing
-//   is cached in memory between checkpoints.
+//   is cached in memory between checkpoints. The per-terminal session policy
+//   check runs only for terminals with new output or with a checkpoint file.
 // - After a restore, the restored scrollback is written back as checkpoints
 //   for the new panels, so a second crash does not lose it.
 // - Restore merges checkpoints into the startup snapshot only after an unclean
@@ -69,8 +70,6 @@ enum SessionScrollbackCheckpointPolicy {
 
     struct Candidate: Equatable, Sendable {
         let panelId: UUID
-        /// False when the session policy would not persist this terminal's scrollback right now.
-        let isEligible: Bool
         /// Whether the terminal produced output since its last capture; nil when it has no live runtime.
         let hasPendingOutput: Bool?
     }
@@ -82,49 +81,88 @@ enum SessionScrollbackCheckpointPolicy {
         var removals: Set<UUID>
         /// Every live terminal; checkpoint files for other panels are pruned.
         var livePanelIds: Set<UUID>
+        /// Live terminals that may still have a checkpoint file after the removals.
+        /// Captures add to it once their export starts.
+        var checkpointedPanelIds: Set<UUID>
     }
 
+    /// Plans one checkpoint.
+    ///
+    /// Eligibility is the expensive per-terminal session policy (agent and resume
+    /// bindings, process liveness, foreground process), so `isEligible` runs only
+    /// for terminals that matter this time: pending terminals in capture order
+    /// until `maxCaptures` are eligible, and terminals that may have a checkpoint
+    /// file a removal must delete. An idle terminal without a checkpoint costs
+    /// nothing. `checkpointedPanelIds` nil means the files on disk are not known
+    /// yet, so every live terminal may have one.
     static func plan(
         candidates: [Candidate],
+        checkpointedPanelIds: Set<UUID>?,
+        isEligible: (UUID) -> Bool,
         lastCapturedAt: [UUID: TimeInterval],
         deferredUntil: [UUID: TimeInterval] = [:],
         now: TimeInterval = 0,
         maxCaptures: Int = SessionScrollbackCheckpointPolicy.maxCapturesPerCheckpoint
     ) -> Plan {
-        var removals = Set<UUID>()
-        var pending: [UUID] = []
-        for candidate in candidates {
-            if !candidate.isEligible {
-                removals.insert(candidate.panelId)
-            } else if candidate.hasPendingOutput == true,
-                      (deferredUntil[candidate.panelId] ?? -.infinity) <= now {
-                pending.append(candidate.panelId)
-            }
+        var eligibility: [UUID: Bool] = [:]
+        func eligible(_ panelId: UUID) -> Bool {
+            if let known = eligibility[panelId] { return known }
+            let value = isEligible(panelId)
+            eligibility[panelId] = value
+            return value
         }
-        let captureLimit = max(0, maxCaptures)
         func isEarlier(_ lhs: UUID, than rhs: UUID) -> Bool {
             let lhsAt = lastCapturedAt[lhs] ?? -.infinity
             let rhsAt = lastCapturedAt[rhs] ?? -.infinity
             if lhsAt != rhsAt { return lhsAt < rhsAt }
             return lhs.uuidString < rhs.uuidString
         }
-        var selected: [UUID] = []
-        if captureLimit > 0 {
-            for panelId in pending {
-                let insertionIndex = selected.firstIndex { isEarlier(panelId, than: $0) }
-                    ?? selected.count
-                if selected.count < captureLimit {
-                    selected.insert(panelId, at: insertionIndex)
-                } else if let last = selected.last, isEarlier(panelId, than: last) {
-                    selected.removeLast()
-                    selected.insert(panelId, at: insertionIndex)
+
+        let livePanelIds = Set(candidates.map(\.panelId))
+        var pending = candidates.compactMap { candidate -> UUID? in
+            guard candidate.hasPendingOutput == true,
+                  (deferredUntil[candidate.panelId] ?? -.infinity) <= now else { return nil }
+            return candidate.panelId
+        }
+        // Heapify in linear time, then inspect the oldest pending terminals
+        // only until enough eligible captures are found. Selecting top-k before
+        // eligibility would let ineligible terminals starve later candidates.
+        func siftDown(from start: Int) {
+            var parent = start
+            while parent * 2 + 1 < pending.count {
+                var child = parent * 2 + 1
+                if child + 1 < pending.count, isEarlier(pending[child + 1], than: pending[child]) {
+                    child += 1
                 }
+                guard isEarlier(pending[child], than: pending[parent]) else { return }
+                pending.swapAt(parent, child)
+                parent = child
             }
+        }
+        if pending.count > 1 {
+            for index in stride(from: pending.count / 2 - 1, through: 0, by: -1) {
+                siftDown(from: index)
+            }
+        }
+        let captureLimit = max(0, maxCaptures)
+        var selected: [UUID] = []
+        while selected.count < captureLimit, let panelId = pending.first {
+            pending.swapAt(0, pending.count - 1)
+            pending.removeLast()
+            if !pending.isEmpty { siftDown(from: 0) }
+            if eligible(panelId) { selected.append(panelId) }
+        }
+
+        let mayHaveCheckpoint = checkpointedPanelIds?.intersection(livePanelIds) ?? livePanelIds
+        var removals = Set<UUID>()
+        for panelId in mayHaveCheckpoint where !eligible(panelId) {
+            removals.insert(panelId)
         }
         return Plan(
             captures: selected,
             removals: removals,
-            livePanelIds: Set(candidates.map(\.panelId))
+            livePanelIds: livePanelIds,
+            checkpointedPanelIds: mayHaveCheckpoint.subtracting(removals)
         )
     }
 }
@@ -258,12 +296,12 @@ struct SessionScrollbackCheckpointStore: Sendable {
     }
 
     /// Writes captures, deletes removals and prunes files of panels that no longer exist.
-    /// Returns the surfaces whose capture could not be persisted.
+    /// Returns failed capture and deletion IDs so callers can retry both.
     @discardableResult
     func apply(
         _ batch: SessionScrollbackCheckpointWriteBatch,
         fileManager: FileManager = .default
-    ) -> Set<UUID> {
+    ) -> WriteResult {
         var removals = batch.removals
         var failedSurfaceIds = Set<UUID>()
         if !batch.captures.isEmpty {
@@ -297,13 +335,30 @@ struct SessionScrollbackCheckpointStore: Sendable {
                 failedSurfaceIds.insert(capture.surfaceId)
             }
         }
+        var failedRemovalIds = Set<UUID>()
         for panelId in removals {
-            try? fileManager.removeItem(at: fileURL(panelId: panelId))
+            do {
+                try fileManager.removeItem(at: fileURL(panelId: panelId))
+            } catch let error as CocoaError where error.code == .fileNoSuchFile {
+                // Already absent is a successful removal.
+            } catch {
+                failedRemovalIds.insert(panelId)
+            }
+        }
+        // Empty captures delete an old checkpoint too. Retry the capture if
+        // that deletion failed, even if no more PTY output arrives.
+        for capture in batch.captures where failedRemovalIds.contains(capture.panelId) {
+            failedSurfaceIds.insert(capture.surfaceId)
         }
         if let livePanelIds = batch.livePanelIds {
             prune(keeping: livePanelIds, fileManager: fileManager)
         }
-        return failedSurfaceIds
+        return WriteResult(failedSurfaceIds: failedSurfaceIds, failedRemovalIds: failedRemovalIds)
+    }
+
+    struct WriteResult: Sendable {
+        let failedSurfaceIds: Set<UUID>
+        let failedRemovalIds: Set<UUID>
     }
 
     /// Applies `batch` and leaves every failed capture pending for the next checkpoint.
@@ -311,8 +366,36 @@ struct SessionScrollbackCheckpointStore: Sendable {
         _ batch: SessionScrollbackCheckpointWriteBatch,
         activity: TerminalScrollbackCheckpointActivity
     ) {
-        for surfaceId in apply(batch) {
+        for surfaceId in apply(batch).failedSurfaceIds {
             activity.markPending(surfaceID: surfaceId)
+        }
+    }
+
+    /// Writes `batch` on `queue` without blocking the caller: removals first, so a
+    /// slow capture never delays deleting stale scrollback. `completion` runs on
+    /// main with the panel IDs whose removal failed.
+    func enqueue(
+        _ batch: SessionScrollbackCheckpointWriteBatch,
+        on queue: DispatchQueue,
+        activity: TerminalScrollbackCheckpointActivity,
+        completion: @escaping @MainActor @Sendable (Set<UUID>) -> Void
+    ) {
+        queue.async {
+            let failedRemovals = batch.removals.isEmpty
+                ? Set<UUID>()
+                : apply(SessionScrollbackCheckpointWriteBatch(
+                    captures: [],
+                    removals: batch.removals,
+                    livePanelIds: nil
+                )).failedRemovalIds
+            applyMarkingFailuresPending(SessionScrollbackCheckpointWriteBatch(
+                captures: batch.captures,
+                removals: [],
+                livePanelIds: batch.livePanelIds
+            ), activity: activity)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { completion(failedRemovals) }
+            }
         }
     }
 
@@ -327,6 +410,30 @@ struct SessionScrollbackCheckpointStore: Sendable {
             }
             try? fileManager.removeItem(at: url)
         }
+    }
+
+    /// Panels that have a checkpoint file. Lists the directory; call off the main thread.
+    func checkpointedPanelIds(fileManager: FileManager = .default) -> Set<UUID>? {
+        let names: [String]
+        do {
+            names = try fileManager.contentsOfDirectory(atPath: directoryURL.path)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            return []
+        } catch {
+            // Unknown is conservative: keep checking live panels until a
+            // later checkpoint can establish which files remain.
+            return nil
+        }
+        var panelIds = Set<UUID>()
+        for name in names {
+            let url = directoryURL.appendingPathComponent(name, isDirectory: false)
+            guard url.pathExtension == "json",
+                  let panelId = UUID(uuidString: url.deletingPathExtension().lastPathComponent) else {
+                continue
+            }
+            panelIds.insert(panelId)
+        }
+        return panelIds
     }
 
     /// Startup step, run once before the restore decision (also when restore is skipped).
@@ -460,7 +567,9 @@ final class SessionScrollbackCheckpointCoordinator {
     struct Candidate {
         let panelId: UUID
         let surfaceId: UUID
-        let isEligible: Bool
+        /// Whether the session policy would persist this terminal's scrollback
+        /// right now. Evaluated only when the plan needs it; see `SessionScrollbackCheckpointPolicy.plan`.
+        let isEligible: () -> Bool
         /// Main-thread half of the capture (Ghostty's VT export). Returns the
         /// off-main reader and a cheap discard for the export file, or nil on failure.
         let beginCapture: () -> SessionScrollbackCheckpointExport?
@@ -483,8 +592,12 @@ final class SessionScrollbackCheckpointCoordinator {
         var candidates: () -> [Candidate]
         /// Defers work to a later main-queue turn.
         var scheduleNextCapture: (@escaping @MainActor () -> Void) -> Void
-        /// Hands the batch to background I/O.
-        var persist: (SessionScrollbackCheckpointWriteBatch) -> Void
+        /// Queues a batch for background I/O and returns without waiting for it.
+        /// `completion` gets the panel IDs whose removal failed once it is written.
+        var persist: (
+            SessionScrollbackCheckpointWriteBatch,
+            @escaping @MainActor @Sendable (Set<UUID>) -> Void
+        ) -> Void
     }
 
     private let environment: Environment
@@ -492,7 +605,15 @@ final class SessionScrollbackCheckpointCoordinator {
     private var lastCheckpointAt: TimeInterval
     private var lastCapturedAt: [UUID: TimeInterval] = [:]
     private var deferredUntil: [UUID: TimeInterval] = [:]
-    private(set) var isCheckpointInFlight = false
+    /// Panels that may have a checkpoint file; nil until the store's files are known.
+    private(set) var checkpointedPanelIds: Set<UUID>?
+    /// Panels given a file before a listing succeeded; a listing may not include them yet.
+    private var writtenBeforeListing: Set<UUID> = []
+    /// Unfinished parts of the running checkpoint: its capture chain and any queued writes.
+    private var unfinishedCheckpointSteps = 0
+    var isCheckpointInFlight: Bool { unfinishedCheckpointSteps > 0 }
+    /// True until a listing succeeds, so its owner can try again.
+    var needsCheckpointListing: Bool { checkpointedPanelIds == nil }
 
     init(
         environment: Environment,
@@ -504,10 +625,20 @@ final class SessionScrollbackCheckpointCoordinator {
         self.lastCheckpointAt = environment.uptime()
     }
 
+    /// Adds the panels the store already has files for (a previous launch's
+    /// checkpoints, listed off the main thread), so later plans can skip
+    /// eligibility for terminals without a file.
+    func noteExistingCheckpoints(_ panelIds: Set<UUID>?) {
+        guard let panelIds else { return }
+        checkpointedPanelIds = (checkpointedPanelIds ?? []).union(panelIds).union(writtenBeforeListing)
+        writtenBeforeListing = []
+    }
+
     /// Writes already-known scrollback (a just-restored session) as checkpoints
     /// without a VT export, so a crash before the next checkpoint keeps it.
     func seed(_ seeds: [Seed]) {
         guard !seeds.isEmpty else { return }
+        noteHasCheckpoint(seeds.map(\.panelId))
         let capturedAt = environment.wallClock()
         environment.persist(SessionScrollbackCheckpointWriteBatch(
             captures: seeds.map { seed in
@@ -521,7 +652,19 @@ final class SessionScrollbackCheckpointCoordinator {
             },
             removals: [],
             livePanelIds: nil
-        ))
+        ), { _ in })
+    }
+
+    private func noteHasCheckpoint(_ panelIds: some Sequence<UUID>) {
+        if checkpointedPanelIds == nil {
+            writtenBeforeListing.formUnion(panelIds)
+        } else {
+            checkpointedPanelIds?.formUnion(panelIds)
+        }
+    }
+
+    private func finishCheckpointStep() {
+        unfinishedCheckpointSteps -= 1
     }
 
     /// Cheap unless a checkpoint is due; safe to call from the 8 s autosave timer.
@@ -544,14 +687,19 @@ final class SessionScrollbackCheckpointCoordinator {
             candidates: candidates.map {
                 SessionScrollbackCheckpointPolicy.Candidate(
                     panelId: $0.panelId,
-                    isEligible: $0.isEligible,
                     hasPendingOutput: activity.hasPendingOutput(surfaceID: $0.surfaceId)
                 )
             },
+            checkpointedPanelIds: checkpointedPanelIds,
+            isEligible: { candidatesById[$0]?.isEligible() ?? false },
             lastCapturedAt: lastCapturedAt,
             deferredUntil: deferredUntil,
             now: now
         )
+        // A plan made without a listing can't say which files exist; stay unknown.
+        if checkpointedPanelIds != nil {
+            checkpointedPanelIds = plan.checkpointedPanelIds
+        }
         lastCapturedAt = lastCapturedAt.filter { plan.livePanelIds.contains($0.key) }
         deferredUntil = deferredUntil.filter { plan.livePanelIds.contains($0.key) && $0.value > now }
 
@@ -559,7 +707,20 @@ final class SessionScrollbackCheckpointCoordinator {
         for candidate in planned {
             activity.clearRecentOutput(surfaceID: candidate.surfaceId)
         }
-        isCheckpointInFlight = true
+        unfinishedCheckpointSteps = 1
+        // Stale files go first: captures can take several main-queue turns, and
+        // this queue position puts the removals ahead of anything they write.
+        if !plan.removals.isEmpty {
+            unfinishedCheckpointSteps += 1
+            environment.persist(SessionScrollbackCheckpointWriteBatch(
+                captures: [],
+                removals: plan.removals,
+                livePanelIds: nil
+            ), { [weak self] failedRemovals in
+                self?.noteHasCheckpoint(failedRemovals)
+                self?.finishCheckpointStep()
+            })
+        }
         // Start one main-queue turn later so output teed before the settle
         // window opened has a chance to reach Ghostty's parser.
         environment.scheduleNextCapture { [weak self] in
@@ -582,7 +743,7 @@ final class SessionScrollbackCheckpointCoordinator {
                 capture.discard()
                 activity.markPending(surfaceID: capture.surfaceId)
             }
-            isCheckpointInFlight = false
+            finishCheckpointStep()
             return
         }
         guard let candidate = remaining.first,
@@ -593,10 +754,11 @@ final class SessionScrollbackCheckpointCoordinator {
             // Unstarted captures keep their pending flag for the next checkpoint.
             environment.persist(SessionScrollbackCheckpointWriteBatch(
                 captures: captured,
-                removals: plan.removals,
+                removals: [],
                 livePanelIds: plan.livePanelIds
-            ))
-            isCheckpointInFlight = false
+            ), { [weak self] _ in
+                self?.finishCheckpointStep()
+            })
             return
         }
 
@@ -613,6 +775,7 @@ final class SessionScrollbackCheckpointCoordinator {
                 finish: export.finish,
                 discard: export.discard
             ))
+            noteHasCheckpoint([candidate.panelId])
             lastCapturedAt[candidate.panelId] = start
             if outputSincePlan {
                 // Bytes flagged just before the capture may not have been parsed

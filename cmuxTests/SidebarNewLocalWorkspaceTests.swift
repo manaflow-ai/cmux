@@ -190,7 +190,20 @@ struct SidebarNewLocalWorkspaceTests {
         #expect(created.currentDirectory == fixture.root.path)
     }
 
-    @Test func commandNWithoutAWindowKeepsTheInitialWorkspace() throws {
+    @Test(.exclusiveAppContext) func commandNWithoutAWindowKeepsTheInitialWorkspace() throws {
+        // App-host tests run with Chief on, and a new window then also gets a Home
+        // workspace. This case counts only the window's initial workspace.
+        let defaults = UserDefaults.standard
+        let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
+        let originalChiefEnabled = defaults.object(forKey: chiefEnabledKey)
+        ChiefSettings.setEnabled(false, in: defaults)
+        defer {
+            if let originalChiefEnabled {
+                defaults.set(originalChiefEnabled, forKey: chiefEnabledKey)
+            } else {
+                defaults.removeObject(forKey: chiefEnabledKey)
+            }
+        }
         let app = AppDelegate()
         #expect(app.mainWindowContexts.isEmpty)
         #expect(app.performNewLocalWorkspaceAction(debugSource: "test.local.noWindow"))

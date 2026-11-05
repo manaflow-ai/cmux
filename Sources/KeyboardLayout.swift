@@ -62,6 +62,29 @@ class KeyboardLayout {
         return nil
     }
 
+    /// Takes one input-source snapshot for a whole shortcut key-code scan.
+    /// No layout state survives the call, so the next scan sees layout changes
+    /// without observer ordering, global cache invalidation or a manual lock.
+    static func shortcutCharacterResolver(
+        currentSource: () -> TISInputSource? = { TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() },
+        asciiSource: () -> TISInputSource? = { TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue() }
+    ) -> (UInt16, NSEvent.ModifierFlags) -> String? {
+        let current = currentSource()
+        let ascii = asciiSource()
+        return { keyCode, modifierFlags in
+            if let current,
+               let result = characterFromInputSource(
+                   current, forKeyCode: keyCode, modifierFlags: modifierFlags, mode: .shortcut
+               ), result.allSatisfy(\.isASCII) {
+                return result
+            }
+            guard let ascii else { return nil }
+            return characterFromInputSource(
+                ascii, forKeyCode: keyCode, modifierFlags: modifierFlags, mode: .shortcut
+            )
+        }
+    }
+
     /// Selects the event AppKit should interpret for terminal text input.
     ///
     /// Ghostty's auto-detected Option-as-Alt mode must not suppress AppKit's

@@ -2459,6 +2459,99 @@ struct SidebarAppKitRowCellTests {
             #expect(!Self.makeModel(settings: settings).settings.details[keyPath: detailKey])
         }
     }
+
+    /// https://github.com/manaflow-ai/cmux/issues/22706: branch, log and
+    /// plain metadata lines must not carry an NSTextView. Each one added a
+    /// text system that every apply reset and every table geometry change
+    /// walked on the main actor.
+    @Test
+    func nonMarkdownIconTextLinesDoNotCreateTextViews() {
+        let model = Self.makeModel()
+        let palette = SidebarRowPalette(model: model)
+        let branchLine = SidebarRowIconTextLine()
+        branchLine.configureBranchLine(
+            .init(branch: "main", directoryCandidates: ["~/src/app", "app"], stacked: false),
+            model: model,
+            palette: palette
+        )
+        let logLine = SidebarRowIconTextLine()
+        logLine.configureLog(
+            SidebarLogEntry(message: "building", level: .progress, source: nil, timestamp: Date()),
+            model: model,
+            palette: palette
+        )
+        let metadataLine = SidebarRowIconTextLine()
+        metadataLine.configureMetadataEntry(
+            SidebarStatusEntry(key: "plain", value: "plain status"),
+            model: model,
+            color: .secondaryLabelColor,
+            onOpenURL: { _ in }
+        )
+        for line in [branchLine, logLine, metadataLine] {
+            #expect(Self.descendants(of: line).compactMap { $0 as? NSTextView }.isEmpty)
+        }
+    }
+
+    /// Re-applying an unchanged Markdown metadata entry (every sidebar apply
+    /// and every prototype row measurement) must not rewrite the text
+    /// storage, which re-ran NSTextView selection fix-up and typesetting.
+    @Test
+    func reapplyingUnchangedMarkdownMetadataKeepsTextStorage() throws {
+        let model = Self.makeModel()
+        let entry = SidebarStatusEntry(
+            key: "repo_workspace",
+            value: Self.linkedMetadataMarkdown,
+            format: .markdown
+        )
+        let line = SidebarRowIconTextLine()
+        var firstOpened: URL?
+        line.configureMetadataEntry(entry, model: model, color: .secondaryLabelColor) { firstOpened = $0 }
+        let textView = try #require(
+            Self.descendants(of: line).compactMap { $0 as? NSTextView }.first { !$0.isHidden }
+        )
+        let textStorage = try #require(textView.textStorage)
+        let editCounter = SidebarTextStorageEditCounter()
+        textStorage.delegate = editCounter
+        defer { textStorage.delegate = nil }
+
+        var secondOpened: URL?
+        for _ in 0..<5 {
+            line.configureMetadataEntry(entry, model: model, color: .secondaryLabelColor) { secondOpened = $0 }
+        }
+        #expect(editCounter.count == 0)
+        #expect(textView.string == "acme/widgets • PR#123 • dev-7")
+        // The latest handler owns clicks even though the storage was kept.
+        let link = try #require(Self.links(in: textView).first)
+        #expect(Self.activateLink(link, in: textView))
+        #expect(secondOpened == Self.linkedMetadataURLs[0])
+        #expect(firstOpened == nil)
+
+        // A plain entry in between clears the hidden view, so no stale text or
+        // link survives; the same Markdown entry afterward renders again.
+        line.configureMetadataEntry(
+            SidebarStatusEntry(key: "plain", value: "plain status"),
+            model: model,
+            color: .secondaryLabelColor,
+            onOpenURL: { _ in }
+        )
+        #expect(textView.isHidden)
+        #expect(textView.string.isEmpty)
+        #expect(!Self.activateLink(link, in: textView))
+        line.configureMetadataEntry(entry, model: model, color: .secondaryLabelColor) { _ in }
+        #expect(!textView.isHidden)
+        #expect(textView.string == "acme/widgets • PR#123 • dev-7")
+
+        // Changed content still renders.
+        line.configureMetadataEntry(
+            SidebarStatusEntry(key: "repo_workspace", value: "[next](https://example.com/next)", format: .markdown),
+            model: model,
+            color: .secondaryLabelColor,
+            onOpenURL: { _ in }
+        )
+        #expect(editCounter.count > 0)
+        #expect(textView.string == "next")
+    }
+
 }
 
 @Suite
@@ -2654,5 +2747,19 @@ struct SidebarGroupHeaderBadgeColorTests {
         let fallback = NSColor.systemPurple
         #expect(cmuxNotificationBadgeNSColor(hex: "not a color", fallback: fallback) == fallback)
         #expect(cmuxNotificationBadgeNSColor(hex: nil, fallback: fallback) == fallback)
+    }
+}
+
+/// Counts processed edits on one text storage.
+private final class SidebarTextStorageEditCounter: NSObject, NSTextStorageDelegate {
+    private(set) var count = 0
+
+    func textStorage(
+        _ textStorage: NSTextStorage,
+        didProcessEditing editedMask: NSTextStorageEditActions,
+        range editedRange: NSRange,
+        changeInLength delta: Int
+    ) {
+        count += 1
     }
 }
