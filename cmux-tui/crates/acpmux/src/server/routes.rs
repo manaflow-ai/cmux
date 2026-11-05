@@ -34,6 +34,7 @@ fn params_of(file: &routes::RouteFile) -> Value {
         ("health_url", "healthUrl"),
         ("auto_fallback", "autoFallback"),
         ("account_home", "accountHome"),
+        ("shadow_of", "shadowOf"),
     ] {
         if let Some(x) = obj.remove(from) {
             obj.insert(to.into(), x);

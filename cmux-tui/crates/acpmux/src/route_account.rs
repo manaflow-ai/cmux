@@ -51,6 +51,23 @@ pub fn from_json(params: &serde_json::Value) -> Result<Option<String>, RouteErro
     }
 }
 
+/// `shadowOf` of a route/add request: `shadow: true` is a shadow of the Codex
+/// CLI's own home ([`crate::route_shadow::codex_base`]); `shadowOf` names the
+/// base itself (an `edit` carries it back as written).
+pub fn shadow_from_json(params: &serde_json::Value) -> Result<Option<String>, RouteError> {
+    if let Some(base) = params.get("shadowOf").and_then(serde_json::Value::as_str) {
+        return Ok(Some(base.to_owned()));
+    }
+    match params.get("shadow") {
+        Some(serde_json::Value::Bool(true)) => {
+            crate::route_shadow::codex_base().map(|b| Some(b.display().to_string())).ok_or_else(
+                || RouteError::Failed("no home folder for the Codex CLI's own login".into()),
+            )
+        }
+        _ => Ok(None),
+    }
+}
+
 /// An account home belongs to a direct-subscription route of exactly one
 /// family that has a home variable, and is an absolute path that is never
 /// expanded at spawn (no `${…}`).
@@ -80,6 +97,15 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
             "accountHome {home:?} is the CLI's own folder; pick a new folder for another account"
         )));
     }
+    if let Some(base) = &file.shadow_of
+        && (file.families.as_slice() != ["codex"]
+            || !Path::new(base).is_absolute()
+            || Path::new(base) == Path::new(home))
+    {
+        return Err(RouteError::BadParams(format!(
+            "shadowOf {base:?}: a shadow is a codex account home beside another absolute folder"
+        )));
+    }
     Ok(())
 }
 
@@ -87,6 +113,12 @@ pub fn validate(file: &RouteFile) -> Result<(), RouteError> {
 /// one leaves the spawn's own `CLAUDE_CONFIG_DIR` / `CODEX_HOME` as it was.
 pub fn set_env(route: &Route, family: &str, set: &mut BTreeMap<String, String>) {
     if let (Some(home), Some(var)) = (&route.file.account_home, home_var(family)) {
+        // A shadow takes the entries its base gained since it was made.
+        if let Some(base) = &route.file.shadow_of
+            && let Err(e) = crate::route_shadow::link(Path::new(home), Path::new(base))
+        {
+            tracing::warn!(route = %route.id, "shadow home not refreshed: {e}");
+        }
         set.insert(var.into(), home.clone());
     }
 }
@@ -97,6 +129,10 @@ pub fn set_env(route: &Route, family: &str, set: &mut BTreeMap<String, String>) 
 pub fn prepare(file: &RouteFile) -> Result<(), RouteError> {
     let Some(home) = &file.account_home else { return Ok(()) };
     let path = Path::new(home);
+    if let Some(base) = &file.shadow_of {
+        return crate::route_shadow::link(path, Path::new(base))
+            .map_err(|e| RouteError::Failed(format!("shadow home {home:?}: {e}")));
+    }
     if path.is_dir() {
         return Ok(());
     }
@@ -132,14 +168,56 @@ pub fn keep_home(family: &str, before: Option<String>, env: &mut BTreeMap<String
 /// conversation exists: every later spawn, fork and aside then runs in that
 /// folder (`SessionMeta::apply_chat_store`), whatever its route is by then.
 /// A spawn that failed records nothing.
+/// A chat moved to another login that shares its conversations ([`moved_home`])
+/// keeps the new one as its store from then on.
 pub fn record(meta: &mut SessionMeta, home: Option<&Path>) -> bool {
-    match home {
-        Some(home) if meta.agent_session_id.is_some() && meta.chat_store.is_none() => {
-            meta.chat_store = Some(home.to_path_buf());
-            true
-        }
-        _ => false,
+    let Some(home) = home else { return false };
+    if meta.agent_session_id.is_none() {
+        return false;
     }
+    let moves = match &meta.chat_store {
+        None => true,
+        Some(store) => store != home && crate::route_shadow::shares_conversations(store, home),
+    };
+    if moves {
+        meta.chat_store = Some(home.to_path_buf());
+    }
+    moves
+}
+
+/// The base a shadow home links its conversations to, if `home` is a shadow.
+fn base_of_shadow(home: &Path) -> Option<PathBuf> {
+    let sessions = home.join("sessions");
+    if !sessions.symlink_metadata().ok()?.file_type().is_symlink() {
+        return None;
+    }
+    sessions.canonicalize().ok()?.parent().map(Path::to_path_buf)
+}
+
+/// The login folder `route` runs a chat now in `current` (None: the CLI's own)
+/// on: its account home; for the built-in Codex login, the base of the shadow
+/// the chat is in, else the chat's own folder.
+pub fn effective_home(route: &Route, current: Option<&Path>) -> Option<PathBuf> {
+    if let Some(home) = &route.file.account_home {
+        return Some(PathBuf::from(home));
+    }
+    if route.id != crate::routes::CODEX_LOGIN_ROUTE_ID {
+        return None;
+    }
+    let current = current.map(Path::to_path_buf).or_else(crate::route_shadow::codex_base)?;
+    Some(base_of_shadow(&current).unwrap_or(current))
+}
+
+/// The folder a started chat in `current` (None: the CLI's own) moves to on
+/// `route`: another login of the same family that shares its conversations
+/// (a shadow and its base, route_shadow.rs). None: it keeps its folder.
+pub fn moved_home(route: &Route, family: &str, current: Option<&Path>) -> Option<PathBuf> {
+    if family != "codex" {
+        return None;
+    }
+    let from = current.map(Path::to_path_buf).or_else(crate::route_shadow::codex_base)?;
+    let to = effective_home(route, current)?;
+    (to != from && crate::route_shadow::shares_conversations(&from, &to)).then_some(to)
 }
 
 /// `meta`'s env as its spawn builds it from `harness_env` (`Hub::harness_env`: profile, preset
@@ -182,8 +260,14 @@ pub fn current_home(
 /// A chat whose conversation has a home may move to a route with no account
 /// home (its folder stays) or with that same home, never to another one.
 pub fn switch_allowed(current: Option<&Path>, to: &Route) -> Result<(), RouteError> {
+    let shared = |home: &Path| {
+        let from = current
+            .map(Path::to_path_buf)
+            .or_else(|| to.file.shadow_of.as_ref().map(PathBuf::from));
+        from.is_some_and(|from| crate::route_shadow::shares_conversations(&from, home))
+    };
     match to.file.account_home.as_deref().map(Path::new) {
-        Some(home) if Some(home) != current => Err(RouteError::BadParams(
+        Some(home) if Some(home) != current && !shared(home) => Err(RouteError::BadParams(
             "This chat's conversation belongs to another account. Start a new chat to use this one."
                 .into(),
         )),
