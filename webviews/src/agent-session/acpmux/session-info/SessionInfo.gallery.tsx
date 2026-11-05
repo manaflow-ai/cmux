@@ -899,7 +899,9 @@ const workflowFailureProps = (): Props => {
 const narrowWorkflowLayout =
   (withModel: boolean): Play =>
   async (ctx) => {
-    const rowSelector = withModel ? ".acpmux-workflow-agent:has(.acpmux-workflow-agent__model)" : ".acpmux-workflow-agent";
+    const rowSelector = withModel
+      ? ".acpmux-workflow-agent:has(.acpmux-workflow-agent__model)"
+      : ".acpmux-workflow-agent";
     await ctx.waitFor(() => ctx.document.querySelector(`${rowSelector} .acpmux-workflow-agent__button`) !== null);
     const panel = ctx.find({ selector: ".acpmux-session-info" }).getBoundingClientRect();
     if (Math.abs(panel.width - 260) > 1) throw new Error(`expected a 260px panel, got ${panel.width}px`);
@@ -917,17 +919,6 @@ const narrowWorkflowLayout =
       throw new Error("workflow model overlaps the state column");
     if (state.right > time.left + 0.5) throw new Error("workflow state overlaps the elapsed-time column");
   };
-/// Opens the workflow's `n`th phase (from 1), brought into view first for the trusted click.
-const openPhase =
-  (n: number): Play =>
-  async (ctx) => {
-    const selector = `.acpmux-workflow-phase:nth-child(${n}) .acpmux-workflow-phase__head:not(:disabled)`;
-    await ctx.waitFor(() => ctx.document.querySelector(selector) !== null);
-    ctx.document.querySelector(selector)?.scrollIntoView({ block: "center" });
-    await ctx.click({ selector });
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-phase__agents") !== null);
-  };
-
 /// A finished workflow's agents: every one under its open "N finished", its phases one row each.
 const finishedAgents: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-workflow-finished__agents > li").length >= 7);
