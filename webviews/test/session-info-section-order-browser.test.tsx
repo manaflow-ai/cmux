@@ -143,11 +143,12 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
       }
     });
 
-    // Since #27570 the section list owns the spacing (sessionInfo.css, design/grid.md section 3, with
-    // 5.5's gap tokens: `--grid-gap-inner` 12 "inside a block", `--grid-gap-block` 24): one inner gap
-    // between any two sections of a block, About's included, and one block gap between blocks with
-    // the hairline centred in it. Before the grid it was 6px
-    // inside a block, none inside About, and 8px, a hairline, 8px between blocks.
+    // Since #27570 the section list owns the spacing (sessionInfo.css): one gap between any two
+    // sections of a block, About's included, and one larger gap between blocks with the hairline
+    // centred in it. Since Leo's "there's a bit too big of a gap between sections" (2026-11-04) those
+    // are `--grid-base` 4 inside a block and `--grid-gap-inner` 12 between blocks, tighter than the
+    // transcript's 12 and 24. Before the grid it was 6px inside a block, none inside About, and 8px,
+    // a hairline, 8px between blocks.
     test("the default order draws the blocks: the inner gap inside a block, the block gap with a hairline between", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
@@ -187,10 +188,10 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             rules: ruled.map(rule),
           };
         });
-        const inner = gridLength("gap-inner");
+        const inner = gridLength("base");
         for (const gap of geometry.inner) expect(gap).toBeCloseTo(inner, 1);
         // The hairline is drawn inside the block gap (absolutely placed), so it adds no height.
-        for (const gap of geometry.between) expect(gap).toBeCloseTo(gridLength("gap-block"), 1);
+        for (const gap of geometry.between) expect(gap).toBeCloseTo(gridLength("gap-inner"), 1);
         // The hairline over the first section of each block but the first, and nowhere else.
         expect(geometry.rules).toEqual([false, false, false, true, false, true, false, false, true]);
       } finally {

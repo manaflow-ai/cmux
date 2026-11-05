@@ -75,6 +75,14 @@ public struct PushReply: Codable, Sendable, Equatable, Identifiable {
                   decisionNonce: payload.decisionNonce, personInstance: payload.personInstance, action: action, createdAt: now)
     }
 
+    /// This reply answers `payload` exactly: the same Mac, kind and target (session, permission,
+    /// event, notification, decision nonce), so a handed-over Allow never reaches another request.
+    public func answers(_ payload: PushPayload) -> Bool {
+        mac == payload.mac && kind == payload.kind && sessionId == payload.sessionId
+            && permissionId == payload.permissionId && eventId == payload.eventId
+            && notificationId == payload.notificationId && decisionNonce == payload.decisionNonce
+    }
+
     /// The reply a notification button means, or nil for the default tap,
     /// "Answer…", Retry (which carries its own reply) or a button this payload does not offer.
     /// `attachments`: what the long look's "+" staged for Reply (file names in the outbox).

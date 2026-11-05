@@ -4,24 +4,27 @@ import Foundation
 import os
 
 extension NewFrontendBrowserTabRequest {
-    /// How long a keyed create asks again: after a missed reply deadline, and while its link is down (then also at most
-    /// the request deadline). Its last send then has one request deadline more, which `ActionRunLimit.keyedCreate`
-    /// (this budget plus one request deadline) covers.
+    /// How long a keyed create asks again: while its link is down (then also at most the request deadline), and after
+    /// a missed reply deadline that came before it (the default deadline, 30 s since #35075, comes after it and ends the
+    /// create; a connection set to a shorter deadline asks again after one). Its last send then has one request deadline
+    /// more, which `ActionRunLimit.keyedCreate` (this budget plus one request deadline) covers.
     public static let lateReplyBudget: Duration = .seconds(10)
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
 
     /// Sends the create on `connection`. cmux-tui answers it after the tab's
     /// record is durable on disk (a full device flush). Under heavy disk load
-    /// that took longer than the request deadline (2 s then): the request
-    /// failed, the late reply was dropped, and the app never opened the page
-    /// of the tab the daemon made. A daemon with `frontend-browser-tab-keys-v1`
-    /// gets an idempotency key (derived from the action's key when it has
-    /// one). A missed reply deadline asks again with the same key until
-    /// ``lateReplyBudget`` passes. A lost link waits for the connection's
-    /// reconnect (its connected event) and sends once more with the same key
-    /// when the link is up; the wait ends at the request deadline or the
-    /// budget, whichever comes first, or when the create is cancelled. It
-    /// never asks again sooner (#35878: an immediate re-send held the
+    /// that took longer than the request deadline (2 s then; 30 s since #35075,
+    /// ``DaemonConnection/defaultRequestTimeout``): the request failed, the
+    /// late reply was dropped, and the app never opened the page of the tab
+    /// the daemon made. A daemon with `frontend-browser-tab-keys-v1` gets an
+    /// idempotency key (derived from the action's key when it has one). A
+    /// missed reply deadline asks again with the same key until
+    /// ``lateReplyBudget`` passes (the default 30 s deadline comes after that
+    /// 10 s budget, so it ends the create). A lost link waits for the
+    /// connection's reconnect (its connected event) and sends once more with
+    /// the same key when the link is up; the wait ends at the request deadline
+    /// or the budget, whichever comes first, or when the create is cancelled.
+    /// It never asks again sooner (#35878: an immediate re-send held the
     /// connection actor for the whole budget, so the reconnect could not run).
     /// cmux-tui makes keyed creates one at a time and answers a repeated key
     /// with the tab the first request made (`replayed`), so a late commit makes
