@@ -151,6 +151,10 @@ public final class AddDeviceModel {
         case .makeJoinLine, .newJoinLine:
             mintJoinLine()
             return false
+        case .signIn:
+            services.signIn()
+            closeCard()
+            return true
         case .showMachines:
             services.showMachines()
             closeCard()
@@ -172,6 +176,8 @@ public final class AddDeviceModel {
         switch joinLine?.phase {
         case .showing: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .copyJoinLine, key: .return)]
         case .joined: [AddDeviceButton(action: .showMachines, key: nil), AddDeviceButton(action: .done, key: .return)]
+        // Signed out, a new line would be refused again: Sign In instead (msg 3790).
+        case .failed(.signedOut): [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .signIn, key: .return)]
         case .expired, .failed: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .newJoinLine, key: .return)]
         case .idle: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .makeJoinLine, key: .return)]
         case .minting, nil: [AddDeviceButton(action: .cancel, key: .escape)]

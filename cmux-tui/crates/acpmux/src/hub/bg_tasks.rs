@@ -219,8 +219,16 @@ impl Hub {
 
     /// Whether a task of the chat runs (`Hub::in_use`).
     pub(super) fn bg_running(&self, session: &Session) -> bool {
+        self.bg_running_count(session) > 0
+    }
+
+    /// How many of the chat's tasks run.
+    pub(super) fn bg_running_count(&self, session: &Session) -> usize {
         let dir = self.bg_dir(session);
-        self.bg_records(&dir).iter().any(|r| r.ended_at.is_none() && !bg_gone(&dir, &r.id))
+        self.bg_records(&dir)
+            .iter()
+            .filter(|r| r.ended_at.is_none() && !bg_gone(&dir, &r.id))
+            .count()
     }
 
     /// `_acpmux/bg/list`: the chat's tasks, oldest first, each with the tail of its output.

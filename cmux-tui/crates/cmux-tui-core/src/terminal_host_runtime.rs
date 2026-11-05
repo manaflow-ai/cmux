@@ -643,6 +643,9 @@ mod unix {
 
 #[cfg(any(unix, windows))]
 pub use shared::attachment::HostAttachment;
+pub(crate) use shared::attachment::HostInputRoute;
+#[cfg(unix)]
+pub(crate) use shared::attachment::INLINE_FRAME_MAX;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::attachment::launch::adopt_terminal_host_with_kitty_limits;
 #[cfg(any(unix, windows))]

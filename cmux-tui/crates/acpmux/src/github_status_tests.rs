@@ -8,13 +8,14 @@ const TOKEN: &str = "ghu_16C7e42F292c6912E7710c838347Ae178B4a";
 const BEARER: &str = "cmux-signin-bearer-not-for-github";
 
 /// A stub `gh` that answers `gh api user` with `body`, and fails for anything else or when a
-/// GitHub token reached its env.
+/// GitHub token reached its env, or when it was not asked for the own gh login only.
 fn stub_gh(dir: &std::path::Path, body: &Value) -> OsString {
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join("gh");
     let script = format!(
         "#!/bin/sh\n\
          [ -n \"$GH_TOKEN$GITHUB_TOKEN\" ] && exit 3\n\
+         [ \"$CMUX_GITHUB_GH_OWN_LOGIN_ONLY\" = 1 ] || exit 4\n\
          [ \"$1 $2\" = \"api user\" ] || exit 2\n\
          cat <<'JSON'\n{body}\nJSON\n"
     );
@@ -223,4 +224,7 @@ fn the_tool_takes_no_arguments_and_its_instruction_names_it() {
     assert_eq!(tool["name"], TOOL);
     assert_eq!(tool["inputSchema"], json!({"type": "object", "properties": {}}));
     assert!(STEER.contains("call github_status"));
+    // Models ran `gh auth status` instead, which sees nothing on a Cloud machine with no repo.
+    assert!(STEER.contains("instead of running gh"));
+    assert!(STEER.contains("Cloud"));
 }

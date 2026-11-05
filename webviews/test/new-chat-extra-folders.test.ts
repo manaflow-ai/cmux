@@ -1,7 +1,7 @@
 // A new chat's extra folders reach acpmux in its `session/new` (`additionalDirectories`, cmux#32811),
 // on this Mac and on another machine, and belong to that one start: the next new chat starts with none.
 import { expect, test } from "bun:test";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { AcpmuxDirectClient, OrderedRows } from "../src/agent-session/acpmux/direct";
 
 function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
@@ -10,6 +10,27 @@ function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, u
     host: {},
     selectionGeneration: 0,
     trustCancellation: 0,
+    closed: false,
+    replayMode: false,
+    fedMode: false,
+    disposed: false,
+    rows: new OrderedRows(),
+    sessions: [],
+    askedSessions: [],
+    asks: { sessions: () => undefined, list: () => [] },
+    extensions: [],
+    handoff: { state: {} },
+    permissions: {
+      state: { supported: false, ready: false, groups: [], chatAllowance: false, loading: false, busy: false },
+    },
+    queue: [],
+    queueWithdrawn: [],
+    waitingSteers: [],
+    listener: () => undefined,
+    subagents: {
+      progressSource: { structureVersion: 0, takeChangedProgress: () => ({}) },
+      views: () => [],
+    },
     request: async (method: string, params: Record<string, unknown>) => {
       if (method === "session/new") sent.push(params);
       return { sessionId: `s${sent.length}` };

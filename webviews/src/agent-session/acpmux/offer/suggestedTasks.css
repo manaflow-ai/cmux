@@ -122,7 +122,7 @@
 }
 .acpmux-task-action[data-primary] {
   background: var(--agent-text);
-  color: var(--agent-page-bg, var(--acpmux-base));
+  color: var(--acpmux-base);
 }
 .acpmux-task-action:not([data-primary]):not(:disabled):hover,
 .acpmux-task-action[data-popup-open] {
@@ -137,7 +137,7 @@
 }
 .acpmux-task-action[data-primary]:disabled {
   background: color-mix(in srgb, var(--agent-text) 40%, transparent);
-  color: var(--agent-page-bg, var(--acpmux-base));
+  color: var(--acpmux-base);
 }
 .acpmux-task-dismiss {
   display: inline-flex;

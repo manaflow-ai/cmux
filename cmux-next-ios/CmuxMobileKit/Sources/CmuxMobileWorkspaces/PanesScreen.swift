@@ -71,6 +71,9 @@ struct PanesScreen: View {
                             .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
                     }
                 }
+                if source.canEditPanes, let screen = layout.activeScreen, !screen.resizableSplits.isEmpty {
+                    resizeSection(screen)
+                }
                 ForEach(layout.screens) { screen in
                     ForEach(screen.panes) { pane in
                         Section {
@@ -90,6 +93,34 @@ struct PanesScreen: View {
         } else {
             ContentUnavailableView("No Panes Yet", systemImage: "rectangle.split.2x1",
                                    description: Text("\(source.macName) hasn't listed this workspace's panes."))
+        }
+    }
+
+    // MARK: Resize Pane
+
+    /// Resize Pane: one stepper per divider of the shown screen. Each step moves the divider 5%
+    /// on the Mac (`set-split-ratio`); the value shown is what the Mac listed.
+    private func resizeSection(_ screen: WorkspaceLayout.Screen) -> some View {
+        Section {
+            ForEach(screen.resizableSplits) { split in
+                // A step past 10% or 90% is off: the button shows disabled, not a tap that does nothing.
+                let more: (() -> Void)? = split.stepped(1) == nil ? nil : { Task { await source.resize(split, 1) } }
+                let less: (() -> Void)? = split.stepped(-1) == nil ? nil : { Task { await source.resize(split, -1) } }
+                Stepper(onIncrement: more, onDecrement: less) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(source.resizeTitle(split)).lineLimit(1)
+                        Text(split.axis == .horizontal ? "Left side \(split.percent)%" : "Top side \(split.percent)%")
+                            .font(theme.type.meta)
+                            .foregroundStyle(theme.colors.label2.color)
+                    }
+                }
+                .accessibilityIdentifier("panes.resize.\(split.split)")
+                .accessibilityValue("\(split.percent) percent")
+            }
+        } header: {
+            Text("Resize Pane").textCase(nil)
+        } footer: {
+            Text("Each step moves the divider on \(source.macName) by 5%.")
         }
     }
 
@@ -149,6 +180,11 @@ struct PanesScreen: View {
                 source.renamingPane = pane
             }
         }
+        if layout.panes.count > 1, !source.tabs(of: pane).isEmpty {
+            Section {
+                Button("Move Pane to New Workspace", systemImage: "macwindow.badge.plus") { Task { await source.movePaneToNewWorkspace(pane) } }
+            }
+        }
         if screen.panes.count > 1 {
             Section {
                 Button("Close Pane", systemImage: "xmark.rectangle", role: .destructive) { Task { await source.closePane(pane) } }
@@ -202,6 +238,11 @@ struct PanesScreen: View {
                     }
                 }
                 Button("Move Tab to New Column", systemImage: "rectangle.split.3x1") { Task { await source.moveTabToNewColumn(tab) } }
+                Menu("Move Tab to New Dock Column", systemImage: "sidebar.right") {
+                    ForEach(DockEdge.allCases, id: \.self) { edge in
+                        Button(edge.title, systemImage: edge.systemImage) { Task { await source.moveTab(tab, toNewDock: edge) } }
+                    }
+                }
                 let others = layout.otherPanes(than: pane.id)
                 if !others.isEmpty {
                     Menu("Move Tab to Pane", systemImage: "arrow.right.square") {

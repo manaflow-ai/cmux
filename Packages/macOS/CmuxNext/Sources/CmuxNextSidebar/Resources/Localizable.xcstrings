@@ -525,133 +525,133 @@
         }
       }
     },
-    "sidebar.statesPlayground.state.faviconMissing": {
+    "sidebar.statesPlayground.state.faviconPlaceholder": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Favicon, missing"
+            "value": "No favicon, globe placeholder"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أيقونة الموقع، مفقودة"
+            "value": "بلا أيقونة موقع، عنصر نائب على شكل كرة أرضية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, nedostaje"
+            "value": "Bez favicona, globus kao zamjena"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, mangler"
+            "value": "Intet favicon, globus som pladsholder"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, fehlt"
+            "value": "Kein Favicon, Globus als Platzhalter"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, ausente"
+            "value": "Sin favicon, globo como marcador"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, absent"
+            "value": "Pas de favicon, globe en remplacement"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, mancante"
+            "value": "Nessuna favicon, globo segnaposto"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファビコン、なし"
+            "value": "ファビコンなし、地球儀のプレースホルダ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon បាត់"
+            "value": "គ្មាន Favicon, រូបភពផែនដីជំនួស"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "파비콘, 없음"
+            "value": "파비콘 없음, 지구본 자리 표시"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, mangler"
+            "value": "Ingen favicon, globus som plassholder"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, brak"
+            "value": "Brak favikony, globus zastępczy"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, ausente"
+            "value": "Sem favicon, globo como espaço reservado"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Значок сайта отсутствует"
+            "value": "Нет фавикона, глобус-заполнитель"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มี Favicon"
+            "value": "ไม่มีไอคอนเว็บไซต์ ใช้รูปลูกโลกแทน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, yok"
+            "value": "Favicon yok, yer tutucu küre"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Значок сайту відсутній"
+            "value": "Немає фавікона, глобус-заповнювач"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon, thiếu"
+            "value": "Không có favicon, biểu tượng quả địa cầu thay thế"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "网站图标，缺失"
+            "value": "无网站图标，以地球图标占位"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "網站圖示，缺少"
+            "value": "無網站圖示，以地球圖示佔位"
           }
         }
       }
@@ -1573,133 +1573,133 @@
         }
       }
     },
-    "sidebar.statesPlayground.faviconStyles": {
+    "sidebar.statesPlayground.faviconStyleSheet": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Favicon styles · %@"
+            "value": "Favicon style: %1$@ · %2$@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أنماط أيقونات المواقع · %@"
+            "value": "نمط أيقونة الموقع: %1$@ · %2$@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stilovi favicona · %@"
+            "value": "Stil favicona: %1$@ · %2$@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon-stile · %@"
+            "value": "Favicon-stil: %1$@ · %2$@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon-Stile · %@"
+            "value": "Favicon-Stil: %1$@ · %2$@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Estilos de favicon · %@"
+            "value": "Estilo de favicon: %1$@ · %2$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Styles de favicon · %@"
+            "value": "Style de favicon : %1$@ · %2$@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Stili delle favicon · %@"
+            "value": "Stile della favicon: %1$@ · %2$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ファビコンのスタイル · %@"
+            "value": "ファビコンのスタイル: %1$@ · %2$@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "រចនាប័ទ្ម Favicon · %@"
+            "value": "រចនាប័ទ្ម Favicon: %1$@ · %2$@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "파비콘 스타일 · %@"
+            "value": "파비콘 스타일: %1$@ · %2$@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon-stiler · %@"
+            "value": "Favicon-stil: %1$@ · %2$@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Style favikon · %@"
+            "value": "Styl favikony: %1$@ · %2$@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Estilos de favicon · %@"
+            "value": "Estilo de favicon: %1$@ · %2$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Стили фавиконов · %@"
+            "value": "Стиль фавикона: %1$@ · %2$@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "รูปแบบไอคอนเว็บไซต์ · %@"
+            "value": "รูปแบบไอคอนเว็บไซต์: %1$@ · %2$@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Favicon stilleri · %@"
+            "value": "Favicon stili: %1$@ · %2$@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Стилі фавіконів · %@"
+            "value": "Стиль фавікона: %1$@ · %2$@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kiểu favicon · %@"
+            "value": "Kiểu favicon: %1$@ · %2$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "网站图标样式 · %@"
+            "value": "网站图标样式：%1$@ · %2$@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "網站圖示樣式 · %@"
+            "value": "網站圖示樣式：%1$@ · %2$@"
           }
         }
       }
@@ -38118,6 +38118,792 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "這台 Mac"
+          }
+        }
+      }
+    },
+    "sidebar.groupEditor.sort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sort"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فرز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sortiraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sortér"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sortieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "並べ替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តម្រៀប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정렬"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sorter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sortuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сортировка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เรียงลำดับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sırala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сортування"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sắp xếp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排序"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排序"
+          }
+        }
+      }
+    },
+    "sidebar.groupSort.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يدوي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ručno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuelt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuell"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដោយដៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuelt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ręcznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вручную"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำหนดเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вручну"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thủ công"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        }
+      }
+    },
+    "sidebar.groupSort.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاسم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naziv"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nazwa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nome"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Имя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ad"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назва"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名稱"
+          }
+        }
+      }
+    },
+    "sidebar.groupSort.recent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأحدث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nedavno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seneste"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt aktiv"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recientes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Récents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថ្មីៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nylig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostatnie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недавние"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нещодавні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gần đây"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近"
+          }
+        }
+      }
+    },
+    "sidebar.groupSort.undo": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sort Group"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فرز المجموعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sortiraj grupu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sortér gruppe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gruppe sortieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenar grupo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trier le groupe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordina gruppo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを並べ替え"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តម្រៀបក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그룹 정렬"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sorter gruppe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sortuj grupę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenar grupo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сортировка группы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เรียงลำดับกลุ่ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grubu sırala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сортування групи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sắp xếp nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排序群组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排序群組"
+          }
+        }
+      }
+    },
+    "sidebar.statesPlayground.section": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ · %2$@"
           }
         }
       }

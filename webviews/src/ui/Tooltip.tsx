@@ -12,6 +12,7 @@ import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
 import { HOVER_INTENT } from "./hoverIntent";
+import { UI_TOOLTIP_GAP, tooltipGap, tooltipScale } from "./tooltipTokens";
 
 /**
  * A page's tooltips wait the hover delay before the first shows, then show at once while the group
@@ -27,8 +28,11 @@ export function TooltipProvider({ children }: { children: ReactNode }) {
 
 export interface TooltipProps {
   label: ReactNode;
+  /** Optional supporting text on a dimmer second line. */
+  detail?: ReactNode;
   /** The control it describes (its `render` target). */
   children: ReactElement;
+  /** Tooltips sit above their control when there is room, like the reference surfaces. */
   side?: "top" | "bottom";
   /** A keyboard shortcut shown after the label in the secondary ink (`⌘T`), as on native tooltips. */
   shortcut?: string;
@@ -36,7 +40,7 @@ export interface TooltipProps {
   className?: string;
 }
 
-export function Tooltip({ label, children, side = "bottom", shortcut, className }: TooltipProps) {
+export function Tooltip({ label, detail, children, side = "top", shortcut, className }: TooltipProps) {
   const container = usePortalContainer();
   const host = usePopupHost();
   const [trigger, setTrigger] = useState<HTMLElement | null>(null);
@@ -44,15 +48,26 @@ export function Tooltip({ label, children, side = "bottom", shortcut, className 
   // No room in the page (a tiny pane): past the window's edge, as a Mac tooltip (popupHost.ts). A
   // hover card (`ui-card`) wraps its lines, so its width never sends it there.
   const wraps = /(^|\s)ui-card(\s|$)/.test(className ?? "");
-  useEscapingPopup(host, popup, () => trigger, { side, align: "start", gap: 6, kind: "tooltip", wraps });
+  useEscapingPopup(host, popup, () => trigger, {
+    side,
+    align: "start",
+    gap: UI_TOOLTIP_GAP * (popup ? tooltipScale(popup.ownerDocument) : 1),
+    kind: "tooltip",
+    wraps,
+  });
   return (
     <BaseTooltip.Root>
       <BaseTooltip.Trigger ref={host ? setTrigger : undefined} render={children} />
       <BaseTooltip.Portal container={container}>
-        <BaseTooltip.Positioner className="ui-positioner" side={side} sideOffset={6}>
-          <BaseTooltip.Popup ref={host ? setPopup : undefined} className={cx("ui-tooltip ui-glass", className)}>
+        <BaseTooltip.Positioner className="ui-positioner" side={side} sideOffset={tooltipGap}>
+          <BaseTooltip.Popup ref={setPopup} className={cx("ui-tooltip ui-glass", className)}>
             {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
-            {label}
+            {typeof label === "string" || typeof label === "number" ? (
+              <span className="ui-tooltip-text">{label}</span>
+            ) : (
+              label
+            )}
+            {detail != null && <span className="ui-tooltip-detail">{detail}</span>}
           </BaseTooltip.Popup>
         </BaseTooltip.Positioner>
       </BaseTooltip.Portal>
@@ -123,7 +138,7 @@ export function AnchoredCard({
           anchor={virtualAnchor(anchor)}
           side={side}
           align="start"
-          sideOffset={6}
+          sideOffset={tooltipGap}
         >
           <BaseTooltip.Popup
             ref={popupRef}

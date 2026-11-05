@@ -157,13 +157,18 @@ test("held ticks sit centered in the view, never stacked at the box's foot, whil
     // The first frame: twelve prompts held, the summary says forty-five.
     await render({ promptCount: 45 });
     const open = rail();
-    // The box holds all forty-five ticks, the thirty-three not held yet as resting ticks, centered: no
-    // empty rows above the held ones.
+    // The box is the rail's one height (240 px, the Codex rail's size) over all forty-five ticks, the
+    // thirty-three not held yet as resting ticks, centered: no empty rows above the held ones.
     expect(open.lead).toBe(0);
-    expect(open.height).toBe(450);
-    expect(document.querySelectorAll(".acpmux-minimap__entry").length).toBe(45);
-    expect(document.querySelectorAll(".acpmux-minimap__gap").length).toBe(0);
-    expect(open.top).toBeLessThanOrEqual(centered(450));
+    expect(open.height).toBe(240);
+    // Every prompt has its row, drawn or (past the list's view) a gap's.
+    const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__entry, .acpmux-minimap__gap")].reduce(
+      (sum, node) =>
+        sum + (node.classList.contains("acpmux-minimap__gap") ? Number.parseFloat(node.style.height) / 10 : 1),
+      0,
+    );
+    expect(rows).toBe(45);
+    expect(open.top).toBeLessThanOrEqual(centered(240));
     // The ticks' run is about the view's middle, nowhere near its foot.
     expect(Math.abs(middle(open) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
     // The latest tick ends the box, clear of the bottom stack.
@@ -174,8 +179,8 @@ test("held ticks sit centered in the view, never stacked at the box's foot, whil
     const full = rail();
     expect(full).toEqual(open);
     expect(full.lead).toBe(0);
-    expect(full.height).toBe(450);
-    expect(full.top).toBeLessThanOrEqual(centered(450));
+    expect(full.height).toBe(240);
+    expect(full.top).toBeLessThanOrEqual(centered(240));
     expect(Math.abs(middle(full) - VIEWPORT / 2)).toBeLessThanOrEqual(100);
   } finally {
     await act(async () => root.unmount());
@@ -198,9 +203,9 @@ test("without a count the rail grows as prompts arrive, as before", async () => 
         />,
       ),
     );
-    // Twelve prompts: the rail's 320 px floor, centered.
-    expect(rail().height).toBe(320);
-    expect(rail().top).toBeLessThanOrEqual(centered(320));
+    // Twelve prompts: the rail's one height, centered.
+    expect(rail().height).toBe(240);
+    expect(rail().top).toBeLessThanOrEqual(centered(240));
   } finally {
     await act(async () => root.unmount());
   }

@@ -635,6 +635,20 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "square.grid.2x2", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
+            // Gallery Stage: a stage of the live gallery as a tab of this app, in its own theme and
+            // backdrop (GalleryStageTabs, CmuxNextPages); Move Tab to New Window separates it out.
+            // NIGHTLY, cmux NEXT DEV and Debug only.
+            ActionDescriptor(
+                id: "gallery.openStage",
+                title: String(localized: "action.gallery.openStage", defaultValue: "Gallery Stage", bundle: .module),
+                keywords: ["gallery", "stage", "component", "preview", "view", "window", "hot reload", "dev"],
+                category: .window, symbol: "square.on.square.dashed", surfaces: [.palette],
+                arguments: [
+                    ActionArgument(name: "entry", title: String(localized: "argument.gallery.entry", defaultValue: "Entry", bundle: .module), kind: .string, isRequired: false),
+                    ActionArgument(name: "variant", title: String(localized: "argument.gallery.variant", defaultValue: "Variant", bundle: .module), kind: .string, isRequired: false),
+                ],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "agentActivity.open",
                 title: String(localized: "action.agentActivity.open", defaultValue: "Agent Activity", bundle: .module),

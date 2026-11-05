@@ -632,3 +632,30 @@ async fn versioned_family_names_reach_claude_code_as_full_ids() {
     let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
     assert_eq!(lines[0]["request"]["model"], "claude-sonnet-5-5");
 }
+
+/// A Claude chat showed no thinking (Leo: "why is no thinking appearing for
+/// you?"): Claude Code 2.1.310 in `-p` streams its thinking blocks empty
+/// (display omitted) unless asked for summaries, so no `agent_thought_chunk`
+/// ever went out. The chat asks for them; a profile that pins its own display
+/// keeps it.
+#[test]
+fn claude_chats_ask_for_thinking_summaries() {
+    let profile: crate::config::HarnessProfile =
+        serde_json::from_value(json!({"kind": "claude-stdio", "argv": ["claude"]})).unwrap();
+    let plan = spawn_plan(&profile, None, false, None, None, "default", None);
+    let at = plan.args.iter().position(|a| a == "--thinking-display").expect("--thinking-display");
+    assert_eq!(plan.args[at + 1], "summarized");
+
+    let pinned: crate::config::HarnessProfile = serde_json::from_value(
+        json!({"kind": "claude-stdio", "argv": ["claude", "--thinking-display", "omitted"]}),
+    )
+    .unwrap();
+    let plan = spawn_plan(&pinned, None, false, None, None, "default", None);
+    assert_eq!(
+        plan.args.iter().filter(|a| *a == "--thinking-display").count(),
+        1,
+        "{:?}",
+        plan.args
+    );
+    assert!(plan.args.iter().any(|a| a == "omitted"));
+}

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87";
+inline constexpr std::string_view kProtocolIrSha256 = "6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -107,6 +107,9 @@ struct JsonValue;
 struct KittyGraphicsState;
 struct KittyImageAlias;
 struct Layout;
+struct LayoutSizePaneWidth;
+struct LayoutSizeSplitRatio;
+struct LayoutSizeValue;
 struct LayoutUndoConfirmationRequired;
 struct LayoutUndoResult;
 struct LayoutUndoUndone;
@@ -522,6 +525,7 @@ struct SetColumnDockRequest;
 struct SetDefaultColorsRequest;
 struct SetFrontendBrowserHistoryRequest;
 struct SetHostSizePolicyRequest;
+struct SetLayoutSizesRequest;
 struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
 struct SetProfileFollowsRequest;
@@ -3440,6 +3444,24 @@ struct LayoutChangedEvent {
     friend bool operator==(const LayoutChangedEvent&, const LayoutChangedEvent&) = default;
 };
 
+struct LayoutSizePaneWidth {
+    Id pane{};
+    float width{};
+    friend bool operator==(const LayoutSizePaneWidth&, const LayoutSizePaneWidth&) = default;
+};
+
+struct LayoutSizeSplitRatio {
+    float ratio{};
+    Id split{};
+    friend bool operator==(const LayoutSizeSplitRatio&, const LayoutSizeSplitRatio&) = default;
+};
+
+struct LayoutSizeValue {
+    using Variant = std::variant<LayoutSizeSplitRatio, LayoutSizePaneWidth>;
+    Variant value{};
+    friend bool operator==(const LayoutSizeValue&, const LayoutSizeValue&) = default;
+};
+
 struct LayoutUndoConfirmationRequired {
     std::vector<Id> closes_panes{};
     std::uint64_t revision{};
@@ -5074,7 +5096,10 @@ struct ServerStatsWritePath {
     std::uint64_t effect_intent_batches{};
     std::uint64_t effect_intent_failures{};
     std::uint64_t effect_intents{};
+    std::optional<std::uint64_t> registry_wal_frame_bytes{};
     std::uint64_t request_effect_commits{};
+    std::optional<std::uint64_t> wal_commits{};
+    std::optional<std::uint64_t> wal_synced_commits{};
     std::uint64_t writer_registry_locks{};
     friend bool operator==(const ServerStatsWritePath&, const ServerStatsWritePath&) = default;
 };
@@ -5178,6 +5203,12 @@ struct SetHostSizePolicyRequest {
 struct SetHostSizePolicyResult {
     HostSizePolicy policy{};
     friend bool operator==(const SetHostSizePolicyResult&, const SetHostSizePolicyResult&) = default;
+};
+
+struct SetLayoutSizesRequest {
+    std::uint64_t transaction{};
+    std::vector<LayoutSizeValue> values{};
+    friend bool operator==(const SetLayoutSizesRequest&, const SetLayoutSizesRequest&) = default;
 };
 
 struct SetPersonalTerminalRequest {
@@ -6717,6 +6748,24 @@ template <>
 struct Codec<Layout> {
     static Result<Json> encode(const Layout& value);
     static Result<Layout> decode(const Json& value);
+};
+
+template <>
+struct Codec<LayoutSizePaneWidth> {
+    static Result<Json> encode(const LayoutSizePaneWidth& value);
+    static Result<LayoutSizePaneWidth> decode(const Json& value);
+};
+
+template <>
+struct Codec<LayoutSizeSplitRatio> {
+    static Result<Json> encode(const LayoutSizeSplitRatio& value);
+    static Result<LayoutSizeSplitRatio> decode(const Json& value);
+};
+
+template <>
+struct Codec<LayoutSizeValue> {
+    static Result<Json> encode(const LayoutSizeValue& value);
+    static Result<LayoutSizeValue> decode(const Json& value);
 };
 
 template <>
@@ -9207,6 +9256,12 @@ template <>
 struct Codec<SetHostSizePolicyRequest> {
     static Result<Json> encode(const SetHostSizePolicyRequest& value);
     static Result<SetHostSizePolicyRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetLayoutSizesRequest> {
+    static Result<Json> encode(const SetLayoutSizesRequest& value);
+    static Result<SetLayoutSizesRequest> decode(const Json& value);
 };
 
 template <>

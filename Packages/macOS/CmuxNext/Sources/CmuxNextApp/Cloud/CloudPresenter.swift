@@ -112,7 +112,7 @@ enum CloudPresenter {
         guard let provider = CloudCredentialTransfer.Provider(rawValue: request.provider.rawValue) else { return false }
         guard await CloudStartChat.loginCopyGate(services).recoveryAllowed(claude: provider == .claude, automatic: request.automatic) else { return false }
         if request.automatic {
-            guard provider == .claude,
+            guard provider == .claude, CloudHarnessLoginChoices.allowsAutomaticCopy(session.harnessLogin, stored: CloudHarnessLoginChoices().load(userID: userID)),
                   await CloudCredentialTransfer.hasCachedLogin(provider: provider, teamID: teamID, userID: userID) else { return false }
         }
         let providerName = provider == .claude ? "Claude" : "Codex"
@@ -273,7 +273,7 @@ enum CloudPresenter {
               [ "$(id -un)" = cmux ]; set --
             fi
             "$@" env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color \
-              /home/cmux/.cmux/bin/cmux-tui acp --json session restart \(CloudStartSession.shellQuoted(sessionID))
+              /home/cmux/.cmux/bin/cmux-tui acp --json session restart \(CloudStartCore.shellQuoted(sessionID))
             """
         let result = try await exec(command)
         guard result.exitCode == 0, result.stdout.utf8.count < 65_536,

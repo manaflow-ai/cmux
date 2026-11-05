@@ -47,6 +47,9 @@ pub const CODEX_CONFIG: &[(&str, &str)] = &[
     ("agents.max_concurrent_threads_per_session", "1000"),
     // How deep agent threads may nest (default 1).
     ("agents.max_depth", "16"),
+    // The plan tool (`update_plan`, off by default in 0.164): the turn's task
+    // list, which the bridge sends as the ACP `plan` the agent pane pins.
+    ("tools.update_plan.enabled", "true"),
 ];
 
 /// A session's Claude Code (`agent::harness_command`) gets each knob its env

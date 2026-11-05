@@ -476,6 +476,75 @@
    },
    "additional_properties": false
   },
+  "LayoutSizeSplitRatio": {
+   "kind": "object",
+   "fields": {
+    "split": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "ratio": {
+     "type": {
+      "kind": "scalar",
+      "name": "float32"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      {
+       "clamped_minimum": 0.05,
+       "clamped_maximum": 0.95
+      }
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutSizePaneWidth": {
+   "kind": "object",
+   "fields": {
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "width": {
+     "type": {
+      "kind": "scalar",
+      "name": "float32"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      {
+       "minimum": 0.1,
+       "maximum": 1.0
+      }
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutSizeValue": {
+   "kind": "untagged_union",
+   "variants": [
+    {
+     "kind": "ref",
+     "name": "LayoutSizeSplitRatio"
+    },
+    {
+     "kind": "ref",
+     "name": "LayoutSizePaneWidth"
+    }
+   ]
+  },
   "Size": {
    "kind": "object",
    "fields": {
@@ -6359,12 +6428,37 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "wal_commits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "wal_synced_commits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "registry_wal_frame_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
    "constraints": [
     "Counters accumulate since daemon start.",
-    "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+    "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect.",
+    "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each). Each is absent from daemons older than its field."
    ]
   },
   "ServerStatsLockSiteDetail": {
@@ -13788,6 +13882,46 @@
    "stream": null,
    "constraints": [
     "width must be finite."
+   ]
+  },
+  "set-layout-sizes": {
+   "authority": "control",
+   "since": 12,
+   "capability": "layout-sizes-batch-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "values": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "LayoutSizeValue"
+       },
+       "min_items": 1,
+       "max_items": 64
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "All values are on one screen; a refused value refuses them all, and nothing changes."
    ]
   },
   "set-column-dock": {

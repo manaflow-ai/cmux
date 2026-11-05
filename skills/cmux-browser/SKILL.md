@@ -168,12 +168,18 @@ await previewProof(5173, { path: "/" });
 ```
 
 `previewProof(port, options)` opens `http://127.0.0.1:<port><path>` in the
-machine/workspace browser, waits for the page load, collects `console.error`
+machine/workspace browser in its own background tab, waits for the page load, collects `console.error`
 messages and uncaught page errors, and takes a screenshot. Its result includes
 the URL, both error lists, and a temporary PNG path. The transcript recognizes
 that path as an image attachment and renders it with the error report. Pass
 `screenshot: { fullPage: true }` when the whole page is needed; the default is
-the viewport.
+the viewport. The helper closes its tab on success or failure, preserving the
+user's active tab and the REPL's current page. The screenshot is taken after
+load. For errors that appear later, pass `settleMs: 1000` to wait that many
+milliseconds after the screenshot before reading errors (default `0`).
+Pass `timeout: 5000` to bound navigation in milliseconds
+(default `30000`, `0` disables the navigation timeout). Both timing options
+must be finite nonnegative numbers.
 
 ## What the per-tab CLI does not cover
 

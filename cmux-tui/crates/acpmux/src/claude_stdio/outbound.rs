@@ -564,6 +564,13 @@ pub(super) fn initialize_request(suggestions: bool) -> Value {
         "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"],
         "perTaskStopAffordance": true,
     });
+    #[cfg(unix)]
+    request.set(
+        "hooks",
+        json!({"PreToolUse": [{
+            "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK], "timeout": 90
+        }]}),
+    );
     if suggestions {
         request.set("promptSuggestions", json!(true));
     }

@@ -36,6 +36,10 @@ const { act, createElement, createRef } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ThreadMinimap } = await import("../src/agent-session/acpmux/threadMinimap/ThreadMinimap");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
+const { PromptMarksSession } = await import("../src/agent-session/acpmux/threadMinimap/promptMarks");
+const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
+const { PromptActions } = await import("../src/agent-session/acpmux/conversation/MessageActions");
+const { translate } = await import("../src/agent-session/acpmux/i18n");
 
 afterAll(() => {
   setBookmarkTransport(undefined);
@@ -86,6 +90,48 @@ function daemon(initial: number[], refuse = false) {
 }
 
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+
+test("prompt action bookmarks share the rail's persisted mark and toggle immediately", async () => {
+  const acpmux = daemon([]);
+  setBookmarkTransport(acpmux.transport);
+  const host = dom.window.document.createElement("div");
+  dom.window.document.body.append(host);
+  const root = createRoot(host);
+  const prompt = row("user-3", "user", "Save this prompt");
+  try {
+    await act(async () =>
+      root.render(
+        createElement(PromptMarksSession.Provider, { value: "prompt-actions" }, [
+          createElement(UserBubble, { key: "user", row: prompt, text: prompt.text! }),
+          createElement(PromptActions, { key: "chief", row: prompt, text: prompt.text! }),
+        ]),
+      ),
+    );
+    await settle();
+    const buttons = () => [...host.querySelectorAll<HTMLButtonElement>(".cv-user__actions button[aria-pressed]")];
+    expect(buttons()).toHaveLength(2);
+    for (const button of buttons()) {
+      expect(button.title).toBe(translate("minimap.bookmarkAdd"));
+      expect(button.getAttribute("aria-pressed")).toBe("false");
+    }
+    await act(async () => buttons()[0]!.click());
+    expect(acpmux.calls).toEqual([{ sessionId: "prompt-actions", seq: 3, bookmarked: true }]);
+    for (const button of buttons()) {
+      expect(button.getAttribute("aria-pressed")).toBe("true");
+      expect(button.title).toBe(translate("minimap.bookmarkRemove"));
+    }
+    await act(async () => acpmux.answer());
+    await settle();
+    await act(async () => buttons()[1]!.click());
+    expect(acpmux.calls.at(-1)).toEqual({ sessionId: "prompt-actions", seq: 3, bookmarked: false });
+    await act(async () => acpmux.answer());
+    await settle();
+    for (const button of buttons()) expect(button.getAttribute("aria-pressed")).toBe("false");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
 async function mount() {
   const host = dom.window.document.createElement("div");

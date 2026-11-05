@@ -2,6 +2,7 @@
 // runs `cloud.migration.start` as a native action, "Later" hides it for this page session), and a
 // typed plan refusal (contract 1.5: `plan_required`, `quota_exceeded {limit, used}`, `size_locked`)
 // as a localized sentence with "See plans", which links the public plans page until billing lands.
+import { Notice } from "../../ui/Notice";
 import type { Strings } from "../shared/i18n";
 import { migrationBanner } from "./account";
 import { PLANS_URL, type PlanRefusal } from "./ops";
@@ -53,7 +54,8 @@ export function refusalText(refusal: PlanRefusal, t: (key: string) => string): s
 /**
  * A plan refusal with "See plans", shown when a plan lifts the limit: the error's `details.plan`, else
  * `CloudPlan.upgrade_plan` (`planRefusal`); otherwise the sentence shows alone. "See plans" links the
- * public plans page ([PLANS_URL]) until billing lands; then it runs the checkout of that plan.
+ * public plans page ([PLANS_URL]) until billing lands; then it runs the checkout of that plan. Drawn as
+ * the shared notice's warning (ui/Notice.tsx): it stays until the person dismisses it or the cause goes.
  */
 export function PlanNotice({
   refusal,
@@ -65,23 +67,15 @@ export function PlanNotice({
   onDismiss?: () => void;
 }) {
   const { t } = strings;
-  const plan = refusal.plan;
   return (
-    <div className={`cloud-plan-notice kind-${refusal.kind}`} role="alert">
-      <span className="cloud-plan-notice-text">{refusalText(refusal, t)}</span>
-      <span className="cloud-item-actions">
-        {plan && (
-          // A plain link: the host opens it outside the page on the person's click (PageNavigation).
-          <a className="cloud-button cloud-see-plans" href={PLANS_URL}>
-            {t(L.seePlans)}
-          </a>
-        )}
-        {onDismiss && (
-          <button type="button" className="cloud-link-button" onClick={onDismiss}>
-            {t(L.dismissError)}
-          </button>
-        )}
-      </span>
-    </div>
+    <Notice
+      kind="warning"
+      className={`cloud-plan-notice kind-${refusal.kind}`}
+      message={refusalText(refusal, t)}
+      // A plain link: the host opens it outside the page on the person's click (PageNavigation).
+      actions={refusal.plan ? [{ id: "see-plans", label: t(L.seePlans), href: PLANS_URL, primary: true }] : []}
+      onDismiss={onDismiss}
+      dismissLabel={t(L.dismissError)}
+    />
   );
 }

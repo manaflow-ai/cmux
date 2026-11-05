@@ -269,6 +269,7 @@ impl Mux {
         let mut snapshot = self.registry_connection.write_path_stats().snapshot();
         (snapshot.wal_commits, snapshot.wal_synced_commits) =
             self.registry_connection.durability_counts();
+        snapshot.registry_wal_frame_bytes = self.registry_connection.wal_frame_bytes();
         snapshot
     }
 

@@ -76,6 +76,36 @@ public final class LayoutPassGuard {
     /// Outermost window layout passes begun since launch, all windows, also those that laid out no view (which
     /// ``windowLayoutPasses`` leaves out): the S7 live-resize probe counts the passes inside a window's `setFrame`.
     public private(set) var windowLayoutsBegun = 0
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// ``windowLayoutPasses`` per window (DEV and bench builds), only while `debug.frames` runs
+    /// (``countsPassesByWindow``): it names the window of each pass by its role (``LayoutPassRoleNaming``). Fixed slots
+    /// made when counting starts; the probe's frame tick gives each window a slot (``registerWindowsForPassCounts(_:)``),
+    /// outside any pass, and a pass only finds its window's slot by identity (at most ``windowSlots`` compares) and adds
+    /// one: no allocation, no weak reference made. A window with no slot yet counts in ``passesInNoSlot``.
+    private var passesByWindow: [(id: ObjectIdentifier?, window: WeakWindow, passes: Int)] = []
+    static let windowSlots = 64
+    /// Passes of windows that found no free slot while counting.
+    public private(set) var passesInNoSlot = 0
+
+    /// Whether passes are counted per window (off by default; `debug.frames` turns it on from its start to its stop).
+    public var countsPassesByWindow = false {
+        didSet {
+            guard countsPassesByWindow != oldValue else { return }
+            passesByWindow = countsPassesByWindow ? Array(repeating: (nil, WeakWindow(object: nil), 0), count: Self.windowSlots) : []
+            passesInNoSlot = 0
+        }
+    }
+
+    public struct WeakWindow {
+        public weak var object: NSWindow?
+        public init(object: NSWindow?) { self.object = object }
+    }
+
+    /// Every live window that had a layout pass since counting started, with its passes (read once per frame that had one).
+    public var windowPassCounts: [(window: NSWindow, passes: Int)] {
+        passesByWindow.compactMap { entry in entry.window.object.map { ($0, entry.passes) } }
+    }
+    #endif
 
     /// One `layoutIfNeeded` of a window in progress: its nesting depth, the
     /// layout calls per view in it (the weak reference tells a reused
@@ -213,9 +243,37 @@ public final class LayoutPassGuard {
         let id = ObjectIdentifier(window)
         guard var layout = windowLayouts[id] else { return }
         layout.depth -= 1
-        if layout.depth == 0, viewLayoutCalls != layout.viewCallsAtStart { windowLayoutPasses &+= 1 }
+        if layout.depth == 0, viewLayoutCalls != layout.viewCallsAtStart {
+            windowLayoutPasses &+= 1
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if countsPassesByWindow { countPass(of: window) }
+            #endif
+        }
         windowLayouts[id] = layout.depth > 0 ? layout : nil
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// One pass of `window` in its slot (by identity only), else in ``passesInNoSlot``.
+    private func countPass(of window: NSWindow) {
+        let id = ObjectIdentifier(window)
+        for index in passesByWindow.indices where passesByWindow[index].id == id { return passesByWindow[index].passes &+= 1 }
+        passesInNoSlot &+= 1
+    }
+
+    /// Gives each of `windows` a slot while counting (the probe's frame tick, outside any layout pass): a slot whose
+    /// window is gone is freed first, and a window that gets a slot starts at 0.
+    public func registerWindowsForPassCounts(_ windows: [NSWindow]) {
+        guard countsPassesByWindow else { return }
+        for index in passesByWindow.indices where passesByWindow[index].id != nil && passesByWindow[index].window.object == nil {
+            passesByWindow[index] = (nil, WeakWindow(object: nil), 0)
+        }
+        for window in windows {
+            let id = ObjectIdentifier(window)
+            guard !passesByWindow.contains(where: { $0.id == id }), let free = passesByWindow.firstIndex(where: { $0.id == nil }) else { continue }
+            passesByWindow[free] = (id, WeakWindow(object: window), 0)
+        }
+    }
+    #endif
 
     fileprivate func record(_ view: NSView) {
         viewLayoutCalls &+= 1
@@ -324,3 +382,13 @@ public final class LayoutPassGuard {
         }
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+/// A window's role in `debug.frames`' per-window layout passes (``LayoutPassGuard/windowPassCounts``): a stable name a
+/// film reads (the main window, the overlay panel, divider catcher N), where the window class alone (a borderless
+/// window's `NSNextStepFrame`) names several windows.
+@MainActor
+public protocol LayoutPassRoleNaming: AnyObject {
+    var layoutPassRole: String { get }
+}
+#endif

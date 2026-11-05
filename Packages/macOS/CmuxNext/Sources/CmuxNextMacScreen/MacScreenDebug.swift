@@ -2,6 +2,7 @@ public import CmuxNextControl
 public import Foundation
 #if DEBUG
 import AppKit
+import CmuxNextRemoteView
 public import CmuxNextSettings
 import CmuxScreenKit
 
@@ -12,6 +13,8 @@ import CmuxScreenKit
 ///   gate, card, phase, path, stats, picture size, displays;
 ///   `system_shortcuts` (the setting), `system_shortcuts_tap` (the tap is
 ///   installed) and `accessibility` (this Mac trusts cmux for Accessibility).
+/// - `input` {events}: pointer, button and key events into every tab's session, as the pane
+///   sends them (no window focus); `sent_ms` is the wall clock when sent, for latency checks.
 /// - `open` {url?, pane?}: opens the record at `url` (default the home page) in a new Mac Screen tab.
 /// - `display_fps` {fps?, tab?}: the refresh rate each tab (or `tab`)
 ///   reports to its Mac instead of its display's; no `fps` reports the
@@ -60,6 +63,18 @@ extension MacScreenPages {
             }
             for tab in tabs { tab.pane?.view.chrome.actions.setQuality(quality) }
             return ["tabs": .array(tabs.map(row))]
+        case "input":
+            // Input as the pane sends it (no window focus): `events` is a list of
+            // {"t":"pointer","x","y"} (stream pixels), {"t":"button","down"} (left) or
+            // {"t":"key","usage","down"} (HID). `sent_ms` is this Mac's wall clock when sent.
+            let events = (params["events"]?.arrayValue ?? []).compactMap(Self.inputEvent)
+            guard !events.isEmpty else { return ["error": "events: pointer, button or key objects"] }
+            let sessions = tabs.compactMap { $0.pane?.session }
+            guard !sessions.isEmpty else { return ["error": "no Mac Screen session"] }
+            for session in sessions {
+                for event in events { session.send(event) }
+            }
+            return ["sent": .number(Double(events.count)), "sent_ms": .number((Date().timeIntervalSince1970 * 1000).rounded())]
         case "state":
             systemShortcuts.refreshAccessibility()
             return [
@@ -73,6 +88,22 @@ extension MacScreenPages {
             ]
         default:
             return ["error": "unknown action"]
+        }
+    }
+
+    private static func inputEvent(_ value: JSONValue) -> RemoteInputEvent? {
+        switch value["t"]?.stringValue {
+        case "pointer":
+            guard let x = value["x"]?.intValue, let y = value["y"]?.intValue,
+                  let x = Int32(exactly: x), let y = Int32(exactly: y) else { return nil }
+            return .pointer(x: x, y: y)
+        case "button":
+            return .button(.left, down: value["down"]?.boolValue ?? true)
+        case "key":
+            guard let usage = value["usage"]?.intValue, let usage = UInt32(exactly: usage) else { return nil }
+            return .key(usage: usage, down: value["down"]?.boolValue ?? true)
+        default:
+            return nil
         }
     }
 
@@ -112,7 +143,7 @@ extension MacScreenPages {
         return .object(row)
     }
 
-    private static func phaseName(_ phase: ScreenSession.Phase) -> String {
+    private static func phaseName(_ phase: MacScreenSession.Phase) -> String {
         switch phase {
         case .connecting: "connecting"
         case .connected: "connected"

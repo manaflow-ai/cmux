@@ -141,7 +141,8 @@ export function ComposerBox({
   inert = false,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
-  // looks lay +, the prompt, the mic and Send out as Claude's in the box's grid (composerLook.ts).
+  // looks use the same controls and prompt. Codex's gives the prompt its own full-width line,
+  // with + and the trailing actions on the lower row (composerLook.css).
   // The mode, model, effort and ring are the quiet row: under the box in Claude's look, inside it
   // under the prompt in Codex's (Leo 2026-10-30: "the bypass/context/model picker stuff should
   // literally be inside the composer box"; 2026-11-02: "switching to the codex view in the middle of
@@ -376,8 +377,8 @@ export function ComposerBox({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-          {/* The compact box grid for +, the prompt, the mic and Send, with the model group in
-              ComposerFoot, in both looks. The granted-permission status gets no slot of its own
+          {/* The box grid for +, the prompt, the mic and Send, with the model group in
+              ComposerFoot. The granted-permission status gets no slot of its own
               (hq#1957 item 15 compact row): grants are revoked from the chat menu (header/grantsMenu.ts). */}
           <div
             className="acpmux-composer-bar acpmux-composer-inner"

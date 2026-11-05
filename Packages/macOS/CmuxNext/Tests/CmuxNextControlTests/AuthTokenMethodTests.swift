@@ -50,6 +50,8 @@ import Testing
         let refused = ControlMethod.authTokenError(AuthTokenRefusal(code: "forbidden", detail: "auth.forbidden"), team: team)
         #expect(refused.message.contains(team))
         #expect(refused.data?["detail"]?.stringValue == "auth.forbidden")
+        // Msg 3790: a terminal has no button, so signed out the CLI names the command that signs in.
+        #expect(ControlMethod.authTokenError(AuthTokenRefusal(code: "not_signed_in"), team: nil).message.contains("cmux cloud sign-in"))
         // An answer the app will not use is still `unavailable` to the CLI.
         #expect(ControlMethod.authTokenError(AuthTokenRefusal(code: "bad_reply"), team: nil).code == "unavailable")
     }

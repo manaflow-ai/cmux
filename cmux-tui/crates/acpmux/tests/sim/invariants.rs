@@ -4,7 +4,7 @@
 //!
 //! Not checked yet, with the hook each needs:
 //!
-//! - Stale epochs are rejected ([`stale_epochs_rejected`]): needs the per-session seq log and its
+//! - Stale epochs are rejected ([`NOT_CHECKED`]): needs the per-session seq log and its
 //!   epoch from the idempotent-delivery work (HQ#6740). Once a record or a client request carries
 //!   the daemon incarnation's epoch, the check is: no record in the log was written under an
 //!   epoch older than one already in it, and every request the app sends under an old epoch is
@@ -48,8 +48,12 @@ pub const INVARIANTS: &[Invariant] = &[
         name: "a resumed chat ends as an uninterrupted one",
         check: resumed_equals_uninterrupted,
     },
-    Invariant { name: "stale epochs are rejected", check: stale_epochs_rejected },
 ];
+
+/// Invariants the design asks for that no check covers yet, each with the hook it needs (see the
+/// module text). Every run prints them, so a green run never reads as having checked them.
+pub const NOT_CHECKED: &[&str] =
+    &["stale epochs are rejected (needs the daemon's epoch from idempotent delivery, HQ#6740)"];
 
 /// Every invariant on `run`: the first that fails, by name.
 pub fn check(run: &Run) -> Result<(), String> {
@@ -164,11 +168,11 @@ fn none_twice(run: &Run) -> Result<(), String> {
 fn seq_gap_free(run: &Run) -> Result<(), String> {
     for o in std::iter::once(&run.faulty).chain(run.uninterrupted.as_ref()) {
         for (chat, records) in &o.log {
-            let mut want = records.first().map_or(1, |r| r.seq);
-            if want != 1 {
-                return Err(format!("chat {chat}'s log starts at seq {want}"));
+            let first = records.first().map_or(1, |r| r.seq);
+            if first != 1 {
+                return Err(format!("chat {chat}'s log starts at seq {first}"));
             }
-            for r in records {
+            for (want, r) in (1..).zip(records) {
                 if r.seq != want {
                     return Err(format!(
                         "chat {chat}: seq {} after {} ({} {})",
@@ -178,7 +182,6 @@ fn seq_gap_free(run: &Run) -> Result<(), String> {
                         r.kind
                     ));
                 }
-                want += 1;
             }
         }
     }
@@ -217,11 +220,5 @@ fn resumed_equals_uninterrupted(run: &Run) -> Result<(), String> {
     if a != b {
         return Err(format!("with faults it ended as {a:?}; without, as {b:?}"));
     }
-    Ok(())
-}
-
-/// TODO(HQ#6740, idempotent delivery's seq log): see the module text. Holds until the epoch it
-/// needs exists.
-fn stale_epochs_rejected(_run: &Run) -> Result<(), String> {
     Ok(())
 }

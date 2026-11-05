@@ -7,7 +7,7 @@ public import Observation
 /// One Mac Screen tab's side of a device hub session, as the viewer: it asks
 /// the hub for a session with one of the user's devices, waits for the
 /// host's approval and the ticket, hands the ticket's signaling to the
-/// tab's `ScreenSession` once, and ends at once on a denial, revocation or
+/// tab's `MacScreenSession` once, and ends at once on a denial, revocation or
 /// end. Tickets admit once, so every new stream is a new request.
 @MainActor @Observable
 public final class MacScreenHubViewer {
@@ -31,7 +31,7 @@ public final class MacScreenHubViewer {
     }
     /// DEV builds (Relay Only): the stream uses only TURN relays.
     @ObservationIgnored var relayOnly = false
-    /// The signaling the next `ScreenSession.connect()` takes (once).
+    /// The signaling the next `MacScreenSession.connect()` takes (once).
     @ObservationIgnored private var pendingSignaling: (any ScreenSignaling)?
     @ObservationIgnored private var requestTask: Task<Void, Never>?
     /// The tab hid past its grace mid-session: showing it asks again for this scope.
@@ -49,7 +49,7 @@ public final class MacScreenHubViewer {
                             iceServers: hub.iceServers(for: ticket).map(\.config), expectedPeerKey: ticket.peer.signingKey)
     }
 
-    /// The signaling for `ScreenSession.connect()`: once per ticket.
+    /// The signaling for `MacScreenSession.connect()`: once per ticket.
     func takeSignaling() -> (any ScreenSignaling)? {
         defer { pendingSignaling = nil }
         return pendingSignaling

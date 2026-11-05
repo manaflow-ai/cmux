@@ -20,7 +20,50 @@ concurrency:
   group: web-validation-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
+  # Secretless placement bootstrap: fresh runner state assigns this short status
+  # job to an idle owned mini; stale state fails open to the existing overflow.
+  portable-placement:
+    name: portable light placement
+    if: ${{ github.event_name != 'merge_group' && vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    timeout-minutes: 4
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      linux_runner: ${{ steps.place.outputs.linux_runner }}
+      linux_jobs: ${{ steps.place.outputs.linux_jobs }}
+      mini_runner: ${{ steps.place.outputs.mini_runner }}
+      mini_jobs: ${{ steps.place.outputs.mini_jobs }}
+      placed_attempt: ${{ github.run_attempt }}
+    steps:
+      - name: Check out the trusted placement script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      - name: Place the portable web status job
+        id: place
+        continue-on-error: true
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          JOBS: web-validation
+          # Only the owned-pool rescue bot's third attempt may re-place this
+          # light job. Other workflows and manual retries stay fail-closed.
+          PORTABLE_ATTEMPT3_RESCUE: '1'
+          FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
+          REQUIRE_LIVE_CAPACITY: '1'
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/portable_job_placement.py
+
   changes:
     if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
@@ -144,9 +187,9 @@ jobs:
 
   web-validation:
     name: web-validation
-    needs: [changes, build, tests, database]
+    needs: [changes, build, tests, database, portable-placement]
     if: always()
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' web-validation ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' web-validation ') && needs.portable-placement.outputs.mini_runner || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Accept CI-owned pull-request validation

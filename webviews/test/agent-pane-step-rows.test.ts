@@ -288,7 +288,9 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await page.close();
   });
 
-  test("an inner step row reveals and lights its chevron only on hover", async () => {
+  // Hover only reveals the chevron: the step's words and glyph keep their tone, as a lone tool row's
+  // do (#20330: tool rows "no longer change on hover"); focus and an opened step lift them.
+  test("an inner step row reveals its chevron on hover and keeps its tone", async () => {
     const page = await open();
     await openRun(page);
     const row = page.locator(".cv-steps > .cv-step > .cv-tool").first();
@@ -318,9 +320,9 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await waitForChevron("1");
     const hovered = await look();
     expect(hovered.chevron).toBe("1");
-    expect(hovered.color).toBe(hovered.icon);
-    expect(hovered.color).toBe(hovered.text);
-    expect(hovered.color).not.toBe(rest.color);
+    expect(hovered.color).toBe(rest.color);
+    expect(hovered.icon).toBe(rest.icon);
+    expect(hovered.text).toBe(rest.text);
     expect(hovered.width).toBe(rest.width);
     await row.click();
     await page.mouse.move(0, 0);

@@ -61,9 +61,9 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         let root = root, live = servedRoot != root
         // task-owner: one file read per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
-            // An active web update (WebBundleOverlay) serves its copy of the same file, unless
-            // the web-dev.json overlay already serves this one.
-            let served = live ? root : await WebBundleOverlay.shared.root(for: root)
+            // The web update this pane loaded with (WebBundleServedViews) serves its copy of the
+            // same file, unless the web-dev.json overlay already serves this one.
+            let served = live ? root : await WebBundleServedViews.shared.root(for: root, in: webView)
             let file = served == root ? file : Self.fileURL(for: url, root: served) ?? file
             let data = await Self.read(file)
             guard let self, self.active.remove(id) != nil else { return }

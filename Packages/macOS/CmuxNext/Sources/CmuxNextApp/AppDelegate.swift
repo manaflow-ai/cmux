@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
@@ -18,15 +19,18 @@ import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextServer
 import CmuxNextSettings
+import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
 import CmuxNextWakeups
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let environment: AppEnvironment
+    private var environment: AppEnvironment
     /// The daemon's first connect attempt, begun in `main`.
-    private let daemonPrestart: DaemonPrestart?
+    private var daemonPrestart: DaemonPrestart?
+    /// Resolves once before any auth or daemon is constructed; cancelled on quit.
+    private var cloudBootstrap: Task<Void, Never>?
     /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
     /// Launch work that starts after the first window frame (perf-launch-memory).
@@ -90,6 +94,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // task-owner: cloudBootstrap; one CLI read before services, cancelled at termination.
+        cloudBootstrap = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let selection = try await CloudEnvironmentBootstrap(work: launchReads.work).resolve()
+                try Task.checkCancellation()
+                environment.cloudConfiguration = CloudConfiguration.from(selection: selection, isDebugBuild: ControlService.isDebugBuild)
+                environment.terminalEnvironment["CMUX_NEXT_CLOUD_RUNTIME"] = "1"
+                environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
+                environment.terminalEnvironment["CMUX_NEXT_CLOUD_BACKEND"] = selection.apiOrigin.absoluteString
+                environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
+                daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
+                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: SidebarMirror.isLinked)
+                finishLaunching()
+            } catch {
+                guard !Task.isCancelled else { return }
+                logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
+                // Keep the native app and local daemon usable when client-config is
+                // unavailable. Never fall back to classic or pass a stale NEXT
+                // backend to a daemon started from this launch.
+                environment.cloudConfiguration = .unavailable
+                for key in ["CMUX_NEXT_CLOUD_RUNTIME", "CMUX_NEXT_CLOUD_ENV", "CMUX_NEXT_CLOUD_BACKEND", "CMUX_PLATFORM_ORIGIN"] {
+                    environment.terminalEnvironment.removeValue(forKey: key)
+                }
+                daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
+                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: SidebarMirror.isLinked)
+                finishLaunching()
+            }
+            cloudBootstrap = nil
+        }
+    }
+
+    private func finishLaunching() {
         // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
         Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
@@ -199,12 +238,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await services.agentPaneStateLoss.showNotices(in: window, pairedSealCleared: { await services.iphone.pairedSealClearedForCutOff() })
                 }
             }
-            CATransaction.setCompletionBlock { [weak self] in
-                MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
-                    DebugTimings.markLaunch("first_window_frame_committed")
-                    TerminalLaunchFrames.closeLaunches() // the terminals that asked by now are this frame's
-                    self?.firstFrame.open()
-                }
+            CATransaction.setMainCompletion { [weak self] in
+                DebugTimings.markLaunch("first_window_frame_committed")
+                TerminalLaunchFrames.closeLaunches() // the terminals that asked by now are this frame's
+                self?.firstFrame.open()
             }
         }
         // Once the first terminal frame is drawn, the palette panel is made
@@ -526,6 +563,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        cloudBootstrap?.cancel()
+        cloudBootstrap = nil
         services?.crashRecovery.applicationWillTerminate()
         services?.crashReporting.reporter.stallSummary.close()  // the open hour's stall counts
         // The release push's socket closes and nothing reconnects (ReleasePushListener).
@@ -569,6 +608,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         // A Dock click in an update relaunch's startup: the user chose cmux.
         services?.input.endRelaunchBehind("dock click", activating: true)
+        // A Dock click or an open of the running app under CMUX_NEXT_NO_ACTIVATE=1: the user chose
+        // cmux, so its activation is not handed back (https://github.com/manaflow-ai/cmux/issues/34575).
+        services?.input.noteReopenRequested()
         guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
         services.windows.reopenOrCreateWindow()
         return false

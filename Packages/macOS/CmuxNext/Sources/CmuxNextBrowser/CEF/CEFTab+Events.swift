@@ -9,7 +9,7 @@ extension CEFTab {
     /// OnLoadingStateChange(!loading). Same-document navigations only change
     /// the address and the loading state.
     func handle(_ event: CEFShimEvent) {
-        defer { CEFAgentURLGuard.check(self, after: event) }
+        defer { CEFAgentURLGuard.check(self, after: event); runtime.failureReports.note(event, tab: self) }
         if case .title = event {} else if let waiting = titleCoalescer.flush(now: ProcessInfo.processInfo.systemUptime) {
             // A title that waited goes before this event, so the state sees them in order.
             titleTimer.cancel()

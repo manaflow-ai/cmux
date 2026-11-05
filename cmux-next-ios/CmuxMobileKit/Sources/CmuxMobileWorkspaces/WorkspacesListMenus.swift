@@ -20,12 +20,15 @@ extension WorkspacesList {
         let status = inbox.status(ws)
         let canManage = status != .offline && creator.canManage(ws)
         let macName = mac(ws.macID).map(displayName) ?? "Unknown Mac"
+        // Settings → Long-Press Menus: the items the person hid stay out.
+        let shown = CmuxMobileMenuCustomization.hidden()
+        func offered(_ item: String) -> Bool { !shown.contains("workspaceRow.\(item)") }
         var header: [UIMenuElement] = []
         if status == .offline {
             if scope == .all {
                 header.append(action("Show \(macName)", "line.3.horizontal.decrease") { select(.mac(ws.macID)) })
             }
-        } else {
+        } else if offered("tabs") {
             for tab in ws.tabs {
                 // An agent tab by its task (as on the row), the agent as the subtitle.
                 let title = tab.isAgent ? (tab.task ?? tab.title) : tab.title
@@ -37,19 +40,45 @@ extension WorkspacesList {
         var children: [UIMenuElement] = [UIMenu(title: menuHeader(ws, macName: macName, offline: status == .offline),
                                                 options: .displayInline, children: header)]
         // Send Message… (the Mac's row action): a message to the Chief with a link to this workspace.
-        if status != .offline, ChiefMessenger.shared.isAvailable, let subject = ChiefMessageAbout(workspace: ws) {
+        if status != .offline, offered("sendMessage"), ChiefMessenger.shared.isAvailable, let subject = ChiefMessageAbout(workspace: ws) {
             children.append(UIMenu(options: .displayInline, children: [
                 action("Send Message…", "paperplane") { ChiefMessenger.shared.messageAbout(subject) },
             ]))
         }
-        if canManage {
-            if creator.canArrange(ws) { children.append(arrangeMenu(ws, inbox: inbox)) }
-            var manage: [UIMenuElement] = [action("Rename", "pencil") { startRename(ws) }]
-            if creator.canDuplicate(ws) {
-                manage.append(action(WorkspaceCreator.duplicateTitle, "plus.square.on.square") { creator.duplicate(ws) })
+        // The Mac's Copy rows (Copy Workspace Link, Copy Workspace ID, Copy Workspace ID and
+        // Ref), each only when the Mac sent the workspace's public id.
+        if status != .offline {
+            let rows: [(title: String, symbol: String, text: String?)] = [
+                ("Copy Workspace Link", "link", ws.copyLinkText),
+                ("Copy Workspace ID", "number", ws.copyIDText),
+                ("Copy Workspace ID and Ref", "number.square", ws.copyIDAndRefText),
+            ]
+            var copies: [UIMenuElement] = []
+            for row in rows {
+                guard let text = row.text else { continue }
+                copies.append(action(row.title, row.symbol) { UIPasteboard.general.string = text })
             }
+            if !copies.isEmpty {
+                children.append(UIMenu(title: "Copy", image: UIImage(systemName: "doc.on.doc"), children: copies))
+            }
+        }
+        if canManage {
+            if creator.canArrange(ws), offered("arrange") { children.append(arrangeMenu(ws, inbox: inbox)) }
+            var manage: [UIMenuElement] = []
+            if let new = newWorkspaceMenu(ws) { manage.append(new) }
+            if offered("rename") { manage.append(action("Rename", "pencil") { startRename(ws) }) }
+            if creator.canDuplicate(ws), offered("duplicate") {
+                manage.append(action(WorkspaceCreator.duplicateTitle, "plus.square.on.square") { creator.duplicate(ws) })
+                // Only a workspace with a page: without one it is the same as Duplicate Workspace.
+                if ws.tabs.contains(where: { $0.kind == .browser }) {
+                    manage.append(action(WorkspaceCreator.duplicateTerminalsOnlyTitle, "terminal") {
+                        creator.duplicate(ws, browsers: false)
+                    })
+                }
+            }
+            // Close Workspace is never hidden: the row's swipe has it too, but a menu keeps one way out.
             manage.append(action("Close Workspace", "xmark", destructive: true) { confirmClose(ws) })
-            if let bulk = bulkCloseMenu(ws, inbox: inbox) { manage.append(bulk) }
+            if offered("bulkClose"), let bulk = bulkCloseMenu(ws, inbox: inbox) { manage.append(bulk) }
             children.append(UIMenu(options: .displayInline, children: manage))
         }
         return UIMenu(children: children)
@@ -74,11 +103,8 @@ extension WorkspacesList {
         }
         var appearance: [UIMenuElement] = [UIMenu(title: "Set Workspace Color…", image: UIImage(systemName: "paintpalette"), children: colors)]
         if ws.colorHex != nil { appearance.append(action("Reset Workspace Color", "circle.slash") { creator.setColor(ws, nil) }) }
-        var icons: [UIMenuElement] = WorkspaceIcon.symbols.map { symbol in
-            action(symbol, ws.icon == symbol ? "checkmark" : symbol) { creator.setIcon(ws, symbol) }
-        }
-        icons.append(action("Emoji…", "face.smiling") { startIconEmoji(ws) })
-        appearance.append(UIMenu(title: "Set Icon…", image: UIImage(systemName: "app.badge"), children: icons))
+        // The Mac's picker: every SF Symbol, searchable, or one emoji.
+        appearance.append(action("Set Icon…", ws.icon.flatMap { UIImage(systemName: $0) == nil ? nil : $0 } ?? "app.badge") { startIconPicker(ws) })
         if ws.icon != nil { appearance.append(action("Remove Icon", "minus.circle") { creator.setIcon(ws, nil) }) }
         if let removeAll = removeAllColorsAction(ws.macID) { appearance.append(removeAll) }
         items.append(UIMenu(title: "Appearance", image: UIImage(systemName: "paintbrush"), children: appearance))
@@ -104,6 +130,17 @@ extension WorkspacesList {
             if order.last?.id == ws.id { down.attributes.insert(.disabled) }
             move += [up, down]
         }
+        // Move Workspace Above… / Below…: a row of the same container to go next to.
+        for side in WorkspaceNeighborMove.allCases {
+            let targets = side.targets(for: ws, in: container)
+            guard !targets.isEmpty else { continue }
+            let choices = targets.map { target in
+                UIAction(title: target.title) { _ in
+                    withAnimation(theme.motion.smooth.animation) { creator.move(ws, side, target) }
+                }
+            }
+            move.append(UIMenu(title: side.title, image: UIImage(systemName: side.systemImage), children: choices))
+        }
         if container.count > 1 {
             for edge in WorkspaceEdge.allCases {
                 let item = action(edge.title(grouped: ws.group != nil), edge == .top ? "arrow.up.to.line" : "arrow.down.to.line") {
@@ -123,10 +160,33 @@ extension WorkspacesList {
             }
             move.append(UIMenu(title: "Sort Workspaces", image: UIImage(systemName: "arrow.up.arrow.down.square"), children: keys))
         }
+        let targets = creator.mergeTargets(for: ws)
+        if !targets.isEmpty {
+            // Merge Workspace Into…: every tab of this one moves into the chosen workspace.
+            let into = targets.map { target in
+                UIAction(title: target.title, image: target.icon.flatMap { UIImage(systemName: $0) } ?? UIImage(systemName: "square.on.square")) { _ in
+                    theme.haptics.selection()
+                    creator.merge(ws, into: target)
+                }
+            }
+            move.append(UIMenu(title: "Merge Workspace Into…", image: UIImage(systemName: "arrow.triangle.merge"), children: into))
+        }
         if !move.isEmpty {
             items.append(UIMenu(title: "Move", image: UIImage(systemName: "arrow.up.arrow.down"), children: move))
         }
         return UIMenu(options: .displayInline, children: items)
+    }
+
+    /// New ▸ New Workspace Above / Below / at Top / at Bottom (the Mac's row New folder): a new
+    /// terminal workspace, opened at once and placed there once the Mac lists it.
+    private func newWorkspaceMenu(_ ws: Workspace) -> UIMenu? {
+        let placements = creator.newWorkspacePlacements(beside: ws)
+        guard !placements.isEmpty else { return nil }
+        let items = placements.map { placement in
+            action(placement.title, placement.systemImage) { create(.terminal, directory: nil, on: ws.macID, placement: placement) }
+        }
+        // The Mac's row folder title ("New", `MenuFolder.new`).
+        return UIMenu(title: "New", image: UIImage(systemName: "plus.square"), children: items)
     }
 
     /// Group: Move Workspace to Group… (its groups, then Move Workspace to New
@@ -171,6 +231,20 @@ extension WorkspacesList {
     func groupMenu(_ header: WorkspaceGroupHeaderModel) -> UIMenu? {
         guard header.canEdit else { return nil }
         let (group, macID) = (header.group, header.macID)
+        let newInGroup = action(NewWorkspacePlacement.inGroup(group).title, NewWorkspacePlacement.inGroup(group).systemImage) {
+            create(.terminal, directory: nil, on: macID, placement: .inGroup(group))
+        }
+        // A group the Mac lists with no workspace: New Workspace in Group and Delete Group.
+        guard header.count > 0 else {
+            return UIMenu(children: [
+                UIMenu(title: group.displayName, options: .displayInline, children: [newInGroup]),
+                UIMenu(options: .displayInline, children: [
+                    action("Delete Group", "trash", destructive: true) {
+                        withAnimation(theme.motion.smooth.animation) { creator.deleteEmptyGroup(group, on: macID) }
+                    },
+                ]),
+            ])
+        }
         let colors = WorkspaceColor.allCases.map { color in
             WorkspaceColor(stored: group.color) == color
                 ? action(color.title, "checkmark") { creator.setGroupColor(group, on: macID, color) }
@@ -185,6 +259,13 @@ extension WorkspacesList {
             },
         ]
         if let options = groupOptions(group, macID: macID) { editItems.append(options) }
+        editItems.insert(newInGroup, at: 0)
+        if creator.members(of: [group], on: macID).allSatisfy({ creator.canDuplicate($0) }) {
+            editItems.append(action("Duplicate Workspace Group", "plus.square.on.square") {
+                theme.haptics.selection()
+                creator.duplicateGroup(group, on: macID)
+            })
+        }
         let edit = UIMenu(title: group.displayName, options: .displayInline, children: editItems)
         var removeItems: [UIMenuElement] = [
             action("Ungroup Workspaces", "rectangle.stack.badge.minus") {

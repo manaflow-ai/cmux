@@ -6,6 +6,11 @@ import Foundation
 public nonisolated enum AgentPanePeerApprovals: Sendable, Equatable {
     /// The peer, by this Mac's daemon's name for it, has not enrolled this Mac.
     case notEnrolled(peer: String)
+    /// The person's answer for a prompt of `peer` waits while this Mac enrolls there; it goes
+    /// once enrolled (``AgentPaneTransport/enrollThenRetry(peer:pageID:frame:)``).
+    case enrolling(peer: String)
+    /// Enrolling this Mac on `peer` for the person's answer failed, in the command's own words.
+    case enrollFailed(peer: String, reason: String)
     /// The allow was not a one-time allow (an Always allow): only those count from this Mac.
     case onceOnly
     /// An answer with notes: the peer counts no proof over notes from this Mac.

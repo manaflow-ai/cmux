@@ -80,6 +80,9 @@ pub struct PendingWrite {
     temporary: String,
     file: File,
     mode: WriteMode,
+    /// `fs-write-nofollow-v1`: a symlink put at the target since
+    /// [`Self::begin_no_follow`] fails the commit.
+    refuse_links: bool,
     committed: bool,
 }
 
@@ -93,7 +96,27 @@ impl PendingWrite {
         mode: WriteMode,
         size: Option<u64>,
     ) -> Result<Self, FsError> {
-        let resolved = roots.resolve(path, true)?;
+        Self::begin_resolved(roots.resolve(path, true)?, mode, size, false)
+    }
+
+    /// [`Self::begin`] that follows no symlink (`fs-write-nofollow-v1`):
+    /// one as any component of `path` below its root, the last included,
+    /// is `fs.symlink_in_path`, here and again at [`Self::commit`].
+    pub fn begin_no_follow(
+        roots: &Roots,
+        path: &str,
+        mode: WriteMode,
+        size: Option<u64>,
+    ) -> Result<Self, FsError> {
+        Self::begin_resolved(roots.resolve_no_follow(path)?, mode, size, true)
+    }
+
+    fn begin_resolved(
+        resolved: super::resolve::Resolved,
+        mode: WriteMode,
+        size: Option<u64>,
+        refuse_links: bool,
+    ) -> Result<Self, FsError> {
         let Some(name) = resolved.name.clone() else {
             return Err(if resolved.is_root {
                 FsError::PermissionDenied
@@ -118,6 +141,7 @@ impl PendingWrite {
             temporary,
             file: File::from(fd),
             mode,
+            refuse_links,
             committed: false,
         };
         if existing.is_some() {
@@ -147,7 +171,11 @@ impl PendingWrite {
     pub fn commit(mut self) -> Result<Entry, FsError> {
         self.file.sync_all()?;
         let dir = self.dir.as_fd();
-        self.mode.admits(current(dir, &self.name)?.as_ref())?;
+        let now = current(dir, &self.name)?;
+        if self.refuse_links && now.as_ref().is_some_and(|meta| meta.kind == EntryKind::Symlink) {
+            return Err(FsError::SymlinkInPath);
+        }
+        self.mode.admits(now.as_ref())?;
         match self.mode {
             WriteMode::Create => sys::rename_no_replace(dir, &self.temporary, &self.name)?,
             // Replace: a write that lands between the check above and this
@@ -177,9 +205,17 @@ impl Drop for PendingWrite {
 /// place, so it is held to more: the opened descriptor must be a regular
 /// file with one link (a hard link could reach a file outside the roots)
 /// and the expected revision, and a failed write is cut back to the old
-/// size.
-pub fn append(roots: &Roots, path: &str, expected: &str, bytes: &[u8]) -> Result<Entry, FsError> {
-    let resolved = roots.resolve(path, false)?;
+/// size. With `no_follow` a symlink as a folder on the way is
+/// `fs.symlink_in_path` (`fs-write-nofollow-v1`).
+pub fn append(
+    roots: &Roots,
+    path: &str,
+    expected: &str,
+    bytes: &[u8],
+    no_follow: bool,
+) -> Result<Entry, FsError> {
+    let resolved =
+        if no_follow { roots.resolve_no_follow(path)? } else { roots.resolve(path, false)? };
     let Some(name) = resolved.name.clone() else {
         return Err(if resolved.is_root { FsError::PermissionDenied } else { FsError::NotAFile });
     };

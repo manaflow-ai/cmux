@@ -16,6 +16,9 @@ import CmuxNextCompat
 /// - `overlay`: built bundles in `pages/<resource>/`, `agent-pane/` and `webviews-app/`
 ///   (`scripts/cmux-next/web-overlay.sh install` swaps them in and then writes `manifest.json`).
 ///   A surface whose folder or entry is missing there keeps its bundled files.
+/// - `gallery`: the live gallery's server (`bun run gallery:dev`, `http://127.0.0.1:4178/` from
+///   `scripts/cmux-next/web-dev.sh`), whose stages Gallery Stage (`gallery.openStage`) shows as tabs
+///   of this app, in its own theme and backdrop (``GalleryStageTabs``). Pages ignore it.
 ///
 /// A server wins over an overlay for the files it serves. `"enabled": false`, an empty object or
 /// a deleted file restores the bundled pages. ``WebDevOverrideWatcher`` keeps ``current`` and
@@ -28,12 +31,18 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     public var overlay: URL?
     /// The overlay's `manifest.json` bytes, so each install is a change.
     public var stamp: Data?
+    /// The live gallery's server root, nil for none (Gallery Stage then tries ``defaultGallery``).
+    public var gallery: URL?
 
-    public init(server: PageDevServer? = nil, overlay: URL? = nil, stamp: Data? = nil) {
+    public init(server: PageDevServer? = nil, overlay: URL? = nil, stamp: Data? = nil, gallery: URL? = nil) {
         self.server = server
         self.overlay = overlay
         self.stamp = stamp
+        self.gallery = gallery
     }
+
+    /// The gallery server `scripts/cmux-next/web-dev.sh` starts by default.
+    public static let defaultGallery = URL(string: "http://127.0.0.1:4178/")
 
     /// Whether pages load from a server or an overlay (an empty override serves the bundle).
     public var isActive: Bool { server != nil || overlay != nil }
@@ -74,6 +83,10 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
         return state.withLock { $0 }
     }
 
+    /// The live gallery's server for Gallery Stage: web-dev.json's `gallery`, else ``defaultGallery``.
+    /// Read whatever the Debug Settings toggle says, since no page loads from it.
+    public static var galleryServer: URL? { state.withLock { $0.gallery } ?? defaultGallery }
+
     /// Replaces ``current``; returns whether it changed. Ignored unless ``isEnabled``.
     @discardableResult
     static func update(_ value: WebDevOverride) -> Bool {
@@ -86,7 +99,7 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     }
 
     /// The override `data` (the file's bytes) describes: nil fields for a missing or invalid
-    /// value, an empty override for invalid JSON or `"enabled": false`. `server` must pass
+    /// value, an empty override for invalid JSON or `"enabled": false`. `server` and `gallery` must pass
     /// ``PageDevServer/loopbackURL(_:)``; `overlay` is an absolute path or one under `~`.
     public static func parse(_ data: Data, home: URL) -> WebDevOverride {
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -99,6 +112,7 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
         if let overlay = object["overlay"] as? String, let url = overlayURL(overlay, home: home) {
             value.overlay = url
         }
+        if let gallery = object["gallery"] as? String { value.gallery = PageDevServer.loopbackURL(gallery) }
         return value
     }
 

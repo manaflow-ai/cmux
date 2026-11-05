@@ -1,8 +1,8 @@
 // A prompt's bubble, with its action row under its right edge (Leo's spec, after Claude Code
 // desktop's): the prompt's age ("3 days ago"; "Oct 18, 2026, 10:16 PM" above it on
-// hover), then Copy, Edit, Retry and Fork from here, each naming itself on hover. The ellipsis
-// is gone; its menu remains on right-click. No Pin here: an
-// answer's row has it. Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
+// hover), then Copy, Edit, Retry, Fork from here and Bookmark, each naming itself on hover. The ellipsis
+// is gone; its menu remains on right-click. Bookmark toggles the same saved mark as the rail.
+// Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
 // Leo, GUI push 2026-10-20/21). The row shows on hover or keyboard focus only, its height kept, so
 // nothing moves when it appears. Edit opens the prompt in place; Send forks the chat through the
 // turn before it and sends the edited text there (the App's `edit.send`), Escape or Cancel puts the
@@ -46,6 +46,7 @@ import {
   MessageCopy,
   MessageFooterRow,
   MessageTime,
+  PinButton,
   PromptRetry,
   ROW_ICON,
 } from "./MessageActions";
@@ -237,7 +238,14 @@ export function UserBubble({
         {!row.failed && (text || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
-            pending={pending && ((actions) => pending(actions, { retry, fork: forkButton }))}
+            pending={
+              pending &&
+              ((actions) =>
+                pending(actions, {
+                  retry: retry && <PromptRetry rowId={row.id} prompt={resend} held />,
+                  fork: forkButton,
+                }))
+            }
           >
             <MessageFooterRow>
               {branch && branches && (
@@ -250,7 +258,7 @@ export function UserBubble({
                     disabled={branch.index === 0}
                     onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
                   >
-                    <ChevronLeft size={12} />
+                    <ChevronLeft size={ROW_ICON} />
                   </button>
                   <span
                     className="cv-user__version-count"
@@ -270,7 +278,7 @@ export function UserBubble({
                     disabled={branch.index === branch.sessions.length - 1}
                     onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
                   >
-                    <ChevronRight size={12} />
+                    <ChevronRight size={ROW_ICON} />
                   </button>
                 </span>
               )}
@@ -289,6 +297,7 @@ export function UserBubble({
               )}
               {retry}
               {forkButton}
+              <PinButton rowId={row.id} bookmark />
             </MessageFooterRow>
           </UserFooter>
         )}
@@ -500,7 +509,7 @@ export function PromptEditor({
     void onSend(value).finally(() => setSending(false));
   };
   return (
-    <div className="cv-user__edit">
+    <div className="ui-glass cv-user__edit">
       <textarea
         ref={field}
         className="cv-user__edit-field selectable"

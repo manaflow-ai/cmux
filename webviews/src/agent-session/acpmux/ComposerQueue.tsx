@@ -26,7 +26,7 @@
 //
 // A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
 // image viewer; while it is edited each has a remove control, and Save keeps only the images left
-// (Leo, 2026-10-21).
+// (Leo, 2026-10-21). A video is one tile, and one row of tiles at most, the rest a "+N".
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 //
@@ -41,9 +41,10 @@
 // (composerStates.css), so the chat above moves one row at most, and scrolls freely: a scroll rests
 // where it stops, its end too. It stays open for its chat until closed (not across reloads);
 // prompts sent now always show.
+import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
-import { QueuedImages } from "./QueuedImages";
+import { QueuedImages, type QueuedVideo } from "./QueuedImages";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
@@ -138,6 +139,16 @@ function reveal(list: HTMLElement, row: HTMLElement) {
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
 }
 
+/// A prompt's videos in order, as its parts carry them, for their tiles (QueuedImages.tsx).
+function promptVideos(entry: QueuedEntry): QueuedVideo[] | undefined {
+  const videos = (entry.inlineParts ?? []).flatMap((part): QueuedVideo[] =>
+    part.kind !== "image" && part.kind !== "text" && part.video
+      ? [{ name: part.name, durationMs: part.video.durationMs, frames: part.video.frames.length }]
+      : [],
+  );
+  return videos.length ? videos : undefined;
+}
+
 /// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
 /// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
 export function shownText(entry: QueuedEntry, t: Translate, skills?: SkillCatalog): string {
@@ -206,7 +217,11 @@ export function ComposerQueue({
   readImage,
   onSideChat,
   commands,
+  wakeNoteDelayMs = RESUME_NOTE_DELAY_MS,
 }: {
+  /// How long a prompt held for a waking Cloud machine waits before its note says so (afterDelay.ts);
+  /// the gallery's settled variants pass 0.
+  wakeNoteDelayMs?: number;
   queue: AcpmuxSnapshot["queue"];
   /// The chat the queue belongs to: a long queue opened stays open for it.
   chat?: string;
@@ -614,6 +629,13 @@ export function ComposerQueue({
     drawnOwners.current = owners(shown);
     drawnRows.current = shown;
   });
+  // A waking machine stays out of sight at first (cloudWake.ts, afterDelay.ts): the held prompt shows
+  // at once, as a sent one does, and its note's line is there from the same frame, empty, until the
+  // wake has taken longer than the threshold; then "Waking the machine…" fades into it.
+  const wakeNoteShown = useAfterDelay(
+    shown.some((entry) => entry.waking),
+    wakeNoteDelayMs,
+  );
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
@@ -1015,6 +1037,7 @@ export function ComposerQueue({
       {editing !== entry.id && actions(entry)}
       {/* Under the text, in its column. */}
       <QueuedImages
+        videos={promptVideos(entry)}
         images={
           editing === entry.id ? (entry.images ?? []).filter((image) => !dropped.has(image.id)) : (entry.images ?? [])
         }
@@ -1106,7 +1129,11 @@ export function ComposerQueue({
               data-held-for={entry.waking ? "wake" : "trust"}
               aria-hidden="true"
             >
-              <span>{t(entry.waking ? "composer.heldForWake" : "composer.heldForTrust")}</span>
+              {entry.waking ? (
+                wakeNoteShown && <span data-enter="fade">{t("composer.heldForWake")}</span>
+              ) : (
+                <span>{t("composer.heldForTrust")}</span>
+              )}
             </li>
           ),
           // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- A row takes focus from ↑ on the prompt and has its keys (edit, move, send now, remove); its buttons do the same by pointer.

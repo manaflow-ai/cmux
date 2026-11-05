@@ -189,3 +189,42 @@ describe("Native dial changes during the final tenant lookup", () => {
     expect(await recheckNativeDial(second.deps, principal, permitted.permit)).toBe(false)
   })
 })
+
+describe("Native dial refusal reasons", () => {
+  const reason = (r: unknown) => (r as { details?: { reason?: string } }).details?.reason
+  it("names a missing or malformed device proof without reading the Native policy", async () => {
+    const f = await fixture()
+    expect(reason(await authorizeNativeDial(f.deps, principal, target, undefined, ["daemon"]))).toBe("proof_missing")
+    expect(reason(await authorizeNativeDial(f.deps, principal, target, { nonce: "x" }, ["daemon"]))).toBe("proof_invalid")
+    expect(f.reads()).toBe(0)
+  })
+
+  it("names the binding check: an install with no confirmed host, a historical grant, a non-member", async () => {
+    const other: Principal = { ...principal, install: "inst_00000000000000000002", identity: "inst_00000000000000000002" }
+    const f = await fixture()
+    expect(reason(await authorizeNativeDial(f.deps, other, target, await f.proof(), ["daemon"]))).toBe("host_missing")
+    expect(reason(await authorizeNativeDial(f.deps, { ...principal, install_kind: "vm" }, target, await f.proof(), ["daemon"]))).toBe("principal")
+    f.legacy(); expect(reason(await f.authorize())).toBe("host_grant")
+    const g = await fixture(); g.leave(); expect(reason(await g.authorize())).toBe("membership")
+  })
+
+  it("names the request checks: origin, services and mesh", async () => {
+    const f = await fixture(), proof = await f.proof()
+    expect(reason(await authorizeNativeDial(f.deps, principal, { ...target, origin: "https://other.test" }, proof, ["daemon"]))).toBe("origin")
+    expect(reason(await authorizeNativeDial(f.deps, principal, { ...target, network: { ...target.network, mesh: "mesh_" + "9".repeat(26) } }, proof, ["daemon"]))).toBe("target_mesh")
+    f.denyServices(); expect(reason(await f.authorize())).toBe("services")
+  })
+
+  it("names the VM policy check: missing VM, wrong address, missing daemon ports", async () => {
+    const f = await fixture(), entry = { kind: "vm", id: VM, address: target.network.ipv4, allow: [{ protocol: "tcp", port: 22 }] }
+    f.setPolicy({ ...f.policy(), vms: [] }); expect(reason(await f.authorize())).toBe("vm_not_in_policy")
+    f.setPolicy({ ...f.policy(), vms: [{ ...entry, address: "10.128.0.9" }] }); expect(reason(await f.authorize(["ssh"]))).toBe("vm_address")
+    f.setPolicy({ ...f.policy(), vms: [entry] }); expect(reason(await f.authorize(["daemon"]))).toBe("vm_services")
+    f.setPolicy({ ...f.policy(), vms: undefined }); expect(reason(await f.authorize())).toBe("vm_policy_invalid")
+  })
+
+  it("names an identity that changed during the read", async () => {
+    const f = await fixture(); f.renewAuthority()
+    expect(reason(await f.authorize())).toBe("identity")
+  })
+})

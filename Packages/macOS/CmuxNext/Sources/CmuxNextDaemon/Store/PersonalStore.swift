@@ -47,6 +47,9 @@ public final class PersonalStore {
     /// (cx-rcby). Client state, never from the daemon: the sidebar hides an
     /// ending group that shows no member until the delete lands.
     public var endingGroups: Set<WorkspaceGroupID> = []
+    /// The newest pending organization write per workspace or group field (client state): a newer write supersedes
+    /// one still being sent again after a missed deadline (`PersonalWriteLedger`).
+    @ObservationIgnored public let writes = PersonalWriteLedger()
 
     /// `workspaces` by session then key, rebuilt when the list is set: a lookup per row or per tab
     /// (sidebar rows, tab badges, themes) is O(1), not a scan of every workspace (space-switch-fast).

@@ -33,7 +33,7 @@ pub(super) const MAX_RECIPIENTS: usize = 64;
 const INLINE_FILE_BYTES: u64 = 256 << 10;
 /// How long a batch gives each session name to resolve to its id ([`aliases`]), before its
 /// own wait for the deliveries.
-const RESOLVE_WAIT: Duration = Duration::from_secs(2);
+const RESOLVE_WAIT: Duration = crate::rpc::ANSWER_WAIT;
 
 pub(super) fn tool() -> Value {
     json!({

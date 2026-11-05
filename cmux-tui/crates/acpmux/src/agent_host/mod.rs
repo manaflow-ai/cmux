@@ -641,6 +641,24 @@ pub fn terminate_unadoptable(
     Err(crate::platform::unsupported("agent hosts"))
 }
 
+/// The environment variable a host starts its harness with, set to its `start_nonce`. Every
+/// process under the harness inherits it, a helper that left the group with setsid too, so what
+/// a host killed outright left running is still found once its parent link is gone
+/// (`end_left_behind`).
+pub const HOST_MARK: &str = "ACPMUX_HOST_NONCE";
+
+/// SIGKILL what still runs from the host incarnation `start_nonce`: the processes that carry its
+/// `HOST_MARK`. For a host proven dead, which can no longer end its harness and what it started.
+/// The nonce is random per host, and each process is signalled only while it still runs with the
+/// start time it had when found.
+#[cfg(unix)]
+pub fn end_left_behind(start_nonce: &str) {
+    tree::kill_still_running(&tree::marked(HOST_MARK, start_nonce));
+}
+/// Windows port: hosts come in a later landing.
+#[cfg(not(unix))]
+pub fn end_left_behind(_start_nonce: &str) {}
+
 /// Remove a dead host's record, lock and socket.
 pub fn remove_artifacts(dir: &Path, record: &HostRecord) {
     let _ = std::fs::remove_file(record_path(dir, &record.session_id));

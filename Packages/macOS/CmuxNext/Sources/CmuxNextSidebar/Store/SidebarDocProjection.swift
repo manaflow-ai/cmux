@@ -104,6 +104,10 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     public var hostGroups: Set<String> = []
     /// The items whose rows draw archived: archived, or under an archived group (archiving-DESIGN.md).
     public var archived: Set<String> = []
+    /// Each group's sort other than manual, by group item (the group editor's Sort).
+    public var groupSorts: [String: SidebarGroupSort] = [:]
+    /// The group members pinned inside their group: a sorted group keeps them first.
+    public var pinnedInGroup: Set<String> = []
 
     /// The layout item kind of a group placed in Pinned or a custom section.
     public static let groupKind = "group"
@@ -178,6 +182,10 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         self.bandGroups = bandGroups
         archived = archivedItems
         hostGroups = Set(records.sections.values.filter(\.hostGroup).map(\.id))
+        for item in records.items.values {
+            if item.sort != .manual, item.body.isGroup { groupSorts[item.id] = item.sort }
+            if item.pinnedInGroup { pinnedInGroup.insert(item.id) }
+        }
     }
 
     private static func place(_ row: SidebarDocRow, session: String, records: SidebarDocRecords, into machines: inout SidebarDocMachineNodes,

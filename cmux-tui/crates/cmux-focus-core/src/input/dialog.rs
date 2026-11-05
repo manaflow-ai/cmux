@@ -99,7 +99,7 @@ impl InputRouter {
 
     /// The tab `window`'s focused pane shows.
     fn focused_tab(&self, window: &Arc<str>) -> Option<&str> {
-        let focus = &self.windows.get(window)?.focus;
+        let focus = self.windows.get(window)?.focus();
         focus.topology.pane(focus.pane.as_deref()?)?.selected.as_deref()
     }
 }

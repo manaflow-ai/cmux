@@ -575,8 +575,16 @@ function expansionEnd(line: string, from: number, runs: string[] = []): number {
       runs.push(UNCLOSED);
       return line.length;
     }
-    // `${V:-$(cmd)}` runs cmd too.
-    runs.push(...(next === "(" ? [line.slice(from + 2, close - 1)] : substitutions(line.slice(from + 2, close - 1))));
+    // `$((…))` is arithmetic text, not a command. A command substitution nested inside the
+    // expression still runs, so scan only its body for actual `$()` or backtick expansions.
+    // `${V:-$(cmd)}` likewise runs cmd too.
+    runs.push(
+      ...(next === "("
+        ? line[from + 2] === "("
+          ? substitutions(line.slice(from + 3, close - 2))
+          : [line.slice(from + 2, close - 1)]
+        : substitutions(line.slice(from + 2, close - 1))),
+    );
     return close;
   }
   const name = /^(?:[A-Za-z_]\w*|[0-9#?$!@*-])/.exec(line.slice(from + 1));

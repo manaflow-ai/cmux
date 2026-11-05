@@ -509,6 +509,39 @@ async fn quit_helpers_a_daemon_stops_soon_after_its_app_is_gone_and_its_last_cli
     assert!(status.success(), "the daemon did not stop normally: {status:?}");
 }
 
+/// R-LIFECYCLE ORPHANS: after a Keep Sessions quit with live shells, the app's cmux-tui daemon
+/// stays and keeps its chat notices watch (`_acpmux/watch`) open. With no agent at work, that
+/// watch must not keep the daemon: it stops soon after its app is gone.
+#[tokio::test]
+async fn quit_helpers_a_watch_only_client_does_not_keep_the_daemon_after_its_app_is_gone() {
+    let dir = scratch("ownwatch");
+    let mut owner = std::process::Command::new("sleep").arg("600").spawn().expect("a fake app");
+    let mut child = owned_daemon(&dir, owner.id(), false).await;
+    // The cmux-tui daemon's chat notices connection: an initialize that says it only observes
+    // (`_meta.acpmux.observer`), then the watch.
+    let mut notices = Rpc::connect(&dir.join("s.sock")).await;
+    notices
+        .call(
+            "initialize",
+            json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-tui-agent-chat-notices", "version": "1"}, "clientCapabilities": {}, "_meta": {"acpmux": {"observer": true}}}),
+        )
+        .await;
+    notices.call("_acpmux/watch", json!({"enabled": true, "limit": 500})).await;
+    // While the app runs, the watch is a client like any other.
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    if child.try_wait().unwrap().is_some() {
+        end(&mut owner);
+        panic!("the daemon exited while its app runs");
+    }
+    end(&mut owner);
+    let exited = exits_within(&mut child, Duration::from_secs(15)).await;
+    drop(notices);
+    let _ = std::fs::remove_dir_all(&dir);
+    let status = exited
+        .expect("the daemon still ran 15 s after its app was gone with only a watch connected");
+    assert!(status.success(), "the daemon did not stop normally: {status:?}");
+}
+
 /// Keep Sessions Running (#29984): an agent still in its turn when the app quits keeps the daemon,
 /// with no client connected, until the turn is over.
 #[tokio::test]
@@ -862,7 +895,22 @@ async fn a_daemon_whose_home_is_removed_stops() {
         json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "gone"}}}),
     )
     .await;
-    std::fs::remove_dir_all(&home).unwrap();
+    // The chat's own writes (its log, the agent's start) may land in a folder while it is being
+    // removed (ENOTEMPTY), as a harness's `rmtree` would meet them too: remove again until the
+    // home is gone. A daemon that kept writing is still caught by the bound, and one that made
+    // the home again after it stopped by the check below.
+    let removing = Instant::now();
+    loop {
+        match std::fs::remove_dir_all(&home) {
+            Ok(()) => break,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+            Err(e) if removing.elapsed() < Duration::from_secs(5) => {
+                eprintln!("removing the home again: {e}");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Err(e) => panic!("the home could not be removed in 5 s: {e}"),
+        }
+    }
     let status = exit_within(&mut child, acpmux::daemon::EXIT_BUDGET).await;
     let status = status.expect("the daemon still ran after its home was removed");
     assert!(status.success(), "{status:?}");
@@ -1194,4 +1242,30 @@ fn tree(dir: &Path) -> Vec<PathBuf> {
     }
     found.sort();
     found
+}
+
+/// The stop line names who sent SIGTERM: after a NIGHTLY update relaunch on macOS the old daemon
+/// got one about 1 s after the app quit and its agent host was lost with it, and its log said only
+/// "SIGTERM" (manaflow-ai/cmuxterm-hq#6338). The sender here is a shell that stays up a while.
+#[tokio::test]
+async fn a_sigterm_stop_names_its_sender() {
+    let dir = scratch("who");
+    let home = dir.join("h");
+    std::fs::create_dir(&home).unwrap();
+    let socket = home.join("s.sock");
+    let mut child = ready_daemon(&dir, &home, &socket).await;
+    let mut sender = std::process::Command::new("/bin/sh")
+        .args(["-c", &format!("kill -TERM {}; sleep 5", child.id())])
+        .spawn()
+        .unwrap();
+    let status = exit_within(&mut child, Duration::from_secs(10)).await;
+    let _ = sender.kill();
+    let _ = sender.wait();
+    assert!(status.is_some(), "the daemon still ran 10 s after SIGTERM");
+    let log = std::fs::read_to_string(dir.join("daemon.stderr.log")).unwrap_or_default()
+        + &std::fs::read_to_string(dir.join("daemon.stdout.log")).unwrap_or_default();
+    let want = format!("stopping: SIGTERM from pid {} (", sender.id());
+    assert!(log.contains(&want), "no {want:?} in the daemon's log:\n{log}");
+    assert!(log.contains("sleep 5"), "the sender's command line is not named:\n{log}");
+    let _ = std::fs::remove_dir_all(&dir);
 }

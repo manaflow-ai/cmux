@@ -149,6 +149,8 @@ fn list_agents_and_agent_changed_carry_the_hook_session_id() {
     .unwrap();
     mux.append_journal_ingress(&hook, "test", "hook-1").unwrap();
 
+    // The roster's owner folds the hook after the append answered.
+    assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
     let listed = cmd_frontend::list_agents(&mux, Some(surface.id), None).unwrap();
     let agents = listed["agents"].as_array().unwrap();
     assert_eq!(agents.len(), 1, "{listed}");

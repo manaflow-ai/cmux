@@ -23,6 +23,13 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
         // The VS Code-style chat minimap: off unless turned on.
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // The running turn's task list pinned in the chat: off, the composer's hat shows it.
+        Row(key: "agentPane.display.pinnedPlan", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // The hat over the composer tucked away to its pull tab: off, it shows.
+        Row(key: "agentPane.display.trayTucked", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // Where the hat's tuck handle sits along the composer's top edge: the middle unless set.
+        Row(key: "agentPane.display.trayHandle", fallback: .string("middle"), accepted: [.string("left"), .string("right")],
+            refused: [.string("top"), .bool(true)]),
         Row(key: "agentPane.display.font.preset", fallback: .string("markdown"),
             accepted: [.string("system"), .string("serif"), .string("mono")], refused: [.string("comic")]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],
@@ -46,7 +53,20 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.rail.side", fallback: .string("left"), accepted: [.string("right")],
             refused: [.string("top"), .bool(true)]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
+        // How the running tray names background commands: preset names and rules of one's own.
+        Row(key: "agentPane.display.commandLabels", fallback: .array([]),
+            accepted: [.array([.string("cmux-fleet"), .object(["program": .string("deploy"), "label": .string("Deploying")])]),
+                       .array([.object(["match": .string("^x"), "label": .string("X"), "icon": .string("cloud")])])],
+            refused: [.string("cmux-fleet"), .array([.object(["label": .string("x")])]), .array([.string(" ")])]),
     ]
+
+    @Test func thePageGetsAValidCommandLabelsListAndNotAnInvalidOne() {
+        let key = "agentPane.display.commandLabels"
+        let valid: JSONValue = ["agentPane": ["display": ["commandLabels": .array([.string("cmux-fleet")])]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: valid).values[key] == .array([.string("cmux-fleet")]))
+        let invalid: JSONValue = ["agentPane": ["display": ["commandLabels": .array([.number(1)])]]]
+        #expect(AgentPaneDisplaySetting(fileRoot: invalid).values[key] == nil)
+    }
 
     @Test(arguments: rows)
     func eachRowHasThePageDefaultAndRange(_ row: Row) throws {

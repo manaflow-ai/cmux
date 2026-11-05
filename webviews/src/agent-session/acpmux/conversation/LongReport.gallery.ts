@@ -137,12 +137,12 @@ const leadRows = (finished: boolean) => [
     : []),
 ];
 
-const lead = (finished: boolean) => {
+const lead = (finished: boolean, task = finished ? DONE : RUNNING) => {
   const snapshot = chat(leadRows(finished), {
     title: "How did October go?",
     isWorking: !finished,
   });
-  return { ...snapshot, sessions: [...snapshot.sessions, finished ? DONE : RUNNING] };
+  return { ...snapshot, sessions: [...snapshot.sessions, task] };
 };
 
 /// The review's own chat: its brief, the reads it ran, and the report as its last reply.
@@ -190,6 +190,10 @@ export default agentPaneEntry({
     "lead-finished": {
       note: "The lead chat once the review finished: its work folds, and the review stays in sight as one line that opens its report.",
       snapshot: lead(true),
+    },
+    "lead-finished-working": {
+      note: "The lead chat's turn finished while the review still works: its line keeps the harness mark at rest, no spinner, and its title shimmers as a running tool row's words do.",
+      snapshot: lead(true, RUNNING),
     },
     report: {
       note: "The review's own chat, wide: the long report with bold lead sentences, PR links, inline code and typed artifact links.",

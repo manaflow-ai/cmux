@@ -1,0 +1,96 @@
+/* A provider-neutral goal stays in the bottom stack, directly above the composer. The row is
+   deliberately quiet: its controls belong to the goal, while the objective remains the strongest
+   text. */
+.acpmux-goal {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  padding: var(--ds-space-1) var(--cv-edge, var(--ds-space-4));
+  color: var(--agent-soft);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.acpmux-goal-mark {
+  display: inline-grid;
+  flex: none;
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
+  place-items: center;
+  color: var(--agent-muted);
+  font-size: var(--text-body);
+  line-height: 1;
+}
+
+.acpmux-goal[data-state="running"] .acpmux-goal-mark,
+.acpmux-goal[data-state="active"] .acpmux-goal-mark {
+  color: var(--agent-accent, var(--agent-text));
+}
+
+.acpmux-goal[data-state="stalled"] .acpmux-goal-mark,
+.acpmux-goal[data-state="blocked"] .acpmux-goal-mark {
+  color: var(--agent-warning, var(--agent-muted));
+}
+
+.acpmux-goal-copy {
+  display: flex;
+  align-items: baseline;
+  flex: 1;
+  min-width: 0;
+  gap: var(--ds-space-2);
+}
+
+.acpmux-goal-state,
+.acpmux-goal-budget,
+.acpmux-goal-time {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.acpmux-goal-state { color: var(--agent-text); }
+.acpmux-goal-objective { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-goal-time { margin-left: auto; white-space: nowrap; }
+
+.acpmux-goal-action {
+  display: inline-grid;
+  flex: none;
+  width: var(--ds-control-compact);
+  height: var(--ds-control-compact);
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-body);
+  line-height: 1;
+}
+
+.acpmux-goal-action:hover { background: var(--acpmux-row-hover); color: var(--agent-text); }
+.acpmux-goal-action:focus-visible { outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color); }
+.acpmux-goal-action:disabled { opacity: 0.45; }
+
+.acpmux-goal-details {
+  flex-basis: 100%;
+  margin: var(--ds-space-1) 0 0 var(--ds-control-icon);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-left: 1px solid var(--agent-border, color-mix(in srgb, currentColor 18%, transparent));
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+
+.acpmux-goal-details p { margin: 0 0 var(--ds-space-1); }
+.acpmux-goal-step { display: flex; gap: var(--ds-space-2); line-height: var(--text-caption--line-height); }
+.acpmux-goal-step[data-status="done"],
+.acpmux-goal-step[data-status="completed"] { color: var(--agent-text); }
+.acpmux-goal-error { flex-basis: 100%; color: var(--agent-danger); }
+
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-goal-action { transition: none; }
+}
