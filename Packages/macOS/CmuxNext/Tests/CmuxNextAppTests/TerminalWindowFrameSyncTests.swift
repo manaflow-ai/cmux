@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextCompat
+@testable import CmuxNextDesign
 @testable import CmuxNextLayout
 import CmuxNextSignposts
 @testable import CmuxNextTerminal
@@ -62,6 +63,7 @@ struct TerminalWindowFrameSyncTests {
         let motion = await Self.jump(screen, recorder: recorder)
         let rest = recorder.snapshot()
         let turns = recorder.take()
+        Self.diagDump("case1", screen, turns)
 
         try #require(motion.steps <= 2, "Reduce Motion: the press ran \(motion.steps) frames, so a spring ran")
         try #require(motion.moved, "Ctrl-Shift-L on p2 moved nothing")
@@ -102,6 +104,7 @@ struct TerminalWindowFrameSyncTests {
         let motion = await Self.spring(screen, recorder: recorder, pacedByRefresh: true)
         let rest = recorder.snapshot()
         let turns = recorder.take()
+        Self.diagDump("case2", screen, turns)
 
         try #require(motion.moved, "Ctrl-Shift-L on p2 moved nothing")
         let ahead = TerminalFramePresenter.forWindow(screen.window).stats.drawnAhead
@@ -142,6 +145,7 @@ struct TerminalWindowFrameSyncTests {
 
         let motion = await Self.spring(screen, recorder: recorder, pacedByRefresh: true)
         let turns = recorder.take()
+        Self.diagDump("case4", screen, turns)
         try #require(motion.moved && motion.steps >= 4, "the press did not spring (moved \(motion.moved), \(motion.steps) frames)")
         let lastSteps = motion.stepMs.suffix(3)
         let from = try #require(lastSteps.first, "no spring frame was stepped")
@@ -200,6 +204,7 @@ struct TerminalWindowFrameSyncTests {
 
         let motion = await Self.spring(screen, recorder: recorder, pacedByRefresh: true, presses: 3)
         let turns = recorder.take()
+        Self.diagDump("case5", screen, turns)
         let origin = try #require(recorder.origin, "the recorder never started")
         try #require(motion.moved && motion.steps >= 10, "the held key did not spring (moved \(motion.moved), \(motion.steps) frames)")
         let landingMs = try #require(motion.stepMs.last)
@@ -264,6 +269,29 @@ struct TerminalWindowFrameSyncTests {
         #expect(ends.isEmpty, "\(ends)")
     }
 
+    /// DIAG (never merge): the presenter's trace, timings and counts, the coalescers' traces, and per turn the drawn grid.
+    @MainActor static func diagDump(_ name: String, _ screen: Screen, _ turns: [TurnRecorder.Turn]) {
+        let presenter = TerminalFramePresenter.forWindow(screen.window)
+        print("DIAG \(name) nextFrameInterval \(MotionClock.forWindow(screen.window).nextFrameInterval) counts \(presenter.diagCounts)")
+        for (key, value) in presenter.diagMax.sorted(by: { $0.value.ms > $1.value.ms }) { print("DIAG \(name) max \(key) \(String(format: "%.3f", value.ms)) ms") }
+        for line in presenter.diagLines.prefix(1500) { print("DIAG \(name) T \(line)") }
+        for (index, session) in screen.sessions.enumerated() {
+            for event in session.surfaceView.gridReportCoalescer.diagTrace {
+                print("DIAG \(name) C p\(index + 1) \(event.0) \(event.1.map { "\($0.columns)x\($0.rows)" } ?? "-") @\(TurnRecorder.ms(TerminalFramePresenter.diagZero.duration(to: event.2)))")
+            }
+        }
+        for turn in turns.prefix(400) {
+            let parts = turn.terminals.enumerated().map { index, t in
+                "p\(index + 1) layer \(t.layer) area \(t.area) shown \(t.shown.map { "\($0)" } ?? "-") wait \(t.waiting) shownGrid \(Self.text(t.shownGrid)) viewGrid \(Self.text(t.viewGrid)) drawn \(Self.text(t.drawnGrid))"
+            }
+            print("DIAG \(name) turn \(turn.index) +\(Self.text(turn.at)) awake \(turn.awakeMs.map { Self.text($0) } ?? "-") blocked \(turn.blockedMs.map { Self.text($0) } ?? "-") \(parts.joined(separator: " | "))")
+        }
+        presenter.diagLines.removeAll()
+        presenter.diagMax.removeAll()
+        presenter.diagCounts.removeAll()
+        for session in screen.sessions { session.surfaceView.gridReportCoalescer.diagTrace.removeAll() }
+    }
+
     /// Wall-clock slack for a loaded runner in the timing checks of case 5.
     static let runnerSlackMs = 8.0
 
@@ -287,8 +315,10 @@ struct TerminalWindowFrameSyncTests {
 
         let jump = await Self.jump(screen, recorder: recorder)
         let jumpTurns = recorder.take()
+        Self.diagDump("case3jump", screen, jumpTurns)
         let spring = await Self.spring(screen, recorder: recorder, direction: .left)
         let springTurns = recorder.take()
+        Self.diagDump("case3spring", screen, springTurns)
 
         try #require(jump.moved && jump.steps <= 2, "the Reduce Motion press did not jump (moved \(jump.moved), \(jump.steps) frames)")
         try #require(spring.moved && spring.steps >= 4, "the spring press did not spring (moved \(spring.moved), \(spring.steps) frames)")
@@ -492,7 +522,8 @@ struct TerminalWindowFrameSyncTests {
             /// pane shows in this turn.
             var shownGrid: TerminalGridSize?
             /// The grid the view gives its PTY owner (``TerminalSurfaceView/fittedGrid``).
-            var viewGrid: TerminalGridSize?
+            var viewGrid: TerminalGridSize?            /// DIAG: the grid of the renderer's last frame update.
+            var drawnGrid: TerminalGridSize?
         }
 
         /// One committed turn: its number from the press (1 is the press's turn), its time after the press (ms), its
@@ -568,7 +599,7 @@ struct TerminalWindowFrameSyncTests {
                                 shown: surface.presentedFrame.map { Pixels(width: Double($0.width), height: Double($0.height)) },
                                 waiting: presenter.isWaiting(surface),
                                 shownGrid: Self.fitGrid(surface, pixels: CGSize(width: bounds.width * scale, height: bounds.height * scale)),
-                                viewGrid: surface.fittedGrid)
+                                viewGrid: surface.fittedGrid, drawnGrid: Self.drawnGrid(surface))
             }
         }
 
@@ -585,6 +616,12 @@ struct TerminalWindowFrameSyncTests {
             woke = nil
             turns.append(Turn(index: turns.count + 1, at: Self.ms(started.duration(to: end)), terminals: terminals(),
                               awakeMs: awakeMs, blockedMs: blockedMs))
+        }
+
+        @MainActor static func drawnGrid(_ view: TerminalSurfaceView) -> TerminalGridSize? {
+            var columns: UInt16 = 0, rows: UInt16 = 0
+            guard let surface = view.surface, ghostty_surface_drawn_grid(surface, &columns, &rows) else { return nil }
+            return TerminalGridSize(columns: Int(columns), rows: Int(rows))
         }
 
         /// The grid a view of `pixels` fits, with `view`'s surface's cell size and padding.

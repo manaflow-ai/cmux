@@ -60,7 +60,11 @@ final class TerminalGridReportCoalescer {
     }
 
     /// The view's fit grid is now `grid`: it waits for the open window, or opens one.
+    /// DIAG: (event, grid, time).
+    var diagTrace: [(String, TerminalGridSize?, ContinuousClock.Instant)] = []
+
     func viewSized(_ grid: TerminalGridSize) {
+        diagTrace.append(("viewSized pending=\(pending.map { "\($0.columns)x\($0.rows)" } ?? "-")", grid, .now))
         if pending != nil {
             pending = grid
             return
@@ -102,12 +106,14 @@ final class TerminalGridReportCoalescer {
     }
 
     private func windowEnded(_ ended: UInt64) {
+        diagTrace.append(("fire window=\(ended) current=\(window)", pending, .now))
         guard ended == window, let grid = pending else { return }
         pending = nil
         deliver(grid)
     }
 
     private func deliver(_ grid: TerminalGridSize) {
+        diagTrace.append(("deliver lastSent=\(lastSent.map { "\($0.columns)x\($0.rows)" } ?? "-")", grid, .now))
         guard grid != lastSent else { return }
         lastSent = grid
         send(grid)

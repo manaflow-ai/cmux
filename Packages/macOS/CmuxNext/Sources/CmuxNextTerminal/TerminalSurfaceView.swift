@@ -27,6 +27,9 @@ public final class TerminalSurfaceView: NSView {
     private(set) var lane: TerminalOutputLane?
     weak var session: TerminalSession?
 
+    /// DIAG: the last place() used the size drawn ahead.
+    var diagAheadHit = false
+
     /// The pixel size last given to `ghostty_surface_set_size` (``setSurfacePixels(_:on:)``).
     private var lastSurfacePixels: (width: UInt32, height: UInt32)?
 
@@ -468,7 +471,11 @@ public final class TerminalSurfaceView: NSView {
             && (session?.io.appliesViewGrid(reporting: reporting) ?? false)
         guard enabled != reflowPreview else { return }
         reflowPreview = enabled
-        ghostty_surface_set_reflow_preview(surface, enabled)
+        let presenter = window.map(TerminalFramePresenter.forWindow)
+        presenter?.diag("reflow_preview \(diagName) \(enabled)")
+        if let presenter { presenter.time("set_reflow_preview") { ghostty_surface_set_reflow_preview(surface, enabled) } } else {
+            ghostty_surface_set_reflow_preview(surface, enabled)
+        }
     }
 
     /// Sizes the surface to the view and reports the view's grid when it
@@ -495,12 +502,14 @@ public final class TerminalSurfaceView: NSView {
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
         setSurfacePixels(pixels, on: surface)
-        let size = ghostty_surface_size(surface)
+        let presenter = window.map(TerminalFramePresenter.forWindow)
+        let size = presenter?.time("ghostty_surface_size") { ghostty_surface_size(surface) } ?? ghostty_surface_size(surface)
         // The PTY's grid is the grid the view's committed bounds fit: what its pane shows. Never the size asked of Ghostty
         // and not shown yet (`inFlight`), nor the size drawn ahead for the next refresh (`ahead`): those go to Ghostty's
         // render only (its reflow preview), and a press that retargets the spring may never show them (resize owner,
         // STATUS 14461). The presenter's landing calls this again with the new bounds (``frameDidLand()``).
-        guard let desired = shownGrid(on: surface, fallback: size) else { return publish(size: size, grid: nil) }
+        guard let desired = presenter?.time("shownGrid") { shownGrid(on: surface, fallback: size) } ?? shownGrid(on: surface, fallback: size)
+        else { return publish(size: size, grid: nil) }
         publish(size: size, grid: desired)
         // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close) resizes this view on every display
         // frame: the surface draws each size (the reflow preview), and the grid goes to the owner once the
@@ -535,7 +544,11 @@ public final class TerminalSurfaceView: NSView {
         let size = (width: UInt32(pixels.width), height: UInt32(pixels.height))
         guard lastSurfacePixels?.width != size.width || lastSurfacePixels?.height != size.height else { return }
         lastSurfacePixels = size
-        ghostty_surface_set_size(surface, size.width, size.height)
+        let presenter = window.map(TerminalFramePresenter.forWindow)
+        presenter?.diag("set_size \(diagName) \(size.width)x\(size.height)")
+        if let presenter { presenter.time("ghostty_surface_set_size") { ghostty_surface_set_size(surface, size.width, size.height) } } else {
+            ghostty_surface_set_size(surface, size.width, size.height)
+        }
     }
 
     /// The grid the view's committed bounds fit (`ghostty_surface_fit_grid` of their pixel size), or `fallback`'s grid when

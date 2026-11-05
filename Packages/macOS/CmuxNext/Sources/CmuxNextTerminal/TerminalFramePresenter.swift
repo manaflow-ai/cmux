@@ -58,6 +58,39 @@ final class TerminalFramePresenter {
     /// What this window's presenter did, cumulative.
     private(set) var stats = Stats()
 
+    /// DIAG (never merge): per-commit trace lines and main-thread call timings, for the T-KEYS root cause.
+    var diagLines: [String] = []
+    var diagMax: [String: (ms: Double, at: ContinuousClock.Instant)] = [:]
+    var diagCounts: [String: Int] = [:]
+    func diag(_ line: String) { if diagLines.count < 4000 { diagLines.append("\(Self.diagNow()) \(line)") } }
+    func count(_ key: String) { diagCounts[key, default: 0] += 1 }
+    func time<T>(_ name: String, _ body: () -> T) -> T {
+        let started = ContinuousClock.now
+        let value = body()
+        let elapsed = started.duration(to: .now)
+        let ms = Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15
+        if ms > (diagMax[name]?.ms ?? -1) { diagMax[name] = (ms, started) }
+        if ms > 4 { diag("SLOW \(name) \(String(format: "%.2f", ms)) ms") }
+        return value
+    }
+    static let diagZero = ContinuousClock.now
+    static func diagNow() -> String {
+        let d = diagZero.duration(to: .now)
+        return String(format: "%.2f", Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15)
+    }
+    static func stateName(_ state: ghostty_host_frame_e) -> String {
+        switch state {
+        case GHOSTTY_HOST_FRAME_NONE: "none"
+        case GHOSTTY_HOST_FRAME_HIDDEN: "hidden"
+        case GHOSTTY_HOST_FRAME_SHOWN: "shown"
+        case GHOSTTY_HOST_FRAME_READY: "ready"
+        case GHOSTTY_HOST_FRAME_PRESENTED: "presented"
+        case GHOSTTY_HOST_FRAME_PENDING: "pending"
+        case GHOSTTY_HOST_FRAME_HELD: "held"
+        default: "other"
+        }
+    }
+
     private struct Request {
         weak var view: TerminalSurfaceView?
         /// The refresh it was made in: its group.
@@ -223,7 +256,10 @@ final class TerminalFramePresenter {
         var waitingGroups: [UInt64] = []
         for (_, request) in requests where !waitingGroups.contains(request.epoch) {
             guard let view = request.view else { continue }
-            if !Self.isReady(view.hostFrame(present: false)) { waitingGroups.append(request.epoch) }
+            let st = time("hostFrame.query") { view.hostFrame(present: false) }
+            diag("pass req \(view.diagName) epoch \(request.epoch) now \(epoch) inFlight \(view.frameOwnership.inFlight.map { "\(Int($0.width))x\(Int($0.height))" } ?? "-") bounds \(Int(view.bounds.width))x\(Int(view.bounds.height)) aheadHit \(view.diagAheadHit) state \(Self.stateName(st))")
+            count("req.\(view.diagAheadHit ? "aheadHit" : "fresh").\(Self.stateName(st))")
+            if !Self.isReady(st) { waitingGroups.append(request.epoch) }
         }
         for (id, request) in requests {
             guard let view = request.view else {
@@ -237,8 +273,9 @@ final class TerminalFramePresenter {
             }
             // Ghostty's call-site rule: the present and the new bounds under the Core Animation lock, so no off-main
             // commit of another terminal can ship this one's new frame with its old bounds in between.
-            CATransaction.lock()
-            let shown = view.hostFrame(present: true)
+            time("CATransaction.lock") { CATransaction.lock() }
+            let shown = time("hostFrame.present") { view.hostFrame(present: true) }
+            diag("present \(view.diagName) -> \(Self.stateName(shown)) drawnGridAtPresent \(view.diagDrawnGrid) inFlight \(view.frameOwnership.inFlight.map { "\(Int($0.width))x\(Int($0.height))" } ?? "-")")
             let presented = shown == GHOSTTY_HOST_FRAME_PRESENTED || shown == GHOSTTY_HOST_FRAME_SHOWN
             // Cleared before the frame changes: a request the new frame makes for this view stays.
             if presented { requests[id] = nil }

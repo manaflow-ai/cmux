@@ -58,8 +58,12 @@ extension TerminalSurfaceView {
             return
         }
         // The size its spring gave it at the last refresh: Ghostty has drawn it, or draws it now.
+        diagAheadHit = false
         if let ahead = frameOwnership.ahead {
             frameOwnership.ahead = nil
+            framePresenter?.diag("place \(diagName) want \(Int(frame.width))x\(Int(frame.height)) ahead \(Int(ahead.width))x\(Int(ahead.height)) \(ahead == frame.size ? "HIT" : "MISS")")
+            framePresenter?.count(ahead == frame.size ? "ahead.hit" : "ahead.miss")
+            diagAheadHit = ahead == frame.size
             if ahead == frame.size, let presenter = framePresenter {
                 frameOwnership.inFlight = ahead
                 keepOrigin()
@@ -103,6 +107,7 @@ extension TerminalSurfaceView {
     func drawAhead(_ size: CGSize) { // perf-hot: 1ms motion-frame (each frame of a key resize)
         guard frameOwnership.embedderPresents, isShown, let presenter = framePresenter, size.width >= 1, size.height >= 1,
               size != (frameOwnership.wanted?.size ?? bounds.size) else { return }
+        presenter.diag("drawAhead \(diagName) next \(Int(size.width))x\(Int(size.height)) bounds \(Int(bounds.width))x\(Int(bounds.height)) inFlight \(frameOwnership.inFlight.map { "\(Int($0.width))" } ?? "-")")
         frameOwnership.pendingAhead = size
         presenter.drawAhead(self)
     }
@@ -118,8 +123,9 @@ extension TerminalSurfaceView {
         let pixels = convertToBacking(size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         frameOwnership.ahead = size
-        setSurfacePixels(pixels, on: surface)
-        updateReflowPreview()
+        framePresenter?.diag("applyAhead \(diagName) \(Int(size.width))x\(Int(size.height))")
+        framePresenter?.time("applyAhead.setSize") { setSurfacePixels(pixels, on: surface) }
+        framePresenter?.time("applyAhead.reflowPreview") { updateReflowPreview() }
     }
 
     /// A size drawn ahead that no layout took (its spring ended or moved elsewhere): Ghostty goes back to the view's size.
@@ -208,9 +214,19 @@ extension TerminalSurfaceView {
     /// follows the new size, and the grid that size fits goes to the PTY owner (through the coalescer; a size drawn ahead
     /// reported nothing when it went to Ghostty).
     func frameDidLand() {
-        copyMode.syncCursor()
-        updateSurfaceSize()
+        framePresenter?.time("land.syncCursor") { copyMode.syncCursor() }
+        framePresenter?.time("land.updateSurfaceSize") { updateSurfaceSize() }
     }
+
+    /// DIAG: the renderer's last drawn grid.
+    var diagDrawnGrid: String {
+        var columns: UInt16 = 0, rows: UInt16 = 0
+        guard let surface, ghostty_surface_drawn_grid(surface, &columns, &rows) else { return "-" }
+        return "\(columns)x\(rows)"
+    }
+
+    /// DIAG: a short name (the view's address tail).
+    var diagName: String { String(UInt(bitPattern: ObjectIdentifier(self).hashValue) & 0xfff, radix: 16) }
 
     /// Shown again while Ghostty leaves new sizes to cmux: its commit is reported once its frame shows.
     func frameOwnershipDidReveal() {

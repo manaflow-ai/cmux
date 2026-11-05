@@ -240,6 +240,14 @@ struct TerminalKeyResizeFrameTests {
                 rested.append("p\(index + 1): drew \(Self.text(grids.drawn)), owner's \(Self.text(grids.owner)), fits \(Self.text(sample.fits)), prompt not on its last row")
             }
         }
+        let diagPresenter = TerminalFramePresenter.forWindow(screen.window)
+        print("DIAG lowprompt \(presses) nextFrameInterval \(MotionClock.forWindow(screen.window).nextFrameInterval) counts \(diagPresenter.diagCounts)")
+        for line in diagPresenter.diagLines.prefix(1200) { print("DIAG lowprompt T \(line)") }
+        for (index, frame) in frames.enumerated() {
+            print("DIAG lowprompt frame \(index + 1) " + frame.enumerated().map { t, g in "p\(t + 1) surface \(g.surface.size) drawn \(Self.text(g.drawn)) fits \(Self.text(g.fits)) own \(g.showsItsOwnFrame)" }.joined(separator: " | "))
+        }
+        diagPresenter.diagLines.removeAll()
+        diagPresenter.diagCounts.removeAll()
         let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
         print("m14 low prompt, presses \(presses): \(steps) spring frames; off their area \(off.count), drawn grid off \(undrawn.count), " +
               "frame not shown \(unshown.count); PTY grids per terminal \(resizes)")
