@@ -1659,10 +1659,10 @@ button.cv-subagent > :last-child {
    some sort of little thing ... a special kind of chevron". The hat's chevron sits on its top edge
    (left, middle or right, agentPane.display.trayHandle) and shows while the pointer is over the hat
    (or it has keyboard focus); tucked, the hat leaves only a faint up chevron at the same place on the
-   composer's top edge, in the accent while something runs, which brightens on hover. No bar and no
-   wide slab behind it (Leo, 2026-11-05: "the Tuck is a little bit ugly"): the buttons keep their wide
-   hit areas, and only a small wash the chevron's size shows on hover, as Codex, ChatGPT and VS Code
-   draw a divider's collapse control. */
+   composer's top edge, in the accent while something runs, which brightens on hover. The control has
+   no wide slab behind it (Leo, 2026-11-05: "the Tuck is a little bit ugly"): its compact glass
+   control and short bridge keep the buttons' wide hit areas while joining the composer hairline, as
+   Codex, ChatGPT and VS Code draw a divider's collapse control. */
 .acpmux-running-tray[data-tucks] {
   position: relative;
 }
@@ -1740,31 +1740,54 @@ button.cv-subagent > :last-child {
   width: 96px;
   height: 20px;
 }
-/* What the tab draws sits 4px above its strip's middle, just above the composer's edge, so the
-   hairline runs under the chevron unbroken; the strip (where it takes clicks) stays put. */
+/* The tab's compact control floats over the composer's hairline. The bridge remains visible on both
+   sides of the glass control, so the line meets the bar instead of stopping short; the hit strip
+   (where it takes clicks) stays put. */
 .acpmux-tray-pull__tab {
   --acpmux-tray-pull-lift: 4px;
+  --acpmux-tray-pull-control-width: var(--ds-space-40);
+  --acpmux-tray-pull-control-height: var(--ds-control-icon);
 }
-/* The wash behind the chevron on hover or keyboard focus: the chevron's size, not the hit area's,
-   a small-radius rect (POLISH.md: no capsule pills). */
+/* A quiet bridge ties the handle to the composer's hairline. It is deliberately one device pixel
+   and uses the shared glass edge, so the resting handle is visible without becoming a second card. */
 .acpmux-tray-pull__tab::before {
-  --acpmux-tray-pull-pill: 16px;
   content: "";
   position: absolute;
   top: calc(50% - var(--acpmux-tray-pull-lift));
   left: 50%;
-  width: calc(var(--acpmux-tray-pull-pill) + 8px);
-  height: var(--acpmux-tray-pull-pill);
-  border-radius: var(--ds-radius-control, 6px);
-  background: transparent;
+  width: var(--ds-space-56);
+  height: var(--cmux-hairline);
+  background: var(--glass-edge, color-mix(in srgb, var(--agent-muted) 45%, transparent));
   transform: translate(-50%, -50%);
-  transition: background-color var(--cv-actions-in) var(--cv-actions-ease);
+  transition: background-color var(--cv-actions-in) var(--cv-actions-ease), opacity var(--cv-actions-in) var(--cv-actions-ease);
+  opacity: 0.85;
 }
-.acpmux-tray-pull__tab:hover::before,
-.acpmux-tray-pull__tab:has([data-popup-open])::before {
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+/* The number and chevron share one small glass control. This keeps the count aligned with the
+   glyph at rest and on hover, instead of leaving it floating at the end of the old bar. */
+.acpmux-tray-pull__tab::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - var(--acpmux-tray-pull-lift));
+  left: 50%;
+  width: var(--acpmux-tray-pull-control-width);
+  height: var(--acpmux-tray-pull-control-height);
+  border-radius: var(--ds-radius-control, 6px);
+  background: var(--glass-tint, color-mix(in srgb, var(--glass-surface, Canvas) 18%, transparent));
+  box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge));
+  transform: translate(-50%, -50%);
+  transition: background-color var(--cv-actions-in) var(--cv-actions-ease), box-shadow var(--cv-actions-in) var(--cv-actions-ease);
 }
 .acpmux-tray-pull__tab:focus-visible::before {
+  background: var(--agent-accent);
+  opacity: 1;
+}
+.acpmux-tray-pull__tab:hover::after,
+.acpmux-tray-pull__tab:has([data-popup-open])::after {
+  background: color-mix(in srgb, var(--glass-surface, Canvas) 30%, transparent);
+  box-shadow: var(--glass-rim-shadow, inset 0 0 0 var(--cmux-hairline) var(--glass-edge)),
+    0 var(--ds-space-1) var(--ds-space-2) color-mix(in srgb, var(--glass-surface, CanvasText) 12%, transparent);
+}
+.acpmux-tray-pull__tab:focus-visible::after {
   outline: 2px solid var(--agent-accent);
   outline-offset: -1px;
 }
@@ -1788,8 +1811,9 @@ button.cv-subagent > :last-child {
 .acpmux-tray-pull__count {
   position: absolute;
   top: calc(50% - var(--acpmux-tray-pull-lift));
-  left: calc(50% + 16px);
+  left: calc(50% + var(--ds-space-1));
   transform: translateY(-50%);
+  z-index: var(--layer-raised);
 }
 .acpmux-tray-pull__dot {
   --acpmux-tray-pull-dot: 6px;
@@ -1799,21 +1823,28 @@ button.cv-subagent > :last-child {
   background: var(--acpmux-needs-you-mark);
 }
 .acpmux-tray-pull__count {
-  color: var(--agent-accent);
-  font-size: var(--text-detail);
+  color: var(--agent-text);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  line-height: 1;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* The up chevron, faint at rest and in the accent while something runs, full on hover or focus. */
 .acpmux-tray-pull__tab > svg {
+  z-index: var(--layer-raised);
   opacity: 0.45;
-  transform: translateY(calc(-1 * var(--acpmux-tray-pull-lift))) rotate(180deg);
+  transform: translate(-6px, calc(-1 * var(--acpmux-tray-pull-lift))) rotate(180deg);
 }
 .acpmux-tray-pull[data-running] .acpmux-tray-pull__tab {
-  color: var(--agent-accent);
+  color: var(--agent-muted);
 }
 .acpmux-tray-pull[data-running] .acpmux-tray-pull__tab > svg {
-  opacity: 0.7;
+  color: var(--agent-accent);
+  opacity: 0.8;
+}
+.acpmux-tray-pull[data-running] .acpmux-tray-pull__tab::before {
+  background: color-mix(in srgb, var(--agent-accent) calc(62% * var(--glass-rim, 1)), transparent);
 }
 .acpmux-tray-pull__tab:hover > svg,
 .acpmux-tray-pull__tab:has([data-popup-open]) > svg,
