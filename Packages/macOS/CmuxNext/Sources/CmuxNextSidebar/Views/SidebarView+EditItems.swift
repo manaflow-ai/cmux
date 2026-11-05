@@ -45,7 +45,7 @@ final class SidebarEditBar: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerCurve = .continuous
-        layer?.cornerRadius = SidebarStyle.rowCornerRadius + Metrics.space1
+        layer?.cornerRadius = Metrics.cornerRadius(nestedIn: SidebarStyle.rowCornerRadius, inset: -Metrics.space1)
         add.title = Strings.editAddItems
         done.title = Strings.editDone
         for (button, action) in [(add, #selector(addPressed)), (done, #selector(donePressed))] {

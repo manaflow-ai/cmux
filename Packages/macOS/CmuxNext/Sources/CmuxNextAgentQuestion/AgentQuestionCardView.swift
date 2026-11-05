@@ -232,7 +232,7 @@ public final class AgentQuestionCardView: NSView {
     public override func layout() {
         super.layout()
         guard let layout = layoutCache else { return }
-        layer?.cornerRadius = layout.mode == .pending ? style.cornerRadius : style.size(12)
+        layer?.cornerRadius = style.cornerRadius
         chip.frame = layout.chip ?? .zero
         chip.layer?.cornerRadius = (layout.chip?.height ?? 0) / 2
         meta.frame = layout.meta ?? .zero
@@ -242,7 +242,7 @@ public final class AgentQuestionCardView: NSView {
         }
         otherField.frame = layout.otherField ?? .zero
         previewBox.frame = layout.preview ?? .zero
-        previewBox.layer?.cornerRadius = style.size(10)
+        previewBox.layer?.cornerRadius = style.insetCornerRadius
         previewText.frame = (layout.preview ?? .zero).insetBy(dx: style.previewInset, dy: style.previewInset)
         hint.frame = layout.hint ?? .zero
         skipButton.frame = layout.skip ?? .zero
