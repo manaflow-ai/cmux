@@ -88,6 +88,12 @@ public final class ChatOpenTrace {
 
         /// Nothing of the chat and nothing kept: what reads as a black or empty pane.
         public var isEmpty: Bool { self == .cover || self == .pageEmpty }
+
+        /// A shown page (its cover gone): ``page`` once it painted in this open (``Mark/pagePainted``),
+        /// or once the pane has the page's painted answer for this chat (`paneHasPainted`).
+        public static func shownPage(paintedInOpen: Bool, paneHasPainted: Bool) -> Surface {
+            paintedInOpen ? .page : .pageEmpty
+        }
     }
 
     /// One trace.
