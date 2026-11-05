@@ -56,11 +56,8 @@ export function AgentCallCard({ call, tool, look = "report" }: { call: AgentCall
       className="cv-agentcall"
       disclosureKey={`agent-call:${tool.id}`}
       findItems={findItems}
-      icon={
-        <span className="cv-subagent-avatar" data-state={call.running ? "running" : state}>
-          <AgentIdentity harness={harness} tone={agentTone(tool.id)} size={14} fallback={SUBAGENT_FALLBACK} />
-        </span>
-      }
+      // The harness's mark at the tool rows' icon size, as a sub-session's line draws it (AgentCard.tsx).
+      icon={<AgentIdentity harness={harness} tone={agentTone(tool.id)} size={14} fallback={SUBAGENT_FALLBACK} />}
       label={label}
       status={status}
       below={preview}
