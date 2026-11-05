@@ -22,6 +22,6 @@ extension TabStripView: GooStripSource {
 
     /// Tells the window's goo look the selected tab or the tabs' geometry changed (it ignores it while off).
     func reportSelectedPill() {
-        (window?.contentView as? any GooWindowHost)?.goo.gooStripDidChange(self)
+        (window?.installedContent as? any GooWindowHost)?.goo.gooStripDidChange(self)
     }
 }

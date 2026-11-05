@@ -22,6 +22,30 @@
    "shot": false
   },
   {
+   "title": "Card chrome: the curved main pane the look draws on",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.chromeStyle",
+    "card"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "The curved main pane on, whatever the profile says",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.mainPane.curved",
+     "value": true
+    }
+   },
+   "wait": 0.5,
+   "shot": false
+  },
+  {
    "title": "Workspace Atlas",
    "cmux": [
     "workspace",
@@ -126,6 +150,16 @@
     }
    },
    "wait": 1.5
+  },
+  {
+   "title": "pool at rest: the look's state (goo_trace flags)",
+   "rpc": {
+    "method": "debug.timings",
+    "params": {}
+   },
+   "record": "file",
+   "wait": 0.1,
+   "shot": false
   },
   {
    "title": "At rest, slime: pool, thicker and slower",

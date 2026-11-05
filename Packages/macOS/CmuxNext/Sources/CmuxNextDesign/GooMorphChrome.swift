@@ -92,6 +92,19 @@ public final class GooMorphChrome {
 
     public var isOn: Bool { engine.style != nil }
 
+    /// For `debug.timings` (`goo_trace`): the trace costs, and why the look draws or not (the window's state it
+    /// needs, the strips it follows, whether it has a scene).
+    public var report: [String: Double] {
+        var report = engine.costs.summary
+        let flags: [(String, Bool)] = [
+            ("look_on", isOn), ("page", host?.presentsPage ?? false), ("curved", Metrics.mainPaneCurved),
+            ("floating", Metrics.floatingPanes), ("minimal", host?.titlebarStyle == .minimal), ("scene", isOn && scene() != nil),
+        ]
+        for (key, flag) in flags { report[key] = flag ? 1 : 0 }
+        report["strips"] = Double(strips.values.count(where: { $0.strip != nil }))
+        return report
+    }
+
     /// The card moved, the theme or the window's state changed: restyle when the look changed, then redraw.
     public func update() {
         let style = variant.style
