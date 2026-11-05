@@ -109,6 +109,8 @@ mod hosts;
 mod lifecycle;
 mod log_deferral;
 mod log_load;
+#[cfg(test)]
+pub(crate) use log_load::{NOTE_BEFORE_CATCH_UP_LOCK, NOTE_BEFORE_REPLAY_SCAN, NOTE_IN_CATCH_UP};
 mod repo_sync;
 mod retention;
 pub use retention::RetentionRequest;
@@ -188,6 +190,7 @@ mod tailnet_controller;
 mod tap;
 mod titles;
 mod tool_paths;
+mod tool_read_images;
 mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
@@ -1210,14 +1213,20 @@ impl Hub {
     /// ahead of it. Counts the tail past `lastSeq` once, so no sequence is
     /// handed out twice; only that tail is read.
     pub(super) fn catch_up(&self, session: &Session) {
+        #[cfg(test)]
+        log_load::catch_up_note(&log_load::NOTE_BEFORE_CATCH_UP_LOCK, "takes the append lock");
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
     }
 
     fn catch_up_locked(&self, session: &Session) {
-        if session.caught_up.swap(true, Ordering::SeqCst) {
+        // Once: every caller holds `append_lock`. Marked only once the tail is counted, since
+        // `scan_events` reads the mark without that lock (review of #36022, finding 1).
+        if session.caught_up.load(Ordering::SeqCst) {
             return;
         }
+        #[cfg(test)]
+        log_load::catch_up_note(&log_load::NOTE_IN_CATCH_UP, "counts the tail");
         let after =
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).harness_failures.through_seq;
         let mut results = Vec::new();
@@ -1256,6 +1265,7 @@ impl Hub {
             meta.available_commands = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
         }
+        session.caught_up.store(true, Ordering::SeqCst);
         // Kept, so the next start scans only past what this one read.
         if rebuilt {
             self.save_meta(session);
@@ -2340,9 +2350,19 @@ impl Hub {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         let live = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
-        let Some(last) = live.map(|session| session.meta().last_seq) else {
+        let Some(session) = live else {
             return self.store.scan(id, after, visit);
         };
+        // After a hard stop the log can be ahead of the saved `lastSeq`, until the chat's log is
+        // loaded (`load_logs`, after the daemon's ready line) or its first append: its tail is
+        // counted first, so the cap below leaves out only a line whose record is not appended
+        // yet. A caught-up chat takes no lock here (a replay never waits for an append).
+        if !session.caught_up.load(Ordering::SeqCst) {
+            self.catch_up(&session);
+        }
+        let last = session.meta().last_seq;
+        #[cfg(test)]
+        log_load::catch_up_note(&log_load::NOTE_BEFORE_REPLAY_SCAN, "scans the log");
         self.store.scan(id, after, &mut |record| record.seq <= last && visit(record))
     }
 

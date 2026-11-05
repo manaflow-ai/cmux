@@ -63,7 +63,7 @@ extension PageWebView {
         WebDevOverrideWatcher.shared.start()
         return PageEnginePolicy(preference: hosting.preference, chromiumAvailable: hosting.isAvailable,
                                 chromiumServes: hosting.serves(descriptor),
-                                liveWebOverride: WebDevOverride.current.isActive).decide(for: descriptor, options: options)
+                                liveWebOverride: WebDevOverride.current.isActive || WebProjection.shared.isActive).decide(for: descriptor, options: options)
     }
 
     /// The view that takes the keyboard when the page is focused: Chromium's view or the WebKit view.
