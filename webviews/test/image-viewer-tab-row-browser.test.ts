@@ -13,10 +13,9 @@ import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-const ENTRY = "agent-pane.image-viewer";
-const VARIANT = "pasted-screenshot-under-tab-row";
-
 await requireBrowserLane("image-viewer-tab-row-browser.test.ts", async () => {
+  const ENTRY = "agent-pane.image-viewer";
+  const VARIANT = "pasted-screenshot-under-tab-row";
   setDefaultTimeout(240_000);
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
