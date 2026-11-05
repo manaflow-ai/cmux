@@ -12,6 +12,14 @@ use super::*;
 /// asks again when the turn ends (`hub/live_name.rs`).
 pub const RENAME_BUSY: &str = "rename: a turn is running";
 
+/// The refusal of a rename by a Claude Code whose commands list no `/rename`: written anyway, the
+/// line would be a prompt to the model.
+pub const RENAME_UNSUPPORTED: &str = "rename: this Claude Code has no /rename";
+
+/// A `/rename` with no result after this long is given up on (the hub stopped waiting at 10 s):
+/// the next rename is written, and a late result answers nothing.
+const STALE: std::time::Duration = std::time::Duration::from_secs(30);
+
 impl Translator {
     /// `RENAME {sessionId, name}`: Claude Code's `/rename` line for `name`, between turns only.
     pub(super) async fn rename(&self, id: &Id, p: &Value) -> Outbound {
@@ -22,7 +30,16 @@ impl Translator {
                 RpcError::invalid_params("rename needs a one-line name"),
             ));
         }
+        if !self.lists_rename().await {
+            return Outbound::Reply(Message::err(
+                id.clone(),
+                RpcError::method_not_found(RENAME_UNSUPPORTED),
+            ));
+        }
         let mut renaming = self.renaming.lock().await;
+        if renaming.take_if(|(_, _, at)| at.elapsed() > STALE).is_some() {
+            tracing::debug!("rename: the last /rename had no result; writing the next");
+        }
         if renaming.is_some()
             || self.in_turn.load(Ordering::SeqCst)
             || self.compacting.load(Ordering::SeqCst)
@@ -33,7 +50,7 @@ impl Translator {
             ));
         }
         let uuid = uuid::Uuid::now_v7().to_string();
-        *renaming = Some((uuid.clone(), id.clone()));
+        *renaming = Some((uuid.clone(), id.clone(), std::time::Instant::now()));
         let content = format!("/rename {name}");
         Outbound::Lines(vec![json!({
             "type": "user",
@@ -42,11 +59,21 @@ impl Translator {
         })])
     }
 
+    /// Whether Claude Code's commands (its `initialize` answer, or a later `commands_changed`) list
+    /// `rename`, by name or as a `{name}` entry.
+    async fn lists_rename(&self) -> bool {
+        self.slash_commands
+            .lock()
+            .await
+            .iter()
+            .any(|c| c.as_str().or_else(|| c.get("name").and_then(Value::as_str)) == Some("rename"))
+    }
+
     /// One of Claude Code's lines for the rename in flight: nothing for the chat, and its result
     /// answers `RENAME`. None for any other line, which the translator reads as before.
     pub(super) async fn rename_line(&self, line: &Value) -> Option<Vec<Message>> {
         let mut renaming = self.renaming.lock().await;
-        let (uuid, _) = renaming.as_ref()?;
+        let (uuid, _, _) = renaming.as_ref()?;
         if line.get("parent_tool_use_id").and_then(Value::as_str).is_some() {
             return None;
         }
@@ -69,7 +96,7 @@ impl Translator {
         if kind != "result" {
             return Some(Vec::new());
         }
-        let (_, id) = renaming.take()?;
+        let (_, id, _) = renaming.take()?;
         let answer = if line.get("is_error").and_then(Value::as_bool) == Some(true) {
             Message::err(id, RpcError::internal(format!("rename: {}", text("result"))))
         } else {

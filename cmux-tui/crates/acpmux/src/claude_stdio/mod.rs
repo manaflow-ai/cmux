@@ -514,8 +514,9 @@ pub struct Translator {
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
-    /// The `/rename` line in flight (`live_name.rs`): its uuid and the `RENAME` it answers.
-    renaming: Mutex<Option<(String, Id)>>,
+    /// The `/rename` line in flight (`live_name.rs`): its uuid, the `RENAME` it answers, and when
+    /// it was written.
+    renaming: Mutex<Option<(String, Id, std::time::Instant)>>,
     /// Prompts still unanswered when the next one went out: acpmux ended
     /// their turn itself (a Stop Claude Code answered late, `hub/cancel.rs`).
     /// Claude Code's result for them comes before it reads the next prompt,

@@ -143,6 +143,9 @@ COMMANDS = [
     {"name": "compact", "description": "Clear conversation history but keep a summary in context",
      "argumentHint": "<optional custom summarization instructions>"},
 ]
+# Claude Code lists /rename (2.1.310); only a test that renames asks for it, so other command lists stay as they were.
+if os.environ.get("FAKE_CLAUDE_RENAMED"):
+    COMMANDS.append({"name": "rename", "description": "Rename the current conversation", "argumentHint": "[name]"})
 
 
 def is_cmux_guidance(block):

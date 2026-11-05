@@ -5,6 +5,13 @@
 
 use super::*;
 
+/// A translator whose Claude Code lists `/rename` among its commands, as 2.1.310's `initialize` does.
+async fn translator() -> Translator {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    *t.slash_commands.lock().await = vec![json!({"name": "compact"}), json!({"name": "rename"})];
+    t
+}
+
 fn rename(id: i64, name: &str) -> Message {
     Message::request(id, RENAME, json!({"sessionId": "acp-1", "name": name}))
 }
@@ -51,7 +58,7 @@ async fn written(t: &Translator, msg: &Message) -> Vec<Value> {
 
 #[tokio::test]
 async fn an_idle_claude_code_is_renamed_and_the_chat_sees_none_of_it() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let t = translator().await;
     let lines = written(&t, &rename(7, " reviewer ")).await;
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert_eq!(lines[0]["type"], "user");
@@ -69,7 +76,7 @@ async fn an_idle_claude_code_is_renamed_and_the_chat_sees_none_of_it() {
 
 #[tokio::test]
 async fn a_rename_waits_for_the_turn_to_end() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let t = translator().await;
     let _ = written(&t, &prompt(1, "run sleep 25")).await;
     let Outbound::Reply(reply) = t.outbound(&rename(2, "reviewer")).await else {
         panic!("wrote a rename into a running turn")
@@ -79,7 +86,7 @@ async fn a_rename_waits_for_the_turn_to_end() {
 
 #[tokio::test]
 async fn one_rename_at_a_time_and_only_a_one_line_name() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let t = translator().await;
     for bad in ["", "  ", "two\nlines"] {
         let Outbound::Reply(reply) = t.outbound(&rename(3, bad)).await else {
             panic!("wrote a rename for {bad:?}")
@@ -97,7 +104,7 @@ async fn one_rename_at_a_time_and_only_a_one_line_name() {
 /// stdin in order, so the rename's lines come first, and the prompt's turn is untouched.
 #[tokio::test]
 async fn a_prompt_written_behind_the_rename_keeps_its_own_turn() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let t = translator().await;
     let renamed = written(&t, &rename(4, "reviewer")).await;
     let asked = written(&t, &prompt(5, "hi")).await;
     let mut out = Vec::new();
@@ -121,11 +128,34 @@ async fn a_prompt_written_behind_the_rename_keeps_its_own_turn() {
 /// A `/rename` the person typed is their own turn, shown as before.
 #[tokio::test]
 async fn a_rename_the_person_typed_is_their_turn() {
-    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let t = translator().await;
     let asked = written(&t, &prompt(6, "/rename mine")).await;
     let mut out = Vec::new();
     for line in renamed_lines(&asked[0], "mine") {
         out.extend(t.inbound(&line).await);
     }
     assert!(result_of(&out, 6).is_some_and(|r| r.is_ok()), "{out:?}");
+}
+
+/// A Claude Code whose commands list no `/rename` is never written one: the line would be a prompt.
+#[tokio::test]
+async fn a_claude_code_without_rename_is_not_asked() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let Outbound::Reply(reply) = t.outbound(&rename(2, "reviewer")).await else {
+        panic!("wrote /rename to a Claude Code that lists no such command")
+    };
+    assert_eq!(result_of(&[reply], 2).unwrap().unwrap_err(), RENAME_UNSUPPORTED);
+}
+
+/// A `/rename` that never got its result (the process stalled, the hub stopped waiting) does not
+/// refuse every later rename: after `STALE` the next one is written.
+#[tokio::test]
+async fn a_rename_with_no_result_does_not_block_the_next_one() {
+    let t = translator().await;
+    let _ = written(&t, &rename(4, "reviewer")).await;
+    let long_ago =
+        std::time::Instant::now().checked_sub(std::time::Duration::from_secs(31)).unwrap();
+    t.renaming.lock().await.as_mut().unwrap().2 = long_ago;
+    let lines = written(&t, &rename(5, "lead")).await;
+    assert_eq!(lines[0]["message"]["content"], "/rename lead");
 }
