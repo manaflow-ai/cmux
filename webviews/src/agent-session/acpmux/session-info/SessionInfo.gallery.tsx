@@ -1167,7 +1167,7 @@ export default componentEntry<Props>({
       },
     },
     "workflow-parallel": {
-      note: "Two phases run at once, 25 minutes in (Leo's 2026-11-05 screenshot): each reached phase is one row with its count and dots, closed until opened, except Latency, open on its own while the shell tasks its agents started run; Up next names Latency plan and Swarm synthesis, the phases no agent reached; the workflow names its model once; the two agents that ended are under 2 finished, out of the running lists, the latest first.",
+      note: "Two phases run at once, 25 minutes in (Leo's 2026-11-05 screenshot): each phase is one row with its count and dots, closed until opened, except Latency, open on its own while the shell tasks its agents started run; Latency plan and Swarm synthesis, which no agent reached, are plain pending rows with no label; the workflow names its model once; the two agents that ended are under 2 finished, out of the running lists, the latest first.",
       props: { ...workflowProps("parallel"), processes: parallelWorkflowProcesses() },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
@@ -1187,7 +1187,7 @@ export default componentEntry<Props>({
         };
         const finished = ".acpmux-workflow-finished li";
         await open(
-          ".acpmux-workflow-phase:nth-child(2) .acpmux-workflow-phase__head",
+          ".acpmux-workflow-phase:nth-child(3) .acpmux-workflow-phase__head",
           ".acpmux-workflow-phase__agents",
           2,
         );

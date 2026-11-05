@@ -4,10 +4,11 @@
 // the model they run on; its description; then, as Claude's own Background tasks panel reads (Leo,
 // 2026-11-05: "claude does actually do this in a right pane sort of thing ... there are areas to
 // improve on around here", and on the list drawn from it: "Definitely just build it."):
-// - each phase an agent reached as one row, its count (`1/6`) and a dot per agent, closed until
-//   opened, which lists the phase's agents still running or waiting, each saying in words what it
-//   does (summary/workflowView.ts `agentLine`), never its last shell command;
-// - "Up next: <phase>" for the first phase no agent has reached, never an empty heading;
+// - each phase as one row, its count (`1/6`) and a dot per agent, closed until opened, which lists
+//   the phase's agents still running or waiting, each saying in words what it does
+//   (summary/workflowView.ts `agentLine`), never its last shell command. A phase no agent has
+//   started is a row like the others, in its pending state, with no label saying it comes next
+//   (Leo, 2026-10-29: "I fucking hate it when you guys narrate so much bullshit");
 // - the commands its agents started under the agent that started them (`attributeCommands`);
 // - "N finished": the agents that ended, out of the running list, the latest first, each opening
 //   to its output drawn as Markdown, never raw JSON (`outputMarkdown`).
@@ -18,7 +19,7 @@ import { compactTokens } from "../conversation/CompactionNote";
 import { Spinner } from "../conversation/icons";
 import { Markdown } from "../conversation/Markdown";
 import { formatDuration } from "../conversation/turns";
-import { usePaneLanguage, useT, type Translate } from "../i18n";
+import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { useNow } from "../subagents/SubagentGroup";
@@ -28,13 +29,10 @@ import {
   agentEnded,
   agentLine,
   agentModelLabel,
-  listedPhases,
-  listNames,
   outputMarkdown,
   phaseCount,
   splitAgents,
   sharedModel,
-  upNext,
   type WorkflowCommands,
 } from "../summary/workflowView";
 import { commandLabel, sendLabel, type BackgroundCommand } from "./processes";
@@ -46,7 +44,7 @@ import "../summary/workflowDots.css";
 
 const ROW_ICON = rowIconSize(12);
 
-/// How many finished agents a workflow lists before Show more, and how many more each press adds.
+/// How many finished agents a workflow lists before Show more (each press adds three times as many).
 const FINISHED_PAGE = 8;
 
 const isRunning = (workflow: WorkflowSummary) => workflow.state === "running";
@@ -173,11 +171,7 @@ function WorkflowTask({
   const meta = running
     ? [...countLine(t, counts), ...tokens, ...model]
     : [...(status ? [status] : []), t("subagents.pill", { n: counts.total }), ...tokens, ...model];
-  const phases = listedPhases(workflow);
-  const language = usePaneLanguage();
-  const next = upNext(workflow)
-    .map((phase) => phase.name)
-    .filter(Boolean);
+  const phases = workflow.phases;
   const { finished } = splitAgents(workflow.agents);
   const own = commands?.byWorkflow.get(workflow.id) ?? NO_COMMANDS;
   const agentCommands = (agent: WorkflowAgent) => commands?.byAgent.get(agent.id) ?? NO_COMMANDS;
@@ -211,9 +205,6 @@ function WorkflowTask({
             />
           ))}
         </ul>
-      )}
-      {next.length > 0 && (
-        <p className="acpmux-workflow-task__next">{t("workflow.upNext", { phase: listNames(next, language) })}</p>
       )}
       {own.length > 0 && <CommandList commands={own} now={now} onStop={onStopCommand} />}
       {finished.length > 0 && (

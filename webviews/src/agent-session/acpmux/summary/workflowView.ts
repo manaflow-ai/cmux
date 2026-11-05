@@ -5,7 +5,8 @@
 // Leo (2026-11-05), on our card and panel beside Claude's: "there are areas to improve on around
 // here", and on the list drawn from it: "Definitely just build it." From that list:
 // - Running and Finished are separate: an agent that ended leaves the running list (`splitAgents`).
-// - The phases no agent has reached read "Up next: <phases>" (`upNext`), never empty headings.
+// - A phase no agent has reached stays a plain row in its pending state, with no label saying it
+//   comes next (as #27597 left it: Leo, 2026-10-29, on narration in this panel).
 // - An agent row says what it does in words (`agentLine`), never its last shell command, and a
 //   finished one opens to its output, rendered (`outputMarkdown`), never raw JSON.
 // - The card names every phase that runs (`runningPhases`) and, while agents may still spawn,
@@ -37,21 +38,6 @@ export function splitAgents(agents: readonly WorkflowAgent[]): {
   };
 }
 
-/// The phases a running workflow lists as rows: every one an agent of it reached. A phase none has
-/// reached is not a row; they are the "Up next" line (`upNext`). A workflow that ended
-/// lists every phase, since nothing comes next.
-export function listedPhases(workflow: WorkflowSummary): WorkflowPhase[] {
-  if (workflow.state !== "running") return workflow.phases;
-  return workflow.phases.filter((phase) => phaseAgents(workflow, phase).length > 0);
-}
-
-/// The phases a running workflow comes to next, in order: every one no agent has reached. None once
-/// it ended.
-export function upNext(workflow: WorkflowSummary): WorkflowPhase[] {
-  if (workflow.state !== "running") return [];
-  return workflow.phases.filter((phase) => phaseAgents(workflow, phase).length === 0 && phase.name);
-}
-
 /// Names joined as the pane's language lists them ("Latency plan, Swarm synthesis").
 export function listNames(names: readonly string[], language?: string): string {
   try {
@@ -73,7 +59,8 @@ export function phaseCount(workflow: WorkflowSummary, phase: WorkflowPhase): { d
 }
 
 /// The card's count. A running workflow whose agents may still spawn (a phase not reached yet, or
-/// agents queued) has no total yet: it counts what is done and what runs. Otherwise done of total.
+/// agents queued) has no total yet: it counts what is done and what runs, with the total so far.
+/// Otherwise done of total.
 export function cardCount(
   workflow: WorkflowSummary,
 ): { kind: "progress"; done: number; running: number; total: number } | { kind: "total"; done: number; total: number } {
@@ -83,7 +70,10 @@ export function cardCount(
   const done = Math.min(total, Math.max(counts.done, workflow.counts?.done ?? 0));
   const open =
     workflow.state === "running" &&
-    (upNext(workflow).length > 0 || counts.queued > 0 || counts.running > 0 || done < total);
+    (workflow.phases.some((phase) => phaseAgents(workflow, phase).length === 0) ||
+      counts.queued > 0 ||
+      counts.running > 0 ||
+      done < total);
   return open ? { kind: "progress", done, running: counts.running, total } : { kind: "total", done, total };
 }
 

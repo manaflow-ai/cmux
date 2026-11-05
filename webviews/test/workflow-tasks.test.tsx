@@ -1,8 +1,9 @@
 // l10n-allow-file: fixture workflow names in assertions, not shipped UI.
 // Session Info's Background tasks lists the chat's Claude workflows (Labs): a running one with
-// its counts, tokens, model, description, each phase an agent reached as one closed row with its
-// count and a dot per agent, which opens to its running agents, "Up next" for the first phase no
-// agent reached, and its finished agents apart (Leo, 2026-11-05: "Definitely just build it."); a
+// its counts, tokens, model, description, each phase as one closed row with its
+// count and a dot per agent, which opens to its running agents, the phases no agent started yet as
+// plain rows with no label (Leo, 2026-10-29: "I fucking hate it when you guys narrate so much
+// bullshit"), and its finished agents apart (Leo, 2026-11-05: "Definitely just build it."); a
 // finished one as "Finished · 7 agents", its phases N/N, its agents under "7 finished". The data is
 // a workflow's events fed through the real fold.
 import { afterEach, expect, test } from "bun:test";
@@ -46,7 +47,7 @@ test("the adapter derives each phase's state and counts, and the model's name", 
   ]).toEqual(["Opus 5.5", "Sonnet", "Haiku 4.5", "Gpt 6"]);
 });
 
-test("a running workflow shows its counts, tokens, model, description, closed phase rows, Up next and its finished agents", () => {
+test("a running workflow shows its counts, tokens, model, description, closed phase rows, the next phase as a row and its finished agents", () => {
   const html = renderToStaticMarkup(<WorkflowTasks workflows={summaries("running")} onStop={async () => undefined} />);
   const shown = text(html);
   // One group: the section's head counts it, so no group head.
@@ -58,9 +59,14 @@ test("a running workflow shows its counts, tokens, model, description, closed ph
   expect(shown).toContain("Brainstorm 3/3");
   expect(shown).toContain("Critique 0/3");
   expect(html).not.toContain("acpmux-workflow-phase__agents");
-  // Judge has no agent yet: not an empty row but "Up next: Judge".
-  expect(html.match(/class="acpmux-workflow-phase"/g)?.length).toBe(2);
-  expect(shown).toContain("Up next: Judge");
+  // Judge has no agent yet: a phase row in its pending state, with nothing to open, and no label
+  // saying it comes next.
+  expect(html.match(/<li class="acpmux-workflow-phase"/g)?.length).toBe(3);
+  const judge = /<li class="acpmux-workflow-phase" data-state="pending">.*?<\/li>/.exec(html)![0];
+  expect(text(judge)).toBe("Judge");
+  expect(judge).toContain("disabled");
+  expect(judge).not.toContain("data-icon");
+  expect(shown).not.toContain("Up next");
   // The Brainstorm agents ended: they are under "3 finished", out of the running list, and no row
   // repeats the model every agent shares.
   expect(shown).toContain("3 finished");
@@ -567,7 +573,7 @@ test("a retried workflow agent shows its current action even when an earlier err
   expect(text(html)).not.toContain(agent.error);
 });
 
-test("a phase no agent reached is Up next, and becomes a closed row when its first agent starts", async () => {
+test("a pending phase row gains its count when its first agent starts, and opens on a click", async () => {
   dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
   for (const [key, value] of Object.entries({
     window: dom.window,
@@ -598,17 +604,16 @@ test("a phase no agent reached is Up next, and becomes a closed row when its fir
   const container = dom.window.document.getElementById("root")!;
   root = createRoot(container);
   await act(async () => root!.render(<WorkflowTasks workflows={[before]} />));
-  expect(text(container.innerHTML)).toContain("Up next: Judge");
-  expect(container.querySelectorAll(".acpmux-workflow-phase").length).toBe(2);
+  expect(container.querySelectorAll(".acpmux-workflow-phase").length).toBe(3);
+  expect(text([...container.querySelectorAll(".acpmux-workflow-phase")].at(-1)!.innerHTML)).toBe("Judge");
   await act(async () => root!.render(<WorkflowTasks workflows={[after]} />));
-  expect(text(container.innerHTML)).not.toContain("Up next");
   const judgeRow = [...container.querySelectorAll(".acpmux-workflow-phase")].at(-1)!;
   expect(text(judgeRow.innerHTML)).toStartWith("Judge 0/1");
   expect(judgeRow.querySelector("button")!.getAttribute("aria-expanded")).toBe("false");
   await act(async () => judgeRow.querySelector("button")!.click());
   expect(judgeRow.querySelector(".acpmux-workflow-phase__agents")).not.toBeNull();
 });
-test("a phase whose agents arrive queued is a row of its own, no longer Up next", () => {
+test("a pending phase whose agents arrive queued counts them", () => {
   const before = summaries("running")[0]!;
   const judge = before.phases.find((phase) => phase.state === "pending")!;
   const queued = {

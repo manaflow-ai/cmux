@@ -274,17 +274,6 @@ button.acpmux-workflow-agent__button:focus-visible {
   padding-inline: calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap)) var(--grid-gap);
 }
 
-/* "Up next: <phase>": the first phase no agent has reached, a muted line where its row will be. */
-.acpmux-workflow-task__next {
-  margin: 0;
-  min-height: var(--grid-row);
-  display: flex;
-  align-items: center;
-  padding: 0 var(--grid-gap) 0 calc(var(--grid-gap) + var(--grid-icon-box) + var(--grid-gap));
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-}
 /* One phase per row with room between them, its dots under its name. */
 .acpmux-workflow-task__phases {
   display: flex;

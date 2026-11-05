@@ -1,7 +1,7 @@
 // l10n-allow-file: fixture workflow, phase, agent and command names in assertions, not shipped UI.
 // What the workflow card and Session Info's Background tasks show of a Claude workflow
 // (summary/workflowView.ts), from Leo's 2026-11-05 list: running and finished apart, a phase as one
-// row with its count, "Up next" for the phase no agent reached, an agent's words rather than its
+// row with its count (a phase no agent reached a plain pending row, as #27597 left it), an agent's words rather than its
 // shell command, its output rendered rather than raw JSON, every running phase on the card with a
 // count that is not a total while agents may still spawn, one clock, the model only where it
 // differs, and the shell tasks a workflow's agents started under those agents. The data is a
@@ -22,14 +22,12 @@ import {
   attributeCommands,
   cardCount,
   cardLine,
-  listedPhases,
   looksLikeCommand,
   outputLine,
   outputMarkdown,
   phaseCount,
   runningPhases,
   splitAgents,
-  upNext,
   workflowModel,
 } from "../src/agent-session/acpmux/summary/workflowView";
 import type { WorkflowAgent } from "../src/agent-session/acpmux/summary/workflow";
@@ -59,19 +57,15 @@ test("running and finished agents are apart, the finished the latest first", () 
   expect(finished.map((agent) => agent.name)).toEqual(["swarm:history", "swarm:products"]);
 });
 
-test("two phases run at once; a phase counts done of its agents; the first unreached phase is up next", () => {
+test("two phases run at once, and a phase counts done of its agents", () => {
   const workflow = parallel();
   expect(runningPhases(workflow).map((phase) => phase.name)).toEqual(["Latency", "Swarm research"]);
-  expect(listedPhases(workflow).map((phase) => [phase.name, phaseCount(workflow, phase)])).toEqual([
+  expect(workflow.phases.map((phase) => [phase.name, phaseCount(workflow, phase)])).toEqual([
     ["Latency", { done: 0, total: 3 }],
+    ["Latency plan", { done: 0, total: 0 }],
     ["Swarm research", { done: 2, total: 4 }],
+    ["Swarm synthesis", { done: 0, total: 0 }],
   ]);
-  // Every phase no agent reached is up next, in order.
-  expect(upNext(workflow).map((phase) => phase.name)).toEqual(["Latency plan", "Swarm synthesis"]);
-  // Once it ended nothing is next, and every phase is listed.
-  const ended = { ...workflow, state: "completed" as const };
-  expect(upNext(ended)).toEqual([]);
-  expect(listedPhases(ended).length).toBe(4);
 });
 
 test("the card counts done and running while agents may still spawn, and done of total once they cannot", () => {
@@ -162,7 +156,7 @@ test("commands a workflow's agents started are those agents', the rest the chat'
   expect(byWorkflow?.length).toBe(3);
 });
 
-test("Session Info lists phases closed with their counts, Up next, words, nested commands and finished output", async () => {
+test("Session Info lists phases closed with their counts, pending phases as plain rows, words, nested commands and finished output", async () => {
   const workflow = parallel();
   const commands = attributeCommands(backgroundCommands(parallelWorkflowProcesses(NOW), [], true), [workflow]);
   const html = renderToStaticMarkup(
@@ -172,7 +166,9 @@ test("Session Info lists phases closed with their counts, Up next, words, nested
   expect(shown).toContain("5 running · 2 done · 757k tokens · Opus 5.5");
   expect(shown).toContain("Latency 0/3");
   expect(shown).toContain("Swarm research 2/4");
-  expect(shown).toContain("Up next: Latency plan, Swarm synthesis");
+  // The phases no agent reached are plain pending rows, with no label saying they come next.
+  expect(html.match(/<li class="acpmux-workflow-phase" data-state="pending">/g)?.length).toBe(2);
+  expect(shown).not.toContain("Up next");
   // Phases are closed until opened, except one whose agents started a command that still runs:
   // Latency opens on its own, so that command's time and Stop stay in sight.
   expect(html.match(/acpmux-workflow-phase__agents/g)?.length).toBe(1);
@@ -189,8 +185,15 @@ test("Session Info lists phases closed with their counts, Up next, words, nested
   await act(async () =>
     root!.render(<WorkflowTasks workflows={[workflow]} commands={commands.workflows} onStop={async () => undefined} />),
   );
+  // Swarm research: the third row, after Latency and the pending Latency plan.
   const heads = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-workflow-phase__head")];
-  await act(async () => heads[1]!.click());
+  expect(heads.map((head) => head.querySelector(".acpmux-workflow-phase__name")?.textContent)).toEqual([
+    "Latency",
+    "Latency plan",
+    "Swarm research",
+    "Swarm synthesis",
+  ]);
+  await act(async () => heads[2]!.click());
   const rendered = text(container.innerHTML);
   expect(rendered).toContain("latency:prior-art Find earlier PRs and issues about first-reply latency");
   // Named without the `cd` that only sets the stage (processes.ts `commandLabel`).
