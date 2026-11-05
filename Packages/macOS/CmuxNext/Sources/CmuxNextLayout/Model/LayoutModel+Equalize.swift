@@ -37,7 +37,17 @@ extension LayoutModel {
                 }
             }
         }
-        let hasColumns = false
+        var hasColumns = false
+        if !screen.zoomed, case .columns(let columns) = screen.layout {
+            let style = style
+            let visibleColumns = Set(columns.filter { $0.root.panes.contains(where: visiblePanes.contains) }.map(\.id))
+            let equalizer = ColumnEqualizer(columns: columns, visible: visibleColumns, viewportWidth: viewportWidth ?? 0,
+                                            gap: style.stripGap) { $0.minimumSize(style: style).width }
+            let shared = DockStripGeometry.docks(columns)
+            hasColumns = shared.scrolling.filter { $0.dock == nil }.count
+                + [shared.left, shared.right].compactMap { $0 }.filter { $0.dock?.mode == .docked }.count > 1
+            values += equalizer.resizes.map { .width($0.column, $0.width) }
+        }
         guard hasSplits || hasColumns else { return .nothingToEqualize }
         guard !values.isEmpty else { return .equalized }
         let change = EndedValues(values)

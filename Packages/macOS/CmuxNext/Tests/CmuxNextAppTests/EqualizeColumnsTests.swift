@@ -88,6 +88,27 @@ struct EqualizeColumnsTests {
         #expect(abs(widths.reduce(0, +) - (viewport.width - 4 * model.style.stripGap)) <= 3, "they fill the window: \(widths)")
     }
 
+    /// Two full-width columns beside the chat show one at a time: equalize brings both into the window beside the chat.
+    @Test func fullWidthColumnsComeIntoViewBesideTheChat() {
+        let viewport = CGSize(width: 1920, height: 1080)
+        let model = Self.model([
+            LayoutColumn(id: "home", width: 0.5, root: .leaf("chat"), dock: Self.homeDock),
+            LayoutColumn(id: "c1", width: 1, root: .leaf("p1")),
+            LayoutColumn(id: "c2", width: 1, root: .leaf("p2")),
+        ], visible: ["chat", "p2"])
+        #expect(model.equalize(screen: "s", viewportWidth: viewport.width) == .equalized)
+        Self.expectEqual(Self.widths(model, ["home", "c1", "c2"], viewport: viewport), "chat + 2 full-width columns")
+    }
+
+    /// More columns than fit at their minimum width: the ones in view share the window; the rest get their width.
+    @Test func tooManyColumnsShareByTheOnesInView() {
+        let viewport = CGSize(width: 1200, height: 800)
+        let columns = (1...8).map { LayoutColumn(id: ColumnID("c\($0)"), width: 0.5, root: .leaf(PaneID("p\($0)"))) }
+        let model = Self.model(columns, visible: ["p1", "p2"])
+        model.equalize(screen: "s", viewportWidth: viewport.width)
+        #expect(model.screens[0].layout.columns.allSatisfy { $0.width == 0.5 }, "two in view: each takes half")
+    }
+
     /// A split-tree screen still equalizes its splits as before.
     @Test func splitScreenEqualizesItsSplits() {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(
