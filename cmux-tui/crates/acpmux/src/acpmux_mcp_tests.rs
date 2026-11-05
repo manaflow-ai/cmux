@@ -81,7 +81,10 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "run_wait",
             "pr_state",
             "wrap_up",
-            "who_else"
+            "who_else",
+            "goal_set",
+            "goal_update",
+            "goal_get"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -1050,4 +1053,15 @@ fn who_else_is_listed_with_its_instruction_and_names_the_chat() {
     assert!(who_else::params("s1", &json!({"files": "a.rs"})).is_err());
     let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
     assert!(!crate::mcp_hint::names(&chief).any(|n| n == "who_else"));
+}
+
+/// Every chat's `acpmux` server lists the goal tools and says when to use them.
+#[test]
+fn goal_tools_are_listed_with_their_instruction() {
+    let all = tools_with_artifacts(false);
+    for name in ["goal_set", "goal_update", "goal_get"] {
+        assert!(crate::mcp_hint::names(&all).any(|n| n == name), "{name}");
+    }
+    let text = instructions(&all).unwrap_or_default();
+    assert!(text.contains("call goal_set with the objective and a checkable done-when"), "{text}");
 }

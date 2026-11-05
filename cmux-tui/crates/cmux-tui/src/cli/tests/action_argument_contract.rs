@@ -414,7 +414,7 @@ fn drift_in(path: &Path, actions: &[Action], reaches_app: &dyn Fn(&str) -> bool)
             // A new function or match arm is another call.
             Token::Ident(word) if word == "fn" => current = None,
             Token::Punct('=') if matches!(tokens.get(index + 1), Some((Token::Punct('>'), _))) => {
-                current = None
+                current = None;
             }
             Token::Ident(word) if word == "action_run_params" => {
                 if let (Some((Token::Punct('('), _)), Some((Token::Str(name), _))) =
