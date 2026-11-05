@@ -32,11 +32,17 @@ def reload(config, log_dir, index):
     cmd = ["./scripts/reload.sh", "--tag", TAG] + (["--config", config] if config else [])
     env = dict(os.environ, CMUX_DEV_BACKEND_MODE="local", CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS="1")
     start = time.monotonic()
-    proc = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)
-    seconds = round(time.monotonic() - start, 1)
-    out = proc.stdout + proc.stderr
+    # Streamed to the step's log as it runs, so a long cold build is never a silent step the fleet's watchdog ends.
+    proc = subprocess.Popen(cmd, cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    lines = []
     with open(os.path.join(log_dir, f"reload-{index}.out"), "w") as f:
-        f.write(out)
+        for line in proc.stdout:
+            f.write(line)
+            lines.append(line)
+            print(f"[reload {index}] {line}", end="", flush=True)
+    proc.wait()
+    seconds = round(time.monotonic() - start, 1)
+    out = "".join(lines)
     logs = re.findall(r"^==> log: (.+)$", out, re.M)
     apps = re.findall(r"^App path:\n\s*(.+)$", out, re.M)
     if proc.returncode != 0 or not apps:
@@ -82,7 +88,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", required=True)
     parser.add_argument("--edits", type=int, default=3)
-    parser.add_argument("--config", default="", help="reload.sh --config (debug, release, bench); default its own")
+    # Plain release compiles out the debug socket methods the launch waits on (debug.windows); bench keeps them.
+    parser.add_argument("--config", default="", choices=["", "debug", "bench"],
+                        help="reload.sh --config (debug or bench); default its own")
     opts = parser.parse_args()
     os.makedirs(opts.out, exist_ok=True)
     rows, launcher = [], None
