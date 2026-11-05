@@ -85,6 +85,11 @@ cmux-ci run ... --target-worker HOST_MAC --pin-strict --arg=lan=HOST_LAN_IP --ar
 cmux-ci run ... --target-worker VIEWER_MAC --pin-strict --arg=viewer-of=HOST_LAN_IP --arg=peer-token=$token
 ```
 
+On the fleet's minis, use the host's tailnet address (`100.x`) for `lan` and `viewer-of`: macOS Local
+Network privacy refuses LAN addresses to the binaries a step starts (Apple's own, such as `nc`, are
+exempt, so a shell probe proves nothing), while the tailnet path between two Macs on one LAN is direct,
+inside WireGuard. The summary's link then says `lan via tailnet`.
+
 The host Mac runs everything as usual (scene, marker, host bound to `lan`, OCR, results), and waits
 up to 30 minutes for the viewer Mac. Submit the viewer half first and the host half once the viewer's
 step is running (its log shows `SCREEN-STREAM-EVAL-STAGE viewer`): a pinned Mac that is busy with other
