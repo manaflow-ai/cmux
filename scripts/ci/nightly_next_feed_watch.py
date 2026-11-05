@@ -41,6 +41,7 @@ import http.client
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
@@ -229,9 +230,28 @@ def stamp(when: dt.datetime) -> str:
     return when.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def ls_remote_sha(repo: str, branch: str, timeout: float = 60) -> str:
+    """A branch's tip from git's smart-HTTP ref advertisement, not the REST API.
+
+    The repository is public, so this needs no token and spends none of the installation's
+    API budget. On 2026-11-04 that budget ran out and the tick's `git/ref/heads/nightly-next`
+    read failed, so ticks 41791114042 and 41791169626 promoted nothing. Raises OSError,
+    subprocess.SubprocessError or ValueError; callers fall back to the API."""
+    server = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
+    out = subprocess.run(
+        ["git", "ls-remote", "--exit-code", f"{server}/{repo}", f"refs/heads/{branch}"],
+        capture_output=True, text=True, timeout=timeout, check=True, stdin=subprocess.DEVNULL,
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}).stdout
+    sha = out.split()[0].lower() if out.split() else ""
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise ValueError(f"git ls-remote {branch}: no sha in {out[:80]!r}")
+    return sha
+
+
 class GitHub:
     def __init__(self, repo: str, token: str, dry_run: bool):
         self.base = f"https://api.github.com/repos/{repo}"
+        self.repo = repo
         self.token = token
         self.dry_run = dry_run
 
@@ -298,6 +318,11 @@ class GitHub:
         return runs
 
     def ref_sha(self, branch: str) -> str:
+        """git ls-remote first (no API budget), the refs API only when that fails."""
+        try:
+            return ls_remote_sha(self.repo, branch)
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            print(f"git ls-remote {branch} failed ({error!r}); reading it through the API")
         return self.call("GET", f"/git/ref/heads/{branch}")["object"]["sha"]
 
     def ref_commit(self, branch: str) -> tuple[str, dt.datetime | None]:
