@@ -117,26 +117,26 @@ async fn refresh(source: &Arc<AgentReceiver>) -> Result<ReceiverSnapshot, ReadFa
     }
 }
 
+/// Bind the receiver's socket and start its listener from the bind-time
+/// bootstrap alone. No policy read blocks this: the listener admits no peer
+/// and the verifier no token until the first read (`first_policy`) installs
+/// one, in the background, so a machine reports ready without waiting the
+/// 5 to 8 s that read takes.
 async fn initialize(
     bootstrap: NativeBootstrap,
     session: PathBuf,
-) -> anyhow::Result<(Authority, NativeReceiver, ReceiverSnapshot)> {
+) -> anyhow::Result<(Authority, NativeReceiver)> {
     let (binding, keys, private, generation) = bootstrap.into_parts();
     let authority = Authority(Arc::new(
         AgentReceiver::for_receiver(binding.clone(), keys, generation)
             .map_err(|error| anyhow!(error))?,
     ));
-    let snapshot = refresh(&authority.0).await.map_err(|failure| {
-        // Nothing is retained before the first policy: any failure closes.
-        authority.0.invalidate();
-        anyhow!("cloud.receiver.policy_unavailable ({failure:?})")
-    })?;
     // Native VM routes use the original IPv4 VPC endpoint. The host's inner
     // IPv6 overlay belongs to the userspace mesh, not the kernel interface.
     let socket =
         UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, super::mesh_cloud::CLOUD_UDP_PORT))
             .await?;
-    let mut receiver = NativeReceiver::start(
+    let receiver = NativeReceiver::start(
         binding,
         private,
         socket,
@@ -145,9 +145,49 @@ async fn initialize(
         authority.0.verifier(),
     )
     .await?;
-    receiver.reconcile(Some(&snapshot.native_policy())).await?;
+    Ok((authority, receiver))
+}
+
+/// The first policy read, after the listener is up. A read with no answer
+/// is retried with backoff (1 to 30 s): nothing is admitted meanwhile, and
+/// nothing was before it either. A refusal closes the receiver, as a failed
+/// first read always did. Then renewals take over from that snapshot.
+async fn first_policy(
+    source: Arc<AgentReceiver>,
+    send: mpsc::Sender<Option<NativePolicy>>,
+    behind: Arc<tokio::sync::Notify>,
+) -> anyhow::Result<()> {
+    let mut retry = Duration::from_secs(1);
+    let snapshot = loop {
+        let started = Instant::now();
+        match refresh(&source).await {
+            Ok(snapshot) => break snapshot,
+            Err(failure) => {
+                if source.is_retired() {
+                    return Err(anyhow!("cloud.receiver.generation_retired"));
+                }
+                if failure == ReadFailure::Refused {
+                    source.invalidate();
+                    bail!("cloud.receiver.policy_unavailable ({failure:?})");
+                }
+                eprintln!(
+                    "cmux link: receiver first policy read got no answer after {} ms; listening, retry in {} ms",
+                    started.elapsed().as_millis(),
+                    retry.as_millis()
+                );
+                tokio::time::sleep(retry).await;
+                retry = (retry * 2).min(Duration::from_secs(30));
+            }
+        }
+    };
     snapshot.time(Instant::now()).ok_or_else(|| anyhow!("cloud.receiver.policy_expired"))?;
-    Ok((authority, receiver, snapshot))
+    let next = renewal_at(&snapshot, snapshot.started().elapsed())?;
+    let expires = Some(snapshot.admitted_until());
+    let admitted = snapshot.admits_locally().then(|| snapshot.admitted_until());
+    send.send(Some(snapshot.native_policy()))
+        .await
+        .map_err(|_| anyhow!("cloud.receiver.stopped"))?;
+    renew(source, send, next, expires, admitted, behind).await
 }
 
 /// When to start the next policy read: early enough that it lands before the
@@ -244,23 +284,43 @@ fn keeps_policy(failure: ReadFailure, admitted: Option<Instant>, now: Instant) -
     }
 }
 
+/// The least time between two policy reads that a token naming newer peer
+/// authority starts early, so a burst of such tokens costs one read.
+const EARLY_READ_GAP: Duration = Duration::from_secs(2);
+
 async fn renew(
     source: Arc<AgentReceiver>,
     send: mpsc::Sender<Option<NativePolicy>>,
     mut next: (Instant, Deadline),
     mut expires: Option<Instant>,
     mut admitted: Option<Instant>,
+    behind: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
     let mut retry = Duration::from_secs(1);
     let mut log = RenewalLog { last_slow: None };
+    let mut last_read = Instant::now();
     loop {
         // A snapshot's own renewal deadline or a failed request's backoff,
-        // never a timer that polls unrelated state.
+        // never a timer that polls unrelated state. A token the control plane
+        // minted against newer peer authority than this policy (the verifier's
+        // `on_policy_behind`) starts the read early.
         let clock = next.1.clone();
-        super::receiver_deadline::wait(next.0, Some(next.1))
-            .await
-            .map_err(|_| anyhow!("cloud.receiver.clock_unavailable"))?;
+        let early = async {
+            behind.notified().await;
+            let floor = (last_read + EARLY_READ_GAP).min(next.0);
+            tokio::time::sleep_until(floor.into()).await;
+        };
+        tokio::select! {
+            biased;
+            result = super::receiver_deadline::wait(next.0, Some(next.1)) => {
+                result.map_err(|_| anyhow!("cloud.receiver.clock_unavailable"))?;
+            }
+            () = early => eprintln!(
+                "cmux link: receiver policy read early: a token named newer peer authority than the current policy"
+            ),
+        }
         let started = Instant::now();
+        last_read = started;
         match refresh(&source).await {
             Ok(snapshot) => {
                 let arrived = Instant::now();
@@ -321,17 +381,17 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
     };
     // No service futures exist during startup; dropping this future still
     // invalidates a prepared source read and releases the private key.
-    let (authority, receiver, snapshot) = tokio::select! {
+    let (authority, receiver) = tokio::select! {
         biased;
         result = closed(&mut parent) => return result,
         result = closed(&mut control) => return result,
         result = &mut shutdown => return result,
         result = initialize(bootstrap, session) => result?,
     };
+    let behind = Arc::new(tokio::sync::Notify::new());
+    let hint = behind.clone();
+    authority.0.verifier().on_policy_behind(move || hint.notify_one());
     let (send, updates) = mpsc::channel(1);
-    let next = renewal_at(&snapshot, snapshot.started().elapsed())?;
-    let expires = Some(snapshot.admitted_until());
-    let admitted = snapshot.admits_locally().then(|| snapshot.admitted_until());
     let (stop, stopped) = oneshot::channel();
     let serving = receiver.serve(updates, async {
         let _ = stopped.await;
@@ -345,7 +405,7 @@ async fn run_child(parent: StdStream, control: StdStream, session: PathBuf) -> a
         result = closed(&mut control) => result,
         result = &mut shutdown => result,
         result = &mut serving => { finished = true; result },
-        result = renew(authority.0.clone(), send, next, expires, admitted) => result,
+        result = first_policy(authority.0.clone(), send, behind) => result,
     };
     authority.0.invalidate();
     let _ = stop.send(());

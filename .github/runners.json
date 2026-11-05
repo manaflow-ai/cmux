@@ -458,7 +458,6 @@
     "nightly.yml#build-nightly-app": "apple-app-build",
     "nightly.yml#visual-gate-nightly-verdict": {"class": "portable-checks"},
     "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks"},
-    "nightly.yml#nightly-identity-legacy-published": {"class": "portable-checks"},
     "nightly.yml#report-nightly-failure": {"class": "portable-checks"},
     "nightly.yml#republish-nightly-next": {"class": "portable-checks"},
     "nightly.yml#decide": {"class": "portable-checks"},
@@ -494,9 +493,7 @@
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
-    "nightly.yml#sign-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#verify-final-dmg-nightly": "apple-signing-release",
-    "nightly.yml#verify-nightly-identity-legacy": "apple-signing-release",
     "nightly.yml#verify-recovered-nightly-next": "apple-signing-release",
     "nightly.yml#verify-signed-nightly": "apple-signing-release",
     "nightly.yml#visual-gate-nightly": "apple-gui",
@@ -590,6 +587,7 @@
     "web-validation.yml#web-validation": {"class": "portable-checks", "reason": "status rollup: accepts selected web results"},
     "cmux-next.yml#path_route": {"class": "portable-checks", "reason": "router: classifies the PR's paths and probes the published tree, 32-51 s of work (runs 41394344151, 41393817927)"},
     "cmux-next.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap: starts independently of the labels it validates"},
+    "cmux-next.yml#pr-quiet-period": {"class": "portable-checks", "reason": "pull request quiet period: sleeps until 5 minutes after the PR's last push, before portable-placement, so it holds no fleet runner; no checkout"},
     "ci-web.yml#web-subarea-scope": {"class": "portable-checks", "reason": "router: classifies the webview subareas and hands the shards their duration manifest, 29 s of work (run 41762274751)"},
     "ci-web.yml#webviews-test-durations": {"class": "portable-checks", "reason": "bookkeeping: merges and saves the shard duration manifest beside web-subarea-scope's restore, 5 s of work (run 41761413284)"},
     "resolve-runners.yml#resolve": {"class": "portable-checks", "reason": "resolver: prints the runner capability map, 5 s of work (run 41762274751)"}
@@ -659,6 +657,7 @@
       "cmux-tui-artifacts.yml#mark-tree-commits": {"size": 4, "failover": 8, "measured": {"32": [357.5, 0.85, 1.03], "4": [111.5, 0.79, 0.92]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#notify-unpublished-tree": {"size": 4, "failover": 8, "measured": {"32": [159.5, 0.16, 0.13], "2": [234.5, 0.17, 0.15]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#point-feat-channel": {"size": 4, "failover": 8, "measured": {"32": [344.5, 0.22, 0.22], "4": [116.5, 0.24, 0.43]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
+      "cmux-tui-artifacts.yml#point-machine-channel": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: downloads four published binaries, signs and uploads one file; the same shape as point-feat-channel (not measured yet)"},
       "cmux-tui-artifacts.yml#publish": {"size": 8, "failover": 16, "measured": {"32": [584.5, 2.33, 7.55], "4": [129.5, 4.72, 8.13]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
       "cmux-tui-artifacts.yml#publish-ref-notice": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class); no runs in the window"},
       "cmux-tui-artifacts.yml#publish-tree": {"size": 4, "failover": 8, "measured": {"32": [548.0, 1.18, 1.48], "4": [108.0, 2.13, 2.67]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
