@@ -57,6 +57,10 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
         const head = scene.querySelector<HTMLElement>(".cv-subagent-result")!;
         const report = scene.querySelector<HTMLElement>(".cv-subagent-result__report")!;
         const transcript = scene.querySelector<HTMLElement>("[data-result-transcript]")!;
+        const firstLine = report.querySelector<HTMLElement>(".cv-md > :first-child");
+        const reportRect = report.getBoundingClientRect();
+        const firstLineRect = firstLine?.getBoundingClientRect();
+        const computedLineHeight = firstLine ? Number.parseFloat(getComputedStyle(firstLine).lineHeight) : 0;
         return {
           sceneHeight: scene.getBoundingClientRect().height,
           headHeight: head.getBoundingClientRect().height,
@@ -65,6 +69,13 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
           transcriptHeight: transcript.getBoundingClientRect().height,
           transcriptTop: transcript.getBoundingClientRect().top,
           headBottom: head.getBoundingClientRect().bottom,
+          reportLineHeight: Number.isFinite(computedLineHeight) ? computedLineHeight : firstLineRect?.height ?? 0,
+          reportFirstLineVisible: Boolean(
+            firstLineRect &&
+              firstLineRect.height > 0 &&
+              firstLineRect.bottom > reportRect.top + 0.5 &&
+              firstLineRect.top < reportRect.bottom - 0.5,
+          ),
         };
       });
       console.log(`subagent-result-header ${variant} ${JSON.stringify(geometry)}`);
@@ -104,6 +115,10 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
       if (variant === "dock-long") {
         dockLongHeadHeight = geometry.headHeight;
         expect(geometry.reportScrollHeight).toBeGreaterThan(geometry.reportClientHeight);
+      }
+      if (variant === "dock-long" || variant === "dock-short") {
+        expect(geometry.reportClientHeight).toBeGreaterThanOrEqual(geometry.reportLineHeight - 0.5);
+        expect(geometry.reportFirstLineVisible).toBe(true);
       }
       if (variant === "dock-short") dockShortHeadHeight = geometry.headHeight;
       await page.close();
