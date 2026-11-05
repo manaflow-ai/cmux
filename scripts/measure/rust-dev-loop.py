@@ -131,6 +131,9 @@ def cargo(spec: dict, target: Path, args: list[str], log_path: Path) -> tuple[fl
         r = subprocess.run(cmd, env=env, stdout=f, stderr=subprocess.PIPE, text=True)
         f.write(r.stderr)
     dt = time.monotonic() - t0
+    if r.returncode != 0:
+        for line in r.stderr.strip().splitlines()[-12:]:
+            print(f"DEVLOOP-LOG {line}", flush=True)
     compiled = len(re.findall(r"^\s+Compiling ", r.stderr, re.M))
     return dt, r.returncode, compiled
 
@@ -205,6 +208,8 @@ def main() -> int:
         (out / "samples.json").write_text(json.dumps({"host": host, "samples": samples}, indent=1))
 
     troot = Path(a.target_root).resolve() if a.target_root else out / "target"
+    # Crates come from the network once, before any clock starts.
+    subprocess.run(["cargo", "fetch", "--locked"], check=False)
     targets = {k: troot / re.sub(r"[^A-Za-z0-9_.-]", "_", k) for k in chosen}
     for c in range(a.clean_n):
         for k, spec in chosen.items():
