@@ -246,15 +246,17 @@ extension Workspace {
     /// A restored pane's machine could not be reached, so nothing will attach
     /// it. The pane keeps its reservation and says so. Reconnect reads the
     /// machine again and the card stays until that read finds it, so a failed
-    /// read can never leave the pane blank.
+    /// read can never leave the pane blank. With no `retry` the card has no
+    /// Reconnect button, because nothing the button could do would help.
     func failRestoredCloudTerminalPane(
         panelID: UUID,
         detail: String,
-        retry: @escaping @MainActor () -> Void
+        retry: (@MainActor () -> Void)?
     ) {
         guard let reservation = cloudPendingCreations[panelID] else { return }
         let isSameCard = reservation.isShowingRestoredMachineUnavailable
             && cloudMaterializationFailures[panelID]?.detail == detail
+            && (reservation.retry == nil) == (retry == nil)
         reservation.isShowingRestoredMachineUnavailable = true
         reservation.retry = retry
         guard !isSameCard else { return }
@@ -327,7 +329,7 @@ extension SurfaceCatalog {
     func showRestoredMachineUnavailable(
         _ machine: SurfaceMachineID,
         detail: String,
-        retry: @escaping @MainActor () -> Void
+        retry: (@MainActor () -> Void)?
     ) {
         for projection in pendingRestoredProjections.projections where projection.resource.machine == machine {
             Workspace.liveWorkspace(id: projection.workspaceID)?.failRestoredCloudTerminalPane(

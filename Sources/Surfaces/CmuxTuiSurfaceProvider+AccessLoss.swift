@@ -3,6 +3,20 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    /// Cards every restored terminal of this machine that is not attached yet:
+    /// those waiting for the machine, and those whose attach is in flight.
+    func showRestoredTerminalsUnavailable(detail: String, retry: (@MainActor () -> Void)?) {
+        for panelID in restoredAttachTasks.keys {
+            guard let workspaceID = catalog.projection(forPanel: panelID)?.workspaceID else { continue }
+            Workspace.liveWorkspace(id: workspaceID)?.failRestoredCloudTerminalPane(
+                panelID: panelID,
+                detail: detail,
+                retry: retry
+            )
+        }
+        catalog.showRestoredMachineUnavailable(machine, detail: detail, retry: retry)
+    }
+
     /// The control plane answered that this user can no longer reach the
     /// machine. Automatic reconnects stop, and every attached pane shows the
     /// access-lost card; the pane itself stays open so the user decides.
@@ -13,16 +27,9 @@ extension CmuxTuiSurfaceProvider {
         // A pane still restoring keeps its reservation; rebuilding it on
         // regain restarts its attach.
         accessLostPanelIDs.formUnion(restoredAttachTasks.keys)
-        let reconnect: @MainActor () -> Void = {
+        // A restored terminal that has not attached yet has no session to stop.
+        showRestoredTerminalsUnavailable(detail: stopReason.endedPresentation?.detail ?? "") {
             Task { @MainActor in _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true) }
-        }
-        for panelID in restoredAttachTasks.keys {
-            guard let workspaceID = catalog.projection(forPanel: panelID)?.workspaceID else { continue }
-            Workspace.liveWorkspace(id: workspaceID)?.failRestoredCloudTerminalPane(
-                panelID: panelID,
-                detail: stopReason.endedPresentation?.detail ?? "",
-                retry: reconnect
-            )
         }
         for task in restoredAttachTasks.values { task.cancel() }
         restoredAttachTasks.removeAll()
@@ -32,8 +39,6 @@ extension CmuxTuiSurfaceProvider {
         manualMirrorSessions.removeAll()
         manualMirrorSurfaceIDsSocketPath = nil
         let detail = stopReason.endedPresentation?.detail ?? ""
-        // A restored terminal that has not attached yet has no session to stop.
-        catalog.showRestoredMachineUnavailable(machine, detail: detail, retry: reconnect)
         // Cloud browser and display panes of this machine keep the same state,
         // in the browser's own unavailable card.
         for task in browserPaneTasks.values { task.cancel() }

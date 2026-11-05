@@ -94,6 +94,7 @@ struct CloudStaleInventoryMaterializationTests {
         var listAvailable = false
         var machineFound = false
         var statusReads = 0
+        var onStatusRead: (() -> Void)?
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
@@ -101,6 +102,8 @@ struct CloudStaleInventoryMaterializationTests {
             activeTeamID: { "team-a" },
             loadMachineStatus: { id, _ in
                 statusReads += 1
+                onStatusRead?()
+                onStatusRead = nil
                 guard machineFound else { throw VMClientError.httpStatus(404, #"{"error":"vm_not_found"}"#) }
                 return VMSummary(id: id, provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil)
             },
@@ -127,12 +130,12 @@ struct CloudStaleInventoryMaterializationTests {
         let card = try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
         #expect(card.showsReconnectButton)
 
-        // Reconnect reads again, and the card stays until a read finds the machine.
-        let readsBeforeReconnect = statusReads
-        #expect(workspace.retryReservedCloudTerminalPane(surfaceId: panelID))
-        #expect(workspace.cloudMaterializationFailures[panelID] != nil)
+        // Reconnect itself reads again, and the card stays until a read finds the machine.
+        await withCheckedContinuation { (read: CheckedContinuation<Void, Never>) in
+            onStatusRead = { read.resume() }
+            #expect(workspace.retryReservedCloudTerminalPane(surfaceId: panelID))
+        }
         #expect(await registry.refresh(force: true))
-        #expect(statusReads > readsBeforeReconnect)
         #expect(workspace.cloudMaterializationFailures[panelID] != nil)
 
         // The machine is found, so it no longer claims access is lost. A link that
@@ -147,8 +150,6 @@ struct CloudStaleInventoryMaterializationTests {
         // A later 404 reaches the pane through the provider, and a listing clears it.
         provider.noteAccessLost(.notFound)
         #expect(workspace.cloudMaterializationFailures[panelID]?.detail == failure.detail)
-        #expect(workspace.retryReservedCloudTerminalPane(surfaceId: panelID))
-        #expect(workspace.cloudMaterializationFailures[panelID] != nil)
         provider.noteAccessConfirmed()
         #expect(workspace.cloudMaterializationFailures[panelID] == nil)
 
@@ -203,6 +204,106 @@ struct CloudStaleInventoryMaterializationTests {
         #expect(await registry.refresh(force: true))
         #expect(catalog.pendingRestoredMachineIDs.isEmpty)
         #expect(workspace.cloudMaterializationFailures[panelID] != nil)
+        // Nothing reads this machine again, so no button can pretend to.
+        let card = try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
+        #expect(!card.showsReconnectButton)
+        #expect(!workspace.retryReservedCloudTerminalPane(surfaceId: panelID))
+        await registry.accessDidEnd()
+    }
+
+    @Test("a restored terminal on a sleeping machine says so instead of staying blank")
+    func restoredMachineAsleepShowsCard() async throws {
+        let app = try #require(AppDelegate.shared)
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let workspace = Workspace()
+        manager.tabs = [workspace]
+        manager.selectedTabId = workspace.id
+        let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            app.forgetRecoverableMainWindowRoute(windowId: windowID)
+            workspace.teardownAllPanels()
+            manager.tabs = []
+        }
+        let panelID = try #require(workspace.focusedPanelId)
+        let machineID = "restored-\(UUID())"
+        let machine = SurfaceMachineID.cloud(machineID)
+        let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_fixture")
+        let catalog = SurfaceCatalog()
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: resource)], workspaceID: workspace.id)
+        let reservation = CloudTerminalPaneReservation(
+            workspaceID: workspace.id, panelID: panelID, machine: machine,
+            attachmentPlacement: SurfaceResourcePlacement(resource: resource, remoteWorkspaceID: nil, remoteTabID: nil)
+        )
+        workspace.cloudPendingCreations[panelID] = reservation
+        defer { workspace.cloudPendingCreations[panelID] = nil }
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { VMListPage(vms: [], limits: nil) },
+            activeTeamID: { "team-a" },
+            loadMachineStatus: { id, _ in
+                VMSummary(id: id, provider: "freestyle", status: "paused", image: "fixture", createdAt: 0, base: nil)
+            },
+            refreshProvider: { _, _ in true }
+        )
+        registry.start(catalog: catalog)
+
+        #expect(await registry.refresh(force: true))
+        let provider = try #require(registry.provider(machineID: machineID))
+        _ = await provider.refreshCurrentGraph(force: true)
+        let failure = try #require(workspace.cloudMaterializationFailures[panelID])
+        #expect(failure.detail == provider.info.linkFailureMessage)
+        #expect(provider.info.linkState == .asleep)
+        let card = try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
+        #expect(card.showsReconnectButton)
+        await registry.accessDidEnd()
+    }
+
+    @Test("a signed-out launch says to sign in, with no Reconnect button")
+    func restoredMachineSignedOutShowsCard() async throws {
+        let app = try #require(AppDelegate.shared)
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let workspace = Workspace()
+        manager.tabs = [workspace]
+        manager.selectedTabId = workspace.id
+        let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            app.forgetRecoverableMainWindowRoute(windowId: windowID)
+            workspace.teardownAllPanels()
+            manager.tabs = []
+        }
+        let panelID = try #require(workspace.focusedPanelId)
+        let machineID = "restored-\(UUID())"
+        let machine = SurfaceMachineID.cloud(machineID)
+        let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_fixture")
+        let catalog = SurfaceCatalog()
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: resource)], workspaceID: workspace.id)
+        let reservation = CloudTerminalPaneReservation(
+            workspaceID: workspace.id, panelID: panelID, machine: machine,
+            attachmentPlacement: SurfaceResourcePlacement(resource: resource, remoteWorkspaceID: nil, remoteTabID: nil)
+        )
+        workspace.cloudPendingCreations[panelID] = reservation
+        defer { workspace.cloudPendingCreations[panelID] = nil }
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { nil },
+            activeTeamID: { nil },
+            hasCloudSession: { false },
+            refreshProvider: { _, _ in true }
+        )
+        registry.start(catalog: catalog)
+
+        _ = await registry.refresh(force: true)
+        #expect(
+            workspace.cloudMaterializationFailures[panelID]?.detail
+                == CloudTuiManualMirrorStopReason.signedOut.endedPresentation?.detail
+        )
+        let card = try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
+        #expect(!card.showsReconnectButton)
+        #expect(catalog.pendingRestoredMachineIDs == [machineID])
         await registry.accessDidEnd()
     }
 }

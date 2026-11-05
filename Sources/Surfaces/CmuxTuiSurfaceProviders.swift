@@ -322,6 +322,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         for session in manualMirrorSessions.values { session.stop(reason: stopReason) }
         manualMirrorSessions.removeAll()
         manualMirrorSurfaceIDsSocketPath = nil
+        // A restored terminal has no session yet to carry this stop.
+        showRestoredTerminalsUnavailable(detail: stopReason.endedPresentation?.detail ?? "", retry: nil)
         attachmentRetry.cancel()
         pendingRemoteCreations.removeAll()
         pendingRemoteRenames.removeAll()
@@ -402,6 +404,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 info: info,
                 pendingWrites: pendingMutationMetadata()
             )
+            // Refreshing never wakes a machine, so a restored terminal would
+            // wait in silence. Reconnect is the user's request to wake it.
+            let wakingMachineID = machineID
+            let wakingTeamID = ownerTeamID
+            catalog.showRestoredMachineUnavailable(machine, detail: info.linkFailureMessage) {
+                Task { @MainActor in
+                    _ = try? await VMClient.shared.resume(id: wakingMachineID, teamID: wakingTeamID)
+                    _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
+                }
+            }
             return false
         }
         // Publish the display before the terminal link is ready: a slow or hanging
@@ -507,8 +519,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
             linkError = text
-            // A restored terminal has no session yet to show the failure.
-            catalog.showRestoredMachineUnavailable(machine, detail: text) { [weak self] in
+            // A restored terminal has no session yet to show the failure. Only
+            // classified text reaches the pane: link errors carry process output.
+            let detail = CloudPaneCreationFailure(machine: machine, error: error).errorText
+            catalog.showRestoredMachineUnavailable(machine, detail: detail) { [weak self] in
                 self?.scheduleRefresh(force: true)
             }
             #if DEBUG
