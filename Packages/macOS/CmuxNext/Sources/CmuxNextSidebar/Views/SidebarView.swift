@@ -87,6 +87,8 @@ public final class SidebarView: NSView {
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press runs ``onSearch`` (the centered Search palette). `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
+    /// Debug Settings `sidebar.bottomControls`: the corner's larger looks (SidebarView+BottomControls).
+    let bottomControls = SidebarBottomControlsView()
     /// The Priority view, its titlebar bell and the bell's dot (SidebarView+Priority); nil `priority` hides all three.
     let priorityPanelView = SidebarPriorityPanelView(), priorityButton = SidebarIconButton(icon: .notification, label: Strings.priorityTitle)
     /// The quiet Update Available button (``showUpdateAvailable(_:)``).
@@ -230,7 +232,7 @@ public final class SidebarView: NSView {
     /// Opens the profile menu over the profile control; false when the App
     /// gave none. Without a visible control the menu opens at the pointer.
     @discardableResult
-    public func showProfileMenu() -> Bool { footerBand.showProfileMenu(from: footerBand.profileControl?.view) }
+    public func showProfileMenu() -> Bool { footerBand.showProfileMenu(from: profileMenuAnchor) }
 
     /// Right-click menu for a target. The App fills this from the action
     /// registry (menus are ordered action-ID lists per context); nil means
@@ -300,6 +302,7 @@ public final class SidebarView: NSView {
             self.onSearch?(self.searchButton)
         }
         addSubview(searchButton)
+        wireBottomControls()
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
         buildPriority()
@@ -397,7 +400,7 @@ public final class SidebarView: NSView {
         }
         // `sidebar.noFade` hides the footer row, so the list takes its height.
         let footerHeight: CGFloat = noFade ? 0 : (footerBand.needsDedicatedSearchRow ||
-            !(spacesPosition == .bottom && footerBand.dotsShareBandRow) ? SidebarStyle.footerHeight : 0)
+            !(spacesPosition == .bottom && footerBand.dotsShareBandRow) ? SidebarStyle.footerHeight : 0) + bottomControlsExtraHeight
         // The list makes room for a card (and takes it back) on a spring; the card sits at its place.
         let cardsHeight = attachFooterCards(), slotHeight = cardSlot.height(width: b.width)
         // The Updated card after a relaunch takes its room in the frame it shows (Leo 2026-11-04).
@@ -415,6 +418,7 @@ public final class SidebarView: NSView {
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)
+        layoutBottomControls()
         edgeFade.frame = listFrame
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)

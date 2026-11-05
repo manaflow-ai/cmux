@@ -285,6 +285,7 @@ public nonisolated enum SidebarTunables {
     public static var all: [TunableDescriptor] {
         [
             agentMark.descriptor,
+            bottomControls.descriptor,
             collapseMotion.descriptor,
             doneFold.descriptor,
             dragThreshold.descriptor,
