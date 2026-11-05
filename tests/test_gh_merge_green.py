@@ -28,6 +28,7 @@ _NO_FREEZES.close()
 os.environ["GH_MERGE_GREEN_FREEZE_ISSUES"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_FREEZE_EVENTS"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_TEST"] = "1"
+os.environ["BASE_RED_EXCUSE_FIXTURE_SHA"] = "1"  # the fake gh answers for HEAD, a placeholder sha
 
 
 # Every gh-merge-green run is bounded: one that never ends (a fake gh whose list never ends, a check

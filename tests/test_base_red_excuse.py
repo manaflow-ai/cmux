@@ -18,6 +18,8 @@ spec.loader.exec_module(excuse)
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
 REAL_GIT_TEXT = getattr(excuse, "git_text", None)
+# HEAD below is a placeholder ("a" * 40) that the fakes answer for; the CLI refuses one unless told a fixture does.
+os.environ["BASE_RED_EXCUSE_FIXTURE_SHA"] = "1"
 
 
 def setUpModule():
@@ -294,6 +296,43 @@ class NoFailureExitsZero(unittest.TestCase):
             code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD])
         self.assertEqual(code, 0)
         self.assertIn("no failure to excuse", out.getvalue())
+
+    # 2026-11-05: a gh-merge-green test's classifier, --sha aaaa... against a fake gh whose list never ended, outlived
+    # its test and ran three days on gcp-agent-lane-2 at 27.6 GB.
+    def test_main_refuses_a_placeholder_sha_before_reading_anything(self):
+        def unread(*a, **k):
+            raise AssertionError("nothing is read for a placeholder sha")
+        for sha in ("a" * 40, "0" * 40, "F" * 40):
+            err = io.StringIO()
+            with unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_FIXTURE_SHA": ""}), \
+                    unittest.mock.patch.object(excuse, "judge", unread), \
+                    unittest.mock.patch.object(excuse, "GitHub", unread), contextlib.redirect_stderr(err):
+                code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", sha, "--check", "x"])
+            with self.subTest(sha=sha):
+                self.assertEqual(code, 1)
+                self.assertIn("is a placeholder, not a commit", err.getvalue())
+
+    def test_main_stops_at_its_deadline_even_inside_a_loop_that_takes_every_refusal(self):
+        import time
+
+        def endless(*a, **k):  # as a window read that catches Refused and reads on, with a list that never ends
+            while True:
+                try:
+                    time.sleep(0.05)
+                except Exception:  # noqa: BLE001
+                    pass
+        err = io.StringIO()
+        started = time.monotonic()
+        with unittest.mock.patch.dict(os.environ, {"BASE_RED_EXCUSE_DEADLINE_SECONDS": "1"}), \
+                unittest.mock.patch.object(excuse, "judge", endless), \
+                unittest.mock.patch.object(excuse, "GitHub", FakeGitHub), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stderr(err):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", "1" * 39 + "2", "--check", "x"])
+        self.assertEqual(code, 1)
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertIn("ran past its 1 s deadline", err.getvalue())
+        self.assertEqual(excuse.signal.alarm(0), 0)  # no alarm left armed for the caller
 
     def test_a_named_run_with_no_failed_job_is_still_refused(self):
         github = FakeGitHub()

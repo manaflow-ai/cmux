@@ -45,6 +45,12 @@ lines are compared with commit shas masked, so a real red that names each run's 
 No failure is exit 0: asked about no red run or check (or about a green ws-check), it prints why and exits 0. A
 red run or check it was named that shows no failed job is still refused (2026-11-05: merge_hold asks it about
 every merge, and a green head read as exit 1).
+
+Every run is bounded: past DEADLINE_SECONDS of wall clock (BASE_RED_EXCUSE_DEADLINE_SECONDS) it stops and refuses as
+infra, not a verdict. A --sha that is one character forty times (a test's "a" * 40, an all-zero sha) is refused at
+once, before any read, unless BASE_RED_EXCUSE_FIXTURE_SHA=1 says a test fixture answers for it. 2026-11-05: a
+gh-merge-green test run's classifier, --sha aaaa... against a fake gh whose list never ended, outlived its test and ran
+for three days on gcp-agent-lane-2, holding 27.6 GB.
 """
 from __future__ import annotations
 
@@ -60,6 +66,7 @@ import importlib.util
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -173,6 +180,27 @@ BLOB_QUERY = ("query($owner: String!, $name: String!, $expression: String!) { re
 # host whose cache lives elsewhere.
 SOURCE_CACHE_ENV = "BASE_RED_EXCUSE_SOURCE_CACHE"
 GIT_SECONDS = 60
+# The whole run's wall-clock bound (module docs). Real runs read a few job logs and finish in well under a minute.
+DEADLINE_SECONDS = 1200
+PLACEHOLDER_SHA = re.compile(r"([0-9a-fA-F])\1{39}")
+
+
+class Deadline(BaseException):
+    """The run passed its deadline. A BaseException, so no `except Refused` or `except Exception` on the way out
+    takes it for a verdict and reads on."""
+
+
+def deadline_seconds() -> int:
+    raw = os.environ.get("BASE_RED_EXCUSE_DEADLINE_SECONDS", "")
+    try:
+        value = int(raw) if raw else DEADLINE_SECONDS
+    except ValueError:
+        return DEADLINE_SECONDS
+    return value if value > 0 else DEADLINE_SECONDS
+
+
+def _past_deadline(signum, frame):
+    raise Deadline()
 
 
 def source_cache() -> Path:
@@ -1869,6 +1897,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="append", default=[], help="a red required check on the head")
     parser.add_argument("--flake-state", help="tap-tests/v1 JSON; TAP_TESTS_STATE=off disables base-flake quarantine")
     args = parser.parse_args(argv)
+    if PLACEHOLDER_SHA.fullmatch(args.sha) and os.environ.get("BASE_RED_EXCUSE_FIXTURE_SHA") != "1":
+        print(f"not excused: --sha {args.sha} is a placeholder, not a commit; nothing was read", file=sys.stderr)
+        return 1
+    limit = deadline_seconds()
+    previous = signal.signal(signal.SIGALRM, _past_deadline) if hasattr(signal, "SIGALRM") else None
+    if previous is not None:
+        signal.alarm(limit)
     try:
         audit = judge(args.repo, args.base, args.sha, args.run, GitHub(), checks=args.check,
                       flake_state=test_reds.load_flake_state(args.flake_state, fetch=True))
@@ -1881,6 +1916,13 @@ def main(argv: list[str] | None = None) -> int:
     except (Refused, KeyError, ValueError) as error:
         print(f"not excused: {error}", file=sys.stderr)
         return 1
+    except Deadline:
+        print(f"not excused: infra, not a verdict: ran past its {limit} s deadline", file=sys.stderr)
+        return 1
+    finally:
+        if previous is not None:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, previous)
     print("\n".join(audit))
     return 0
 
