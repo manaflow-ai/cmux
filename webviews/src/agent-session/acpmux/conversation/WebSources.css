@@ -18,7 +18,6 @@
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   color: inherit;
   font: inherit;
-  cursor: pointer;
 }
 .cv-web-sources__chip:hover {
   background: var(--agent-control-hover);
