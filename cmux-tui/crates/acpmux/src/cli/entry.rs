@@ -211,7 +211,9 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             Ok(())
         }
         #[cfg(not(target_os = "linux"))]
-        Some(Command::DaemonEnroll { .. }) => Err(anyhow::anyhow!("daemon enroll runs only on Linux")),
+        Some(Command::DaemonEnroll { .. }) => {
+            Err(anyhow::anyhow!("daemon enroll runs only on Linux"))
+        }
         None => {
             let client = connect(true).await?;
             crate::tui::run(client, None).await
