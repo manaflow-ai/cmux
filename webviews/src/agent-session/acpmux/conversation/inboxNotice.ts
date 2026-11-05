@@ -8,6 +8,7 @@
 // and a preview has them read back from its text. Notices next to each other draw as one group
 // (`mergeInboxNotices`), a thread named in two of them once.
 import type { AcpmuxRow } from "../model";
+import { withoutRelayEnvelope, withoutRelayHead } from "./relayEnvelope";
 
 /// One message of a thread, as the notice or `_acpmux/inbox_thread` gives it.
 export type InboxMessage = { promptId?: string; from: string; at?: number; text: string };
@@ -92,7 +93,7 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
           return [
             {
               from: text(r.from),
-              text: r.text,
+              text: withoutRelayEnvelope(r.text),
               ...(typeof r.promptId === "string" && { promptId: r.promptId }),
               ...(typeof r.at === "number" && { at: r.at }),
             },
@@ -107,7 +108,7 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
       ...(text(p.fromSession) && { fromSession: text(p.fromSession) }),
       ...(text(p.fromHarness) && { fromHarness: text(p.fromHarness) }),
       count,
-      preview: text(p.preview).trim() || previewFromText(notice, threadId) || firstLine(newest ?? ""),
+      preview: withoutRelayHead(text(p.preview).trim() || previewFromText(notice, threadId) || firstLine(newest ?? "")),
       blocker: p.blocker === true || previewLineBlocks(notice, threadId),
       promptIds,
       ...(messages?.length && { messages }),
