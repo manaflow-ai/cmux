@@ -2941,10 +2941,12 @@ button.cv-worked:focus-visible {
   margin-top: var(--ds-space-2);
 }
 /* The images a tool call returned or wrote (ToolRow): a row of capped thumbnails, so a long
-   transcript stays light; a click opens the image viewer. */
+   transcript stays light; a click opens the image viewer. Each keeps its own height: a phone shot
+   beside a wide one never stretches it into a tall letterboxed frame. */
 .cv-tool-images {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
   gap: 8px;
   margin: 4px 0 8px;
 }
