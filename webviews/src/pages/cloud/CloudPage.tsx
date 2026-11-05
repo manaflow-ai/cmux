@@ -63,7 +63,9 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
           )}
         </div>
       );
-    if (loading) return loadingShown ? <div className="cloud-message cloud-loading">{t(L.loading)}</div> : null;
+    // `!snap.auth` again so the rest of the body reads it as set.
+    if (!snap.auth || loading)
+      return loadingShown ? <div className="cloud-message cloud-loading">{t(L.loading)}</div> : null;
     // Signed out, with no machines yet, or at `#/get`: the storefront (Storefront.tsx).
     if (!snap.auth.signedIn || storefront)
       return (
