@@ -258,10 +258,24 @@ Measured with `scripts/measure/rust-live-swap.sh OUT` (a scratch daemon with thr
 one-line edits to `identify` in cmux-tui-core, each timed from the save to the swapped daemon
 answering with the edit; every shell checked to be the same process, with its screen, still echoing):
 
-MEASUREMENT_TABLE
+| Step (20 one-line edits, huge-blue, 32 cores, build here) | p50 | p95 |
+|---|---|---|
+| Save to swapped (daemon answers with the edit) | 42.2 s | 44.1 s |
+| Seeing the save | 0.29 s | 0.34 s |
+| Incremental build: cmux-tui-core, cmux-remote, cmux-tui, link | 41.4 s | 43.4 s |
+| Swap (`server stop` + `server ensure`), 3 terminals kept | 0.36 s | 0.64 s |
+
+All 20 swaps kept all three shells: same process, screen kept, still echoing. Nearly all the time
+is the compile: cmux-tui-core is about 450k lines and cmux-tui about 300k, and opt-level 0 for our
+crates saves nothing (it's the front end, not codegen). Splitting those crates is what brings this
+toward a second. From a build host on another machine add the copy: the debug `cmux-tui` is 614
+MB, 263 MB once the build host strips its debug info (the loop does), and rsync sends only the
+change against the last build. That took 19 s from huge-blue to a Mac over the tailnet.
 
 The in-place patch (`hotpatch` feature, `scripts/cmux-next/daemon-hotpatch-check.py`) keeps even the
-daemon's process and its client connections, but on the same edit it HOTPATCH_SENTENCE
+daemon's process and its client connections, but on the same box it is slower: 64.2 s for its edit
+in cmux-tui-core (dx replays cmux-tui-core's rustc, then rebuilds the program crate), after a 353 s
+first build. So the loop swaps instead.
 
 ## Every merge, no checkout
 
