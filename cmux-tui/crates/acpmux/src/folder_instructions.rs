@@ -131,6 +131,37 @@ pub fn retarget(mut parts: Vec<ContextPart>, family: &str, cwd: &Path) -> Vec<Co
     parts
 }
 
+/// `parts` for a fork moved from `from` into `cwd` whose agent keeps its own transcript
+/// (a native fork), which already holds `from`'s instructions and cannot be edited: this
+/// folder's instructions, or none, under a note that the earlier ones no longer apply.
+pub fn moved(parts: Vec<ContextPart>, family: &str, cwd: &Path, from: &Path) -> Vec<ContextPart> {
+    let mut parts = retarget(parts, family, cwd);
+    let note = format!(
+        "This chat moved here from {}. Folder instructions given earlier in this conversation were for that folder and no longer apply.",
+        from.display()
+    );
+    match parts.iter_mut().find(|p| p.source == SOURCE) {
+        Some(part) => {
+            let text = format!("{note}\n\n{}", part.text.as_deref().unwrap_or_default());
+            part.tokens = estimated_tokens(&text);
+            part.text = Some(text);
+        }
+        None => parts.push(ContextPart {
+            id: format!("{SOURCE}-moved"),
+            source: SOURCE.into(),
+            label: "Folder instructions (moved)".into(),
+            tokens: estimated_tokens(&note),
+            included: true,
+            editable: false,
+            measurement: "estimated".into(),
+            source_bytes: None,
+            channel: Some("user-context".into()),
+            text: Some(note),
+        }),
+    }
+    parts
+}
+
 /// The fallback part for a session of `family` in `cwd`, or `None` when the
 /// harness reads its own file there or the folder carries no instructions.
 pub fn part(family: &str, cwd: &Path) -> Option<ContextPart> {
@@ -251,6 +282,32 @@ mod tests {
         let folder = text.iter().find(|t| t.starts_with("<cmux-folder-context>")).unwrap();
         assert!(folder.contains("codeword KESTREL"));
         assert!(!folder.contains("later"));
+    }
+
+    #[test]
+    fn a_native_fork_moved_elsewhere_says_the_old_folders_instructions_no_longer_apply() {
+        let from = folder(&[("AGENTS.md", "old words")]);
+        let to = folder(&[("AGENTS.md", "codeword OSPREY")]);
+        let parts = moved(
+            part("claude", from.path()).into_iter().collect(),
+            "claude",
+            to.path(),
+            from.path(),
+        );
+        let text: Vec<&str> = parts.iter().filter_map(|p| p.text.as_deref()).collect();
+        assert_eq!(text.len(), 1, "the parent's part is replaced, not kept beside the new one");
+        assert!(text[0].contains("no longer apply") && text[0].contains("codeword OSPREY"));
+        assert!(!text[0].contains("old words"));
+        // A folder with no instructions still says the earlier ones are gone.
+        let bare = folder(&[]);
+        let parts = moved(
+            part("claude", from.path()).into_iter().collect(),
+            "claude",
+            bare.path(),
+            from.path(),
+        );
+        assert_eq!(parts.len(), 1);
+        assert!(parts[0].text.as_deref().unwrap().contains("no longer apply"));
     }
 
     #[cfg(unix)]

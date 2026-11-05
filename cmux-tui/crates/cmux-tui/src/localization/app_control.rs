@@ -75,6 +75,8 @@ pub(crate) struct LiveMessages {
     pub no_checkout: &'static str,
     pub started: &'static str,
     pub cannot_run: &'static str,
+    pub rust_not_watching: &'static str,
+    pub rust_no_checkout: &'static str,
 }
 
 /// `cmux nightly list|install`: go back (or forward) to another recent nightly build.
@@ -182,10 +184,12 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         pulled_tag: "pulled",
     },
     live: LiveMessages {
-        usage: "usage: cmux live start [--worktree PATH] [--port N] | stop [--worktree PATH] | status [--worktree PATH]\n  start   runs the checkout's web UI dev server and points the running cmux at it: a saved edit under\n          webviews/ shows in every open page and chat at once, with no build and no relaunch\n  stop    stops it; cmux goes back to the web UI it shipped with\n  status  what cmux loads its web UI from\n  PATH is a cmux checkout (default: the one around this folder). Turn it off for good with\n  `cmux settings set updates.liveWebReload false`. Guide: docs/cmux-next/hot-reload.md",
+        usage: "usage: cmux live start [--worktree PATH] [--port N] | stop [--worktree PATH] | status [--worktree PATH]\n       cmux live start --rust [--worktree PATH] [--build-host HOST] [--session NAME] | stop --rust | status --rust\n  start   runs the checkout's web UI dev server and points the running cmux at it: a saved edit under\n          webviews/ shows in every open page and chat at once, with no build and no relaunch\n  stop    stops it; cmux goes back to the web UI it shipped with\n  status  what cmux loads its web UI from, and the last Rust swap\n  --rust  the daemon instead: each saved .rs under cmux-tui/ is built (on HOST over ssh, or here) and\n          swapped into the running daemon, keeping every terminal and agent session\n  PATH is a cmux checkout (default: the one around this folder). Turn it off for good with\n  `cmux settings set updates.liveWebReload false`. Guide: docs/cmux-next/hot-reload.md",
         no_checkout: "no cmux checkout here: run this inside a clone of manaflow-ai/cmux, or pass --worktree PATH (it needs scripts/cmux-next/web-overlay.sh)",
         started: "cmux now loads its web UI from this checkout. Save a file under webviews/ and watch it change; `cmux live stop` goes back.",
         cannot_run: "could not run the checkout's web-overlay.sh: {error}",
+        rust_not_watching: "Rust live: not watching (`cmux live start --rust` in a cmux checkout starts it)",
+        rust_no_checkout: "no cmux checkout here: run this inside a clone of manaflow-ai/cmux, or pass --worktree PATH (it needs scripts/cmux-next/rust-live.py)",
     },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
@@ -268,10 +272,12 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         pulled_tag: "取り下げ",
     },
     live: LiveMessages {
-        usage: "使い方: cmux live start [--worktree パス] [--port N] | stop [--worktree パス] | status [--worktree パス]\n  start   チェックアウトの Web UI 開発サーバーを起動し、動作中の cmux をそこに向けます。webviews/ の\n          変更を保存すると、ビルドも再起動もなしに、開いているすべてのページとチャットにすぐ反映されます\n  stop    停止します。cmux は同梱の Web UI に戻ります\n  status  cmux が Web UI をどこから読み込んでいるかを表示\n  パスは cmux のチェックアウトです (既定: このフォルダを含むもの)。完全にオフにするには\n  `cmux settings set updates.liveWebReload false`。ガイド: docs/cmux-next/hot-reload.md",
+        usage: "使い方: cmux live start [--worktree パス] [--port N] | stop [--worktree パス] | status [--worktree パス]\n       cmux live start --rust [--worktree パス] [--build-host ホスト] [--session 名前] | stop --rust | status --rust\n  start   チェックアウトの Web UI 開発サーバーを起動し、動作中の cmux をそこに向けます。webviews/ の\n          変更を保存すると、ビルドも再起動もなしに、開いているすべてのページとチャットにすぐ反映されます\n  stop    停止します。cmux は同梱の Web UI に戻ります\n  status  cmux が Web UI をどこから読み込んでいるか、と最後の Rust 入れ替え\n  --rust  デーモンを対象にします。cmux-tui/ の .rs を保存するたびに (ssh でホスト上、またはここで) ビルドし、\n          動作中のデーモンと入れ替えます。ターミナルとエージェントのセッションはすべて残ります\n  パスは cmux のチェックアウトです (既定: このフォルダを含むもの)。完全にオフにするには\n  `cmux settings set updates.liveWebReload false`。ガイド: docs/cmux-next/hot-reload.md",
         no_checkout: "ここに cmux のチェックアウトがありません。manaflow-ai/cmux のクローン内で実行するか、--worktree パス を指定してください (scripts/cmux-next/web-overlay.sh が必要です)",
         started: "cmux はこのチェックアウトから Web UI を読み込みます。webviews/ のファイルを保存すると変化が見えます。戻すには `cmux live stop`。",
         cannot_run: "チェックアウトの web-overlay.sh を実行できませんでした: {error}",
+        rust_not_watching: "Rust ライブ: 監視していません (cmux のチェックアウトで `cmux live start --rust` を実行すると開始します)",
+        rust_no_checkout: "ここに cmux のチェックアウトがありません。manaflow-ai/cmux のクローン内で実行するか、--worktree パス を指定してください (scripts/cmux-next/rust-live.py が必要です)",
     },
     search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",
