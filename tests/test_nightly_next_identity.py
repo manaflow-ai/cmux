@@ -199,6 +199,60 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     assert re.findall(r"\n\s+LEGACY_APPCAST: (\S+)\n", target) == ["appcast-arm64.xml"]
 
 
+def job_if(name: str) -> str:
+    match = re.search(r'\n    if: "(.*)"\n', job_block(name))
+    assert match, f"no if on {name}"
+    return match.group(1)
+
+
+def evaluate(expression: str, values: dict[str, str]) -> bool:
+    """Evaluates a job `if` of ==/!= comparisons joined by &&, || and parentheses."""
+    def term(match: re.Match[str]) -> str:
+        left, op, right = match.group(1), match.group(2), match.group(3).strip("'")
+        assert left in values, f"no value for {left}"
+        return str((values[left] == right) == (op == "=="))
+    expression = expression.replace("!cancelled()", "True")
+    expression = re.sub(r"(needs\.publish-nightly\.outputs\.build) == (needs\.legacy-identity-target\.outputs\.build)",
+                        lambda _: str(values["same_build"] == "true"), expression)
+    expression = re.sub(r"([a-z][\w.-]*) (==|!=) ('[^']*')", term, expression)
+    return eval(expression.replace("&&", " and ").replace("||", " or "), {})  # noqa: S307 - only True/False remain
+
+
+def test_the_old_feed_signs_only_a_build_its_publisher_can_publish():
+    # Run 41931011216 yielded its sign to a newer build (publish-nightly skipped), yet its legacy sign held the
+    # only signing runner for a DMG publish-nightly-identity-legacy then refused, while two newer runs waited.
+    sign, publish = job_if("sign-nightly-identity-legacy"), job_if("publish-nightly-identity-legacy")
+    fixed = {
+        "github.repository": "manaflow-ai/cmux", "github.ref": "refs/heads/nightly-next",
+        "needs.decide.outputs.track": "nightly-next", "needs.decide.outputs.environment": "release-next",
+        "needs.decide.outputs.notary_paused": "false", "needs.legacy-identity-target.result": "success",
+        "needs.legacy-identity-target.outputs.build": "4193101121601", "vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "",
+        "needs.sign-nightly-identity-legacy.result": "success",
+    }
+    checked = 0
+    for result in ("success", "skipped", "failure", "cancelled"):
+        for refused in ("true", "false"):
+            for same in ("true", "false"):
+                for action in ("new", "continue"):
+                    for source_run in ("41931011216", ""):
+                        values = dict(fixed, same_build=same, **{
+                            "needs.publish-nightly.result": result, "needs.publish-nightly.outputs.refused": refused,
+                            "needs.legacy-identity-target.outputs.action": action,
+                            "needs.legacy-identity-target.outputs.source_run": source_run})
+                        case = f"publish-nightly {result} refused={refused} same build={same} {action} source={source_run!r}"
+                        assert evaluate(sign, values) == evaluate(publish, values), case
+                        checked += 1
+    yielded = dict(fixed, same_build="false", **{
+        "needs.publish-nightly.result": "skipped", "needs.publish-nightly.outputs.refused": "",
+        "needs.legacy-identity-target.outputs.action": "new",
+        "needs.legacy-identity-target.outputs.source_run": "41931011216"})
+    assert not evaluate(sign, yielded), "a yielded run's legacy sign still takes the signing runner"
+    published = dict(yielded, same_build="true", **{"needs.publish-nightly.result": "success",
+                                                    "needs.publish-nightly.outputs.refused": "false"})
+    assert evaluate(sign, published), "the run cmux NEXT published no longer signs the old feed"
+    assert checked == 64
+
+
 def main() -> int:
     tests = [(name, fn) for name, fn in globals().items() if name.startswith("test_") and callable(fn)]
     failed = 0
