@@ -124,11 +124,14 @@ import PackageDescription
 // empty transaction on the GPU completion thread), and one shared drop rule
 // with its test (#77).
 //
-// Since 12ec155e1..510ca45ff (fork PR #83): a reflow preview frame whose only
-// change is the grid (each frame of a key resize or a divider drag) re-wraps a
-// kept copy of the terminal with no terminal lock held; the live terminal is
-// copied under the lock only when it changed. No C API change (cmux-ad m18,
-// T-REWRAP).
+// Since 12ec155e1..383b27d73 (ghostty-next main after PR #74, which merged
+// both the release line up to 12ec155e1 and its sync-line ports #76, #78,
+// #80; same source tree as 706c6963a): the fork takes upstream Ghostty main c7f68a7f4 (2026-11-03,
+// after v1.4.0) and needs Zig 0.17.0. Upstream's main-thread CVDisplayLink
+// start and stop (ffaaf5d7a) ends the freeze where ghostty_surface_free joined
+// a renderer stuck in CVDisplayLinkStop (cmux #35300). Upstream also declares
+// pointer nullability in ghostty.h (0e067ded7, assume_nonnull); the fork's
+// declarations are annotated to match, and the Swift callers follow it.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -153,8 +156,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-510ca45ff8fc1fb03c600dfedae7c6f098402cd8-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "0efea1c30f1506df3dd1e91e5a4ac8256761e391dca93f6275a8876470eacfcf"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-383b27d73717a538af3c8b1e21a39995517cb3bd-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "2fb83b927e21c98846060d6b85f8517e8de7ff688c9f715af6dba1f4d0050e3d"
         ),
     ]
 )

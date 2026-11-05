@@ -48,8 +48,10 @@ import Testing
     func makeHosting(enabled: @escaping () -> Bool = { true },
                      layerHost: @escaping (UInt32) -> CALayer? = { _ in CALayer() }) -> CEFLayerHosting {
         let turn = turn
+        // A pane deadline of its own (8 ms): with S5 on by default the tunable reads 0 (`CEFLayerHosting.waitMs`).
         let hosting = CEFLayerHosting(isEnabled: enabled, schedule: { turn.add($0) },
-                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: layerHost) })
+                                      makePage: { CEFHostedPageView(frame: $0, makeLayerHost: layerHost) },
+                                      resizeDeadlineMs: { 8 })
         hosting.view = view
         return hosting
     }

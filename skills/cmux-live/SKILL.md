@@ -1,6 +1,6 @@
 ---
 name: cmux-live
-description: "Edit cmux's own web UI while it runs: point the running cmux at a checkout's webviews dev server so every saved edit shows at once in every open page and chat, with no build and no relaunch. Use when changing or trying anything under webviews/ (agent chat pane, pages such as Settings, Home and the new tab page, the Markdown viewer), when the user wants to see a UI change live in their own app, or asks for hot reload, live reload, 'edit cmux live', 'cmux live', the dev server or web-dev.json."
+description: "Edit cmux's own web UI and daemon while it runs: point the running cmux at a checkout's webviews dev server so every saved edit shows at once in every open page and chat, with no build and no relaunch. Use when changing or trying anything under webviews/ (agent chat pane, pages such as Settings, Home and the new tab page, the Markdown viewer), when the user wants to see a UI change live in their own app, or asks for hot reload, live reload, 'edit cmux live', 'cmux live', the dev server or web-dev.json, or wants a saved Rust edit to the cmux-tui daemon or acpmux live in the running daemon (`cmux live start --rust`)."
 ---
 
 # cmux live
@@ -30,7 +30,24 @@ checkout), **Stop Editing cmux Live**, or the same buttons at the end of Setting
    call page bridge ops the app does not have yet.
 4. When you are done, `cmux live stop`, unless the person wants to keep looking.
 
-Swift and Rust changes still need a build; only the web UI loads live.
+## The daemon's Rust
+
+`cmux live start --rust` does the same for the terminal and agent daemons: each saved `.rs`,
+`Cargo.toml` or `Cargo.lock` under `cmux-tui/` builds the daemons it reaches and swaps the running
+daemon for the build, keeping every terminal (same shell process, same screen) and agent session.
+
+```bash
+cmux live start --rust --build-host HOST   # build over ssh on HOST; never build on the person's Mac
+cmux live status                           # the last swap: which save, each step's seconds
+cmux live stop --rust                      # stop watching; the daemon keeps the last build
+```
+
+The build host must build for the daemon's platform (a Mac build box for the app's daemon on a
+Mac). A one-line edit in cmux-tui-core takes tens of seconds, nearly all of it compiling
+(cmux-tui-core and cmux-tui are large crates); the swap itself is under a second. A build error
+leaves the running daemon as it was; `cmux live status` shows the error.
+
+Swift changes still need a build.
 
 ## When it does not change
 
