@@ -68,17 +68,17 @@ class HomeChiefCardButton: NSButton {
     }
 }
 
-/// A profile card's round close button.
+/// A profile card's round close button (or, with another `symbol`, another round glyph button: Expand).
 @MainActor
 final class HomeChiefCardCloseButton: HomeChiefCardButton {
-    init(label: String, target: AnyObject, action: Selector, size: CGFloat = 36, symbolSize: CGFloat = 15) {
+    init(label: String, target: AnyObject, action: Selector, size: CGFloat = 36, symbolSize: CGFloat = 15, symbol: String = "xmark") {
         super.init(cornerRadius: size / 2)
         self.target = target
         self.action = action
         title = ""
         imagePosition = .imageOnly
         symbolConfiguration = NSImage.SymbolConfiguration(pointSize: symbolSize, weight: .regular)
-        image = NSImage(systemSymbolName: "xmark", accessibilityDescription: label)
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
         setAccessibilityLabel(label)
         themedToolTip = label
         layer?.borderWidth = 1
@@ -95,26 +95,21 @@ final class HomeChiefCardCloseButton: HomeChiefCardButton {
     }
 }
 
-/// The Chief profile page's tabs: quiet labels, the selected one in a pill. Rest: secondary ink, no fill. Hover:
-/// primary ink. Press: the hover fill. Selected: primary ink on the pill. Keyboard focus: the
-/// system ring around the pill's shape.
+/// The Chief profile panel's tabs: quiet labels, the selected one on a small-radius rect (not a
+/// capsule; Lawrence 2026-11-04). Rest: secondary ink, no fill. Hover: primary ink. Press: the hover
+/// fill. Selected: primary ink on the rect. Keyboard focus: the system ring around the rect.
 @MainActor
 final class HomeChiefSettingsTabs: NSStackView {
-    enum Tab: CaseIterable {
-        case details, computer
-
-        var title: String {
-            switch self {
-            case .details: HomeEngineStrings.tabDetails
-            case .computer: HomeEngineStrings.tabComputer
-            }
-        }
-    }
+    typealias Tab = HomeChiefProfileTab
 
     /// A tab was chosen by the person (not by ``select(_:)``).
     var onPick: (Tab) -> Void = { _ in }
     private(set) var selected: Tab = .details
     private var pills: [(tab: Tab, pill: Pill)] = []
+    /// The tabs on show (the expanded computer page has no Settings).
+    var shown: [Tab] = Tab.allCases {
+        didSet { for (tab, pill) in pills { pill.isHidden = !shown.contains(tab) } }
+    }
 
     init() {
         super.init(frame: .zero)
@@ -149,14 +144,15 @@ final class HomeChiefSettingsTabs: NSStackView {
 
     private final class Pill: HomeChiefCardButton {
         static let height: CGFloat = 26
-        static let padding: CGFloat = 8
+        static let padding: CGFloat = 10
+        static let corner: CGFloat = 6
         static var font: NSFont { Typography.system(size: TypeScale.field, weight: TypeScale.regular) }
         private let text: String
         var isChosen = false { didSet { applyTheme() } }
 
         init(title: String, target: AnyObject, action: Selector) {
             text = title
-            super.init(cornerRadius: Self.height / 2)
+            super.init(cornerRadius: Self.corner)
             self.target = target
             self.action = action
             setAccessibilityRole(.radioButton)

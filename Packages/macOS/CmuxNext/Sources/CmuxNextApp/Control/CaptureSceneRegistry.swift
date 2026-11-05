@@ -46,17 +46,10 @@ final class CaptureSceneRegistry {
         endAgentCloudMachines()
         endCloudMachineDisconnected()
         guard let definition = Self.definitions.first(where: { $0.name == name }) else {
-            return .object([
-                "error": .string("unknown scene"),
-                "scene": .string(name),
-                "available": list(),
-            ])
+            return .object(["error": .string("unknown scene"), "scene": .string(name), "available": list()])
         }
         guard services.environment.showcase else {
-            return .object([
-                "error": .string("launch with --showcase to enable deterministic scenes"),
-                "scene": .string(name),
-            ])
+            return .object(["error": .string("launch with --showcase to enable deterministic scenes"), "scene": .string(name)])
         }
         guard let targetWindow = services.windows.active ?? services.windows.controllers.first,
               targetWindow.window != nil else {
@@ -110,6 +103,8 @@ final class CaptureSceneRegistry {
             ])
         }
 
+        // The Chief profile scenes open Home over the settled showcase window (CaptureSceneRegistry+ChiefProfile).
+        if let profile = await renderChiefProfile(definition.name, params: params, windowID: targetWindowID) { return profile }
         // The sidebar is its picture: the showcase window, then the machines, with no agent turn.
         if definition.name == Self.cloudAgentMachinesScene || definition.name == Self.cloudAgentMachinesLeakedScene {
             return await renderAgentCloudMachines(params, definition: definition, windowID: targetWindowID)
@@ -285,6 +280,10 @@ final class CaptureSceneRegistry {
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "cloud-machine-disconnected",
                                description: "Two Cloud machine headers: a running machine whose app link dropped, and one whose connect the provider refused."),
+        CaptureSceneDefinition(name: "home-chief-profile-details", description: "Home at the Chief with its profile panel open beside the chat on Details."),
+        CaptureSceneDefinition(name: "home-chief-profile-settings", description: "Home at the Chief with its profile panel open beside the chat on Settings."),
+        CaptureSceneDefinition(name: "home-chief-profile-computer",
+                               description: "The Chief's profile panel on Computer with a fixture computer running and the person in control (Give Back)."),
         CaptureSceneDefinition(name: "home-chief-long-draft",
                                description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
     ]

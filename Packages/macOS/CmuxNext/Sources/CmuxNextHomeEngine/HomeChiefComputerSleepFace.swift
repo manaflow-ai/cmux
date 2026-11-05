@@ -1,14 +1,20 @@
 import AppKit
 
 /// The asleep computer's mark in the Computer tab: a grey Chief with closed eyes and three z's
-/// rising to its right (Lawrence's reference, 2026-11-04). A fixed grey, since it sits on the
-/// card's translucent fill in both light and dark themes. Decorative: the note beside it says it.
+/// rising to its right (Lawrence's reference, 2026-11-04); waking, the same face with its eyes open
+/// and no z's. A fixed grey, since it sits on the dark screen card in both light and dark themes.
+/// Decorative: the note beside it says it.
 @MainActor
 final class HomeChiefComputerSleepFace: NSView {
     private static let grey = NSColor(white: 0.55, alpha: 1)
     private static let disc: CGFloat = 30
     /// The disc's center in the view (flipped); the z's take the room above and to the right.
     private static let center = NSPoint(x: 28, y: 30)
+
+    /// Waking up: eyes open, no z's.
+    var awake = false {
+        didSet { if awake != oldValue { needsDisplay = true } }
+    }
 
     override var isFlipped: Bool { true }
     override var intrinsicContentSize: NSSize { NSSize(width: 56, height: 45) }
@@ -18,6 +24,12 @@ final class HomeChiefComputerSleepFace: NSView {
         Self.grey.setFill()
         NSBezierPath(ovalIn: NSRect(x: center.x - Self.disc / 2, y: center.y - Self.disc / 2, width: Self.disc, height: Self.disc)).fill()
         NSColor(white: 0.13, alpha: 1).setFill()
+        if awake {
+            for side: CGFloat in [-1, 1] {
+                NSBezierPath(ovalIn: NSRect(x: center.x + side * 4.75 - 2.2, y: center.y - 3.2, width: 4.4, height: 4.4)).fill()
+            }
+            return
+        }
         for side: CGFloat in [-1, 1] { Self.eye(at: NSPoint(x: center.x + side * 4.75, y: center.y - 0.2)) }
         // Oldest (highest, faintest) to newest.
         Self.z(at: NSPoint(x: center.x + 14.6, y: center.y - 27.2), width: 4.8, height: 5.4, line: 1, alpha: 0.3)
