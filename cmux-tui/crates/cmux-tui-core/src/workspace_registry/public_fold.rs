@@ -51,15 +51,29 @@ impl PublicTopologyFold {
         }
     }
 
-    /// Whether the fold holds any value for the resource `change` upserts.
-    fn holds(&self, change: &Value) -> bool {
-        change["kind"] == "upsert"
-            && match (change["resource"].as_str(), change["id"].as_str()) {
-                (Some(resource), Some(id)) => {
-                    self.values.contains_key(&(resource.to_string(), id.to_string()))
-                }
-                _ => false,
-            }
+    /// Whether decorating `change` could make the fold state it: an upsert of a resource decoration adds to
+    /// (`state/values.rs` `decorate_value`: a workspace, tab or screen) whose held value differs from it only in
+    /// what decoration sets (`content_kind`, `extra`). One that differs elsewhere (a tab whose index moved) is
+    /// kept without a query.
+    fn may_state_decorated(&self, change: &Value) -> bool {
+        let (Some(resource), Some(id)) = (change["resource"].as_str(), change["id"].as_str())
+        else {
+            return false;
+        };
+        if change["kind"] != "upsert" || !matches!(resource, "workspace" | "tab" | "screen") {
+            return false;
+        }
+        let Some(held) = self.values.get(&(resource.to_string(), id.to_string())) else {
+            return false;
+        };
+        let (Some(held), Some(raw)) = (held.as_object(), change["value"].as_object()) else {
+            return false;
+        };
+        let decorated_only = |key: &String| key == "content_kind" || key == "extra";
+        held.iter()
+            .filter(|(key, _)| !decorated_only(key))
+            .all(|(key, value)| raw.get(key) == Some(value))
+            && raw.keys().filter(|key| !decorated_only(key)).all(|key| held.contains_key(key))
     }
 
     fn states(&self, change: &Value) -> bool {
@@ -121,7 +135,7 @@ impl WorkspaceRegistry {
             if fold.states(change) {
                 continue;
             }
-            if decorate && fold.holds(change) {
+            if decorate && fold.may_state_decorated(change) {
                 let mut decorated = change.clone();
                 let resource = change["resource"].as_str().unwrap_or_default();
                 if let Some(value) = decorated.get_mut("value") {
