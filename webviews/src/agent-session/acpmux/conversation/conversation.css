@@ -6237,12 +6237,16 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-/* The running turn's line while the chat waits on the person (waitingOn.ts), as Claude desktop's
-   "Needs your input" (Leo, 2026-11-05): a ringed dot in the attention mark's colour, then the words
-   in it on a pill tinted with it, so it reads as a call to act, not the muted "Thinking" it
-   replaces. It holds still: no clock, no sweep. The mark is the one needs-input colour (styles.css
-   --acpmux-needs-you-mark). */
+/* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
+   reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock.
+   The activity and Worked-for lines (ActivityLine.tsx, WorkingFor.tsx) keep this look. */
 .cv-waiting {
+  color: var(--cv-text);
+}
+/* The Thinking line's form of it (Thinking.tsx), as Claude desktop's "Needs your input" (Leo,
+   2026-11-05): a ringed dot in the attention mark's colour, then the words in it on a pill tinted
+   with it. The mark is the one needs-input colour (styles.css --acpmux-needs-you-mark). */
+.cv-thinking.cv-waiting {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;

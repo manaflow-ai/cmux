@@ -4,6 +4,7 @@
 // Thinking line that replaces it starts with that dot shrinking away, and the dot goes after.
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { readFileSync } from "node:fs";
 import type { WaitingOn } from "../src/agent-session/acpmux/conversation/waitingOn";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -83,4 +84,22 @@ test("the waiting line is a pill with the dot; once answered the dot shrinks bef
     jest.useRealTimers();
   }
   await act(async () => root.unmount());
+});
+
+// Review (gpt-6-astra) at 888717437c8: the pill's look is the Thinking line's alone. The activity and
+// Worked-for lines (ActivityLine.tsx, WorkingFor.tsx) also mark a waiting turn with `cv-waiting`, as
+// bare text, so the shared class keeps its old full-text-colour look and the pill rule names Thinking.
+test("only the Thinking line draws the pill; the other waiting lines keep plain text", () => {
+  const css = readFileSync(
+    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+    "utf8",
+  );
+  const rule = (selector: string) => {
+    const at = css.indexOf(`\n${selector} {`);
+    expect(at).toBeGreaterThanOrEqual(0);
+    return css.slice(at, css.indexOf("}", at));
+  };
+  expect(rule(".cv-waiting")).toContain("color: var(--cv-text)");
+  expect(rule(".cv-waiting")).not.toContain("inline-flex");
+  expect(rule(".cv-thinking.cv-waiting")).toContain("var(--acpmux-needs-you-mark)");
 });
