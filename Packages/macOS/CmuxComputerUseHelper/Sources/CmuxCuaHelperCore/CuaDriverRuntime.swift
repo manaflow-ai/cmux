@@ -47,7 +47,7 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
     private let hostBundleID: String?
     /// Machine-join consent, checked last before every call executes.
     private let gate: ConsentGate
-    /// Holds acting calls while the person is using the Mac (`TakeoverGate`).
+    /// Holds acting calls that would collide with the person (`TakeoverGate`).
     private let takeover: TakeoverGate?
 
     public init(libraryPath: String, allowedTargetBundleIDs: String = "", hostBundleID: String? = nil,
@@ -102,8 +102,11 @@ public final class CuaDriverRuntime: ToolInvoking, @unchecked Sendable {
             resolver: targetResolver
         ).check(name: name, arguments: arguments)
         let requirement = await gate.requirement(for: name) { try await self.listTools() }
-        // An acting call waits here while the person is driving, before consent.
-        try await takeover?.admit(name, requirement: requirement)
+        // An acting call that would collide with the person (their app, or the
+        // shared cursor) waits here while they are driving, before consent.
+        // A background call to another app runs alongside them.
+        try await takeover?.admit(name, requirement: requirement,
+                                  footprint: ActingFootprint(arguments: arguments, owner: TakeoverFocusProbe.owner(ofWindow:)))
         // Consent is the last await before the driver runs: a revoke during
         // the target check, the takeover wait or an earlier preflight still
         // refuses this call.
