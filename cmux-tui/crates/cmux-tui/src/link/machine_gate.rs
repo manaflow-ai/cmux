@@ -24,6 +24,11 @@ use serde_json::{Value, json};
 
 /// The error code of a machine whose cmux-tui is too old for a verb.
 pub(super) const OUTDATED: &str = "machine_outdated";
+/// The error code of a machine that lacks a capability a verb needs although
+/// its cmux-tui is not older than this client's (a newer build, or a
+/// connection that does not carry it): updating it would change nothing, so
+/// the answer names the capability instead of "update the machine".
+pub(super) const CAPABILITY_MISSING: &str = "machine_capability_missing";
 /// How long the whole `identify` may take, however the daemon trickles it.
 const IDENTIFY_BUDGET: Duration = Duration::from_secs(5);
 /// How long the whole answer to any other request may take.
@@ -39,29 +44,62 @@ pub(super) struct Outdated {
     pub(super) missing: Vec<String>,
     /// The daemon's `build_id`; None for a build before `daemon-build-v1`.
     pub(super) build: Option<String>,
+    /// Whether the machine's build is older than this client's (its
+    /// `build_time`, as `machine update --if-older` orders them). Only then is
+    /// it `machine_outdated`; otherwise [`CAPABILITY_MISSING`].
+    pub(super) older: bool,
 }
 
 impl Outdated {
     pub(super) fn message(&self) -> String {
-        format!(
-            "the machine runs an older cmux-tui ({}) without {}; update the machine",
-            self.build.as_deref().unwrap_or("unknown build"),
-            self.missing.join(", ")
-        )
+        let build = self.build.as_deref().unwrap_or("unknown build");
+        if self.older {
+            format!(
+                "the machine runs an older cmux-tui ({build}) without {}; update the machine",
+                self.missing.join(", ")
+            )
+        } else {
+            format!(
+                "the machine's cmux-tui ({build}) is not older than this one, but it does not serve {} on this connection",
+                self.missing.join(", ")
+            )
+        }
+    }
+
+    /// The answer's error code: [`OUTDATED`] only for an older machine.
+    pub(super) fn code(&self) -> &'static str {
+        if self.older { OUTDATED } else { CAPABILITY_MISSING }
     }
 
     /// The CLI's answer line.
     pub(super) fn line(&self) -> Value {
-        json!({"ok": false, "error": self.message(), "error_code": OUTDATED,
+        json!({"ok": false, "error": self.message(), "error_code": self.code(),
                "missing": self.missing, "machine_build": self.build})
     }
+
+    /// This judged against the daemon at `socket`: older only when its
+    /// `build_time` is earlier than this client's ([`older`]).
+    pub(super) fn judged(mut self, socket: &Path) -> Self {
+        self.older = older(socket);
+        self
+    }
+}
+
+/// Whether the daemon at `socket` runs a build older than this client's, by
+/// the source commit time both report (`identify` with `revisions`). A daemon
+/// that does not say its time counts as older, as `machine update` counts it.
+pub(super) fn older(socket: &Path) -> bool {
+    let time = call_within(socket, json!({"cmd": "identify", "revisions": true}), IDENTIFY_BUDGET)
+        .ok()
+        .and_then(|identity| identity.get("build_time").and_then(Value::as_u64));
+    super::machine_update::machine_is_older(time, cmux_build_identity::BUILD_TIME)
 }
 
 /// The capabilities of `needed` the daemon at `socket` lacks, when it is of
 /// another build than this client; None when it serves them all, is this
 /// build, or does not answer `identify`.
 pub(super) fn outdated(socket: &Path, needed: &[&str]) -> Option<Outdated> {
-    outdated_identity(&identify(socket)?, needed)
+    outdated_identity(&identify(socket)?, needed).map(|outdated| outdated.judged(socket))
 }
 
 /// [`outdated`] for an `identify` answer already read.
@@ -79,7 +117,7 @@ pub(super) fn outdated_identity(identity: &Value, needed: &[&str]) -> Option<Out
     if build.as_deref() == Some(cmux_build_identity::BUILD_IDENTITY) {
         return None;
     }
-    Some(Outdated { missing, build })
+    Some(Outdated { missing, build, older: true })
 }
 
 /// The capabilities an `identify` answer lists; None when it lists none.
@@ -216,5 +254,24 @@ fn read_line(
         if done {
             return Ok(line);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_an_older_machine_is_outdated() {
+        let identity = json!({"capabilities": ["agent-session-start-v1"], "build_id": "other-build"});
+        let outdated = outdated_identity(&identity, &["fs-v1"]).expect("fs-v1 is missing");
+        assert!(outdated.older);
+        assert_eq!(outdated.line()["error_code"], json!(OUTDATED));
+        assert!(outdated.message().contains("update the machine"));
+        let current = Outdated { older: false, ..outdated };
+        assert_eq!(current.line()["error_code"], json!(CAPABILITY_MISSING));
+        let message = current.message();
+        assert!(message.contains("fs-v1") && !message.contains("update the machine"), "{message}");
+        assert!(outdated_identity(&json!({"capabilities": ["fs-v1"]}), &["fs-v1"]).is_none());
     }
 }
