@@ -80,7 +80,8 @@ public struct TabLayoutEngine {
     /// drag or a window resize changes only the strip's width, in each frame). The width reaches the slots only through
     /// how the flexible tabs share the row (``TabRowShare``): when that stays, so does every slot, and this is O(1);
     /// else the slots take the new share's widths in one walk. Equal to ``layout(items:availableWidth:style:metrics:closingModeWidth:fullWidthTab:)``
-    /// with `result`'s items (`TabLayoutResizeTests`).
+    /// with `result`'s items (`TabLayoutResizeTests`). `metrics` and `style` must be the ones `result` was laid out with:
+    /// the reserved width and the fixed slots are `result`'s (a metrics change lays the strip out again, `applyTokens`).
     public static func resized(_ result: TabLayoutResult, availableWidth: CGFloat, style: TabStripStyle, metrics: TabStripMetrics = .standard,
                                closingModeWidth: CGFloat? = nil) -> TabLayoutResult {
         let available = max(0, min(availableWidth, closingModeWidth ?? .infinity))

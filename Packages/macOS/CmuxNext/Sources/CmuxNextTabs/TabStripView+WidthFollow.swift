@@ -115,7 +115,9 @@ extension TabStripView {
         }
         if newTabMenuButton.frame != menuFrame { newTabMenuButton.frame = menuFrame }
         edgeFade.update()
-        // What is under a still pointer changed only where something moved.
-        if moved { geometryDidChange() }
+        // What is under a still pointer changed where something moved; a lit strip or a shown card also checks that the
+        // pointer is still inside the strip, which a narrower strip may have left.
+        if moved || buttonReveal.pointerInStrip || hoveredID != nil || groups.hoveredChip != nil || newTabButton.isHovered
+            || closingModeWidth != nil || hoverCard.isVisible { geometryDidChange() }
     }
 }
