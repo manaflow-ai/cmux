@@ -36,11 +36,10 @@ public final class JoinedMachineStore {
     @ObservationIgnored private var watchers: [ObjectIdentifier: @MainActor () -> Bool] = [:]
     @ObservationIgnored private let clock: () -> Date
 
-    public init(service: @escaping () -> MachineJoinService?, clock: @escaping () -> Date = { Date() },
-                ageTimer: DemandTimer = DemandTimer(owner: "machines.joined.age")) {
+    public init(service: @escaping () -> MachineJoinService?, clock: @escaping () -> Date = { Date() }) {
         self.service = service
         self.clock = clock
-        self.ageTimer = ageTimer
+        self.ageTimer = DemandTimer(owner: "machines.joined.age")
     }
 
     /// `owner`'s section shows the rows: while any section does, the store re-reads the list once
