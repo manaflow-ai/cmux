@@ -50,6 +50,7 @@ import fcntl
 import json
 import os
 import plistlib
+import re
 import shutil
 import signal
 import socket
@@ -406,11 +407,14 @@ def terminal_host_pids(root: Path) -> list[int]:
         if not isinstance(pid, int) or pid <= 1 or pid == os.getpid() or pid in pids:
             continue
         try:
-            args = subprocess.run(["ps", "-ww", "-o", "args=", "-p", str(pid), "-U", str(os.getuid())],
-                                  capture_output=True, text=True, timeout=30).stdout
+            # Only this pid: BSD ps adds selections together, so `-p PID -U UID` would list every process of the user.
+            lines = subprocess.run(["ps", "-ww", "-o", "uid=,args=", "-p", str(pid)],
+                                   capture_output=True, text=True, timeout=30).stdout.splitlines()
         except (OSError, subprocess.SubprocessError):
             continue
-        if "__terminal-host" in args:
+        fields = lines[0].split(None, 1) if len(lines) == 1 else []
+        if (len(fields) == 2 and fields[0] == str(os.getuid())
+                and re.search(r"(?:^|\s)__terminal-host(?:\s|$)", fields[1])):
             pids.append(pid)
     return pids
 

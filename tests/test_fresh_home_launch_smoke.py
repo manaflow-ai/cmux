@@ -329,6 +329,12 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             (records / "a.json").write_text(json.dumps({"host_pid": other.pid}))
             (records / "b.json").write_text("not json")
             self.assertEqual(smoke.terminal_host_pids(Path(d)), [])
+            # A live host elsewhere doesn't make the recorded non-host pid count.
+            host = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "__terminal-host"])
+            self.addCleanup(host.wait)
+            self.addCleanup(host.kill)
+            (records / "c.json").write_text(json.dumps({"host_pid": host.pid}))
+            self.assertEqual(smoke.terminal_host_pids(Path(d)), [host.pid])
 
     def test_a_signing_keychain_in_the_job_means_it_cannot_run(self):
         state = self.dir / "keychain-state"
