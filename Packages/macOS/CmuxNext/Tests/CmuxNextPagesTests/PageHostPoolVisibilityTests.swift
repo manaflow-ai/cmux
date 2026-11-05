@@ -72,6 +72,27 @@ import Testing
         #expect(pool.claim(.settings, routes: [], window: window, focus: false) == nil,
                 "the spare's shipped document would never load from the projection's server")
         #expect(pool.spare == nil, "a spare parked in the projection window would later serve its document elsewhere")
+        pool.noteLikely()
+        #expect(!pool.shouldBuild, "no spare is built while the projection is open")
+    }
+
+    @Test func aWindowChangeDropsTheSpareWhileAProjectionIsOpen() async throws {
+        let window = PageHostPoolLaunchWindowTests.shownWindow(), other = PageHostPoolLaunchWindowTests.shownWindow()
+        defer { window.close(); other.close() }
+        let pool = PageHostPool(memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                                activity: { 0 }, isTrackingMenu: { false }, engineDecision: { _, _ in .webKit(.personChoseWebKit) })
+        defer { pool.dropSpare() }
+        pool.follow(window)
+        pool.noteLikely()
+        if !pool.isSpareReady {
+            _ = await PageTestWait.value("spare ready") { (done: @escaping (Bool) -> Void) in
+                pool.onSpareReady = { _ in done(true) }
+            }
+        }
+        #expect(pool.spare != nil)
+        pool.projectionIsOpen = { true }
+        pool.follow(other) // the projection window became key
+        #expect(pool.spare == nil, "parked in the projection window, the spare would reload from the worktree")
     }
 
     @Test func parkedPageSleepsAfterPaintAndWakesOnClaim() async throws {
