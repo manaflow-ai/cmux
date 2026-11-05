@@ -193,6 +193,10 @@ OWNED_ROUTE_VARIABLES = frozenset({
 # Rule 7a's second half: the claim script, which refuses an owned Mac without the claim and clears a keychain a
 # killed job left, runs before the first step that names a secret.
 CLAIM_SCRIPT = "scripts/ci/signing-runner-claim.sh"
+# A step condition that runs the step even after an earlier step failed, so coming after the claim is not
+# enough: `if: always()` (or failure()/cancelled()) on a secret-bearing step would hand it the credential on
+# an owned Mac whose claim the gate had just refused. The same matcher test_ci_signing_owned_mac.py uses.
+RUNS_AFTER_FAILURE = re.compile(r"\b(?:always|failure|cancelled)\s*\(")
 # The script has to be *run*, unconditionally, from a trusted path, and its failure has to fail the job.  No
 # pattern over shell text can say that: `if false; then bash <path>; fi` and `bash <path> || true` both hold a
 # plausible-looking invocation while skipping the stale-keychain cleanup or swallowing a refused claim, and an
@@ -286,7 +290,9 @@ def owned_route_failures(name: str, job: dict) -> list[str]:
     keep a credential out of reach until the claim is re-checked by the script: one step's whole `run:` is a
     verbatim CLAIM_COMMANDS line (so no comment, echo, conditional, chained, backgrounded or redirected form
     stands in for it), it is unconditional and its failure fails the job, it comes before the first step that
-    names a secret, and the job's `env:` names none (every step, the gate included, holds it).
+    names a secret, no secret-bearing step overrides the failure with `always()`, `failure()` or `cancelled()`
+    (which would run it anyway after a refused claim), and the job's `env:` names none (every step, the gate
+    included, holds it).
     tests/test_ci_signing_owned_mac.py holds the same order for the jobs it covers (every keychain and Sparkle-key
     job); this holds it here for the rest of the exclusive class, which makes no keychain."""
     steps = [step for step in job.get("steps") or [] if isinstance(step, dict)]
@@ -308,6 +314,14 @@ def owned_route_failures(name: str, job: dict) -> list[str]:
         if str(steps[claim].get("continue-on-error", "false")).strip().lower() != "false":
             failures.append(f"{name}: the claim step ({claim}) has continue-on-error, so a refused claim "
                             "would not fail the job")
+        # Coming after the claim is not enough: a secret-bearing step whose condition survives a failure runs
+        # anyway on an owned Mac whose claim the gate refused, so the credential is in reach regardless.
+        for index, step in enumerate(steps):
+            if (SIGNING_SECRET_REFERENCE.search(json.dumps(step))
+                    and RUNS_AFTER_FAILURE.search(str(step.get("if", "")))):
+                label = step.get("name") or step.get("id") or "<step>"
+                failures.append(f"{name}: step {index} {label!r} names a signing secret and runs after a "
+                                f"failed claim (if: {step.get('if')})")
     if SIGNING_SECRET_REFERENCE.search(json.dumps(job.get("env") or {})):
         failures.append(f"{name}: job-level env names a signing secret, which every step (the gate's too) holds")
     return failures

@@ -1354,6 +1354,48 @@ class OwnedRouteVariableTests(unittest.TestCase):
         found = self.failures("nightly.yml generate-nightly-deltas", job)
         self.assertTrue(any("without a step whose whole run: is one of" in why for why in found), found)
 
+    def test_a_secret_step_may_not_survive_a_failed_claim(self) -> None:
+        """router-review F1 at a4f1eccc7e7: coming after the claim is not enough.
+
+        A secret-bearing step whose condition overrides failure (`always()`, `failure()`, `cancelled()`) runs
+        even on an owned Mac whose claim the gate just refused, so the credential is in reach regardless of
+        step order. test_ci_signing_owned_mac's check() has always held this for the jobs it covers; rule 7a
+        now holds it for the rest of the exclusive class, promote-nightly-next included."""
+        gate = {"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                "run": claim_gate_for("nightly.yml")}
+        for condition in ("always()", "failure()", "cancelled()", "${{ always() }}",
+                          "success() || always()"):
+            with self.subTest(condition=condition):
+                job = {"runs-on": self.RUNS_ON,
+                       "steps": [gate, {"run": f"bash {CLAIM}"},
+                                 {**self.SPARKLE, "if": condition}]}
+                found: list[str] = []
+                keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
+                self.assertTrue(any("runs after a failed claim" in why for why in found), found)
+
+    def test_a_secret_step_with_an_ordinary_condition_is_fine(self) -> None:
+        """Only a failure-surviving condition is refused; a normal `if` on a secret step is allowed, as the
+        tree has (promote-nightly-next's token step runs only when the decision says to promote)."""
+        job = {"runs-on": self.RUNS_ON,
+               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                          "run": claim_gate_for("nightly.yml")},
+                         {"run": f"bash {CLAIM}"},
+                         {**self.SPARKLE, "if": "steps.decide.outputs.action == 'promote'"}]}
+        self.assertEqual(self.failures("nightly.yml generate-nightly-deltas", job), [])
+
+    def test_no_exclusive_class_job_lets_a_secret_survive_a_failed_claim(self) -> None:
+        """In the tree: no job of the class has a secret-bearing step that overrides failure."""
+        documents = workflows()
+        for workflow, job_id in sorted(GLAEDA_EXCLUSIVE_JOBS):
+            job = (dotted(documents[workflow]).get("jobs") or {})[job_id]
+            for index, step in enumerate(keychain_guard.inline_step_scripts(job).get("steps") or []):
+                if not isinstance(step, dict):
+                    continue
+                if not keychain_guard.SIGNING_SECRET_REFERENCE.search(json.dumps(step)):
+                    continue
+                with self.subTest(job=f"{workflow} {job_id}", step=index):
+                    self.assertNotRegex(str(step.get("if", "")), keychain_guard.RUNS_AFTER_FAILURE)
+
     def test_a_gated_job_may_not_hold_the_secret_in_its_job_env(self) -> None:
         job = {"runs-on": self.RUNS_ON, "env": {"KEY": "${{ secrets.NIGHTLY_SPARKLE_KEY }}"},
                "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, {"run": "echo sign"}]}
