@@ -2011,7 +2011,10 @@ mod fixed_id_tests {
 /// wait bounds that.
 #[derive(Default)]
 struct StartWatch {
-    last: Option<crate::cpu_class::HarnessState>,
+    /// The read the next is judged against, and when it was taken. Kept until a later read
+    /// shows work or a [`WORK_WINDOW`](crate::cpu_class::WORK_WINDOW) has passed, so a short tick
+    /// sums a launcher's runtime ticks over a whole window instead of judging each alone.
+    last: Option<(crate::cpu_class::HarnessState, std::time::Duration)>,
     idle_since: Option<std::time::Duration>,
 }
 
@@ -2023,8 +2026,16 @@ impl StartWatch {
             self.idle_since = None;
             return false;
         };
-        let worked = self.last.as_ref().is_none_or(|last| state.worked_since(last));
-        self.last = Some(state.clone());
+        let (worked, window_passed) = match &self.last {
+            None => (true, true),
+            Some((last, at)) => {
+                let between = waited.saturating_sub(*at);
+                (state.worked_since(last, between), between >= crate::cpu_class::WORK_WINDOW)
+            }
+        };
+        if worked || window_passed {
+            self.last = Some((state.clone(), waited));
+        }
         if worked {
             self.idle_since = None;
             return false;

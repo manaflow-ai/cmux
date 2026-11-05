@@ -197,20 +197,28 @@ pub struct ChildSeen {
     pub pageins: u64,
 }
 
-/// The CPU time between two reads of a harness (about 10 s apart) that counts as work: an idle
-/// launcher's runtime spends some on its own. An `sr2` waiting on a stopped `claude` used 0.6 ms per
-/// 10 s (2026-11-05, #36028), so "any change" kept a harness that did nothing counted as working
-/// and its start never ended. A harness short of memory still reads pages in, and one short of CPU
-/// has a thread ready, so neither needs this budget to count as working.
+/// The CPU time a harness must use in a [`WORK_WINDOW`] to count as working: an idle launcher's
+/// runtime spends some on its own. An `sr2` waiting on a stopped `claude` used 0.6 ms per 10 s
+/// (2026-11-05, #36028), so "any change" kept a harness that did nothing counted as working and its
+/// start never ended. A harness short of memory still reads pages in, and one short of CPU has a
+/// thread ready, so neither needs this budget to count as working.
 pub const WORK_CPU_MS: u64 = 5;
 
+/// The span [`WORK_CPU_MS`] is measured over. A reader that reads more often keeps its older read
+/// until this much time has passed (`HarnessState::worked_since`), so the bar is a rate, the same
+/// at any tick.
+pub const WORK_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
+
 impl HarnessState {
-    /// Whether it did any work between `earlier` and this read: a thread on a CPU, at least
-    /// [`WORK_CPU_MS`] of CPU time, a page read in, or a process started or ended. A loaded host
-    /// or short memory slows that down; only a harness that waits on input or a lock does none of it.
-    pub fn worked_since(&self, earlier: &HarnessState) -> bool {
+    /// Whether it did any work in the `between` since `earlier`: a thread on a CPU, a page read
+    /// in, a process started or ended, or [`WORK_CPU_MS`] of CPU time per [`WORK_WINDOW`] (never
+    /// less than one window's worth, so a read sooner than a window asks for the whole budget). A
+    /// loaded host or short memory slows that down; only a harness that waits on input or a lock
+    /// does none of it.
+    pub fn worked_since(&self, earlier: &HarnessState, between: std::time::Duration) -> bool {
+        let windows = between.max(WORK_WINDOW).as_millis() as f64 / WORK_WINDOW.as_millis() as f64;
         self.threads_running > 0
-            || self.cpu_ms.abs_diff(earlier.cpu_ms) >= WORK_CPU_MS
+            || self.cpu_ms.abs_diff(earlier.cpu_ms) as f64 >= WORK_CPU_MS as f64 * windows
             || self.pageins != earlier.pageins
             || self.processes != earlier.processes
     }
@@ -617,13 +625,22 @@ mod tests {
             name: String::new(),
             first_child: None,
         };
-        assert!(!idle.worked_since(&idle));
-        assert!(HarnessState { pageins: 501, ..idle.clone() }.worked_since(&idle));
-        assert!(HarnessState { processes: 3, ..idle.clone() }.worked_since(&idle));
-        assert!(HarnessState { cpu_ms: 100 + WORK_CPU_MS, ..idle.clone() }.worked_since(&idle));
+        let w = WORK_WINDOW;
+        assert!(!idle.worked_since(&idle, w));
+        assert!(HarnessState { pageins: 501, ..idle.clone() }.worked_since(&idle, w));
+        assert!(HarnessState { processes: 3, ..idle.clone() }.worked_since(&idle, w));
+        assert!(HarnessState { cpu_ms: 100 + WORK_CPU_MS, ..idle.clone() }.worked_since(&idle, w));
         // #36028: an idle launcher's runtime ticks (0.6 ms per 10 s for `sr2`) are not work.
-        assert!(!HarnessState { cpu_ms: 101, ..idle.clone() }.worked_since(&idle));
-        assert!(HarnessState { threads_running: 1, ..idle.clone() }.worked_since(&idle));
+        assert!(!HarnessState { cpu_ms: 101, ..idle.clone() }.worked_since(&idle, w));
+        assert!(HarnessState { threads_running: 1, ..idle.clone() }.worked_since(&idle, w));
+        // The bar is a rate: a read 1 s on asks for a whole window's budget, a read 30 s on (a
+        // skipped tick) for three.
+        let second = std::time::Duration::from_secs(1);
+        assert!(!HarnessState { cpu_ms: 104, ..idle.clone() }.worked_since(&idle, second));
+        assert!(HarnessState { cpu_ms: 105, ..idle.clone() }.worked_since(&idle, second));
+        let late = std::time::Duration::from_secs(30);
+        assert!(!HarnessState { cpu_ms: 114, ..idle.clone() }.worked_since(&idle, late));
+        assert!(HarnessState { cpu_ms: 115, ..idle.clone() }.worked_since(&idle, late));
     }
 
     #[cfg(target_os = "linux")]

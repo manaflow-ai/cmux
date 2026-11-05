@@ -677,10 +677,12 @@ async fn a_chiefs_session_still_waits_on_its_harness_after_a_daemon_restart() {
     let hub = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
     hold_person_key(&hub);
     let mut chief = agent_client(&hub);
+    // The first start may have logged its own waits; only the wake's count.
+    let before = start_waits(&hub, "chief-kept");
     let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "the next turn"}]});
     let turn = tokio::spawn(async move { chief.request(method::SESSION_PROMPT, prompt).await });
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    while start_waits(&hub, "chief-kept") < 3 {
+    while start_waits(&hub, "chief-kept") < before + 3 {
         assert!(!turn.is_finished(), "the wake ended at its deadline: {:?}", turn.await);
         assert!(std::time::Instant::now() < deadline, "the wake never said it still waits");
         tokio::time::sleep(Duration::from_millis(20)).await;
