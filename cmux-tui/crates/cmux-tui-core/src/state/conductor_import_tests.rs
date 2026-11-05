@@ -223,3 +223,34 @@ fn conductor_import_leaves_a_newer_ledger_alone() {
     assert_eq!(error_code(refused), "validation.invalid");
     assert_eq!(stored_ledger(&mux).as_deref(), Some(newer));
 }
+
+/// A ledger that parses but has a done workspace naming no cmux workspace
+/// is damaged: the plan shows no plan and says why, and a record is refused,
+/// as for a ledger that does not parse, so nothing is made twice from it.
+#[test]
+fn conductor_import_refuses_a_damaged_ledger() {
+    let mux = Mux::new_for_test("conductor-import-damaged", SurfaceOptions::default());
+    let home = home();
+    let damaged = r#"{"version":1,"runs":0,"workspaces":{"w-lima":{"stage":"done"}}}"#;
+    mux.write_registry_meta(|transaction| {
+        transaction.execute(
+            "INSERT INTO conductor_import_ledger(id, ledger_json) VALUES(1, ?1)",
+            [damaged],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+
+    let result = plan(&mux, &home);
+    assert_eq!(result["plan"], Value::Null);
+    assert_eq!(result["error"], "ledger unreadable: done workspace w-lima names no cmux workspace");
+
+    let refused = send(
+        &mux,
+        "conductor_import.record",
+        json!({"workspace": "w-lima", "stage": "pending", "cmux_workspace": "ws-new"}),
+        Some("over-damaged"),
+    );
+    assert_eq!(error_code(refused), "validation.invalid");
+    assert_eq!(stored_ledger(&mux).as_deref(), Some(damaged));
+}
