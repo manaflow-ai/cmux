@@ -251,6 +251,14 @@ impl Editor {
         self.change("delete", Target::Message(id), TOMBSTONE)
     }
 
+    /// Whether a delete of message `id` is in the change book (undone too).
+    pub fn has_deleted(&self, id: u64) -> bool {
+        self.lock()
+            .changes
+            .iter()
+            .any(|c| c.op == "delete" && c.target == Target::Message(id))
+    }
+
     /// The current text of `target`, or 404.
     fn current(&self, target: Target) -> Result<String, (u16, String)> {
         match target {

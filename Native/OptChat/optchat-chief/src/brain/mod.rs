@@ -1229,7 +1229,10 @@ impl Brain {
     /// The memory's change book (`inspect/edit.rs`): a deleted chat message
     /// becomes its tombstone in the memory, so the Memory Inspector and the
     /// next re-rendered view no longer hold its text.
-    pub fn with_memory_editor(mut self, editor: Option<Arc<crate::inspect::edit::Editor>>) -> Brain {
+    pub fn with_memory_editor(
+        mut self,
+        editor: Option<Arc<crate::inspect::edit::Editor>>,
+    ) -> Brain {
         self.set_memory_editor(editor);
         self
     }

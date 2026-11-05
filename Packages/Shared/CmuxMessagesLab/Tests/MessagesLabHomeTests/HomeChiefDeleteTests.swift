@@ -11,13 +11,20 @@ import Testing
     static let me = HomeChiefRetryTests.me
     static let chief = HomeChiefRetryTests.chief
 
-    private func projected(_ view: MessagesLabHomeView, _ id: ID) -> Message? {
+    private func projected(_ view: MessagesLabHomeView, _ id: ID) -> MessagesLabHome.Message? {
         view.projection.controller.store?.state.conversation.messages.first { $0.id == id }
     }
 
     @Test func deleteRemovesTheRowAtOnceRetractsItAndStaysGoneOnReopen() async throws {
         let (store, view) = await HomeChiefRetryTests().open(Self.chief)
-        let item = try #require(view.projection.shown.first { $0.author == Self.me && $0.seq != nil && !$0.isRetracted })
+        // A message I send now (the mock owner keeps it, as the real owner keeps every message).
+        let key = IdempotencyKey("chief-delete-mine")
+        _ = try await store.perform(.sendMessage(conversation: Self.chief, parts: [.text("delete me")]), key: key)
+        await HomeRetrySendTests().until {
+            store.transcript(for: Self.chief).contains { $0.key == key && $0.seq != nil && $0.messageID != nil }
+        }
+        view.projection.refresh()
+        let item = try #require(view.projection.shown.first { $0.key == key })
         let canonical = try #require(item.messageID)
         let id = HomeMapping.id(item, aliases: view.projection.aliases)
         #expect(view.projection.canDeleteMessage(id))

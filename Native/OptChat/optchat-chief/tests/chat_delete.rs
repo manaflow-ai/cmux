@@ -75,7 +75,9 @@ fn a_deleted_chat_message_leaves_the_chiefs_memory_and_stays_deleted_after_a_res
     let next = joined(prompts.last().expect("a second turn"));
     let after = &next[next.find("</chat>").expect("the view") + "</chat>".len()..];
     assert!(
-        after.lines().any(|l| l.ends_with(&format!("|deleted {target}"))),
+        after
+            .lines()
+            .any(|l| l.ends_with(&format!("|deleted {target}"))),
         "the turn's input names line {target} as deleted after </chat>: {after}"
     );
     assert!(
@@ -118,4 +120,72 @@ fn a_deleted_chat_message_leaves_the_chiefs_memory_and_stays_deleted_after_a_res
         changes["changes"][0]["op"], "delete",
         "the reopened change book lists the delete: {changes}"
     );
+}
+
+/// Restarts the host over the same memory and owner, with a change book.
+fn restart(h: Harness) -> (Harness, Arc<Editor>) {
+    let Harness {
+        dir,
+        chat,
+        owner,
+        brain,
+        ..
+    } = h;
+    drop(brain);
+    chat.shutdown();
+    drop(chat);
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    let editor = with_editor(&mut h);
+    (h, editor)
+}
+
+#[test]
+fn a_message_deleted_while_the_chief_was_down_leaves_its_memory_on_reconnect_and_an_undo_holds() {
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.say("user_local", SECRET);
+    h.settle_posts();
+    let target = h
+        .log()
+        .iter()
+        .position(|(kind, text)| kind == "user" && text == SECRET)
+        .expect("the message is logged") as u64;
+
+    // The person deletes it while the Chief host is not running: the brain
+    // hears no update, only the owner holds the retraction.
+    {
+        let mut owner = h.owner.lock().unwrap();
+        let m = &mut owner.messages[0];
+        m.parts = Vec::new();
+        m.retracted_at = Some("2026-11-04T12:00:00.000Z".into());
+    }
+    let (mut h, editor) = restart(h);
+    h.connect();
+    assert_eq!(
+        h.chat.message(target).unwrap().1,
+        TOMBSTONE,
+        "the reconnect's catch-up deletes it from the memory"
+    );
+    assert!(
+        h.log()
+            .iter()
+            .any(|(kind, text)| kind == "note" && text == &format!("deleted {target}")),
+        "the deletion is logged as a note naming the line"
+    );
+
+    // The owner puts the text back in the Memory Inspector; the next
+    // reconnect does not delete it again.
+    let change = editor.changes()["changes"][0]["id"].as_u64().unwrap();
+    editor
+        .answer("/api/memory/undo", &[("change".into(), change.to_string())])
+        .expect("the undo");
+    assert_eq!(h.chat.message(target).unwrap().1, SECRET);
+    let (mut h, editor) = restart(h);
+    h.connect();
+    assert_eq!(
+        h.chat.message(target).unwrap().1,
+        SECRET,
+        "an undone delete stays undone"
+    );
+    assert_eq!(editor.changes()["changes"].as_array().unwrap().len(), 1);
 }
