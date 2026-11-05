@@ -104,6 +104,10 @@ path = "tests/test_nightly_next_feed_watch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_one_feed_readers.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_fix_forward.py"
 lane = "linux-guard"
 

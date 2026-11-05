@@ -45,7 +45,7 @@ if [[ -n "$app" ]]; then
   exit "$rc"
 fi
 if [[ "$dmg" == nightly ]]; then
-  feed="https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
+  feed="https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one feed since #36287
   curl -fsSL --proto '=https' --retry 3 -A cmux-projection/1 -H "Cache-Control: no-cache" -o "$out/feed.xml" "$feed" || { echo "L10 feed download failed"; exit 3; }
   picked="$(python3 scripts/ci/nightly_next_launch_smoke.py pick --feed "$out/feed.xml")" || { echo "L10 no nightly build on the feed"; exit 3; }
   echo "$picked" | sed 's/^/L10 pick /'
