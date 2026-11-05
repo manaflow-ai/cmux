@@ -700,6 +700,10 @@ export type ProviderAccount = {
   /** Routing may move chats onto it. */
   enabled: boolean;
   builtin: boolean;
+  /** New chats of its family run on it. */
+  default?: boolean;
+  /** An API-key account: no login folder, sign-in or sign-out. */
+  key?: boolean;
 };
 
 /** The Harnesses part: acpmux's harnesses (the host reads `_acpmux/harnesses`). */
@@ -744,12 +748,22 @@ export type HarnessesRun = {
     | "dismissUpdate"
     | "accountEnable"
     | "accountAdd"
-    | "accountSignIn";
+    | "accountSignIn"
+    | "accountSignOut"
+    | "accountRename"
+    | "accountDefault"
+    | "accountRemove";
   id?: string;
-  /** With `accountEnable` and `accountSignIn`: a listed account id. */
+  /** With every account gesture but `accountAdd`: a listed account id. */
   account?: string;
-  /** With `accountAdd`: the provider family that gets a new shadow-home account. */
+  /** With `accountAdd`: the provider family (`codex`, `claude`) that gets a new account. */
   family?: string;
+  /** With `accountAdd`: `new` signs in a login folder of its own, `key` adds an API key. */
+  way?: "new" | "key";
+  /** With `accountAdd` and `accountRename`: its name. */
+  name?: string;
+  /** With `accountAdd` `key`: the key's reference (`keychain:NAME`, `env:VAR`, `file:/path`), never a key. */
+  secret?: string;
   /** With `resumeUpdate` and `dismissUpdate`: the retained intent key, not a new operation id. */
   intent?: string;
   /** With `autoUpdate` (for `id`) and `accountEnable` (for `account`): turn it on or off. */

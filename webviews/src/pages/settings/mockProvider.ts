@@ -35,6 +35,7 @@ import {
   type MenuLayout,
   type HarnessesRun,
   type HarnessesState,
+  type ProviderAccount,
   type IntegrationsRun,
   type IntegrationsState,
   type Diagnostic,
@@ -506,7 +507,7 @@ export class MockSettingsProvider {
       "cmux.settings.harnesses.state": () => this.harnesses,
       "cmux.settings.harnesses.run": (params) => {
         const run = params as HarnessesRun;
-        if (run.action === "accountEnable" || run.action === "accountAdd" || run.action === "accountSignIn") {
+        if (run.action.startsWith("account")) {
           return this.runAccount(run);
         }
         if (
@@ -945,32 +946,39 @@ export class MockSettingsProvider {
   readonly harnessRuns: HarnessesRun[] = [];
   private readonly harnessesChanged = new Set<EventSourceContext>();
 
-  /** Like the host's account gestures: a listed account only, and Add account for Codex only (a
-   * shadow home under ~/.cmux/accounts, signed out until its sign-in runs). */
+  /** Like the host's account gestures: a listed account only, and Add account for Codex and Claude (a
+   * login folder under ~/.cmux/accounts, signed out until its sign-in runs, or an API key). */
   private runAccount(run: HarnessesRun): Record<string, never> {
     const accounts = this.harnesses.accounts;
     if (!accounts) throw new ProtocolError("cmux.settings.invalid", "this daemon lists no accounts");
     if (run.action === "accountAdd") {
-      if (run.family !== "codex") throw new ProtocolError("cmux.settings.invalid", "accountAdd needs codex");
-      let number = Math.max(2, accounts.filter((account) => account.family === "codex").length + 1);
-      while (accounts.some((account) => account.id === `codex-${number}`)) number += 1;
+      const family = run.family ?? "";
+      const brand = ({ codex: "ChatGPT", claude: "Claude" } as Record<string, string>)[family];
+      if (!brand) throw new ProtocolError("cmux.settings.invalid", "accountAdd needs codex or claude");
+      if (run.way === "key" && !run.secret) throw new ProtocolError("cmux.settings.invalid", "a key needs its reference");
+      let number = Math.max(2, accounts.filter((account) => account.family === family).length + 1);
+      while (accounts.some((account) => account.id === `${family}-${number}`)) number += 1;
       this.harnessRuns.push(run);
+      const id = `${family}-${number}`;
+      const key = run.way === "key";
       this.setHarnesses({
         ...this.harnesses,
         accounts: [
           ...accounts,
           {
-            id: `codex-${number}`,
-            family: "codex",
-            name: `ChatGPT ${number}`,
-            home: `~/.cmux/accounts/codex-${number}`,
-            defaultHome: "~/.codex",
-            shadowOf: "~/.codex",
-            signedIn: false,
+            id,
+            family,
+            name: run.name ?? `${brand} ${number}`,
+            home: key ? null : `~/.cmux/accounts/${id}`,
+            defaultHome: `~/.${family}`,
+            shadowOf: family === "codex" && !key ? `~/.codex` : null,
+            signedIn: key,
             plan: null,
             email: null,
             enabled: true,
             builtin: false,
+            default: false,
+            key,
           },
         ],
       });
@@ -980,13 +988,20 @@ export class MockSettingsProvider {
       throw new ProtocolError("cmux.settings.invalid", "account must be a listed account");
     }
     this.harnessRuns.push(run);
+    const target = accounts.find((account) => account.id === run.account)!;
+    const change = (next: ProviderAccount[]) => this.setHarnesses({ ...this.harnesses, accounts: next });
     if (run.action === "accountEnable") {
-      this.setHarnesses({
-        ...this.harnesses,
-        accounts: accounts.map((account) =>
-          account.id === run.account ? { ...account, enabled: run.on === true } : account,
+      change(accounts.map((account) => (account === target ? { ...account, enabled: run.on === true } : account)));
+    } else if (run.action === "accountRename" && run.name) {
+      change(accounts.map((account) => (account === target ? { ...account, name: run.name! } : account)));
+    } else if (run.action === "accountDefault") {
+      change(
+        accounts.map((account) =>
+          account.family === target.family ? { ...account, default: account === target } : account,
         ),
-      });
+      );
+    } else if (run.action === "accountRemove") {
+      change(accounts.filter((account) => account !== target));
     }
     return {};
   }

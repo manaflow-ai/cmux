@@ -5,8 +5,12 @@
 //! Providers page: "Authenticated · ChatGPT Pro Subscription").
 //!
 //! An account is the Codex CLI's own login (`codex-login`, built in), the
-//! Claude Code login (`claude-login`, listed only), or a direct-subscription
-//! route with an account home. The plan and email come from the login's own
+//! Claude Code login (`claude-login`, listed only), a direct-subscription
+//! route with an account home, or a direct API-key route (`key`: its key is
+//! a reference, never resolved here). Each says whether it is its family's
+//! `default`: the family binding (`_acpmux/route/default.set`
+//! `family:<family>`), else the global one, else the CLI's own login. The
+//! plan and email come from the login's own
 //! files and are only read here: no token leaves this module. Settings shows
 //! them, so only the unix socket and the local app may ask; `set` writes a
 //! route file, so only the unix socket.
@@ -36,12 +40,12 @@ pub(super) async fn handle(
             "accounts are read only from the local app or the unix socket",
         ));
     }
-    let (dir, _) = routes::places(&*hub.config.read().await);
+    let (dir, state) = routes::places(&*hub.config.read().await);
     match m {
         method::MUX_ACCOUNTS => {
             let family = params.get("family").and_then(Value::as_str).map(str::to_owned);
             tokio::task::spawn_blocking(move || {
-                let list = list(dir.as_deref())
+                let list = list(dir.as_deref(), &routes::bindings(&state))
                     .into_iter()
                     .filter(|a| family.as_deref().is_none_or(|f| a["family"] == f))
                     .collect::<Vec<_>>();
@@ -71,8 +75,28 @@ pub(super) async fn handle(
 }
 
 /// Every account: the Codex CLI's own login first, then the account routes by
-/// id, then the Claude Code login.
-fn list(dir: Option<&Path>) -> Vec<Value> {
+/// id, then the Claude Code login, each with whether it is its family's default.
+fn list(dir: Option<&Path>, bindings: &routes::Bindings) -> Vec<Value> {
+    let mut out = listed(dir);
+    for account in &mut out {
+        let family = account["family"].as_str().unwrap_or_default().to_owned();
+        let id = account["id"].as_str().unwrap_or_default().to_owned();
+        let builtin = account["builtin"].as_bool().unwrap_or(false);
+        account["default"] = json!(is_default(bindings, &family, &id, builtin));
+    }
+    out
+}
+
+/// Whether account `id` of `family` is the one a new chat of that family runs
+/// on: the family binding, else the global one, else the CLI's own login.
+fn is_default(bindings: &routes::Bindings, family: &str, id: &str, builtin: bool) -> bool {
+    match bindings.families.get(family).or(bindings.global.as_ref()) {
+        Some(bound) => bound == id,
+        None => builtin,
+    }
+}
+
+fn listed(dir: Option<&Path>) -> Vec<Value> {
     let mut out = Vec::new();
     if let Ok(builtin) = routes::find(dir, routes::CODEX_LOGIN_ROUTE_ID) {
         let home = builtin.file.account_home.clone().map(PathBuf::from);
@@ -84,9 +108,14 @@ fn list(dir: Option<&Path>) -> Vec<Value> {
             [f] if f == "codex" || f == "claude" => f.clone(),
             _ => continue,
         };
-        if route.id == routes::CODEX_LOGIN_ROUTE_ID
-            || route.file.kind != RouteKind::DirectSubscription
-        {
+        if route.id == routes::CODEX_LOGIN_ROUTE_ID {
+            continue;
+        }
+        if route.file.kind == RouteKind::DirectApiKey {
+            out.push(key_view(&route, &family));
+            continue;
+        }
+        if route.file.kind != RouteKind::DirectSubscription {
             continue;
         }
         let Some(home) = route.file.account_home.clone().map(PathBuf::from) else { continue };
@@ -99,6 +128,16 @@ fn list(dir: Option<&Path>) -> Vec<Value> {
         "email": claude.email, "enabled": true, "builtin": true,
     }));
     out
+}
+
+/// An API-key route: signed in by its key reference, which is never resolved
+/// here (a `keychain:` one would ask the keychain).
+fn key_view(route: &Route, family: &str) -> Value {
+    json!({
+        "id": route.id, "family": family, "name": route.name(), "home": null,
+        "shadowOf": null, "signedIn": route.file.secret.is_some(), "plan": null,
+        "email": null, "enabled": !route.file.disabled, "builtin": false, "key": true,
+    })
 }
 
 fn view(
@@ -136,8 +175,10 @@ fn set(
 ) -> Result<Value, RpcError> {
     let error = |e: routes::RouteError| crate::hub::route_error(&e);
     let route = routes::find(dir, id).map_err(error)?;
-    if route.file.kind != RouteKind::DirectSubscription
-        || (id != routes::CODEX_LOGIN_ROUTE_ID && route.file.account_home.is_none())
+    let key = route.file.kind == RouteKind::DirectApiKey;
+    if !key
+        && (route.file.kind != RouteKind::DirectSubscription
+            || (id != routes::CODEX_LOGIN_ROUTE_ID && route.file.account_home.is_none()))
     {
         return Err(RpcError::invalid_params(format!("{id} is not an account")));
     }
@@ -150,6 +191,9 @@ fn set(
     }
     let written = routes::add(dir, id, &file, true).map_err(error)?;
     let family = file.families.first().cloned().unwrap_or_else(|| "codex".into());
+    if key {
+        return Ok(key_view(&written, &family));
+    }
     let home = written.file.account_home.clone().map(PathBuf::from);
     let folder = home.clone().or_else(crate::route_shadow::codex_base);
     Ok(view(
@@ -230,6 +274,19 @@ fn claude_login(folder: Option<&Path>) -> Login {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_default_is_the_family_binding_then_the_global_one_then_the_cli_login() {
+        let mut b = routes::Bindings::default();
+        assert!(is_default(&b, "claude", "claude-login", true));
+        assert!(!is_default(&b, "claude", "claude-2", false));
+        b.global = Some("claude-2".into());
+        assert!(is_default(&b, "claude", "claude-2", false));
+        assert!(!is_default(&b, "claude", "claude-login", true));
+        b.families.insert("claude".into(), "claude-3".into());
+        assert!(is_default(&b, "claude", "claude-3", false));
+        assert!(!is_default(&b, "claude", "claude-2", false));
+    }
 
     #[test]
     fn a_codex_login_names_its_plan_and_email_from_the_id_token() {

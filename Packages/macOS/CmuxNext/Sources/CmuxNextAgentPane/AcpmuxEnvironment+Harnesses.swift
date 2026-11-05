@@ -64,13 +64,17 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// copied next to the profile) or `{id, clear: true}`. Answers `{id, path, icon}`.
     case icon = "_acpmux/harness/icon"
     /// The provider accounts routing may use (Settings > Agents > Harnesses): `{family?}` answers
-    /// `{accounts: [{id, family, name, home, shadowOf, signedIn, plan, email, enabled, builtin}]}`.
+    /// `{accounts: [{id, family, name, home, shadowOf, signedIn, plan, email, enabled, builtin, default, key?}]}`.
     /// The unix socket only; an older daemon answers method-not-found.
     case accounts = "_acpmux/accounts"
     /// `{id, enabled?, name?}`: turns an account on or off for routing, or renames it.
     case accountSet = "_acpmux/account/set"
-    /// Adds a route (here a direct-subscription account in a shadow home of its own).
+    /// Adds a route (here a direct-subscription account in a folder of its own, or an API-key account).
     case routeAdd = "_acpmux/route/add"
+    /// `{id}`: removes a route; acpmux keeps a backup of its file.
+    case routeRemove = "_acpmux/route/remove"
+    /// `{scope, routeId?}`: the route new chats of a scope (`family:<family>`) run on; none is the CLI login.
+    case routeDefaultSet = "_acpmux/route/default.set"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
     /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
@@ -80,7 +84,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         // The daemon's own limit is at most 60 s (`timeoutMs`).
         case .complete: .seconds(65)
         case .registry, .health, .models: .seconds(40)
-        case .list, .add, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet: .seconds(10)
+        case .list, .add, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet: .seconds(10)
         case .routeAdd: .seconds(20)
         }
     }

@@ -169,7 +169,7 @@ public final class SettingsHarnesses {
             guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
             // `--`: an id is never taken for a flag.
             try type(environment.shellLine(["harness", "login"] + (action == "check" ? ["--status"] : []) + ["--", id]))
-        case "accountEnable", "accountAdd", "accountSignIn":
+        case "accountEnable", "accountAdd", "accountSignIn", "accountSignOut", "accountRename", "accountDefault", "accountRemove":
             // A switch that lets routing move chats, a new login folder, or a sign-in: the person's.
             guard context?.userGesture == true || context?.isConfirmedUser == true else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)

@@ -17,6 +17,10 @@ nonisolated struct SettingsProviderAccount: Equatable, Sendable {
     let email: String?
     let enabled: Bool
     let builtin: Bool
+    /// New chats of its family run on it (acpmux: the family binding, else the global one, else the CLI login).
+    let isDefault: Bool
+    /// An API-key route: no login folder, no sign-in or sign-out.
+    let key: Bool
 
     init?(_ value: JSONValue) {
         guard let id = value["id"]?.stringValue, !id.isEmpty, let family = value["family"]?.stringValue else { return nil }
@@ -30,6 +34,8 @@ nonisolated struct SettingsProviderAccount: Equatable, Sendable {
         email = value["email"]?.stringValue
         enabled = value["enabled"]?.boolValue ?? false
         builtin = value["builtin"]?.boolValue ?? false
+        isDefault = value["default"]?.boolValue ?? false
+        key = value["key"]?.boolValue ?? false
     }
 
     /// The accounts of an `_acpmux/accounts` reply; nil when it carries no list.
@@ -71,6 +77,7 @@ nonisolated struct SettingsProviderAccount: Equatable, Sendable {
             // Only this local Settings page shows the address; it is never logged or sent on.
             "email": email.map(JSONValue.string) ?? .null,
             "enabled": .bool(enabled), "builtin": .bool(builtin),
+            "default": .bool(isDefault), "key": .bool(key),
         ]
     }
 }
@@ -122,9 +129,24 @@ extension SettingsHarnesses {
         return ("\(family)-\(number)", "\(base) \(number)")
     }
 
-    /// The page's account gestures: `accountEnable {account, on}`, `accountAdd {family}` (a shadow home
-    /// under ~/.cmux/accounts, then its sign-in) and `accountSignIn {account}`. The folder always comes
-    /// from the daemon's own list or from here, never from the page.
+    /// A listed account by the page's `account` id.
+    private func listed(_ params: JSONValue, _ action: String) throws -> SettingsProviderAccount {
+        guard let id = params["account"]?.stringValue, let account = accounts?.first(where: { $0.id == id }) else {
+            throw PageError.invalidParams("\(action) needs a listed account")
+        }
+        return account
+    }
+
+    /// The page's account gestures (Leo, 2026-11-05: "i meant can you do all of htem": Settings gets the
+    /// picker's add, default, rename and sign-out):
+    /// - `accountEnable {account, on}`: routing may move chats onto it, or not.
+    /// - `accountAdd {family, way, name?, secret?}`: `way` `new` makes a login folder of its own under
+    ///   ~/.cmux/accounts (a shadow home for Codex), then types its sign-in; `key` adds an API-key route
+    ///   whose `secret` is a reference (`keychain:NAME`, `env:VAR`, `file:/path`; acpmux refuses a raw key).
+    /// - `accountSignIn {account}` and `accountSignOut {account}`: the CLI's own login or logout, in its folder.
+    /// - `accountRename {account, name}`, `accountDefault {account}` (new chats of its family run on it) and
+    ///   `accountRemove {account}` (acpmux keeps a backup of the route file; the login folder stays).
+    /// The folder always comes from the daemon's own list or from here, never from the page.
     func runAccount(_ action: String, _ params: JSONValue) async throws -> JSONValue {
         guard let environment = environment() else { throw PageError(code: "cmux.page.unavailable", message: "no acpmux") }
         switch action {
@@ -133,27 +155,77 @@ extension SettingsHarnesses {
                   let on = params["on"]?.boolValue else { throw PageError.invalidParams("accountEnable needs a listed account and on") }
             _ = try await callAccounts(environment, .accountSet, ["id": id, "enabled": on])
         case "accountAdd":
-            // Only Codex has a shadow-home add today (route/add `shadow`).
-            guard let family = params["family"]?.stringValue, family == "codex", let accounts else {
+            guard let family = params["family"]?.stringValue, ["codex", "claude"].contains(family), let accounts else {
                 throw PageError.invalidParams("accountAdd needs a family with accounts")
             }
             let made = Self.newAccount(family: family, existing: accounts)
-            let home = userHome.appending(path: ".cmux/accounts/\(made.id)", directoryHint: .isDirectory).path
-            _ = try await callAccounts(environment, .routeAdd, [
-                "id": made.id, "name": made.name, "kind": "direct-subscription", "families": [family],
-                "accountHome": home, "shadow": true,
-            ] as [String: any Sendable])
-            try signIn(family: family, home: home, environment: environment)
-        case "accountSignIn":
-            guard let id = params["account"]?.stringValue, let account = accounts?.first(where: { $0.id == id }) else {
-                throw PageError.invalidParams("accountSignIn needs a listed account")
+            let typed = params["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let name = typed.isEmpty ? made.name : String(typed.prefix(128))
+            if params["way"]?.stringValue == "key" {
+                let secret = params["secret"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard !secret.isEmpty, secret.utf8.count <= 4096 else {
+                    throw PageError.invalidParams("an API-key account needs a secret reference")
+                }
+                _ = try await callAccounts(environment, .routeAdd, [
+                    "id": made.id, "name": name, "kind": "direct-api-key", "families": [family], "secret": secret,
+                ] as [String: any Sendable])
+            } else {
+                let home = userHome.appending(path: ".cmux/accounts/\(made.id)", directoryHint: .isDirectory).path
+                var route: [String: any Sendable] = [
+                    "id": made.id, "name": name, "kind": "direct-subscription", "families": [family], "accountHome": home,
+                ]
+                // A second ChatGPT login shares the CLI's conversations (route/add `shadow`), so routing can
+                // move a chat onto it; a Claude login is a config folder of its own.
+                if family == "codex" { route["shadow"] = true }
+                _ = try await callAccounts(environment, .routeAdd, route)
+                try signIn(family: family, home: home, environment: environment)
             }
+        case "accountSignIn":
+            let account = try listed(params, action)
             try signIn(family: account.family, home: account.home, environment: environment)
+        case "accountSignOut":
+            let account = try listed(params, action)
+            guard !account.key, let line = Self.signOutLine(family: account.family, home: account.home) else {
+                throw PageError.invalidParams("accountSignOut needs an account with a login")
+            }
+            openTerminal(line)
+        case "accountRename":
+            let account = try listed(params, action)
+            let name = params["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !name.isEmpty, name.count <= 128, account.id != "claude-login" else {
+                throw PageError.invalidParams("accountRename needs a name and an account acpmux keeps a file for")
+            }
+            _ = try await callAccounts(environment, .accountSet, ["id": account.id, "name": name])
+        case "accountDefault":
+            let account = try listed(params, action)
+            // The CLI's own login is the family's default with no binding.
+            var bind: [String: any Sendable] = ["scope": "family:\(account.family)"]
+            if !account.builtin { bind["routeId"] = account.id }
+            _ = try await callAccounts(environment, .routeDefaultSet, bind)
+        case "accountRemove":
+            let account = try listed(params, action)
+            guard !account.builtin else { throw PageError.invalidParams("the CLI's own login is not removed here") }
+            _ = try await callAccounts(environment, .routeRemove, ["id": account.id])
         default:
             throw PageError.invalidParams("unknown harnesses action \(action)")
         }
         await refresh()
         return .object([:])
+    }
+
+    /// The CLI's own logout, in an added account's folder: `codex logout`, `claude auth logout`. Nil for a
+    /// family with no logout or a folder that cannot be typed into a shell.
+    static func signOutLine(family: String, home: String?) -> String? {
+        let command: String
+        switch family {
+        case "codex": command = "codex logout"
+        case "claude": command = "claude auth logout"
+        default: return nil
+        }
+        guard let home else { return command }
+        guard let variable = SettingsProviderAccount.homeVariable(family),
+              !home.contains(where: { $0 == "'" || $0 == "\\" || $0.isNewline }) else { return nil }
+        return "\(variable)='\(home)' \(command)"
     }
 
     /// `acpmux harness login -- <family>` in a new terminal tab, with the family's home variable set

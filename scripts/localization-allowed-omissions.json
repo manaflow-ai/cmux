@@ -7197,5 +7197,16 @@
     "identityLocales": {
       "de": "Host is the usual German term for the computer that shares its screen."
     }
+  },
+  "settingsWindow.harnesses.accounts.name": {
+    "source": "Name",
+    "identityLocales": {
+      "de": {
+        "reason": "Name is the standard German noun for a name.",
+        "values": [
+          "Name"
+        ]
+      }
+    }
   }
 }
