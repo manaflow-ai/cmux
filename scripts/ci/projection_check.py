@@ -88,12 +88,19 @@ class Proxy:
             return
 
         async def pipe(src, dst, record):
+            pending = b""  # an unfinished request line carried to the next read
             try:
                 while data := await src.read(65536):
                     if record:
-                        for match in self.LINE.finditer(data):
+                        scan = pending + data
+                        end = 0
+                        for match in self.LINE.finditer(scan):
+                            end = match.end()
                             with self.lock:
                                 self.requests.append((time.monotonic(), match.group(2).decode("latin-1")))
+                        # Keep only the tail after the last full line (bounded, so a body or WebSocket frames
+                        # never grow it).
+                        pending = scan[max(end, len(scan) - 8192):]
                     dst.write(data)
                     await dst.drain()
             except (ConnectionError, OSError):
