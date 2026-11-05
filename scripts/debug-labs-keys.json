@@ -154,7 +154,7 @@
   "status.working": {"case": "keep", "why": "A look comparison for the working indicator; the spinner is the default and the breathing dot blinks."},
   "tabs.hoverPreviews": {"case": "keep", "why": "A look choice Leo asked for on 10-14 (Compact or Full); Full is the default until it becomes a real setting."},
   "tabs.loadingAnimation": {"case": "keep", "why": "A motion comparison for busy tab indicators; instant is the production default until a variant is chosen."},
-  "tabs.separators": {"case": "keep", "why": "Off until the default call is made (code comment); Lawrence removed the lines after Leo asked for them."},
+  "tabs.separators": {"case": "keep", "why": "On by Lawrence's call (11-05: a subtle line between all horizontal tabs and before +); the switch stays as a look toggle."},
   "whatsNew.design": {"case": "keep", "why": "A look comparison among What's New page designs; the sheet is the current default."},
   "window.dockedWorkspaces": {"case": "keep", "why": "A default-off prototype of docking whole workspaces to window edges; its actions refuse while off because it is unfinished."},
   "workspaces.autoName.variant": {"case": "keep", "why": "A behavior comparison for auto names (live label or persisted); persist is the default and live is still read."}
