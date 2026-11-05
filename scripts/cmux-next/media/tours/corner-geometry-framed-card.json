@@ -1,0 +1,104 @@
+{
+ "title": "Corner geometry: Framed card: the sidebar and tab strip frame the content (comfortable)",
+ "settings": {
+  "appearance": {
+   "density": "comfortable"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Corner geometry framed-card",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.cornerGeometry",
+     "value": "framed-card"
+    }
+   },
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "A second workspace in the sidebar",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "docs"
+   ],
+   "shot": false
+  },
+  {
+   "title": "A third workspace in the sidebar",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "api"
+   ],
+   "shot": false
+  },
+  {
+   "title": "The workspace shown",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Corner"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Corner",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Browser tab",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.com"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Second browser tab",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.org"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Third browser tab",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.net"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Framed card: the sidebar and tab strip frame the content",
+   "wait": 2
+  }
+ ]
+}
