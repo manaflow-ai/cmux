@@ -14,7 +14,7 @@ import Testing
 /// `cmux-ci run --artifact`.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarNoticeCardGalleryTests {
     /// The card widths in sidebars 220 and 260 pt wide (``SidebarBottomCardSlot/cardWidth(in:)``).
-    static let widths: [CGFloat] = [220, 260].map(SidebarBottomCardSlot.cardWidth(in:))
+    static var widths: [CGFloat] { [220, 260].map { SidebarBottomCardSlot.cardWidth(in: $0) } }
 
     static func directions() -> [(String, SidebarNoticeCard, CGFloat, SidebarNoticeCardView.GlyphPlacement)] {
         let ask = SidebarNoticeCardColumnTests.hangReportsAsk()
