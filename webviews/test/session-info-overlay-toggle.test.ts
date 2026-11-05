@@ -159,10 +159,10 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
     for (const { name: row, tabRow } of rows)
       test(`${name}, ${row}: Push always keeps every header tool in the native reserved strip`, async () => {
         current = browsers.get(name)!;
-        const page = await pane!.open({ width: 1100, height: 640 });
+        const page = await pane!.open({ width: 1200, height: 640 });
         try {
-          // A 1100px pane's gutter cannot hold it, and a push keeps the column's width, so it pushes by
-          // default too.
+          // A 1200px pane's gutter cannot hold it, and a push keeps the 800px column's width, so it
+          // pushes by default too.
           const { panel, toggle } = await openSessionInfo(page, tabRow, "push", "overlay");
           await toggle.click();
           await panel.waitFor({ state: "detached" });
@@ -253,7 +253,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
       current = browsers.get(name)!;
       for (const [width, placement] of [
         [1600, "overlay"],
-        [1100, "push"],
+        [1200, "push"],
       ] as const)
         for (const height of [1400, 800, 420]) {
           const page = await pane!.open({ width, height });
@@ -309,7 +309,7 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
       current = browsers.get(name)!;
       for (const [width, placement] of [
         [1600, "overlay"],
-        [1100, "push"],
+        [1200, "push"],
       ] as const) {
         const cards: ({ height: number } & Awaited<ReturnType<typeof fit>>)[] = [];
         let folded: { shrank: boolean; endsAtContent: boolean; scrolls: boolean } | undefined;
@@ -515,14 +515,14 @@ await requireBrowserLane("session-info-overlay-toggle.test.ts", async () => {
   // its pickers and Send). Its band (.acpmux-composer) is the chat's whole width with the card inset by
   // the column's gutters, and a gradual push draws the panel over the chat's right gutter
   // (SessionInfo.tsx pushedRoom, sessionInfo.css --acpmux-session-info-overlap), over that empty band
-  // and never over the card: at 1100px the card ends at 764px, the panel starts at 772px.
+  // and never over the card, in a 1200px pane where it pushes beside the 800px column.
   // A new chat's dock is `display: contents` (bottomStack.css): its own box is empty, so the card
   // measures its children; the second pass forces that layout on this chat.
   for (const name of browsers.keys())
     for (const contents of [false, true])
       test(`${name}: in a narrow pane, a busy Session Info pushes the chat and never covers the composer${contents ? " (dock display: contents)" : ""}`, async () => {
         current = browsers.get(name)!;
-        const page = await pane!.open({ width: 1100, height: 900 });
+        const page = await pane!.open({ width: 1200, height: 900 });
         try {
           if (contents)
             await page.addStyleTag({

@@ -210,12 +210,12 @@ await requireBrowserLane("session-info-layout-still.test.ts", async () => {
             await close(page);
             await settle(page);
             const closing = await moved(page);
-            // Where the right gutter holds the panel (1600px), and where a push would narrow the column
-            // so it lies over the chat (560, 900 and 1200px; SessionInfo.tsx sessionInfoStage; Leo,
-            // 2026-11-03: "if it would need to be then session info should be an overlay"), nothing else
-            // moves at all. At 1100px it pushes the column left as it opens and back as it closes, and
-            // its content changing still moves nothing.
-            if (width !== 1100)
+            // Where the right gutter holds the panel (1600px), and where a push would narrow Chat Text
+            // Width's 800px column so it lies over the chat (560, 900 and 1100px; SessionInfo.tsx
+            // sessionInfoStage; Leo, 2026-11-03: "if it would need to be then session info should be an
+            // overlay"), nothing else moves at all. At 1200px it pushes the column left as it opens and
+            // back as it closes, and its content changing still moves nothing.
+            if (width !== 1200)
               expect({ opening, content, closing }).toEqual({ opening: [], content: [], closing: [] });
             else expect({ pushed: opening.length > 0, content }).toEqual({ pushed: true, content: [] });
           } finally {
