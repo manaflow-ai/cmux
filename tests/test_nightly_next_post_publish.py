@@ -162,6 +162,61 @@ for trusted in ("publish-nightly-next-github", "publish-nightly-next-github-name
 if "-f nightly_next_post_publish=" not in dispatch or "actions: write" not in dispatch:
     failures.append("dispatch-published-in must dispatch nightly.yml with nightly_next_post_publish")
 
+# The release's mutable names (rolling DMG, feed copy, body, tag) are steps of the upload job, not a job of their
+# own: a second whole-Mac claim cost run 42018687632 a second set-up, token and variant download, and let the
+# 12-min deltas job take cmux15 first, so the names moved 40 min after the feed. The push group runs one push run
+# at a time, and each write first runs still-newest, so no older build writes over a newer one's names.
+def publish_steps() -> list[dict]:
+    import yaml
+
+    return yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish-nightly-next-github"]["steps"]
+
+
+if "\n  publish-nightly-next-github-names:\n" in TEXT:
+    failures.append("the rolling names must be steps of publish-nightly-next-github, not a second whole-Mac job")
+else:
+    steps = publish_steps()
+    names = [str(step.get("name", "")) for step in steps]
+
+    def at(name: str) -> int:
+        return names.index(name) if name in names else -1
+
+    upload, order = at("Publish nightly-next release assets"), at("Check this build is still the feed's newest")
+    writes = {
+        "Take the published feed": "steps.order.outputs.newest == 'true'",
+        "Install the feed order check": "steps.order.outputs.newest == 'true'",
+        "Publish the rolling DMG name and the feed copy": "steps.order.outputs.newest == 'true'",
+        "Record the published build in the release body": "steps.publish_names.outputs.newest == 'true'",
+        "Move the nightly-next tag to the published build": "steps.publish_names.outputs.newest == 'true'",
+    }
+    for name, gate in writes.items():
+        index = at(name)
+        if not 0 <= upload < order < index:
+            failures.append(f"{name!r} must follow the immutable upload and the still-newest check")
+            continue
+        step = steps[index]
+        if gate not in str(step.get("if", "")):
+            failures.append(f"{name!r} must run only when {gate}")
+        # A failed names write never turns the immutable publication red.
+        if step.get("continue-on-error") is not True:
+            failures.append(f"{name!r} must continue on error: the immutable assets are already published")
+    for script in ("github-names-publish-rolling-name", "github-names-record-release-body", "github-names-move-tag"):
+        body = (ROOT / "scripts" / "ci" / "nightly-steps" / f"{script}.sh").read_text()
+        check_at = body.find('"$RUNNER_TEMP/still-newest"')
+        writers = [body.find(writer) for writer in ("publish-release-assets.py", "finalize-release.py",
+                                                     "update-release-tag.py")]
+        write_at = min((i for i in writers if i >= 0), default=-1)
+        if not 0 <= check_at < write_at:
+            failures.append(f"{script}.sh must run still-newest before it writes")
+    if "    concurrency:\n" in job("publish-nightly-next-github"):
+        failures.append("publish-nightly-next-github takes no group: a newer run must never replace its uploads")
+    # Only the source archive reads the build's tree; the 2-min full checkout runs only for it.
+    archive_if = next((str(step.get("if", "")) for step in steps
+                       if step.get("name") == "Publish the cmux-next source archive"), None)
+    checkout_if = next((str(step.get("if", "")) for step in steps if step.get("name") == "Checkout publish ref"), "")
+    if not archive_if or checkout_if != archive_if:
+        failures.append("Checkout publish ref must run only when the source archive step runs")
+
 if failures:
     print("FAIL: NEXT post-publication dependency contract\n  " + "\n  ".join(failures))
     sys.exit(1)
