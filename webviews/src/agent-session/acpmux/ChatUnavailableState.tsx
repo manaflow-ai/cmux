@@ -67,7 +67,9 @@ export function ChatUnavailableState({
   // Still loading, or paused for less than the threshold: nothing shows, in the loading layout, until
   // the chat opens or the wait goes on (then offline or paused, below).
   if (unavailable.reason === "connecting" || (unavailable.reason === "paused" && !pausedShown))
-    return line ? null : <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />;
+    return line ? null : (
+      <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />
+    );
   // A deleted chat names the machine acpmux had it on when the pane knows it, else the tab's machine;
   // one not connected names only the peer acpmux had it on, never this Mac's name (the handshake's
   // for a chat of this Mac); one not found here is not on the tab's machine.
