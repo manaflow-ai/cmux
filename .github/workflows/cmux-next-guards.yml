@@ -366,10 +366,20 @@ jobs:
             groups=(--group ci --group release-notary)
           fi
           scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
-          if [ -d .guard-base ]; then
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" --root .guard-base \
+          # The base re-runs only the steps red on the head (guards_new_reds.py --red-steps): a step green on the
+          # head is never the change's, and the full base pass doubled the job once release-notary joined it.
+          steps=()
+          while IFS= read -r step; do
+            [ -n "$step" ] && steps+=(--step "$step")
+          done < <(python3 scripts/ci/guards_new_reds.py --red-steps "$RUNNER_TEMP/guards-head.json")
+          if [ -d .guard-base ] && [ "${#steps[@]}" -gt 0 ]; then
+            echo "re-running the head's $(( ${#steps[@]} / 2 )) red steps on the base"
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
               --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 || true
             tail -1 "$RUNNER_TEMP/guards-base.log"
+          elif [ -d .guard-base ]; then
+            echo "no red step on the head; the base is not re-run"
+            echo '{}' > "$RUNNER_TEMP/guards-base.json"
           fi
           if [ "$GUARDS_AT_TIP" = true ]; then
             python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/guards-head.json"
