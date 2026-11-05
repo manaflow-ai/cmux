@@ -1,0 +1,20 @@
+{
+ "id": "cmdn-refill",
+ "priority": "P2",
+ "title": "INSTANT OWNER: the main thread after Cmd-N while the next press's view builds (single, pairs at 100 / 300 ms, typing at once)",
+ "why": "REWRITE R-INPUT checks (3) and (4) for the prebuilt Cmd-N view (STATUS 15363): the longest main-thread work per frame after each press, misses, the hit rate, and typed text that reaches the new pane. Same journey on base and fix, same mini.",
+ "source": "cmdn-latency",
+ "budget_seconds": 420,
+ "steps": [
+  {"do": "wait", "seconds": 3},
+  {"do": "base_terminal"},
+  {"do": "latency_runs", "bench": "create", "command": "new_workspace", "runs": 2, "label": "light-warmup", "gap": 0.8},
+  {"do": "refill_probe", "runs": 12, "window": 2.0, "label": "single"},
+  {"do": "refill_probe", "runs": 8, "window": 2.0, "pair_gap": 0.1, "label": "pair-100"},
+  {"do": "refill_probe", "runs": 8, "window": 2.0, "pair_gap": 0.3, "label": "pair-300"},
+  {"do": "refill_probe", "runs": 5, "window": 1.0, "type": true, "label": "type-at-once"},
+  {"do": "refocus_terminal"},
+  {"do": "type", "text": "echo cmdnrefill-${nonce}", "enter": true},
+  {"do": "expect", "title": "the app still types", "timeout": 10, "all": [{"pane_frame_text": "cmdnrefill-${nonce}"}, {"daemon_contains": "cmdnrefill-${nonce}"}, {"app_text_contains": "cmdnrefill-${nonce}"}]}
+ ]
+}

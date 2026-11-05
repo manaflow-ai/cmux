@@ -15,6 +15,10 @@ Steps (`do`):
   xctrace_presses {runs, gap, window_ms, top, label}
                                       presses under one `xctrace record --template "Time Profiler" --all-processes`;
                                       each press's main-thread samples on the bench's clock, by phase and 5 ms bin
+  refill_probe {runs, window, pair_gap?, type?, label}
+                                      the main thread after each timed Cmd-N, while the next press's view may build
+                                      (debug.frames: longest main-thread work per frame, missed refreshes); `pair_gap`:
+                                      a first Cmd-N by key that many s before; `type`: a nonce typed at once, then read
   grow_workspaces {count, busy}       STRESS-lite set-up: script workspaces and busy terminals, then the base
                                       terminal shown and focused again
 """
@@ -210,6 +214,100 @@ def refocus_terminal(j, step):
                 return j.adopt(place[2], view.get("pane"), int(view["host_pid"]) if view.get("host_pid") else None)
         time.sleep(0.2)
     raise StepError(f"no daemon terminal for the focused pane after the presses: {why}")
+
+
+def _rank(values, q):
+    """Nearest-rank percentile `q` of the numbers in `values`, or None."""
+    import math
+    vals = sorted(v for v in values if isinstance(v, (int, float)))
+    if not vals:
+        return None
+    return round(vals[max(0, min(len(vals) - 1, int(math.ceil(q / 100.0 * len(vals))) - 1))], 2)
+
+
+def _dist(values):
+    vals = [v for v in values if isinstance(v, (int, float))]
+    return {"n": len(vals), "p50": _rank(vals, 50), "p95": _rank(vals, 95), "p99": _rank(vals, 99),
+            "max": round(max(vals), 2) if vals else None}
+
+
+def refill_probe(j, step):
+    """REWRITE R-INPUT's checks (3) and (4) for a Cmd-N whose view is built before the key: the main thread in
+    the `window` s after each timed press, when the next press's view may build off the key's turn. Per run:
+    debug.frames start, a timed Cmd-N (debug.new_tab bench_create), `window` s, debug.frames stop and read with
+    the per-frame arrays. `after_main_max_ms` is the longest main-thread work in one frame after the first
+    frames_to_visible + 1 frames (the press's own turn and its first frame are before), `after_missed` the
+    refreshes missed there. `pair_gap`: a first Cmd-N by key that many s before the timed one (the timed one lands
+    in the first one's refill). `type`: a nonce typed through debug.key at once after the timed press, then read
+    back from the new pane's pixels (pane_frame_text). The spans named cmdN.reserved.* (hit, miss reasons,
+    build turns) are counted. Then the workspaces the run made close, back to the base terminal."""
+    rows = []
+    window = float(step.get("window", 2.0))
+    pair_gap = step.get("pair_gap")
+    for index in range(int(step.get("runs", 10))):
+        made = 0
+        if pair_gap is not None:
+            j.key("n", ["command"])
+            made += 1
+            time.sleep(float(pair_gap))
+        j.app.rpc("debug.frames", {"action": "start"})
+        reply = j.app.rpc("debug.new_tab", {"action": "bench_create", "command": "new_workspace"}, timeout=25) or {}
+        made += 1
+        nonce, pane = None, None
+        if step.get("type"):
+            view = focused_pane(j)
+            pane = view.get("pane") or view.get("id")
+            nonce = f"cmdnrefill{j.nonce}x{index}"
+            for char in nonce:
+                j.key(char, [])
+                time.sleep(0.01)
+        time.sleep(window)
+        j.app.rpc("debug.frames", {"action": "stop"})
+        frames = j.app.rpc("debug.frames", {"raw": True}) or {}
+        skip = int(reply.get("frames_to_visible") or 0) + 1
+        main_ms, intervals = list(frames.get("main_ms") or []), list(frames.get("intervals_ms") or [])
+        refresh = float(frames.get("refresh_ms") or 0)
+        after_main, after_iv = main_ms[skip:], intervals[skip:]
+        spans = [s for s in (reply.get("spans") or []) if str(s.get("name", "")).startswith("cmdN.reserved")]
+        reserved = {}
+        for s in spans:
+            reserved[s["name"]] = reserved.get(s["name"], 0) + 1
+        typed = None
+        if nonce:
+            try:
+                j.step_expect({"title": "typed at once after Cmd-N", "timeout": 10,
+                               "all": [{"pane_frame_text": {"text": nonce, "pane": pane}}]})
+                typed = True
+            except StepError as error:
+                typed = str(error)[:300]
+        rows.append({"run": index, "visible_ms": reply.get("visible_ms"), "key_ms": reply.get("key_ms"),
+                     "committed_ms": reply.get("committed_ms"), "frames_to_visible": reply.get("frames_to_visible"),
+                     "key_changes": reply.get("key_changes"), "reserved": reserved,
+                     "build_ms": {s["name"]: s.get("ms") for s in spans if ".build." in s["name"]},
+                     "window_main_max_ms": frames.get("main_max_ms"), "window_missed": frames.get("missed"),
+                     "window_max_interval_ms": frames.get("max_ms"),
+                     "after_main_max_ms": round(max(after_main), 2) if after_main else None,
+                     "after_missed": sum(1 for v in after_iv if refresh and v > refresh * 1.5),
+                     "typed": typed, "pair_gap": pair_gap})
+        time.sleep(0.4)
+        for _ in range(made):
+            if focused_pane(j).get("kind") == "terminal":
+                break
+            j.app.rpc("action.run", {"action": "closeWorkspace", "args": {"confirm": True}})
+            time.sleep(0.3)
+        end = now() + 10
+        while now() < end and focused_pane(j).get("kind") != "terminal":
+            time.sleep(0.1)
+        time.sleep(float(step.get("gap", 1.0)))
+    hits = sum(1 for r in rows if r["reserved"].get("cmdN.reserved.hit"))
+    summary = {key: _dist([r[key] for r in rows]) for key in
+               ("visible_ms", "key_ms", "after_main_max_ms", "after_missed", "window_main_max_ms")}
+    summary["build_init_ms"] = _dist([r["build_ms"].get("cmdN.reserved.build.init") for r in rows])
+    summary["build_mount_ms"] = _dist([r["build_ms"].get("cmdN.reserved.build.mount") for r in rows])
+    summary["hit"] = f"{hits}/{len(rows)}"
+    if step.get("type"):
+        summary["typed_ok"] = f"{sum(1 for r in rows if r['typed'] is True)}/{len(rows)}"
+    return {"bench": "refill", "label": step.get("label", ""), "rows": rows, "summary": summary}
 
 
 def focused_pane(j):
@@ -462,5 +560,5 @@ def daemon_terminal(j, workspace_name, pane_key):
     return sorted(found, reverse=True)[0][2]
 
 
-STEPS = {"base_terminal": base_terminal, "refocus_terminal": refocus_terminal, "latency_runs": latency_runs, "sample_presses": sample_presses,
+STEPS = {"base_terminal": base_terminal, "refocus_terminal": refocus_terminal, "refill_probe": refill_probe, "latency_runs": latency_runs, "sample_presses": sample_presses,
          "xctrace_presses": xctrace_presses, "grow_workspaces": grow_workspaces}
