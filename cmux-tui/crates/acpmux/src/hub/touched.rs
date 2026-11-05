@@ -220,14 +220,7 @@ impl Hub {
         let mut provenance = crate::prompt_provenance::notice(&notice, &to.id);
         set(&mut provenance, "kind", json!(NOTICE_KIND));
         set(&mut provenance, "whoElse", row.clone());
-        let opts = PromptOptions {
-            prompt_id: Some(format!("who-else-{}-{other_id}", turn.turn_id)),
-            resend: true,
-            // Into this turn or nowhere: a turn that ended meanwhile hears it at its next edit.
-            steer_only: true,
-            provenance: Some(provenance),
-            ..PromptOptions::default()
-        };
+        let opts = notice_options(&turn.turn_id, other_id, provenance);
         let blocks = vec![json!({"type": "text", "text": text})];
         let (hub, to, other) = (self.clone(), to.clone(), other_id.to_owned());
         tokio::spawn(async move {
@@ -380,6 +373,20 @@ impl Hub {
 }
 
 /// Sets `key` of the object `v` (nothing when `v` is not an object).
+/// The notice's prompt options: steered into turn `turn_id` or nowhere. A turn that ended before
+/// the steer ran refuses it (`turns.rs`), so the notice never lands in the next turn; that turn
+/// hears it at its next shared edit.
+fn notice_options(turn_id: &str, other_id: &str, provenance: Value) -> PromptOptions {
+    PromptOptions {
+        prompt_id: Some(format!("who-else-{turn_id}-{other_id}")),
+        resend: true,
+        steer_only: true,
+        interrupt_turn: Some(turn_id.to_owned()),
+        provenance: Some(provenance),
+        ..PromptOptions::default()
+    }
+}
+
 fn set(v: &mut Value, key: &str, value: Value) {
     if let Some(o) = v.as_object_mut() {
         o.insert(key.to_owned(), value);

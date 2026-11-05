@@ -169,3 +169,39 @@ async fn an_edit_of_a_file_another_running_session_edits_steers_one_notice_into_
     tokio::task::spawn_blocking(move || std::fs::write(fifo, b"go")).await.unwrap().unwrap();
     turn.await.unwrap().unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_notice_for_a_turn_that_ended_is_refused_not_steered_into_the_next() {
+    let f = fixture().await;
+    let b = f.session(&f.linked).await;
+    let mut events = f.hub.subscribe();
+    let fifo = f.dir.join("gate");
+    let path = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let (hub, session) = (f.hub.clone(), b.clone());
+    let text = format!("gate: {}", fifo.display());
+    let turn = tokio::spawn(async move {
+        hub.prompt(&session, vec![json!({"type": "text", "text": text})], "test", false).await
+    });
+    said(&mut events, &b.id, "before-gate").await;
+    let notice = |turn_id: &str| {
+        let mut provenance = crate::prompt_provenance::notice(
+            &json!({"sender": NOTICE_SENDER, "severity": "info", "title": "t"}),
+            &b.id,
+        );
+        set(&mut provenance, "kind", json!(NOTICE_KIND));
+        notice_options(turn_id, "other", provenance)
+    };
+    let blocks = || vec![json!({"type": "text", "text": "[notice from acpmux who-else] t"})];
+
+    // Built for a turn that has ended: the turn running now is another one, so it is refused.
+    let stale = f.hub.prompt_with(&b, blocks(), "acpmux", true, notice("ended")).await;
+    assert!(stale.is_err(), "{stale:?}");
+    // Built for the running turn: steered into it.
+    let running = b.turn().unwrap().turn_id;
+    f.hub.prompt_with(&b, blocks(), "acpmux", true, notice(&running)).await.unwrap();
+    said(&mut events, &b.id, "steer: [notice from acpmux who-else]").await;
+
+    tokio::task::spawn_blocking(move || std::fs::write(fifo, b"go")).await.unwrap().unwrap();
+    turn.await.unwrap().unwrap();
+}
