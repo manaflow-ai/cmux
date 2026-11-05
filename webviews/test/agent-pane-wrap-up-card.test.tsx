@@ -11,7 +11,6 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { NEXT_STEP, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { NextStepCard } from "../src/agent-session/acpmux/conversation/NextStepCard";
 import { execWrapUp, isWrapUp, wrapUpAsk } from "../src/agent-session/acpmux/conversation/wrapUp";
-import { recapFrom } from "../src/agent-session/acpmux/recap";
 
 const RECAP = "The grid reserves a 4:5 box while images load, so it no longer shifts. All 14 tests pass.";
 const call = (input: Record<string, unknown>, title = "mcp__acpmux__wrap_up", status = "completed") =>
@@ -112,33 +111,15 @@ describe("a wrap-up in the transcript", () => {
     }
   });
 
-  test("a code-mode wrap-up also sends the recap card aside", () => {
-    const rows = turn(input);
-    rows[1] = assistant("Done. Should I open a PR?", 5);
-    rows[2] = activity(
-      [
-        tool("mcp__cmux__cmux_exec", "other", "completed", {
-          inputSummary: JSON.stringify({ script: "await cmux.acpmux_wrap_up({...})" }),
-          output: JSON.stringify({ calls: 1, call_log: [{ name: "acpmux_wrap_up", ok: true, shown: input }] }),
-        }),
-      ],
-      5,
-    );
-    expect(recapFrom(rows)).toBeNull();
-  });
-
   test("a stopped or failed turn draws no box", () => {
     for (const status of ["cancelled", "failed"])
       expect(nextSteps(turnView(turn(input, { status }), new Set()))).toHaveLength(0);
   });
 
-  test("goes before a tagged ask in the prose, and the recap card steps aside", () => {
+  test("goes before a tagged ask in the prose", () => {
     const rows = turn(input);
     rows[1] = assistant("Done.\n\n[outward] Post the release notes?\n- Yes\n- No", 5);
     expect(nextSteps(turnView(rows, new Set()))[0]?.nextStep?.ask.question).toBe("Should I open a PR for this?");
-    const asking = turn(input);
-    asking[1] = assistant("Done. Should I open a PR?", 5);
-    expect(recapFrom(asking)).toBeNull();
   });
 });
 

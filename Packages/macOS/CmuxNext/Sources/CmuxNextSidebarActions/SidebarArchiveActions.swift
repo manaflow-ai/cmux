@@ -7,8 +7,11 @@ public import CmuxNextSidebar
 public protocol SidebarArchiveHost: AnyObject {
     /// The invocation's workspace id; throws when it targets none.
     func archiveWorkspace(_ invocation: ActionInvocation) throws -> String
-    /// The workspace ids the run acts on: the selection for a person's menu run, else the target.
-    func archiveRows(_ invocation: ActionInvocation) throws -> [String]
+    /// The workspace ids the run acts on. With no `close`: the selection for a person's menu run, else
+    /// the target. With `close` (Close Other Workspaces, Close Other Workspaces in Group, Close
+    /// Workspaces Below or Above): the rows, in sidebar order, that it would close for `invocation`,
+    /// less the pinned ones (what its archive counterpart archives).
+    func archiveRows(_ invocation: ActionInvocation, closedBy close: ActionID?) throws -> [String]
     /// The personal or document id of the invocation's group; throws when there is none.
     func archiveGroupID(_ invocation: ActionInvocation) throws -> String
     /// The document item that places workspace `id`; nil while it is not placed yet.
@@ -41,7 +44,7 @@ public final class SidebarArchiveActions {
         registry.bindEffect("workspace.toggleArchive", unavailable: unavailable, effect: { [self] invocation in
             // Every selected row takes the right-clicked row's new state, as Pin does.
             self.toggle(invocation, ArchiveStrings.archiveWorkspace, ArchiveStrings.unarchiveWorkspace) { [self] host in
-                (try self.placed(host.archiveWorkspace(invocation)), try host.archiveRows(invocation).map { try self.placed($0) })
+                (try self.placed(host.archiveWorkspace(invocation)), try host.archiveRows(invocation, closedBy: nil).map { try self.placed($0) })
             }
         })
         registry.bindEffect("workspaceGroup.toggleArchive", unavailable: unavailable, effect: { [self] invocation in

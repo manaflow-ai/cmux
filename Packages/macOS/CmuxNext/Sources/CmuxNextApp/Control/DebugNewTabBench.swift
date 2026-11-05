@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextSettings
 import CmuxNextWakeups
+import CmuxNextControl
 
 /// `debug.new_tab` benches (R81): Cmd-W on a new tab page and `!` in its
 /// field, each driven through the real key path (`debug.key`), with the
@@ -80,78 +81,6 @@ enum DebugNewTabBench {
             "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),
             "frames": stats,
         ])
-    }
-}
-
-/// Display-link frame intervals between `start` and `stop`.
-@MainActor
-final class BenchFrames {
-    private lazy var client = FrameClient(owner: "debug.new_tab.frames", isAnimation: false, on: .app) { [weak self] tick in
-        self?.tick(tick)
-        return true
-    }
-    private var last: CFTimeInterval = 0
-    private var intervals: [Double] = []
-    private var refresh: Double = 0
-    private var waiter: Waiter?
-    private var startedAt = ContinuousClock.now
-    /// Ms from ``start()`` to the first display frame after it.
-    private var firstTick: Double?
-
-    private struct Waiter {
-        var done: () -> Bool
-        var start: ContinuousClock.Instant
-        var window: Double
-        var deadline: Double
-        var visible: Double?
-        var continuation: CheckedContinuation<Double?, Never>
-    }
-
-    /// Resumes with the ms at which `done` first held (checked each frame), once `window` ms of
-    /// frames followed it, or nil at `deadline` ms.
-    func settled(until done: @escaping () -> Bool, start: ContinuousClock.Instant, window: Double, deadline: Double) async -> Double? {
-        await withCheckedContinuation { continuation in
-            waiter = Waiter(done: done, start: start, window: window, deadline: deadline, continuation: continuation)
-        }
-    }
-
-    func start() {
-        last = 0
-        startedAt = .now
-        firstTick = nil
-        intervals.removeAll(keepingCapacity: true)
-        client.activate()
-    }
-
-    func stop() -> JSONValue {
-        client.deactivate()
-        let period = refresh * 1_000
-        let missed = period > 0 ? intervals.filter { $0 > period * 1.5 }.count : 0
-        return .object([
-            "count": .number(Double(intervals.count)), "refresh_ms": .number(period),
-            "max_ms": .number(intervals.max() ?? 0), "missed": .number(Double(missed)),
-            "first_tick_ms": firstTick.map { .number($0) } ?? .null,
-            "intervals_ms": .array(intervals.prefix(64).map { .number(($0 * 100).rounded() / 100) }),
-        ])
-    }
-
-    private func tick(_ tick: FrameTick) {
-        if let interval = tick.refreshInterval { refresh = interval }
-        if firstTick == nil { firstTick = BenchSpans.ms(.now - startedAt) }
-        if last > 0 { intervals.append((tick.timestamp - last) * 1_000) }
-        last = tick.timestamp
-        guard var waiting = waiter else { return }
-        let now = BenchSpans.ms(.now - waiting.start)
-        if waiting.visible == nil, waiting.done() { waiting.visible = now }
-        if let visible = waiting.visible, now - visible >= waiting.window || now >= waiting.deadline {
-            waiter = nil
-            waiting.continuation.resume(returning: visible)
-        } else if waiting.visible == nil, now >= waiting.deadline {
-            waiter = nil
-            waiting.continuation.resume(returning: nil)
-        } else {
-            waiter = waiting
-        }
     }
 }
 #endif

@@ -1188,6 +1188,7 @@
           {
             "key" : "agents.2",
             "rows" : [
+              "agentPane.display.font.ui",
               "agentPane.display.font.preset",
               "agentPane.display.font.size",
               "agentPane.display.font.lineHeight",
@@ -43386,6 +43387,250 @@
       "title" : {
         "key" : "settings.agentPane.display.font",
         "text" : "Chat Font"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "inter-tuned",
+        "inter",
+        "verdana",
+        "roboto",
+        "plex",
+        "source-sans",
+        "geist",
+        "cmux-sans",
+        "hanken",
+        "atkinson",
+        "system-ui",
+        "system-ui-tight"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontInterTuned",
+            "text" : "cmux Inter (default)"
+          },
+          "value" : "inter-tuned"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontInter",
+            "text" : "Inter"
+          },
+          "value" : "inter"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontVerdana",
+            "text" : "Verdana"
+          },
+          "value" : "verdana"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontRoboto",
+            "text" : "Roboto"
+          },
+          "value" : "roboto"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontPlex",
+            "text" : "IBM Plex Sans"
+          },
+          "value" : "plex"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontSourceSans",
+            "text" : "Source Sans 3"
+          },
+          "value" : "source-sans"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontGeist",
+            "text" : "Geist"
+          },
+          "value" : "geist"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontCmuxSans",
+            "text" : "cmux Sans"
+          },
+          "value" : "cmux-sans"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontHanken",
+            "text" : "Hanken Grotesk"
+          },
+          "value" : "hanken"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontAtkinson",
+            "text" : "Atkinson Hyperlegible Next"
+          },
+          "value" : "atkinson"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontSystemUi",
+            "text" : "System"
+          },
+          "value" : "system-ui"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatUiFontSystemUiTight",
+            "text" : "System, tight"
+          },
+          "value" : "system-ui-tight"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "inter-tuned",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.uiFont.help",
+        "text" : "The font of the whole chat: replies, the composer, cards and menus."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.ui",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "interface",
+        "ui",
+        "typeface",
+        "verdana",
+        "roboto",
+        "inter",
+        "plex",
+        "geist",
+        "source sans",
+        "cmux sans",
+        "hanken",
+        "atkinson"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "ui"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.font.ui"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.uiFont",
+        "text" : "Chat Interface Font"
       },
       "validation" : "portable"
     },

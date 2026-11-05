@@ -1,6 +1,7 @@
 #if os(iOS)
 @preconcurrency import AVFoundation
 import CmuxMobileDesign
+import CmuxMobileModel
 import SwiftUI
 import UIKit
 
@@ -8,7 +9,9 @@ private let theme = CmuxMobileTheme.standard
 
 /// Settings → Devices → "Scan QR on your Mac": the camera reads the pairing
 /// code cmux shows on the Mac and hands its text to `open`
-/// (``SettingsDeviceDirectory/openPairingCode(_:)``).
+/// (``SettingsDeviceDirectory/openPairingCode(_:)``). A Mac's invite for a new
+/// machine (Pair Another Machine…, `https://cmux.com/pair?i=…`) opens
+/// ``MachineInviteSheet`` here, with its code filled in.
 struct PairCodeScannerSheet: View {
     /// Takes a scanned code's text; true when the app took it as a pairing code.
     let open: (String) -> Bool
@@ -17,35 +20,20 @@ struct PairCodeScannerSheet: View {
     @State private var access = AVCaptureDevice.authorizationStatus(for: .video)
     /// A code was read that is no live pairing code for this account.
     @State private var rejected = false
+    /// A scanned invite for a new machine: the sheet shows it in place of the camera.
+    @State private var invite: MachineInvite?
 
     var body: some View {
         NavigationStack {
             Group {
-                switch access {
-                case .authorized:
-                    PairCodeCameraView { code in
-                        if open(code) { dismiss() } else { rejected = true }
-                    }
-                    .ignoresSafeArea()
-                    .overlay(alignment: .bottom) { hint }
-                case .notDetermined:
-                    ProgressView()
-                default:
-                    ContentUnavailableView {
-                        Label("Camera access is off", systemImage: "camera")
-                    } description: {
-                        Text("Allow cmux to use the camera in Settings to scan the code on your Mac.")
-                    } actions: {
-                        Button("Open Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                        }
-                    }
+                if let invite {
+                    MachineInviteSheet(invite: invite)
+                } else {
+                    scanner
                 }
             }
-            .navigationTitle("Scan QR on your Mac")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(invite == nil ? "Cancel" : "Done") { dismiss() } }
             }
         }
         .task {
@@ -53,6 +41,35 @@ struct PairCodeScannerSheet: View {
             _ = await AVCaptureDevice.requestAccess(for: .video)
             access = AVCaptureDevice.authorizationStatus(for: .video)
         }
+    }
+
+    private var scanner: some View {
+        Group {
+            switch access {
+            case .authorized:
+                PairCodeCameraView { code in
+                    if let scanned = MachineInvite(text: code) {
+                        invite = scanned
+                    } else if open(code) { dismiss() } else { rejected = true }
+                }
+                .ignoresSafeArea()
+                .overlay(alignment: .bottom) { hint }
+            case .notDetermined:
+                ProgressView()
+            default:
+                ContentUnavailableView {
+                    Label("Camera access is off", systemImage: "camera")
+                } description: {
+                    Text("Allow cmux to use the camera in Settings to scan the code on your Mac.")
+                } actions: {
+                    Button("Open Settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Scan QR on your Mac")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private var hint: some View {
