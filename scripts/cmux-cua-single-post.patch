@@ -1,0 +1,117 @@
+diff --git a/libs/cmux-cua/rust/crates/platform-macos/src/input/mouse.rs b/libs/cmux-cua/rust/crates/platform-macos/src/input/mouse.rs
+index 58527e8..ef0f31f 100644
+--- a/libs/cmux-cua/rust/crates/platform-macos/src/input/mouse.rs
++++ b/libs/cmux-cua/rust/crates/platform-macos/src/input/mouse.rs
+@@ -365,8 +365,7 @@ fn click_at_xy_inner(
+ ///  - f58 = constant click-group ID across all events (gesture coalescing)
+ ///  - `CGEventSetWindowLocation` per-event (window-local point)
+ ///
+-/// Uses both SkyLight `SLEventPostToPid` AND `CGEvent::post_to_pid` (belt+suspenders)
+-/// for AppKit / Catalyst target coverage.
++/// Posts each event once (`post_mouse_once`).
+ pub fn click_at_xy_chromium(
+     pid: i32,
+     screen_x: f64,
+@@ -454,18 +453,10 @@ pub(crate) fn click_at_xy_chromium_guarded(
+         }
+     };
+ 
+-    // Belt+suspenders: SkyLight path for Chromium/Catalyst + public API for AppKit.
+-    let post = |event: &CGEvent| {
+-        let ptr = event.as_ptr() as *mut std::ffi::c_void;
+-        crate::input::skylight::post_to_pid(pid as libc::pid_t, ptr, false);
+-        event.post_to_pid(pid as libc::pid_t);
+-    };
++    let post = |event: &CGEvent| post_mouse_once(pid, event);
+     let post_guarded = |event: &CGEvent| -> anyhow::Result<()> {
+-        let ptr = event.as_ptr() as *mut std::ffi::c_void;
+-        gate.check()?;
+-        crate::input::skylight::post_to_pid(pid as libc::pid_t, ptr, false);
+         gate.check()?;
+-        event.post_to_pid(pid as libc::pid_t);
++        post_mouse_once(pid, event);
+         Ok(())
+     };
+ 
+@@ -961,7 +952,7 @@ pub enum DragButton {
+ /// Middle-click at `(x, y)` with optional modifier keys.
+ ///
+ /// Posts an `OtherMouseDown` / `OtherMouseUp` pair with `CGMouseButton::Center`
+-/// to the target pid through the same SkyLight + public-API postBoth path the
++/// to the target pid through the same single post (`post_mouse_once`) the
+ /// left- and right-click primitives use. Window-local stamping mirrors
+ /// `right_click_at_xy_with_window_local`.
+ pub fn middle_click_at_xy(pid: i32, x: f64, y: f64, modifiers: &[&str]) -> anyhow::Result<()> {
+@@ -1188,13 +1179,7 @@ fn right_click_at_xy_inner(
+     )
+ }
+ 
+-/// Post a mouse event to `pid`.
+-///
+-/// Matches Swift's `MouseInput.postBoth(_:toPid:)`:
+-/// - Fires `SLEventPostToPid` (SkyLight path — reaches backgrounded Chromium/Catalyst).
+-/// - Also fires `CGEvent::post_to_pid` (public path — lands on AppKit targets where
+-///   SkyLight mouse delivery drops).
+-/// Both are always posted in sequence regardless of whether the other succeeded.
++/// Post a mouse event to `pid`, once (`post_mouse_once`).
+ ///
+ /// Field stamps applied (always):
+ /// - f40 = `pid`  (Chromium's synthetic-event filter)
+@@ -1232,10 +1217,7 @@ pub(crate) fn post_mouse_event(
+         button_number,
+         subtype,
+     );
+-    let event_ptr = event.as_ptr() as *mut std::ffi::c_void;
+-
+-    crate::input::skylight::post_to_pid(pid as libc::pid_t, event_ptr, false);
+-    event.post_to_pid(pid as libc::pid_t);
++    post_mouse_once(pid, event);
+ }
+ 
+ fn post_mouse_event_guarded(
+@@ -1259,15 +1241,26 @@ fn post_mouse_event_guarded(
+         button_number,
+         subtype,
+     );
+-    let event_ptr = event.as_ptr() as *mut std::ffi::c_void;
+-
+-    gate.check()?;
+-    crate::input::skylight::post_to_pid(pid as libc::pid_t, event_ptr, false);
+     gate.check()?;
+-    event.post_to_pid(pid as libc::pid_t);
++    post_mouse_once(pid, event);
+     Ok(())
+ }
+ 
++/// Post a mouse event to `pid` through one path: SkyLight's `SLEventPostToPid` (mouse events
++/// carry no auth envelope), or `CGEvent::post_to_pid` only when that SPI is absent, as
++/// `keyboard.rs` posts keys.
++///
++/// Posting through both delivered each click twice to AppKit and Electron targets. cmux's input
++/// A/B (scripts/measure/cu-driver-eval, macOS 26.5.2, 3 reps, these stamped fields) measured
++/// each path alone: either one delivered every click and scroll the pair delivered, in the
++/// background without a focus change and in the foreground, once.
++fn post_mouse_once(pid: i32, event: &CGEvent) {
++    let event_ptr = event.as_ptr() as *mut std::ffi::c_void;
++    if !crate::input::skylight::post_to_pid(pid as libc::pid_t, event_ptr, false) {
++        event.post_to_pid(pid as libc::pid_t);
++    }
++}
++
+ fn prepare_mouse_event(
+     pid: i32,
+     event: &CGEvent,
+@@ -1493,12 +1486,8 @@ pub(crate) fn scroll_wheel_at_xy_guarded(
+         // f40 = target pid (Chromium synthetic-event filter).
+         crate::input::skylight::set_integer_field(event_ptr, 40, pid as i64);
+ 
+-        // Belt+suspenders post: SkyLight reaches backgrounded Chromium/Catalyst;
+-        // the public path lands on AppKit/WKWebView. Mouse-class → no auth envelope.
+         gate.check()?;
+-        crate::input::skylight::post_to_pid(pid as libc::pid_t, event_ptr, false);
+-        gate.check()?;
+-        event.post_to_pid(pid as libc::pid_t);
++        post_mouse_once(pid, &event);
+ 
+         std::thread::sleep(std::time::Duration::from_millis(30));
+     }

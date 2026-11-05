@@ -700,7 +700,9 @@ jobs:
   pr-quiet-period:
     if: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 && !contains(github.event.pull_request.labels.*.name, 'leo-named-fix') && format('{0}', vars.CI_PR_QUIET_PERIOD_SECONDS) != '0' }}
     name: cmux-next PR quiet period
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    # A fork's run takes hosted Ubuntu too: the job checks nothing out and holds no token, so the sleep never
+    # holds Blacksmith.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 12
     permissions: {}
     steps:

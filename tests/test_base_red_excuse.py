@@ -1,5 +1,7 @@
 """gh-merge-green excuses a red check only when the base branch's latest completed run has the same failures."""
+import contextlib
 import copy
+import io
 import importlib.util
 import json
 import os
@@ -270,6 +272,34 @@ class LastRealAttempt(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[SWIFT])
         self.assertEqual(excuse.last_real_jobs(REPO, 10, github), [])
+
+
+class NoFailureExitsZero(unittest.TestCase):
+    """2026-11-05: asked about a head with no red (no --run, no --check), the classifier exited 1 with "no failed job
+    found on the head to compare with the base" (cmuxterm-hq#7234 at ce69ab6d, 16/16 green), so a merge check that
+    ran it on every head refused every green PR. No failure is exit 0; a red run or check that was named and shows
+    no failed job is still refused (LastRealAttempt)."""
+
+    def test_no_run_or_check_named_is_no_failure(self):
+        github = FakeGitHub()
+        self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], github),
+                         [f"no red run or check named on {HEAD}: no failure to excuse"])
+        self.assertEqual(github.routes, [])  # nothing to read
+
+    def test_main_exits_0_on_no_failure(self):
+        out = io.StringIO()
+        with unittest.mock.patch.object(excuse, "GitHub", FakeGitHub), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None), \
+                contextlib.redirect_stdout(out):
+            code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD])
+        self.assertEqual(code, 0)
+        self.assertIn("no failure to excuse", out.getvalue())
+
+    def test_a_named_run_with_no_failed_job_is_still_refused(self):
+        github = FakeGitHub()
+        github.jobs = {}
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
 
 class JobLogEndpoint(unittest.TestCase):
@@ -3088,6 +3118,14 @@ class WsCheckPerTest(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "is before the merge-base"):
             self.judge()
 
+    def test_a_green_head_exits_0(self):
+        # 2026-11-05: a green leo-workspace head read "'ws-check' passed: nothing red to excuse" and exited 1, so a
+        # merge check asking about a green head was refused. No failure is exit 0.
+        self.gh.verdict(HEAD, 1, {}, state="success", description="12 steps passed")
+        audit = self.judge()
+        self.assertEqual(audit, [f"'ws-check' passed on {HEAD}: no failure to excuse"])
+        self.assertEqual(self.judge(checks=["ws-check"]), audit)
+
     def test_a_pending_or_error_head_is_no_result(self):
         for state in ("pending", "error"):
             self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()}, state=state, description="running")
@@ -3155,8 +3193,9 @@ class WsCheckPerTest(unittest.TestCase):
         audit = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh)
         self.assertEqual(len(audit), 1)
         self.assertTrue(audit[0].startswith(f"excused '{SWIFT}'"), audit[0])
-        with self.assertRaisesRegex(excuse.Refused, "no failed job found on the head"):
-            excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh)
+        # a cmux head asked about no red is no failure (NoFailureExitsZero), never the ws-check path
+        self.assertEqual(excuse.judge(REPO, "feat-cmux-next", HEAD, [], gh),
+                         [f"no red run or check named on {HEAD}: no failure to excuse"])
 
 
 if __name__ == "__main__":

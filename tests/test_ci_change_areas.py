@@ -1402,6 +1402,19 @@ def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> Non
     assert module.test_registry_change_is_linux_only(base, base + guard)
     assert module.test_registry_change_is_linux_only(base + guard, base)
     assert module.test_registry_change_is_linux_only(base, base + '\n# comment\n')
+    # The split into area fragments re-ordered the entries; order alone is no native change.
+    two = base + '\n[[test]]\npath = "tests/native2.py"\nlane = "macos-shell"\n'
+    swapped = 'version = 1\n[[test]]\npath = "tests/native2.py"\nlane = "macos-shell"\n' + base.removeprefix('version = 1\n')
+    assert module.test_registry_change_is_linux_only(two, swapped)
+    # The registry has serial entries; one is no reason to treat every edit as native.
+    serial_native = base + 'serial = true\n'
+    assert module.test_registry_change_is_linux_only(serial_native, serial_native + guard)
+    assert module.test_registry_change_is_linux_only(base, base + guard + 'serial = true\n')
+    assert not module.test_registry_change_is_linux_only(base, serial_native), "a native entry's serial is native"
+    # An unchanged guard entry with requirements (the registry's fish one) does not make every edit native.
+    fish_guard = '\n[[test]]\npath = "tests/fish.py"\nlane = "linux-guard"\nrequirements = ["fish"]\n'
+    assert module.test_registry_change_is_linux_only(base + fish_guard, base + fish_guard + guard)
+    assert not module.test_registry_change_is_linux_only(base, base + fish_guard), "adding one still needs fish"
     for candidate in (
         base.replace('macos-shell', 'linux-guard'),
         base.replace('native.py', 'other.py'),
@@ -1412,6 +1425,22 @@ def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> Non
     ):
         assert not module.test_registry_change_is_linux_only(base, candidate), candidate
     assert not module.test_registry_change_is_linux_only('invalid TOML', base)
+
+
+def test_workflow_registry_fragment_diff_reaches_normal_and_trusted_router() -> None:
+    """The registry split into tests/test-execution.d/<area>.toml: a fragment edit is judged the same way."""
+    fragment = "tests/test-execution.d/other.toml"
+    base = '[[test]]\npath = "tests/native.py"\nlane = "macos-shell"\n'
+    guard = '\n[[test]]\npath = "tests/guard.py"\nlane = "linux-guard"\n'
+    for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
+        for candidate, expected in ((base + guard, "false"),
+                                    (base.replace("native.py", "other.py"), "true")):
+            result, outputs = run_detect_step_for_paths(
+                [fragment, *policy_change],
+                base_files={fragment: base}, head_files={fragment: candidate},
+            )
+            assert f"macos={expected}" in outputs, (result.stdout, result.stderr)
+            assert f"release_build={expected}" in outputs, outputs
 
 
 def test_registry_cli_uses_base_and_keeps_mixed_product_changes() -> None:

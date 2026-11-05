@@ -68,7 +68,7 @@ NATIVE_MODES = {"Native/OptChat/optchat-chief/Cargo.toml": "optchat-chief"}
 SELF_INPUTS = (
     "scripts/ci/affected_tests.py", "scripts/ci/focused_tests.py", "scripts/ci/cargo_affected.py",
     "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py", "scripts/ci/focused-tests-extra.json",
-    RUST_SCRIPT, SWIFT_SCRIPT, WEB_SCRIPT, PYTHON_RUNNER, "tests/test-execution.toml",
+    RUST_SCRIPT, SWIFT_SCRIPT, WEB_SCRIPT, PYTHON_RUNNER,
 )
 MAX_FILES = 400
 # The controller takes at most 64 CMUX_WEB_TEST_FILES per step, each `(src|test)/....test.<ext>`
