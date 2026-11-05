@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers"
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import { describe, expect, it } from "vitest"
-import { bindFile, cloudStub, DAEMON, post, sessionToken, signedInWithInstall, SIZE, vmKey, WG_KEY, worker } from "./cloud-bind-support.ts"
+import { sessionToken, worker } from "./cloud-bind-support.ts"
 
 /** Cloud work mode's hand-offs (src/handoffs): owner routes, the machine's reports, the owner's list, the wait. */
 const runIn = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
@@ -249,24 +249,6 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     expect((await call("POST", `/v1/handoffs/${id}/close`, as(stranger))).status).toBe(404)
     expect((await begin(id, stranger, 1)).status).toBe(404)
   })
-
-  it("the VM install bound to the hand-off's machine may report; one bound to another machine may not", async () => {
-    const a = await signedInWithInstall("cloud-handoff-1", "mac")
-    const created = await post("/v1/ops", a.session, { op: "cloud.machine.create", params: { size: SIZE }, idempotency_key: crypto.randomUUID(), origin: "user" })
-    const machine = created.body.value.machine.id as string
-    const { json } = await bindFile(cloudStub(a.team), machine)
-    const key = await vmKey()
-    const bound = await post("/v1/cloud/bind", undefined, { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: key.jwk })
-    const install = bound.body.value.install as { id: string; user: string }
-    const ch = await post("/v1/auth/challenge", undefined, { user: install.user, install: install.id })
-    const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.pair.privateKey, new TextEncoder().encode(`${ch.body.message_prefix}${ch.body.nonce}`))
-    const b64u = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-    const vmToken = (await post("/v1/auth/token", undefined, { user: install.user, install: install.id, nonce: ch.body.nonce, signature: b64u(sig) })).body.access_token as string
-    const mine = (await handOff(a.session, { sessionId: "acp_vm", machine })).body.handoff.id as string
-    const other = (await handOff(a.session, { sessionId: "acp_other", machine: "vm_bbbbbbbbbbbbbbbbbbbb" })).body.handoff.id as string
-    expect((await report(mine, as(vmToken), "running")).body.handoff.status).toBe("running")
-    expect((await report(other, as(vmToken), "running")).status).toBe(404)
-    // A person's install is not a machine.
-    expect((await report(mine, as(a.installToken), "done")).status).toBe(401)
-  })
+  // A VM install's own report (bound to the hand-off's machine) needs a bound Cloud machine; CloudDO and its binds
+  // are cmux-platform's now.
 })

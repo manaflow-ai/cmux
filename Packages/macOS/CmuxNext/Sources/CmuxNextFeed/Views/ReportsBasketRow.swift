@@ -18,7 +18,7 @@ final class ReportsBasketRow: NSView {
         self.select = select
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 5
+        layer?.cornerRadius = Metrics.insetCornerRadius
         translatesAutoresizingMaskIntoConstraints = false
         time.setContentCompressionResistancePriority(.required, for: .horizontal)
         time.setContentHuggingPriority(.required, for: .horizontal)

@@ -414,12 +414,18 @@ async fn a_failed_state_write_while_loading_leaves_the_daemon_serving() {
 /// Starts a daemon on its own home `dir` whose owning app is `owner` (`ACPMUX_OWNER_APP_PID`, as
 /// the app's launcher sets it) and waits for its ready line. `harness`: a stand-in agent config.
 async fn owned_daemon(dir: &Path, owner: u32, harness: bool) -> std::process::Child {
+    owned_daemon_by(dir, ("ACPMUX_OWNER_APP_PID", owner), harness).await
+}
+
+/// [`owned_daemon`] whose owner is named in `owner.0`. Each stand-in agent writes its pid to
+/// `dir/harness.started` as its chat starts (`FAKE_NEW_GATE` with no gate).
+async fn owned_daemon_by(dir: &Path, owner: (&str, u32), harness: bool) -> std::process::Child {
     let socket = dir.join("s.sock");
     let mut cmd = if harness {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
         std::fs::write(
             dir.join("config.json"),
-            json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+            json!({"harnesses": {"fake": {"argv": ["python3", fake], "env": {"FAKE_NEW_GATE": dir.join("harness")}}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
         )
         .unwrap();
         daemon_env::command(dir, daemon_env::Agents::StandIn, &[])
@@ -432,7 +438,7 @@ async fn owned_daemon(dir: &Path, owner: u32, harness: bool) -> std::process::Ch
         .env("ACPMUX_SOCKET", &socket)
         .env("TMPDIR", dir)
         .env("ACPMUX_LOGIN_ENV", "0")
-        .env("ACPMUX_OWNER_APP_PID", owner.to_string())
+        .env(owner.0, owner.1.to_string())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
@@ -576,6 +582,70 @@ async fn quit_helpers_a_running_turn_keeps_the_daemon_after_its_app_is_gone() {
     end(&mut child);
     let _ = std::fs::remove_dir_all(&dir);
     assert!(alive, "the daemon stopped under a running turn after its app quit");
+}
+
+/// A daemon a test started stops with that test's process, mid-turn too (`daemon/owner_exit.rs`):
+/// a test that panicked, timed out or was killed left its daemon, its agent hosts and their
+/// stand-in harnesses running for days (34 hosts and 8 daemons on one lane VM, 130-144 h old),
+/// because a daemon and #28319's orphan exit wait for an idle agent. A `sleep` stands in for the
+/// test process; it is killed with an agent in a turn that never ends and a client connected.
+// Debug builds only, as the watch.
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn a_daemon_and_its_agents_end_with_the_test_process_mid_turn() {
+    let dir = scratch("towner-d");
+    let mut owner = std::process::Command::new("sleep").arg("600").spawn().expect("a fake test");
+    let mut child = owned_daemon_by(&dir, ("ACPMUX_TEST_OWNER_PID", owner.id()), true).await;
+    let socket = dir.join("s.sock");
+    let mut rpc = Rpc::connect(&socket).await;
+    let s = rpc
+        .call(
+            "session/new",
+            json!({"cwd": dir, "mcpServers": [], "_meta": {"acpmux": {"name": "busy"}}}),
+        )
+        .await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let harness: i32 = std::fs::read_to_string(dir.join("harness.started"))
+        .expect("the stand-in agent's pid")
+        .trim()
+        .parse()
+        .unwrap();
+    // A turn that never ends: a busy agent.
+    let line = json!({"jsonrpc": "2.0", "id": 99, "method": "session/prompt", "params": {"sessionId": id, "prompt": [{"type": "text", "text": "hang"}]}});
+    rpc.wr.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+    let mut watcher = Rpc::connect(&socket).await;
+    let start = Instant::now();
+    while watcher.call("_acpmux/info", json!({"sessionId": id})).await["status"] != "running" {
+        assert!(start.elapsed() < Duration::from_secs(20), "the turn never started");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // The test process runs: the daemon stays.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    if child.try_wait().unwrap().is_some() {
+        end(&mut owner);
+        panic!("the daemon exited while its test process runs");
+    }
+    // Killed as a test is, with no teardown; the client stays connected.
+    end(&mut owner);
+    let exited = exits_within(&mut child, Duration::from_secs(10)).await;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut harness_gone = false;
+    while Instant::now() < deadline {
+        // SAFETY: signal 0 only asks whether the stand-in agent still runs.
+        if unsafe { libc::kill(harness, 0) } != 0 {
+            harness_gone = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    if !harness_gone {
+        // SAFETY: the stand-in agent's group this test started; ends what the fix did not.
+        unsafe { libc::killpg(harness, libc::SIGKILL) };
+    }
+    drop((rpc, watcher));
+    let _ = std::fs::remove_dir_all(&dir);
+    exited.expect("the daemon still ran 10 s after its test process was killed mid-turn");
+    assert!(harness_gone, "the stand-in agent outlived its test process");
 }
 
 /// Creates an executable (0755) script without this process ever holding a

@@ -29,11 +29,10 @@ import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes
 import { CI_SESSION_PATH, handleCiSession } from "./ci-session.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
 import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-token-route.ts"
-import { platformForward } from "./platform-forward.ts"
+import { isCloudPath, platformForward } from "./platform-forward.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
 // Named entrypoint for service bindings only (the platform Worker's environment setups); no HTTP route reaches it.
-export { PlatformMachines } from "./platform-machines.ts"
 export { PlatformChief } from "./platform-chief.ts"
 export { AgentGateway } from "./agent-gateway.ts"
 export { HandoffDO } from "./handoffs/handoff-do.ts"
@@ -57,14 +56,9 @@ export { HostDO } from "./host-do.ts"
 export { HandDO } from "./hand-do.ts"
 import { HAND_PATH, handleHands } from "./hand-routes.ts"
 export { TeamVmDO } from "./team-vm-do.ts"
-export { CloudDO } from "./cloud-do.ts"
 export { WireTicketDO } from "./wire-ticket.ts"
 export { TrajectoryDO } from "./cloud-trajectory-store.ts"
-import { handleCloudBind, handleCloudKeyset } from "./cloud-link.ts"
-import { ACPMUX_PATH, handleCloudAcpmux } from "./cloud-acpmux.ts"
-import { handleCloudTrajectory, TRAJECTORY_PATH, type TrajectoryAction } from "./cloud-trajectory.ts"
-import { CLIENT_SESSION_PATH, handleCloudClientSession } from "./cloud-client-session.ts"
-import { GUEST_PATH, handleCloudMachineGuest } from "./cloud-machine-guest.ts"
+export { CloudDO } from "./cloud-do-retired.ts"
 import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBillingSync } from "./billing-levels.ts"
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
@@ -154,7 +148,7 @@ const wire = async (request: Request, env: Env, spent: SpentTicket | undefined, 
  * installs read, anyone else gets 403.
  */
 const hostReplica = async (request: Request, env: Env, protocols: ReadonlyArray<string>, principal: Principal, host: string): Promise<Response> => {
-  const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(principal.team!)) as unknown as { hostReplicaRole(entity: string, host: string, p: Principal): Promise<"publisher" | "reader" | null> }
+  const team = env.TEAM_DO.get(env.TEAM_DO.idFromName(principal.team!))
   const role = await team.hostReplicaRole(principal.team!, host, principal).catch(() => undefined)
   if (role === undefined) return Response.json({ error: { code: "owner.unreachable", message: "the host directory could not be checked; retry" } }, { status: 503 })
   if (role === null) return new Response("forbidden", { status: 403 })
@@ -191,7 +185,7 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   const user = authenticated.user
   const body = (await request.json().catch(() => null)) as PresenceKeyBody | null
   if (!body) return Response.json({ error: { code: "validation.invalid", message: "JSON body required" } }, { status: 400 })
-  const stub = env.USER_DO.get(env.USER_DO.idFromName(user)) as unknown as { registerPresenceKey(e: string, p: unknown, b: PresenceKeyBody): Promise<unknown> }
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(user))
   const r = (await stub.registerPresenceKey(user, principal, body)) as { error?: { code: string; message: string }; frames?: Array<{ t: string; value?: unknown; code?: string; message?: string }> }
   if (r.error) return Response.json({ ok: false, error: r.error }, { status: r.error.code.startsWith("auth.") ? 403 : 400 })
   const reply = r.frames?.find((f) => f.t === "result" || f.t === "reject")
@@ -212,21 +206,9 @@ export default {
     // The platform cutover (platform-forward.ts): a surface in PLATFORM_SURFACES goes to the PLATFORM binding. Unset: nothing changes.
     const forwarded = await platformForward(request, env, url.pathname)
     if (forwarded) return forwarded
-    // The Cloud VM's bind agent (state-placement.md 5.8 item 2): the one-time bind token is the credential.
-    if (url.pathname === "/v1/cloud/bind" && request.method === "POST") return handleCloudBind(request, env)
-    if (url.pathname === "/v1/cloud/keyset") return handleCloudKeyset(request, env)
-    // The keyed acpmux start (cx-kvmz): outside the op path, so the key never becomes an op or a log line.
-    const acpmux = url.pathname.match(ACPMUX_PATH)
-    if (acpmux) return handleCloudAcpmux(request, env, acpmux[1]!, acpmux[2] as "keyed-start" | "person-holds")
-    // ACP chat trajectories kept outside the VM (#25584): a log stream, not an op.
-    const trajectory = url.pathname.match(TRAJECTORY_PATH)
-    if (trajectory) return handleCloudTrajectory(request, env, trajectory[1]!, trajectory[2] as TrajectoryAction)
-    // A scoped provider token for one of the caller's machines (cloud-client-session.ts): outside the op path, never logged.
-    const clientSession = url.pathname.match(CLIENT_SESSION_PATH)
-    if (clientSession) return handleCloudClientSession(request, env, clientSession[1]!)
-    // Exec and files on a Cloud machine in classic /api/vm's shapes (cloud-machine-guest.ts): outside the op path, never logged.
-    const guest = url.pathname.match(GUEST_PATH)
-    if (guest) return handleCloudMachineGuest(request, env, guest[1]!, guest[2] as Parameters<typeof handleCloudMachineGuest>[3])
+    // NEXT Cloud's routes outside the op path (bind, keyset, acpmux, trajectories, client session, guest exec and files)
+    // are served by cmux-platform; platformForward above sends them there. Without that binding they have no server here.
+    if (isCloudPath(url.pathname)) return Response.json({ ok: false, error: { code: "owner.unreachable", message: "NEXT Cloud is served by cmux-platform", retryable: true } }, { status: 503 })
     // A single-use wire ticket for a browser socket (wire-ticket.ts): Authorization header only.
     if (url.pathname === "/v1/wire/ticket") return handleWireTicket(request, env)
     const m = url.pathname.match(/^\/v1\/wire\/(user|team|feed|cloud)$/)
