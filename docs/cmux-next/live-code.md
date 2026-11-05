@@ -50,8 +50,10 @@ harness) work through the live folder, never the app's window or its main thread
 wedged the UI can still be undone: the app's engine is an actor off the main thread, and only the
 redraw waits for the main thread. When the app does not answer at all (exit 4, or the tools'
 `live_code.no_answer`), relaunch it: the next launch runs the code as built. Outside Debug and bench,
-only a patch signed by the app's own team loads (cmux#13742); `status` says so as
-`team_signed_only`. `--dir` (or `CMUX_LIVE_CODE_DIR`) names another live folder.
+an app signed by a team loads only a patch signed by that team (cmux#13742), and `status` says so
+as `team_signed_only`. An app with no team (unsigned or ad hoc, so never notarized or distributed)
+loads any validly signed patch, ad hoc included, and its log says so when it starts watching.
+Whether the app has a team comes from its own running code signature only. `--dir` (or `CMUX_LIVE_CODE_DIR`) names another live folder.
 
 The folder's protocol, for tools of their own: a new `NAME.dylib` applies (with `NAME.json`, its
 commit and files, written first); a new `*.rollback` undoes the newest patch and a new

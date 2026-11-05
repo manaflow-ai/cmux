@@ -83,7 +83,7 @@ nonisolated struct LiveStatus: Codable, Sendable {
     /// The process's executable, so a reader can tell a reused pid from this app.
     var executable: String?
     var bundleID: String?
-    /// Outside Debug and bench, only patches this app's team signed load.
+    /// Only patches this app's team signed load: outside Debug and bench, in an app signed by a team.
     var teamSignedOnly: Bool
     var folder: String
     var generation: Int
@@ -103,9 +103,17 @@ actor LiveEngine {
     private var applied: [(patch: Interposer.Applied, record: LivePatchRecord)] = []
     private var generation = 0
     private var lastError: String?
+    /// Who signed this app, read once from its own code signature; nil in Debug and bench, which load
+    /// any patch.
+    private let signer: PatchSignature.AppSigner?
 
     init(folder: LiveFolder) {
         self.folder = folder
+        #if DEBUG || CMUX_BENCH_HOOKS
+        signer = nil
+        #else
+        signer = PatchSignature.runningSigner()
+        #endif
     }
 
     func start() {
@@ -120,6 +128,14 @@ actor LiveEngine {
             Task { await self.found(names) }
         }
         say("watching \(folder.url.path)")
+        switch signer {
+        case .noTeam?:
+            say("this app is unsigned (its signature names no team): any validly signed patch loads, ad hoc included")
+        case .unreadable(let detail)?:
+            say("this app's own signature is unreadable (\(detail)): every patch is refused")
+        case .team?, nil:
+            break
+        }
         writeStatus()
     }
 
@@ -143,10 +159,11 @@ actor LiveEngine {
             // The check and the load read one private copy, never the shared folder's file twice.
             let copy = try folder.privateCopy(name)
             defer { try? FileManager.checked.removeItem(at: copy) }
-            #if !DEBUG && !CMUX_BENCH_HOOKS
-            // Outside Debug and bench, only a patch signed by this app's team loads (cmux#13742).
-            try PatchSignature.check(copy.path)
-            #endif
+            // Outside Debug and bench, only a patch signed by this app's team loads, or, for an
+            // unsigned app, any validly signed one (cmux#13742).
+            if let signer {
+                try PatchSignature.check(copy.path, app: signer)
+            }
             let handle = try Interposer.load(copy.path)
             let patched = try Interposer.apply(handle: handle, dylib: copy.path, current: &current)
             let sidecar = folder.sidecar(name)
@@ -204,18 +221,17 @@ actor LiveEngine {
 
     private func writeStatus() {
         let status = LiveStatus(
-            pid: getpid(), executable: Bundle.main.executablePath, bundleID: Bundle.main.bundleIdentifier, teamSignedOnly: Self.teamSignedOnly,
+            pid: getpid(), executable: Bundle.main.executablePath, bundleID: Bundle.main.bundleIdentifier, teamSignedOnly: teamSignedOnly,
             folder: folder.url.path, generation: generation, patches: applied.reversed().map(\.record),
             lastError: lastError, updatedAt: Date().timeIntervalSince1970)
         folder.writeStatus(status)
     }
 
-    private static var teamSignedOnly: Bool {
-        #if DEBUG || CMUX_BENCH_HOOKS
-        false
-        #else
-        true
-        #endif
+    private var teamSignedOnly: Bool {
+        switch signer {
+        case .team?, .unreadable?: true
+        case .noTeam?, nil: false
+        }
     }
 }
 

@@ -43,10 +43,50 @@ struct LivePatchCopyTests {
         #expect(throws: LiveCodeError.self) { try live.privateCopy("patch-3.dylib") }
     }
 
-    @Test func aFileThatIsNotSignedCodeIsNotOurTeams() throws {
+    @Test func aFileThatIsNotSignedCodeIsRefusedEvenByAnAppWithNoTeam() throws {
         let live = try folder()
         let path = live.url.appendingPathComponent("plain.dylib")
         try Data("plain bytes".utf8).write(to: path)
-        #expect(throws: LiveCodeError.self) { try PatchSignature.check(path.path) }
+        #expect(throws: LiveCodeError.self) { try PatchSignature.check(path.path, app: .noTeam) }
+        #expect(throws: LiveCodeError.self) { try PatchSignature.check(path.path, app: .team("ABCDE12345")) }
+    }
+}
+
+/// Whose patches an app loads (cmux#13742): a team-signed app only its team's, an app with no team any
+/// validly signed one.
+struct PatchSignatureTests {
+    /// An ad hoc signed Mach-O: a copy of this test binary, which the linker signed ad hoc.
+    private func adHocPatch() throws -> URL {
+        var info = Dl_info()
+        #expect(dladdr(#dsohandle, &info) != 0)
+        let image = URL(fileURLWithPath: String(cString: info.dli_fname))
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent("adhoc-\(UUID().uuidString).dylib")
+        try FileManager.default.copyItem(at: image, to: copy)
+        return copy
+    }
+
+    @Test func anAppWithNoTeamLoadsAnAdHocPatch() throws {
+        let patch = try adHocPatch()
+        defer { try? FileManager.default.removeItem(at: patch) }
+        try PatchSignature.check(patch.path, app: .noTeam)
+    }
+
+    @Test func aTeamSignedAppRefusesAnAdHocPatch() throws {
+        let patch = try adHocPatch()
+        defer { try? FileManager.default.removeItem(at: patch) }
+        #expect(throws: LiveCodeError.self) { try PatchSignature.check(patch.path, app: .team("ABCDE12345")) }
+    }
+
+    @Test func aTeamSignedAppRefusesAnotherTeamsCode() throws {
+        // Validly signed, by Apple: not team ABCDE12345.
+        try PatchSignature.check("/usr/bin/true", app: .noTeam)
+        #expect(throws: LiveCodeError.self) { try PatchSignature.check("/usr/bin/true", app: .team("ABCDE12345")) }
+    }
+
+    @Test func anAppWhoseSignatureIsUnreadableOrMalformedRefusesEverything() throws {
+        let patch = try adHocPatch()
+        defer { try? FileManager.default.removeItem(at: patch) }
+        #expect(throws: LiveCodeError.self) { try PatchSignature.check(patch.path, app: .unreadable("test")) }
+        #expect(throws: LiveCodeError.self) { try PatchSignature.check("/usr/bin/true", app: .team("ABC\" or 1")) }
     }
 }
