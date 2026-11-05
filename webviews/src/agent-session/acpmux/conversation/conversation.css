@@ -4243,6 +4243,13 @@ a.cv-sha:focus-visible {
   line-height: inherit;
   font-weight: var(--weight-emphasis);
 }
+.cv-tool-detail__value.is-markdown :is(p, li, blockquote, td, th) {
+  font-size: inherit;
+  line-height: inherit;
+}
+.cv-tool-detail__value.is-markdown :is(p, ul, ol, blockquote) {
+  margin-block: 0 var(--ds-space-1);
+}
 .cv-tool-detail__value.is-markdown > :first-child,
 .cv-tool-detail__value.is-markdown > :first-child > :first-child {
   margin-top: 0;
