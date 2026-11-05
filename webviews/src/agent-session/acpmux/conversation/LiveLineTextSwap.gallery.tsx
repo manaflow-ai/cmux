@@ -19,13 +19,7 @@ const CALLS = [
   "Finding _acpmux/watch and sessions callers",
 ];
 
-type Variant =
-  | "at-rest"
-  | "mid-change"
-  | "longer-call"
-  | "changed"
-  | "fast-calls"
-  | "motion-off";
+type Variant = "at-rest" | "mid-change" | "longer-call" | "changed" | "fast-calls" | "motion-off";
 
 function Fixture({ variant }: { variant: Variant }) {
   const [step, setStep] = useState(variant === "longer-call" ? 1 : 0);
@@ -44,11 +38,7 @@ function Fixture({ variant }: { variant: Variant }) {
   const call = CALLS[step % CALLS.length];
   return (
     <div style={{ padding: 24, maxWidth: 640 }}>
-      <button
-        type="button"
-        style={{ marginBottom: 16 }}
-        onClick={() => setStep((value) => value + 1)}
-      >
+      <button type="button" style={{ marginBottom: 16 }} onClick={() => setStep((value) => value + 1)}>
         Next call
       </button>
       <WorkingFor
@@ -79,11 +69,7 @@ function Fixture({ variant }: { variant: Variant }) {
 
 /// The swap's own animations (the shimmer's endless loops keep running).
 const swapAnimations = (doc: Document) =>
-  doc
-    .getAnimations()
-    .filter(
-      (animation) => animation.effect?.getTiming().iterations !== Infinity,
-    );
+  doc.getAnimations().filter((animation) => animation.effect?.getTiming().iterations !== Infinity);
 
 /// Hold the change `ms` in, so the still shows the old words leaving and the new arriving.
 const holdAt = (ms: number) => (ctx: PlayContext) => {
@@ -93,10 +79,8 @@ const holdAt = (ms: number) => (ctx: PlayContext) => {
   }
 };
 
-const next = (ctx: PlayContext) =>
-  ctx.click({ role: "button", name: "Next call" });
-const settled = (ctx: PlayContext) =>
-  ctx.waitFor(() => swapAnimations(ctx.document).length === 0);
+const next = (ctx: PlayContext) => ctx.click({ role: "button", name: "Next call" });
+const settled = (ctx: PlayContext) => ctx.waitFor(() => swapAnimations(ctx.document).length === 0);
 
 export default componentEntry<{ variant: Variant }>({
   id: "agent-pane.live-line-text-swap",
@@ -105,8 +89,7 @@ export default componentEntry<{ variant: Variant }>({
   pane: true,
   height: 140,
   widths: { narrow: 360, normal: 560 },
-  styles: () =>
-    Promise.all([import("../styles.css"), import("./conversation.css")]),
+  styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   covers: [
     "agent-session/acpmux/conversation/WorkingFor.tsx#WorkingFor",
     "agent-session/acpmux/conversation/ActivityLine.tsx#ActivityLine",
@@ -157,9 +140,7 @@ export default componentEntry<{ variant: Variant }>({
       play: async (ctx) => {
         await next(ctx);
         await ctx.waitFor(
-          () =>
-            swapAnimations(ctx.document).length === 0 &&
-            !ctx.document.querySelector(".ui-text-swap__ghost"),
+          () => swapAnimations(ctx.document).length === 0 && !ctx.document.querySelector(".ui-text-swap__ghost"),
         );
       },
     },
