@@ -18,7 +18,7 @@ final class ApprovalBanner {
     private var answering = false
     private var settled: Set<String> = []
     private var panel: NSPanel?
-    private var expiry: DispatchWorkItem?
+    private var expiry: Timer?
     /// PROTOCOL.md: a request expires after 5 minutes.
     var lifetime: TimeInterval = 300
     /// Answers a request (the hub's decide, then the permission to store).
@@ -34,17 +34,17 @@ final class ApprovalBanner {
         current = next
         error = nil
         answering = false
-        expiry?.cancel()
+        expiry?.invalidate()
         expiry = nil
         if let next {
-            let work = DispatchWorkItem { [weak self] in
-                guard let self, current?.id == next.id else { return }
-                settled.insert(next.id)
-                update(requests)
+            // The protocol's own expiry for one request, invalidated when the request on screen changes.
+            expiry = Timer.scheduledTimer(withTimeInterval: lifetime, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.current?.id == next.id else { return }
+                    self.settled.insert(next.id)
+                    self.update(requests)
+                }
             }
-            expiry = work
-            // The protocol's own expiry for one request, cancelled when it is answered.
-            DispatchQueue.main.asyncAfter(deadline: .now() + lifetime, execute: work)
         }
         render()
         changed()

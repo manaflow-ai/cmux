@@ -27,8 +27,9 @@ public struct CmuxRemoteActionEnvironment {
 /// change only the person may make (Share This Mac on, raising a device's access): the person
 /// confirms it on a cmux dialog, then this app's hub session (the full one) makes it.
 @MainActor
-public enum CmuxRemoteActions {
-    public static func bind(into registry: ActionRegistry, environment: CmuxRemoteActionEnvironment) {
+extension CmuxRemoteActionEnvironment {
+    public func bind(into registry: ActionRegistry) {
+        let environment = self
         let remote = environment.remote
         let host: (ActionID, String, CmuxNextDaemon.JSONValue) -> Void = { id, method, params in
             _ = registry.bindEffect(id, unavailable: { remote.started ? nil : CmuxRemoteStrings.unavailable }, effect: { _ in
@@ -62,7 +63,7 @@ public enum CmuxRemoteActions {
                 guard let hub = environment.hub() else { return .refused(CmuxRemoteStrings.signedOut) }
                 // action-wait-allow: the device hub owns the sharing switch; the Devices page follows its push.
                 return .waiting(.network) {
-                    do { try await apply(on ? "share" : "unshare", device: "", scope: nil, hub: hub, remote: remote) } catch {
+                    do { try await Self.apply(on ? "share" : "unshare", device: "", scope: nil, hub: hub, remote: remote) } catch {
                         return ActionWorkFailure(String(describing: error))
                     }
                     return nil
@@ -89,8 +90,9 @@ public enum CmuxRemoteActions {
     }
 
     /// `remote.confirm {action: share|access, device?, scope?}`.
-    public static func methods(environment: CmuxRemoteActionEnvironment) -> [ControlMethod] {
-        [
+    public func controlMethods() -> [ControlMethod] {
+        let environment = self
+        return [
             .mainActor("remote.confirm") { call in
                 let action = call.params["action"]?.stringValue ?? ""
                 let device = call.params["device"]?.stringValue ?? ""
@@ -105,8 +107,8 @@ public enum CmuxRemoteActions {
                 let window = environment.window()
                 let remote = environment.remote
                 return .followUp {
-                    guard await confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
-                    try await apply(action, device: device, scope: scope, hub: hub, remote: remote)
+                    guard await Self.confirm(title: title, body: body, in: window) else { return ["ok": false, "declined": true] }
+                    try await Self.apply(action, device: device, scope: scope, hub: hub, remote: remote)
                     return ["ok": true]
                 }
             }.withDeadline(.fixed(.seconds(130))),
