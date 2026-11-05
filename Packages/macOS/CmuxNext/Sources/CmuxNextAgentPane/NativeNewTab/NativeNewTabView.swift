@@ -112,7 +112,8 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
         render()
         let model = model
         following = Task { [weak self] in
-            for await _ in ObservationStream({ _ = model.rows; _ = model.selectedIndex; _ = model.kind; _ = model.text }) {
+            // The inputs of the rows, not the rows: reading them here would rank every row once more per key.
+            for await _ in ObservationStream({ _ = model.page; _ = model.text; _ = model.kind; _ = model.highlighted }) {
                 guard let self, !Task.isCancelled else { return }
                 self.render()
             }
@@ -125,9 +126,12 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
             kinds.selectedSegment = index
         }
         if field.stringValue != model.text { field.stringValue = model.text }
-        field.font = Typography.search
+        // Set only on a change: a font write while the field is editing can touch marked (IME) text.
+        let font = Typography.search
+        if field.font != font { field.font = font }
         let rows = model.rows
-        let selected = model.selectedIndex
+        // The model's `selectedIndex`, from the rows read once.
+        let selected = rows.isEmpty ? nil : min(model.highlighted ?? 0, rows.count - 1)
         while rowViews.count < rows.count {
             let row = NativeNewTabRowView(frame: .zero)
             rowViews.append(row)
@@ -135,7 +139,10 @@ public final class NativeNewTabView: NSView, NSTextFieldDelegate {
         }
         for (index, view) in rowViews.enumerated() {
             guard index < rows.count else {
+                // A row out of the list holds no action and no place under the field.
                 view.isHidden = true
+                view.activate = {}
+                view.frame = .zero
                 continue
             }
             let row = rows[index]

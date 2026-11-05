@@ -54,9 +54,11 @@ final class NativeNewTabRowView: NSView {
             needsLayout = true
         }
         // Fonts follow the density and text size, read at each show.
-        title.font = Typography.body
-        detail.font = Typography.caption
-        hint.font = Typography.shortcut
+        let fonts = (Typography.body, Typography.caption, Typography.shortcut)
+        if title.font != fonts.0 || detail.font != fonts.1 || hint.font != fonts.2 {
+            (title.font, detail.font, hint.font) = (fonts.0, fonts.1, fonts.2)
+            needsLayout = true
+        }
         self.selected = selected
         updateTint()
     }
@@ -94,8 +96,16 @@ final class NativeNewTabRowView: NSView {
         return NSRect(x: x, y: floor((bounds.height - height) / 2), width: width, height: height)
     }
 
+    /// A row the list no longer shows takes no click (AppKit's own `hitTest` skips hidden views).
     override func hitTest(_ point: NSPoint) -> NSView? {
-        frame.contains(point) ? self : nil
+        !isHidden && frame.contains(point) ? self : nil
+    }
+
+    /// A new width moves the hint and truncates the title again.
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { needsLayout = true }
     }
 
     override func mouseDown(with event: NSEvent) {}

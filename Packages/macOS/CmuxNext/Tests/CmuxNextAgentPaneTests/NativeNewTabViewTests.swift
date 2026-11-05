@@ -108,6 +108,30 @@ struct NativeNewTabViewTests {
         #expect(box.calls.submits.map(\.1) == [.agent])
     }
 
+    /// Review finding: a row the list no longer shows kept its frame and action, and took the click
+    /// meant for the row now drawn there. A real click (hit test, then mouse up) after the list
+    /// shrinks runs the row it lands on.
+    @Test func aClickAfterTheListShrinksRunsTheRowUnderIt() throws {
+        let (host, model, box, window) = Self.make()
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        let before = model.rows.count
+        try #require(before >= 2, "the empty field lists the open tab and the workspace")
+        try Self.enter("zzz", into: host)
+        host.layoutSubtreeIfNeeded()
+        let shown = host.page.rows
+        try #require(shown.count < before)
+        let row = try #require(shown.first)
+        let center = NSPoint(x: row.bounds.midX, y: row.bounds.midY)
+        #expect(host.page.hitTest(host.convert(center, from: row)) === row, "a hidden row covers the shown one")
+        let event = try #require(NSEvent.mouseEvent(with: .leftMouseUp, location: row.convert(center, to: nil), modifierFlags: [],
+                                                     timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                     clickCount: 1, pressure: 0))
+        row.mouseUp(with: event)
+        #expect(box.calls.submits.map(\.0) == ["zzz"])
+        #expect(box.calls.jumps.isEmpty, "the click ran a row the list no longer shows")
+    }
+
     @Test func theSwitchSetsTheKind() throws {
         let (host, model, box, window) = Self.make()
         defer { window.close() }
