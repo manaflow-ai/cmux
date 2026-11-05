@@ -635,16 +635,16 @@ final class AgentTabStore {
                   let transfer = self.cloudCredentialTransfer else { return false }
             return await transfer(self.resolve(provisional, machine: scoped.machine), request)
         }
-        unsentDrafts.wire(model) { [weak self] in self?.resolve(provisional) ?? provisional }
+        unsentDrafts.wire(model) { [weak self] in self?.resolve(provisional, machine: scoped.machine) ?? provisional }
         model.onOpenTab = { [weak self] request in
             BenchSpans.mark("bridge.tab.open")
             guard let self else { return }
-            let key = resolve(provisional)
-            (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
+            let key = resolve(provisional, machine: scoped.machine)
+            (newTabPages[AgentTabKey(machine: scoped.machine, key: key)]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
-        model.onRunAttach = { [weak self] request in guard let self, let runAttach else { throw AgentPaneHostError.daemonStopped }; try await runAttach(resolve(provisional), request) }
-        model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
-        model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
+        model.onRunAttach = { [weak self] request in guard let self, let runAttachScoped else { throw AgentPaneHostError.daemonStopped }; try await runAttachScoped(self.resolvedKey(scoped), request) }
+        model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional, machine: scoped.machine), text) } }
+        model.onNewTabInputReady = { [weak self] token in self.map { let key = $0.resolvedKey(scoped); $0.newTabPages[key]?.handler.inputReady(key.key, token) } }
         model.onRememberNewTab = { [weak self, weak model] pick in
             if let model { AgentPaneNewTabFrame.shared.modelChanged(pick, by: model) }
             self?.pageHandler(provisional)?.remember(pick)
@@ -666,13 +666,13 @@ final class AgentTabStore {
             }
             return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
         }
-        wireHeader(model, key: provisional)
+        wireHeader(model, key: provisional, machine: scoped.machine)
         model.onBrowseProject = { [weak self] in
-            guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return nil }
+            guard let self, let handler = newTabPages[self.resolvedKey(scoped)]?.handler ?? blankChatHandler?(self.resolve(provisional, machine: scoped.machine)) else { return nil }
             return await handler.browseProject()
         }
         model.onListProjects = { [weak self] query in
-            guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return [] }
+            guard let self, let handler = newTabPages[self.resolvedKey(scoped)]?.handler ?? blankChatHandler?(self.resolve(provisional, machine: scoped.machine)) else { return [] }
             return await handler.listProjects(query)
         }
         model.onOpenChat = { [weak self] key in

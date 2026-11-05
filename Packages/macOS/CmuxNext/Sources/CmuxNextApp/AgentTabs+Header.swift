@@ -7,14 +7,15 @@ import CmuxNextDaemon
 /// (``AgentChatSplitToggles``), the header's state, pushed when it changes (``AgentChatHeaderWatch``),
 /// and the side pane New side chat and `/btw` open in (``AgentSidePanes``).
 extension AgentTabStore {
-    func wireHeader(_ model: AgentPaneModel, key provisional: String) {
+    func wireHeader(_ model: AgentPaneModel, key provisional: String, machine: String? = nil) {
+        let scoped = tabKey(provisional, machine: machine)
         let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional) ?? provisional },
-                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) }, hidden: { [weak self] in CloudMove.hiddenMenuItems(self?.lookup(self?.resolve(provisional) ?? provisional)?.record) }, local: { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == true }, openTool: { [weak self] kind, cwd in guard let self else { return false }; return openTool?(resolve(provisional), kind, cwd) ?? false })
+                                          registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional) ?? provisional, $0, $1) }, hidden: { [weak self] in CloudMove.hiddenMenuItems(self?.record(for: self?.resolvedKey(scoped) ?? scoped)?.record) }, local: { [weak self] in self?.gitLinkScoped?(self?.resolvedKey(scoped))?.isLocal == true }, openTool: { [weak self] kind, cwd in guard let self else { return false }; return self.openToolScoped?(self.resolvedKey(scoped), kind, cwd) ?? false })
         let toggles = AgentChatSplitToggles(), pullRequest = AgentChatPullRequest()
         let watch = AgentChatHeaderWatch(state: { [weak self] in
             guard let self else { return AgentPaneHeaderState() }
             let chat = resolve(provisional)
-            return toggles.headerState(chat: chat, store: lookup(chat)?.store, pullRequest: gitLink?(chat)?.isLocal == true ? pullRequest : nil)
+            return toggles.headerState(chat: chat, store: record(for: resolvedKey(scoped))?.store, pullRequest: gitLinkScoped?(resolvedKey(scoped))?.isLocal == true ? pullRequest : nil)
         }, push: { [weak self] state in
             guard let view = self?.existingView(provisional) else { return }
             AgentPaneHeaderState.push(state, to: view)

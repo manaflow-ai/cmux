@@ -185,7 +185,8 @@ final class AgentPageHibernation: HiddenChatPagesHost {
             }
             displace(key)
             // The tab keeps its session and every other state: the next show builds the page again.
-            let stored = tabs.resolve(key)
+            let scoped = tabs.views.entries.first(where: { $0.value === view })?.key ?? tabs.tabKey(key)
+            let stored = tabs.resolvedKey(scoped)
             if let session = view.model.sessionId { tabs.sessions[stored] = session }
             tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
             tabs.views[stored] = nil
