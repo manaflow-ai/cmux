@@ -51,7 +51,11 @@ for pair in "$@"; do
   echo "== $tag: ${sel[*]}"
   # lane: warm base tree, then the PR applied over it.
   git -C "$wt" checkout -q --detach "$base"
-  (cd "$wt/cmux-tui" && CARGO_TARGET_DIR="$work/lane" cargo test --locked --no-run "${sel[@]}") > "$out/$tag.base.log" 2>&1
+  if ! (cd "$wt/cmux-tui" && CARGO_TARGET_DIR="$work/lane" cargo test --locked --no-run "${sel[@]}") > "$out/$tag.base.log" 2>&1; then
+    # No warm baseline, so no comparison: say so instead of reporting zero differing tests.
+    printf '%s\t%s\t%s\tbase-build-failed\n' "$base" "$head" "${sel[*]}" >> "$out/results.tsv"
+    rm -rf "$work/lane"; git -C "$root" worktree remove --force "$wt"; continue
+  fi
   git -C "$wt" checkout -q --detach "$head"
   t0=$SECONDS
   (cd "$wt/cmux-tui" && CARGO_TARGET_DIR="$work/lane" cargo test --locked --no-run "${sel[@]}") > "$out/$tag.lane-build.log" 2>&1

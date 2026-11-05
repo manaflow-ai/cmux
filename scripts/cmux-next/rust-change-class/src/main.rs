@@ -351,8 +351,11 @@ fn compare_rust(old: &str, new: &str, in_test_dir: bool, v: &mut Verdict) {
         match (a.get(key), b.get(key)) {
             (Some(x), Some(y)) if x.tokens == y.tokens => {}
             (Some(x), Some(y)) => {
-                if x.in_test || y.in_test {
+                if x.in_test && y.in_test {
                     v.add(Bucket::TestOnly, format!("test code: {label}"));
+                } else if x.in_test != y.in_test {
+                    // A test attribute added or removed: production code appears or goes away.
+                    v.add(Bucket::Full, format!("moved between test and shipped code: {label}"));
                 } else if x.kind == "use" {
                     v.add(Bucket::BodyOnly, "imports");
                 } else if x.kind == "fn" && x.sig == y.sig {
@@ -580,6 +583,14 @@ mod tests {
         let old = "fn a() {}\n#[cfg(test)]\nmod tests { #[test] fn t() { assert!(true) } }";
         let new = "fn a() {}\n#[cfg(test)]\nmod tests { #[test] fn t() { assert!(1 == 1) }\n#[test] fn u() {} }";
         assert_eq!(bucket(old, new), Bucket::TestOnly);
+    }
+
+    #[test]
+    fn code_moving_out_of_or_into_test_code_needs_a_full_build() {
+        assert_eq!(bucket("#[test]\nfn helper() {}", "fn helper() {}"), Bucket::Full);
+        assert_eq!(bucket("fn helper() {}", "#[test]\nfn helper() {}"), Bucket::Full);
+        assert_eq!(bucket("#[cfg(test)]\nfn helper() {}", "fn helper() {}"), Bucket::Full);
+        assert_eq!(bucket("fn helper() {}", "#[cfg(test)]\nfn helper() {}"), Bucket::Full);
     }
 
     #[test]

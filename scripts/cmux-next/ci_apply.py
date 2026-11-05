@@ -6,7 +6,7 @@ skip compile skip build you only need the tests".
 
     ci_apply.py plan [--repo DIR] [--labels a,b] [--event pull_request] [--json] BASE HEAD
     ci_apply.py commands [--repo DIR] BASE HEAD
-    ci_apply.py replay --prs PRS.jsonl --checks CHECKS.jsonl [--repo DIR] [--json] [--misses]
+    ci_apply.py replay --prs PRS.jsonl --checks CHECKS.jsonl [--repo DIR] [--json]
 
 This is a tool, not a CI job: it adds no check, gate or required status, and CI runs as before.
 
