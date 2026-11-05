@@ -96,14 +96,15 @@ async fn a_host_in_another_case_or_by_a_prefix_names_its_one_peer() {
     assert!(e.message.contains("lanevm-7, lanevm-8"), "{}", e.message);
 }
 
+/// `resolve` (and `session stop|cancel|resume` through it) falls back to the same route.
 #[tokio::test]
-async fn resolve_finds_a_name_in_another_case_or_on_a_host_named_by_a_prefix() {
+async fn resolve_finds_a_name_in_another_case_and_refuses_a_shared_prefix() {
     let hub = test_hub();
-    list(&hub, "lanevm-7", "0199aaaa-1111", "td2-A", "idle");
-    list(&hub, "lanevm-7", "0199bbbb-2222", "td2-B", "idle");
-    let found = hub.locate("td2-a", false, true).unwrap();
+    let a = named(&hub, "td2-A").await;
+    named(&hub, "td2-B").await;
+    let found = hub.locate("td2_a", false, true).unwrap();
     assert_eq!(found["matches"].as_array().unwrap().len(), 1, "{found}");
-    assert_eq!(found["session"]["sessionId"], "0199aaaa-1111", "{found}");
-    let found = hub.locate("lanevm/td2-b", false, true).unwrap();
-    assert_eq!(found["session"]["sessionId"], "0199bbbb-2222", "{found}");
+    assert_eq!(found["session"]["sessionId"], a.id.as_str(), "{found}");
+    let e = hub.locate("TD2", false, true).unwrap_err();
+    assert_eq!(uses(&e).len(), 2, "{e:?}");
 }

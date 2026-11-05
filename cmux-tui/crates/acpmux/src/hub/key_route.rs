@@ -399,8 +399,9 @@ mod tests {
         list(&hub, "cmux16", "0199bbbb-2222", "builder", "idle");
         assert_eq!(hub.key_route("acpmux-owner").unwrap().as_deref(), Some("hb/0199aaaa-1111"));
         assert_eq!(hub.key_route("nobody").unwrap(), None);
-        // Exact keys are left to the usual lookup.
-        assert_eq!(hub.key_route("hb/acpmux-owner").unwrap(), None);
+        // `HOST/NAME` names it too (`hb` is no configured peer here, only a host its rows name, so
+        // the key is routed rather than left to the exact lookup a configured peer gets).
+        assert_eq!(hub.key_route("hb/acpmux-owner").unwrap().as_deref(), Some("hb/0199aaaa-1111"));
     }
 
     #[tokio::test]
