@@ -74,24 +74,6 @@ impl Client {
         reply.get("error").cloned().unwrap_or_else(|| panic!("{m} did not fail: {reply}"))
     }
 
-    /// Start a prompt without waiting for its reply; returns once its first
-    /// streamed text arrives (the turn is running).
-    async fn start_prompt(&mut self, session: &str, text: &str) {
-        self.2 += 1;
-        let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": text}]});
-        self.0.send(Message::request(self.2, "session/prompt", prompt).to_line()).await.unwrap();
-        loop {
-            let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
-                .await
-                .expect("the turn did not start in 30 s")
-                .unwrap();
-            let v: Value = serde_json::from_str(&line).unwrap();
-            if v.pointer("/params/update/content/text").is_some() {
-                return;
-            }
-        }
-    }
-
     async fn env_of(&mut self, session: &str, name: &str) -> String {
         let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("env: {name}")}]});
         let (reply, mut text) = self.call_text("session/prompt", prompt).await;
