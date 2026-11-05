@@ -180,9 +180,18 @@ class PaneCheck(unittest.TestCase):
         self.assertEqual(len(found), 1, found)
         self.assertTrue(found[0].startswith("keys round 1 (off): 1 of 1 terminals"), found[0])
 
-    def test_lagging_frames_are_data_only(self):
-        lagging = drag_round(follow=pane_check(followed(lagging=4)))
-        self.assertEqual(verdict.problems({"layout": "stress", "rounds": [lagging]}), [])
+    def test_a_lagging_frame_fails_and_names_the_terminal_its_frames_and_sizes(self):
+        # frame-owner-s4, 2026-11-05 (the m14 contract: a late frame is a failure): pixel-perfect's trace showed the
+        # surface one tick behind its pane in every key-spring frame with the switch on. A frame whose layer shows
+        # another size than its pane fails the round, as a held one does.
+        a = followed(lagging=4, key="bottom-left")
+        a["bottom-left"]["first_lagging"] = [{"frame": 2, "area": [699, 472], "asked": [699, 472], "shown": [765, 472]}]
+        lagging = key_round(arm=True)
+        lagging["follow"] = pane_check(a, frames=150)
+        found = verdict.problems({"layout": "keys", "rounds": [lagging]})
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("1 of 1 terminals showed another size than their pane in the key resize", found[0])
+        self.assertIn("bottom-left lagged 4 of 120 frames (frame 2: pane 699x472, asked 699x472, shown 765x472)", found[0])
         self.assertEqual(lagging["follow"]["lagging_frames"], 4)
 
     def test_a_round_with_no_pane_check_fails(self):
