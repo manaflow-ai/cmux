@@ -297,8 +297,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
             let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
             (item.machineBadge, item.machineBadgeHelp, item.machineName) = (badge?.text, badge?.help, services.machines.tabColorName(daemon.machineID, badge: badge?.text))
-            // Incognito tabs have only a placeholder record in the daemon.
-            let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)
+            // Incognito tabs have only a placeholder record in the daemon; its own workspace answers (a lookup by key walks every store).
+            let incognito = ownWorkspace.map { services.windows.isIncognito(workspace: $0) } ?? services.cache.browserTabs.isIncognitoTab(tab.id)
             if incognito {
                 let live = services.cache.incognitoDisplay(tab)
                 (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url.flatMap { BrowserNewTabPage.isNewTabPage($0) ? nil : $0 })
@@ -308,7 +308,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                     ?? services.browserProfiles.tabBadge(for: tab, workspaceID: ownWorkspace?.id, room: nil)
                 if services.cache.pageRequests.titleAttention.marks(tab, selected: stripSelection == tab.id, in: services.cache) { item.isUnread = true }
             }
-            browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url, known: ownWorkspace.map { (tab, services.windows.isIncognito(workspace: $0)) }).apply(to: &item)
+            browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url, known: (tab, incognito)).apply(to: &item)
             item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
         }
         TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon))
