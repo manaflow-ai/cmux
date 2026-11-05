@@ -1051,7 +1051,7 @@ fn materialize(state_dir: &Path, chat_skill: bool) -> anyhow::Result<PathBuf> {
     let skill_files: Vec<&(&str, &str)> =
         SKILL_FILES.iter().filter(|(p, _)| chat_skill || !p.starts_with("cmux-chat/")).collect();
     let mut all = Vec::new();
-    for (path, text) in skill_files.iter().copied() {
+    for (path, text) in &skill_files {
         all.extend_from_slice(path.as_bytes());
         all.push(0);
         all.extend_from_slice(text.as_bytes());
