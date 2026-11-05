@@ -171,3 +171,19 @@ test("a named message keeps its text across a steer, and the next message starts
     "assistant: Lane 2.",
   ]);
 });
+
+test("a prompt that opens a turn over an unnamed reply starts its answer below its bubble", async () => {
+  // Not a steer: the agent answers the prompt from its first word (agent-pane-transcript-spacing).
+  const rows = await rowsOf([
+    ...opened,
+    ["in", "agent_message_chunk", say("Checking the hosted run now.")],
+    ["mux", "user_message", { text: "Also check the PR checks.", promptId: "p-2" }],
+    ["in", "agent_message_chunk", say("Not yet: the hosted run is still queued.")],
+  ]);
+  expect(drawn(rows)).toEqual([
+    "user: Where is G2?",
+    "assistant: Checking the hosted run now.",
+    "user: Also check the PR checks.",
+    "assistant: Not yet: the hosted run is still queued.",
+  ]);
+});

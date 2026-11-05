@@ -6427,10 +6427,13 @@ export class AcpmuxDirectClient {
         // streams: Claude Code woke on its own (a background task's notice) and acpmux took the
         // chat for idle, so the prompt is no steer, yet the message goes on after it. Leo
         // 2026-10-31: "why was i able to cut my prompt in between your messages? that's s***
-        // rendering". An agent that sends no message ids (Codex) keeps its text in the row until
-        // its next step: a reply cut in two reads worse than a steer's answer run on (Leo,
-        // 2026-11-05: "If your text is streaming, I shouldn't be able to interrupt it").
-        this.holdAssistantSegment();
+        // rendering". A steer into an agent that sends no message ids (Codex) keeps its text in the
+        // row until its next step, since the agent reads the steer only there: a reply cut in two
+        // reads worse than a steer's answer run on (Leo, 2026-11-05: "If your text is streaming, I
+        // shouldn't be able to interrupt it"). A prompt that opens a turn is answered from its
+        // first word, so without message ids the text after it is that answer.
+        if (msg.steer === true || this.streamingAssistantMessageId) this.holdAssistantSegment();
+        else this.endAssistantSegment();
         // A call id names a call within its prompt: an adapter that numbers calls per process
         // reuses one in a later prompt, whose call draws under that prompt (cx-jzhka). A steer
         // splits a turn whose calls may still update.
