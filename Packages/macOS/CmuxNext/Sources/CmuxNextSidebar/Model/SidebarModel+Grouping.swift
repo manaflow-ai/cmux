@@ -39,7 +39,11 @@ extension SidebarModel {
             }
         }
         // Recents lists the newest activity first: a newer activity moves the row (to the top, as in ChatGPT).
-        if grouping.groupsByRecents && old.lastActivity != new.lastActivity { return true }
+        if grouping.groupsByRecents {
+            if old.lastActivity != new.lastActivity { return true }
+            // Projects past the first five fold behind Show more: needing you keeps a row out of it, as the row limit does.
+            if (old.agentChip == .needsYou) != (new.agentChip == .needsYou) { return true }
+        }
         return Self.movesRows(from: old, to: new, groupsByFolder: groupsByFolder)
     }
 }

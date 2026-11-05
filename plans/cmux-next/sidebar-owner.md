@@ -1448,6 +1448,7 @@ An empty group now keeps only its header at rest. The header's existing + appear
   header's quiet style (`ListHeaderRowView`, as Group by Folder's). Filter, session tree, Group by Status unchanged.
 - Design: [sidebar-recents-and-freeing-DESIGN.md](sidebar-recents-and-freeing-DESIGN.md). Tests:
   `SidebarRecentsLayoutTests`. Tour: `scripts/cmux-next/media/tours/sidebar-recents.json`.
+- Review fixes: the opened Archive lists its rows whole in Projects and Recents (no Show more inside it, no blank gaps); Cmd-1...9 and Reveal in Sidebar reach projects past the first five.
 
 ## Pinned summary follows the density and text size (2026-11-03)
 

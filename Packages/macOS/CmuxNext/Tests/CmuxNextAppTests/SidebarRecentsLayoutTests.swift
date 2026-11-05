@@ -146,4 +146,20 @@ import Testing
         let keys = Self.keys(Self.options(openProjects: true), Self.manyGroups())
         #expect(Set(keys).count == keys.count)
     }
+    /// The opened Archive lists every archived group: Recents never folds them behind a Show more it cannot draw.
+    @Test func theOpenedArchiveListsEveryArchivedGroup() {
+        let archived: [SidebarNode] = (0..<7).map { index in
+            var member = Self.ws("a\(index)")
+            member.isArchived = true
+            var group = SidebarGroup(id: GroupID("z\(index)"), name: "Z\(index)", color: .green, workspaces: [member])
+            group.isArchived = true
+            return .group(group)
+        }
+        var o = Self.options()
+        o.foldsDone = true
+        o.openDoneFolds = [.archive]
+        let keys = Self.keys(o, [SidebarSection(kind: .machine(Self.local), nodes: [.workspace(Self.ws("x"))] + archived)])
+        #expect(keys.filter { if case .group = $0 { true } else { false } } == (0..<7).map { Self.g("z\($0)") })
+        #expect(!keys.contains(.showMore(.projects)))
+    }
 }

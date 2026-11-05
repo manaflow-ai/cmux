@@ -63,15 +63,16 @@ public nonisolated struct WorkspaceFreeingPlanner: Sendable {
         public var lastOutput: Date?
         /// A program reports a status in it (OSC 7501), an agent included.
         public var programReported: Bool
-        /// A client holds an attach stream on it.
+        /// A client holds an attach stream on it, as far as the caller knows. The daemon checks again when it parks:
+        /// `park-tabs` leaves a terminal a client is attached to, or one `set-terminal-keep` keeps, running.
         public var attached: Bool
         /// It runs on this Mac (not an ssh or Cloud machine).
         public var local: Bool
         /// The shell already ended or the tab is already parked.
         public var ended: Bool
 
-        /// Every flag defaults to the value that keeps the terminal running, except `local` (true) and
-        /// `hibernated` (true): a fact the caller does not set never frees a terminal.
+        /// A nil `promptSince` keeps the terminal running; `hibernated` and `local` default to true and `attached` to
+        /// false, which the daemon's own attach and keep check backs up.
         public init(surface: String, workspace: String, workspaceLastActive: Date?, hibernated: Bool = true,
                     workspaceKept: Bool = false, promptSince: Date? = nil, lastOutput: Date? = nil,
                     programReported: Bool = false, attached: Bool = false, local: Bool = true, ended: Bool = false) {
