@@ -28,7 +28,9 @@ import Testing
     }
 
     /// The app's path: the drop goes to the sidebar document, the list holds the drop's look until the model shows the
-    /// move (the settle), and the emptied header leaves in that later reload while the card is still on its way.
+    /// move (the settle), and the emptied header leaves in that later reload while the card is still on its way. In this
+    /// fixture the card's flight only touches the header's edge there (the drop's gap pushed the header down a slot), so
+    /// this guards the path rather than reproducing the overlap the classic drop shows.
     @Test func theEmptiedGroupsHeaderDoesNotFadeUnderTheCardOnADocumentDrop() async throws {
         let store = SidebarDocStore(remote: SidebarGroupDragRailTests.Remote(document: Self.document))
         store.refresh()
@@ -120,7 +122,8 @@ import Testing
         let card = lift.frame.union(released)
         let drawn = list.subviews.contains { $0 === header && !$0.isHidden && $0.alphaValue > 0 }
         let fading = list.fadingRows.values.contains { $0 === header } || header.layer?.animation(forKey: "opacity") != nil
-        #expect(!(header.frame.intersects(card) && (drawn || fading)),
+        // Under it means overlapping by more than an edge's 2 pt, the list's own rule (`isUnderCard`).
+        #expect(!(list.isUnderCard(header.frame, [card]) && (drawn || fading)),
                 "the emptied group's header still draws under the landing card (frame \(header.frame), card \(card), hidden \(header.isHidden), fading \(fading))")
     }
 
