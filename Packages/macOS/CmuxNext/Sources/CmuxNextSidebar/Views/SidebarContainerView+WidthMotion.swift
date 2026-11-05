@@ -22,13 +22,16 @@ extension SidebarContainerView {
         let (edge, target) = clipReachEdge(reach, collapsed: collapsed)
         let (fromWidth, fromReach) = shownWidthAndReach(edge)
         widthLeg = WidthLeg(width: (fromWidth, width), reach: (fromReach, target), edge: edge)
+        // The leg starts on screen: this frame's layout pass shows the turn, not the old slide's step.
+        (widthConstraint.constant, edge.constant) = (fromWidth, fromReach)
         let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(token) : 0
         widthMotion.run(duration: duration, in: self, trace: "sidebar.width", completion: completion)
     }
 
     /// Where a new slide starts: the width on screen and the reach at the same point of the slide under way. A slide
     /// stepped earlier in this frame has moved the constraints past the laid-out frame, which is what shows until the
-    /// window's layout pass; starting from them would carry the old slide one frame further before it turns around.
+    /// window's layout pass; starting from them, or leaving them there, would carry the old slide one frame further
+    /// before it turns around.
     private func shownWidthAndReach(_ edge: NSLayoutConstraint) -> (CGFloat, CGFloat) {
         guard widthMotion.isRunning, let leg = widthLeg, leg.edge === edge, leg.width.to != leg.width.from else {
             return (widthConstraint.constant, edge.constant)
