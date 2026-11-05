@@ -51,12 +51,12 @@ def key(r):
 NEW = "workspace(new)"
 
 
-def film(kind="insert", rows=12, at=2, ids=False, link=False, new_height=None, row_progress=None):
+def film(kind="insert", rows=12, at=2, ids=False, link=False, new_height=None, row_progress=None, tail=TAIL, new_from=1):
     """One insert (a new row opens at index AT) or remove (row AT closes). ROW_PROGRESS {row: f(i)} moves a row on
-    another curve; NEW_HEIGHT(i) overrides the new row's height."""
+    another curve; NEW_HEIGHT(i) overrides the new row's height; the new row shows from motion frame NEW_FROM on."""
     frames = []
     t0 = 1000.0
-    for f in range(STILL + MOTION + TAIL):
+    for f in range(STILL + MOTION + tail):
         i = f - STILL
         p = ease(i)
         views, id_map = {}, {}
@@ -77,7 +77,7 @@ def film(kind="insert", rows=12, at=2, ids=False, link=False, new_height=None, r
                     y -= q * STEP
             views[key(r)] = [X, y, W, ROW_H, 1.0]
             id_map[key(r)] = str(5000 + r)
-        if kind == "insert" and i >= 1:
+        if kind == "insert" and i >= new_from:
             h = new_height(i) if new_height else p * ROW_H
             views[NEW] = [X, TOP + at * STEP, W, h, min(1.0, 2 * p)]
             id_map[NEW] = "7777"
@@ -266,6 +266,84 @@ class FailingFilms(unittest.TestCase):
         self.assertEqual(frames_of(result["motions"][0]["reflow"])[0], STILL + 3)
 
 
+def rows_of(frame):
+    """A row list as ext_sidebar_film.py keeps it (key, y, h), from a settled frame."""
+    return [{"key": k, "y": v[1], "h": v[3]} for k, v in frame["views"].items()]
+
+
+def judge_press(frames, kind, rows_after=None):
+    """One film-*.json press with the row lists before and after it."""
+    press = {"kind": kind, "index": 0, "frames": frames, "rows_before": rows_of(frames[0]),
+             "rows_after": rows_after if rows_after is not None else rows_of(frames[-1])}
+    (name, raw, hints), = oracle.films_from_json({"presses": [press]}, "film-s.json")
+    return oracle.judge_film(name, raw, hints, oracle.Options())
+
+
+def vanish(frames, k, start):
+    for frame in frames[start:]:
+        frame["views"].pop(k, None)
+    return frames
+
+
+class NoOtherRowMoves(unittest.TestCase):
+    """Review FIX at 4d32183f275: a pop-in or a vanish passed when no other row moved in its own motion window."""
+
+    def test_new_last_row_that_pops_in_at_full_height_fails(self):
+        frames = film("insert", at=12, new_height=lambda i: ROW_H)
+        result = judge_press(frames, "insert")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(frames_of(result["motions"][0]["progress_jumps"]), [FIRST])
+        self.assertNotEqual(judge(frames)["verdict"], "PASS")
+
+    def test_last_row_that_vanishes_in_one_frame_fails(self):
+        frames = vanish(film("remove", at=11), key(11), FIRST)
+        result = judge_press(frames, "remove")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        self.assertEqual(frames_of(result["motions"][0]["progress_jumps"]), [FIRST])
+
+    def test_row_that_vanishes_then_rows_below_slide_8_frames_later_fails(self):
+        late = {r: (lambda i: ease(i - 9)) for r in range(3, 12)}
+        frames = vanish(film("remove", row_progress=late), key(2), FIRST)
+        result = judge_press(frames, "remove")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        motion, = [m for m in result["motions"] if m["kind"] != "other"]
+        self.assertEqual(motion["height_error_frames"][0], FIRST)
+
+    def test_row_that_shrinks_then_rows_below_slide_after_it_is_gone_fails(self):
+        late = {r: (lambda i: ease(i - MOTION - 8)) for r in range(3, 12)}
+        frames = film("remove", row_progress=late, tail=2 * MOTION + 20)
+        for result in (judge_press(frames, "remove"), judge(frames)):
+            self.assertEqual(result["verdict"], "FAIL", result["fails"])
+            motion, = [m for m in result["motions"] if m["kind"] != "other"]
+            self.assertTrue(motion["height_error_frames"], motion["fails"])
+
+    def test_new_row_that_pops_in_after_the_rows_opened_the_gap_fails(self):
+        frames = film("insert", new_height=lambda i: ROW_H, new_from=MOTION + 7)
+        result = judge_press(frames, "insert")
+        self.assertEqual(result["verdict"], "FAIL", result["fails"])
+        motion, = [m for m in result["motions"] if m["kind"] != "other"]
+        self.assertEqual(motion["height_error_frames"][0], FIRST)
+
+    def test_new_row_named_by_the_row_lists_that_never_shows_fails(self):
+        frames = film("insert", new_from=10 ** 6)
+        after = rows_of(frames[-1]) + [{"key": NEW, "y": TOP + 2 * STEP, "h": ROW_H}]
+        self.assertEqual(judge_press(frames, "insert", rows_after=after)["verdict"], "FAIL")
+
+
+class MissedRefreshesOnlyWhileRowsMove(unittest.TestCase):
+    def test_hitch_after_the_rows_settle_is_not_a_missed_refresh(self):
+        # Review: a 40 ms hitch 2 frames after a perfect insert settles, then a row below the view leaves 2 frames
+        # later: the still frames between were joined into the motion and the hitch counted as 5 missed refreshes.
+        frames = film("insert")
+        settled = STILL + MOTION
+        for frame in frames[settled + 2:]:
+            frame["t"] += 0.032
+        vanish(frames, key(11), settled + 4)
+        result = judge(frames)
+        self.assertEqual(result["missed_refreshes"], 0, result["fails"])
+        self.assertEqual(result["verdict"], "PASS", result["fails"])
+
+
 class Selection(unittest.TestCase):
     def selected_film(self, lag):
         frames = film("insert")
@@ -324,7 +402,7 @@ class Inputs(unittest.TestCase):
         before = [{"key": key(r), "y": TOP + r * STEP, "h": ROW_H, "selected": r == 0} for r in range(12)]
         after = before[:2] + [{"key": NEW, "y": TOP + 2 * STEP, "h": ROW_H, "selected": True}] + [
             dict(row, y=row["y"] + STEP, selected=False) for row in before[2:]]
-        removed = [row for row in before if row["key"] != key(2)]
+        removed = [dict(row, y=row["y"] - STEP) if row["y"] > TOP + 2 * STEP else row for row in before if row["key"] != key(2)]
         presses = [{"kind": "insert", "index": 0, "frames": film("insert"), "rows_before": before, "rows_after": after},
                    {"kind": "remove", "index": 1, "frames": film("remove"), "rows_before": before, "rows_after": removed}]
         films = oracle.films_from_json({"scenario": "s", "presses": presses}, "film-s.json")
