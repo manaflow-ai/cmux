@@ -130,7 +130,7 @@ struct CloudBringBack {
         let again = CloudMoveRetries.Retry.move(machineID: entry.machineID)
         guard let machine = services.machines.session(entry.machineID) else {
             // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
-            if services.cloud.hasLoadedMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
+            if services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
             throw Failure(message: CloudMoveStrings.noSuchMachine(entry.machineID), retry: again)
         }
         let name = machine.machine.title

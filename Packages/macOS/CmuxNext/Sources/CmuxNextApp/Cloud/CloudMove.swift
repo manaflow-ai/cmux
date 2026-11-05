@@ -218,7 +218,7 @@ struct CloudMove {
         let retry = CloudMoveRetries.Retry.show(shown)
         guard let session = services.machines.session(shown.machineID) else {
             // Gone from the loaded machine list: deleted, so a Retry could never reach it and none is kept.
-            if services.cloud.hasLoadedMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
+            if services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
             throw Failure(message: CloudMoveStrings.noSuchMachine(shown.machineID), retry: retry)
         }
         let machine: CloudMachineSession
@@ -298,7 +298,7 @@ struct CloudMove {
             guard let session = machines.session(id) else {
                 // A Retry's pin (this app's own button) to a machine gone from the loaded list: deleted, and no
                 // Retry can reach it. A CLI's or agent's `--machine` keeps naming the id it asked for.
-                if invocation.origin == .user, services.cloud.hasLoadedMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
+                if invocation.origin == .user, services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
                 throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: .move(machineID: id))
             }
             return try await Self.connected(session, invocation)
