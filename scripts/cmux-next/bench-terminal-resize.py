@@ -51,7 +51,7 @@ a layout error or a failed probe, a drag or key resize in which no terminal resi
 terminal drew (a held drag: no view laid out), a round whose arm could not be set, a split action that resized no
 terminal): such zeros are not a result.
 """
-import argparse, glob, importlib.util, json, os, plistlib, signal, socket, subprocess, sys, tempfile, time
+import argparse, glob, importlib.util, json, os, plistlib, re, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -467,6 +467,12 @@ def xctrace_stop(handle, label):
     procs = [p for p, _ in sorted(self_w.items(), key=lambda kv: -sum(kv[1].values())) if focus(p)][:3]
     summary["self_ms"] = {p: {k[:120]: round(v / 1e6, 1) for k, v in self_w[p].most_common(25)} for p in procs}
     summary["incl_ms"] = {p: {k[:120]: round(v / 1e6, 1) for k, v in incl_w[p].most_common(40)} for p in procs}
+    # The same named frames in every arm, below any top-N cut, so OFF and ON compare (S4: the render server's
+    # create_surface was in ON's top 40 only).
+    watch = re.compile(r"create_surface|set_dest|IOSurface|prepare_layer_image|Surface::|offscreen|render_layer|"
+                       r"ghostty|drawFrame|presentDrawable|nextDrawable|setContents|initTarget|newTexture")
+    summary["watch_ms"] = {p: {k[:120]: round(v / 1e6, 1) for k, v in incl_w[p].items() if watch.search(k)}
+                           for p in incl_w if focus(p)}
     print(f"XCTRACE {label} {json.dumps(summary)[:24000]}", flush=True)
     return summary
 
