@@ -108,6 +108,10 @@ def a_width(k, variant):
     """Pane A's width (device px, float) in trace sample k."""
     if variant in ("still", "strip-glow", "strip-glow-off3"):
         return float(A_REST)
+    if variant == "strip-view-kept":
+        return float(A_REST + 80 if k < MOVE[0] else A_REST)  # a Reduce Motion shrink: one jump at sample 10
+    if variant == "strip-grid-grows":
+        return float(A_REST + 4 * min(max(k - MOVE[0] + 1, 0), MOVE[1] - MOVE[0]))  # grows 80 px over samples 10-29
     if variant.startswith("spring"):
         t = (k - MOVE[0] + 1) * P
         if k < MOVE[0]:
@@ -196,7 +200,14 @@ def frame(k, variant):
         a_view = A_REST  # A's content keeps its rest width while its pane grows
     if variant == "strip-tui-a-late" and 11 <= k <= 30:
         a_view = a_width(max(s - 1, 0), variant)  # m14: A's view keeps the previous sample's size (m6 "late"), anchored top-left
-    draw_tui(img, 0, a_view, picture_w=a_width(max(s - 3, 0), variant) if variant == "cut" else None, y0=y0)
+    if variant == "strip-view-kept" and s == MOVE[0]:
+        # 3e.8: the first frame after the jump keeps A's old, wider view (its old grid), cut by A's new pane edge: fill up
+        # to the pane edge, then the shell (as the S4 keep path in a Reduce Motion shrink)
+        draw_tui_cut(img, 0, int(round(a_view)), A_REST + 80, y0=y0)
+    elif variant == "strip-grid-grows" and MOVE[0] <= s < MOVE[1]:
+        draw_tui_cut(img, 0, int(round(a_view)), A_REST + 80, y0=y0)  # the press's final grid, cut by the growing view
+    else:
+        draw_tui(img, 0, a_view, picture_w=a_width(max(s - 3, 0), variant) if variant == "cut" else None, y0=y0)
     if variant == "strip-tui-a-late" and 11 <= k <= 30:
         img[y0:, int(round(a_view)):int(round(aw))] = BLACK  # behind A's old-size view: no shell (m6 E4 does not fire)
     if variant == "glyph":
@@ -1895,6 +1906,44 @@ class PressedDividerGlowTests(unittest.TestCase):
         # m6 passes a page whose edge matches the frame before as "page late 1"; m14 fails it (cmux-ad m14)
         page = r["m14"]["kinds"]["page"]
         self.assertEqual(jp_frames(page["fail_ranges"]), set(range(30, 50)), page)
+
+
+class ViewWiderThanPaneTests(unittest.TestCase):
+    """3e.8 (pixel-perfect, 2026-11-05, for frame-owner-s4's window frame sync): inside the window, a terminal whose fill
+    runs straight into the shell at its pane edge, with no ring and no ground, shows a grid its view cuts. In a pane that
+    shrinks or rests on that axis it is a view wider than its pane (the S4 keep path: the old, wider frame kept after a
+    Reduce Motion shrink): a fail (m6 E3; m14 edge, its offset a lower bound: the rest widths of the rings it does not
+    show). In a pane that grows it is the press's final grid (one program grid per press): not judged, never a pass."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-view-kept-")
+        cls.reports = {v: jp.judge(build(cls.tmp, v, v), all_frames=True) for v in ("strip-view-kept", "strip-grid-grows")}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_a_kept_wider_view_in_a_shrinking_pane_fails(self):
+        r = self.reports["strip-view-kept"]
+        kept = MOVE[0] + 1  # the frame that shows sample 10 (the jump)
+        got = entries(r, "p0", "row@180", "hi")  # row@110 is a ring row of A below its strip
+        self.assertEqual(got[kept]["status"], "clipped", got.get(kept))
+        t = r["m6"]["kinds"]["terminal"]
+        self.assertIn(kept, jp_frames(t["fail_frames_by_rule"]["E3"]), t)
+        m14 = r["m14"]["kinds"]["terminal"]
+        self.assertIn(kept, jp_frames(m14["edge_ranges"]), m14)
+        self.assertGreaterEqual(m14["worst_px"], 48.0)  # at least rings 3, 2 and 1 (16 px each) past the pane edge
+        self.assertNotIn(kept + 1, jp_frames(t["fail_ranges"]))  # the next frame shows the new grid: it passes
+
+    def test_the_presss_grid_cut_by_a_growing_view_is_not_judged(self):
+        r = self.reports["strip-grid-grows"]
+        cut = range(MOVE[0] + 1, MOVE[0] + 6)  # the view cuts the final grid inside its fill there
+        got = entries(r, "p0", "row@180", "hi")  # row@110 is a ring row of A below its strip
+        self.assertEqual({got[f]["status"] for f in cut}, {"clipped"})
+        t = r["m6"]["kinds"]["terminal"]
+        self.assertEqual(jp_frames(t["fail_ranges"]) & set(cut), set(), t)
+        self.assertGreaterEqual(t["clipped_grid_not_judged"], len(cut), t)
 
 
 TOL_TEST_PX = 1.0
