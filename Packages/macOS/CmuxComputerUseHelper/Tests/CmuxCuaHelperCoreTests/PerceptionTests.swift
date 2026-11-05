@@ -27,11 +27,11 @@ import Testing
         return (data as Data).base64EncodedString()
     }
 
-    static func windowState(_ png: String, elements: [[String: Any]] = []) -> Data {
+    static func windowState(_ png: String, elements: [[String: Any]] = [], windowID: Int = 7, pid: Int = 1) -> Data {
         HelperWire.json([
             "content": [["type": "image", "mimeType": "image/png", "data": png],
-                        ["type": "text", "text": "window_id=7 pid=1 size=640x400 elements=0"]],
-            "structuredContent": ["window_id": 7, "pid": 1, "screenshot_width": 640, "screenshot_height": 400,
+                        ["type": "text", "text": "window_id=\(windowID) pid=\(pid) size=640x400 elements=0"]],
+            "structuredContent": ["window_id": windowID, "pid": pid, "screenshot_width": 640, "screenshot_height": 400,
                                   "window_bounds": ["x": 0, "y": 0, "width": 320, "height": 200],
                                   "elements": elements] as [String: Any],
         ] as [String: Any])
@@ -351,5 +351,102 @@ import Testing
         #expect(PerceptionOCR.wordRanges(text).map { String(text[$0]) } == ["File", "Edit", "View"])
         #expect(PerceptionOCR.pixels(CGRect(x: 0.5, y: 0.75, width: 0.25, height: 0.25), width: 400, height: 200)
                 == PixelRect(x: 200, y: 0, width: 100, height: 50))
+    }
+}
+
+// MARK: Ordering, zoom scope and window-id reuse
+
+extension PerceptionTests {
+    @Test func aReadOfAnotherWindowEndsTheZoomToo() async throws {
+        let tools = ScriptedTools()
+        let session = PerceptionSession()
+        var perception = Perception(tools: tools, session: session)
+        perception.zoomCapture = FixedZoom()
+        tools.queue(Self.windowState(Self.png()))
+        _ = try await perception.call(name: "get_window_state", arguments: Self.read)
+        tools.queue(Self.driverZoom)
+        _ = try await perception.call(name: "zoom", arguments: HelperWire.json(
+            ["window_id": 7, "x1": 100, "y1": 100, "x2": 200, "y2": 150]))
+        tools.queue(Self.windowState(Self.png(), windowID: 9, pid: 2))
+        _ = try await perception.call(name: "get_window_state", arguments: HelperWire.json(["pid": 2, "window_id": 9]))
+        _ = try await perception.call(name: "click", arguments: HelperWire.json(
+            ["window_id": 7, "x": 140, "y": 70, "from_zoom": true]))
+        let click = try #require(tools.calls.withLockUnchecked { $0.last?.1 })
+        #expect(click["from_zoom"] as? Bool == true && (click["x"] as? NSNumber)?.doubleValue == 140,
+                "the driver's zoom ended with the read, so the driver answers")
+    }
+
+    @Test func aWindowIDReusedByAnotherProcessIsNotUnchanged() async throws {
+        let tools = ScriptedTools()
+        let perception = Perception(tools: tools, session: PerceptionSession())
+        let shot = Self.png()
+        tools.queue(Self.windowState(shot, pid: 1))
+        tools.queue(Self.windowState(shot, pid: 2))
+        _ = try await perception.call(name: "get_window_state", arguments: Self.read)
+        let reused = try Self.reply(try await perception.call(name: "get_window_state",
+                                                              arguments: HelperWire.json(["pid": 2, "window_id": 7])))
+        #expect(Self.images(reused.content).count == 1)
+        #expect((reused.structured["perception"] as? [String: Any])?["screenshot"] as? String == "full")
+    }
+
+    @Test func aReadWithNoWindowIDForgetsEveryBaseline() async throws {
+        let tools = ScriptedTools()
+        let perception = Perception(tools: tools, session: PerceptionSession())
+        let shot = Self.png()
+        tools.queue(Self.windowState(shot))
+        tools.queue(HelperWire.json(["content": [["type": "image", "mimeType": "image/png",
+                                                  "data": Self.png(marks: [CGRect(x: 0, y: 0, width: 300, height: 300)])]]]))
+        tools.queue(Self.windowState(shot))
+        _ = try await perception.call(name: "get_window_state", arguments: Self.read)
+        _ = try await perception.call(name: "get_app_state", arguments: HelperWire.json(["pid": 1]))
+        let after = try Self.reply(try await perception.call(name: "get_window_state", arguments: Self.read))
+        #expect(Self.images(after.content).count == 1, "the unnamed screenshot may have been this window's")
+    }
+
+    /// Tools whose first call is slow: a later call must not overtake it.
+    final class SlowFirstTools: ToolInvoking, @unchecked Sendable {
+        let log = OSAllocatedUnfairLock<[String]>(initialState: [])
+        func listTools() async throws -> Data { Data("{}".utf8) }
+        func invoke(name: String, arguments: Data) async throws -> Data {
+            let first = log.withLock { log in log.append("start \(name)"); return log.count == 1 }
+            if first { try await Task.sleep(for: .milliseconds(300)) }
+            log.withLock { $0.append("end \(name)") }
+            return Data(#"{"content":[]}"#.utf8)
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1))) func toolCallsOnOneConnectionReplyInOrder() async throws {
+        let tools = SlowFirstTools()
+        var descriptors: [Int32] = [-1, -1]
+        try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors) == 0)
+        let client = descriptors[0]
+        defer { close(client) }
+        var timeout = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        let daemon = ProcessStamp(pid: 10, startSeconds: 1, startMicroseconds: 0)
+        let secret = Data([1, 2, 3])
+        let admission = AdmissionState()
+        admission.configure(AdmissionConfig(helperUID: geteuid(), acpmuxCDHashes: [Data([1])],
+                                            acpmuxRequirement: nil, acpmuxDaemons: [daemon], secret: secret))
+        let server = HelperSocketServer(path: "unused", admission: admission,
+                                        inspector: MachineConsentTests.Inspector(daemon: daemon),
+                                        tools: tools, consent: MachineConsentTests.ScriptedAuthority())
+        let serverEnd = descriptors[1]
+        Thread { server.serve(serverEnd) }.start()
+        var out = HelperWire.line(["secret": HelperWire.hex(secret)])
+        out += HelperWire.line(["id": 1, "method": "tools/call", "name": "get_window_state", "arguments": ["window_id": 7]])
+        out += HelperWire.line(["id": 2, "method": "tools/call", "name": "click", "arguments": ["x": 1, "y": 1]])
+        try #require(out.withUnsafeBytes { write(client, $0.baseAddress, $0.count) } == out.count)
+        var buffer = HelperWire.LineBuffer()
+        var lines: [Data] = []
+        while lines.count < 3 {
+            var chunk = [UInt8](repeating: 0, count: 4096)
+            let count = read(client, &chunk, chunk.count)
+            try #require(count > 0)
+            lines += try #require(buffer.append(Data(chunk.prefix(count))))
+        }
+        let ids = lines.dropFirst().map { HelperWire.object($0)?["id"] as? Int }
+        #expect(ids == [1, 2], "replies in the order of the calls")
+        #expect(tools.log.withLock { $0 } == ["start get_window_state", "end get_window_state", "start click", "end click"])
     }
 }
