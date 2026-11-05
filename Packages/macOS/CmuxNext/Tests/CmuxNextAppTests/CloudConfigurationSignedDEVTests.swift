@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextCloud
+import CmuxNextCompat
 import Testing
 
 struct CloudConfigurationSignedDEVTests {
@@ -73,6 +74,16 @@ struct CloudConfigurationSignedDEVTests {
         #expect(config.nightlySession?.keychainService == "com.cmuxterm.app.nightly.auth")
         #expect(config.nightlySession?.accessGroup == "7WLXT3NR37.com.cmuxterm.app.nightly")
         #expect(config.nightlySession?.credentialsDirectory.path.hasSuffix("Library/Application Support/cmux/com.cmuxterm.app.nightly") == true)
+        // The root comes from the resolver keyed on NIGHTLY's identity, never a
+        // literal one, so it follows BuildIdentity's rules (per-build isolation
+        // S7, cx-is1kf.8; scripts/cmux-next/check-state-roots.sh).
+        let nightly = BuildIdentity.nightlyBundleID
+        let resolved = BuildIdentity(bundleID: nightly, bundledTag: nil)
+            .appSupport(FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+                .appendingPathComponent("cmux", isDirectory: true))
+            .appendingPathComponent(nightly, isDirectory: true)
+        #expect(config.nightlySession?.credentialsDirectory == resolved)
     }
 
     @Test func onlySignedDEVOnTheNightlyAccountAdoptsNightlysSession() {

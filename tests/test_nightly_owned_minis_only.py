@@ -157,7 +157,8 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
         # minis' admission (glaeda-nightly-only-admit) refuses every signing-class job, so no publisher may land there.
         # on a nightly-next push vars.CI_NIGHTLY_SIGN_RUNNER (cmux15) comes first: test_nightly_signing_on_cmux15
         self.assertEqual(manaflow_route("promote-nightly-next"),
-                         "${{  github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
+                         "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
+                         "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
                          "vars.CI_NIGHTLY_SIGN_RUNNER || "
                          "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
         for name in EXCLUSIVE_PUBLISHERS:

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 570,
+  "count": 571,
   "sections": [
     {
       "id": "general",
@@ -1492,6 +1492,14 @@
             "badge",
             "silent"
           ]
+        },
+        {
+          "key": "updates.oneClickInstall",
+          "title": "Update in One Click",
+          "help": "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Updates"
         },
         {
           "key": "updates.showFeatureTips",

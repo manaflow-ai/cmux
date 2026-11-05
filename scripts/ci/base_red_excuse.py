@@ -308,8 +308,10 @@ CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper die
 ARTIFACT = r"(?i:artifacts?|artefacts?|assets?|digests?|checksums?|hashe?s?|packs?|bundles?|archives?|images?|layers?)"
 # What may stand between such a word and its id: spaces, one `:` or `=`, and an opening quote or bracket
 # (`artifact: <40-hex>`, `checksum=<40-hex>`, `digest (<40-hex>)`), which the literal space alone missed
-# (cmux#35941 F1).
-NAMED = r"(?:[ \t]+|[ \t]*[:=][ \t]*)[(\[`'\"]?"
+# (cmux#35941 F1); or an opening quote or bracket on its own, with no space or `:` before it
+# (`artifact(<40-hex>)`, `pack"<40-hex>"`, `bundle[<40-hex>]`), which still fell to the bare branch
+# (cmux#35941 F3). A separator of some kind is always required, so a bare 40-hex still masks.
+NAMED = r"(?:(?:[ \t]+|[ \t]*[:=][ \t]*)[(\[`'\"]?|[(\[`'\"])"
 SHA = re.compile(rf"(?P<artifact>\b{ARTIFACT}{NAMED}[0-9a-f]{{40}}\b)"
                  r"|\b[0-9a-f]{40}\b"
                  r"|\b(?P<commit>(?:commit|sha|tree|revision) `?)[0-9a-f]{7,39}\b")
