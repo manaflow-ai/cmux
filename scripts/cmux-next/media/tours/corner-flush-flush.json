@@ -11,6 +11,18 @@
    "wait": 3
   },
   {
+   "title": "Tunables named corner",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "list",
+     "query": "corner"
+    }
+   },
+   "shot": false,
+   "optional": "diagnostic"
+  },
+  {
    "title": "Corner flush flush",
    "rpc": {
     "method": "debug.tunables",
