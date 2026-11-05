@@ -96,11 +96,19 @@ impl MeshControlFrom {
 
     /// Whether this entry lets `from` run `op` here. `from` is the hub-stamped sender (its
     /// `daemonId` and `user` come from the sender's verified credential); `own_user` is the
-    /// person this machine recorded at join, if any.
+    /// person this machine recorded at join, if any. A `read` (one page of a session, nothing
+    /// changed) is granted to a sender this entry trusts with any lifecycle op, or one that lists
+    /// `read`; an explicit empty list grants nothing.
     pub fn allows(&self, from: &crate::mesh::Sender, own_user: Option<&str>, op: &str) -> bool {
-        if !matches!(op, "start" | "resume" | "stop")
-            || !self.ops.iter().any(|allowed| allowed == op)
-        {
+        let granted = match op {
+            "start" | "resume" | "stop" => self.ops.iter().any(|allowed| allowed == op),
+            "read" => self
+                .ops
+                .iter()
+                .any(|allowed| matches!(allowed.as_str(), "start" | "resume" | "stop" | "read")),
+            _ => false,
+        };
+        if !granted {
             return false;
         }
         fn present(value: Option<&str>) -> Option<&str> {
@@ -508,6 +516,17 @@ impl MeshHub for HttpHub {
             )
         })
     }
+
+    fn answer<'a>(&'a self, id: &'a str, wait: Duration) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move {
+            if !crate::mesh::is_message_id(id) {
+                return Err(HubError::refused("the message id is not valid"));
+            }
+            let wait = wait.min(Duration::from_secs(25));
+            let path = format!("/v1/mesh/messages/{id}?waitSeconds={}", wait.as_secs());
+            decode(self.call(reqwest::Method::GET, &path, None, wait + CALL_WAIT).await?)
+        })
+    }
 }
 
 fn query_component(value: &str) -> String {
@@ -699,6 +718,10 @@ mod tests {
             assert!(entry.allows(&from(Some("d9"), Some("u1")), Some("u1"), op), "{op}");
         }
         assert!(!entry.allows(&from(Some("d9"), Some("u1")), Some("u1"), "delete"));
+        // A read of one session goes to the same person's other machine, never to another's.
+        assert!(entry.allows(&from(Some("d9"), Some("u1")), Some("u1"), "read"));
+        assert!(!entry.allows(&from(Some("d9"), Some("u2")), Some("u1"), "read"));
+        assert!(!entry.allows(&from(Some("d9"), Some("u1")), None, "read"));
         // Another person is refused.
         assert!(!entry.allows(&from(Some("d9"), Some("u2")), Some("u1"), "start"));
         // No recorded person here (an old join, or the hub sent no userId) grants nothing.
@@ -710,6 +733,7 @@ mod tests {
         let none: MeshControlFrom =
             serde_json::from_value(json!({"sameUser": true, "ops": []})).unwrap();
         assert!(!none.allows(&from(Some("d9"), Some("u1")), Some("u1"), "start"));
+        assert!(!none.allows(&from(Some("d9"), Some("u1")), Some("u1"), "read"));
         let round_trip: MeshControlFrom =
             serde_json::from_value(serde_json::to_value(&none).unwrap()).unwrap();
         assert_eq!(round_trip, none);

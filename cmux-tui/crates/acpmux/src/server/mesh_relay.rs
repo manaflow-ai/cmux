@@ -29,7 +29,7 @@
 
 use super::*;
 use crate::mesh::{
-    Ack, AckState, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode,
+    Ack, Backoff, ControlHook, Heartbeat, HubError, InMessage, Kind, MeshHub, Mode,
     StartWork,
 };
 use crate::mesh_http::MeshControlFrom;
@@ -42,6 +42,10 @@ use tokio::sync::{mpsc, watch};
 #[path = "mesh_control_ledger.rs"]
 mod control_ledger;
 use control_ledger::{Claim, ControlLedger};
+
+/// A read of a session through the hub, both sides (`mesh_read.rs`).
+#[path = "mesh_read.rs"]
+pub(crate) mod read;
 
 /// The loops' timings.
 #[derive(Debug, Clone)]
@@ -480,6 +484,11 @@ impl ControlHook for MeshControlHook {
             {
                 return Some(Ack::refused("mesh.control_not_allowed"));
             }
+            // A read changes nothing, so it needs no ledger: a repeat runs again and answers
+            // the session as it is then.
+            if op == "read" {
+                return Some(read::answer(hub, message).await);
+            }
             // The ledger keys a result by its sender: the stamped daemon, else the stamped person.
             let sender = match message.from.daemon_id.as_deref().filter(|id| !id.is_empty()) {
                 Some(daemon) => daemon.to_owned(),
@@ -820,11 +829,9 @@ pub async fn deliver(
         Ok(_) => Some(Ack::delivered(prompt_id, None)),
         // A paused agent pair holds it in the session's queue: the person's resume runs it.
         Err((why, Next::Held)) => Some(Ack::delivered(prompt_id, Some(format!("held: {why}")))),
-        Err((why, Next::Fail)) => Some(Ack {
-            state: AckState::Refused,
-            prompt_id: Some(prompt_id.to_owned()),
-            detail: Some(why),
-        }),
+        Err((why, Next::Fail)) => {
+            Some(Ack { prompt_id: Some(prompt_id.to_owned()), ..Ack::refused(why) })
+        }
         // No such session here is the lease's to bring back too, as before (`Next::NoSession`
         // settles only an outbox delivery).
         Err((why, Next::Retry | Next::Unsent | Next::NoSession)) => {
@@ -843,7 +850,7 @@ fn start_work_allowed(message: &InMessage) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mesh::{Sender, Target};
+    use crate::mesh::{AckState, Sender, Target};
 
     fn from(host: &str, name: &str) -> InMessage {
         InMessage {

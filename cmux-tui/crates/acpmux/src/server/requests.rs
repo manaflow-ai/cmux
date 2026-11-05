@@ -1022,6 +1022,10 @@ async fn dispatch_request_with_identity(
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
         return reply;
     }
+    // A session on a machine only the mesh hub reaches (`mesh_read.rs`).
+    if let Some(reply) = super::mesh_relay::read::forward(hub, conn, m, &params).await {
+        return reply;
+    }
     if matches!(
         m,
         method::MUX_FILE_PUT_BEGIN
