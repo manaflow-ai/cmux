@@ -193,7 +193,9 @@ public struct SidebarMapping {
         // An unnamed Cloud workspace whose shell idles at its home read its account's home folder, "cmux", on every
         // machine; it reads "Terminal" (`homeShellTitle`), its header naming the machine (Leo 2026-10-30: "JUST DEPICT
         // IT SIMILARLY TO EVERYTHING ELSE").
-        let title = Self.homeShellName(homeShellTitle, workspace: workspace, label: page?.title, face: face)
+        // A pinned tile's face gives no title (`SidebarWorkspaceItems`): its shell's folder is the label then.
+        let label = page?.title ?? face?.cwd.map { URL(fileURLWithPath: $0).lastPathComponent }
+        let title = Self.homeShellName(homeShellTitle, workspace: workspace, label: label, face: face)
             ?? Self.sidebarTitle(workspace, page: page)
         let rowAgent = agentMark(tabs, harnessIcons: harnessIcons)
         var row = SidebarWorkspace(

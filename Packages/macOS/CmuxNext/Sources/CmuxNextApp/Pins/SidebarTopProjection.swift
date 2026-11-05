@@ -55,8 +55,8 @@ struct SidebarWorkspaceItems {
     static func workspaceInfo(_ workspace: WorkspaceModel, machine: MachineID,
                               favicon: (WorkspaceModel, TabModel) -> SidebarFavicon? = { _, _ in nil }) -> SidebarItemInfo {
         // The page face's favicon only: the item keeps its own title rule (the row's name, not the page's).
-        let row = SidebarMapping.shared.row(workspace, machine: machine, showsUnread: false,
-                                            pageFace: { workspace, tab, _ in .init(favicon: favicon(workspace, tab)) })
+        let row = SidebarMapping.shared.row(workspace, machine: machine, showsUnread: false, pageFace: { workspace, tab, _ in .init(favicon: favicon(workspace, tab)) },
+                                            homeShellTitle: MachineRegistry.isCloudMachineID(machine.rawValue) ? Strings.untitledTerminal : nil)
         var info = SidebarItemInfo(workspaceRow: row, color: SidebarMapping.shared.color(workspace.color))
         info.activity = row.activity
         info.activityStyle = row.activityStyle
