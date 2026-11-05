@@ -4,7 +4,7 @@
 public nonisolated enum HomeChiefProfileTab: String, CaseIterable, Sendable {
     case details, settings, computer
 
-    var title: String {
+    @MainActor var title: String {
         switch self {
         case .details: HomeEngineStrings.tabDetails
         case .settings: HomeEngineStrings.tabSettings
