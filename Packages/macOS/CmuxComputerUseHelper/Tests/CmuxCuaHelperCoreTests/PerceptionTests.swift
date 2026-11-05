@@ -236,7 +236,8 @@ import Testing
         let a = try #require(ScreenSignature(image: base)), b = try #require(ScreenSignature(image: marked))
         #expect(a.change(since: a) == ScreenSignature.Change(rect: nil, dirtyTiles: 0))
         #expect(b.change(since: a)?.rect == PixelRect(x: 576, y: 384, width: 64, height: 16), "clamped to the screenshot")
-        let smaller = try #require(ScreenSignature(image: try #require(PerceptionImage.decode(base64: Self.png(width: 320)))))
+        let narrow = try #require(PerceptionImage.decode(base64: Self.png(width: 320)))
+        let smaller = try #require(ScreenSignature(image: narrow))
         #expect(smaller.change(since: a) == nil, "another size cannot be compared")
     }
 
