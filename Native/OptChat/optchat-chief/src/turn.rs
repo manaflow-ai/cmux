@@ -280,6 +280,10 @@ pub struct TurnOutcome {
     /// The session this turn left running for the next turn (`TurnStart::keep`
     /// and a clean end); None: the session was ended.
     pub kept: Option<Kept>,
+    /// The turn failed before its prompt reached a harness (its session did
+    /// not start, or its system prompt was not set): nothing ran, so running it again repeats nothing. Set only where that
+    /// holds; any other failure keeps false and is never rerun for it.
+    pub unstarted: bool,
 }
 
 /// The error of a turn whose acpmux connection was lost while it ran.
@@ -483,6 +487,7 @@ pub fn run_with_drafts(
                 if let Err(e) = set {
                     return TurnOutcome {
                         error: Some(format!("setting the turn's system prompt: {e}")),
+                        unstarted: true,
                         ..TurnOutcome::default()
                     };
                 }
@@ -535,6 +540,7 @@ pub fn run_with_drafts(
                         error,
                         cancelled,
                         harness: Some(Box::new(admitted)),
+                        unstarted: true,
                         ..TurnOutcome::default()
                     };
                 }
@@ -652,6 +658,7 @@ pub fn run_with_drafts(
                 agents, chat, start, interrupt, log, progress, trace, draft, run, starting,
             );
         }
+        // Not `unstarted`: the prompt may have gone out before the error.
         return TurnOutcome {
             error: Some(e),
             ..TurnOutcome::default()

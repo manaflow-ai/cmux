@@ -23,8 +23,9 @@ use optchat_host::{Appended, NewMessage};
 
 /// The notice for the first stuck view line (its node fails with a request
 /// error on every try); None when no line is stuck.
-/// A line held only by an exhausted route (a capacity error) is a quiet
-/// wait, logged by the host: no notice.
+/// A line held only by an exhausted route (a capacity error) or a compactor
+/// harness slow to start (`host::start_stall`) is a quiet wait, logged by the
+/// host: no notice.
 pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
     let error = |node: &optchat_core::NodeId| {
         status
@@ -36,7 +37,11 @@ pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
     let node = status
         .stuck
         .iter()
-        .find(|n| error(n).is_none_or(|e| optchat_host::capacity_wait(e).is_none()))?;
+        .find(|n| {
+            error(n).is_none_or(|e| {
+                optchat_host::capacity_wait(e).is_none() && !crate::host::start_stall(e)
+            })
+        })?;
     let class = match error(node) {
         Some(e) if e.starts_with(optchat_host::SETUP_ERROR) => {
             format!("a {}", optchat_core::cut_at_bytes(e, 240))
@@ -1331,6 +1336,16 @@ impl Brain {
         // A turn the owner stopped posts nothing, even one that ended
         // normally before it saw the interrupt (the stop was accepted).
         let quiet = superseded || owner_stopped;
+        // A turn whose prompt never reached a harness (`unstarted`), past its
+        // cuts: its error is the harness start's, for host.log and the trace,
+        // never a reply. Its messages stay open in the reply ledger, which
+        // runs a retry turn and, if none answers, says so in plain words.
+        let unstarted = outcome.unstarted && outcome.error.is_some() && !outcome.refused;
+        if unstarted && !quiet && let Some(error) = &outcome.error {
+            (self.log)(&format!(
+                "turn {key} did not start ({failed}: {error}); its messages wait for a retry turn"
+            ));
+        }
         // A failed turn also leaves a note in the memory log, after the
         // messages it did not answer: without it the next turn's delta shows
         // them as still open, and a later "hi" got the answer to a message
@@ -1342,7 +1357,11 @@ impl Brain {
         let steered_waits = self.queue.iter().any(|q| q.logged);
         let failure_note = match &outcome.error {
             Some(error)
-                if !(quiet || tool_stopped || outcome.orphan.is_some() || steered_waits) =>
+                if !(quiet
+                    || unstarted
+                    || tool_stopped
+                    || outcome.orphan.is_some()
+                    || steered_waits) =>
             {
                 Some(failure_note(error))
             }
@@ -1359,7 +1378,7 @@ impl Brain {
         let text = ended_turn_text(
             outcome.reply,
             outcome.error,
-            quiet || tool_stopped,
+            quiet || tool_stopped || unstarted,
             outcome.refused,
             &failed,
         );
@@ -1440,13 +1459,14 @@ impl Brain {
             .collect();
         // Work announced as pending that this turn closes: a silent turn
         // still answers with a done marker, unless the owner stopped it.
-        let closes = !quiet
+        let closes = !(quiet || unstarted)
             && answers
                 .iter()
                 .any(|id| self.state.open_answers.contains(id) && !pending.contains(id));
         // An owner-stopped turn posts no done marker, so the work it would
-        // close stays open for a later turn to close.
-        if !quiet {
+        // close stays open for a later turn to close; so does a turn that
+        // never started.
+        if !(quiet || unstarted) {
             self.state
                 .open_answers
                 .retain(|id| !answers.contains(id) || pending.contains(id));
@@ -1549,6 +1569,8 @@ impl Brain {
         self.flush_outbox();
         self.schedule_reply_checks(if said_no_reply {
             super::reply_ledger::WHY_NO_REPLY
+        } else if unstarted {
+            super::reply_ledger::WHY_UNSTARTED
         } else {
             super::reply_ledger::WHY_SILENT
         });
@@ -1620,6 +1642,21 @@ pub(super) fn cut_kind(outcome: &TurnOutcome) -> Option<Cut> {
     }
     if outcome.refused || outcome.cancelled {
         return None;
+    }
+    // Its prompt never reached a harness (`TurnOutcome::unstarted`): nothing
+    // ran, so it runs again after an upstream wait whatever the error says.
+    // Leo, 2026-11-04: "(turn failed on claude-sr2: session/new: agent_start
+    // did not finish within 90s; ...)" posted as the Chief's reply three
+    // times, because only Chief's own "no answer within" wording was matched
+    // here. A usage limit is not cured by a retry and stays the failure.
+    if outcome.unstarted
+        && outcome.reply.is_none()
+        && !matches!(
+            crate::auto_resume::classify_error(error),
+            crate::auto_resume::StopKind::UsageLimit(_)
+        )
+    {
+        return Some(Cut::Upstream);
     }
     if outcome.reply.is_none()
         && [

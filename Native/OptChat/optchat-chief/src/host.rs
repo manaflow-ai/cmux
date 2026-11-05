@@ -2266,6 +2266,17 @@ pub fn probe_until_ready(
     }
 }
 
+/// Whether `error` is a harness start that ran out of time: acpmux's start
+/// deadline (`agent_start did not finish within 90s; ...`, its
+/// `deadline_exceeded` error) or Chief's own wait on it. A loaded or
+/// memory-starved machine (2026-11-04: swap full, the harness in page-in
+/// waits) is a wait, never a fault to post: the start works when it can.
+pub fn start_stall(error: &str) -> bool {
+    ["did not finish within", "did not start within"]
+        .iter()
+        .any(|t| error.contains(t))
+}
+
 /// How long the start-up probe waits before it tries again after `error`
 /// (its `attempt`-th failure, from 0); None: no retry (a real fault).
 pub fn probe_retry_wait(error: &str, attempt: u32) -> Option<std::time::Duration> {
@@ -2273,6 +2284,9 @@ pub fn probe_retry_wait(error: &str, attempt: u32) -> Option<std::time::Duration
     const MAX: Duration = Duration::from_secs(120);
     if let Some(wait) = optchat_host::capacity_wait(error) {
         return Some(wait.min(MAX));
+    }
+    if start_stall(error) {
+        return Some(Duration::from_secs(1u64 << attempt.min(16)).min(MAX));
     }
     let lower = error.to_ascii_lowercase();
     let transient = [

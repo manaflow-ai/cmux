@@ -46,6 +46,7 @@ const PREVIEW_CHARS: usize = 120;
 /// Why a turn that ended left its messages unanswered, as the notes say it.
 pub(super) const WHY_NO_REPLY: &str = "the turn ended with NO_REPLY";
 pub(super) const WHY_SILENT: &str = "the turn ended without a reply";
+pub(super) const WHY_UNSTARTED: &str = "its agent could not start";
 
 impl Brain {
     /// Person message `message` of the Chief conversation is queued for a

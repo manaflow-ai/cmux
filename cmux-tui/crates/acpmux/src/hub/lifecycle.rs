@@ -1991,13 +1991,14 @@ mod fixed_id_tests {
     }
 }
 
-/// Whether a start's harness still works: it has a thread on a CPU or ready for one, or its CPU
-/// time moved since the last read. A loaded host slows that down, it does not stop it. A harness
-/// not spawned yet, or one whose state cannot be read (not macOS), is never called hung here: its
-/// creator's own wait bounds that.
+/// Whether a start's harness still works (`HarnessState::worked_since`, over its whole process
+/// tree): a thread on a CPU, CPU time, a page read in or a process started since the last read. A
+/// loaded host or short memory slows that down, it does not stop it. A harness not spawned yet,
+/// or one whose state cannot be read (not macOS), is never called hung here: its creator's own
+/// wait bounds that.
 #[derive(Default)]
 struct StartWatch {
-    cpu_ms: Option<u64>,
+    last: Option<crate::cpu_class::HarnessState>,
     idle_since: Option<std::time::Duration>,
 }
 
@@ -2005,12 +2006,12 @@ impl StartWatch {
     /// `seen` at `waited` into the start: whether its harness has not worked for `START_HUNG`.
     fn hung(&mut self, seen: &crate::cpu_class::HarnessSeen, waited: std::time::Duration) -> bool {
         let crate::cpu_class::HarnessSeen::Running(state) = seen else {
-            self.cpu_ms = None;
+            self.last = None;
             self.idle_since = None;
             return false;
         };
-        let worked = state.threads_running > 0 || self.cpu_ms != Some(state.cpu_ms);
-        self.cpu_ms = Some(state.cpu_ms);
+        let worked = self.last.as_ref().is_none_or(|last| state.worked_since(last));
+        self.last = Some(state.clone());
         if worked {
             self.idle_since = None;
             return false;
