@@ -196,6 +196,16 @@ if [[ -n "$lan" ]]; then
   server=$!
   pids+=("$server")
   echo "SCREEN-STREAM-EVAL-STAGE peer waiting for the viewer Mac at $lan:$peer_port"
+  # Once: does the server answer on the LAN address from this Mac? (403 without the token is an answer.)
+  sleep 1
+  echo "SCREEN-STREAM-EVAL-PEER-SELF $(python3 -I -c 'import sys, urllib.request
+try:
+    urllib.request.urlopen(f"http://{sys.argv[1]}:{sys.argv[2]}/clock", timeout=5)
+    print("answered")
+except urllib.error.HTTPError as e:
+    print(f"answered {e.code}")
+except OSError as e:
+    print(f"no answer: {e!r}")' "$lan" "$peer_port")"
   for _ in $(seq 1 360); do
     [[ -s "$work/peer/agent.json" ]] && break
     # A server that could not bind (an address this Mac lacks, a port in use) ends at once: say so.
