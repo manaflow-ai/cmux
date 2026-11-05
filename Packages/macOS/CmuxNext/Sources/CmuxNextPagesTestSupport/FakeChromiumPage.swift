@@ -109,6 +109,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var focusAsks: [Bool] = []
     /// Records the ask in ``focusAsks``.
     public func setFocused(_ focused: Bool) { focusAsks.append(focused) }
+    /// Whether the page reports the keyboard (``PageChromiumPage/hasKeys``).
+    public var hasKeys = false
     /// Does nothing.
     public func setVisible(_ visible: Bool) { visibility.append(visible) }
 
