@@ -36,26 +36,33 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
     await vite?.close();
   });
 
-  type Measure = { frame: DOMRect; image: DOMRect; natural: { width: number; height: number } };
-  const cases = [
+  type Measure = {
+    frame: DOMRect;
+    image: DOMRect;
+    bound: DOMRect | null;
+    natural: { width: number; height: number };
+  };
+  const cases: { entry: string; variant: string; image: string; frame: string; width?: number }[] = [
     { entry: "agent-pane.reply-thumbs", variant: "wide-strip", image: ".cv-thumb__img", frame: ".cv-thumb" },
     { entry: "agent-pane.reply-thumbs", variant: "tall-phone", image: ".cv-thumb__img", frame: ".cv-thumb" },
     // A row of a wide, a tall and a square image: each keeps its shape inside its share.
     { entry: "agent-pane.reply-thumbs", variant: "shapes", image: ".cv-thumb__img", frame: ".cv-thumb" },
     { entry: "agent-pane.sent-images", variant: "wide-strip", image: "img.cv-user__image", frame: "button" },
     { entry: "agent-pane.sent-images", variant: "pasted", image: "img.cv-user__image", frame: "button" },
+    // A 400px chat: the strip above a prompt and inside one scale down to the bubble's width.
+    { entry: "agent-pane.sent-images", variant: "narrow", image: "img.cv-user__image", frame: "button", width: 400 },
   ];
-  for (const { entry, variant, image, frame } of cases)
+  for (const { entry, variant, image, frame, width = 760 } of cases)
     for (const colorScheme of ["dark", "light"] as const)
       test(`${entry} ${variant}: the whole image in its own shape (${colorScheme})`, async () => {
         const page = await browser!.newPage({
-          viewport: { width: 760, height: 720 },
+          viewport: { width, height: 720 },
           colorScheme,
           deviceScaleFactor: 2,
         });
         try {
           const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
-          await page.goto(base + galleryFrame(entry, { variant, colorScheme, width: 760, height: 720 }));
+          await page.goto(base + galleryFrame(entry, { variant, colorScheme, width, height: 720 }));
           await page.waitForFunction(() =>
             ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
           );
@@ -73,12 +80,13 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
               [...document.querySelectorAll<HTMLImageElement>(image)].map((img) => ({
                 frame: (img.closest(frame) ?? img).getBoundingClientRect().toJSON(),
                 image: img.getBoundingClientRect().toJSON(),
+                bound: img.closest(".cv-user__bubble, .cv-user__images")?.getBoundingClientRect().toJSON() ?? null,
                 natural: { width: img.naturalWidth, height: img.naturalHeight },
               })),
             { image, frame },
           );
           expect(measured.length).toBeGreaterThan(0);
-          for (const { frame: box, image: drawn, natural } of measured) {
+          for (const { frame: box, image: drawn, bound, natural } of measured) {
             const label = `${natural.width}×${natural.height} drawn ${drawn.width.toFixed(1)}×${drawn.height.toFixed(1)} in ${box.width.toFixed(1)}×${box.height.toFixed(1)}`;
             // The box the reader sees is the image's own shape: no crop, no empty card around it.
             expect(Math.abs(box.width / box.height - natural.width / natural.height), label).toBeLessThan(
@@ -88,6 +96,8 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
             expect(Math.abs(box.height - drawn.height), label).toBeLessThan(2);
             // Never larger than the image: no magnified, blurry crop.
             expect(drawn.width, label).toBeLessThanOrEqual(natural.width + 0.5);
+            // Inside the prompt's bubble or image band: never past its edge in a narrow chat.
+            if (bound) expect(drawn.right, label).toBeLessThanOrEqual(bound.right + 0.5);
           }
         } finally {
           await page.close();
