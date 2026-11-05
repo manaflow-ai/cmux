@@ -59,8 +59,17 @@ public final class MainPaneChromeShadeView: NSView {
     public func update(card content: CGRect, radius: CGFloat, alpha: CGFloat, hardEdge: HardEdge = .off, sidebarLeading: Bool = true,
                        content contentView: NSView? = nil) {
         var card = content
-        if hardEdge.isOn, DesignSettings.shared.tabBarPosition != .bottom {
-            card.size.height = max(0, card.height - (Metrics.stripTopOutset + Metrics.tabStripHeight)) // the top is maxY
+        if hardEdge.isOn {
+            // The card is the content inside the pane padding, so the first tab (square, no strip
+            // padding: `TabStripMetrics.hardEdge`) stands on its leading edge.
+            let padding = Metrics.stripTopOutset
+            card = card.insetBy(dx: padding, dy: 0)
+            card.origin.y += padding
+            card.size.height -= padding
+            if DesignSettings.shared.tabBarPosition != .bottom {
+                card.size.height -= Metrics.tabStripHeight // the top is maxY
+            }
+            card.size.height = max(0, card.size.height)
         }
         hardEdgeFrame.update(card: card, alpha: alpha, style: hardEdge, sidebarLeading: sidebarLeading, above: contentView, in: superview)
         guard card != self.card || radius != self.radius || alpha != self.alpha || hardEdge != self.hardEdge

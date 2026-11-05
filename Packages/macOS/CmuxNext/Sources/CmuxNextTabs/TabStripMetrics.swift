@@ -164,6 +164,8 @@ public struct TabStripMetrics: Equatable, Sendable {
         tearOffDistance = TabTunables.tearOffDistance.value
         cornerRadius = Metrics.itemCornerRadius
         hardEdge = HardEdge.current
+        // Hard-edge chrome: the first pill, square on its leading edge, stands on the card's edge.
+        if hardEdge.isOn { stripHorizontalPadding = 0 }
         closeCornerRadius = Metrics.space2
         groupChipOuterInset = Metrics.space1
         groupChipPadding = TabTunables.groupChipPadding.value

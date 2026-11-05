@@ -25,9 +25,9 @@ final class HardEdgeFrameView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    /// The card's cuts: the big one toward the sidebar at the top and its opposite at the bottom.
+    /// The card's cuts: square under the first tab (toward the sidebar), big top-trailing and bottom-leading.
     @MainActor static func cardCuts(sidebarLeading: Bool) -> HardEdge.Cuts {
-        let cuts = HardEdge.Cuts.signature(HardEdge.cardCut, minor: HardEdge.cardMinorCut)
+        let cuts = HardEdge.Cuts.card(HardEdge.cardCut, minor: HardEdge.cardMinorCut)
         return sidebarLeading ? cuts : cuts.mirrored
     }
 
@@ -37,6 +37,19 @@ final class HardEdgeFrameView: NSView {
         let grow = distance * (2 - CGFloat(2).squareRoot())
         return HardEdge.Cuts(topLeading: cuts.topLeading + grow, topTrailing: cuts.topTrailing + grow,
                              bottomTrailing: cuts.bottomTrailing + grow, bottomLeading: cuts.bottomLeading + grow)
+    }
+
+    /// The outline's point pairs (`HardEdge.outline` order) of each big cut: (1, 2) top-trailing,
+    /// (3, 4) bottom-trailing, (5, 6) bottom-leading, (7, 0) top-leading.
+    @MainActor static func majorCorners(_ cuts: HardEdge.Cuts) -> [(Int, Int)] {
+        [(cuts.topTrailing, (1, 2)), (cuts.bottomTrailing, (3, 4)), (cuts.bottomLeading, (5, 6)), (cuts.topLeading, (7, 0))]
+            .filter { $0.0 >= HardEdge.cardCut - 0.5 }.map(\.1)
+    }
+
+    /// `distance` from `point` toward `target`.
+    static func step(from point: CGPoint, toward target: CGPoint, by distance: CGFloat) -> CGPoint {
+        let dx = target.x - point.x, dy = target.y - point.y, length = max(hypot(dx, dy), 0.001)
+        return CGPoint(x: point.x + dx / length * distance, y: point.y + dy / length * distance)
     }
 
     func update(card: CGRect, alpha: CGFloat, style: HardEdge, sidebarLeading: Bool, above content: NSView?, in root: NSView?) {
@@ -71,26 +84,24 @@ final class HardEdgeFrameView: NSView {
         case .off, .chamfer:
             break
         case .blade:
-            // A lit bracket on each big cut, just outside the card's edge: a leg along the edge,
-            // the cut, a leg along the other edge, a diamond at the top leg's end.
+            // A lit bracket on each big cut, just outside the card's edge: a leg along each edge
+            // and the cut between them; a diamond past the top leg's end.
             let width = (1.5 * scale).rounded() / scale, distance = width / 2 + 1 / scale
             let rect = card.insetBy(dx: -distance, dy: -distance), lit = Self.offset(cuts, by: distance)
             let points = HardEdge.outline(rect, cuts: lit, flipped: false)
             let leg = Metrics.scale(28)
-            // outline order: [0,1] top edge, [2,3] trailing edge, [4,5] bottom edge, [6,7] leading edge.
-            let topLeading = sidebarLeading
-            let (a, b) = topLeading ? (points[7], points[0]) : (points[1], points[2]) // the top cut
-            let (c, d) = topLeading ? (points[3], points[4]) : (points[5], points[6]) // the bottom cut
-            let dir: CGFloat = topLeading ? 1 : -1
-            marksPath.move(to: CGPoint(x: a.x, y: a.y - leg))
-            marksPath.addLine(to: a)
-            marksPath.addLine(to: b)
-            marksPath.addLine(to: CGPoint(x: b.x + dir * leg, y: b.y))
-            marksPath.move(to: CGPoint(x: c.x, y: c.y + leg))
-            marksPath.addLine(to: c)
-            marksPath.addLine(to: d)
-            marksPath.addLine(to: CGPoint(x: d.x - dir * leg, y: d.y))
-            rivetsPath.addPath(HardEdge.diamond(CGPoint(x: b.x + dir * (leg + Metrics.scale(5)), y: b.y), radius: HardEdge.diamondRadius - 0.5))
+            for corner in Self.majorCorners(cuts) {
+                let (a, b) = (points[corner.0], points[corner.1])
+                let before = points[(corner.0 + 7) % 8], after = points[(corner.1 + 1) % 8]
+                marksPath.move(to: Self.step(from: a, toward: before, by: leg))
+                marksPath.addLine(to: a)
+                marksPath.addLine(to: b)
+                marksPath.addLine(to: Self.step(from: b, toward: after, by: leg))
+                if corner.0 == 1 { // the top-trailing cut: a diamond ends its top leg
+                    rivetsPath.addPath(HardEdge.diamond(Self.step(from: a, toward: before, by: leg + Metrics.scale(6)),
+                                                        radius: HardEdge.diamondRadius - 0.5))
+                }
+            }
             marks.lineWidth = width
             marks.strokeColor = HardEdge.accent.cgColor
             rivets.fillColor = HardEdge.accent.cgColor

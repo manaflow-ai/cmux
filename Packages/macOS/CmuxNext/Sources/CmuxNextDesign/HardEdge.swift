@@ -9,10 +9,12 @@ public import CmuxNextDesignTokens
 /// Every value but `off` draws the same frame: the window is the outer glass frame (one shaded
 /// surface across the sidebar, the titlebar row and the tab strip, so the top area is the top bar
 /// of everything), and the content below the top tab strip is the inner card, a gap inside it.
-/// Nothing in it curves: the card, the selected tab and the selected workspace row each cut their
-/// top-leading and bottom-trailing corners at 45°, the one shape of the whole window, so the
-/// corner where the sidebar meets the tabs is a straight cut, never a line that bends away into a
-/// curve. Compact density keeps today's chrome (Lawrence's ultra compact).
+/// Nothing in it curves, and every surface has one shape: square on its leading edge, the side
+/// toward the sidebar, with its top-trailing corner cut at 45°. The first tab is square and sits
+/// on the card's leading edge, so the tab row presses flush on the card instead of a straight
+/// line that bends away into a curve (Leo: "the tab at its left ... is just square"); the card,
+/// the tabs, the sidebar rows and the + all lean the same way. Compact density keeps today's
+/// chrome (Lawrence's ultra compact).
 public nonisolated enum HardEdge: String, Sendable, CaseIterable, TunableChoice {
     /// Today's chrome.
     case off
@@ -48,15 +50,15 @@ public nonisolated enum HardEdge: String, Sendable, CaseIterable, TunableChoice 
 
     // MARK: Geometry
 
-    /// The frame's gap around the card (window edges, the sidebar, under the tab strip): the
-    /// glass frame's padding, one and a half grid steps.
-    @MainActor public static var gap: CGFloat { Metrics.scale(6) }
-    /// The card's large cut (top-leading, beside the sidebar, and bottom-trailing).
-    @MainActor public static var cardCut: CGFloat { Metrics.scale(10) }
-    /// The card's small cut (the other two corners).
-    @MainActor public static var cardMinorCut: CGFloat { Metrics.scale(3) }
-    /// A tab's or a row's cut (top-leading and bottom-trailing).
-    @MainActor public static var fillCut: CGFloat { Metrics.scale(6) }
+    /// The frame's gap around the content host (window edges, the sidebar); the pane padding
+    /// inside it adds to the glass frame's padding around the card.
+    @MainActor public static var gap: CGFloat { Metrics.scale(4) }
+    /// The card's large cut (top-trailing, and its counterweight bottom-leading).
+    @MainActor public static var cardCut: CGFloat { Metrics.scale(12) }
+    /// The card's small cut (bottom-trailing); the top-leading corner, under the first tab, is square.
+    @MainActor public static var cardMinorCut: CGFloat { Metrics.scale(4) }
+    /// A tab's, a row's or the +'s top-trailing cut.
+    @MainActor public static var fillCut: CGFloat { Metrics.scale(7) }
     /// A diamond marker's half diagonal.
     @MainActor public static var diamondRadius: CGFloat { Metrics.scale(3) }
 
@@ -74,9 +76,15 @@ public nonisolated enum HardEdge: String, Sendable, CaseIterable, TunableChoice 
             self.bottomLeading = bottomLeading
         }
 
-        /// The signature: a big cut top-leading and bottom-trailing, a small one elsewhere.
-        public static func signature(_ major: CGFloat, minor: CGFloat = 0) -> Cuts {
-            Cuts(topLeading: major, topTrailing: minor, bottomTrailing: major, bottomLeading: minor)
+        /// A fill's shape: square but for its top-trailing cut.
+        public static func fill(_ cut: CGFloat) -> Cuts {
+            Cuts(topLeading: 0, topTrailing: cut, bottomTrailing: 0, bottomLeading: 0)
+        }
+
+        /// The card's shape: square top-leading (under the first tab), `major` top-trailing and
+        /// bottom-leading, `minor` bottom-trailing.
+        public static func card(_ major: CGFloat, minor: CGFloat) -> Cuts {
+            Cuts(topLeading: 0, topTrailing: major, bottomTrailing: minor, bottomLeading: major)
         }
 
         /// Mirrored left to right (a sidebar on the right, so the cut faces it).
@@ -124,42 +132,35 @@ public nonisolated enum HardEdge: String, Sendable, CaseIterable, TunableChoice 
         Palette.hasChosenAccent ? Palette.litGlyph : Palette.highlight
     }
 
-    /// A fill's mask and accent marks (a selected tab or workspace row): the fill clipped to the
-    /// signature cut, and under `blade` a lit stroke along the top-leading cut with a diamond at
-    /// the leading edge's middle. `rect` is in the layer's flipped coordinates. Returns the mask
-    /// path, nil when the value draws no cut.
+    /// A fill's mask (a tab, a sidebar row, the +): square but for the top-trailing cut. `rect`
+    /// is in flipped coordinates. nil when the value draws no cut.
     @MainActor public func fillMask(_ rect: CGRect) -> CGPath? {
-        isOn ? Self.path(rect, cuts: .signature(Self.fillCut), flipped: true) : nil
+        isOn ? Self.path(rect, cuts: .fill(Self.fillCut), flipped: true) : nil
     }
 
     /// The lit marks on a selected fill in `rect` (flipped coordinates), as one path to fill with
-    /// `accent`, all inside the fill's cut outline so its mask never clips them: `blade` a line
-    /// along the top-leading cut that runs on down the leading edge, and one along the
-    /// bottom-trailing cut; `hud` a small solid wedge in the top-leading cut. nil otherwise.
+    /// `accent`, inside the fill's outline so its mask never clips them: `blade` a bar down the
+    /// square leading edge (on the first tab, the card's edge continued) and a band along the
+    /// top-trailing cut; `hud` a solid wedge in the cut and a diamond on the leading edge. nil otherwise.
     @MainActor public func selectedMarks(_ rect: CGRect) -> CGPath? {
         guard self == .blade || self == .hud, rect.width > 0, rect.height > 0 else { return nil }
         let cut = min(Self.fillCut, rect.width / 2, rect.height / 2)
-        let width = Metrics.scale(1.5), step = width * CGFloat(2).squareRoot() // a 45° band `width` thick
+        let width = Metrics.scale(2), step = width * CGFloat(2).squareRoot() // a 45° band `width` thick
         let path = CGMutablePath()
         switch self {
         case .blade:
-            // The leading blade: the cut's band, then down the leading edge to the bottom.
+            path.addRect(CGRect(x: rect.minX, y: rect.minY, width: width, height: rect.height))
             path.addLines(between: [
-                CGPoint(x: rect.minX + cut, y: rect.minY), CGPoint(x: rect.minX + cut + step, y: rect.minY),
-                CGPoint(x: rect.minX + width, y: rect.minY + cut + step - width), CGPoint(x: rect.minX + width, y: rect.maxY),
-                CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.minY + cut),
-            ])
-            path.closeSubpath()
-            path.addLines(between: [
-                CGPoint(x: rect.maxX, y: rect.maxY - cut), CGPoint(x: rect.maxX, y: rect.maxY - cut - step),
-                CGPoint(x: rect.maxX - cut - step, y: rect.maxY), CGPoint(x: rect.maxX - cut, y: rect.maxY),
+                CGPoint(x: rect.maxX - cut, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY + cut),
+                CGPoint(x: rect.maxX, y: rect.minY + cut + step), CGPoint(x: rect.maxX - cut - step, y: rect.minY),
             ])
             path.closeSubpath()
         default:
             let tick = cut + Metrics.scale(4)
-            path.addLines(between: [CGPoint(x: rect.minX + cut, y: rect.minY), CGPoint(x: rect.minX + tick, y: rect.minY),
-                                    CGPoint(x: rect.minX, y: rect.minY + tick), CGPoint(x: rect.minX, y: rect.minY + cut)])
+            path.addLines(between: [CGPoint(x: rect.maxX - cut, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY + cut),
+                                    CGPoint(x: rect.maxX, y: rect.minY + tick), CGPoint(x: rect.maxX - tick, y: rect.minY)])
             path.closeSubpath()
+            path.addPath(Self.diamond(CGPoint(x: rect.minX, y: rect.midY), radius: Self.diamondRadius))
         }
         return path
     }

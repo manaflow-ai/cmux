@@ -120,6 +120,7 @@ final class SidebarIconButton: NSButton {
     override func layout() {
         super.layout()
         renderIcon()
+        applyHardEdgeCut()
     }
 
     nonisolated override var wantsUpdateLayer: Bool { true }
@@ -147,8 +148,12 @@ final class SidebarIconButton: NSButton {
         if takesKeyFocus { keyRepaint.track() }
     }
 
+    /// Hard-edge chrome (`chrome.hardEdge`) cuts the fill like a tab pill (the sidebar's +).
+    var cutsHardEdge = false { didSet { needsDisplay = true } }
+
     override func updateLayer() {
         layer?.cornerRadius = Metrics.itemCornerRadius
+        applyHardEdgeCut()
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
         }
