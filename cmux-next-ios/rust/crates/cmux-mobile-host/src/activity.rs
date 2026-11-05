@@ -64,12 +64,14 @@ impl Activity {
     }
 
     pub fn record(&self, entry: Entry) {
+        // One lock over the size check, rotation and write, so two requests at
+        // once never both rotate or write into a file another just moved.
+        let mut recent = self.recent.lock().expect("activity");
         if let Some(path) = &self.path
             && let Err(error) = append(path, &entry, self.rotate_at)
         {
             tracing::warn!(path = %path.display(), %error, "could not write machine activity");
         }
-        let mut recent = self.recent.lock().expect("activity");
         recent.push(entry);
         let excess = recent.len().saturating_sub(RECENT);
         recent.drain(..excess);
@@ -157,5 +159,36 @@ mod tests {
         assert!(std::fs::metadata(&previous).unwrap().len() < 300 + 200);
         let names = std::fs::read_dir(dir.path()).unwrap().count();
         assert_eq!(names, 2, "never more than the file and one previous");
+    }
+
+    #[test]
+    fn concurrent_records_lose_nothing_at_a_rotation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("machine-activity.jsonl");
+        // Rotates every few lines, under eight writers at once.
+        let activity = std::sync::Arc::new(Activity::file(path.clone()).rotating_at(1_000));
+        let writers: Vec<_> = (0..8)
+            .map(|_| {
+                let activity = std::sync::Arc::clone(&activity);
+                std::thread::spawn(move || {
+                    for _ in 0..25 {
+                        activity.record(entry("daemon", "not_granted"));
+                    }
+                })
+            })
+            .collect();
+        for writer in writers {
+            writer.join().unwrap();
+        }
+        let lines = |p: &std::path::Path| std::fs::read_to_string(p).unwrap_or_default().lines().count();
+        let line = serde_json::to_vec(&entry("daemon", "not_granted")).unwrap().len() as u64 + 1;
+        let per_file = 1_000_u64.div_ceil(line) as usize;
+        // The two files hold the last writes, each file whole and at most one rotation's worth.
+        let (now, previous) = (lines(&path), lines(&dir.path().join("machine-activity.1.jsonl")));
+        assert!((1..=per_file).contains(&now), "{now}");
+        assert_eq!(previous, per_file, "the previous file is one full rotation, never cut short");
+        for line in std::fs::read_to_string(&path).unwrap().lines() {
+            serde_json::from_str::<serde_json::Value>(line).unwrap();
+        }
     }
 }
