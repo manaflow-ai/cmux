@@ -6,9 +6,9 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Toggle Setting (palette, `cmux settings toggle-setting`) refuses a retired key as removed, as
-/// `settings.set` does. A retired key has no descriptor, so the handler's raw write for keys outside
-/// the schema used to set it again (`labs.classicHome`, retired after the docked Home).
+/// Toggle Setting (palette, `cmux settings toggle-setting`) never writes a retired key. A retired key
+/// has no descriptor, so the handler's raw write for keys outside the schema used to set it again
+/// (`labs.classicHome`, retired after the docked Home); `SettingsController.set` now refuses it.
 @MainActor @Suite(.serialized) struct ToggleSettingRetiredKeyTests {
     func make() async throws -> (services: AppServices, url: URL) {
         _ = NSApplication.shared
