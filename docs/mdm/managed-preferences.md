@@ -62,6 +62,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.oneClickInstall` | boolean | `false` |  | Update in One Click. Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart. |
 | `updates.meteredNetwork` | string | `"defer-low-data"` | `defer-low-data`, `defer-expensive`, `download` | On Metered Networks. While downloads wait, a found update shows on Settings and one click downloads it. |
 | `updates.web` | string | `"every-merge"` | `every-merge`, `nightly`, `off` | Web UI Updates. Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with. |
+| `updates.liveWebReload` | boolean | `true` |  | Live Web Reload. Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with. |
 | `updates.installOnQuit` | boolean | `false` |  | Install Updates When Quitting. A downloaded update installs as cmux quits. Terminals keep running. |
 | `updates.notify` | string | `"badge"` | `badge`, `silent` | When an Update Is Ready |
 | `updates.keepPreviousVersions` | real | `1` | 0 to 5 | Keep Previous Versions. Earlier builds kept so you can roll back. Uses almost no disk until files change. |
@@ -99,6 +100,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.autoRetry.enabled` | boolean | `true` |  | Retry Automatically. When a model is rate limited or out of capacity, or the connection drops, the chat tries again by itself. Retry on the error card always works. |
 | `agents.autoRetry.intervalSeconds` | real | `0` | 0 to 3600 | Seconds Between Retries. How long the chat waits before each try. 0 waits longer after each failed try: 10 seconds, 1 minute, 5 minutes, then 20 minutes. |
 | `agents.autoRetry.attempts` | real | `4` | 1 to 12 | Retries per Error. How many times the chat tries again before it stops and waits for you. |
+| `agents.messages.claudeWake` | boolean | `true` |  | Wake Idle Claude for Messages. When another agent or a person sends a message to Claude Code in a terminal, an idle session starts a turn to read it. Nothing is typed into the terminal. Off: the message waits for the next prompt in that session. |
 | `agents.trust.autoTrust` | boolean | `false` |  | Trust My Own Folders Without Asking. Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first. |
 | `agents.trust.projectRoots` | array | `[]` |  | Trusted Project Roots. Everything inside these folders is trusted. Use full paths or ~/ paths. |
 | `agents.trust.ownOrgs` | array | `[]` |  | Trusted GitHub Owners. A repository is trusted when all of its GitHub remotes belong to these users or organizations. |
@@ -189,7 +191,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `ui.animations.bounce` | string | `"none"` | `none`, `subtle` | Animation Bounce. None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce. |
 | `layout.paneSeparation` | string |  | `none`, `dividers`, `borders`, `cards` | Separation. How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise. |
 | `layout.panePadding` | real |  | 0 to 16 | Padding |
-| `layout.paneCornerRadius` | real |  | 0 to 20 | Corner Radius. One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding. |
+| `layout.paneCornerRadius` | real |  | 0 to 20 | Corner Radius. One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding. |
 | `layout.cornerPadding` | real |  | 0 to 12 | Corner Padding. Space between a pane's edge and its tabs. Inner corners use the corner radius minus this. |
 | `layout.paneBorder` | string | `"subtle"` | `subtle`, `none` | Border |
 | `layout.paneBorderColor` | string |  |  | Border Color |

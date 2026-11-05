@@ -65,6 +65,7 @@ blob schemas/remote-tab/scroll-writer.json
 blob schemas/remote-tab/session.json
 blob schemas/terminal-sizing/fixtures.json
 blob schemas/settings/retired-keys.json
+blob schemas/settings/source/agent-messages.json
 blob schemas/settings/source/agent-retry.json
 blob schemas/settings/source/subsessions.json
 blob schemas/settings/source/trust.json
