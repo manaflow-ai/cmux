@@ -280,6 +280,8 @@ extension TabStripView {
 
     /// Drops `id`'s place and the moves that tracked it.
     func forgetPlace(_ id: TabID) {
+        // A tab or chip that goes no longer counts in the cells' trailing edge (`followWidth`).
+        framedCells = nil
         placed[id] = nil
         dying.remove(id)
         goesAt[id] = nil
