@@ -159,7 +159,13 @@ mod tests {
         fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
             self.inner.append(id, record)
         }
+        /// An export reads the log with `scan`, which reads `events`.
         fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+            let held = self.hold.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some((entered, release)) = held {
+                let _ = entered.send(());
+                let _ = release.recv();
+            }
             self.inner.events(id, after, limit)
         }
         fn scan_strict(
@@ -168,11 +174,6 @@ mod tests {
             after: u64,
             visit: &mut dyn FnMut(EventRecord) -> bool,
         ) -> anyhow::Result<()> {
-            let held = self.hold.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if let Some((entered, release)) = held {
-                let _ = entered.send(());
-                let _ = release.recv();
-            }
             self.inner.scan_strict(id, after, visit)
         }
         fn delete(&self, id: &str) -> anyhow::Result<()> {
