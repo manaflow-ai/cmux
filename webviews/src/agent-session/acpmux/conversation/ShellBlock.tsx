@@ -61,6 +61,12 @@ export function ShellBlock({
   const preview = usePreview(whole ? 0 : lineCount(raw.text), reveal);
   const shown = previewedOutput(raw, preview);
   const marked = shown.cut || Boolean(cut && shown.shown);
+  // `outputTail` returns a suffix, so keep the source line number alongside it. Without this,
+  // every memoized chunk appears to start at line zero whenever the live 400-line window slides.
+  const shownStartLine =
+    raw.text && shown.shown && shown.shown !== raw.text
+      ? raw.text.slice(0, raw.text.length - shown.shown.length).split("\n").length - 1
+      : 0;
   const body = useRef<HTMLPreElement>(null);
   useSidewaysEdge(body);
   // Following first, so the fade reads where the box ends up, not where it was.
@@ -114,7 +120,7 @@ export function ShellBlock({
         )}
         {shown.shown ? (
           <span className="cv-shell__output">
-            <Lines text={shown.shown} windowed={live && !preview.all} />
+            <Lines text={shown.shown} windowed={live && !preview.all} startLine={shownStartLine} />
           </span>
         ) : null}
       </pre>

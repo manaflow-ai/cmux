@@ -247,6 +247,20 @@ test("streaming output keeps finished line chunks stable and windows the live ta
   expect(rendered.at(-1)!.textContent).toBe(`line ${OUTPUT_LINE_WINDOW + 80}`);
 });
 
+test("ShellBlock keeps chunk identity when the live output tail slides", async () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
+  const line = (text: string, value: string) =>
+    [...container.querySelectorAll<HTMLElement>(".cv-line")].find((node) => node.textContent === text) ??
+    (() => {
+      throw new Error(`missing ${value}`);
+    })();
+
+  await act(async () => root!.render(<ShellBlock command="sleep 5" output={lines(500)} live />));
+  const middle = line("line 200\n", "line 200");
+  await act(async () => root!.render(<ShellBlock command="sleep 5" output={lines(501)} live />));
+  expect(line("line 200\n", "line 200")).toBe(middle);
+});
+
 test("past eight lines the output is capped to scroll, with Show all to lift the cap", async () => {
   const output = Array.from({ length: 30 }, (_, at) => `case ${at + 1}`).join("\n");
   await act(async () => root!.render(<ShellBlock command="bun test" output={output} />));
