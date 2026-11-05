@@ -28,7 +28,8 @@
     "create",
     "--name",
     "Atlas",
-    "--focus"
+    "--shell",
+    "printf 'goo morph capture\\n'; exec sleep 86400"
    ],
    "wait": 1,
    "shot": false
@@ -40,31 +41,44 @@
     "create",
     "--name",
     "Bramble",
-    "--focus"
+    "--shell",
+    "printf 'goo morph capture\\n'; exec sleep 86400"
    ],
    "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Show Bramble (the Home page turns the look off)",
+   "cmux": [
+    "workspace",
+    "Bramble",
+    "focus"
+   ],
+   "wait": 1.5,
    "shot": false
   },
   {
    "title": "A second tab",
    "cmux": [
     "tab",
-    "new-browser",
+    "create",
+    "browser",
     "--url",
     "https://example.com"
    ],
    "wait": 3,
-   "shot": false,
-   "optional": "the band shows with one tab too"
+   "shot": false
   },
   {
    "title": "A third tab",
    "cmux": [
-    "action",
-    "run",
-    "newSurface"
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.org"
    ],
-   "wait": 2,
+   "wait": 3,
    "shot": false
   },
   {
@@ -236,9 +250,11 @@
   {
    "title": "pool: a new tab (the droplet follows it in)",
    "cmux": [
-    "action",
-    "run",
-    "newSurface"
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.net"
    ],
    "wait": 1.2
   },
@@ -349,9 +365,11 @@
   {
    "title": "slime: a new tab (the droplet follows it in)",
    "cmux": [
-    "action",
-    "run",
-    "newSurface"
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.net"
    ],
    "wait": 1.2
   },
@@ -462,9 +480,11 @@
   {
    "title": "drop: a new tab (the droplet follows it in)",
    "cmux": [
-    "action",
-    "run",
-    "newSurface"
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.net"
    ],
    "wait": 1.2
   },
