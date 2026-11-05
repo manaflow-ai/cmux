@@ -50,8 +50,8 @@ public actor AgentSessionAttachClient {
     }
 
     public static let capability = DaemonCapability.agentSessionAttach.rawValue
-    /// A Cloud machine's running link id while its attach answer says the caller owns it, else nil
-    /// (`CloudMachineLink.ownerLink`).
+    /// A Cloud machine's running link id while its connect answer says the caller owns it, else nil
+    /// (`CloudLinkSession.ownerLink`).
     public typealias OwnerLink = @Sendable () async -> Int?
     /// Whether a Cloud machine's link says it is a teammate's (`CloudMachineLinks.teammate`).
     public typealias Teammate = @Sendable () async -> Bool

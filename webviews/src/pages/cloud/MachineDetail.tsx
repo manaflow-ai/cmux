@@ -82,7 +82,7 @@ export function MachineDetailView({
   const cost = costLine(machine, now, t, language);
   const memory = machine.size?.memory_mb ?? undefined;
   const choices = memoryChoices(plan);
-  const idle = machine.idle_policy?.idle_seconds ?? 0;
+  const idle = (row.idle !== undefined ? row.idle : machine.idle_policy?.idle_seconds) ?? 0;
   const idleChoices = IDLE_CHOICES.some((seconds) => (seconds ?? 0) === idle) ? IDLE_CHOICES : [...IDLE_CHOICES, idle];
   return (
     <section className="cloud-detail" aria-labelledby="cloud-detail-title">

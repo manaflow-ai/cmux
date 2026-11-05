@@ -41,6 +41,7 @@ pub(super) async fn serve_stream(
     hub: Arc<Hub>,
     stream: crate::local_stream::Stream,
     peer: Option<cmux_link::app_caller::PeerToken>,
+    provisioner: bool,
 ) {
     let (rd, wr) = crate::local_stream::split(stream);
     let (in_tx, in_rx) = mpsc::channel::<String>(INBOUND_LINES);
@@ -56,6 +57,7 @@ pub(super) async fn serve_stream(
         Origin::Local,
         ConnAuth::LocalSocket,
         peer,
+        provisioner,
         None,
         None,
     )

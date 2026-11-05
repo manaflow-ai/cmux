@@ -14,8 +14,8 @@ import Testing
 /// by the Rust suites (`link/machine_update.rs`) and Update Machine by `CloudMoveTests`.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudMachineUpdateTargetTests {
-    static let bundled = "abc123def456"
-    static let older = "a9b104f3cb7d"
+    nonisolated static let bundled = "abc123def456"
+    nonisolated static let older = "a9b104f3cb7d"
 
     /// The production default (Leo: "OUR SHIT IS HARDLY EVER GOING TO GO IDLE"): a machine where an
     /// agent works is updated on the first ask, with no wait; the new daemon adopts the terminals
@@ -50,6 +50,172 @@ struct CloudMachineUpdateTargetTests {
         #expect(fixture.states == [.updating, .retrying, .updating, .updated(build: Self.bundled)])
         #expect(machine.reconnects == 2)
         #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
+    }
+
+    /// A chat start brings the machine up (prod, 2026-11-05: the app's update of a just-resumed machine restarted
+    /// its daemon mid-start, and the start failed "started but its agent didn't (cmux-tui connection closed:
+    /// EOF)"): the update answers busy and runs after the policy's backoff, once the start is done. Before, it ran
+    /// at once, under the start.
+    @Test func aMachineAStartBringsUpIsUpdatedAfterTheStart() async throws {
+        let machine = FakeCloudMachine(build: Self.older, level: .limited,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)], starts: 1)
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+
+        #expect(machine.updates == 1, "the update runs once, after the start")
+        #expect(fixture.clock.sleeps == [.seconds(120)], "the start held the update for one backoff")
+        #expect(fixture.states == [.updating, .retrying, .updating, .updated(build: Self.bundled)])
+        #expect(fixture.ledger.targets == [CloudMachineUpdateTarget.id("vm-1"): "updated"])
+    }
+
+    /// A machine whose daemon the app refused cannot take a start until it is updated: a start waits for that
+    /// update, so it is never held (review of #36555).
+    @Test func aRefusedMachineAStartWaitsOnIsUpdatedAtOnce() async throws {
+        let machine = FakeCloudMachine(build: nil, level: .incompatible,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)], starts: 1)
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+
+        #expect(machine.updates == 1)
+        #expect(fixture.clock.sleeps.isEmpty, "the start did not hold the update it waits for")
+        #expect(fixture.states == [.updating, .updated(build: Self.bundled)])
+    }
+
+    /// An update already running when a start comes: the start waits until that turn ended
+    /// (``DaemonUpdatePolicy/turnRunning(_:)``), so its agent starts on the new daemon, not the one being replaced.
+    @Test func aStartWaitsOutAnUpdateThatRunsNow() async throws {
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        let (began, beganNow) = AsyncStream<Void>.makeStream()
+        let (release, releaseNow) = AsyncStream<Void>.makeStream()
+        let source = CloudMachineUpdateTarget.Source(
+            daemon: { CloudMachineUpdateTarget.Daemon(build: Self.older, level: .limited) },
+            update: {
+                beganNow.yield()
+                for await _ in release { break }
+                return CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)
+            },
+            reconnect: { _ in })
+        let target = CloudMachineUpdateTarget(machineID: "vm-1", displayName: "Leo VM", source: source, enabled: { true })
+        let policy = DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.bundled }, targets: { [target] }, enabled: { true }, report: { _ in },
+            directory: fixture.directory, clock: fixture.clock))
+        #expect(await policy.turnRunning(target.id) == false, "no update runs: a start does not wait")
+        await policy.offer(target)
+        for await _ in began { break }
+        let waiter = Task { await policy.turnRunning(target.id) }
+        while !(await policy.awaitsTurn(target.id)) { await Task.yield() }
+        releaseNow.yield()
+        #expect(await waiter.value, "the start waited for the running update")
+        await policy.drained()
+        #expect(await policy.turnRunning(target.id) == false)
+    }
+
+    /// The start's own wait (``CloudWait/linked(within:_:updating:)`` over ``DaemonUpdatePolicy/turnRunning(_:)``): its
+    /// link came up on the daemon an update is replacing, so it links again once that update ended, and only then.
+    @Test func aStartLinksAgainOnceTheUpdateRunningUnderItEnds() async throws {
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        let (began, beganNow) = AsyncStream<Void>.makeStream()
+        let (release, releaseNow) = AsyncStream<Void>.makeStream()
+        let source = CloudMachineUpdateTarget.Source(
+            daemon: { CloudMachineUpdateTarget.Daemon(build: Self.older, level: .limited) },
+            update: {
+                beganNow.yield()
+                for await _ in release { break }
+                return CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)
+            },
+            reconnect: { _ in })
+        let target = CloudMachineUpdateTarget(machineID: "vm-1", displayName: "Leo VM", source: source, enabled: { true })
+        let policy = DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.bundled }, targets: { [target] }, enabled: { true }, report: { _ in },
+            directory: fixture.directory, clock: fixture.clock))
+        var links = 0
+        #expect(await CloudWait.linked(within: .seconds(10), { links += 1; return true }) { await policy.turnRunning(target.id) })
+        #expect(links == 1, "no update runs: the start links once")
+
+        await policy.offer(target)
+        for await _ in began { break }
+        links = 0
+        let start = Task { @MainActor in
+            await CloudWait.linked(within: .seconds(10), { links += 1; return true }) { await policy.turnRunning(target.id) }
+        }
+        while !(await policy.awaitsTurn(target.id)) { await Task.yield() }
+        #expect(links == 1, "the start linked again before the update ended")
+        releaseNow.yield()
+        #expect(await start.value)
+        #expect(links == 2, "the start never linked again after the update restarted the daemon")
+        await policy.drained()
+    }
+
+    /// A start whose link closed under it (EOF right after a resume) is tried once more once the link is back; any
+    /// other failure, and a second EOF, throw as they are.
+    @Test func aStartIsTriedOnceMoreOnlyAfterItsConnectionClosed() async throws {
+        let closed = { (error: any Error) in if case DaemonError.connectionClosed = error { true } else { false } }
+        var tries = 0, relinks = 0
+        let started = try await CloudWait.retriedOnce({
+            tries += 1
+            if tries == 1 { throw DaemonError.connectionClosed(reason: "EOF") }
+            return "session"
+        }, closed: closed, relink: { relinks += 1; return true })
+        #expect(started == "session")
+        #expect((tries, relinks) == (2, 1))
+
+        tries = 0; relinks = 0
+        await #expect(throws: DaemonError.self) {
+            try await CloudWait.retriedOnce({ () async throws -> String in tries += 1; throw DaemonError.connectionClosed(reason: "EOF") },
+                                            closed: closed, relink: { relinks += 1; return true })
+        }
+        #expect((tries, relinks) == (2, 1), "a second EOF is the answer: no third try")
+
+        tries = 0; relinks = 0
+        await #expect(throws: DaemonError.self) {
+            try await CloudWait.retriedOnce({ () async throws -> String in tries += 1; throw DaemonError.notConnected },
+                                            closed: closed, relink: { relinks += 1; return true })
+        }
+        #expect((tries, relinks) == (1, 0), "only a closed connection is tried again")
+
+        tries = 0
+        await #expect(throws: DaemonError.self) {
+            try await CloudWait.retriedOnce({ () async throws -> String in tries += 1; throw DaemonError.connectionClosed(reason: "EOF") },
+                                            closed: closed, relink: { false })
+        }
+        #expect(tries == 1, "a link that never came back is not tried on")
+    }
+
+    /// The start's wait on a just-resumed machine (prod 19:10Z, 2026-11-05: "no handshake within 5 s", then "no route
+    /// to this host", and the start failed at 59 s): a link that does not hold after the wait is dialed and waited on
+    /// once more when its last end is redialable; otherwise, and after the second wait, the answer stands.
+    @Test func aStartsLinkThatDoesNotHoldIsDialedAndWaitedOnOnceMore() async {
+        var waits = 0, agains = 0, holds = false
+        #expect(await CloudWait.linkedAgain({ waits += 1; return true }, held: { holds }, redialable: { true },
+                                            again: { agains += 1; holds = true }))
+        #expect((waits, agains) == (2, 1))
+
+        waits = 0; agains = 0; holds = false
+        #expect(!(await CloudWait.linkedAgain({ waits += 1; return true }, held: { holds }, redialable: { true }, again: { agains += 1 })))
+        #expect((waits, agains) == (2, 1), "a second wait that does not hold is the answer")
+
+        waits = 0; agains = 0
+        #expect(!(await CloudWait.linkedAgain({ waits += 1; return false }, held: { true }, redialable: { false }, again: { agains += 1 })))
+        #expect((waits, agains) == (1, 0), "an end no dial can help is not dialed again")
+
+        waits = 0; agains = 0
+        #expect(await CloudWait.linkedAgain({ waits += 1; return true }, held: { true }, redialable: { true }, again: { agains += 1 }))
+        #expect((waits, agains) == (1, 0), "a link that holds is not dialed again")
+    }
+
+    @Test func theStartGateCountsEachStartOfAMachine() {
+        let gate = CloudStartGate()
+        gate.enter("vm-1")
+        gate.enter("vm-1")
+        gate.leave("vm-1")
+        #expect(gate.contains("vm-1"), "one start of two still brings it up")
+        #expect(!gate.contains("vm-2"))
+        gate.leave("vm-1")
+        #expect(!gate.contains("vm-1"))
     }
 
     /// A refused daemon can't connect, so nothing on it is in use through the app: it goes first,
@@ -329,10 +495,13 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
     private var counts = (updates: 0, reconnects: 0, legacy: 0)
     private var judgedBuilds: [String] = []
     private var restarts: [Bool] = []
+    /// The first this many updates find a chat start bringing the machine up (``CloudStartGate``).
+    private var startsLeft: Int
 
     init(build: String?, level: DaemonCompatibility.Level, timeouts: Int = 0, answers: [CloudMoveCLI.Answer] = [],
-         legacy: [CloudMoveCLI.Answer]? = nil) {
+         legacy: [CloudMoveCLI.Answer]? = nil, starts: Int = 0) {
         daemon = CloudMachineUpdateTarget.Daemon(build: build, level: level)
+        startsLeft = starts
         self.timeouts = timeouts
         self.answers = answers
         legacyAnswers = legacy
@@ -388,6 +557,13 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
                     self.legacyAnswers = answers
                     if answer.ok, let build = answer.build { self.daemon = CloudMachineUpdateTarget.Daemon(build: build, level: .current) }
                     return answer
+                }
+            },
+            starting: {
+                self.lock.withLock {
+                    guard self.startsLeft > 0 else { return false }
+                    self.startsLeft -= 1
+                    return true
                 }
             })
     }

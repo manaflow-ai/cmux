@@ -80,9 +80,8 @@ import test_ci_signing_keychain_is_deleted_before_bundle_code as keychain_guard 
 # SIGNING_JOBS). A signing job routed to owned Macs must be one of them, so a new one is added there too.
 SIGNING_JOBS = {
     ("nightly.yml", "build-sign-notarize-nightly"), ("nightly.yml", "recover-nightly-next-notarization"),
-    ("nightly.yml", "sign-nightly-identity-legacy"), ("nightly.yml", "generate-nightly-deltas"),
+    ("nightly.yml", "generate-nightly-deltas"),
     ("nightly.yml", "publish-nightly"), ("nightly.yml", "publish-nightly-next-github"),
-    ("nightly.yml", "publish-nightly-next-github-names"),
     ("release.yml", "build-sign-notarize"), ("repair-v0-64-25-helper-rpaths.yml", "repair"),
     ("cmux-next-dev-daily.yml", "sign"),
 }
@@ -453,65 +452,6 @@ def started(job: str, seconds_ago: float) -> dict:
     return {"job": job, "started_at": (NOW - dt.timedelta(seconds=seconds_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")}
 
 
-class LegacySignReRunTakesAnOwnedMacFirst(unittest.TestCase):
-    """A re-run of nightly.yml whose pickers run again routes the legacy sign to an owned Mac first.
-
-    Runs 41077184190 and 41094107023 (2026-10-30): after the owned sign was refused on attempt 1, every later attempt
-    (the rescue's re-runs, up to attempt 4) sent sign-nightly-identity-legacy to Blacksmith macOS, which was stalled,
-    because its owned route and its twin read the pick on attempt 1 only and the picker was skipped on a re-run that
-    built nothing. The old feed got no build from either run."""
-
-    SIGN, PICK = "sign-nightly-identity-legacy", "pick-nightly-sign-runner"
-
-    @classmethod
-    def setUpClass(cls) -> None:
-        from test_ci_fork_runner_routing import parse_expression
-        from test_nightly_trusted_routing import evaluate
-        cls.parse, cls.evaluate = staticmethod(parse_expression), staticmethod(evaluate)
-        cls.jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))["jobs"]
-
-    def value(self, job: str, field: str, context: dict) -> Any:
-        source = str(self.jobs[job][field]).strip().removeprefix("${{").removesuffix("}}").strip()
-        source = source.replace("!cancelled() && ", "", 1)
-        base = {"github.repository_owner": "manaflow-ai", "github.ref": "refs/heads/nightly-next",
-                "needs.legacy-identity-target.outputs.sign_alternate": "blacksmith-12vcpu-macos-26",
-                "needs.legacy-identity-target.outputs.sign_runner": "blacksmith-6vcpu-macos-26",
-                "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-26.6"}
-        return self.evaluate(self.parse(source), {**base, **context})
-
-    def test_a_re_run_that_picked_again_takes_the_owned_mac(self) -> None:
-        for attempt in (1, 2, 3):
-            picked = {"github.run_attempt": attempt, "needs.pick-nightly-sign-runner.outputs.attempt": str(attempt),
-                      "needs.pick-nightly-sign-runner.outputs.sign_owned": '["glaeda-runner-m"]'}
-            with self.subTest(attempt=attempt):
-                self.assertEqual(self.value(self.SIGN, "runs-on", picked), ["glaeda-runner-m"])
-
-    def test_a_re_run_of_failed_jobs_keeps_the_old_pick_off_the_fleet(self) -> None:
-        stale = {"github.run_attempt": 2, "needs.pick-nightly-sign-runner.outputs.attempt": "1",
-                 "needs.pick-nightly-sign-runner.outputs.sign_owned": '["glaeda-runner-m"]'}
-        # Nightlies never use Blacksmith (Lawrence, 2026-10-30): a stale pick falls to the signer's label, which only
-        # a trusted-only mini that runs no pull request job carries.
-        self.assertEqual(self.value(self.SIGN, "runs-on", stale), "glaeda-trusted-next-signing")
-        self.assertNotIn(self.SIGN + "-blacksmith", self.jobs, "nightlies never use Blacksmith: no twin")
-
-    def test_the_picker_runs_when_only_the_legacy_sign_does(self) -> None:
-        # A full re-run of a published build: no app build, so prepare-nightly-variant is skipped.
-        legacy_only = {"needs.prepare-nightly-variant.result": "skipped", "needs.decide.result": "success"}
-        self.assertTrue(self.value(self.PICK, "if", legacy_only))
-        self.assertFalse(self.value(self.PICK, "if", {**legacy_only, "vars.NIGHTLY_NEXT_LEGACY_IDENTITY": "off"}))
-        self.assertFalse(self.value(self.PICK, "if", {**legacy_only, "github.ref": "refs/heads/main"}))
-        self.assertTrue(self.value(self.PICK, "if", {"needs.prepare-nightly-variant.result": "success"}))
-        outputs = self.jobs[self.PICK]["outputs"]
-        self.assertEqual(str(outputs["attempt"]).strip(), "${{ github.run_attempt }}")
-        # The secret-free verify pick may opt into the all-nightly reservation,
-        # while credentialed legacy signing keeps the separate claim-capable
-        # `sign_owned` output. Both outputs still stand on their marker rules.
-        self.assertIn("steps.sign-owned.outputs.owned", str(outputs["sign_owned"]))
-        self.assertNotIn("CI_NIGHTLY_ONLY_RUNNER", str(outputs["sign_owned"]))
-        self.assertIn("CI_NIGHTLY_ONLY_RUNNER", str(outputs["owned"]))
-        self.assertIn("steps.sign-owned.outputs.owned_pool", str(outputs["sign_owned_pool"]))
-
-
 class SigningOwnedMacTests(unittest.TestCase):
     def test_owned_pool_label_drops_the_runner_pin(self) -> None:
         self.assertEqual(signing_runner.owned_pool_label('["glaeda-nightly-std-xcode-26.6", "glaeda-runner-cmux12-glaeda-nightly"]'),
@@ -647,7 +587,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         # Held whole: the claim gate first, the claim before the key, and no keychain to delete (rule 4 is the keychain's).
         held = {"runs-on": owned, "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "run": NIGHTLY_CLAIM_GATE},
                                             {"uses": "actions/checkout@v6"}, {"run": CLAIM}, key]}
-        self.assertEqual(check({"nightly.yml": {"jobs": {"sign-nightly-identity-legacy": held}}}), ([], 1))
+        self.assertEqual(check({"nightly.yml": {"jobs": {"build-sign-notarize-nightly": held}}}), ([], 1))
         # A Sparkle job with an ephemeral route is rule 7's (test_ci_signing_keychain_is_deleted_before_bundle_code).
         for runs_on in ("${{ vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}", "blacksmith-6vcpu-macos-26",
                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.MACOS_RUNNER_26 }}"):
@@ -935,7 +875,7 @@ class SigningOwnedMacTests(unittest.TestCase):
 
         self.assertEqual(signing_runner.owned_pick(env, read, unreadable)[0], "", "an uncounted cap fails closed")
         # At most one mini is held for signing: a signing job already pinned to an owned runner leaves none.
-        held.append({"name": "sign-nightly-identity-legacy", "status": "in_progress",
+        held.append({"name": "build-sign-notarize-nightly", "status": "in_progress",
                      "labels": [SIDE, "glaeda-runner-cmux13-glaeda-3"]})
         owned, why = signing_runner.owned_pick(env, read, jobs)
         self.assertEqual(owned, "", why)
@@ -982,7 +922,7 @@ class SigningOwnedMacTests(unittest.TestCase):
             return {"total_count": 3, "jobs": []}
 
         self.assertTrue(signing_runner.owned_pick(env, read, lagging)[0], "total_count is never trusted")
-        pinned = {"name": "sign-nightly-identity-legacy", "status": "in_progress",
+        pinned = {"name": "build-sign-notarize-nightly", "status": "in_progress",
                   "labels": [SIDE, "glaeda-runner-cmux13-glaeda-3"]}
 
         def short_then_runs(path: str) -> dict:  # a short first page of runs, the held one on page 2

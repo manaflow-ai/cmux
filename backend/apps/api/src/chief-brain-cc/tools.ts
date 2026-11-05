@@ -75,7 +75,7 @@ export const toolFiles = (sql: SqlStorage): Record<string, string> => {
 
 type ToolsStub = { ccTools(req: unknown): Promise<Out>; ccToolFiles(): Promise<Record<string, string>> }
 /** The Chief's tools object (`<agent>/tools`; a conversation id always starts with conv_). */
-export const toolsOf = (env: Env, agent: string): ToolsStub => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${agent}/tools`)) as unknown as ToolsStub
+export const toolsOf = (env: Env, agent: string): ToolsStub => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${agent}/tools`))
 
 /**
  * Makes ~/.local/bin/* and ~/.chief/tools/** runnable when Claude Code starts (chief-turn-runner writes every file mode 600).

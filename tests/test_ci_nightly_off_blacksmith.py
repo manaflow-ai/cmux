@@ -52,7 +52,7 @@ BLACKSMITH_LINUX_ONLY_DEBT: frozenset[str] = frozenset()
 # Only these centrally declared light jobs may bootstrap on hosted Linux.
 PUBLICATION_POOL_JOBS = (
     "visual-gate-nightly-verdict", "report-visual-gate-nightly",
-    "nightly-identity-legacy-published", "report-nightly-failure",
+    "report-nightly-failure",
     "close-nightly-failure-issue",
 )
 
@@ -200,7 +200,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         text = nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         # After their owned pick, only the signer's label: a trusted-only mini that runs no pull request job.
         owned = "|| 'glaeda-trusted-next-signing' }}"
-        for name in ("sign-nightly-identity-legacy", "build-sign-notarize-nightly", "recover-nightly-next-notarization"):
+        for name in ("build-sign-notarize-nightly", "recover-nightly-next-notarization"):
             runs_on = re.search(r"^    runs-on: (.+)$", text[text.index(f"\n  {name}:"):], re.MULTILINE).group(1)
             with self.subTest(job=name):
                 self.assertNotIn("blacksmith", runs_on)
@@ -299,26 +299,6 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                 self.assertTrue(steps["Put llvm-lipo on PATH as lipo"]["if"].startswith("runner.os == 'Linux' && "))
                 restore = steps["Restore unsigned nightly products"]["run"]
                 self.assertIn('if [ "$RUNNER_OS" = Linux ]; then', restore)
-
-    def test_legacy_identity_target_takes_the_signer_route(self) -> None:
-        """The feed compare picks the signing job's build: hosted Ubuntu on every attempt, never Blacksmith.
-
-        Its fleet-Linux picker waited three minutes and then sent it to Blacksmith in every run
-        (2026-11-02, runs 41412703950..41418619409), on the old feed's path.
-        """
-        import yaml
-        from test_nightly_trusted_routing import evaluate, parse_expression
-        jobs = yaml.safe_load(nightly_expand((WORKFLOWS / "nightly.yml").read_text()))["jobs"]
-        self.assertNotIn("pick-legacy-identity-runner", jobs)
-        job = jobs["legacy-identity-target"]
-        # It holds the release App key without glaeda's exclusive class yet, so it waits on hosted Ubuntu
-        # until the glaeda signing-jobs change lands (tests/test_nightly_owned_minis_only.py PENDING_GLAEDA).
-        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
-        source = parse_expression(job["runs-on"].removeprefix("${{").removesuffix("}}"))
-        self.assertEqual(evaluate(source, {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1}), "ubuntu-24.04")
-        self.assertEqual(evaluate(source, {"github.repository_owner": "manaflow-ai", "github.run_attempt": 2}),
-                         "ubuntu-24.04")
-        self.assertEqual(evaluate(source, {"github.repository_owner": "someone", "github.run_attempt": 2}), "ubuntu-24.04")
 
     def test_nightly_never_queues_on_unverified_generic_fleet_label(self) -> None:
         """Fleet admission supplies unique reservations, never an unserved pool label."""

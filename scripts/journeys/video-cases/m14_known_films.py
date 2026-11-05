@@ -25,6 +25,28 @@ KNOWN_CLEAN = KNOWN_RUN / "px-keys-rk-3t-sw-terminals/video/px-keys-rk-3t-sw-ter
 KNOWN_COVERED = KNOWN_RUN / "px-keys-lowprompt-jjk-3kz-sw-terminals/video/px-keys-lowprompt-jjk-3kz-sw-terminals-on-s025"
 
 
+# m18 band (pixel-perfect, STATUS 14660): build 6443b2e9 (commit 09d1234), a slow column drag whose terminal ground runs
+# up to 308 px to its pane edge (frames 215-360; pixel-perfect's band_check.py: 133 frames, max 308 px at frame 354).
+BAND_RUN = Path("/work/tmp/resize-videos/runs/ab-m28c2-09d1234-20261105T135308Z-cmux23")
+BAND_FILM = BAND_RUN / "px-col-drag-2-s1r/video/px-col-drag-2-s1r-s1"
+
+
+@unittest.skipUnless(Path(f"{BAND_FILM}.mov.scan").is_file(), f"the band film is not on this machine ({BAND_FILM})")
+class BandKnownFilmTests(unittest.TestCase):
+    """The m18 band known film: the terminal row must fail as `band` in the frames that band_check.py measures (at least
+    120 of its 133), with a worst band of at least 300 px."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report = jp.judge(str(BAND_FILM))
+
+    def test_the_band_fails(self):
+        for contract in ("m18", "m20"):
+            row = self.report[contract]["kinds"]["terminal"]
+            self.assertGreaterEqual(row["band"], 120, (contract, row.get("band_ranges")))
+            self.assertGreaterEqual(row["worst_px"], 300, contract)
+
+
 @unittest.skipUnless(Path(f"{KNOWN_HELD}.mov.scan").is_file() and Path(f"{KNOWN_CLEAN}.mov.scan").is_file(),
                      f"the known m14 films are not on this machine ({KNOWN_RUN})")
 class M14KnownFilmTests(unittest.TestCase):

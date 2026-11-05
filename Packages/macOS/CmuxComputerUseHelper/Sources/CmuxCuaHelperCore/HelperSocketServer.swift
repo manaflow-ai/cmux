@@ -24,7 +24,8 @@ private let socketLogger = Logger(subsystem: "com.cmuxterm.cua", category: "sock
 /// `"code":"consent_required","surface":S` (plus `"reason":"host_unverified"`
 /// when the helper could not verify the cmux app that started it, never for
 /// a person's refusal), and the connection stays open. A call refused
-/// because the person is using the Mac carries `"code":"person_in_control"`.
+/// because it would collide with the person (their app, or the cursor they
+/// use) carries `"code":"person_in_control"`.
 /// `tools/call` and `tools/list` go through `Perception`, with one
 /// `PerceptionSession` per connection: an agent is told "unchanged" only
 /// about a screenshot it was itself shown.
