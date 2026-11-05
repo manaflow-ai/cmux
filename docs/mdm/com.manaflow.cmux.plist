@@ -5465,7 +5465,7 @@
 			<key>pfm_default</key>
 			<string>auto</string>
 			<key>pfm_description</key>
-			<string>How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses glass when the sidebar is see-through. A group always has a visible background, also when it has no color.</string>
+			<string>How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.</string>
 			<key>pfm_name</key>
 			<string>sidebar.groupHeader.background</string>
 			<key>pfm_range_list</key>

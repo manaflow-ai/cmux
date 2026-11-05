@@ -439,11 +439,11 @@ final class GroupHeaderRowView: SidebarRowView {
         paintFill(nil)
     }
 
-    /// The header's background in `look`, glass or solid as `sidebar.groupHeader.background` asks (cmux's own look,
-    /// glass, by default).
+    /// The header's background in `look`. The quieter looks (`wash`, `line`, `tinted`) stay a solid wash unless
+    /// `sidebar.groupHeader.background` is Glass: Leo's glass (#36225) is the band's.
     private func groupBackground(_ strength: GroupBackground.Strength, _ tokens: ThemeTokens,
                                  _ look: (style: SidebarGroupHeaderStyle, themed: Bool), glass: Bool? = nil) -> GroupBackground {
-        GroupBackground(tint: tint, strength: strength, glass: glass ?? backgroundStyle.drawsGlass(appLooksGlassy: SidebarGroupGlass.tunable.value != .solid),
+        GroupBackground(tint: tint, strength: strength, glass: glass ?? (backgroundStyle == .glass),
                         themed: look.themed, tokens: tokens)
     }
 
