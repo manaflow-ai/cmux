@@ -77,7 +77,7 @@ struct SidebarBottomCardSlot {
     /// it last had at its width.
     func height(width sidebarWidth: CGFloat) -> CGFloat {
         updated.slotWidth = Self.cardWidth(in: sidebarWidth)
-        switch shown {
+        return switch shown {
         case .update: (update.card.map(SidebarUpdateCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case .nowPlaying: (nowPlaying.nowPlaying.map(SidebarNowPlayingCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case .updated: updated.height + 2 * Metrics.space2
