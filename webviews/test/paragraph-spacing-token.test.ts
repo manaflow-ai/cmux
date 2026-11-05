@@ -47,7 +47,13 @@ await requireBrowserLane("paragraph-spacing-token.test.ts", async () => {
     await vite?.close();
   });
 
-  async function measure(variant: string, density: string, theme: string, interfaceScale: number) {
+  async function measure(
+    variant: string,
+    density: string,
+    theme: string,
+    interfaceScale: number,
+    after: number | "gap",
+  ) {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 }, deviceScaleFactor: 2 });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
@@ -66,11 +72,12 @@ await requireBrowserLane("paragraph-spacing-token.test.ts", async () => {
       timeout: 120_000,
     });
     await page.evaluate(() => document.fonts.ready);
-    const read = () =>
+    const sample = () =>
       page.evaluate(() => {
         const markdown = document.querySelector<HTMLElement>(".cv-md");
-        const paragraph = document.querySelector<HTMLElement>(".cv-md .cv-p");
-        const math = document.querySelector<HTMLElement>(".cv-p + .cv-math-display");
+        // Top-level blocks are spaced by the stack's gap; nested ones (a loose list item) by the token.
+        const paragraph = document.querySelector<HTMLElement>(".cv-list li > .cv-p");
+        const math = document.querySelector<HTMLElement>(".cv-list li > .cv-p + .cv-math-display");
         return {
           paragraphCount: document.querySelectorAll(".cv-md .cv-p").length,
           equation: !!document.querySelector(".cv-math-display .katex"),
@@ -79,10 +86,35 @@ await requireBrowserLane("paragraph-spacing-token.test.ts", async () => {
           mathMarginTop: math ? Number.parseFloat(getComputedStyle(math).marginTop) : Number.NaN,
         };
       });
-    const result = await read();
+    // The reply can still be settling when the frame reports ready: wait until the gaps read as
+    // expected (or the wait gives up), then read them, so a failure reports what was drawn.
+    const settled = (after: number | "gap") =>
+      page
+        .waitForFunction(
+          (want) => {
+            const markdown = document.querySelector<HTMLElement>(".cv-md");
+            const paragraph = document.querySelector<HTMLElement>(".cv-list li > .cv-p");
+            const math = document.querySelector<HTMLElement>(".cv-list li > .cv-p + .cv-math-display");
+            if (!markdown || !paragraph || !math) return false;
+            const gap = Number.parseFloat(getComputedStyle(markdown).rowGap);
+            const target = want === "gap" ? gap : want;
+            return (
+              Math.abs(Number.parseFloat(getComputedStyle(paragraph).marginBottom) - target) < 0.05 &&
+              Math.abs(Number.parseFloat(getComputedStyle(math).marginTop) - (gap - target)) < 0.05
+            );
+          },
+          after,
+          { timeout: 10_000 },
+        )
+        .catch(() => undefined)
+        .then(sample);
+    const result = await settled(after);
     // A page that sets the token above the transcript (Home Channels sets 4px on its root) keeps it.
-    await page.evaluate(() => document.documentElement.style.setProperty("--cv-para-after", "4px"));
-    const inherited = await read();
+    let inherited: Awaited<ReturnType<typeof sample>> | undefined;
+    if (after === "gap") {
+      await page.addStyleTag({ content: ".acpmux-row { --cv-para-after: 4px; }" });
+      inherited = await settled(4);
+    }
     await page.close();
     return { ...result, inherited };
   }
@@ -92,7 +124,8 @@ await requireBrowserLane("paragraph-spacing-token.test.ts", async () => {
       for (const interfaceScale of scales)
         for (const variant of variants)
           test(`${variant.name} uses one paragraph token (${density}/${theme.file}/s${interfaceScale})`, async () => {
-            const result = await measure(variant.name, density, theme.name, interfaceScale);
+            const want = variant.relation === "shared" ? "gap" : variant.relation === "before" ? 14 : 16;
+            const result = await measure(variant.name, density, theme.name, interfaceScale, want);
             expect(result.paragraphCount).toBeGreaterThanOrEqual(3);
             expect(result.equation).toBe(true);
             const after = variant.relation === "shared" ? result.gridGap : variant.relation === "before" ? 14 : 16;
@@ -100,8 +133,8 @@ await requireBrowserLane("paragraph-spacing-token.test.ts", async () => {
             expect(result.paragraphAfter).toBeCloseTo(after, 1);
             expect(result.mathMarginTop).toBeCloseTo(result.gridGap - after, 1);
             if (variant.relation === "shared") {
-              expect(result.inherited.paragraphAfter).toBeCloseTo(4, 1);
-              expect(result.inherited.mathMarginTop).toBeCloseTo(result.gridGap - 4, 1);
+              expect(result.inherited?.paragraphAfter).toBeCloseTo(4, 1);
+              expect(result.inherited?.mathMarginTop).toBeCloseTo(result.gridGap - 4, 1);
             }
           });
 });

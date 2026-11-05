@@ -8,11 +8,15 @@ const reply = [
   "The second paragraph sits on the shared transcript grid, followed by a display equation.",
   "$$E=mc^2$$",
   "The closing paragraph confirms that the equation did not introduce a second fixed gap.",
+  // Top-level blocks are spaced by the stack's gap; a loose list item's paragraphs and math carry the token.
+  "- A list item with more to say.\n  Its paragraph leads into math.\n  $$a^2+b^2=c^2$$\n  And the item goes on after it.",
 ].join("\n\n");
 
+// A stylesheet rule, not an inline style, so a transcript that re-renders after the play keeps it.
 const setParagraphToken = (value: string) => async (ctx: PlayContext) => {
-  for (const element of ctx.document.querySelectorAll<HTMLElement>(".cv-md"))
-    element.style.setProperty("--cv-para-after", value);
+  const rule = ctx.document.createElement("style");
+  rule.textContent = `.cv-md { --cv-para-after: ${value}; }`;
+  ctx.document.head.append(rule);
 };
 
 export default agentPaneEntry({
