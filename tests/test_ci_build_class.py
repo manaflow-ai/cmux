@@ -37,7 +37,13 @@ class BuildClassTests(unittest.TestCase):
     def test_swift_and_docs(self):
         self.assertEqual(classify_path(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift")[0], "app")
         self.assertEqual(classify_path(ROOT, "docs/ci/cmux-next-tiers.md")[0], "no-compile")
-        self.assertEqual(classify_path(ROOT, "cmux-tui/crates/cmux-tui/README.md")[0], "no-compile")
+        self.assertEqual(classify_path(ROOT, "README.md")[0], "no-compile")
+        # A crate can include_str! its README: the crate's build reads it.
+        self.assertEqual(classify_path(ROOT, "cmux-tui/crates/cmux-tui/README.md")[0], "blaze")
+        # An app resource image is an app build input (review finding F1 on #36567).
+        icon = next(p for p in (ROOT / "Packages/macOS/CmuxNext/Sources").rglob("*.svg"))
+        self.assertEqual(classify_path(ROOT, icon.relative_to(ROOT).as_posix())[0], "app")
+        self.assertEqual(classify_path(ROOT, "docs/mdm/README.md")[0], "app")
 
     def test_change_takes_its_heaviest_file(self):
         self.assertEqual(classify(ROOT, [])["class"], "no-compile")

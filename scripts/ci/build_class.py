@@ -4,8 +4,9 @@
 Leo, 2026-11-05: "Can't we deterministically say 'these types of changes only need a blaze
 compile/build'". Every changed file gets one class, and the change takes the heaviest:
 
-  no-compile  a doc or image (DOC_SUFFIXES, or a WEB_ONLY text file outside Packages/): no
-              compiler reads it.
+  no-compile  a doc or image in docs/ or design/, or a top-level Markdown file: no compiler
+              reads it. A doc anywhere else (an app resource image, a crate README) is placed
+              like any other file.
   blaze       a file inside a cmux-tui crate that no Swift compile and no app build phase reads:
               the cmux-tui workspace build (blaze, or cargo) is the whole build. No Xcode build,
               Swift compile or app build can change, because the only cmux-tui files they read
@@ -39,6 +40,7 @@ import cmux_next_route as route_mod  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 CLASSES = ("no-compile", "blaze", "app")
+DOC_DIRS = ("docs/", "design/")
 
 
 def crate_dir(root: Path, path: str) -> str | None:
@@ -51,10 +53,17 @@ def crate_dir(root: Path, path: str) -> str | None:
     return None
 
 
+def unread_doc(path: str) -> bool:
+    """A doc or image in docs/ or design/, or a top-level Markdown file. Anywhere else one can be a
+    build input: an app resource (a Packages/ Resources image), a bundled file, or a crate's
+    include_str!("../README.md"). The generated tier's inputs (docs/mdm/) are left out too."""
+    if not path.endswith(route_mod.DOC_SUFFIXES) or any(route_mod.matches(path, p) for p in route_mod.GENERATED_INPUTS):
+        return False
+    return path.startswith(DOC_DIRS) or ("/" not in path and path.endswith((".md", ".mdx")))
+
+
 def classify_path(root: Path, path: str) -> tuple[str, str]:
-    if path.endswith(route_mod.DOC_SUFFIXES) or (
-            any(fnmatch.fnmatch(path, p) for p in route_mod.WEB_ONLY)
-            and path.endswith((".md", ".mdx", ".txt")) and not path.startswith("Packages/")):
+    if unread_doc(path):
         return "no-compile", "a doc no compiler reads"
     if not path.startswith(route_mod.CMUX_TUI):
         return "app", "outside cmux-tui: the app build's rules (cmux_next_route.py) place it"

@@ -232,7 +232,7 @@ No runner waits for the tree. `cmux-next path routing` probes it once
 `scripts/ci/build_class.py [--base REF | --changed-files FILE]` says, from the
 changed files alone, which build a change needs:
 
-- `no-compile`: only docs and images.
+- `no-compile`: only docs and images in `docs/` or `design/`, or top-level Markdown.
 - `blaze`: only files inside cmux-tui crates that no Swift compile and no app
   build phase reads. The cmux-tui workspace build (blaze, or cargo) is the
   whole build: skip the Xcode build, the Swift compiles and the app build. The
@@ -246,7 +246,7 @@ changed files alone, which build a change needs:
 A change takes its heaviest file's class. The class covers builds only: a
 daemon change still runs the daemon tier's live-daemon suites.
 `tests/test_ci_build_class.py` checks it on the real tree; run it yourself.
-In the last 500 `feat-cmux-next` commits (2026-11-05), 71 were `blaze`: 65% of
+In the last 500 `feat-cmux-next` commits (2026-11-05), 70 were `blaze`: 64% of
 the 109 that touched cmux-tui.
 
 ## Generated files fix themselves
