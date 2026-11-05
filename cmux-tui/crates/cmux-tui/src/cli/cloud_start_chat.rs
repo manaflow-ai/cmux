@@ -858,6 +858,24 @@ fn relay_chat(runner: &mut dyn Runner, request: &Request, listed: &Value) -> Rel
             ));
         }
     };
+    // The app gave the machine no usable login before the send (`cloud.relay.login_*`): the link path would only
+    // reach the same signed-out agent, so the app's typed answer and its recovery command are the outcome.
+    let undelivered = at(&relayed, "delivered").as_bool() == Some(false);
+    if let Some(code) = at(&relayed, "error_code")
+        .as_str()
+        .filter(|code| undelivered && code.starts_with(RELAY_LOGIN_CODES))
+    {
+        let message =
+            at(&relayed, "error_message").as_str().unwrap_or("the machine has no login").to_owned();
+        let exit = if code == "cloud.relay.login_pending" { 75 } else { 1 };
+        return Relayed::Answered(failed(
+            code,
+            message,
+            json!({"machine_id": machine_id, "command": at(&relayed, "command"),
+                   "login_reason": at(&relayed, "login_reason"), "sent": false}),
+            exit,
+        ));
+    }
     // Certainly never on the machine (the relay refused it, no machine took it, an image without the relay): the
     // link path sends it.
     if at(&relayed, "delivered").as_bool() == Some(false) {
@@ -951,6 +969,10 @@ fn typed_error(relayed: &Value) -> Value {
     }
     Value::Object(typed)
 }
+
+/// The app's `cloud relay-chat` refusals about the machine's harness login (refused, missing, declined, failed,
+/// pending): nothing was sent, and nothing else is.
+const RELAY_LOGIN_CODES: &str = "cloud.relay.login_";
 
 /// The app has no `cloud relay-chat` (an older app): the CLI's own usage error, or the app's unknown action.
 fn lacks_action(error: &Value) -> bool {
