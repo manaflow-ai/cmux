@@ -39,17 +39,21 @@ public nonisolated struct PageNavigation: Sendable, Equatable {
                               targetFrameURL: URL? = nil, sourceFrameURL: URL? = nil,
                               hook: ((PageNavigation) -> Policy)?) -> Policy {
         guard let url else { return .cancel }
+        let agentPage = page.id.lowercased() == PageArtifactFrame.pageID
+        // On the agent page, a load into a frame inside the page from an unknown source is
+        // denied, as the agent pane's rules deny it. macOS 14's WebKit gives no source frame for
+        // some navigations; a nil source would skip the source checks below that cancel the same
+        // load from a known one. The main frame's own document still loads (the launch load).
+        if agentPage, !mainFrame, sourceFrameURL == nil { return .cancel }
         // A passive srcdoc frame's initial document is browser-created and has no scheme-handler
         // request. Permit only that initial about:srcdoc load from the direct agent document. A
         // later request from a srcdoc source is handled by the restricted-context check below.
-        let initialSrcdoc = url.absoluteString == "about:srcdoc" && !mainFrame &&
-            page.id.lowercased() == PageArtifactFrame.pageID &&
+        let initialSrcdoc = url.absoluteString == "about:srcdoc" && !mainFrame && agentPage &&
             PageArtifactFrame.isAgentPageURL(sourceFrameURL) &&
             (targetFrameURL == nil || targetFrameURL?.absoluteString == "about:blank" ||
              targetFrameURL?.absoluteString == "about:srcdoc")
         if initialSrcdoc { return .allow }
-        if page.id.lowercased() == PageArtifactFrame.pageID,
-           sourceFrameURL?.absoluteString == "about:srcdoc" {
+        if agentPage, sourceFrameURL?.absoluteString == "about:srcdoc" {
             return .cancel
         }
         // A page's own passive frames (``PageDescriptor/passiveFrames``): the page's document may
