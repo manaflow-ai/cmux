@@ -70,11 +70,14 @@ import Testing
         #expect(settings.freeingEnabled && settings.freeingIdleMinutes == 120)
         #expect(settings.idleMinutes == 90, "the hibernation keys still parse beside them")
         #expect(WorkspaceFreeingPlanner.Policy(settings) == .init(enabled: true, idleMinutes: 120))
+        #expect(WorkspaceHibernationPlanner.Policy(settings).freeing == .init(enabled: true, idleMinutes: 120),
+                "the hibernation policy carries the freeing tier's")
     }
 
     // MARK: Coordinator
 
-    final class Host: WorkspaceHibernationHost {
+    /// The App's owners and this Mac's daemon in one fake.
+    final class Host: WorkspaceHibernationHost, WorkspaceTerminalFreeing {
         var residents: [WorkspaceHibernationResident]
         var shown: Set<String> = []
         var freeing = WorkspaceFreeingPlanner.Policy(enabled: true, idleMinutes: 1440)
@@ -85,14 +88,17 @@ import Testing
         init(_ ids: [String]) { residents = ids.map { WorkspaceHibernationResident(workspace: $0) } }
         func hibernationResidents() -> [WorkspaceHibernationResident] { residents }
         func hibernationShownWorkspaces() -> Set<String> { shown }
-        func hibernationPolicy() -> WorkspaceHibernationPlanner.Policy { .init(enabled: true, idleMinutes: 60) }
+        func hibernationPolicy() -> WorkspaceHibernationPlanner.Policy {
+            var policy = WorkspaceHibernationPlanner.Policy(enabled: true, idleMinutes: 60)
+            policy.freeing = freeing
+            return policy
+        }
         func hibernate(workspace: String) { residents.removeAll { $0.workspace == workspace } }
-        func freeingPolicy() -> WorkspaceFreeingPlanner.Policy { freeing }
-        func freeingTerminals(in workspaces: Set<String>) -> [WorkspaceFreeingPlanner.Terminal] {
+        func terminals(in workspaces: Set<String>) -> [WorkspaceFreeingPlanner.Terminal] {
             asked.append(workspaces)
             return terminals.filter { workspaces.contains($0.workspace) }
         }
-        func park(surfaces: [String]) {
+        func park(_ surfaces: [String]) {
             parked += surfaces
             terminals.removeAll { surfaces.contains($0.surface) }
         }
@@ -114,7 +120,7 @@ import Testing
         let clock = Clock()
         let defaults = UserDefaults(suiteName: "WorkspaceFreeingTests.\(UUID().uuidString)")!
         let hibernation = WorkspaceHibernation(host: host, keepAwake: WorkspaceKeepAwakeStore(defaults: defaults), deadline: Deadline(),
-                                               now: { clock.now })
+                                               now: { clock.now }, terminals: host)
         return (hibernation, host, clock)
     }
 
