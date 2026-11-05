@@ -5,9 +5,10 @@ name: cmux NEXT Computer Use helper (dev) signing
 # change reaches DEV builds without a person signing it on a Mac. Leo,
 # 2026-11-05: "Yes, re-sign it".
 #
-# sdk     resolves the feat-cmux-next commit and downloads the pinned Cua
-#         Driver SDK tarball with the R2 read key, on Blacksmith Linux (a job
-#         holding a secret runs where no variable can move it).
+# sdk     resolves the feat-cmux-next commit and reads its SDK pin through
+#         the API, then downloads the pinned Cua Driver SDK tarball with main's
+#         presign-r2-url.py and checks its sha256, on Blacksmith Linux. No
+#         feat-cmux-next code runs where the R2 key is.
 # build   feat-cmux-next's build-cua-helper-dev.sh on an owned Mac first. It
 #         holds no secret: the SDK tarball comes from the sdk job and is
 #         checked against its pin again.
@@ -54,43 +55,63 @@ jobs:
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
     steps:
-      - name: Checkout feat-cmux-next
+      # Only main code runs in this job, which holds the R2 key: the
+      # feat-cmux-next commit is read through the API, and its SDK pin as JSON.
+      - name: Checkout main's R2 helper
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.sha || 'feat-cmux-next' }}
+          ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next
+          sparse-checkout: scripts/ci/presign-r2-url.py
           sparse-checkout-cone-mode: false
 
       # The input may name any commit; only one on feat-cmux-next is built.
-      - name: Require a feat-cmux-next commit
+      - name: Require a feat-cmux-next commit and read its SDK pin
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          WANT: ${{ inputs.sha || 'feat-cmux-next' }}
         run: |
           set -euo pipefail
-          sha="$(git rev-parse HEAD)"
+          sha="$(gh api "repos/$GH_REPO/commits/$WANT" --jq .sha)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::cannot resolve $WANT" >&2; exit 1; }
           status="$(gh api "repos/$GH_REPO/compare/$sha...feat-cmux-next" --jq .status)"
           [[ "$status" == ahead || "$status" == identical ]] ||
             { echo "::error::$sha is not on feat-cmux-next ($status)" >&2; exit 1; }
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "Building the dev helper from feat-cmux-next $sha" >> "$GITHUB_STEP_SUMMARY"
+          gh api -H 'Accept: application/vnd.github.raw+json' \
+            "repos/$GH_REPO/contents/scripts/cmux-next/cua-driver-sdk.pin.json?ref=$sha" > "$RUNNER_TEMP/sdk-pin.json"
+          # The pin is data: a content-addressed key in the cmux-cef bucket, nothing else.
+          read -r sdk_sha key < <(python3 -I - "$RUNNER_TEMP/sdk-pin.json" <<'PY'
+          import json, re, sys
+          d = json.load(open(sys.argv[1], encoding="utf-8"))
+          sha, key, bucket, asset = d["sha256"], d["r2_key"], d["r2_bucket"], d["asset"]
+          assert re.fullmatch(r"[0-9a-f]{64}", sha), "sha256"
+          assert bucket == "cmux-cef", "bucket"
+          assert re.fullmatch(r"[A-Za-z0-9._-]+", asset), "asset"
+          assert key == f"cua-driver-sdk/{sha}/{asset}", "r2_key"
+          print(sha, key)
+          PY
+          )
+          { echo "sha=$sha"; echo "sdk_sha=$sdk_sha"; echo "key=$key"; } >> "$GITHUB_OUTPUT"
+          echo "Building the dev helper from feat-cmux-next $sha (SDK $sdk_sha)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Fetch the pinned SDK tarball
         env:
-          CMUX_CEF_R2_ACCOUNT_ID: ${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}
-          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
-          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
-          CMUX_CEF_R2_ENV_FILE: /dev/null
-          CMUX_CUA_ASSET_NO_STORE: "1"
-          CMUX_CUA_ASSET_CACHE_DIR: ${{ runner.temp }}/cua-assets
+          AWS_ACCESS_KEY_ID: ${{ secrets.CMUX_CEF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.CMUX_CEF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          KEY: ${{ steps.resolve.outputs.key }}
+          WANT: ${{ steps.resolve.outputs.sdk_sha }}
         run: |
           set -euo pipefail
-          tarball="$(./scripts/cmux-next/ensure-cua-pinned-asset.sh scripts/cmux-next/cua-driver-sdk.pin.json)"
+          url="$(python3 scripts/ci/presign-r2-url.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-cef --key "$KEY" --expires-in 300)"
+          echo "::add-mask::$url"
           mkdir -p "$RUNNER_TEMP/sdk"
-          cp "$tarball" "$RUNNER_TEMP/sdk/cua-driver-sdk.tar.gz"
+          curl --fail --silent --show-error --retry 3 --max-time 600 -o "$RUNNER_TEMP/sdk/cua-driver-sdk.tar.gz" "$url"
+          echo "$WANT  $RUNNER_TEMP/sdk/cua-driver-sdk.tar.gz" | sha256sum -c -
 
       - name: Upload the SDK tarball
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
