@@ -33,7 +33,13 @@ pub(crate) fn follow_record_root_removal(
     let watch = match identity(dir) {
         // Gone between publication and here: it is already removed.
         None => None,
-        Some(before) => Some(Watch::arm(dir, before)?),
+        Some(before) => match Watch::arm(dir, before) {
+            Ok(watch) => Some(watch),
+            // Removed between the identity read and the arm (macOS `open`
+            // fails with ENOENT): also already removed.
+            Err(_) if identity(dir) != Some(before) => None,
+            Err(error) => return Err(error),
+        },
     };
     std::thread::Builder::new().name("terminal-host-record-root".into()).spawn(move || {
         let Some(watch) = watch else { return on_removed() };
