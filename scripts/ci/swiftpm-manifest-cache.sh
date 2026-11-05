@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # swiftpm-manifest-cache.sh key
+# swiftpm-manifest-cache.sh inputs
 # swiftpm-manifest-cache.sh run <command> [args...]
 # swiftpm-manifest-cache.sh stage <dir>
 # swiftpm-manifest-cache.sh install <dir>
@@ -33,7 +34,7 @@ USER_HOME="$(eval echo "~$(id -un)")"
 MANIFEST_CACHE_DIR="${CMUX_CI_SWIFTPM_MANIFEST_CACHE_DIR:-$USER_HOME/Library/Caches/org.swift.swiftpm/manifests}"
 
 usage() {
-  echo "usage: $0 key | run <command> [args...] | stage <dir> | install <dir> | clear" >&2
+  echo "usage: $0 key | inputs | run <command> [args...] | stage <dir> | install <dir> | clear" >&2
   exit 64
 }
 
@@ -42,17 +43,22 @@ usage() {
 # a cache from an older revision still serves every manifest that has not
 # changed since: readers fall back to the prefix. The full key only decides
 # when the seeder writes a new cache.
+# The key's last part: the manifests it covers, with no toolchain, so a job
+# with no Xcode (seed-derived-data-pool.yml's save, on Linux) can check that a
+# key it is handed names this checkout's manifests.
+inputs() {
+  {
+    git ls-files -s -- '*Package.swift' 'cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'
+    # Submodule pointers, since the vendor/bonsplit manifest lives past one.
+    git ls-files -s | awk '$1 == "160000"'
+    shasum -a 256 "$SCRIPT_PATH" | cut -d' ' -f1
+  } | shasum -a 256 | cut -c1-32
+}
+
 key() {
   local toolchain inputs
   toolchain="$(xcodebuild -version | shasum -a 256 | cut -c1-16)"
-  inputs="$(
-    {
-      git ls-files -s -- '*Package.swift' 'cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'
-      # Submodule pointers, since the vendor/bonsplit manifest lives past one.
-      git ls-files -s | awk '$1 == "160000"'
-      shasum -a 256 "$SCRIPT_PATH" | cut -d' ' -f1
-    } | shasum -a 256 | cut -c1-32
-  )"
+  inputs="$(inputs)"
   local prefix="swiftpm-manifests-v1-${RUNNER_OS:-macOS}-${RUNNER_ARCH:-ARM64}-${toolchain}-"
   echo "prefix=$prefix"
   echo "key=$prefix$inputs"
@@ -165,6 +171,7 @@ clear() {
 case "${1:-}" in
   clear) [ "$#" -eq 1 ] || usage; clear ;;
   key) [ "$#" -eq 1 ] || usage; key ;;
+  inputs) [ "$#" -eq 1 ] || usage; inputs ;;
   run) [ "$#" -ge 2 ] || usage; shift; run "$@" ;;
   stage) [ "$#" -eq 2 ] || usage; stage "$2" ;;
   install) [ "$#" -eq 2 ] || usage; install "$2" ;;

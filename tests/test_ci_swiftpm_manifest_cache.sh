@@ -63,6 +63,15 @@ if [ "$base" != "$again" ] \
 fi
 echo "PASS: the key follows the manifests and the prefix follows the toolchain"
 
+# seed-derived-data-pool.yml's save job (Linux, no Xcode) checks the key the
+# Mac build hands it: `inputs` is the key's manifest part, with no toolchain.
+inputs="$(cd "$TMP_DIR/repo" && PATH="/usr/bin:/bin" "$SCRIPT" inputs)" || { echo "FAIL: inputs must not need xcodebuild"; exit 1; }
+if ! [[ "$inputs" =~ ^[0-9a-f]{32}$ ]] || [ "$(full_of "$submodule")" != "$(prefix_of "$submodule")$inputs" ]; then
+  echo "FAIL: inputs must be the 32-hex part the key ends with, got: $inputs"
+  exit 1
+fi
+echo "PASS: inputs is the key's manifest part, computed without Xcode"
+
 if command -v sqlite3 >/dev/null; then
   cache="$TMP_DIR/home/Library/Caches/org.swift.swiftpm/manifests"
   export CMUX_CI_SWIFTPM_MANIFEST_CACHE_DIR="$cache"
