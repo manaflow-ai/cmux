@@ -6440,3 +6440,11 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   margin: 0;
   line-height: 20px;
 }
+
+/* The disclosure and background-command shortcut are sibling buttons. */
+.cv-live-disclosure { position: relative; }
+.cv-live-disclosure__toggle { position: absolute; inset: 0; border: 0; background: none; cursor: pointer; }
+.cv-live-disclosure > :not(button) { pointer-events: none; }
+.cv-live-disclosure .cv-worked__open,
+.cv-live-disclosure .cv-command__bg { position: relative; pointer-events: auto; }
+.cv-live-disclosure__toggle:focus-visible { outline: 2px solid var(--cv-text); outline-offset: 2px; border-radius: 4px; }

@@ -13,7 +13,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { usePaneLanguage, useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
 import { liveLineTokens } from "./liveLineTokens.experiment";
-import { Spinner } from "./icons";
+import { ChevronRight, Spinner } from "./icons";
 import { BackgroundHint } from "./BackgroundHint";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { ShimmerText } from "./ShimmerText";
@@ -131,6 +131,7 @@ export function Thinking({
   below = false,
   command = false,
   retry,
+  disclosure,
 }: {
   /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
   starting?: boolean;
@@ -172,6 +173,7 @@ export function Thinking({
   /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that,
   /// never "Thinking" (`retryParts`).
   retry?: AcpmuxTurnRetry;
+  disclosure?: { expanded: boolean; controls?: string; onToggle: () => void };
 } = {}) {
   const t = useT();
   const language = usePaneLanguage();
@@ -296,7 +298,21 @@ export function Thinking({
     );
   return (
     // `cv-worked--live`: its words start on the icon column, with no icon slot (conversation.css).
-    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}`} data-find-skip>
+    <div
+      className={`cv-worked cv-worked--live${below ? " is-below" : ""}${disclosure ? " cv-live-disclosure" : ""}`}
+      data-find-skip
+    >
+      {disclosure && (
+        <button
+          type="button"
+          className="cv-live-disclosure__toggle"
+          aria-label={label}
+          aria-expanded={disclosure.expanded}
+          aria-controls={disclosure.expanded ? disclosure.controls : undefined}
+          onClick={disclosure.onToggle}
+        />
+      )}
+      {disclosure && <ChevronRight size={14} className={`cv-rotor${disclosure.expanded ? " is-open" : ""}`} />}
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}

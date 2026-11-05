@@ -1622,7 +1622,7 @@ const DateRow = memo(
 );
 /// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
 const ThinkingRow = memo(
-  function ThinkingRow({ row }: RowProps) {
+  function ThinkingRow({ row, onToggleActivity, controls }: RowProps) {
     return (
       <Thinking
         starting={row.queued !== undefined}
@@ -1646,6 +1646,11 @@ const ThinkingRow = memo(
         below={row.below}
         command={row.doingCommand}
         retry={row.retry}
+        disclosure={
+          row.activityFold
+            ? { expanded: row.foldOpen === true, controls, onToggle: () => onToggleActivity(row.activityFold!) }
+            : undefined
+        }
       />
     );
   },
@@ -1672,7 +1677,11 @@ const ThinkingRow = memo(
     a.row.quietAt === b.row.quietAt &&
     a.row.below === b.row.below &&
     a.row.doingCommand === b.row.doingCommand &&
-    a.row.retry === b.row.retry,
+    a.row.retry === b.row.retry &&
+    a.row.activityFold === b.row.activityFold &&
+    a.row.foldOpen === b.row.foldOpen &&
+    a.controls === b.controls &&
+    a.onToggleActivity === b.onToggleActivity,
 );
 const WorkingRow = memo(
   function WorkingRow({ row, sessionId }: RowProps) {

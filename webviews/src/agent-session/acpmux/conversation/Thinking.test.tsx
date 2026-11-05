@@ -153,3 +153,19 @@ test("unreachable and subagent states remain factual with custom verbs", () => {
   expect(container.textContent).toContain("Waiting on 2 subagents");
   expect(container.textContent).not.toContain("Imagining");
 });
+
+test("a live activity disclosure exposes a labelled button and preserves its toggle action", () => {
+  let toggles = 0;
+  const onToggle = () => {
+    toggles += 1;
+  };
+  act(() => root!.render(<Thinking doing="Read retry.ts" disclosure={{ expanded: false, onToggle }} />));
+  const button = container.querySelector<HTMLButtonElement>(".cv-live-disclosure__toggle")!;
+  expect(button.getAttribute("aria-label")).toBe("Read retry.ts");
+  expect(button.getAttribute("aria-expanded")).toBe("false");
+  act(() => button.click());
+  expect(toggles).toBe(1);
+  act(() => root!.render(<Thinking doing="Read retry.ts" disclosure={{ expanded: true, onToggle }} />));
+  expect(button.getAttribute("aria-expanded")).toBe("true");
+  expect(container.querySelector("button button")).toBeNull();
+});

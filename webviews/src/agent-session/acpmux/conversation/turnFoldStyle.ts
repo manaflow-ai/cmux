@@ -8,6 +8,7 @@
 // per harness family".
 import { experimentArm } from "../../../experiments/experiment";
 import { agentKey } from "../../shared/agentKey";
+import { usesT3Activity } from "./toolActivityPresentation.experiment";
 import { claudeTurnFold } from "./claudeTurnFold.experiment";
 
 export type TurnFoldStyle = {
@@ -48,12 +49,15 @@ export const TURN_FOLD_STYLES: Readonly<Record<string, TurnFoldStyle>> = {
 /// 12m 16s ›" over the conclusion, never a message count; opened, its runs fold per run.
 export const CLAUDE_WORKED_FOR: TurnFoldStyle = { conclusion: true, runs: true, countsMessages: false };
 
+const T3: TurnFoldStyle = { conclusion: true, runs: false, countsMessages: false };
+
 /// The fold style of a harness family (acpmux's summary `family`); undefined folds as Codex does.
 /// `claudeWorkedFor` defaults to the experiment's arm, so a Claude turn folds whole only when opted in.
 export function turnFoldStyle(
   family: string | undefined,
   claudeWorkedFor: () => boolean = () => experimentArm(claudeTurnFold) === "worked-for",
 ): TurnFoldStyle {
+  if (usesT3Activity()) return T3;
   const key = agentKey(family);
   if (key === "claude" && claudeWorkedFor()) return CLAUDE_WORKED_FOR;
   return (key && Object.hasOwn(TURN_FOLD_STYLES, key) ? TURN_FOLD_STYLES[key] : undefined) ?? CODEX;
