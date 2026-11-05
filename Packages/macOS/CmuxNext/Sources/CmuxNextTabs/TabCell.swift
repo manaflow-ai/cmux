@@ -176,7 +176,7 @@ final class TabCell {
     }
     private var measuredTitle: (String, CGFloat)?
     /// Set while a hover change lays out, so the x and the title fade.
-    private var animatesCloseChange = false
+    private(set) var animatesCloseChange = false
 
     init(item: TabItem) {
         self.item = item
@@ -351,6 +351,16 @@ final class TabCell {
         applyBadgeColor()
     }
 
+    /// The tab shows a status the hovered x stands in for (`TabChromeVisibility.closeReplacesStatus`): its
+    /// spinner, a status mark or the unread dot.
+    var hasStatusMark: Bool {
+        guard metrics.hoverCloseSwap != .beside else { return false }
+        return (spinnerLayer != nil && !isSpinnerExiting) || hasStateMark
+    }
+
+    /// The tab draws its unread or status mark (`badgeColor`, or a status icon set's glyph).
+    var hasStateMark: Bool { item.status != .none || item.isUnread }
+
     /// theme-scoped: resolved by callers inside `themeScope.perform`.
     var badgeColor: NSColor? {
         switch item.status {
@@ -409,6 +419,7 @@ final class TabCell {
             isSelected: isSelected,
             isHovered: isHovered,
             isClosable: item.isClosable,
+            hasStatus: hasStatusMark,
             style: style,
             metrics: m
         )
@@ -504,7 +515,16 @@ final class TabCell {
             let lineHeight = ceil(titleFont.ascender - titleFont.descender + titleFont.leading)
             titleLayer.opacity = 1
             let titleEnd = closeRect.map { $0.minX - m.titleCloseSpacing } ?? (bounds.width - m.contentTrailingInset)
-            let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath)
+            // Leo 2026-11-05: "the button replaces the spinner on the top when you hover over it". A closable tab's
+            // status holds the x's slot at rest, so the hovered x takes it with nothing else moving; an x shown at
+            // rest (a narrow selected tab) keeps the status beside it.
+            let statusSlot = hasStatusMark && item.isClosable && (closeRect == nil || visibility.closeReplacesStatus)
+                ? CGRect(x: pixel(bounds.width - m.contentTrailingInset - m.closeButtonSize), y: pixel(midY - m.closeButtonSize / 2),
+                         width: m.closeButtonSize, height: m.closeButtonSize)
+                : nil
+            let visibleEnd = layoutTrailingMarks(titleX: titleX, titleEnd: titleEnd, midY: midY, onPath: onPath, statusSlot: statusSlot,
+                                                 statusHidden: visibility.closeReplacesStatus,
+                                                 animated: animatesCloseChange && !onPath && m.hoverCloseSwap != .instant)
             // The marquee fades glyphs out across the icon-title gap.
             let textWidth = titleWidth()
             let visibleWidth = visibleEnd - titleX
