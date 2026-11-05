@@ -45,9 +45,8 @@ fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<Value,
     match m {
         method::MUX_GOAL_SET => hub.goal_set(&session, &request(params)?),
         method::MUX_GOAL_UPDATE => {
-            let status = str_param(params, "status")
-                .and_then(Reported::parse)
-                .ok_or_else(|| {
+            let status =
+                str_param(params, "status").and_then(Reported::parse).ok_or_else(|| {
                     RpcError::invalid_params("status must be running, blocked or complete")
                 })?;
             hub.goal_update(&session, status, str_param(params, "note"))
@@ -73,11 +72,9 @@ pub(crate) fn request(params: &Value) -> Result<GoalRequest, RpcError> {
     };
     let count = |key: &str| match params.get(key).filter(|v| !v.is_null()) {
         None => Ok(None),
-        Some(v) => v
-            .as_u64()
-            .filter(|n| *n > 0)
-            .map(Some)
-            .ok_or_else(|| RpcError::invalid_params(format!("{key} must be a whole number above 0"))),
+        Some(v) => v.as_u64().filter(|n| *n > 0).map(Some).ok_or_else(|| {
+            RpcError::invalid_params(format!("{key} must be a whole number above 0"))
+        }),
     };
     Ok(GoalRequest {
         objective: text("objective")?,
@@ -94,7 +91,8 @@ mod tests {
 
     #[test]
     fn set_needs_an_objective_and_a_done_when_and_checks_budgets() {
-        let ok = request(&json!({"objective": " Ship it ", "doneWhen": "CI green", "tokenBudget": 5}));
+        let ok =
+            request(&json!({"objective": " Ship it ", "doneWhen": "CI green", "tokenBudget": 5}));
         assert_eq!(
             ok.ok(),
             Some(GoalRequest {
@@ -107,7 +105,10 @@ mod tests {
         assert!(request(&json!({"objective": "Ship it"})).is_err());
         assert!(request(&json!({"objective": "  ", "doneWhen": "x"})).is_err());
         assert!(request(&json!({"objective": "a", "doneWhen": "b", "tokenBudget": 0})).is_err());
-        assert!(request(&json!({"objective": "a", "doneWhen": "b", "timeBudgetMinutes": "ten"})).is_err());
+        assert!(
+            request(&json!({"objective": "a", "doneWhen": "b", "timeBudgetMinutes": "ten"}))
+                .is_err()
+        );
         assert!(request(&json!({"objective": "a".repeat(MAX_TEXT + 1), "doneWhen": "b"})).is_err());
     }
 }

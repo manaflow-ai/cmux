@@ -238,8 +238,10 @@ mod tests {
         assert_eq!(next_step(&mut goal, None, 600_000), Step::Stop("timeBudget"));
         assert_eq!(goal.status, GoalStatus::BudgetLimited);
 
-        let mut goal =
-            new_goal(&GoalRequest { token_budget: None, time_budget_minutes: None, ..request() }, 0);
+        let mut goal = new_goal(
+            &GoalRequest { token_budget: None, time_budget_minutes: None, ..request() },
+            0,
+        );
         for _ in 0..MAX_CONTINUATIONS {
             assert!(matches!(next_step(&mut goal, None, 1), Step::Continue(_)));
         }

@@ -20,7 +20,11 @@ fn now_ms() -> u64 {
 
 impl Hub {
     /// Sets `session`'s goal (a new one replaces any goal set this way).
-    pub(crate) fn goal_set(&self, session: &Session, request: &GoalRequest) -> Result<Value, RpcError> {
+    pub(crate) fn goal_set(
+        &self,
+        session: &Session,
+        request: &GoalRequest,
+    ) -> Result<Value, RpcError> {
         let codex = {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.family.as_deref().map(crate::goal::GoalProvider::from_name)
@@ -80,7 +84,11 @@ impl Hub {
     /// At a completed turn's end: keeps a running goal going with acpmux's own prompt, or stops it
     /// at a budget or the cap (`generic_goal::next_step`). `turn_tokens` is what the turn spent,
     /// when its harness says. A Claude Code chat continues through its own `/loop` instead.
-    pub(super) fn continue_goal(self: &Arc<Self>, session: &Arc<Session>, turn_tokens: Option<u64>) {
+    pub(super) fn continue_goal(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        turn_tokens: Option<u64>,
+    ) {
         let running = session
             .meta
             .lock()
@@ -108,7 +116,8 @@ impl Hub {
             Step::Continue(text) => text,
         };
         self.publish_goal(session);
-        let notice = json!({"sender": SENDER, "severity": "info", "title": "Keep going toward the goal"});
+        let notice =
+            json!({"sender": SENDER, "severity": "info", "title": "Keep going toward the goal"});
         let text = crate::prompt_provenance::notice_text(&notice, &text);
         let provenance = crate::prompt_provenance::notice(&notice, &session.id);
         let opts = PromptOptions {
