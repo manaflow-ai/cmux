@@ -89,6 +89,8 @@ import CmuxNextTestSupport
         let reads = fake.lists
         await store.ageFired()
         #expect(fake.lists == reads, "a fire with no section on screen reads nothing")
+        #expect(store.isAging, "an occluded section keeps its aging: one more window, never lost")
+        store.stopAging(section)
         #expect(!store.isAging)
         fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .offline, heartbeatAt: now.addingTimeInterval(-10))]
         await store.refresh()

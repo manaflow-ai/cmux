@@ -45,7 +45,8 @@ public final class JoinedMachineStore {
     /// `owner`'s section shows the rows: while any section does, the store re-reads the list once
     /// when the first online row's heartbeat would pass ``JoinedMachine/onlineWindow`` (the hub's
     /// 90 s row TTL), and a row whose read failed goes offline at that moment. No online row with a
-    /// heartbeat, no deadline. A fire finding no section still on screen (`visible` false) stops.
+    /// heartbeat, no deadline. A fire finding no section on screen (`visible` false: occluded) reads
+    /// nothing and waits another window; the section stays registered until ``stopAging(_:)``.
     public func startAging(_ owner: AnyObject, visible: @escaping @MainActor () -> Bool) {
         watchers[ObjectIdentifier(owner)] = visible
         scheduleAge()
@@ -92,11 +93,16 @@ public final class JoinedMachineStore {
         ageTimer.schedule(after: .milliseconds(Int(delay * 1000))) { @MainActor [weak self] in await self?.ageFired() }
     }
 
-    /// The deadline: drop the sections no longer on screen, then read the list once and age what the
-    /// read did not renew. The read (``finishRead(_:ticket:)``) sets the next deadline.
+    /// The deadline: with every registered section occluded, it reads nothing and waits one more
+    /// ``JoinedMachine/onlineWindow`` (a section stays registered until it hides or leaves its window,
+    /// ``stopAging(_:)``, so an occluded window wakes this store at most once per 90 s and never loses
+    /// its aging). With a section on screen it reads the list once and ages what the read did not
+    /// renew; the read (``finishRead(_:ticket:)``) sets the next deadline.
     func ageFired() async {
-        watchers = watchers.filter { $0.value() }
-        guard !watchers.isEmpty else { return ageTimer.cancel() }
+        guard watchers.values.contains(where: { $0() }) else {
+            ageTimer.schedule(after: .seconds(Int(JoinedMachine.onlineWindow))) { @MainActor [weak self] in await self?.ageFired() }
+            return
+        }
         await refresh()
         age(now: clock())
         scheduleAge()
