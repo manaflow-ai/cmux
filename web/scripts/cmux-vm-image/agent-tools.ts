@@ -533,8 +533,10 @@ export function rdUnit(hostBin: string): string {
     // A skipped install (the marker exists) is not a failure; a failed first download is.
     `Requires=${RD_OPENH264_UNIT}`,
     `After=${RD_OPENH264_UNIT}`,
-    "StartLimitIntervalSec=120",
-    "StartLimitBurst=5",
+    // No start rate limit: a host that hits one puts its socket in failed (service-start-limit-hit),
+    // and the desktop stays off until a reset-failed. Each start is one admitted owner connection;
+    // a failing host just fails that connection, and the next one tries again.
+    "StartLimitIntervalSec=0",
     "",
     "[Service]",
     "Type=simple",

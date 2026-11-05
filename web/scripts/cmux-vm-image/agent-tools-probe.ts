@@ -400,14 +400,23 @@ export function rdActivateCommand(waitSeconds = 90): string {
     `echo "rd-host-udp=$(ss -Huanp 2>/dev/null | grep -c "pid=\${pid:-0}," || true)"`,
     `echo "rd-xauth=$(stat -c '%a:%U' ${RD_XAUTHORITY} 2>/dev/null)"`,
     `echo "rd-host-dir=$(stat -c '%a:%U' ${RD_HOST_DIR} 2>/dev/null)"`,
+    // While the connection is held (the host runs, so its runtime dir and cookie copy exist): the
+    // work user's read of the copy must fail with EACCES, never ENOENT (a gone file proves nothing).
+    `setpriv --reuid=${DEVBOX_WORK_USER} --regid=${DEVBOX_WORK_USER} --init-groups ${rdReadCommand(RD_XAUTHORITY)} | sed 's/^/rd-work-/'`,
     `sed 's/^/rd-work-/' /tmp/cmux-rd-probe-connect.txt`,
     'kill "$held" 2>/dev/null; wait "$held" 2>/dev/null; true',
   ].join("; ");
 }
 
-/** As the work user: the host's cookie copy is unreadable. */
-export function rdWorkUserCookieCommand(): string {
-  return `if cat ${RD_XAUTHORITY} >/dev/null 2>&1; then echo work-xauth=readable; else echo work-xauth=unreadable; fi`;
+/** Opens `file` for reading and prints `read=readable` or the errno name (EACCES, ENOENT, ...). */
+export function rdReadCommand(file: string): string {
+  const py = `import errno, sys
+try:
+    open(sys.argv[1], "rb").close()
+except OSError as e:
+    print("read=" + errno.errorcode.get(e.errno, str(e.errno))); sys.exit(0)
+print("read=readable")`;
+  return `python3 -I -c ${sq(py)} ${file}`;
 }
 
 /**
@@ -430,8 +439,8 @@ async function desktopChecks(vm: Vm, check: Checker): Promise<void> {
     JSON.stringify({ connect: a["rd-work-connect"], unit: a["rd-unit-active"], user: a["rd-host-user"], cmd: a["rd-host-cmd"], tcpSockets: a["rd-host-tcp"], udpSockets: a["rd-host-udp"] }),
   );
   check("rd-cookie-copy", a["rd-xauth"] === `600:${RD_USER}` && a["rd-host-dir"] === `700:${RD_USER}`, `${RD_XAUTHORITY} ${a["rd-xauth"]}, ${RD_HOST_DIR} ${a["rd-host-dir"]}`);
-  const after = kv((await run(vm, rdWorkUserCookieCommand(), 30_000, DEVBOX_WORK_USER)).stdout);
-  check("rd-work-user-cannot-read-cookie", after["work-xauth"] === "unreadable", `${DEVBOX_WORK_USER}: ${RD_XAUTHORITY} ${after["work-xauth"]}`);
+  // Read while the host runs (in rdActivateCommand): EACCES only; ENOENT would mean the copy was not there to test.
+  check("rd-work-user-cannot-read-cookie", a["rd-work-read"] === "EACCES", `${DEVBOX_WORK_USER} reading ${RD_XAUTHORITY} while the host runs: ${a["rd-work-read"]}`);
 }
 
 /** The agent itself, through the machine's own model route (no credential is written). */

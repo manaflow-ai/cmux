@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdStaticCheckCommand, rdWorkUserCookieCommand, recorderScript, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, staticCheckCommand, toolListProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -402,6 +402,9 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       expect(unit).toContain("\nRestrictAddressFamilies=AF_UNIX\n");
       expect(unit).toContain(`Requires=${RD_OPENH264_UNIT}\n`);
       expect(unit).toContain(`After=${RD_OPENH264_UNIT}\n`);
+      // A run of failed starts never leaves the socket failed.
+      expect(unit).toContain("\nStartLimitIntervalSec=0\n");
+      expect(unit).not.toContain("StartLimitBurst");
       expect(unit).not.toContain("openh264-install");
       // Only the socket starts it; nothing listens on TCP and no token reaches it.
       expect(unit).not.toContain("[Install]");
@@ -512,7 +515,12 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     });
 
     test("probe: every desktop command parses, and the connect helper reports connected or the errno name", async () => {
-      for (const command of [rdStaticCheckCommand(), rdActivateCommand(), rdOtherUserCommand(), rdWorkUserCookieCommand(), rdConnectCommand(0)]) await bashSyntax(command);
+      for (const command of [rdStaticCheckCommand(), rdActivateCommand(), rdOtherUserCommand(), rdReadCommand(RD_XAUTHORITY), rdConnectCommand(0)]) await bashSyntax(command);
+      // The cookie read runs while the connection is held: before the kill, after the host's dir exists.
+      const activate = rdActivateCommand();
+      const read = activate.indexOf(`setpriv --reuid=cmux --regid=cmux --init-groups ${rdReadCommand(RD_XAUTHORITY)}`);
+      expect(read).toBeGreaterThan(activate.indexOf("rd-host-dir="));
+      expect(read).toBeLessThan(activate.indexOf('kill "$held"'));
       // The host is started by a connection as the work user, the link receiver's uid; another user is refused.
       expect(rdActivateCommand()).toContain(`setpriv --reuid=cmux --regid=cmux --init-groups python3`);
       expect(rdOtherUserCommand()).toContain("setpriv --reuid=nobody --regid=nogroup --clear-groups python3");
@@ -528,6 +536,23 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
           expect(ok.stdout.trim()).toBe("connect=connected");
         } finally {
           server.kill();
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    test("probe: the read helper names the errno, so a missing cookie copy (ENOENT) never passes as unreadable (EACCES)", async () => {
+      const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-rd-read-"));
+      try {
+        const file = path.join(dir, "Xauthority-99");
+        const read = (f: string) => runChild("sh", ["-c", rdReadCommand(f)], { timeout: 20_000 });
+        expect((await read(file)).stdout.trim()).toBe("read=ENOENT");
+        writeFileSync(file, "c");
+        expect((await read(file)).stdout.trim()).toBe("read=readable");
+        if (process.getuid?.() !== 0) {
+          chmodSync(file, 0o000);
+          expect((await read(file)).stdout.trim()).toBe("read=EACCES");
         }
       } finally {
         rmSync(dir, { recursive: true, force: true });
