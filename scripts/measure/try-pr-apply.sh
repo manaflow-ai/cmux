@@ -94,7 +94,11 @@
 #   isolation    both experiences: other cmux processes (pid, start time), the cmux sockets and the cmux
 #                state under the account's real home (Application Support, ~/.cmux, Preferences, four
 #                levels deep: path, inode, size, mtime) are listed before the first launch and after
-#                the last probe; any change fails the run.
+#                the last probe; any change fails the run. This run's own defaults domains (its lab
+#                ids, or the shipped id it set aside) are left out of that list.
+#   cleanup      ends this run's instances (SIGTERM, SIGKILL after 10 s) before any defaults go back;
+#                an instance that will not end, or a put-back that fails, turns the result into a
+#                fail (`cleanup_failure`, exit 1) and leaves the copy for the next run.
 #   pixels       supporting only: decoded pixels (sips to BMP, never PNG bytes) in --expect-region,
 #                with a base, a repeat install and a base-only control window (CONTROL_SECONDS,
 #                default 30); a control diff marks the pixel evidence inconclusive.
@@ -144,14 +148,48 @@ use_instance() { # NAME
 pid="" pid_start="" sock="" socks=() mine=() survived="" coexisting="" inst_app="" lab_ids=() aside_held=""
 defaults_tool="${TRY_PR_APPLY_DEFAULTS:-defaults}"  # the override is for its tests
 lock_dir="${TRY_PR_APPLY_LOCK_DIR:-/tmp}" aside_lock="" aside=""
+# PID START: whether that process (same start time) still runs.
+alive() { [[ -n "$1" && "$(started "$1")" == "$2" ]]; }
+# Ends this run's instances (SIGTERM, then SIGKILL after 10 s); prints those still running after that.
+end_ours() {
+  local p n
+  for p in ${mine[@]+"${mine[@]}"}; do signal_ours "${p%%|*}" "${p#*|}"; done
+  for n in $(seq 1 150); do
+    [[ "$n" == 100 ]] && for p in ${mine[@]+"${mine[@]}"}; do signal_ours "${p%%|*}" "${p#*|}" KILL; done
+    for p in ${mine[@]+"${mine[@]}"}; do alive "${p%%|*}" "${p#*|}" && continue 2; done; return 0
+    sleep 0.1
+  done
+  for p in ${mine[@]+"${mine[@]}"}; do alive "${p%%|*}" "${p#*|}" && echo "${p%%|*}"; done
+}
+# REASON: the run failed after its result was written (cleanup): result.json says so, and the exit is 1.
+cleanup_failed() {
+  echo "try-pr-apply: cleanup: $1" >&2
+  [[ -f "$out/result.json" ]] || return 0
+  python3 - "$out/result.json" "$1" <<'PY'
+import json, sys
+p, why = sys.argv[1:]; r = json.load(open(p))
+r["cleanup_failure"] = why
+if r.get("status") != "fail": r["status_before_cleanup"] = r.get("status"); r["status"] = "fail"
+json.dump(r, open(p, "w"), indent=2)
+PY
+}
 cleanup() {
-  local p id; for p in ${mine[@]+"${mine[@]}"}; do signal_ours "${p%%|*}" "${p#*|}"; done
-  # Defaults go back only once the instances are gone, so none writes after the put-back.
-  for p in ${mine[@]+"${mine[@]}"}; do for _ in $(seq 1 100); do [[ "$(started "${p%%|*}")" == "${p#*|}" ]] || break; sleep 0.1; done; done
-  if [[ "$aside_held" == copy ]]; then put_back || echo "try-pr-apply: could not put back the $bundle_id defaults; the copy stays in $aside" >&2; fi
+  local rc=$? id left bad=""
+  # Defaults go back only once every instance is gone, so none writes after the put-back; when one
+  # will not end, they are not put back, and the copy stays for the next run (whose launch refuses
+  # while an app with the shipped id runs).
+  left="$(end_ours | tr '\n' ' ' || true)"
+  [[ -z "$left" ]] || bad="this run's instances $left would not end"
+  if [[ "$aside_held" == copy ]]; then
+    if [[ -n "$left" ]]; then bad="$bad, so the $bundle_id defaults were not put back; the copy stays in $aside"
+    elif ! put_back; then bad="could not put back the $bundle_id defaults; the copy stays in $aside"; fi
+  fi
   [[ -z "$aside_held" ]] || rm -rf "$aside_lock"
-  for id in ${lab_ids[@]+"${lab_ids[@]}"}; do "$defaults_tool" delete "$id" >/dev/null 2>&1 || true; done
-  rm -f ${socks[@]+"${socks[@]}"}; git -C "$root" worktree remove --force "$work/base-tree" 2>/dev/null || true; rm -rf "$work"; }
+  [[ -n "$left" ]] || for id in ${lab_ids[@]+"${lab_ids[@]}"}; do "$defaults_tool" delete "$id" >/dev/null 2>&1 || true; done
+  [[ -z "$bad" ]] || { cleanup_failed "$bad"; rc=1; }
+  rm -f ${socks[@]+"${socks[@]}"}; git -C "$root" worktree remove --force "$work/base-tree" 2>/dev/null || true; rm -rf "$work"
+  exit "$rc"
+}
 trap cleanup EXIT
 now() { python3 -c 'import time; print(f"{time.time():.3f}")'; }
 t_json="$work/times.json"; echo '{}' > "$t_json"
@@ -329,7 +367,8 @@ if [[ "$mode" == installed ]]; then
 else
   note defaults "each instance its own domain (${lab_ids[*]}), deleted after the run"
 fi
-ours_running() { ps -axo pid=,comm= | while read -r p c; do [[ "$c" == "$work/"*"/Contents/MacOS/"* ]] && echo "$p"; done; }
+# (|| true: under pipefail a last line that is not ours would end the script.)
+ours_running() { ps -axo pid=,comm= | while read -r p c; do [[ "$c" == "$work/"*"/Contents/MacOS/"* ]] && echo "$p" || true; done; }
 # Other running apps with cmux in their path: "PID BUNDLE_ID" (unknown when the Info.plist is unreadable).
 other_apps() { python3 - "$work" <<'PY'
 import plistlib, subprocess, sys
@@ -386,7 +425,7 @@ launch() { # NAME: the instance's own HOME and control socket (in /tmp: a socket
   local home="$work/home-$1"; mkdir -p "$home"; sock="/tmp/tpa-$$-$1.sock"; socks+=("$sock")
   open -n --env CMUX_NEXT_CONFIG_FILE="$CMUX_NEXT_CONFIG_FILE" --env CMUX_WEB_OVERLAY_DIR="$CMUX_WEB_OVERLAY_DIR" \
     --env CMUX_NEXT_DEBUG_TUNABLES_FILE="$CMUX_NEXT_DEBUG_TUNABLES_FILE" --env CMUX_NEXT_SOCKET_PATH="$sock" \
-    --env HOME="$home" --env CFFIXED_USER_HOME="$home" "$inst_app"
+    --env HOME="$home" --env CFFIXED_USER_HOME="$home" "$inst_app" || { result fail not_run "open could not launch the $1 instance"; exit 1; }
   pid=""; for _ in $(seq 1 300); do
     pid="$(ours_running | while read -r p; do [[ "$before" == *" $p "* ]] || echo "$p"; done | tail -1)"; [[ -n "$pid" ]] && break; sleep 0.1
   done
@@ -397,9 +436,11 @@ launch() { # NAME: the instance's own HOME and control socket (in /tmp: a socket
   note "home_$1" "$home"; note "socket_$1" "$sock"
 }
 # Other cmux processes (not this run's), and cmux sockets and state under the account's real home.
-others() { python3 - "$real_home" "$work" <<'PY'
-import os, subprocess, sys
-home, ours = sys.argv[1:]  # ours: this run's folder (its app, its instances' homes and helpers)
+# Its own defaults domains (the lab ids, or the shipped id it set aside) are this run's, not others'.
+others() { python3 - "$real_home" "$work" "$( [[ "$mode" == lab ]] && echo "${lab_ids[*]}" || echo "$bundle_id")" <<'PY'
+import os, re, subprocess, sys
+home, ours, own_ids = sys.argv[1:]  # ours: this run's folder (its app, its instances' homes and helpers)
+own = [re.compile(re.escape(i) + r"(\.[0-9A-Fa-f-]{36})?\.plist(\..*)?$") for i in own_ids.split()]
 for l in subprocess.run(["ps", "-axo", "pid=,lstart=,comm="], capture_output=True, text=True).stdout.splitlines():
     if "/Contents/MacOS/" in l and "cmux" in l.lower() and ours not in l: print("proc", " ".join(l.split()))
 sup = os.path.join(home, "Library/Application Support")
@@ -415,7 +456,7 @@ for r in sorted(roots):
     for d, dirs, files in os.walk(r):
         dirs[:] = [x for x in dirs if d.count(os.sep) - r.count(os.sep) < 3]
         for f in sorted(files):
-            if r.endswith("Preferences") and "cmux" not in f.lower(): continue
+            if r.endswith("Preferences") and ("cmux" not in f.lower() or any(o.match(f) for o in own)): continue
             line(os.path.join(d, f))
 PY
 }
@@ -428,11 +469,11 @@ isolation_check() {
   if [[ -n "$coexisting" ]]; then note coexistence_preexisting "pass: ran alongside $coexisting, whose processes, sockets and state stayed unchanged"; fi
 }
 started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' '; }
-# PID START: SIGTERM only while PID is still the process this run launched (same start time, its
+# PID START [SIGNAL]: SIGTERM (or SIGNAL) only while PID is still the process this run launched (same start time, its
 # executable inside this run's app copy), so a reused pid is never signalled.
 signal_ours() {
   [[ -n "$1" && -n "$2" && "$(started "$1")" == "$2" && "$(ps -o comm= -p "$1" 2>/dev/null)" == "$work/"*"/Contents/MacOS/"* ]] || return 0
-  kill "$1" 2>/dev/null || true
+  kill -"${3:-TERM}" "$1" 2>/dev/null || true
 }
 quit_app() { signal_ours "$pid" "$pid_start"; for _ in $(seq 1 100); do [[ "$(started "$pid")" == "$pid_start" ]] || break; sleep 0.1; done; pid=""; }
 probe_in() { # STATE: 0 the PR's behaviour is there, 1 it is not, other: the app is not ready
