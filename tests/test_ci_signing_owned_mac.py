@@ -1254,7 +1254,47 @@ class PresenceConditionTests(unittest.TestCase):
         self.assertTrue(any("picks its runner from vars.SOME_SHARED_RUNNER" in why for why in found), found)
 
     def test_a_variable_both_tested_and_read_is_still_checked(self) -> None:
-        self.assertEqual(self.label_variables(f"${{{{ vars.X != '' && vars.X {self.END}"), ["X"])
+        """Whether or not the condition is dropped, a variable that can give the label still faces checks.
+
+        An unknown name is not a mode, so nothing is dropped and both reads stay. A mode variable's
+        condition is dropped, and the read that remains is then checked like any other route."""
+        self.assertEqual(self.label_variables(f"${{{{ vars.X != '' && vars.X {self.END}"), ["X", "X"])
+        self.assertEqual(
+            self.label_variables(f"${{{{ vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI {self.END}"),
+            ["CI_NIGHTLY_MINI"])
+
+    def test_an_unknown_variable_is_never_treated_as_a_mode(self) -> None:
+        """router-review F1 at a2414e56ffc: `vars.BAD != '' && 'macos-26'` must not reduce to literals.
+
+        Dropping any `vars.X != '' &&` left an all-literal expression with no variable to check, so a job
+        whose set branch sends secrets to a hosted Mac passed, where the unknown variable had failed it
+        before. Only MODE_VARIABLES names are dropped now."""
+        runs_on = f"${{{{ vars.BAD != '' && 'macos-26' {self.END}"
+        self.assertEqual(self.label_variables(runs_on), ["BAD"])
+        job = {"runs-on": runs_on,
+               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                          "run": claim_gate_for("nightly.yml")},
+                         {"run": f"bash {CLAIM}"}, OwnedRouteVariableTests.SPARKLE]}
+        found: list[str] = []
+        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
+        self.assertTrue(any("picks its runner from vars.BAD" in why for why in found), found)
+        self.assertNotIn("BAD", keychain_guard.MODE_VARIABLES)
+
+    def test_a_mode_variable_selecting_a_literal_is_not_dropped(self) -> None:
+        """Nothing here validates literal labels (the fork route puts a hosted `macos-26` in every nightly
+        runs-on), so a mode clause that selects a literal keeps the mode variable in view and fails."""
+        runs_on = f"${{{{ vars.CI_NIGHTLY_MINI != '' && 'macos-26' {self.END}"
+        self.assertEqual(self.label_variables(runs_on), ["CI_NIGHTLY_MINI"])
+        job = {"runs-on": runs_on,
+               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
+                          "run": claim_gate_for("nightly.yml")},
+                         {"run": f"bash {CLAIM}"}, OwnedRouteVariableTests.SPARKLE]}
+        found: list[str] = []
+        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
+        self.assertTrue(any("picks its runner from vars.CI_NIGHTLY_MINI" in why for why in found), found)
+
+    def test_the_mode_list_stays_small(self) -> None:
+        self.assertEqual(set(keychain_guard.MODE_VARIABLES), {"CI_NIGHTLY_MINI"})
 
     def test_only_an_empty_string_comparison_is_a_presence_test(self) -> None:
         for runs_on in (f"${{{{ vars.X != 'foo' && vars.X {self.END}",

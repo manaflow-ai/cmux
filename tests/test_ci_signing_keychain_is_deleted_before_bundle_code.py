@@ -243,14 +243,21 @@ LITERAL_SELECTOR = re.compile(
     r"vars\.([A-Za-z0-9_]+)\s*==\s*'([^']*)'\s*&&\s*'([^']*)'\s*\|\|\s*", re.IGNORECASE)
 
 
-# `vars.NAME != '' &&` or `vars.NAME == '' ||`: a variable tested only for being set, which switches a mode on
-# while some *other* expression gives the label (nightly.yml's one-mini mode, Lawrence, 2026-11-04, 723c3bcbd96:
+# `vars.MODE != '' &&`: a variable tested only for being set, which switches a mode on while some *other*
+# expression gives the label (nightly.yml's one-mini mode, Lawrence, 2026-11-04, 723c3bcbd96:
 # `vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER` runs the signing jobs on the one nightly mini's
-# signing runner). Its own value can never become the runs-on label, so it is a condition, not a route, and the
-# label it selects is checked on its own merits. Only a comparison against the empty string is dropped, and only
-# that occurrence: a variable also read as a label elsewhere in the expression still faces every check.
+# signing runner). Its own value can never become the runs-on label, so it is a condition, not a route.
+# Two narrowings keep the drop from hiding a route, both of them necessary:
+#   * only a variable named in MODE_VARIABLES is dropped, so an unknown `vars.BAD != '' && ...` still fails as
+#     an unchecked route, exactly as it did before this was added;
+#   * only a clause that selects another `vars.` reference is dropped, so what the mode selects still faces
+#     every check below. A clause selecting a literal (`vars.CI_NIGHTLY_MINI != '' && 'macos-26'`) is left in
+#     place, and the mode variable then fails the guard, because nothing here validates literal labels: the
+#     fork route puts a hosted `macos-26` literal in every nightly runs-on, so they cannot simply be checked.
+# Only that one occurrence is dropped: a mode variable also read as a label elsewhere still faces every check.
+MODE_VARIABLES = frozenset({"CI_NIGHTLY_MINI"})
 PRESENCE_CONDITION = re.compile(
-    r"vars\.([A-Za-z0-9_]+)\s*(?:!=\s*''\s*&&|==\s*''\s*\|\|)\s*", re.IGNORECASE)
+    r"vars\.(" + "|".join(sorted(MODE_VARIABLES)) + r")\s*!=\s*''\s*&&\s*(?=vars\.)", re.IGNORECASE)
 
 
 def strip_literal_selectors(runs_on: str) -> str:
