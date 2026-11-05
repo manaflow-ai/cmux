@@ -62,7 +62,8 @@ package final class AgentRenderWindows {
         // workspace shows (`PaneContentView.viewDidUnhide`). A tab in a
         // minimized or covered window goes back when that window draws.
         guard chrome.isOffScreen(windowDraws: windowDraws) else { return false }
-        let source = chrome.isHiddenOrHasHiddenAncestor ? nil : chrome.window
+        // Also a parked workspace's window: its pane, shown while the window drew nothing, waits for it to draw.
+        let source = chrome.window
         let home = Self.home(of: chrome)
         parked.removeValue(forKey: tabID)?.finish()
         let panel = AgentRenderPanel(viewport: Self.viewport, screens: NSScreen.screens.map(\.frame), privateCalls: privateCalls)

@@ -324,7 +324,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     @discardableResult
     func show(_ view: NSView?) -> NSView? {
         let previous = content
-        guard previous !== view || (view != nil && !hostsContent) else { return previous }
+        guard previous !== view || (view != nil && !hostsContent && !(view?.staysParked(awayFrom: self) ?? false)) else { return previous }
         tabSwitchMark("show")
         defer { tabSwitchMark("shown") }
         // Another pane may have reparented `previous` already (a moved tab):

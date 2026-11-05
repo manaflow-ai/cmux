@@ -24,6 +24,6 @@ extension NSView {
     /// - Parameter home: The view that would show this one again.
     /// - Returns: True while the tab should stay off screen.
     public func staysParked(awayFrom home: NSView) -> Bool {
-        false
+        window?.identifier == .agentRenderWindow && home.window.map { !$0.drawsContent } == true
     }
 }
