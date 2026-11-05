@@ -468,7 +468,7 @@ fn acpmux(args: &[&str]) -> Option<(bool, String)> {
 /// it answered that no daemon runs and its unit is down (or absent).
 fn busy_sessions() -> Result<Vec<String>, String> {
     let (_, status) = acpmux(&["--json", "daemon", "status"]).ok_or("acpmux did not run")?;
-    match daemon_running(&status) {
+    match super::daemon_running(&status) {
         None => return Err("acpmux daemon status is unreadable".to_owned()),
         Some(false) => {
             return match user_unit_state(ACPMUX_UNIT).as_deref() {
@@ -484,14 +484,6 @@ fn busy_sessions() -> Result<Vec<String>, String> {
         return Err("acpmux ls failed".to_owned());
     }
     super::busy_sessions_in(&ls).ok_or_else(|| "acpmux ls is unreadable".to_owned())
-}
-
-/// Whether `acpmux --json daemon status` names a running daemon; None when
-/// it is not that answer.
-fn daemon_running(status: &str) -> Option<bool> {
-    let v: Value = serde_json::from_str(status.trim()).ok()?;
-    let pid = v.as_object()?.get("pid")?;
-    Some(!pid.is_null())
 }
 
 /// `systemctl --user is-active UNIT` in the work user's manager: its word.
