@@ -9,7 +9,7 @@ import WebKit
 /// or shell build. Leo, 2026-11-04: "shouldn't the nightly itself or whatever stable app be able to simply
 /// do this? Like the view if you wanna separate it out or if you just wanna update your thing on the fly".
 ///
-/// Its content is the webviews mock app (`webviews/src/gallery/app.html` with `chrome=native`, as in
+/// Its content is the webviews mock app (`webviews/src/gallery/mock-app.html` with `chrome=native`, as in
 /// `Prototypes/ViewShell`) from the gallery dev server (`bun run gallery:dev`), so a saved web file hot
 /// reloads in it while the app's own windows keep the bundled pages. Updating the app's own windows on the
 /// fly is `web-dev.json` (``WebDevOverride``). Each `open` is a new window, offset from the last, so
@@ -80,7 +80,7 @@ import WebKit
         components.scheme = "http"
         components.host = "127.0.0.1"
         components.port = port
-        components.path = "/gallery/app.html"
+        components.path = "/gallery/mock-app.html"
         let given = Set(query.map(\.0))
         let items = look.filter { !given.contains($0.0) } + query.filter { $0.0 != "chrome" } + [("chrome", "native")]
         components.queryItems = items.map { URLQueryItem(name: $0.0, value: $0.1) }

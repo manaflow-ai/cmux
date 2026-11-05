@@ -8,7 +8,7 @@ import Testing
 struct ViewWindowTests {
     @Test func loadsTheMockAppOnLoopbackWithNativeChromeLast() throws {
         let url = try #require(ViewWindow.url(port: 4210, look: [], query: [("fixture", "app.window/new-tab")]))
-        #expect(url.absoluteString == "http://127.0.0.1:4210/gallery/app.html?fixture=app.window/new-tab&chrome=native")
+        #expect(url.absoluteString == "http://127.0.0.1:4210/gallery/mock-app.html?fixture=app.window/new-tab&chrome=native")
     }
 
     @Test func argumentsWinOverTheLookAndNeverChangeTheChrome() throws {
