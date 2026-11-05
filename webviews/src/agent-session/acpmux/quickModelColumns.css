@@ -180,6 +180,7 @@
 }
 .acpmux-cols-list:last-child { border: 0; }
 .acpmux-cols-list[data-cmux-card-scroll] {
+  --cmux-card-scroller: var(--cmux-scroller-size, 8px);
   padding-inline-end: max(0px, calc(var(--acpmux-cols-pad) - var(--cmux-card-scroller, 7px)));
 }
 .acpmux-cols-rail {
