@@ -51,7 +51,7 @@ import {
   rdTmpfiles,
   rdUnit,
 } from "../scripts/cmux-vm-image/agent-tools";
-import { bakeOptionsFromArgv, daemonUnit, desktopRecord } from "../scripts/cmux-vm-image/bake";
+import { bakeOptionsFromArgv, daemonUnit, desktopRecord, refusedFirstUsePackages } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, type InputsLock, type LockedProgram, readInputsLock, rolesManifest, storeEntry } from "../scripts/cmux-vm-image/lock";
 import { DEVBOX_WORK_UID } from "../services/vms/images/workUser";
 import { runChild } from "./helpers/run-child";
@@ -683,5 +683,26 @@ print(json.dumps({"status": p.returncode, "pid": p.pid, "stderr": err.strip(), "
     const phases = browserRoleBakePhases(lock).map((p) => p.command).join("\n");
     expect(phases).not.toContain("ffmpeg");
     expect(phases).not.toContain("x264");
+  });
+});
+
+describe("refusedFirstUsePackages", () => {
+  const closures = lock.apt.ubuntu.firstUse;
+  const all = [...new Set(Object.values(closures).flatMap((c) => Object.keys(c)))].sort();
+
+  test("without agent tools, every first-use package stays refused", () => {
+    expect(refusedFirstUsePackages(lock, false)).toEqual(all);
+  });
+
+  test("with agent tools, the browser closure the bake installs is not refused, the rest still is", () => {
+    const refused = refusedFirstUsePackages(lock, true);
+    for (const name of Object.keys(closures.browser)) expect(refused).not.toContain(name);
+    // The layered bake's agents layer failed on this one: browser and display-wm both carry it.
+    expect(closures.browser.fontconfig).toBeDefined();
+    expect(closures["display-wm"].fontconfig).toBeDefined();
+    expect(refused).not.toContain("fontconfig");
+    expect(refused).toContain("openbox");
+    expect(refused).toContain("ffmpeg");
+    expect(refused).toEqual(all.filter((name) => !(name in closures.browser)));
   });
 });

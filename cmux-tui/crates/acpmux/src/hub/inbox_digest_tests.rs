@@ -180,6 +180,12 @@ fn only_other_agents_text_messages_go_into_a_digest() {
     run.provenance = Some(json!({"kind": KIND}));
     digest.run = Arc::new(run);
     assert!(!digestible(&digest));
+    // A goal's continuation runs alone, checked against its goal (Codex review of #36666).
+    let mut continuation = queued("p6g", Some("acpmux"), None, "Keep going");
+    let mut run = continuation.run.clone_run();
+    run.provenance = Some(json!({"kind": "notice", "from": "acpmux", "goalMark": "41"}));
+    continuation.run = Arc::new(run);
+    assert!(!digestible(&continuation));
     let mut web = queued("p7", Some("lane-a"), None, "from the web");
     let mut run = web.run.clone_run();
     run.control = Control::Web;

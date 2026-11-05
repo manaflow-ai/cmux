@@ -1,7 +1,7 @@
 import { ToolVisualRow } from "./ToolVisualPreview";
 import { WrittenArtifactButtons } from "./writtenArtifacts";
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
-// output, Shell block or diff below once opened.
+// output (under its input's labeled fields, ToolDetail.tsx), Shell block or diff below once opened.
 import { useFindReveal } from "./chatFind";
 import { memo, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
@@ -26,6 +26,8 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { useRowDisclosure } from "./transcriptDisclosure";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
+import { ToolDetail } from "./ToolDetail";
+import { inputFields, opensToFields } from "./toolInputFields";
 import { WriteLabel, writeCall } from "./WriteLabel";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
@@ -122,7 +124,12 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     });
   }, [shell, tool.description, tool.kind, source, tool.title, strip]);
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
-  const hasDetails = shell || hasDiff || Boolean(result?.text.trim());
+  // A call whose input opens as fields has details even before (or without) any output (ToolDetail.tsx).
+  const hasInput = useMemo(
+    () => !shell && opensToFields(tool, failure) && Boolean(inputFields(tool.inputSummary)),
+    [shell, tool, failure],
+  );
+  const hasDetails = shell || hasDiff || Boolean(result?.text.trim()) || hasInput;
   const labelRef = useRef<HTMLSpanElement>(null);
   const [clipped, setClipped] = useState(false);
   const expandable = hasDetails || clipped;
@@ -140,6 +147,12 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     return () => observer.disconnect();
   }, [hasDetails, open, label, expandable]);
   const images = useMemo(() => toolImages(tool), [tool]);
+  // Any other call opens to its input, one labeled field per argument, over its output
+  // (ToolDetail.tsx); read only while drawn, as the diff is.
+  const fields = useMemo(
+    () => (fold.present && opensToFields(tool, failure) ? inputFields(tool.inputSummary) : undefined),
+    [fold.present, tool, failure],
+  );
   const words = write ? <WriteLabel tool={tool} write={write} t={t} /> : <ToolLabel text={label} />;
   const content = (
     <>
@@ -188,7 +201,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
             className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
             data-tool-id={tool.id}
             aria-expanded={open}
-            aria-controls={open && (shell || files.length > 0 || body) ? detailsId : undefined}
+            aria-controls={open && (shell || files.length > 0 || body || fields) ? detailsId : undefined}
             ref={fold.headerRef}
             onClick={fold.toggle}
           >
@@ -205,7 +218,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
-      {fold.present && (shell || files.length > 0 || body) && (
+      {fold.present && (shell || files.length > 0 || body || fields) && (
         <div {...fold.bodyProps}>
           {shell ? (
             <ShellBlock
@@ -222,6 +235,8 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
                 <EditDiff key={file.path} file={file} reveal={reveal} />
               ))}
             </div>
+          ) : fields ? (
+            <ToolDetail id={detailsId} fields={fields} result={result} reveal={reveal} />
           ) : result ? (
             <ToolOutput id={detailsId} result={result} reveal={reveal} />
           ) : null}

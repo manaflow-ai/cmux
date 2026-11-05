@@ -119,6 +119,9 @@ public final class SidebarContainerView: NSView {
     let widthMotionWatchdog = DemandTimer(owner: "sidebar.width-motion-watchdog")
     /// How long past an animation's own duration the watchdog waits.
     static let widthMotionSlack: Duration = .milliseconds(500)
+    /// The width slide, stepped on the window's motion clock (`startWidthMotion`), and the leg it is on.
+    lazy var widthMotion = TimedProgress { [weak self] progress in self?.stepWidth(progress) }
+    var widthLeg: WidthLeg?
 
     /// The window edge this sidebar sits on (`sidebar.side`, R109): the
     /// resize handle and the slide-out follow it.
@@ -343,6 +346,8 @@ public final class SidebarContainerView: NSView {
     private func snap() {
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value
+        widthMotion.stop()
+        widthLeg = nil
         widthConstraint.constant = targetWidth
         panelWidth.constant = model.width + paneReach
         lastPaneReach = paneReach
@@ -380,6 +385,8 @@ public final class SidebarContainerView: NSView {
             targetWidth = target
             targetCollapseMotion = collapseMotion
             // A drag is the person's own frame-by-frame resize, not an animation.
+            widthMotion.stop()
+            widthLeg = nil
             isWidthAnimating = false
             widthConstraint.constant = target
             return
@@ -401,17 +408,10 @@ public final class SidebarContainerView: NSView {
         armWidthMotionWatchdog(hidden ? .disappear : .appear)
         widthCompletedGeneration = nil
         fadeCompletedGeneration = collapseMotion.fadesPanel ? nil : generation
-        // Animate only the constraint: descendants re-lay out each frame at
-        // their real size. Forcing layout inside the animation block would
-        // make every subview frame an implicit animation whose completion
-        // overwrites later layout.
-        // Constraint animators ignore SwiftUI springs (they fall back to
-        // AppKit's 0.25 s default), so this is the tokens' timed equivalent.
-        // A toggle mid-animation starts from the constant on screen.
-        Motion.sidebar.animateTimed(hidden ? .disappear : .appear, in: self, {
-            Motion.animator(widthConstraint, in: self).constant = target
-            self.setClipReach(reach, collapsed: hidden, animated: true)
-        }, completion: { [weak self] in
+        // Only the constraints move, a frame at a time on the window's motion clock: descendants re-lay out each frame
+        // at their real size, in the frame the panes' springs step. The tokens' timed equivalent (duration and curve),
+        // as before; a toggle mid-slide starts from the constant on screen.
+        startWidthMotion(to: target, reach: reach, collapsed: hidden, token: hidden ? .disappear : .appear, completion: { [weak self] in
             guard let self, generation == self.animationGeneration else { return }
             // Flush the final constraint layout before publishing settlement. Content and
             // terminal geometry must already be at the target when they hear the motion ended.
