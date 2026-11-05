@@ -50,6 +50,7 @@ import {
   type AcpmuxSecretAsk,
   type AcpmuxRow,
   type AcpmuxSnapshot,
+  markRowsChangedFrom,
   rowsChangedFrom,
   type QueueEdit,
   nextDrawnRow,
@@ -7768,7 +7769,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const subagents = subagentRowsFrom(displayRows, folds, last?.subagents);
       lastTurns.current = { turns, subagents };
       // After the turns: a live turn's status reads its last row, the call's included.
-      return withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
+      const shown = withoutAskedCalls(withShellRows(subagents.rows, chatShellRuns), panelAsks);
+      // turnViewFrom already found the unchanged display prefix. Keep that boundary beside the
+      // final rows so layoutConversation can skip the historical rows on a streaming update.
+      markRowsChangedFrom(shown, turns.reusedRows ?? 0);
+      return shown;
     });
   }, [
     chatPresentation,
