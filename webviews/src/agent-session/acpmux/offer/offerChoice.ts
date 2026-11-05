@@ -1,7 +1,10 @@
 // A suggested task's Options (SuggestedTasks.tsx): where and how its new chat starts, as Claude
 // desktop's suggested-session card has it (Environment, the folder, Worktree, Model, Effort,
-// Permissions). Each row starts at this chat's own value; the person's picks ride on Start
-// (`chat.offer.start`, direct.ts `startOffer`). Leo, 2026-11-05, on that card: "I want to be able
+// Permissions). Environment and the folder are where it runs. Model, Effort and Permissions list
+// this chat's agent's choices and start at "Default", the new chat's own; only what the person
+// picks rides on Start (`chat.offer.start`, direct.ts `startOffer`). An Effort or Permissions pick
+// is a grant, so it carries a gesture ticket bound to that exact pick (`transport.gesture`), and a
+// pick the new chat cannot take stops the start before its prompt. Leo, 2026-11-05, on that card: "I want to be able
 // to, like, recommend Claude to be able to do that as well. in our cmux-next app. and have it be
 // rendered."
 import { createContext, useContext } from "react";
@@ -12,25 +15,27 @@ type Summary = AcpmuxSnapshot["summary"];
 type Catalog = AcpmuxSnapshot["catalog"];
 
 /// What a task's Start carries: the worktree switch, and the model, effort and permission mode
-/// picked in Options (unset: the new chat's own default).
+/// picked in Options (unset: the new chat's own default). `harness`: this chat's agent, set with a
+/// pick from its lists when the offer names no agent, so the new chat runs on the agent those
+/// lists are for, not the person's default one.
 export type OfferChoice = {
   worktree: boolean;
+  harness?: string;
   model?: string;
   effort?: { configId: string; value: string };
   mode?: string;
 };
 
-type Choice = { value: string; name: string };
+type Choice = { value: string; name: string; disabled?: boolean };
 
-/// This chat's own values, which a task's Options start from.
+/// This chat's machine and agent, and the choices its agent offers, which a task's Options list.
 export type OfferDefaults = {
   /// The machine the chat runs on: unset for this computer.
   machine?: string;
   harness?: string;
-  model?: string;
+  /// A model acpmux will not run is listed, disabled.
   models: Choice[];
-  effort?: { configId: string; value?: string; options: Choice[] };
-  mode?: string;
+  effort?: { configId: string; options: Choice[] };
   modes: Choice[];
 };
 
@@ -46,21 +51,27 @@ export function offerDefaults(summary: Summary | undefined, catalog: Catalog): O
   const effort = summary?.configOptions?.find(
     (option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort",
   );
+  const unavailable = new Set(
+    (catalog.find((harness) => harness.id === summary?.harness)?.models ?? [])
+      .filter((model) => model.unavailable)
+      .map((model) => model.id),
+  );
   return {
     ...(summary?.hostKind === "cloud" || summary?.peer
       ? { machine: summary.machine ?? summary.peer ?? summary.host }
       : {}),
     ...(summary?.harness ? { harness: summary.harness } : {}),
-    ...(summary?.model ? { model: summary.model } : {}),
-    models: sessionModels(catalog, summary).map((model) => ({ value: model.id, name: model.name })),
+    models: sessionModels(catalog, summary).map((model) => ({
+      value: model.id,
+      name: model.name,
+      ...(unavailable.has(model.id) ? { disabled: true } : {}),
+    })),
     ...(effort && {
       effort: {
         configId: effort.id,
-        ...(effort.currentValue ? { value: effort.currentValue } : {}),
         options: effort.options.map((option) => ({ value: option.value, name: option.name || option.value })),
       },
     }),
-    ...(summary?.modes?.currentModeId ? { mode: summary.modes.currentModeId } : {}),
     modes: (summary?.modes?.availableModes ?? []).map((mode) => ({ value: mode.id, name: mode.name || mode.id })),
   };
 }
@@ -70,17 +81,37 @@ export function sameAgent(offer: AcpmuxSessionOffer, defaults: OfferDefaults | u
   return Boolean(defaults) && (!offer.harness || offer.harness === defaults!.harness);
 }
 
-/// The choice a task starts with untouched: the agent's worktree ask, the agent's model else this
-/// chat's, and this chat's effort and mode.
-export function initialChoice(offer: AcpmuxSessionOffer, defaults: OfferDefaults | undefined): OfferChoice {
-  if (!sameAgent(offer, defaults)) return { worktree: offer.worktree, ...(offer.model ? { model: offer.model } : {}) };
-  const model = offer.model ?? defaults.model;
-  return {
-    worktree: offer.worktree,
-    ...(model ? { model } : {}),
-    ...(defaults.effort?.value ? { effort: { configId: defaults.effort.configId, value: defaults.effort.value } } : {}),
-    ...(defaults.mode ? { mode: defaults.mode } : {}),
-  };
+/// The choice a task starts with untouched: the agent's worktree ask and model, nothing else, so
+/// the new chat starts as any new chat of its agent does.
+export function initialChoice(offer: AcpmuxSessionOffer): OfferChoice {
+  return { worktree: offer.worktree, ...(offer.model ? { model: offer.model } : {}) };
+}
+
+/// A pick from this chat's lists.
+export type OfferPick = Pick<OfferChoice, "model" | "effort" | "mode">;
+
+/// `choice` with a pick from this chat's lists (Model, Effort, Permissions): it also pins this
+/// chat's agent when the offer names none.
+export function withPick(
+  choice: OfferChoice,
+  offer: AcpmuxSessionOffer,
+  defaults: OfferDefaults,
+  pick: OfferPick,
+): OfferChoice {
+  return { ...choice, ...(!offer.harness && defaults.harness ? { harness: defaults.harness } : {}), ...pick };
+}
+
+/// A grant's gesture intent (`transport.gesture`): its ticket redeems only that exact pick.
+export type OfferGrant = { method: string; params: Record<string, string> };
+
+/// The tickets a Start's Effort and Permissions picks go under.
+export type OfferTickets = { mode?: Promise<string | undefined>; effort?: Promise<string | undefined> };
+
+/// The gesture intent that grants `pick` to the new chat.
+export function pickIntent(pick: { mode: string } | { effort: { configId: string; value: string } }): OfferGrant {
+  return "mode" in pick
+    ? { method: "session/set_mode", params: { modeId: pick.mode } }
+    : { method: "session/set_config_option", params: { configId: pick.effort.configId, value: pick.effort.value } };
 }
 
 /// The last part of a folder path (`/Users/you/Projects` is `Projects`), and the folder holding it.
@@ -91,17 +122,24 @@ export function folderParts(cwd: string): { name: string; parent: string } {
   return { name: trimmed.slice(at + 1), parent: trimmed.slice(0, at) };
 }
 
-/// The Options picks a Start carries to the new chat (direct.ts `startOffer`).
-export type OfferPicks = Omit<OfferChoice, "worktree">;
+/// The Options picks a Start carries to the new chat (direct.ts `startOffer`), with the gesture
+/// ticket each grant goes under.
+export type OfferPicks = Omit<OfferChoice, "worktree"> & { modeTicket?: string; effortTicket?: string };
 
 /// `chat.offer.start`'s picks, read from its params: only well-formed values.
-export function offerPicks(model: unknown, effort: unknown, mode: unknown): OfferPicks {
+export function offerPicks(params: Record<string, unknown>): OfferPicks {
   const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
-  const pick = effort && typeof effort === "object" ? (effort as Record<string, unknown>) : undefined;
+  const pick =
+    params.effort && typeof params.effort === "object" ? (params.effort as Record<string, unknown>) : undefined;
   const [configId, value] = [text(pick?.configId), text(pick?.value)];
+  const field = (key: "harness" | "model" | "mode" | "modeTicket" | "effortTicket") =>
+    text(params[key]) ? { [key]: text(params[key]) } : {};
   return {
-    ...(text(model) ? { model: text(model) } : {}),
+    ...field("harness"),
+    ...field("model"),
     ...(configId && value ? { effort: { configId, value } } : {}),
-    ...(text(mode) ? { mode: text(mode) } : {}),
+    ...field("mode"),
+    ...field("modeTicket"),
+    ...field("effortTicket"),
   };
 }

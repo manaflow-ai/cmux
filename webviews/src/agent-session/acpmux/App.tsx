@@ -2009,7 +2009,24 @@ const replyToMessage = (message: IncomingMessage, text: string) =>
     text,
   });
 const offerActions: OfferActions = {
-  start: (offerId, choice) => callNative("chat.offer.start", { offerId, ...choice }),
+  // The tickets come from the host, which keeps each for its one pick; they ride back with Start.
+  start: async (offerId, choice, tickets) => {
+    const [modeTicket, effortTicket] = await Promise.all([tickets.mode, tickets.effort]);
+    return callNative("chat.offer.start", {
+      offerId,
+      ...choice,
+      ...(modeTicket ? { modeTicket } : {}),
+      ...(effortTicket ? { effortTicket } : {}),
+    });
+  },
+  reserve: (intent) => {
+    try {
+      return postNative<{ ticket?: string }>("transport.gesture", { intent }).then((reply) => reply?.ticket);
+    } catch {
+      // No native host (the gallery, a test page): no ticket, and the host's gesture check stands.
+      return Promise.resolve(undefined);
+    }
+  },
   here: (offerId) => callNative("chat.offer.here", { offerId }),
   dismiss: (offerId) => callNative("chat.offer.dismiss", { offerId }),
   open: openOfferChat,
@@ -12376,15 +12393,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             await postNative("chat.sideChat", { sessionId });
           },
           // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
-          // `worktree`: the task's Options > Worktree, else the agent's ask; `model`, `effort` and
-          // `mode`: its Options' picks (offer/offerChoice.ts), else the new chat's defaults.
-          "chat.offer.start": async ({ offerId, worktree, model, effort, mode }) => {
+          // `worktree`: the task's Options > Worktree, else the agent's ask; `harness`, `model`,
+          // `effort` and `mode`: its Options' picks (offer/offerChoice.ts), else the new chat's
+          // defaults, with the tickets of the Effort and Permissions picks.
+          "chat.offer.start": async (params) => {
+            const { offerId, worktree } = params;
             const chat = client.selectedSession;
             const offer = client.offer(String(offerId));
             if (!chat || !offer) throw new Error(translate("offer.failed"));
             const fresh = typeof worktree === "boolean" ? worktree : offer.worktree;
             const cwd = fresh ? await offerWorktree(callNative, offer) : offer.cwd;
-            return client.startOffer(chat, offer, cwd, offerPicks(model, effort, mode));
+            return client.startOffer(chat, offer, cwd, offerPicks(params));
           },
           // Do it here (cx-lo9yf): acpmux records the answer, then the task's prompt goes to this
           // chat as the person's own (queued behind a running turn, as any prompt is).

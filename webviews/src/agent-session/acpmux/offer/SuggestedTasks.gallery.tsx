@@ -4,14 +4,13 @@ import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxOfferResult, AcpmuxSessionOffer } from "../model";
 import { ReceivedResult, SuggestedTasks } from "./SuggestedTasks";
-import { OfferDefaultsContext, type OfferChoice, type OfferDefaults } from "./offerChoice";
+import { OfferDefaultsContext, type OfferDefaults } from "./offerChoice";
 
 type Props = { initial: AcpmuxSessionOffer[]; received?: AcpmuxOfferResult[]; fails?: boolean };
 
-/// The chat the card is in: a Claude chat on this Mac at Opus 5.5, Medium effort, Bypass permissions.
+/// The chat the card is in: a Claude chat on this Mac, and its agent's lists.
 const defaults: OfferDefaults = {
   harness: "claude",
-  model: "claude-opus-5-5",
   models: [
     { value: "claude-opus-5-5", name: "Opus 5.5" },
     { value: "claude-sonnet-5-5", name: "Sonnet 5.5" },
@@ -19,7 +18,6 @@ const defaults: OfferDefaults = {
   ],
   effort: {
     configId: "effort",
-    value: "medium",
     options: [
       { value: "low", name: "Low" },
       { value: "medium", name: "Medium" },
@@ -27,7 +25,6 @@ const defaults: OfferDefaults = {
       { value: "xhigh", name: "Extra high" },
     ],
   },
-  mode: "bypassPermissions",
   modes: [
     { value: "default", name: "Ask before edits" },
     { value: "acceptEdits", name: "Accept edits" },
@@ -93,7 +90,7 @@ const live = [
 function GallerySuggestedTasks({ initial, received = [], fails = false }: Props) {
   const [offers, setOffers] = useState(initial);
   // What the last Start carried, for the play that checks the Options picks reach it.
-  const [startedWith, setStartedWith] = useState<OfferChoice>();
+  const [startedWith, setStartedWith] = useState<Record<string, unknown>>();
   const answer = (offerId: string, next: Partial<AcpmuxSessionOffer>) =>
     new Promise<void>((resolve, reject) =>
       setTimeout(() => {
@@ -115,8 +112,13 @@ function GallerySuggestedTasks({ initial, received = [], fails = false }: Props)
             <SuggestedTasks
               offers={offers}
               actions={{
-                start: (offerId, choice) => {
-                  setStartedWith(choice);
+                start: async (offerId, choice, tickets) => {
+                  const [modeTicket, effortTicket] = await Promise.all([tickets.mode, tickets.effort]);
+                  setStartedWith({
+                    ...choice,
+                    ...(modeTicket ? { modeTicket } : {}),
+                    ...(effortTicket ? { effortTicket } : {}),
+                  });
                   return answer(offerId, {
                     outcome: "accepted",
                     childSessionId: `child-${offerId}`,
@@ -127,6 +129,8 @@ function GallerySuggestedTasks({ initial, received = [], fails = false }: Props)
                 here: (offerId) => answer(offerId, { outcome: "here" }),
                 dismiss: (offerId) => answer(offerId, { outcome: "dismissed" }),
                 open: () => undefined,
+                // The host's ticket, named for the one pick it grants.
+                reserve: async (intent) => `ticket ${intent.method} ${Object.values(intent.params).join(" ")}`,
               }}
             />
           )}
@@ -189,7 +193,7 @@ export default componentEntry<Props>({
       height: 130,
     },
     "options-popover": {
-      note: "Options open, as Claude desktop's suggested-session card has them: Environment, the folder, Worktree, Model, Effort and Permissions at this chat's values, Dismiss at the foot.",
+      note: "Options open, as Claude desktop's suggested-session card has them: Environment, the folder, Worktree, Model, Effort and Permissions at Default (the new chat's own), Dismiss at the foot.",
       props: { initial: single },
       height: 420,
       play: async (ctx) => {
@@ -198,7 +202,7 @@ export default componentEntry<Props>({
       },
     },
     "options-model-menu": {
-      note: "Options > Model open over the popover, Sonnet 5.5 hovered in the menus' neutral wash, Opus 5.5 checked.",
+      note: "Options > Model open over the popover, Sonnet 5.5 hovered in the menus' neutral wash, nothing checked until a pick.",
       props: { initial: single.map((offer) => ({ ...offer, worktree: true })) },
       height: 420,
       play: async (ctx) => {
@@ -210,7 +214,7 @@ export default componentEntry<Props>({
       },
     },
     "options-start": {
-      note: "Play: Options > Worktree on and Model Sonnet 5.5, then Start: the task starts with those picks and this chat's effort and mode.",
+      note: "Play: Options > Worktree on, Model Sonnet 5.5 and Permissions Ask before edits, then Start: the task starts with those picks on this chat's agent, the permission pick under its own ticket, and effort left at Default.",
       props: { initial: single },
       height: 130,
       play: async (ctx) => {
@@ -218,6 +222,8 @@ export default componentEntry<Props>({
         await ctx.click({ role: "switch", name: "Worktree" });
         await ctx.click({ role: "button", name: "Model" });
         await ctx.click({ role: "menuitemradio", name: "Sonnet 5.5" });
+        await ctx.click({ role: "button", name: "Permissions" });
+        await ctx.click({ role: "menuitemradio", name: "Ask before edits" });
         await ctx.press("Escape");
         await ctx.click({ role: "button", name: "Start" });
         await ctx.waitFor(() => {
@@ -226,9 +232,10 @@ export default componentEntry<Props>({
             started ===
             JSON.stringify({
               worktree: true,
+              harness: "claude",
               model: "claude-sonnet-5-5",
-              effort: { configId: "effort", value: "medium" },
-              mode: "bypassPermissions",
+              mode: "default",
+              modeTicket: "ticket session/set_mode default",
             })
           );
         });

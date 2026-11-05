@@ -8453,24 +8453,36 @@ export class AcpmuxDirectClient {
   /// `picks`: the task's Options (offer/offerChoice.ts): its model over the offer's, and the
   /// effort and permission mode the new chat takes before its prompt. A pick the agent refuses
   /// leaves that one at the new chat's default; the task still starts.
+  /// `picks`: the task's Options (offer/offerChoice.ts). The agent is the offer's, else the one the
+  /// picks were made for, else the default; a picked effort or permission mode goes to the new
+  /// chat under its own gesture ticket before the prompt, and one it refuses ends the start there.
   async startOffer(sessionId: string, offer: AcpmuxSessionOffer, cwd: string, picks: OfferPicks = {}): Promise<string> {
-    const params = newSessionParams({ cwd }, offer.harness);
-    const model = picks.model ?? offer.model;
-    if (model) params.model = model;
+    const params = newSessionParams({ cwd }, offer.harness ?? picks.harness, false, picks.model ?? offer.model);
     // A trust question routes as any new chat's does; Trust starts the offer again.
     const again = () => void this.startOffer(sessionId, offer, cwd, picks).catch(() => undefined);
     const child = (await this.newSession(params, again))?.sessionId;
     if (!child) throw new Error(translate("offer.failed"));
-    await Promise.all([
-      picks.mode &&
-        this.request("session/set_mode", { sessionId: String(child), modeId: picks.mode }).catch(() => undefined),
-      picks.effort &&
-        this.request("session/set_config_option", {
-          sessionId: String(child),
-          configId: picks.effort.configId,
-          value: picks.effort.value,
-        }).catch(() => undefined),
-    ]);
+    try {
+      await Promise.all([
+        picks.mode &&
+          this.request("session/set_mode", {
+            sessionId: String(child),
+            modeId: picks.mode,
+            ...gestureMeta(picks.modeTicket),
+          }),
+        picks.effort &&
+          this.request("session/set_config_option", {
+            sessionId: String(child),
+            configId: picks.effort.configId,
+            value: picks.effort.value,
+            ...gestureMeta(picks.effortTicket),
+          }),
+      ]);
+    } catch (error) {
+      // The task stays open: it never runs under settings other than the ones picked.
+      this.discard(String(child));
+      throw error;
+    }
     try {
       await this.request("_acpmux/offer_respond", {
         sessionId,

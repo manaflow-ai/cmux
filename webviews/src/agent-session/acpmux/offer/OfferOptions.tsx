@@ -1,8 +1,9 @@
 // A suggested task's Options popover (offerChoice.ts): the rows of Claude desktop's
-// suggested-session card, Environment, the folder, Worktree, Model, Effort and Permissions, each
-// starting at this chat's own value. Environment and the folder say where the new chat runs; the
-// rest are picks that ride on Start. Model, Effort and Permissions show only when the task runs on
-// this chat's agent, whose lists they are. Dismiss stays at the foot, as the menu before it had it.
+// suggested-session card, Environment, the folder, Worktree, Model, Effort and Permissions.
+// Environment and the folder say where the new chat runs; the rest are picks that ride on Start,
+// each at "Default" (the new chat's own) until the person picks. Model, Effort and Permissions
+// show only when the task runs on this chat's agent, whose lists they are. Dismiss stays at the
+// foot, as the menu before it had it.
 import { useId, useState } from "react";
 import { Popover } from "../../../ui/Popover";
 import { Select } from "../../../ui/Select";
@@ -10,7 +11,7 @@ import { Switch } from "../../../ui/Switch";
 import { Icon } from "../icons/Icon";
 import { useT } from "../i18n";
 import type { AcpmuxSessionOffer } from "../model";
-import { folderParts, sameAgent, type OfferChoice, type OfferDefaults } from "./offerChoice";
+import { folderParts, sameAgent, type OfferChoice, type OfferDefaults, type OfferPick } from "./offerChoice";
 
 export function OfferOptions({
   offer,
@@ -18,6 +19,7 @@ export function OfferOptions({
   choice,
   disabled,
   onChoice,
+  onPick,
   onDismiss,
 }: {
   offer: AcpmuxSessionOffer;
@@ -25,6 +27,7 @@ export function OfferOptions({
   choice: OfferChoice;
   disabled?: boolean;
   onChoice(next: OfferChoice): void;
+  onPick(pick: OfferPick): void;
   onDismiss(): void;
 }) {
   const t = useT();
@@ -58,6 +61,7 @@ export function OfferOptions({
           defaults={defaults}
           choice={choice}
           onChoice={onChoice}
+          onPick={onPick}
           onDismiss={() => {
             setOpen(false);
             onDismiss();
@@ -74,20 +78,22 @@ export function OfferOptionRows({
   defaults,
   choice,
   onChoice,
+  onPick,
   onDismiss,
 }: {
   offer: AcpmuxSessionOffer;
   defaults: OfferDefaults | undefined;
   choice: OfferChoice;
   onChoice(next: OfferChoice): void;
+  onPick(pick: OfferPick): void;
   onDismiss(): void;
 }) {
   const t = useT();
   const ids = { env: useId(), folder: useId(), worktree: useId(), model: useId(), effort: useId(), mode: useId() };
   const folder = folderParts(offer.cwd);
   const same = sameAgent(offer, defaults);
-  // A value the list does not hold (the agent's model id, a mode the chat left) still shows as picked.
-  const withValue = (options: { value: string; name: string }[], value: string | undefined) =>
+  // A value the list does not hold (the agent's model id) still shows as picked.
+  const withValue = (options: { value: string; name: string; disabled?: boolean }[], value: string | undefined) =>
     value && !options.some((option) => option.value === value) ? [{ value, name: value }, ...options] : options;
   const models = same ? withValue(defaults.models, choice.model) : [];
   const effort = same ? defaults.effort : undefined;
@@ -129,8 +135,12 @@ export function OfferOptionRows({
             labelledBy={ids.model}
             value={choice.model ?? ""}
             placeholder={t("offer.options.default")}
-            options={models.map((option) => ({ value: option.value, label: option.name }))}
-            onChange={(model) => onChoice({ ...choice, model })}
+            options={models.map((option) => ({
+              value: option.value,
+              label: option.name,
+              ...(option.disabled ? { disabled: true } : {}),
+            }))}
+            onChange={(model) => onPick({ model })}
             buttonClassName="acpmux-task-option-select"
             popupClassName="acpmux-task-menu"
             closeOnPick
@@ -148,7 +158,7 @@ export function OfferOptionRows({
             value={choice.effort?.value ?? ""}
             placeholder={t("offer.options.default")}
             options={effort.options.map((option) => ({ value: option.value, label: option.name }))}
-            onChange={(value) => onChoice({ ...choice, effort: { configId: effort.configId, value } })}
+            onChange={(value) => onPick({ effort: { configId: effort.configId, value } })}
             buttonClassName="acpmux-task-option-select"
             popupClassName="acpmux-task-menu"
             closeOnPick
@@ -166,7 +176,7 @@ export function OfferOptionRows({
             value={choice.mode ?? ""}
             placeholder={t("offer.options.default")}
             options={modes.map((option) => ({ value: option.value, label: option.name }))}
-            onChange={(mode) => onChoice({ ...choice, mode })}
+            onChange={(mode) => onPick({ mode })}
             buttonClassName="acpmux-task-option-select"
             popupClassName="acpmux-task-menu"
             closeOnPick
