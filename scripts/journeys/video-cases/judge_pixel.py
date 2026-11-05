@@ -493,7 +493,7 @@ def walk_side(codes, start, step, kind, roles, fill, skip_px, stop=None):
             "strip": widths["theme"] if kind == "tui" else None, "ring_edge": ring_edge, "view_edge": view_edge,
             "beyond": beyond, "beyond_px": beyond_px, "gap": gap, "skipped": skipped, "found": found, "cue_px": cue_px,
             "merged": merged, "touch": touch, "clipped": clipped, "unseen": unseen,
-            "window_edge": (boundary(pos) if 0 <= pos < L else None) if clipped else None}
+            "clip_edge": (boundary(pos) if 0 <= pos < L else None) if clipped else None}
 
 
 TOUCH_NOT_JUDGED = ("its ground strip runs on into another pane's ground past its own edge (two grounds of one color: "
@@ -502,6 +502,8 @@ TOUCH_NOT_JUDGED = ("its ground strip runs on into another pane's ground past it
 
 WINDOW_CLIPPED = ("its rings run past the window's edge: its content runs past its pane edge (its offset is a lower "
                   "bound: the rest widths of the rings the window does not show)")
+VIEW_CLIPPED = ("its fill runs into the shell with no ring and no ground: its grid is cut by its view (a view wider than "
+                "its pane: its offset is a lower bound, the rest widths of its rings; or the press's grid in a growing pane)")
 
 
 def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip, stop=None):
@@ -538,7 +540,7 @@ def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip, stop=None)
         j = o - 1 if o - 1 >= 0 and codes[o - 1] != OTHER else o - 2
         if j >= 0 and codes[j] == fill:
             return {"status": "clipped", "why": WINDOW_CLIPPED, "rings": [0.0, 0.0, 0.0], "unseen": ["ring3", "ring2", "ring1"],
-                    "window_edge": float(o), "view_edge": None, "ring_edge": None, "strip": None, "beyond": "outside",
+                    "clip_edge": float(o), "view_edge": None, "ring_edge": None, "strip": None, "beyond": "outside",
                     "beyond_px": 0.0, "gap": 0.0, "found": 0, "cue_px": 0.0, "skipped": 0, "clipped": True}
     for c in candidates(e - near, e + near):
         w = walk_side(codes, c, step, kind, roles, fill, skip, stop)
@@ -577,6 +579,23 @@ def find_side(codes, a, b, edge, step, kind, roles, fill, near, skip, stop=None)
                 return {"status": "cut", "rings": [0.0, 0.0, 0.0], "strip": float(abs(j - n)), "ring_edge": None,
                         "view_edge": view_edge, "beyond": beyond, "beyond_px": 0.0, "gap": float(abs(k - j)), "found": 0,
                         "cue_px": 0.0, "skipped": 0}
+            # 3e.8: the fill runs (to the pane edge or on past it) straight into the shell, with no ring and no ground:
+            # the view cuts this terminal's grid (a view wider than its pane, or the press's grid in a pane that grows;
+            # judge_m6 tells them apart by the pane's motion)
+            j = f
+            while 0 <= j + step < L and codes[j + step] == fill:
+                j += step
+            n = j + step
+            if 0 <= n < L and codes[n] == OTHER and 0 <= n + step < L and codes[n + step] == roles["shell"]:
+                n += step  # one anti-aliased pixel between
+            cut_at = float(j + 1) if step > 0 else float(j)
+            # only a cut at the pane edge or past it: a fill that ends inside the pane, before the shell, is content short
+            # of its pane edge with its rings gone (not judged here, as before)
+            if 0 <= n < L and codes[n] == roles["shell"] and (cut_at - edge) * step >= -2 * TOL_PX:
+                return {"status": "clipped", "why": VIEW_CLIPPED, "rings": [0.0, 0.0, 0.0],
+                        "unseen": ["ring3", "ring2", "ring1"], "clip_edge": cut_at, "view_edge": None, "ring_edge": None,
+                        "strip": None, "beyond": "shell", "beyond_px": 0.0, "gap": 0.0, "found": 0, "cue_px": 0.0,
+                        "skipped": 0, "clipped": True}
     return {"status": "not found"}
 
 
@@ -1690,29 +1709,34 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
                 # The pane loop measures only a side whose pane edge is on screen (visible_span), so the pane edge is at
                 # the window's edge or inside it: the strip's edge where the strip shows it, else (its run reaches the
                 # window's edge) the window's edge, and the bound is then the rings not shown.
-                cur, prev_pane, _ = pane_at(f)
+                cur = pane_at(f)[0]
                 grows = None
                 if kind != "page":
-                    # A terminal draws only inside its view. While its pane grows on this axis (its other edge, as the strip
-                    # shows it, moves away from this one since the frame before), the press's final grid is wider than the
-                    # view and the view cuts it: one program grid per press, not judged. Otherwise (the pane shrinks or
-                    # rests) the rings cut at the window's edge are a view wider than its pane: a fail, as for a page.
-                    if cur is None or prev_pane is None or cur[0] is None or prev_pane[0] is None:
-                        grows = True  # the other edge is not shown: the grid case cannot be ruled out
-                    else:
-                        grows = (prev_pane[0] - cur[0]) * (1 if side == "hi" else -1) >= TOL_PX
-                if m.get("window_edge") is None or grows:
+                    # A terminal draws only inside its view. While its pane grows on this axis (the committed layout's
+                    # motion into the shown sample: the pane's width in it against the sample before; a motion fact, as
+                    # the motions of judge_track, never a judged edge), the press's final grid is wider than the view and
+                    # the view cuts it: one program grid per press, not judged. Otherwise (the pane shrinks or rests) a
+                    # grid cut at the window's edge or at the pane edge is a view wider than its pane: a fail, as for a
+                    # page (3e.2, 3e.8).
+                    k = shown[f]
+                    grows = True  # no sample before: the grid case cannot be ruled out
+                    if k is not None and k > 0:
+                        now, before = film.samples[k].panes.get(pid), film.samples[k - 1].panes.get(pid)
+                        if now is not None and before is not None and len(now) >= 5 and len(before) >= 5:
+                            wi = 3 if axis == "row" else 4
+                            grows = (float(now[wi]) - float(before[wi])) * film.scale >= TOL_PX
+                if m.get("clip_edge") is None or grows:
                     frames[kind][f].append("not judged")
                     edge_counts[kind]["not judged"] += 1
                     m14_frames[kind][f].append(("not judged", None, edge_name))
                     if grows:
                         clipped_grid[kind] += 1
                     continue
-                pane_edge = cur[si] if cur is not None and cur[si] is not None else m["window_edge"]
+                pane_edge = cur[si] if cur is not None and cur[si] is not None else m["clip_edge"]
                 hidden = sum(rings_rest[r] or 0.0 for r, role in enumerate(("ring1", "ring2", "ring3"))
                              if role in (m.get("unseen") or ()))
                 step = 1 if side == "hi" else -1
-                bound = max(TOL_PX, (m["window_edge"] - pane_edge) * step + hidden)
+                bound = max(TOL_PX, (m["clip_edge"] - pane_edge) * step + hidden)
                 rule = "E3" if side == "hi" else "E2"
                 rules[kind][rule] += 1
                 rule_frames[kind][rule].add(f)
