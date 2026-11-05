@@ -36,13 +36,32 @@ export function selectionHtml(range: Range): string | null {
   const reply = elementOf(range.commonAncestorContainer)?.closest(".cv-md");
   if (!reply) return null;
   // Math is mathCopy.ts's, also a selection that starts or ends inside an equation (its clone
-  // leaves out the element that holds the TeX); highlighted code draws in a shadow root, which a
-  // clone leaves empty.
-  if (elementOf(range.startContainer)?.closest(MATH) || elementOf(range.endContainer)?.closest(MATH)) return null;
+  // leaves out the element that holds the TeX). Code is the page's own copy: highlighted code draws
+  // in a shadow root a clone leaves empty, and plain code draws each line as its own element, whose
+  // indentation and line ends only the page's copy keeps.
+  if (
+    elementOf(range.startContainer)?.closest(`${MATH}, pre`) ||
+    elementOf(range.endContainer)?.closest(`${MATH}, pre`)
+  )
+    return null;
   for (const element of reply.querySelectorAll("*"))
-    if ((element.shadowRoot || element.matches(MATH)) && range.intersectsNode(element)) return null;
+    if ((element.shadowRoot || element.matches(`${MATH}, pre`)) && range.intersectsNode(element)) return null;
   const holder = document.createElement("div");
   holder.append(range.cloneContents());
+  // A selection inside one list clones its items without the list: put them back in it, an ordered
+  // list numbered from its first selected item.
+  const list = elementOf(range.commonAncestorContainer)?.closest("ul, ol");
+  if (list && reply.contains(list) && [...holder.children].some((child) => child.tagName === "LI")) {
+    const wrapper = document.createElement(list.tagName.toLowerCase());
+    if (list.tagName === "OL") {
+      const items = [...list.children].filter((child) => child.tagName === "LI");
+      const first = items.findIndex((item) => range.intersectsNode(item));
+      const start = (Number(list.getAttribute("start") ?? 1) || 1) + Math.max(first, 0);
+      if (start !== 1) wrapper.setAttribute("start", String(start));
+    }
+    wrapper.append(...holder.childNodes);
+    holder.append(wrapper);
+  }
   for (const element of holder.querySelectorAll(CHROME)) element.remove();
   for (const button of holder.querySelectorAll("button")) button.replaceWith(...button.childNodes);
   for (const element of holder.querySelectorAll("*"))

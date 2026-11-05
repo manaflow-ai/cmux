@@ -19,6 +19,8 @@ beforeAll(() => {
       <p id="pic"><button class="cv-openable"><img class="cv-img" src="https://example.com/a.png" alt="chart"></button></p>
     </div></div>
     <div class="cv-md"><p id="other">another reply</p></div>
+    <div class="cv-md"><ol class="cv-ol" start="3"><li id="o3">three</li><li id="o4">four</li><li id="o5">five</li></ol></div>
+    <div class="cv-md"><p id="before-code">Run:</p><pre id="code"><div id="l1">if ready:</div><div id="l2">    run()</div></pre></div>
     <div class="cv-md"><p id="mathp">Area <span class="cv-math" data-tex="\\pi r^2"><span id="glyph">πr2</span></span> grows</p></div>
   </body></html>`);
   for (const key of KEYS) {
@@ -67,4 +69,24 @@ test("a selection that starts or ends inside an equation is mathCopy's", () => {
   const whole = doc.createRange();
   whole.selectNodeContents(doc.getElementById("mathp")!);
   expect(selectionHtml(whole)).toBeNull();
+});
+
+test("a selection inside a list keeps its list, an ordered one its numbers", () => {
+  const range = doc.createRange();
+  range.setStart(doc.getElementById("o4")!.firstChild!, 1);
+  range.setEnd(doc.getElementById("o5")!.firstChild!, 2);
+  const html = selectionHtml(range)!;
+  expect(html).toMatch(/^<ol start="4"><li>/);
+  expect(htmlMarkdown(html)).toBe("4. our\n5. fi");
+});
+
+test("a selection in or across code is the page's own copy, its lines and indentation kept", () => {
+  const inside = doc.createRange();
+  inside.setStart(doc.getElementById("l1")!.firstChild!, 0);
+  inside.setEnd(doc.getElementById("l2")!.firstChild!, 9);
+  expect(selectionHtml(inside)).toBeNull();
+  const across = doc.createRange();
+  across.setStartBefore(doc.getElementById("before-code")!);
+  across.setEndAfter(doc.getElementById("code")!);
+  expect(selectionHtml(across)).toBeNull();
 });
