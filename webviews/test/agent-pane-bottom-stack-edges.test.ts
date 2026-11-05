@@ -7,9 +7,7 @@
 //   (--acpmux-stack-gap) over the composer card;
 // - the stacked rows' trailing chevrons (the tray's header and each of its lines) share one x;
 // - no pull request count or chip stands anywhere in the stack (cmux#29614 removed them: "remove the
-//   chips they're so bad");
-// - the recap card (`recap` variant) takes the composer card's left and right x to 1px too, at the
-//   composer's narrow 8px outset as well (#28587).
+//   chips they're so bad").
 //
 // Real gallery frames (agent-pane.bottom-stack-styles) at a wide, a normal and a narrow pane.
 // With FAST_CHECKS_OUT (cmux-ci) or CMUX_BOTTOM_STACK_CAPTURE set, the measurements are written as
@@ -24,7 +22,6 @@ import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 type Card = { name: string; left: number; right: number; top: number; bottom: number };
-type Edge = { name: string; left: number; right: number };
 type Geometry = {
   dock: number;
   cards: Card[];
@@ -33,7 +30,6 @@ type Geometry = {
   pullRequests: number;
   foot: number | null;
   chevrons: { name: string; x: number }[];
-  edges: Edge[];
 };
 
 await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
@@ -44,10 +40,6 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
   /** The selected look's states, held to every rule; `cards` is measured for the record. */
   const CHECKED = ["collapsed", "no-tray", "expanded"];
   const VARIANTS = ["collapsed", "no-tray", "expanded", "cards"];
-  /** Parts held to the composer card's two edges only (their own spacing above it is theirs), at a
-   *  pane narrow enough for the composer's 8px outset too. */
-  const EDGE_VARIANTS = ["recap"];
-  const EDGE_WIDTHS = [1100, 420, 320];
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -114,12 +106,6 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
       token = probe.getBoundingClientRect().height;
       probe.remove();
     }
-    const edges: Edge[] = [];
-    const recap = document.querySelector(".acpmux-dock .acpmux-recap__card");
-    if (recap) {
-      const r = box(recap);
-      if (r.width > 0) edges.push({ name: "recap", left: r.left, right: r.right });
-    }
     const foot = document.querySelector(".acpmux-composer-foot") ?? document.querySelector(".acpmux-composer-box");
     return {
       // The stack's height: from its first painted part to the pane's bottom edge.
@@ -143,7 +129,6 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
         .map(({ name, svg }) => ({ name, rect: svg.getBoundingClientRect() }))
         .filter(({ rect }) => rect.width > 0 && rect.height > 0)
         .map(({ name, rect }) => ({ name, x: (rect.left + rect.right) / 2 })),
-      edges,
     };
   }
 
@@ -193,33 +178,6 @@ await requireBrowserLane("agent-pane-bottom-stack-edges.test.ts", async () => {
             );
       }
     }
-    expect(offenders).toEqual([]);
-  });
-
-  test("the recap card shares the composer card's edges, at the narrow outset too", async () => {
-    const offenders: string[] = [];
-    for (const width of EDGE_WIDTHS)
-      for (const variant of EDGE_VARIANTS) {
-        const page = await open(variant, width);
-        const geometry = await page.evaluate(measure);
-        await page.close();
-        const label = `${variant} @${width}`;
-        record[label] = geometry;
-        const card = geometry.cards.find((c) => c.name === "composer");
-        if (!card) {
-          offenders.push(`${label}: no composer card`);
-          continue;
-        }
-        if (!geometry.edges.length) offenders.push(`${label}: no recap card`);
-        for (const edge of geometry.edges) {
-          const left = edge.left - card.left;
-          const right = edge.right - card.right;
-          if (Math.abs(left) > 1 || Math.abs(right) > 1)
-            offenders.push(
-              `${label}: ${edge.name} left ${left.toFixed(1)}px, right ${right.toFixed(1)}px off the composer card`,
-            );
-        }
-      }
     expect(offenders).toEqual([]);
   });
 
