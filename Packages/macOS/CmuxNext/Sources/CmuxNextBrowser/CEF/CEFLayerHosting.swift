@@ -110,13 +110,13 @@ final class CEFLayerHosting {
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
 
     /// - Parameters:
-    ///   - isEnabled: whether hosting is wanted; the tunable by default.
+    ///   - isEnabled: whether hosting is wanted; by default `browserResize.layerHosting` or S5 (`motion.frameOwner.pages`).
     ///   - schedule: runs a block at the end of this run-loop turn; tests run it when they choose.
     ///   - makePage: the hosted view for a frame; tests pass one whose layer host fails.
     ///   - resizeDeadlineMs: the upper bound of a hosted page's resize wait; the tunable by default.
     ///   - refreshIntervals: the shortest frame interval of each display, which cap the wait
     ///     (``CEFResizeSyncDeadline``); tests pass fixed rates.
-    init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value },
+    init(isEnabled: @escaping () -> Bool = { BrowserResizeTunables.layerHosting.value || BrowserResizeTunables.framesOwnedByCommit.value },
          schedule: @escaping Scheduler = { CEFLayerHosting.atEndOfTurn($0) },
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
          resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
@@ -225,7 +225,8 @@ final class CEFLayerHosting {
     }
 
     /// A person's divider or edge drag of the view's pane began (`true`) or its release landed (`false`), with
-    /// `browserResize.dragResize` at `resizeSync` (`CEFTabContentView.paneResizeGestureDidChange`). Every frame of the
+    /// `browserResize.dragResize` at `resizeSync` (`CEFTabContentView.paneResizeGestureDidChange`), or with S5 on
+    /// (`motion.frameOwner.pages`) a drag or a key resize's spring (`CEFTabContentView+PageSync`). Every frame of the
     /// drag and of its release's spring resizes the page window, so for that time every page over the view, hosted or
     /// not, waits up to `dragResizeDeadlineMs` (capped at half the shortest display frame, ``CEFResizeSyncDeadline``,
     /// so the app's frame still commits by its display link's target time) for its frame at the pane's new size, and

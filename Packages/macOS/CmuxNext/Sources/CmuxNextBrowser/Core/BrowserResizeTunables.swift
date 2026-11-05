@@ -76,6 +76,18 @@ public nonisolated struct BrowserResizeTunables {
         help: "On: through a keyboard resize a Chromium page keeps its size with its top-left corner on its pane, so it moves with the pane's left and top edges; the pane clips it. Off: the page stays at the pane edges that do not move.",
         default: true, code: "BrowserResizeTunables.keyResizeTopLeft")
 
+    /// Off (the default): FRAME OWNER S5 is off; the rows above decide. On (cmux-ad m14, Lawrence 2026-11-05: "in every
+    /// frame every browser shows live pixels rendered at that frame's pane size"): every Chromium page is hosted in the
+    /// window's own layer tree (fork API 26, as `layerHosting` on), and in a key resize and a divider drag it never keeps an
+    /// old size: it lays out at its pane's size in every frame and each page window holds that frame's commit for its frame
+    /// at that size, up to `dragResizeDeadline` capped at half the shortest display frame (fork API 27). It overrides
+    /// `dragResize` and `keyResizeTopLeft`. Read when each resize begins and when a page is shown, so one build films OFF
+    /// and ON. Deleted after the ON films pass (S5 ON, then the switch-deletion PR).
+    public static let framesOwnedByCommit = Tunable<Bool>.toggle(
+        "motion.frameOwner.pages", section, "Page frame and size in one commit",
+        help: "A Chromium page draws in the window's own layers and, in a keyboard resize or a divider drag, lays out at its pane's size in every frame; each frame waits for the page's frame at that size up to the divider drag wait, at most half a display frame. Needs Chromium fork API 27. Off: the rows above decide. Applies from the next resize; hosting applies when a page is shown next.",
+        default: false, code: "BrowserResizeTunables.framesOwnedByCommit")
+
     /// `dragResize` as the override file holds it when Chromium starts, even when a restored tab starts
     /// Chromium before the store's own read of the file landed (`TunableStore.settledOverride`).
     static var dragResizeAtLaunch: BrowserDragResize {
@@ -91,7 +103,7 @@ public nonisolated struct BrowserResizeTunables {
 
     public static var all: [TunableDescriptor] {
         [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, dragResize.descriptor,
-         dragResizeDeadline.descriptor, keyResizeTopLeft.descriptor]
+         dragResizeDeadline.descriptor, keyResizeTopLeft.descriptor, framesOwnedByCommit.descriptor]
     }
 }
 
