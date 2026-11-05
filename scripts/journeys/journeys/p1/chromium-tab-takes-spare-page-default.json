@@ -1,0 +1,254 @@
+{
+  "id": "chromium-tab-takes-spare-page-default",
+  "priority": "P1",
+  "title": "With no Debug Settings override (the default), a new Chromium tab the person opens takes the page made ahead: one Back entry, the page sized as a normal tab in its pane, DevTools attaches",
+  "why": "The default-on check of browserPage.sparePage: chromium-tab-takes-spare-page turns the switch on itself, so it never shows what a person with no override gets. This variant clears any override instead (value null, the build's default) and runs the same steps, so it passes only when the default makes the spare page and the person's next Chromium tab takes it. Otherwise as chromium-tab-takes-spare-page: HOT PATH AUDIT browser (#34252): with the Debug Setting browserPage.sparePage on (on by default since this journey passed), a new Chromium tab's browser is a spare page made at an idle moment in the hidden spare window, frozen while it waits, and thawed by the tab that takes it. Only a tab the person opens takes it: a socket action.run opens an agent's tab (origin cli, agent-driven, unselected), which keeps tab_add. So both tabs here open as the person's: the first with Cmd-Shift-L and a typed address, the second with debug.new_tab's run (the action with origin user, a link opened in a new tab). Each Chromium tab has a Chromium window of its own, so the second tab's window is the spare window it takes, with the page already in it. The journey waits until debug.cef reports a page waiting, proves the second tab took it (spare_pages_taken rises), then checks on the real fork what the stand-in shim tests cannot: one history entry (the page was made with an empty URL, so no blank entry before the tab's first navigation), the same viewport as the first tab, a tab made the normal way in the same pane (Chromium's viewport there is 1 point shorter than cmux's page frame for both: a switch-off control run on cmux24 read 892x661 in an 892x662 frame), and DevTools attaching to it. The setting is reset at the end.",
+  "source": "coordinator review of #34252 (hpa-browser), item 4; re-review at 82b52979, item 2; third review at 104e8cca",
+  "budget_seconds": 260,
+  "steps": [
+    {
+      "do": "new_terminal",
+      "name": "jr-spare-page"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "type",
+      "text": "echo spare-${nonce}-$((6*7))",
+      "enter": true,
+      "mark": "shell"
+    },
+    {
+      "do": "expect",
+      "title": "the terminal works",
+      "since": "shell",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "spare-${nonce}-42"
+        }
+      ]
+    },
+    {
+      "do": "rpc",
+      "title": "clear any override of Debug Settings > Browser Page Loading > Make new Chromium tab pages ahead: the build's default",
+      "method": "debug.tunables",
+      "params": {
+        "action": "set",
+        "key": "browserPage.sparePage",
+        "value": null
+      }
+    },
+    {
+      "do": "key",
+      "key": "l",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "mark": "first",
+      "title": "the person's first Chromium tab (Cmd-Shift-L): Chromium starts"
+    },
+    {
+      "do": "expect",
+      "title": "its address bar takes the keys",
+      "since": "first",
+      "timeout": 60,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved",
+            "equals": "addressBar"
+          }
+        }
+      ]
+    },
+    {
+      "do": "type",
+      "text": "example.com/?first",
+      "enter": true,
+      "mark": "first_loaded"
+    },
+    {
+      "do": "expect",
+      "title": "the first tab shows example.com, and the spare window came up after its window",
+      "since": "first_loaded",
+      "timeout": 120,
+      "all": [
+        {
+          "frame_text": "Example Domain"
+        },
+        {
+          "app_rpc": {
+            "method": "debug.cef",
+            "path": "spare_window",
+            "equals": "live"
+          }
+        }
+      ]
+    },
+    {
+      "do": "expect",
+      "title": "the first tab's viewport: how Chromium sizes a tab made the normal way in this pane",
+      "timeout": 10,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.cef.devtools",
+            "path": "result",
+            "params": {
+              "method": "Runtime.evaluate",
+              "params": {
+                "returnByValue": true,
+                "expression": "innerWidth + 'x' + innerHeight"
+              }
+            },
+            "contains": "x",
+            "bind": "first_viewport"
+          }
+        }
+      ]
+    },
+    {
+      "do": "wait",
+      "seconds": 3,
+      "title": "no input: the next idle moments (0.75 s each) make the spare page in the spare window"
+    },
+    {
+      "do": "expect",
+      "title": "a spare page waits; the takes so far are kept",
+      "timeout": 30,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.cef",
+            "path": "spare_page",
+            "equals": "waiting"
+          }
+        },
+        {
+          "app_rpc": {
+            "method": "debug.cef",
+            "path": "spare_pages_taken",
+            "gte": 0,
+            "bind": "taken_before"
+          }
+        }
+      ]
+    },
+    {
+      "do": "rpc",
+      "title": "the person's second Chromium tab (a link opened in a new tab, origin user): its window is the spare window, and it takes the page in it",
+      "method": "debug.new_tab",
+      "params": {
+        "action": "bench_create",
+        "command": "new_browser",
+        "run": "openBrowser.chromium",
+        "url": "https://example.com/?second"
+      }
+    },
+    {
+      "do": "expect",
+      "title": "the second tab took the spare page and shows its page",
+      "timeout": 40,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.cef",
+            "path": "spare_pages_taken",
+            "gt": "${taken_before}"
+          }
+        },
+        {
+          "frame_text": "Example Domain"
+        },
+        {
+          "app_rpc": {
+            "method": "debug.cef",
+            "path": "devtools.0.url",
+            "contains": "second"
+          }
+        }
+      ]
+    },
+    {
+      "do": "expect",
+      "title": "one history entry (no blank entry before the first navigation), and the same viewport as the first tab in this pane",
+      "timeout": 10,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.cef.devtools",
+            "path": "result",
+            "params": {
+              "method": "Runtime.evaluate",
+              "params": {
+                "returnByValue": true,
+                "expression": "'hist=' + history.length"
+              }
+            },
+            "contains": "hist=1"
+          }
+        },
+        {
+          "app_rpc": {
+            "method": "debug.cef.devtools",
+            "path": "result",
+            "params": {
+              "method": "Runtime.evaluate",
+              "params": {
+                "returnByValue": true,
+                "expression": "innerWidth + 'x' + innerHeight"
+              }
+            },
+            "equals": "${first_viewport}"
+          }
+        }
+      ]
+    },
+    {
+      "do": "rpc",
+      "title": "Developer Tools: Open Docked on the taken page",
+      "method": "action.run",
+      "params": {
+        "action": "devtools.openDocked",
+        "args": {}
+      }
+    },
+    {
+      "do": "expect",
+      "title": "DevTools attached to the taken page, docked beside it",
+      "timeout": 20,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.cef",
+            "path": "devtools.0.open",
+            "equals": true
+          }
+        },
+        {
+          "app_rpc": {
+            "method": "debug.cef",
+            "path": "devtools.0.devtools_frame",
+            "len": 4
+          }
+        }
+      ]
+    }
+  ],
+  "finally": [
+    {
+      "do": "rpc",
+      "title": "put Make new Chromium tab pages ahead back to its default (on)",
+      "method": "debug.tunables",
+      "params": {
+        "action": "set",
+        "key": "browserPage.sparePage",
+        "value": null
+      }
+    }
+  ]
+}
