@@ -60,7 +60,7 @@ MAX_PAGES = 5
 # Leo's rule: a landing that has waited this long unpublished is built, signed and published to the end.
 PIN_AFTER_S = 30 * 60
 NEXT_FEED = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"
-# A NEXT build number is <run id><two-digit attempt> (now_nightly_timing.py reads it the same way).
+# A NEXT build number is <run id><two-digit attempt>.
 BUILD = re.compile(r"<sparkle:version>\s*([0-9]{3,})\s*</sparkle:version>")
 
 Get = Callable[[str], Any]
@@ -109,9 +109,12 @@ def created(run: dict[str, Any]) -> dt.datetime:
     if not isinstance(value, str):
         raise Unreadable(f"run {run.get('id')!r}: no created_at")
     try:
-        return dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        when = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as error:
         raise Unreadable(f"run {run.get('id')!r}: created_at {value!r}") from error
+    if when.tzinfo is None:
+        raise Unreadable(f"run {run.get('id')!r}: created_at {value!r} has no zone")
+    return when
 
 
 def due(now: dt.datetime, run_id: int, landed: dt.datetime, published_run: int | None) -> bool:

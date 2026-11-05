@@ -268,6 +268,12 @@ class NeverPast30MinutesTest(unittest.TestCase):
                 fake = Fake(self.NEWER)
                 self.assertFalse(sy.decide(env(103), fake, log=lambda _: None, feed=reader, now=lambda: NOW)[0])
 
+        # A run start with no zone is doubt too, never a crash.
+        fake = Fake(self.NEWER)
+        fake_get = lambda path: ({"id": 103, "created_at": "2026-11-05T00:00:00"} if path.endswith("/runs/103")
+                                 else fake(path))
+        self.assertFalse(sy.decide(env(103), fake_get, log=lambda _: None, now=lambda: NOW)[0])
+
         def refused():
             raise sy.Unreadable("refused")
         self.assertFalse(sy.decide(env(103), Fake(self.NEWER), log=lambda _: None, feed=refused,
@@ -287,7 +293,7 @@ class NeverPast30MinutesTest(unittest.TestCase):
         # yielded to it and nothing published; now a build that waited 30 min signs anyway.
         sim = Sim(every=8, hours=3, build=15, sign=20, never_runs=range(3, 40, 4)).run()
         gaps = sim.gaps()
-        self.assertLessEqual(max(gaps[1:]), sy.PIN_AFTER_S // 60 + 20, gaps)
+        self.assertLessEqual(max(gaps[1:]), 30, gaps)
 
 
 class SignYieldWiringTest(unittest.TestCase):
