@@ -256,7 +256,8 @@ def wait_ready(path, timeout_answer=LAUNCH_TIMEOUT_S, timeout_loaded=LOADED_TIME
         except (OSError, ValueError, Refused):
             pass
         if time.monotonic() > end:
-            return
+            # Answering but never loaded is a failed start: the caller puts the old build back.
+            raise Refused(f"the restarted app answered but did not load its windows within {timeout_loaded} s")
         time.sleep(0.1)
 
 
@@ -305,7 +306,10 @@ def undo_failed_launch(path, ident, app, into, keep_as, swapped):
     if swapped:
         swapped(None)
     launch(app, ident["bundle_id"])
-    wait_ready(path)
+    try:
+        wait_ready(path)
+    except Refused:
+        pass  # the old build is back on disk and started; the caller reports the first failure
 
 
 def live_code_setting(path, on):
@@ -580,7 +584,10 @@ def start_locked(args, path, ident, tag, root):
         path, ident, into=entry / "live.app", keep_as=root / "before.app", swapped=swapped))
     state["binary"] = result["binary"]
     # The person's edits since the live build compiled: in right away, then every save (watch).
-    patchable, waiting = changed_sources(load_sources(built_from), swift_sources(args.tree))
+    on_disk = swift_sources(args.tree)
+    patchable, waiting = changed_sources(load_sources(built_from), on_disk)
+    # The watcher starts from what was patched here, so a save from now until it runs patches in too.
+    save_sources(root / "watch-baseline.json", on_disk)
     applied = apply_edits(args.tree, entry, patchable)
     if applied["exit"]:
         waiting = sorted(set(waiting) | set(patchable))  # did not compile: they wait for the stop build
@@ -649,7 +656,7 @@ def watch(args):
     pid_file.write_text(f"{os.getpid()}\n")
     state = read_state(root)
     tree, entry = Path(state.get("tree") or args.tree), Path(state.get("entry") or "")
-    seen = swift_sources(tree)
+    seen = load_sources(root / "watch-baseline.json") or swift_sources(tree)
     # Files whose last patch did not compile: they wait for the stop build until a save compiles.
     refused = {f for f in state.get("waiting") or [] if f.startswith(f"{SOURCES}/{PATCHED_MODULE}/")}
     built_tree, last_save = None, time.monotonic()

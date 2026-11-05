@@ -191,6 +191,19 @@ class LiveModeTests(unittest.TestCase):
         os.utime(source, ns=(first[rel][0] + 10**9, first[rel][0] + 10**9))
         self.assertNotEqual(live_mode.swift_sources(tree, stale)[rel][1], "remembered")
 
+    def test_a_save_after_the_start_snapshot_patches_from_the_watch_baseline(self):
+        tree = Path(self.dir) / "tree"
+        source = tree / live_mode.SOURCES / "CmuxNextApp/A.swift"
+        source.parent.mkdir(parents=True)
+        source.write_text("one")
+        baseline = Path(self.dir) / "watch-baseline.json"
+        live_mode.save_sources(baseline, live_mode.swift_sources(tree))
+        source.write_text("two")  # saved before the watcher's first scan
+        seen = live_mode.load_sources(baseline)
+        os.utime(source, ns=(seen[str(source.relative_to(tree))][0] + 10**9,) * 2)
+        patchable, waiting = live_mode.changed_sources(seen, live_mode.swift_sources(tree, seen))
+        self.assertEqual((patchable, waiting), ([str(source.relative_to(tree))], []))
+
     def test_the_tree_hash_follows_edits_and_new_files_without_touching_the_index(self):
         tree = Path(self.dir) / "repo"
         tree.mkdir()
@@ -243,6 +256,17 @@ class LiveModeTests(unittest.TestCase):
         self.assertTrue((live / "Contents/MacOS/cmux").exists() and not keep.exists())
         self.assertEqual(launched[-1], old_inode)  # the old build is what started last
         self.assertIsNone(written[-1])  # the state says the swap did not happen
+
+    def test_an_app_that_answers_but_never_loads_is_a_failed_start(self):
+        saved = (live_mode.answers, live_mode.sessions, live_mode.time.sleep)
+        live_mode.answers = lambda path: True
+        live_mode.sessions = lambda path: {"workspaces": [], "tabs": [], "terminals": [], "loaded": False}
+        live_mode.time.sleep = lambda seconds: None
+        try:
+            with self.assertRaises(live_mode.Refused):
+                live_mode.wait_ready("/tmp/sock", timeout_answer=1, timeout_loaded=0)
+        finally:
+            live_mode.answers, live_mode.sessions, live_mode.time.sleep = saved
 
     def test_a_second_start_or_stop_is_refused_while_one_runs(self):
         root = live_mode.cache_root("t")
