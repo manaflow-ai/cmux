@@ -50,7 +50,8 @@ nm -gUj "$bin" | grep -E '^_\$s11CmuxNextApp' | sort -u > "$out/nm-exported.txt"
 echo "live-code-app: $(wc -l < "$list" | tr -d ' ') CmuxNextApp symbols in the export trie, $(wc -l < "$out/nm-exported.txt" | tr -d ' ') external in the symbol table"
 private_probe='_$s11CmuxNextApp11FlippedView'
 echo "live-code-app: FlippedView in the trie: $(grep -c "^$private_probe" "$list" || true), in nm -g: $(grep -c "^$private_probe" "$out/nm-exported.txt" || true)"
-nm -m "$bin" | grep -F "FlippedView" | head -n 5 || true
+nm -m "$bin" | grep -F "FlippedView" > "$out/flipped-nm.txt" || true
+sed -n 1,5p "$out/flipped-nm.txt"
 [[ -s "$list" ]] || { echo "live-code-app: the app exports no CmuxNextApp symbol (LD_EXPORT_SYMBOLS?)" >&2; exit 1; }
 app="$(reload "$out/reload-2.log" CMUX_LIVE_CODE_INTERPOSABLE_LIST="$list")"
 [[ -n "$app" && -d "$app" ]] || fail_build "$out/reload-2.log"
@@ -58,9 +59,10 @@ app="$(reload "$out/reload-2.log" CMUX_LIVE_CODE_INTERPOSABLE_LIST="$list")"
 # launch; name the first few that are not.
 xcrun dyld_info -exports "$bin" | grep -oE '_\$s11CmuxNextApp[^ ]*' | sort -u > "$out/exports-2.txt" || true
 xcrun dyld_info -fixups "$bin" | grep -oE '_\$s11CmuxNextApp[^ ]*' | sort -u > "$out/binds-2.txt" || true
-missing="$(comm -23 "$out/binds-2.txt" "$out/exports-2.txt" | head -n 5)"
+comm -23 "$out/binds-2.txt" "$out/exports-2.txt" > "$out/missing-2.txt"
+missing="$(sed -n 1,5p "$out/missing-2.txt")"
 echo "live-code-app: relinked: $(wc -l < "$out/binds-2.txt" | tr -d ' ') CmuxNextApp binds, $(wc -l < "$out/exports-2.txt" | tr -d ' ') exported"
-[[ -z "$missing" ]] || { echo "live-code-app: the relinked app binds CmuxNextApp symbols it does not export:" >&2; echo "$missing" >&2; exit 1; }
+[[ -z "$missing" ]] || { echo "live-code-app: the relinked app binds $(wc -l < "$out/missing-2.txt" | tr -d ' ') CmuxNextApp symbols it does not export, first:" >&2; echo "$missing" >&2; exit 1; }
 echo "live-code-app: built in $((SECONDS - build_start)) s"
 # The patch compiles from this log; keep CmuxNextApp's lines with the results.
 grep -E -- "-module-name CmuxNextApp " "$log" > "$out/cmuxnextapp-commands.log" || true
