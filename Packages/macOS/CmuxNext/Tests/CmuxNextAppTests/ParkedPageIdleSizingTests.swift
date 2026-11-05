@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextCompat
 @testable import CmuxNextDesign
+import CmuxNextPages
 @testable import CmuxNextTabs
 import CmuxNextTestSupport
 import Testing
@@ -172,6 +173,40 @@ struct ParkedPageIdleSizingTests {
             await Self.nextIdlePoint()
             let after = rig.pages.filter { $0.frame.size == rig.showSize($0) }.count
             #expect(after == 2, "\(after) of 2 parked pages have their pane's size after two idle points")
+        }
+    }
+
+    /// The known limit (pixel-perfect, 2026-11-05): an internal page that shows a web page (Markdown, a file, Settings)
+    /// has no hold for its redraw at a new size, so with the switch on it still follows its pane while parked.
+    @Test func aParkedInternalWebPageStillFollowsItsPane() async throws {
+        try await Self.withSwitch {
+            _ = NSApplication.shared
+            let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 600), styleMask: [.titled, .resizable],
+                                  backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("files"), title: "Files"),
+                                                                         TabItem(id: TabID("term"), title: "Terminal")]),
+                                       reveal: LaunchReveal(deadline: .zero))
+            pane.frame = window.contentLayoutRect
+            window.contentView = pane
+            window.orderFrontRegardless()
+            let web = try #require(PageWebView(descriptor: .files, routes: []))
+            let page = InternalPageView(key: "s7b-web-page", page: InternalPageID(rawValue: "files"), content: web)
+            pane.show(page)
+            Self.settle(pane)
+            pane.show(Other())
+            Self.settle(pane)
+            try #require(page.isHidden, "SETUP: the page is not parked")
+            Motion.liveResizeOverride = true
+            var frame = window.frame
+            frame.size.width -= 60
+            frame.origin.x += 60
+            window.setFrame(frame, display: true)
+            pane.layoutSubtreeIfNeeded()
+            Motion.liveResizeOverride = nil
+            let shows = (pane.parkedFrame(of: page) ?? pane.contentHost.bounds).size
+            #expect(page.frame.size == shows, "the parked web page did not follow its pane during the resize: \(page.frame.size), not \(shows)")
         }
     }
 

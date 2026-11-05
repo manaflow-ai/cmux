@@ -68,7 +68,8 @@ public final class ParkedViewSizing {
     /// loop wakes so the next view gets its own pass and what this one changed commits.
     private func idlePoint() {
         armed = false
-        guard !inMotion() else { return pending.removeAll() }
+        // Switched off since it armed, or a new motion runs (its end asks again): nothing to size now.
+        guard Self.isOn, !inMotion() else { return pending.removeAll() }
         guard !inputWaits() else { return arm() }
         while let entry = pending.first {
             pending.removeFirst()
