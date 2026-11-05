@@ -284,6 +284,7 @@ mod web_control;
 mod web_token;
 mod work_below;
 pub(crate) mod worktree_care;
+mod goal_tools;
 mod wrap_up_offer;
 mod xai;
 pub use web_control::Control;

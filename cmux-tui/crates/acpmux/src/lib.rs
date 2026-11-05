@@ -63,6 +63,7 @@ pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
 pub mod git_state;
+pub mod generic_goal;
 pub mod github_app_token;
 pub mod github_broker;
 pub mod github_status;
