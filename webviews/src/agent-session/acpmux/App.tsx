@@ -9084,6 +9084,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudStartPending.current = true;
     if (fromPage) {
       newTabCloudSent.current = true;
+      // The prompt as sent, for a page that leaves no draft of its own (a prefilled location it
+      // counts as untyped); the page's own draft, if it hands one over, replaces it.
+      cloudPageDraft.current = { text, attachments };
       setCloudLeftPage(newTabGeneration);
     }
     setCloudStart(
@@ -13565,7 +13568,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // A Cloud send took the page's prompt: the chat shows it sent, and it waits here in case the start fails.
     if (newTabCloudSent.current) {
       newTabCloudSent.current = false;
-      cloudPageDraft.current = draft;
+      if (draft.text || draft.attachments.length) cloudPageDraft.current = draft;
       return;
     }
     const view = sandbox.view();
