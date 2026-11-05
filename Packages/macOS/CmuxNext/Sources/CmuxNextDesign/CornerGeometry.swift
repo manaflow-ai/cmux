@@ -5,8 +5,9 @@ public import QuartzCore
 /// One shape language for the sidebar and the horizontal tabs (Debug Settings,
 /// `chrome.cornerGeometry`; Leo 2026-11-05: "you can't mix straight with curved").
 ///
-/// Today's default (`off`) puts 8 pt tab pills inside a 10/11 pt main pane whose curve only
-/// shows as clipping, next to a sidebar whose edge is one straight hairline. Each other value
+/// Today's default (`off`, under the default `flat-sidebar-line` chrome style) draws the content
+/// edge to edge with no card, a straight hairline on the sidebar's edge and 8 pt rounded tab
+/// pills right beside it. The card styles curve a 10/11 pt main pane. Each other value
 /// is a comparison variant that draws the sidebar, the tab strip and the content card from
 /// one radius scale (``CornerGeometry/Scale``, design/grid.md: radii are 4, 6, 8, 12 or 16),
 /// so every curve on screen is a step of the same scale and every nested pair is concentric.

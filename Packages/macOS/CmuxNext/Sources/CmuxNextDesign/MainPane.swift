@@ -47,7 +47,10 @@ extension Metrics {
     /// Settings override, else `appearance.chromeStyle`, else the default.
     public static var mainPaneCurved: Bool {
         let tunable = ChromeTunables.mainPaneCurved
-        return tunable.override ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
+        // A framed corner geometry (`chrome.cornerGeometry`) draws the card under any chrome style,
+        // the default edge-to-edge `flat-sidebar-line` included; a Debug override still wins.
+        let framed: Bool? = CornerGeometry.current.drawsFrame ? true : nil
+        return tunable.override ?? framed ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
     }
     /// Floating panes (`appearance.chromeStyle` floating): every pane is its
     /// own card, tab strip included, left unshaded on the shaded chrome
