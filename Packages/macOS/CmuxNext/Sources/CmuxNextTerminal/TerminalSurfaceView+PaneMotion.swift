@@ -100,8 +100,8 @@ extension TerminalSurfaceView: PaneMotionTargeting {
 /// (Lawrence's P0): in every frame of the drag and of its release each terminal shows its text at that frame's pane size,
 /// never frozen or anchored. The surface takes its pane's size in every frame through the placement
 /// any resize uses (`TerminalHostView` `placeSurface`, the frame owner's ``place(_:anchor:)``), and the reflow preview
-/// re-wraps its text at that size. The grid goes to the PTY once, when the release landed: a program does not redraw at
-/// every size while the owner's announcements come a round trip behind (torn rows mid-drag). Before, the drag hold
+/// re-wraps its text at that size. The program gets its size while it moves, coalesced as Ghostty.app does (cmux-ad m29:
+/// ``TerminalGridReporter``), and the newest at the release (a full-screen program froze with one grid). Before, the drag hold
 /// (`terminalDrag.holdSurface`, RESIZE VIDEOS A3) kept the drag-start size and text through the drag, and the release's
 /// spring held its final size (pixel-perfect's trace, STATUS 13764: 157-159 held ticks in col-drag-2, the surface up to
 /// 150 pt off its pane).
@@ -110,7 +110,7 @@ extension TerminalSurfaceView {
         guard isFollowingResizeGesture != active else { return }
         isFollowingResizeGesture = active
         // The start ends a spring's hold the drag caught (a split or a press still landing): the surface follows the drag
-        // from this frame. The end sends the grid the view fits, once (none when the PTY has it already).
-        if active { endPaneMotion() } else if isHeldGridPending { updateSurfaceSize() }
+        // from this frame. The end sends the grid that waits in the coalescer's window now, then any grid still held.
+        if active { endPaneMotion() } else { gridReports.flush(); if isHeldGridPending { updateSurfaceSize() } }
     }
 }
