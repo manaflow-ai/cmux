@@ -165,12 +165,16 @@ export function AgentLine({
     >
       <span
         className={shimmer.className ? `acpmux-lineage__icon ${shimmer.className}` : "acpmux-lineage__icon"}
-        style={tone === undefined ? shimmer.style : { ...shimmer.style, color: "var(--agent-tone-ink)" }}
+        style={shimmer.style}
         data-state={status}
         data-agent-tone={tone}
       >
         {working && !timed ? (
-          <Spinner size={iconSize} loading />
+          <Spinner
+            size={iconSize}
+            loading
+            style={tone === undefined ? undefined : { color: "var(--agent-tone-ink)" }}
+          />
         ) : (
           <AgentIdentity
             harness={mark}
@@ -178,6 +182,7 @@ export function AgentLine({
             size={iconSize}
             fallbackNode={glyph}
             look={tone === undefined ? undefined : "tint"}
+            style={tone === undefined ? undefined : { color: "var(--agent-tone-ink)" }}
           />
         )}
       </span>
