@@ -28,21 +28,25 @@ public struct HomeChannelActions {
     /// Binds `home.createChannel` in `registry`.
     public func bind(into registry: ActionRegistry) {
         let actions = self
-        registry.bind("home.createChannel", invoke: { invocation in
+        registry.bindEffect("home.createChannel", effect: { invocation in
             let (title, members, chief) = (invocation["title"]?.stringValue ?? "", invocation["members"]?.stringValue ?? "", invocation["chief"]?.stringValue)
             let shows = invocation.origin == .user
-            // task-owner: the action run; a capturing caller (socket, CLI) awaits it through the registry.
-            registry.track(result: Task { @MainActor in
+            // task-owner: the action run (its `.waiting` work awaits it; a capturing caller gets its value).
+            let task: ActionResultWork = Task { @MainActor in
                 do {
                     let made = try await actions.create(title: title, chiefName: chief, members: members)
                     if shows { actions.show(ConversationID(made.conversation)) }
                     return .success(Self.result(made))
                 } catch {
-                    let reason = Self.reason(error)
-                    registry.refuse(reason)
-                    return .failure(ActionWorkFailure(refusal: .unavailable, reason: reason))
+                    return .failure(ActionWorkFailure(refusal: .unavailable, reason: Self.reason(error)))
                 }
-            })
+            }
+            registry.track(result: task)
+            // action-wait-allow: the Worker names the channel and its Chief (channel.create); no local stand-in has an id to show
+            return .waiting(.network) {
+                guard case .failure(let failure) = await task.value else { return nil }
+                return failure
+            }
         })
     }
 
