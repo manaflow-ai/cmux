@@ -80,6 +80,8 @@ final class CEFLayerHosting {
     /// The page's pixels in this window's layer tree; nil while the page
     /// draws in its own window.
     private(set) var page: CEFHostedPageView?
+    /// Where the page window has a hole in the web contents (`CEFTab.applyOcclusion`): the New Tab page, a blank page.
+    var pageHole: CEFPageHole = .none
     /// Requests the fork refused, or hosted contexts no `CALayerHost` could
     /// show (`CEFTrackerStats.hostingRefused` sums every view).
     private(set) var refusals = 0

@@ -13,6 +13,17 @@ import QuartzCore
 ///
 /// A context id is a WindowServer name, not a pointer: the same view hosts
 /// a page whose browser runs in another process.
+/// Where a page window shows none of its page's pixels in the web contents: before a tab's first real page (the New Tab
+/// page, a blank page) the web contents are a hole, so the window backdrop shows there (`CEFTab.applyOcclusion`).
+enum CEFPageHole: Equatable {
+    /// The page shows all its pixels.
+    case none
+    /// The whole page is a hole.
+    case whole
+    /// Only this rect (the web contents beside an open side panel), in the host view's coordinates, is a hole.
+    case rect(CGRect)
+}
+
 final class CEFHostedPageView: NSView {
     /// The hosted context, 0 while no page is hosted.
     private(set) var contextID: UInt32 = 0
