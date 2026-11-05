@@ -327,7 +327,8 @@ final class WorkspaceRowView: SidebarRowView {
             : NSImage.icon(symbol: "exclamationmark.triangle.fill", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1))
         usageWarningMark.isHidden = usageWarningMark.image == nil
         usageWarningMark.themedToolTip = usageWarningMark.isHidden ? nil : ws.usageWarnings.joined(separator: "\n")
-        configureGroupPin(pinned: ws.isPinnedInGroup && row.group != nil)
+        // A sole member drawn as its group (`standsForGroup`) reads as the group itself: no in-group pin there.
+        configureGroupPin(pinned: ws.isPinnedInGroup && row.group != nil && !row.standsForGroup)
         audio = isShowingPlaceholder ? nil : ws.audio
         if audio != nil { _ = audioSlot.control(in: self) }
         audioSlot.made.map(applyAudio)
