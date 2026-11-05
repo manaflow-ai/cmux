@@ -1270,7 +1270,7 @@ function shapeTurn(
       (retryTarget ? 4 : 0) +
       (changedFiles ? 8 : 0) +
       // A background shell that ended after the summary moves its Timeline bar, so the footer redraws.
-      16 * (workEnds(work) % 64),
+      16 * workEnds(work),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)
   // draws as it came.
@@ -1337,10 +1337,17 @@ function withTailAnswers(tail: AcpmuxRow[], endedBackground: ReadonlySet<string>
       text: answer.text,
       answerId: answer.id,
       turnCopy: turnCopyParts(body),
+      ...withWork(body),
       version: row.version * VERSION_SPAN + answer.version,
     };
   }
   return backgroundFooters(out ?? tail, endedBackground, seq);
+}
+
+/// A finished stretch's timed work, for its footer's Timeline (waterfallSpans.ts), when it has any.
+function withWork(rows: readonly AcpmuxRow[]): Pick<AcpmuxRow, "turnWork"> {
+  const work = turnWork(rows);
+  return work ? { turnWork: work } : {};
 }
 
 /// The id prefix of the footer `backgroundFooters` adds under a turn the agent ran on its own.
@@ -1399,6 +1406,7 @@ function backgroundFooters(tail: AcpmuxRow[], endedBackground: ReadonlySet<strin
       text: answer.text,
       answerId: answer.id,
       turnCopy: parts,
+      ...withWork(body.rows),
       ...(through !== undefined && { seq: through }),
     });
   });
@@ -1573,6 +1581,7 @@ function supersededFooters(drawn: AcpmuxRow[], turn: readonly AcpmuxRow[], ended
       text: answer.text,
       answerId: answer.id,
       turnCopy: parts,
+      ...withWork(stretch),
     });
   };
   for (let index = 0; index < turn.length; index += 1) {

@@ -141,7 +141,7 @@ export function TurnWaterfall({
           className={className}
           title={title}
           data-tool-id={span.toolId}
-          onClick={() => showCall(span.toolId!)}
+          onClick={() => showCall(span.toolId!, span.item.tool?.startedAt)}
         >
           {body}
         </button>

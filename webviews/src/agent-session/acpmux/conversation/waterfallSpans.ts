@@ -66,10 +66,18 @@ function spanTimes(item: AcpmuxActivity): [number | undefined, number | undefine
 const spanFailed = (item: AcpmuxActivity) =>
   item.tool ? rowFailed(item.tool) || item.tool.background?.state === "failed" : false;
 
-/// How many of `work`'s background shells have ended: a late end changes it, so the footer that
-/// carries the work takes a new version (turns.ts shapeTurn) and its Timeline redraws.
-export const workEnds = (work: readonly AcpmuxActivity[] | undefined) =>
-  work?.filter((item) => item.tool?.background?.endedAt !== undefined).length ?? 0;
+/// Where `work`'s background shells ended, in one number under 64: a late end changes it, so the
+/// footer that carries the work takes a new version (turns.ts shapeTurn) and its Timeline redraws.
+/// It mixes each end's time with its place, so a new end moves it unless by chance, where a bare
+/// count of the ends came back to the same number after every 64.
+export function workEnds(work: readonly AcpmuxActivity[] | undefined): number {
+  let hash = 0;
+  work?.forEach((item, at) => {
+    const end = item.tool?.background?.endedAt;
+    if (end !== undefined) hash = (hash * 31 + end + at + 1) % 2_147_483_647;
+  });
+  return hash % 64;
+}
 
 /// The timed work of a turn's rows, in order: its tool calls (not the drafts the transcript hides,
 /// turns.ts withoutDrafts) and its thoughts, each with a start and an end. Undefined when nothing

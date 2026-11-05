@@ -9,7 +9,7 @@ import { TurnFooter } from "./TurnRows";
 import { TurnWaterfall } from "./TurnWaterfall";
 import { TurnActionsContext } from "./turnActions";
 import { turnView } from "./turns";
-import { turnWork, waterfall, WATERFALL_FIRST } from "./waterfallSpans";
+import { turnWork, waterfall, WATERFALL_FIRST, workEnds } from "./waterfallSpans";
 
 const call = (id: string, from: number | undefined, to: number | undefined, status = "completed"): AcpmuxActivity => ({
   kind: "tool",
@@ -160,4 +160,15 @@ test("a background shell that ends after the summary gives the footer a new vers
       { agentFamily: "claude", now: 10_000 },
     ).find((row) => row.kind === "turnSummary")!;
   expect(footer(5_000).version).not.toBe(footer().version);
+});
+
+test("64 more background ends still move the footer's version part, where a count of them wrapped", () => {
+  const ended = (n: number): AcpmuxActivity[] =>
+    Array.from({ length: n }, (_, at) => ({
+      kind: "tool",
+      text: "sleep",
+      tool: { id: `bg${at}`, title: "sleep", kind: "execute", status: "completed", background: { state: "completed", endedAt: 5_000 + at * 37 } },
+    }));
+  expect(workEnds(ended(65))).not.toBe(workEnds(ended(1)));
+  expect(workEnds(undefined)).toBe(0);
 });

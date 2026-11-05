@@ -8499,8 +8499,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A background command's Bash call in the transcript (`showToolRow` below, which needs what the
   // Inspector draws): what its task row opens where its terminal cannot (a peer's or Cloud chat),
   // and a turn's waterfall bar opens (conversation/TurnWaterfall.tsx).
-  const showCallRef = useRef<(toolCallId: string) => boolean>(() => false);
-  const showCall = useCallback((toolCallId: string) => showCallRef.current(toolCallId), []);
+  const showCallRef = useRef<(toolCallId: string, startedAt?: number) => boolean>(() => false);
+  const showCall = useCallback(
+    (toolCallId: string, startedAt?: number) => showCallRef.current(toolCallId, startedAt),
+    [],
+  );
   const turnActions = useMemo<TurnActions>(
     () => ({
       showCall,
@@ -9769,9 +9772,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // holds the call. The reveal lets go after a moment, so the run closes again like any other.
   // False when no loaded row holds the call (a command only the registry knows).
   const showToolRow = useCallback(
-    (toolId: string | undefined) => {
+    (toolId: string | undefined, startedAt?: number) => {
       const { sourceRows: rows, transcriptRows: shown } = counted.current;
-      const index = toolId ? rows.findIndex((row) => row.items?.some((item) => item.tool?.id === toolId)) : -1;
+      // A harness can reuse a call id in a later prompt: the call that started at `startedAt` (a
+      // waterfall bar's, TurnWaterfall.tsx) is that one, else the first call with the id.
+      const holds = (row: AcpmuxRow, timed: boolean) =>
+        Boolean(
+          row.items?.some((item) => item.tool?.id === toolId && (!timed || item.tool.startedAt === startedAt)),
+        );
+      const timed = toolId && startedAt !== undefined ? rows.findIndex((row) => holds(row, true)) : -1;
+      const index = timed >= 0 ? timed : toolId ? rows.findIndex((row) => holds(row, false)) : -1;
       const row = rows[index];
       if (!row || !toolId) return false;
       if (!shown.some((drawn) => isFindRow(drawn, row.id))) {
