@@ -8,8 +8,8 @@
 // is hovered (CardCopy.css). Its highlight is the button's own box, never the card's.
 import { createContext, useContext } from "react";
 import { useT } from "../i18n";
-import { copyTextResult } from "./clipboard";
 import { CopyButton } from "./CopyButton";
+import { copyMarkdownResult } from "../richClipboard";
 import "./CardCopy.css";
 
 /// How the corner draws. `faint`, the default: a 14px glyph at 45% until the card is hovered, a
@@ -17,8 +17,9 @@ import "./CardCopy.css";
 /// `quiet`, a 12px glyph at 30%; `word`, the default glyph that says "Copied" beside its check.
 export type CardCopyLook = "faint" | "quiet" | "word";
 export const CardCopyLookContext = createContext<CardCopyLook>("faint");
-/// What puts the text on the clipboard: the page's clipboard, or a gallery stage's stand-in.
-export const CardCopyWriterContext = createContext<(text: string) => Promise<boolean>>(copyTextResult);
+/// What puts the text on the clipboard: the page's clipboard, as a message's Copy does (its Markdown
+/// and its HTML, richClipboard.ts), or a gallery stage's stand-in.
+export const CardCopyWriterContext = createContext<(text: string) => Promise<boolean>>(copyMarkdownResult);
 
 export function CardCopy({
   text,

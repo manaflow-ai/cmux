@@ -20,7 +20,7 @@ final class TerminalSizedForChip: NSView {
         button = NSButton(title: title, target: nil, action: nil)
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 8
+        layer?.cornerRadius = Metrics.surfaceCornerRadius
         layer?.borderWidth = Metrics.lineWidth(1)
         label.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
         label.ink = .secondary

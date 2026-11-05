@@ -1810,7 +1810,11 @@ if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
   # CmuxNextApp symbols, listed from a first link: scripts/measure/live-code-app.sh). A blanket
   # `-interposable` also routes a whole-module build's hidden symbols (a file's private types,
   # global across the module's object files but never exported) through dyld, which cannot find
-  # them, and the app does not launch.
+  # them, and the app does not launch. CmuxNextApp itself is compiled a file at a time for the same
+  # reason: whole-module, a private type's deinit or a value witness is a hidden global, and the
+  # app's binds to it stop the launch even with the list; a file at a time it stays file-local.
+  live_mode=wholemodule
+  [[ "$BUILD_CONFIGURATION" == "Debug" ]] && live_mode=singlefile
   live_ldflags='$(inherited) -Xlinker -no_fixup_chains'
   if [[ -n "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}" ]]; then
     live_ldflags+=" -Xlinker -interposable_list -Xlinker $CMUX_LIVE_CODE_INTERPOSABLE_LIST"
@@ -1822,11 +1826,13 @@ if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
     CMUX_LIVE_CODE_OPT_CmuxNextApp=-Onone
     'ENABLE_TESTABILITY=$(CMUX_LIVE_CODE_TESTABLE_$(TARGET_NAME):default=NO)'
     CMUX_LIVE_CODE_TESTABLE_CmuxNextApp=YES
+    "SWIFT_COMPILATION_MODE=\$(CMUX_LIVE_CODE_MODE_\$(TARGET_NAME):default=$live_mode)"
+    CMUX_LIVE_CODE_MODE_CmuxNextApp=singlefile
     LD_EXPORT_SYMBOLS=YES
     DEAD_CODE_STRIPPING=NO
     "OTHER_LDFLAGS=$live_ldflags"
   )
-  echo "==> live code build: CmuxNextApp at -Onone and testable${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
+  echo "==> live code build: CmuxNextApp at -Onone, testable and a file at a time${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
 fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
