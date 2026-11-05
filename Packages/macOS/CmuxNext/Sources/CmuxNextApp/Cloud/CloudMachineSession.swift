@@ -214,10 +214,11 @@ final class CloudMachineSession {
     /// auto-pause parks idle machines, and its link connects once the record
     /// is live (`CloudService.reconcile`). An app link connects as before
     /// (its connect starts a paused machine for a click); a live legacy link
-    /// reconnects by itself, so nothing else changes.
+    /// reconnects by itself, so nothing else changes. A paused app-link machine attached by a script (a
+    /// start, `cmux cloud start-chat`) resumes the same way: its script connect skips a paused machine.
     func attach(origin: CloudLinkOrigin = .user) {
         guard !machine.shownStatus.isChanging else { return }
-        if appLink != nil { return connect(origin: origin) }
+        if appLink != nil, origin == .user || machine.shownStatus != .paused { return connect(origin: origin) }
         // A live legacy machine with no connection: its link may be waiting out a backoff after a
         // failed start (or never started); the attach retries it now instead of doing nothing.
         if machine.shownStatus != .paused {
@@ -285,7 +286,7 @@ final class CloudMachineSession {
             }
             // An ended link on a paused machine reads as the pause; a failed
             // connect that was to start it says why (`CloudMachineStageInput`).
-            if machine.status == .paused { resumeFailure = CloudAppLinks.endedMessage(error) }
+            if machine.status == .paused, origin == .user { resumeFailure = CloudAppLinks.endedMessage(error) }
             showEnded(error)
             return
         }
@@ -412,11 +413,11 @@ final class CloudMachineSession {
     }
 
     /// Reads the record again before an attach decides, when it may be
-    /// stale: a legacy machine with no daemon connection that does not read
+    /// stale: a machine with no daemon connection that does not read
     /// paused (the idle auto-pause may have parked it while the app's copy
-    /// still says running).
+    /// still says running), an app link's as much as a legacy one's.
     func refreshIfMaybePaused() async {
-        guard appLink == nil, daemon.connection == nil, machine.status != .paused, !disconnected, let refresher else { return }
+        guard daemon.connection == nil, machine.status != .paused, !disconnected, let refresher else { return }
         await refresher(true)
     }
 
@@ -481,7 +482,7 @@ final class CloudMachineSession {
         }
         return await CloudWait.holds(within: limit, redialing: CloudWait.startRedial, redial: {
             let appEnd = appLink != nil && linkEnded != nil && dropRedial.lastEndRedialable && machine.status == .running
-            if appEnd || (link != nil && legacyLinkFailure != nil && machine.status.isLive) { retryNow() }
+            if appEnd || (link != nil && legacyLinkFailure != nil && machine.status.isLive) { retryNow() } else if appLink != nil, machine.status == .paused { attach(origin: .script) }
         }) { [daemon] in
             self.resumeFailure != nil || self.legacyLinkFailure?.definitive == true || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }
