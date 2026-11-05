@@ -122,6 +122,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
         #if DEBUG
         DebugLayoutCounters.note("pane mount", #fileID, #line)
         #endif
+        // Cmd-N's stand-in this pane takes over (another layout id): its selected tab, or a select waiting there, selects here now.
+        if let standIn = workspace?.panes.values.first(where: { daemon.store.daemonPane(takingOver: $0.pane.handle) == pane.handle }) {
+            let selected = standIn.stripModel.selectedID.map { daemon.store.creations.replacement(ofStandIn: $0.rawValue, in: pane)?.id ?? $0.rawValue }
+            (pendingSelectSurface, pendingSelectTab) = (standIn.pendingSelectSurface, standIn.pendingSelectTab ?? selected)
+        }
         observe()
     }
 
@@ -395,11 +400,15 @@ final class PaneController: SurfacePresenter, PresentablePane {
         workspace?.setNeedsTopology()
     }
 
+    /// The daemon pane's controller that took this stand-in over (Cmd-N's): a create made here that lands later selects there.
+    var successor: PaneController? { daemon.store.daemonPane(takingOver: pane.handle).flatMap { workspace?.pane(for: $0) } }
+
     /// Selects the tab on `surface`, which this app just created here, once
     /// the daemon reports it, and shows it now when it already does. An
     /// action run without view-change permission (a CLI, script or agent
     /// run without `focus: true`) creates the tab in the background.
     func selectWhenReported(surface: SurfaceID) {
+        if let successor { return successor.selectWhenReported(surface: surface) }
         guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
         pendingSelectSurface = surface
         apply(snapshot())
@@ -407,6 +416,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     /// Same, for a tab named by its resource id (a reopened tab).
     func selectWhenReported(tab: String) {
+        if let successor { return successor.selectWhenReported(tab: tab) }
         guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
         pendingSelectTab = tab
         apply(snapshot())
