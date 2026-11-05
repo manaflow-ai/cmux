@@ -1738,8 +1738,11 @@ jobs:
   # Blacksmith (nightlies never use Blacksmith, Lawrence 2026-10-30). The picker's
   # `blacksmith` output is no longer read by any nightly job.
   pick-nightly-build-runner:
-    needs: [decide, resolve-nightly-cmux-tui-client]
-    if: ${{ !cancelled() && needs.resolve-nightly-cmux-tui-client.result == 'success' }}
+    # Beside resolve-nightly-cmux-tui-client, not after it: the pick reads only decide's outputs, and build-nightly-app
+    # still needs both. One runner pickup off the path to the app build (nightly-30min; run 41941610932 waited 5.9 min
+    # here after resolve).
+    needs: [decide]
+    if: ${{ !cancelled() && needs.decide.result == 'success' }}
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_mini_jobs, ' pick-nightly-build-runner ') && needs.decide.outputs.early_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     environment: ci-routing-agent
