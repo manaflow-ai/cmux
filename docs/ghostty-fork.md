@@ -14,10 +14,11 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ### The embedder presents a new host size with its bounds (ghostty-next)
 
-- Fork release branch `release/cmux-9ce9b7d0-e2` at the merge commit `12ec155e1` (fork PR #79, on `ae7c1f741` = fork
-  PR #77 on `6cc749a8a` = fork PR #75 on `bd7ff2687` = fork PRs #72 and #73 on `7d43bb68b`, fork PR #71 on
-  `635c6c12a` = fork PR #70 on `dfd07de4a`, the earlier pin `34e73ba8b` plus fork PR #69). GhosttyNextKit
-  `xcframework-12ec155e1e67f8f33a1cee5fd2e129f59277465c-apple-v6` (zip sha256 `5defd8f8...30aa7`, run 41955494921).
+- Fork release branch `release/cmux-9ce9b7d0-e2` at the merge commit `510ca45ff` (fork PR #83, on `12ec155e1` = fork
+  PR #79 on `ae7c1f741` = fork PR #77 on `6cc749a8a` = fork PR #75 on `bd7ff2687` = fork PRs #72 and #73 on
+  `7d43bb68b`, fork PR #71 on `635c6c12a` = fork PR #70 on `dfd07de4a`, the earlier pin `34e73ba8b` plus fork PR
+  #69). GhosttyNextKit `xcframework-510ca45ff8fc1fb03c600dfedae7c6f098402cd8-apple-v6` (zip sha256 `0efea1c3...acfcf`,
+  run 42028591194).
 - What: opt-in on macOS host-sized surfaces, `ghostty_surface_set_host_present(surface, GHOSTTY_HOST_PRESENT_EMBEDDER)`.
   The renderer still draws each new host size at once with cells rebuilt for it, but never shows a frame of another
   size than the shown one itself. A new size asks for no display pass, and a display pass never waits.
@@ -56,6 +57,27 @@ When we change the fork, update this document and the parent submodule SHA.
   `changesShownSize` as the only condition that closes the gate in `setSurfaceCallback` and `setSurfaceSync`.
   `publishFresh` keeps the newest frame by present sequence.
 - When cmux moves to fork `main`, port #70 to `main` (it is based on the release branch).
+
+### The reflow preview re-wraps each frame's grid off the terminal lock (ghostty-next)
+
+- Fork PR #83 (merge `510ca45ff` on `release/cmux-9ce9b7d0-e2`). No C API change: `ghostty_surface_set_reflow_preview`
+  and `ghostty_surface_set_size` per frame, as before.
+- What: the preview (`src/renderer/ReflowPreview.zig`) keeps the live terminal's last copy (`base`, not reflowed).
+  A frame whose only change is the grid (each frame of a key resize or a divider drag) re-wraps a copy of `base`
+  with no terminal lock held. The live terminal is copied under the lock only when it changed: a dirty flag, a
+  color epoch, the watch's cursor (position, style, visibility, blink, password input) or colors (bg, fg, cursor),
+  a new grid of the live terminal, or `base` lacking the history the new grid needs. The watch's dirty state is
+  reset after it is read. A frame that draws the live terminal ends the preview.
+- Why: cmux-ad m18 (T-REWRAP). At the earlier pin the watch's dirty state was never reset, so every preview frame
+  copied the live terminal under the terminal lock (0.43-0.55 ms p50 at 200x60, M5 Max), against the output parser
+  and the main thread's lock users. Now: 1 copy for 800 frames of a drag; the re-wrap is 0.43-0.52 ms p50 per frame
+  on the renderer thread, off the lock.
+- Tests: `reflow preview:` in `src/renderer/ReflowPreview.zig` (6 tests, in the fork CI filter list); bench
+  `ghostty-bench +reflow-preview` (ReleaseFast). Red runs 42018811302 and 42024684069, green 42025379357, PR build
+  42025383877 (220/220, lib-vt 475/475). Independent review: SHIP at `79d62f7c5`.
+- Conflict notes: keep `self.watch.dirty = .false` right after the watch's `endUpdate` in `update`, and the
+  `watchSnapshot` comparison around `beginUpdate`: without either, a frame either copies under the lock every time or
+  draws a stale cursor. Keep `end()` in `source` when the live terminal is drawn.
 
 ### A scroll region scroll breaks the soft wrap across its edges; the formatter carries blanks only across a joined wrap (ghostty-next)
 
