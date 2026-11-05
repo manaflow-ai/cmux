@@ -64,6 +64,9 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// `updates.liveWebReload` (``setAllowed(_:)``): on until the settings say otherwise.
     private static let allowed = Mutex(true)
 
+    /// Whether Live Web Reload (`updates.liveWebReload`) lets `web-dev.json` apply.
+    public static var isAllowed: Bool { allowed.withLock { $0 } }
+
     /// The override in force: what the watcher read from `web-dev.json`, or empty while
     /// Live Web Reload is off.
     public static var current: WebDevOverride {

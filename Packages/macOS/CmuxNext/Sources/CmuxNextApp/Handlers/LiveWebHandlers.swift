@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLiveCode
+import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import os
@@ -32,8 +33,10 @@ enum LiveWebHandlers {
             if let path = invocation["path"]?.stringValue, !path.isEmpty {
                 show(LiveWebStrings.starting(path), in: window, duration: startTimeout)
                 return .applied(result: {
+                    // With Live Web Reload off the app ignores web-dev.json: the server runs, pages stay bundled.
                     await run(cli, ["live", "start", "--worktree", path], timeout: startTimeout,
-                              done: LiveWebStrings.started(path), in: window)
+                              done: WebDevOverride.isAllowed ? LiveWebStrings.started(path) : LiveWebStrings.startedButOff,
+                              in: window)
                 })
             }
             guard !registry.isCapturingRefusal else { return .refused(LiveWebStrings.pathRequired) }
@@ -157,6 +160,10 @@ enum LiveWebStrings {
         format("liveWeb.starting", "Starting the web UI dev server in %@…", (path as NSString).lastPathComponent)
     }
 
+    static var startedButOff: String {
+        text("liveWeb.startedButOff",
+             "The dev server is running, but Live Web Reload is off. Turn it on in Settings > Updates to see your edits.")
+    }
     static func started(_ path: String) -> String {
         format("liveWeb.started", "cmux now loads its web UI from %@. Save a file under webviews/ to see it change.",
                (path as NSString).lastPathComponent)

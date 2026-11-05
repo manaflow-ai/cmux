@@ -1966,6 +1966,137 @@
         }
       }
     },
+    "liveWeb.startedButOff" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The dev server is running, but Live Web Reload is off. Turn it on in Settings > Updates to see your edits."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "خادم التطوير يعمل، لكن Live Web Reload متوقف. شغّله في الإعدادات > التحديثات لترى تعديلاتك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Razvojni server radi, ali je Live Web Reload isključen. Uključite ga u Postavke > Ažuriranja da vidite svoje izmjene."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Udviklingsserveren kører, men Live Web Reload er slået fra. Slå det til i Indstillinger > Opdateringer for at se dine ændringer."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Entwicklungsserver läuft, aber Live Web Reload ist aus. Schalte es unter Einstellungen > Updates ein, um deine Änderungen zu sehen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El servidor de desarrollo está en marcha, pero Live Web Reload está desactivado. Actívalo en Ajustes > Actualizaciones para ver tus cambios."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le serveur de développement tourne, mais Live Web Reload est désactivé. Activez-le dans Réglages > Mises à jour pour voir vos modifications."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il server di sviluppo è attivo, ma Live Web Reload è disattivato. Attivalo in Impostazioni > Aggiornamenti per vedere le tue modifiche."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "開発サーバーは動作していますが、Live Web Reload がオフです。編集を反映するには、設定 > アップデート でオンにしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ម៉ាស៊ីនមេអភិវឌ្ឍន៍កំពុងដំណើរការ ប៉ុន្តែ Live Web Reload ត្រូវបានបិទ។ បើកវានៅក្នុង ការកំណត់ > បច្ចុប្បន្នភាព ដើម្បីមើលការកែសម្រួលរបស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "개발 서버는 실행 중이지만 Live Web Reload가 꺼져 있습니다. 편집 내용을 보려면 설정 > 업데이트에서 켜세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Utviklingsserveren kjører, men Live Web Reload er av. Slå det på i Innstillinger > Oppdateringer for å se endringene dine."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Serwer deweloperski działa, ale Live Web Reload jest wyłączone. Włącz je w Ustawienia > Aktualizacje, aby zobaczyć swoje zmiany."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O servidor de desenvolvimento está rodando, mas o Live Web Reload está desligado. Ative-o em Ajustes > Atualizações para ver suas edições."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сервер разработки запущен, но Live Web Reload выключен. Включите его в Настройки > Обновления, чтобы увидеть свои правки."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เซิร์ฟเวอร์สำหรับพัฒนากำลังทำงาน แต่ Live Web Reload ปิดอยู่ เปิดได้ที่ การตั้งค่า > อัปเดต เพื่อดูการแก้ไขของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Geliştirme sunucusu çalışıyor ama Live Web Reload kapalı. Düzenlemelerinizi görmek için Ayarlar > Güncellemeler'den açın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сервер розробки працює, але Live Web Reload вимкнено. Увімкніть його в Налаштування > Оновлення, щоб побачити свої зміни."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Máy chủ phát triển đang chạy, nhưng Live Web Reload đang tắt. Bật nó trong Cài đặt > Cập nhật để thấy các chỉnh sửa của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "开发服务器正在运行，但 Live Web Reload 已关闭。在 设置 > 更新 中打开它即可看到你的修改。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "開發伺服器正在執行，但 Live Web Reload 已關閉。在 設定 > 更新 中開啟它即可看到你的修改。"
+          }
+        }
+      }
+    },
     "liveWeb.starting" : {
       "extractionState" : "manual",
       "localizations" : {
