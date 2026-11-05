@@ -116,10 +116,38 @@ import Testing
         try await watch(chat, in: pane, stays: onScreen)
     }
 
-    /// FRAME OWNER REFACTOR S7b: a parked chat no longer follows the window (it laid its tree out on every step of a
-    /// window's live resize while hidden). It keeps its frame while parked and takes the pane's new size once, as it shows;
-    /// an agent page's paint hold keeps what showed until it drew there (`AgentPageRedraw.awaits`).
+    @Test func aParkedChatStillFollowsTheWindow() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.close() }
+        let pane = makePane(window)
+        let chat = Chat()
+        _ = pane.show(chat.view)
+        settle(pane)
+        _ = pane.show(Other())
+        settle(pane)
+        pane.setFrameSize(NSSize(width: 1000, height: 600))
+        settle(pane)
+        // Parked, it is sized as it will show, so showing it needs no redraw at a new size.
+        #expect(chat.view.frame.size == pane.bounds.size)
+        chat.reset()
+        _ = pane.show(chat.view)
+        settle(pane)
+        #expect(chat.sizes.isEmpty, "the chat shown again was resized to \(chat.sizes)")
+        #expect(chat.view.frame.size == pane.bounds.size)
+        try await watch(chat, in: pane, stays: chat.view.convert(chat.view.bounds, to: nil))
+    }
+
+    /// FRAME OWNER REFACTOR S7b, `motion.frameOwner.parkedPages` on: a parked chat does not follow the window (it laid its
+    /// tree out on every step of a window's live resize while hidden). It keeps its frame while parked and takes the pane's
+    /// new size once, at the run loop's next idle point or as it shows, whichever comes first; an agent page's paint hold
+    /// keeps what showed until it drew there (`AgentPageRedraw.awaits`).
     @Test func aParkedChatTakesTheWindowsNewSizeOnceWhenItShows() async throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(DesignTunables.all)
+        TunableStore.shared.set("motion.frameOwner.parkedPages", .bool(true))
+        defer { TunableStore.shared.set("motion.frameOwner.parkedPages", nil) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

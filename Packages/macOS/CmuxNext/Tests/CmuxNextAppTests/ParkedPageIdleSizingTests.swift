@@ -103,7 +103,13 @@ struct ParkedPageIdleSizingTests {
             rig.window.contentView?.layoutSubtreeIfNeeded()
         }
         Motion.liveResizeOverride = nil
-        rig.pane.viewDidEndLiveResize()
+        endLiveResize(rig.pane)
+    }
+
+    /// AppKit ends a window's live resize in every view of the window (`viewDidEndLiveResize`), top-down.
+    static func endLiveResize(_ view: NSView) {
+        view.viewDidEndLiveResize()
+        for subview in view.subviews { endLiveResize(subview) }
     }
 
     /// Waits for the main run loop's next pass to reach its idle point (`beforeWaiting`) and finish every observer there.
