@@ -11,7 +11,8 @@ public import Foundation
 /// helper, a stored gh login's included, is reset for its git commands. A private repository
 /// with none of these ends `needs_github`. A repository on another host (GitLab, Codeberg, a company
 /// server: any `https://HOST/GROUP/.../NAME`) is cloned with no credential at all, so only a public one
-/// clones; the GitHub paths above are never offered to another host.
+/// clones; the GitHub paths above are never offered to another host, and one that does not clone
+/// ends `failed`, never `needs_github`: connecting GitHub would not help it.
 ///
 /// Prior art: #21028's `cmux vm clone` spec parser and its idempotent clone-or-fetch.
 public struct CloudMachineRepo: Equatable, Sendable {
@@ -217,7 +218,9 @@ public struct CloudMachineRepo: Equatable, Sendable {
                 use "$c"; g "$@" && return 0
                 [ -n "$fresh" ] && rm -rf "$dir"
               done
-              status=needs_github; cred=none; result
+              cred=none
+              [ "$github" = 1 ] || die "$url cannot be cloned without credentials (private, not found, or offline); cmux offers none off GitHub"
+              status=needs_github; result
               echo "cmux repo: $url needs access this machine does not have (private, not found, or offline)" >&2
               exit \#(Self.needsGitHubExit)
             }
