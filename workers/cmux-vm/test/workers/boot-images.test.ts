@@ -44,8 +44,10 @@ describe("approved service boot images", () => {
     const key = await service(t);
     const response = await t.request("/v1/vm-images", headers(key));
     expect(response.status).toBe(200);
-    expect(((await response.json()) as { items: { id: string }[] }).items.map((item) => item.id))
-      .toEqual(["cloud-native-a6d444a", "cloud-native-91d3ea0"]);
+    expect(await response.json()).toEqual({ items: [
+      { id: "cloud-native-a6d444a", revision: "r2", displayName: "Newer" },
+      { id: "cloud-native-91d3ea0", revision: "r1", displayName: "Rollback" },
+    ] });
   });
 
   it("does not turn ordinary VM write permission into image-service authority", async () => {
