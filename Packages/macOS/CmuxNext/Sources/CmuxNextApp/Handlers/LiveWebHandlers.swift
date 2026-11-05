@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLiveCode
+import CmuxNextSettings
 import Foundation
 import os
 
@@ -14,6 +16,8 @@ import os
 enum LiveWebHandlers {
     static let startID: ActionID = "liveWeb.start"
     static let stopID: ActionID = "liveWeb.stop"
+    static let swiftStartID: ActionID = "liveSwift.start"
+    static let swiftStopID: ActionID = "liveSwift.stop"
     private static let toastID = "live-web"
     /// `start` may install the checkout's webviews packages first, then waits up to 60 s for the server.
     private static let startTimeout: Duration = .seconds(300)
@@ -55,6 +59,41 @@ enum LiveWebHandlers {
                 await run(cli, ["live", "stop"], timeout: .seconds(30), done: LiveWebStrings.stopped, in: window)
             })
         })
+        bindSwift(into: registry, context: context, bundled: bundled)
+    }
+
+    /// Start / Stop Swift Live Mode (docs/cmux-next/live-code.md): `cmux live start|stop --swift`,
+    /// detached, since the swap quits this app and starts the other build of its commit with every
+    /// session. Leo (2026-11-05): "there should likely be a way to switch it on and off for when
+    /// you're hot-building". Only a tagged DEV build switches; Labs > Live Code is user-only, so the
+    /// person's own click sets it here and any other caller leaves it to the script's confirmation.
+    private static func bindSwift(into registry: ActionRegistry, context: AppActionContext, bundled: BundledExecutable) {
+        let environment = ProcessInfo.processInfo.environment
+        let tagged = Bundle.main.bundleIdentifier?.hasPrefix("com.cmuxterm.app.debug.") == true
+        let tree = environment["CMUXTERM_REPO_ROOT"].flatMap { $0.isEmpty ? nil : $0 }
+        let refusal: @MainActor (Bool) -> String? = { on in
+            if bundled.known == nil { return LiveWebStrings.noCLI }
+            if !tagged { return LiveWebStrings.swiftNotTagged }
+            if tree == nil { return LiveWebStrings.swiftNoCheckout }
+            return LiveCode.isLive == on ? (on ? LiveWebStrings.swiftAlreadyOn : LiveWebStrings.swiftAlreadyOff) : nil
+        }
+        for on in [true, false] {
+            registry.bindEffect(on ? swiftStartID : swiftStopID, unavailable: { refusal(on) }, effect: { invocation in
+                if let why = refusal(on) { return .refused(why) }
+                guard let cli = bundled.known, let tree else { return .refused(LiveWebStrings.noCLI) }
+                let window = context.activeWindow?.window
+                let byPerson = invocation.origin == .user
+                let settings = context.services.settings
+                show(on ? LiveWebStrings.swiftStarting : LiveWebStrings.swiftStopping, in: window, duration: .seconds(20))
+                return .applied(result: {
+                    if byPerson { try? await settings?.setSetting(at: CmuxConfigSnapshot.liveCodePath, to: .bool(on), by: .user) }
+                    var arguments = ["live", on ? "start" : "stop", "--swift", "--detach", "--worktree", tree]
+                    if byPerson { arguments.append("--setting-done") }
+                    return await run(cli, arguments, timeout: .seconds(30),
+                                     done: on ? LiveWebStrings.swiftStarted : LiveWebStrings.swiftStopped, in: window)
+                })
+            })
+        }
     }
 
     /// Runs `cmux <arguments>` and replaces the working toast with `done` or the command's error.
@@ -120,4 +159,21 @@ enum LiveWebStrings {
     }
 
     static func failed(_ why: String) -> String { format("liveWeb.failed", "Live Web Reload: %@", why) }
+
+    static var swiftNotTagged: String {
+        text("liveSwift.notTagged", "Swift live mode switches a tagged DEV build. A NIGHTLY has no live code build of its commit to restart into yet.")
+    }
+    static var swiftNoCheckout: String {
+        text("liveSwift.noCheckout", "This build does not name the checkout it was built from, which builds its live code build.")
+    }
+    static var swiftAlreadyOn: String { text("liveSwift.alreadyOn", "Swift live mode is already on.") }
+    static var swiftAlreadyOff: String { text("liveSwift.alreadyOff", "Swift live mode is off.") }
+    static var swiftStarting: String { text("liveSwift.starting", "Starting Swift live mode…") }
+    static var swiftStopping: String { text("liveSwift.stopping", "Stopping Swift live mode…") }
+    static var swiftStarted: String {
+        text("liveSwift.started", "cmux restarts into the live code build when it is ready (the first time it builds it), keeping every session.")
+    }
+    static var swiftStopped: String {
+        text("liveSwift.stopped", "cmux restarts into the normal build, keeping every session.")
+    }
 }

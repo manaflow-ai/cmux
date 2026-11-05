@@ -39,7 +39,8 @@ below are for slots, pull requests and built bundles. Agents in cmux learn all o
 | The web UI of every merge, no checkout | Settings > Updates > Web UI Updates > **Every Merge** |
 | Stop your dev server | `cmux live stop`, or **Stop Editing cmux Live** (an installed overlay, if any, still serves) |
 | The shipped pages back | `scripts/cmux-next/web-overlay.sh off` (ignores the file; run `server off` first to stop the server) |
-| What's running | `cmux live status` |
+| What's running | `cmux live status` (also says whether Swift live mode is on) |
+| Your Swift live too, in a tagged build | `cmux live start --swift` restarts it into the live code build of its commit, sessions kept; `cmux live stop --swift` goes back ([live-code.md](live-code.md#live-mode-restart-into-the-live-code-build-and-back)) |
 | Turn the feature off | Settings > General > **Live Web Reload**, or `cmux settings set updates.liveWebReload false` |
 
 ## On and off

@@ -196,6 +196,8 @@ nonisolated extension ActionSurfaceCatalog {
             "hints.show", "sidebar.profileMenu", "browser.downloads.showFolder",
             // `cmux live start|stop` is the CLI (cli/app/live.rs); these are its palette and Settings face.
             "liveWeb.start", "liveWeb.stop",
+            // `cmux live start|stop --swift` is the CLI (cli/app/live.rs); the app quits mid-run.
+            "liveSwift.start", "liveSwift.stop",
         ],
         .liveInput: [
             "palette.toggleDictation",

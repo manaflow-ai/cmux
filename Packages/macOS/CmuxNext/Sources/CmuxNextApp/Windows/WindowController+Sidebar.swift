@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextLiveCode
 import CmuxNextPages
 
 extension WindowController {
@@ -22,6 +23,11 @@ extension WindowController {
             // Shown or hidden: the top row places it (layoutTitlebarAccessories), then strips avoid it.
             self?.root.needsLayout = true
             self?.root.layoutSubtreeIfNeeded()
+            self?.relayoutTopRowStrips()
+        }
+        // Swift live mode's mark joins the top row last once this app watches a live folder.
+        LiveCode.whenLive { [weak self] in
+            self?.root.liveModeBadge = LiveModeBadgeView()
             self?.relayoutTopRowStrips()
         }
         let model = sidebar.model

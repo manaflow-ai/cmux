@@ -1,6 +1,1054 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "liveSwift.alreadyOff" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swift live mode is off."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift ライブモードはオフです。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "وضع Swift المباشر متوقف."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift live način je isključen."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift-livetilstand er slået fra."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Swift-Live-Modus ist aus."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El modo en vivo de Swift está desactivado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le mode direct Swift est désactivé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La modalità live Swift è disattivata."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "របៀបផ្ទាល់ Swift បានបិទ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift 라이브 모드가 꺼져 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift-livemodus er av."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tryb na żywo Swift jest wyłączony."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O modo ao vivo do Swift está desativado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Живой режим Swift выключен."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "โหมดสด Swift ปิดอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift canlı modu kapalı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Живий режим Swift вимкнено."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chế độ trực tiếp Swift đang tắt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift 实时模式已关闭。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift 即時模式已關閉。"
+          }
+        }
+      }
+    },
+    "liveSwift.alreadyOn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swift live mode is already on."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift ライブモードはすでにオンです。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "وضع Swift المباشر مفعّل بالفعل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift live način je već uključen."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift-livetilstand er allerede slået til."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Swift-Live-Modus ist bereits an."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El modo en vivo de Swift ya está activado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le mode direct Swift est déjà activé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La modalità live Swift è già attiva."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "របៀបផ្ទាល់ Swift បានបើករួចហើយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift 라이브 모드가 이미 켜져 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift-livemodus er allerede på."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tryb na żywo Swift jest już włączony."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O modo ao vivo do Swift já está ativado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Живой режим Swift уже включён."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "โหมดสด Swift เปิดอยู่แล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift canlı modu zaten açık."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Живий режим Swift уже ввімкнено."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chế độ trực tiếp Swift đã bật."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift 实时模式已开启。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift 即時模式已開啟。"
+          }
+        }
+      }
+    },
+    "liveSwift.noCheckout" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This build does not name the checkout it was built from, which builds its live code build."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このビルドには、ライブコードビルドを作るためのビルド元チェックアウトが記録されていません。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يذكر هذا الإصدار النسخة المحلية التي بُني منها، والتي تبني إصدار الشيفرة المباشرة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj build ne navodi checkout iz kojeg je napravljen, a koji pravi njegov live code build."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dette build angiver ikke det checkout, det blev bygget fra, som bygger dets live code-build."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Build nennt nicht den Checkout, aus dem er gebaut wurde und der seinen Live-Code-Build baut."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta compilación no indica el checkout del que se compiló, que es el que compila su versión de código en vivo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce build n’indique pas le checkout dont il est issu, qui construit son build de code en direct."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questa build non indica il checkout da cui è stata compilata, che compila la sua build live code."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "build នេះមិនបញ្ជាក់ checkout ដែលវាត្រូវបាន build ពីនោះទេ ដែលជាអ្នក build កូដផ្ទាល់របស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 빌드에는 빌드한 체크아웃이 기록되어 있지 않아 라이브 코드 빌드를 만들 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dette bygget oppgir ikke checkouten det ble bygget fra, som bygger live code-bygget."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ta kompilacja nie podaje checkoutu, z którego powstała, a który buduje jej wersję live code."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta build não indica o checkout de onde veio, que é quem gera sua build de código ao vivo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Эта сборка не указывает рабочую копию, из которой собрана; именно она собирает сборку живого кода."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "บิลด์นี้ไม่ได้ระบุเช็กเอาต์ที่ใช้บิลด์ ซึ่งเป็นตัวที่บิลด์โค้ดสด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu derleme, canlı kod derlemesini üreten, derlendiği checkout'u belirtmiyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ця збірка не вказує робочу копію, з якої зібрана; саме вона збирає збірку живого коду."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bản build này không ghi checkout đã dùng để build, nơi build bản mã trực tiếp của nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此构建没有记录构建它的检出目录，而实时代码构建要从那里构建。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此建置沒有記錄建置它的簽出目錄，而即時程式碼建置要從那裡建置。"
+          }
+        }
+      }
+    },
+    "liveSwift.notTagged" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swift live mode switches a tagged DEV build. A NIGHTLY has no live code build of its commit to restart into yet."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift ライブモードはタグ付き DEV ビルドで切り替えます。NIGHTLY にはまだ、再起動先となるそのコミットのライブコードビルドがありません。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يبدّل وضع Swift المباشر إصدار DEV موسومًا. لا يوجد بعد لإصدار NIGHTLY إصدار شيفرة مباشرة لإيداعه لإعادة التشغيل إليه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift live način prebacuje označeni DEV build. NIGHTLY još nema live code build svog commita u koji bi se ponovo pokrenuo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift-livetilstand skifter et tagget DEV-build. En NIGHTLY har endnu intet live code-build af sit commit at genstarte i."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Swift-Live-Modus wechselt einen getaggten DEV-Build. Für einen NIGHTLY gibt es noch keinen Live-Code-Build seines Commits zum Neustarten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El modo en vivo de Swift cambia una compilación DEV etiquetada. Una NIGHTLY aún no tiene una compilación de código en vivo de su commit a la que reiniciar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le mode direct Swift bascule un build DEV étiqueté. Une NIGHTLY n’a pas encore de build de code en direct de son commit dans lequel redémarrer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La modalità live Swift cambia una build DEV con tag. Una NIGHTLY non ha ancora una build live code del suo commit in cui riavviarsi."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "របៀបផ្ទាល់ Swift ប្ដូរ build DEV ដែលមានស្លាក។ NIGHTLY មិនទាន់មាន build កូដផ្ទាល់នៃ commit របស់វា ដើម្បីចាប់ផ្ដើមឡើងវិញនៅឡើយទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift 라이브 모드는 태그가 있는 DEV 빌드에서 전환됩니다. NIGHTLY에는 아직 다시 시작할 해당 커밋의 라이브 코드 빌드가 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift-livemodus bytter et tagget DEV-bygg. En NIGHTLY har ennå ikke noe live code-bygg av sin commit å starte på nytt i."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tryb na żywo Swift przełącza oznaczoną kompilację DEV. NIGHTLY nie ma jeszcze kompilacji live code swojego commita, do której można by się przełączyć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O modo ao vivo do Swift troca uma build DEV com tag. Uma NIGHTLY ainda não tem uma build de código ao vivo do seu commit para reiniciar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Живой режим Swift переключает сборку DEV с тегом. У NIGHTLY пока нет сборки живого кода её коммита, в которую можно перезапуститься."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "โหมดสด Swift สลับบิลด์ DEV ที่มีแท็ก NIGHTLY ยังไม่มีบิลด์โค้ดสดของคอมมิตให้รีสตาร์ตเข้าไป"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift canlı modu etiketli bir DEV derlemesini değiştirir. Bir NIGHTLY'nin henüz yeniden başlatılacak, kendi commit'inin canlı kod derlemesi yok."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Живий режим Swift перемикає збірку DEV з тегом. NIGHTLY ще не має збірки живого коду свого коміту, у яку можна перезапуститися."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chế độ trực tiếp Swift chuyển một bản build DEV có thẻ. Bản NIGHTLY chưa có bản build mã trực tiếp của commit để khởi động lại vào."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift 实时模式切换的是带标签的 DEV 构建。NIGHTLY 还没有其提交的实时代码构建可供重启。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift 即時模式切換的是有標籤的 DEV 建置。NIGHTLY 尚無其提交的即時程式碼建置可供重新啟動。"
+          }
+        }
+      }
+    },
+    "liveSwift.started" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux restarts into the live code build when it is ready (the first time it builds it), keeping every session."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ライブコードビルドの準備ができると (初回はビルドします)、cmux はすべてのセッションを保ったまま再起動します。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يُعاد تشغيل cmux إلى إصدار الشيفرة المباشرة عندما يجهز (يبنيه في المرة الأولى)، مع الحفاظ على كل الجلسات."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux se ponovo pokreće u live code build kada bude spreman (prvi put ga pravi), uz sve sesije."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux genstarter i live code-buildet, når det er klar (første gang bygger den det), og beholder alle sessioner."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux startet in den Live-Code-Build neu, sobald er bereit ist (beim ersten Mal wird er gebaut), und behält alle Sitzungen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux se reinicia en la compilación de código en vivo cuando esté lista (la primera vez la compila), con todas las sesiones."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux redémarre dans le build de code en direct dès qu’il est prêt (la première fois, il le construit), en gardant toutes les sessions."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux si riavvia nella build live code quando è pronta (la prima volta la compila), mantenendo tutte le sessioni."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ចាប់ផ្ដើមឡើងវិញទៅ build កូដផ្ទាល់ពេលវារួចរាល់ (លើកដំបូងវា build) ដោយរក្សាវគ្គទាំងអស់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "라이브 코드 빌드가 준비되면 (처음에는 빌드합니다) cmux가 모든 세션을 유지한 채 다시 시작합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux starter på nytt i live code-bygget når det er klart (første gang bygges det), med alle økter."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux uruchomi się ponownie w kompilacji live code, gdy będzie gotowa (za pierwszym razem ją zbuduje), zachowując wszystkie sesje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O cmux reinicia na build de código ao vivo quando ela estiver pronta (na primeira vez ele a gera), mantendo todas as sessões."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux перезапустится в сборку живого кода, когда она будет готова (в первый раз он её соберёт), сохранив все сессии."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux จะรีสตาร์ตเป็นบิลด์โค้ดสดเมื่อพร้อม (ครั้งแรกจะบิลด์ก่อน) โดยเก็บทุกเซสชันไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux, canlı kod derlemesi hazır olunca (ilk seferde derler) tüm oturumları koruyarak yeniden başlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux перезапуститься в збірку живого коду, коли вона буде готова (першого разу він її збере), зберігши всі сеанси."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux khởi động lại vào bản build mã trực tiếp khi sẵn sàng (lần đầu sẽ build), giữ mọi phiên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "实时代码构建就绪后（首次会先构建），cmux 会保留所有会话并重启。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "即時程式碼建置就緒後（首次會先建置），cmux 會保留所有工作階段並重新啟動。"
+          }
+        }
+      }
+    },
+    "liveSwift.starting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starting Swift live mode…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift ライブモードを開始しています…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "جارٍ بدء وضع Swift المباشر…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokretanje Swift live načina…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Starter Swift-livetilstand…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift-Live-Modus wird gestartet …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Iniciando el modo en vivo de Swift…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Démarrage du mode direct Swift…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Avvio della modalità live Swift…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំពុងចាប់ផ្ដើមរបៀបផ្ទាល់ Swift…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift 라이브 모드를 시작하는 중…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Starter Swift-livemodus …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uruchamianie trybu na żywo Swift…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Iniciando o modo ao vivo do Swift…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Включение живого режима Swift…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กำลังเริ่มโหมดสด Swift…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift canlı modu başlatılıyor…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вмикання живого режиму Swift…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đang bắt đầu chế độ trực tiếp Swift…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "正在开始 Swift 实时模式…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "正在開始 Swift 即時模式…"
+          }
+        }
+      }
+    },
+    "liveSwift.stopped" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux restarts into the normal build, keeping every session."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux はすべてのセッションを保ったまま通常のビルドで再起動します。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يُعاد تشغيل cmux إلى الإصدار العادي مع الحفاظ على كل الجلسات."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux se ponovo pokreće u običan build, uz sve sesije."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux genstarter i det normale build og beholder alle sessioner."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux startet mit allen Sitzungen in den normalen Build neu."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux se reinicia en la compilación normal, con todas las sesiones."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux redémarre dans le build normal, en gardant toutes les sessions."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux si riavvia nella build normale, mantenendo tutte le sessioni."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ចាប់ផ្ដើមឡើងវិញទៅ build ធម្មតា ដោយរក្សាវគ្គទាំងអស់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux가 모든 세션을 유지한 채 일반 빌드로 다시 시작합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux starter på nytt i det vanlige bygget, med alle økter."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux uruchomi się ponownie w zwykłej kompilacji, zachowując wszystkie sesje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O cmux reinicia na build normal, mantendo todas as sessões."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux перезапустится в обычную сборку, сохранив все сессии."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux จะรีสตาร์ตเป็นบิลด์ปกติโดยเก็บทุกเซสชันไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux tüm oturumları koruyarak normal derlemeye yeniden başlar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux перезапуститься в звичайну збірку, зберігши всі сеанси."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux khởi động lại vào bản build thường, giữ mọi phiên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 会保留所有会话并重启为普通构建。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 會保留所有工作階段並重新啟動為一般建置。"
+          }
+        }
+      }
+    },
+    "liveSwift.stopping" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stopping Swift live mode…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift ライブモードを終了しています…"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "جارٍ إيقاف وضع Swift المباشر…"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zaustavljanje Swift live načina…"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stopper Swift-livetilstand…"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift-Live-Modus wird beendet …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deteniendo el modo en vivo de Swift…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Arrêt du mode direct Swift…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Interruzione della modalità live Swift…"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំពុងបញ្ឈប់របៀបផ្ទាល់ Swift…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift 라이브 모드를 중지하는 중…"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Stopper Swift-livemodus …"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zatrzymywanie trybu na żywo Swift…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Parando o modo ao vivo do Swift…"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выключение живого режима Swift…"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กำลังหยุดโหมดสด Swift…"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Swift canlı modu durduruluyor…"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вимикання живого режиму Swift…"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đang dừng chế độ trực tiếp Swift…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "正在停止 Swift 实时模式…"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "正在停止 Swift 即時模式…"
+          }
+        }
+      }
+    },
     "liveWeb.choose" : {
       "extractionState" : "manual",
       "localizations" : {

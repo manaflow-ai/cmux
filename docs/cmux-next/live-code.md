@@ -8,6 +8,10 @@ until a patch's signer is checked (cmux#13742).
 
 | You want | Do this |
 |---|---|
+| Live mode on, in a tagged build (once per commit it builds; then a restart, sessions kept) | `cmux live start --swift`, Cmd-Shift-P > **Start Swift Live Mode**, or the button at the end of Settings > Advanced |
+| Live mode off: the normal build of the same commit, sessions kept | `cmux live stop --swift`, or **Stop Swift Live Mode** |
+| Is it on | `cmux live status` (its Swift line); the window's top row shows **Live mode** |
+| Apply your edits in live mode | `scripts/live-code/live-mode.py patch FILE.swift` (patch.py with the live build's log and folder) |
 | A live code build of your checkout (once) | `scripts/live-code/build.sh ~/live-code-build mine` (Debug; add `bench` after the tag for the bench configuration) |
 | Turn it on | Settings > Advanced > Labs > Live Code, or `cmux settings set labs.liveCode true`, then relaunch |
 | Apply your edits | `scripts/live-code/patch.py --log ~/live-code-build/xcodebuild.log --module CmuxNextApp --live ~/Library/Caches/cmux-next/live-code FILE.swift` |
@@ -43,7 +47,37 @@ layout code, which runs again at once. Needs a rebuild: stored properties, enum 
 resources, strings and `Package.swift`. leo-workspace `research/2026-11-04-hot-swap-architecture.md`
 has the numbers and what would make more of them live.
 
-## Not yet
+## Live mode: restart into the live code build and back
 
-- The installed nightly. The switch can't yet turn an installed nightly into a live code build: that
-  needs a variant of the running commit, swapped in and back, and the signer check (cmux#13742).
+Leo (2026-11-05): "So caveat (for now?) is that toggling it on will slow things because the
+functions become more… loose? But there should likely be a way to switch it on and off for when
+you're hot-building". The live code build is slower and bigger than the normal one (CmuxNextApp
+unoptimized, a file at a time, its calls interposable), and that cost is in how the app is built.
+So live mode swaps builds instead of flipping a setting:
+
+- **Start** (`cmux live start --swift`, `scripts/live-code/live-mode.py start`): the commit the tagged
+  app runs (`CMUXCommit`, else the HEAD of the checkout that built it) must be the checkout's HEAD.
+  The first time for that commit it builds the live code build with `build.sh`, build-only
+  (`reload.sh --build-only --keep-app`), while the app keeps running. It turns Labs > Live Code on
+  (from a terminal that is the user-only confirmation sheet in cmux; the app's own button is the
+  person's click), quits the app keeping every session (SIGTERM, as `reload.sh`), renames the normal
+  bundle aside and the live one into its place, and starts it again with the tag's own launchd job.
+- **Stop**: Live Code off, the same quit, the two bundles renamed back, the same start.
+- Both print the restart time (quit to the app answering with its layout loaded) and whether every
+  workspace, tab and running terminal is still there.
+- The cache is `~/Library/Caches/cmux-next/live-mode/<tag>/<commit>/`: `build/` (its
+  `xcodebuild.log` is what patches compile with) and whichever app is not installed. The next start
+  of the same commit is a restart, no build. A swap is two renames on one volume.
+
+The build runs on the Mac that runs the app, because a patch is compiled with that build's own
+intermediates (`patch.py` reads its `xcodebuild.log`): a build fetched from another Mac could not
+take patches. On a fleet Mac that is the fleet's build.
+
+## What a NIGHTLY can and can't do
+
+- Can: Live Web Reload (`cmux live start`), and a pull request's Swift in a copy
+  (`scripts/cmux-next/try-pr.sh <PR> --live-code <log>`).
+- Can't: live mode. `cmux live start --swift` refuses a NIGHTLY, and so do the palette and Settings
+  buttons: no live code build of its commit is built or signed for it to restart into, and a
+  Release build may load only patches signed by the app's own team (cmux#13742), which a person's
+  checkout cannot make. Unsigned, ad hoc patches stay Debug and bench only.

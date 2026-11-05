@@ -75,6 +75,8 @@ pub(crate) struct LiveMessages {
     pub no_checkout: &'static str,
     pub started: &'static str,
     pub cannot_run: &'static str,
+    pub no_swift_checkout: &'static str,
+    pub cannot_run_swift: &'static str,
 }
 
 /// `cmux nightly list|install`: go back (or forward) to another recent nightly build.
@@ -182,10 +184,12 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         pulled_tag: "pulled",
     },
     live: LiveMessages {
-        usage: "usage: cmux live start [--worktree PATH] [--port N] | stop [--worktree PATH] | status [--worktree PATH]\n  start   runs the checkout's web UI dev server and points the running cmux at it: a saved edit under\n          webviews/ shows in every open page and chat at once, with no build and no relaunch\n  stop    stops it; cmux goes back to the web UI it shipped with\n  status  what cmux loads its web UI from\n  PATH is a cmux checkout (default: the one around this folder). Turn it off for good with\n  `cmux settings set updates.liveWebReload false`. Guide: docs/cmux-next/hot-reload.md",
+        usage: "usage: cmux live start [--worktree PATH] [--port N] | stop [--worktree PATH] | status [--worktree PATH]\n       cmux live start|stop --swift [--worktree PATH] [--tag TAG]\n  start   runs the checkout's web UI dev server and points the running cmux at it: a saved edit under\n          webviews/ shows in every open page and chat at once, with no build and no relaunch\n  stop    stops it; cmux goes back to the web UI it shipped with\n  status  what cmux loads its web UI from, and whether Swift live mode is on\n  --swift live mode for the app's Swift, in a tagged DEV build: start restarts it into the live code build\n          of its commit (built once, cached) with every session kept and turns Labs > Live Code on; stop\n          restarts it into the normal build. The live code build is slower and bigger. Guide: docs/cmux-next/live-code.md\n  PATH is a cmux checkout (default: the one around this folder). Turn it off for good with\n  `cmux settings set updates.liveWebReload false`. Guide: docs/cmux-next/hot-reload.md",
         no_checkout: "no cmux checkout here: run this inside a clone of manaflow-ai/cmux, or pass --worktree PATH (it needs scripts/cmux-next/web-overlay.sh)",
         started: "cmux now loads its web UI from this checkout. Save a file under webviews/ and watch it change; `cmux live stop` goes back.",
         cannot_run: "could not run the checkout's web-overlay.sh: {error}",
+        no_swift_checkout: "no cmux checkout here: run this inside the clone the tagged build was built from, or pass --worktree PATH (it needs scripts/live-code/live-mode.py)",
+        cannot_run_swift: "could not run the checkout's live-mode.py: {error}",
     },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
@@ -268,10 +272,12 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         pulled_tag: "取り下げ",
     },
     live: LiveMessages {
-        usage: "使い方: cmux live start [--worktree パス] [--port N] | stop [--worktree パス] | status [--worktree パス]\n  start   チェックアウトの Web UI 開発サーバーを起動し、動作中の cmux をそこに向けます。webviews/ の\n          変更を保存すると、ビルドも再起動もなしに、開いているすべてのページとチャットにすぐ反映されます\n  stop    停止します。cmux は同梱の Web UI に戻ります\n  status  cmux が Web UI をどこから読み込んでいるかを表示\n  パスは cmux のチェックアウトです (既定: このフォルダを含むもの)。完全にオフにするには\n  `cmux settings set updates.liveWebReload false`。ガイド: docs/cmux-next/hot-reload.md",
+        usage: "使い方: cmux live start [--worktree パス] [--port N] | stop [--worktree パス] | status [--worktree パス]\n       cmux live start|stop --swift [--worktree パス] [--tag タグ]\n  start   チェックアウトの Web UI 開発サーバーを起動し、動作中の cmux をそこに向けます。webviews/ の\n          変更を保存すると、ビルドも再起動もなしに、開いているすべてのページとチャットにすぐ反映されます\n  stop    停止します。cmux は同梱の Web UI に戻ります\n  status  cmux が Web UI をどこから読み込んでいるか、Swift のライブモードがオンかを表示\n  --swift タグ付き DEV ビルドの Swift のライブモード: start はそのコミットのライブコードビルド (一度だけビルドしてキャッシュ) に\n          すべてのセッションを保ったまま再起動し、Labs > Live Code をオンにします。stop は通常のビルドに再起動します。\n          ライブコードビルドは遅く、大きくなります。ガイド: docs/cmux-next/live-code.md\n  パスは cmux のチェックアウトです (既定: このフォルダを含むもの)。完全にオフにするには\n  `cmux settings set updates.liveWebReload false`。ガイド: docs/cmux-next/hot-reload.md",
         no_checkout: "ここに cmux のチェックアウトがありません。manaflow-ai/cmux のクローン内で実行するか、--worktree パス を指定してください (scripts/cmux-next/web-overlay.sh が必要です)",
         started: "cmux はこのチェックアウトから Web UI を読み込みます。webviews/ のファイルを保存すると変化が見えます。戻すには `cmux live stop`。",
         cannot_run: "チェックアウトの web-overlay.sh を実行できませんでした: {error}",
+        no_swift_checkout: "ここに cmux のチェックアウトがありません。タグ付きビルドをビルドしたクローン内で実行するか、--worktree パス を指定してください (scripts/live-code/live-mode.py が必要です)",
+        cannot_run_swift: "チェックアウトの live-mode.py を実行できませんでした: {error}",
     },
     search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",

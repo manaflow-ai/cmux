@@ -2626,3 +2626,8 @@ reason = "Lawrence 2026-10-23: no new CI tests. Checks the one-mini routing (var
 path = "tests/test_nightly_mini_gate_timeouts.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks that a job vars.CI_NIGHTLY_MINI sends to cmux15 has room in its timeout for glaeda's capacity wait; run python3 tests/test_nightly_mini_gate_timeouts.py yourself after changing a nightly.yml timeout or route (about 1 s, no Mac)."
+
+[[test]]
+path = "tests/test_live_mode.py"
+lane = "manual"
+reason = "Run by the lane that changes scripts/live-code/live-mode.py (no new CI tests): python3 tests/test_live_mode.py; needs only python3 (a fake control socket stands in for the app)."

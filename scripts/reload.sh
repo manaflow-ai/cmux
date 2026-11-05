@@ -35,6 +35,7 @@ NATIVE_ARCH=""
 TAG=""
 LAUNCH=0
 BUILD_ONLY=0
+KEEP_APP=""
 CMUX_DEBUG_LOG=""
 CMUX_DEV_PORT=""
 CMUX_DEV_PORT_END=""
@@ -730,6 +731,11 @@ Options:
   --build-only           Build and validate a tagged app without replacing or
                          stopping the running tagged app, daemon, or tag state.
                          Cannot be combined with --launch.
+  --keep-app <path>      With --build-only: keep the tagged bundle at <path> instead of
+                         deleting it, its LSEnvironment pointing at the tag's installed path
+                         (CMUX_RELOAD_INSTALLED_APP, default this derived data's), so it can
+                         replace the running tagged app later (live mode,
+                         scripts/live-code/live-mode.py). Prints it as the App path.
   --direct-backend       Use the tag's shared GCP dev web stack (scripts/dev-backend.sh,
                          direct Tailscale transport). cmux-next builds default to local
                          backend mode without it, and Cloud is then unavailable.
@@ -1166,6 +1172,14 @@ while [[ $# -gt 0 ]]; do
       BUILD_ONLY=1
       shift
       ;;
+    --keep-app)
+      KEEP_APP="${2:-}"
+      if [[ -z "$KEEP_APP" ]]; then
+        echo "error: --keep-app requires a path" >&2
+        exit 1
+      fi
+      shift 2
+      ;;
     --prod-auth)
       PROD_AUTH=1
       shift
@@ -1261,6 +1275,10 @@ done
 
 if [[ "$BUILD_ONLY" -eq 1 && "$LAUNCH" -eq 1 ]]; then
   echo "error: --build-only cannot be combined with --launch" >&2
+  exit 1
+fi
+if [[ -n "$KEEP_APP" && ( "$BUILD_ONLY" -ne 1 || -z "$TAG" ) ]]; then
+  echo "error: --keep-app needs --tag and --build-only" >&2
   exit 1
 fi
 
@@ -1665,7 +1683,17 @@ reload_finalize() {
     echo "Swift workaround:"
     echo "  batch mode, debug symbols, and AArch64 GlobalISel disabled for this reload"
   fi
-  if [[ "$BUILD_ONLY" -eq 1 ]]; then
+  if [[ "$BUILD_ONLY" -eq 1 && -n "$KEEP_APP" && -n "${TAG_APP_STAGING_PATH:-}" && -e "$TAG_APP_STAGING_PATH" ]]; then
+    # Live mode's build (--keep-app): the staged bundle is the product. It moves to KEEP_APP,
+    # beside nothing the running tagged app uses, and is printed as the App path.
+    rm -rf "$KEEP_APP"
+    mkdir -p "$(dirname "$KEEP_APP")"
+    mv "$TAG_APP_STAGING_PATH" "$KEEP_APP"
+    echo
+    echo "Build-only: kept the tagged app for a later swap. The running tagged app, cmuxd, and tag state were left unchanged."
+    echo "App path:"
+    echo "  $KEEP_APP"
+  elif [[ "$BUILD_ONLY" -eq 1 ]]; then
     echo
     echo "Build-only validation complete. The running tagged app, cmuxd, and tag state were left unchanged."
     if [[ -n "${TAG_APP_STAGING_PATH:-}" && -e "$TAG_APP_STAGING_PATH" ]]; then
@@ -2170,7 +2198,11 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
       set_plist_env "$INFO_PLIST" CMUXTERM_REPO_ROOT "$PWD"
       BUNDLED_APP_PATH="$TAG_APP_FINAL_PATH"
-      if [[ "$BUILD_ONLY" -eq 1 ]]; then
+      # --keep-app: the kept bundle will be swapped into the installed tagged app's path
+      # (CMUX_RELOAD_INSTALLED_APP, when it is built in other derived data), so it names that one.
+      if [[ "$BUILD_ONLY" -eq 1 && -n "$KEEP_APP" ]]; then
+        BUNDLED_APP_PATH="${CMUX_RELOAD_INSTALLED_APP:-$TAG_APP_FINAL_PATH}"
+      elif [[ "$BUILD_ONLY" -eq 1 ]]; then
         BUNDLED_APP_PATH="$TAG_APP_STAGING_PATH"
       fi
       set_plist_env "$INFO_PLIST" CMUX_BUNDLED_CLI_PATH "$BUNDLED_APP_PATH/Contents/Resources/bin/cmux"

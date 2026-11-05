@@ -41,6 +41,20 @@ public final class LiveCode {
         #endif
     }
 
+    /// Whether this process watches a live folder: Swift live mode is on (`cmux live start --swift`).
+    /// It stays on until the app quits; live mode ends with a restart into the normal build.
+    public private(set) static var isLive = false
+    /// Work waiting for live mode to start (each window's "Live mode" badge), run once when it does.
+    private static var whenLiveStarts: [@MainActor () -> Void] = []
+
+    /// Runs `body` now if live mode is on, else once when it starts. Stop condition: it runs at most
+    /// once, and the list empties when it does.
+    public static func whenLive(_ body: @escaping @MainActor () -> Void) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if isLive { body() } else { whenLiveStarts.append(body) }
+        #endif // a Release build never watches, so nothing waits
+    }
+
     /// Patches applied so far.
     public private(set) var generation = 0
     private var folder: LiveFolder?
@@ -77,6 +91,10 @@ public final class LiveCode {
             Task { @MainActor in self?.found(names) }
         }
         say("watching \(folder.url.path)")
+        Self.isLive = true
+        let waiting = Self.whenLiveStarts
+        Self.whenLiveStarts = []
+        for body in waiting { body() }
     }
 
     /// Every window's views draw and lay out again, now: their next `updateLayer`, `draw` and

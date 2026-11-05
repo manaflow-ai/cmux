@@ -68,7 +68,8 @@ public nonisolated enum SettingsSchema {
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"]
         // The page draws Open <settings file> itself, named from the loaded path.
-        case .advanced: ["reloadConfiguration"]
+        // Start and Stop Swift Live Mode, beside Labs > Live Code.
+        case .advanced: ["reloadConfiguration", "liveSwift.start", "liveSwift.stop"]
         case .development: []
         }
     }
