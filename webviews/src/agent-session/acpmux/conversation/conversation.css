@@ -6301,7 +6301,7 @@ article.acpmux-row--before-indicator .cv-user:is(:not(:has(.cv-user__pending)), 
   max-width: calc(100% - var(--cv-chevron-glyph, 12px) - var(--ds-space-4, 16px));
 }
 /* The selection's Reply chip (SelectionReply.tsx): a small pill over the selection's end, as
-   Claude's and ChatGPT's. It shows on the selection's end with no fade-in and goes when the
+   Claude's and ChatGPT's, placed where no transcript text is under it. It shows on the selection's end with no fade-in and goes when the
    selection does. `icon` draws the glyph alone. */
 .cv-selection-reply {
   position: fixed;
