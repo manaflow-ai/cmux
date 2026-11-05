@@ -253,6 +253,8 @@ fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry() {
         });
         std::thread::sleep(CLICK_PAUSE);
         crate::mux::signaled_mutex::DIAG_REG.with(|d| d.borrow_mut().clear());
+        crate::mux::signaled_mutex::DIAG_STATE.with(|d| d.borrow_mut().clear());
+        crate::mux::signaled_mutex::DIAG_PHASE.with(|d| d.borrow_mut().clear());
         let state_before = crate::mux::signaled_mutex::state_locks_taken_on_this_thread();
         let diag_from = Instant::now();
         timed(&mut latencies, "new-conversation-tab", || {
@@ -260,6 +262,18 @@ fn a_persons_requests_answer_while_busy_sessions_saturate_the_registry() {
         });
         let total = diag_from.elapsed().as_secs_f64() * 1000.0;
         let takes = crate::mux::signaled_mutex::DIAG_REG.with(|d| d.borrow().clone());
+        let st = crate::mux::signaled_mutex::DIAG_STATE.with(|d| d.borrow().clone());
+        let phases = crate::mux::signaled_mutex::DIAG_PHASE.with(|d| d.borrow().clone());
+        let tabs = mux.with_state(|state| state.surfaces.len());
+        eprintln!(
+            "DIAGPH click={click} surfaces={tabs} state_wait={:.1}ms phases={:?} state_waits_over_1ms={:?}",
+            st.iter().map(|t| t.2).sum::<f64>(),
+            phases.iter().map(|p| format!("{}@{:.1}", p.0, p.1)).collect::<Vec<_>>(),
+            st.iter()
+                .filter(|t| t.2 > 1.0)
+                .map(|t| format!("{}:{}={:.1}", t.1, t.0, t.2))
+                .collect::<Vec<_>>()
+        );
         let reg_wait: f64 = takes.iter().map(|t| t.2).sum();
         eprintln!(
             "DIAGTAB click={click} total={total:.1}ms reg_takes={} reg_wait={reg_wait:.1}ms state_takes={} takes={:?}",

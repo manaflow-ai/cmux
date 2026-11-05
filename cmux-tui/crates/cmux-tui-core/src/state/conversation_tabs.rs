@@ -70,12 +70,15 @@ impl Mux {
         // registry locks go next after the current holder, not behind every
         // busy agent's write.
         let _interactive = interactive_scope();
+        let diag_t = std::time::Instant::now();
         let key = mutation.map(|mutation| (mutation.origin.as_str(), mutation.id.as_str()));
         // Held for the whole keyed creation, before every other lock.
         let _serial = key
             .is_some()
             .then(|| KEYED_CREATION.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         let target_ids = self.conversation_tab_target_ids(&target)?;
+        crate::mux::signaled_mutex::DIAG_PHASE
+            .with(|d| d.borrow_mut().push(("target_ids", diag_t.elapsed().as_secs_f64() * 1000.0)));
         let recorded = match key {
             Some((origin, id)) => {
                 self.read_registry_state(|connection| browser_for_mutation(connection, origin, id))?
@@ -127,9 +130,15 @@ impl Mux {
                 |tx: &rusqlite::Transaction<'_>| write_conversation_tab(tx, &id, &record, key);
             let mut registry = self.workspace_registry.lock().unwrap();
             registry.put_frontend_browser(browser_id.as_str(), &frontend, Some(&write))?;
+            crate::mux::signaled_mutex::DIAG_PHASE.with(|d| {
+                d.borrow_mut().push(("put_browser", diag_t.elapsed().as_secs_f64() * 1000.0))
+            });
             self.reload_presentation(&registry)?;
         }
         mark_conversation_tabs_present();
+        crate::mux::signaled_mutex::DIAG_PHASE.with(|d| {
+            d.borrow_mut().push(("reload_presentation", diag_t.elapsed().as_secs_f64() * 1000.0))
+        });
         let mut fields = Map::from_iter([(
             "frontend_browser_id".to_string(),
             Value::String(browser_id.as_str().to_string()),
@@ -161,9 +170,14 @@ impl Mux {
                 size,
             ),
         };
+        crate::mux::signaled_mutex::DIAG_PHASE
+            .with(|d| d.borrow_mut().push(("created", diag_t.elapsed().as_secs_f64() * 1000.0)));
         match created {
             Ok(surface) => {
                 self.publish_journal_event();
+                crate::mux::signaled_mutex::DIAG_PHASE.with(|d| {
+                    d.borrow_mut().push(("published", diag_t.elapsed().as_secs_f64() * 1000.0))
+                });
                 Ok(ConversationTabOutcome { surface, replayed: false })
             }
             Err(error) => {

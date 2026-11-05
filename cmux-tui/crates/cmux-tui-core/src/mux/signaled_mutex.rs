@@ -420,6 +420,8 @@ const STATE_LOCK_NAME: &str = "mux.state";
 
 thread_local! {
     /// DIAG (not for merge): registry lock takes on this thread: (line, file, wait ms).
+    pub(crate) static DIAG_STATE: std::cell::RefCell<Vec<(u32, String, f64)>> = const { std::cell::RefCell::new(Vec::new()) };
+    pub(crate) static DIAG_PHASE: std::cell::RefCell<Vec<(&'static str, f64)>> = const { std::cell::RefCell::new(Vec::new()) };
     pub(crate) static DIAG_REG: std::cell::RefCell<Vec<(u32, String, f64)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
@@ -523,7 +525,16 @@ impl StateMutex {
         let site = std::panic::Location::caller();
         let waited_from = Instant::now();
         let blocker = self.stats.wait_started();
-        match self.value.lock() {
+        let locked = self.value.lock();
+        let w = waited_from.elapsed().as_secs_f64() * 1000.0;
+        DIAG_STATE.with(|d| {
+            d.borrow_mut().push((
+                site.line(),
+                site.file().rsplit('/').next().unwrap_or("").to_string(),
+                w,
+            ))
+        });
+        match locked {
             Ok(guard) => Ok(StateGuard::new(guard, self, site, waited_from, blocker)),
             Err(poison) => Err(PoisonError::new(StateGuard::new(
                 poison.into_inner(),
