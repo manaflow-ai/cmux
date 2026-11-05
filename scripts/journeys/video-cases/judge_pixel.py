@@ -63,6 +63,10 @@ small run inside a pane: a cursor blink, a glyph) shows that frame's picture: ev
 sample (`repeats` in the JSON). When the layout due in that frame differs where the scan can see it (an edge on a scan
 line moved by 1 device px or more), the window presented an old picture: the frame is late as a whole (m6), and no layer
 finding comes from it.
+m14 (cmux-ad m14, Lead 2026-11-05): from the same edges as the m6 check, per kind, m6's allowances fail: a frame takes
+the first class of scaled (E5, or rings 2 and 3 narrower than at rest: squeezed), gap (E4), edge (E2, E3, page early 1),
+allowed (m6 late: the previous size, anchored top-left, clipped), page_late (m6 page late 1), pass (`m14` in the JSON,
+information lines here; the verdict is judge_m14.py's). Per kind also the worst edge offset from its pane edge.
 Motions (an edge of the trace that moves, then rests 3 samples): settle_frames (from the first frame that shows the
 landed sample until the content is within 1 px of it for good) and, for a spring input with a declared spring, the
 trace and the film against that spring's step response (omega0 = 2 pi / response; t0 fitted). A motion is input-driven
@@ -1266,6 +1270,7 @@ def judge(base, all_frames=False):
     strips = judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes, strip_x, strip_y, fixed)
     judge_page_windows(film, shown, measured, summary, add_frame)
     report["m6"] = judge_m6(film, shown, measured, side_rest, strips, repeats["late"])
+    report["m14"] = report["m6"].pop("m14")  # cmux-ad m14: the same edges, m6's allowances failed (judge_m14.py)
     if film.main_pane_source and film.main_pane_source != "note" and film.main_pane[0] > 0:
         report["notes"].append(f"the panes' visible area {film.main_pane} is from {film.main_pane_source}")
     if film.note.get("page_backdrop") is not False and any(i["kind"] == "page" for i in film.panes.values()):
@@ -1277,7 +1282,7 @@ def judge(base, all_frames=False):
     report["findings"], report["info"] = findings_of(report)
     m6_findings, m6_info = m6_findings_of(report["m6"])
     report["findings"] += m6_findings
-    report["info"] += m6_info
+    report["info"] += m6_info + m14_info_of(report["m14"])
     report["info"].insert(0, {"check": "clock", "where": "film", "detail": f"offset {offset:+d} ({clock['status']}): "
                                                                           f"{clock['why']}"})
     if "page_window_offset" in clock:
@@ -1400,6 +1405,10 @@ def judge_divider_rects(film, dividers, summary):
 
 M6_KINDS = ("terminal", "page", "agent")
 M6_RULES = ("E2", "E3", "E4", "E5", "page early 1")
+# cmux-ad m14 (Lead 2026-11-05): a frame of a kind takes the first class that applies; every class but pass fails.
+M14_FAIL_CLASSES = ("scaled", "gap", "edge", "allowed", "page_late")
+M14_ORDER = M14_FAIL_CLASSES + ("pass", "not judged")
+M14_OF_M6 = {"pass": "pass", "late": "allowed", "page late 1": "page_late", "not judged": "not judged"}
 
 
 def m6_kind(info):
@@ -1499,6 +1508,7 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
     sources = {kind: collections.Counter() for kind in M6_KINDS}
     touch_edges = collections.Counter()  # kind -> edges not judged because two grounds touch (3e.3)
     touch_frames = {kind: set() for kind in M6_KINDS}
+    m14_frames = {kind: collections.defaultdict(list) for kind in M6_KINDS}  # kind -> frame -> [(class, dev px, edge)]
     for key, per in sorted(measured.items()):
         if key not in side_rest:
             continue  # a side the pane loop does not judge (no fill on the line at rest)
@@ -1531,6 +1541,7 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
         values = [content_value(m, kind, axis, side) for m in per]
         rest = [f for f in range(film.n) if values[f] is not None and (pane_at(f)[0] or (None, None))[si] is not None]
         offset = float(np.median([values[f] - pane_at(f)[0][si] for f in rest[:REST_FALLBACK * 4]])) if rest else 0.0
+        edge_name = f"{film.panes[pid].get('label') or pid} {name} {side}"
         for f in range(film.n):
             m = per[f]
             if m is not None and m.get("why") == TOUCH_NOT_JUDGED:
@@ -1540,11 +1551,13 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
             if m is None or m.get("status") not in ("found", "cut"):
                 continue
             cur, prev, nxt = pane_at(f)
+            dev = None
             if values[f] is None or cur is None or cur[si] is None or not rest:
                 verdict, rule = "not judged", None  # E2 and E3 need the pane edge as shown and the content edge
             else:
                 sources[kind][source] += 1
                 verdict, rule = m6_edge_verdict(kind, side, values[f] - offset, cur, prev, nxt)
+                dev = round(float(values[f] - offset - cur[si]), 2)  # m14: this edge's offset from its pane edge
             # E4 and E5 are facts of the content itself: they hold whether or not a layer shows the pane edge.
             # E4 and E5 explain an edge that is off: a shell gap shortens the content, a stretched ring moves its outer
             # edge. When one of them fails, the edge's E2 or E3 is not counted again (the frame fails either way).
@@ -1561,6 +1574,19 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
                 rule_frames[kind][rule].add(f)
             frames[kind][f].append(verdict)
             edge_counts[kind][verdict] += 1
+            # m14: the same edge's class. Squeezed (rings 2 and 3 both narrower than at rest; a clip cuts only the ring it
+            # reaches, so it is never both): content scaled down, as E5 is content scaled up.
+            squeezed = m.get("status") == "found" and all(
+                rings_rest[r] and 0 < m["rings"][r] < rings_rest[r] - TOL_PX for r in (1, 2))
+            if rule == "E5" or squeezed:
+                m14_class = "scaled"
+            elif rule == "E4":
+                m14_class = "gap"
+            elif verdict == "fail":
+                m14_class = "edge"
+            else:
+                m14_class = M14_OF_M6[verdict]
+            m14_frames[kind][f].append((m14_class, dev, edge_name))
     out = {"kinds": {}}
     order = ("fail", "late", "page late 1", "pass")
     for kind in M6_KINDS:
@@ -1583,7 +1609,51 @@ def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
     late = sorted(set(f for f, lags in (strips.get("lags_fixed") or {}).items() if lags and all(v == 1 for v in lags))
                   | set(late_repeats))
     out["late_as_a_whole"], out["late_as_a_whole_ranges"] = len(late), ranges(late)
+    out["m14"] = m14_rows(m14_frames, touch_edges, touch_frames, out)
     return out
+
+
+def m14_rows(m14_frames, touch_edges, touch_frames, m6):
+    """cmux-ad m14 per kind, from the edges judge_m6 judged (the same rest offsets and pane edges): frames (with an edge
+    measured), judged (with a judged edge), pass, fail (+ ranges), a count and ranges per fail class, not judged,
+    touch_not_judged (3e.3), and the worst edge offset from its pane edge (device px; its frame and edge). Late as a
+    whole (E7 and 3e.5's repeats: the window presented a whole old frame) is m6's, information, not a content class."""
+    kinds = {}
+    for kind in M6_KINDS:
+        frames = m14_frames[kind]
+        if not frames:
+            continue
+        per_frame, worst = {}, (0.0, None, None)
+        for f, edges in frames.items():
+            classes = {c for c, _, _ in edges}
+            per_frame[f] = next(c for c in M14_ORDER if c in classes)
+            for _, dev, where in edges:
+                if dev is not None and abs(dev) > abs(worst[0]):
+                    worst = (dev, f, where)
+        by = {c: sorted(f for f, w in per_frame.items() if w == c) for c in M14_ORDER}
+        fail = sorted(f for c in M14_FAIL_CLASSES for f in by[c])
+        kinds[kind] = {"frames": len(per_frame), "judged": len(per_frame) - len(by["not judged"]), "pass": len(by["pass"]),
+                       "fail": len(fail), "fail_ranges": ranges(fail),
+                       **{c: len(by[c]) for c in M14_FAIL_CLASSES}, **{f"{c}_ranges": ranges(by[c]) for c in M14_FAIL_CLASSES},
+                       "not_judged": len(by["not judged"]), "not_judged_ranges": ranges(by["not judged"]),
+                       "touch_not_judged": touch_edges[kind], "touch_not_judged_ranges": ranges(touch_frames[kind]),
+                       "worst_px": abs(worst[0]), "worst_signed_px": worst[0], "worst_frame": worst[1], "worst_edge": worst[2]}
+    return {"kinds": kinds, "late_as_a_whole": m6["late_as_a_whole"], "late_as_a_whole_ranges": m6["late_as_a_whole_ranges"]}
+
+
+def m14_info_of(m14):
+    """Information lines of the m14 contract per kind (never a defect: the judge's exit stays m6's; judge_m14.py gives the
+    m14 verdict)."""
+    info = []
+    for kind, row in (m14.get("kinds") or {}).items():
+        classes = ", ".join(f"{c} {row[c]}" for c in M14_FAIL_CLASSES if row[c])
+        info.append({"check": "m14 contract", "where": f"{kind} content",
+                     "detail": f"{row['fail']} of {row['judged']} judged frames fail" + (f" ({classes}; frames {row['fail_ranges']})"
+                                                                                      if row["fail"] else "")
+                               + f"; worst edge {row['worst_px']:g} px" + (f" (frame {row['worst_frame']}, {row['worst_edge']})"
+                                                                           if row["worst_frame"] is not None else "")
+                               + f"; {row['not_judged']} frames not judged, {row['touch_not_judged']} touching edges not judged"})
+    return info
 
 
 def m6_findings_of(m6):
