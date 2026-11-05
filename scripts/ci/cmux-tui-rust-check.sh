@@ -740,12 +740,13 @@ doc_tests() {
 # 14-55 s and a shard ran 3569 s with 44 time-outs. prune_target keeps in
 # deps/ only the units this commit's build uses (cargo reports every artifact,
 # fresh or rebuilt, with --message-format=json) and deletes the rest. Build
-# again with the same flags, so cargo only reports: no unit is rebuilt.
+# again with the same flags, so cargo only reports: no unit is rebuilt. An affected run
+# lists its own scope: --workspace there would compile every crate the run skipped.
 prune_target() {
   local deps="$CARGO_TARGET_DIR/debug/deps" list
   [[ -d "$deps" ]] || return 0
   list="$(mktemp "${TMPDIR:-/tmp}/rust-check-artifacts.XXXXXX")"
-  if ! cargo test --workspace --locked --no-run --message-format=json >"$list" 2>/dev/null \
+  if ! cargo test "${test_scope[@]}" --locked --no-run --message-format=json >"$list" 2>/dev/null \
     || { [[ "$mode" == all ]] && ! cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --message-format=json >>"$list" 2>/dev/null; }; then
     rm -f "$list"
     echo "prune: skipped (cargo did not list the build's artifacts)"

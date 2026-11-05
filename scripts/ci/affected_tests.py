@@ -50,9 +50,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-# focused_tests caps its selection for a car's guard; a lane's own run takes all of it.
-os.environ.setdefault("FOCUSED_WEB_CAP", "100000")
-os.environ.setdefault("FOCUSED_SWIFT_CAP", "100000")
+# focused_tests caps its selection for a car's guard; a lane's own run takes all of it, whatever
+# cap the caller's environment holds (a capped Swift selection comes back empty).
+os.environ["FOCUSED_WEB_CAP"] = "100000"
+os.environ["FOCUSED_SWIFT_CAP"] = "100000"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import focused_tests  # noqa: E402
 
@@ -62,7 +63,6 @@ WEB_SCRIPT = "scripts/ci/run-webviews-tests.sh"
 PYTHON_RUNNER = "scripts/ci/run_python_test_lane.py"
 GUARDS_SCRIPT = "scripts/ci/guards-local.sh"
 LINUX_PYTHON_LANE = "linux-guard"
-CMUX_NEXT = "Packages/macOS/CmuxNext"
 NATIVE_MODES = {"Native/OptChat/optchat-chief/Cargo.toml": "optchat-chief"}
 # A change to what decides or runs the selection selects everything.
 SELF_INPUTS = (
@@ -352,12 +352,10 @@ def plan(root: Path, base: str, head: str, files: list[str] | None, shards: int,
         for item in focused["swift"]:
             targets.setdefault(item["package"], []).append(item["filter"])
         if focused["swift_deferred"]:
-            # A whole-package selection: every test target of each package a changed path is in.
-            for path in files:
-                pkg = CMUX_NEXT if path.startswith(CMUX_NEXT + "/") else (
-                    (focused_tests.swift_package(root, path) or (None,))[0] or focused_tests.swift_package_root(root, path))
-                if pkg:
-                    targets[pkg] = swift_test_targets(root, pkg)
+            # focused_tests drops its whole Swift selection when it defers, dependents of a changed
+            # package included, so no subset is known to hold the dependent closure: every Swift
+            # package's every test target, as the everything plan runs them.
+            targets = {pkg: swift_test_targets(root, pkg) for pkg in swift_packages(root)}
         web_python: list[str] = []
         named_swift, named_web, named_python = tests_naming(root, focused.get("docs", []))
         for pkg, names in named_swift.items():

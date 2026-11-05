@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -194,6 +195,27 @@ class AffectedTests(unittest.TestCase):
         files = "\n".join(arg for u in web for arg in u["argv"] if arg.startswith("CMUX_WEB_TEST_FILES="))
         self.assertIn(tests[0], files)
 
+    def test_a_deferred_swift_selection_keeps_every_dependent_package(self):
+        # The CmuxNext manifest defers focused_tests' Swift selection (it comes back empty); the
+        # CmuxVNC change still reaches CmuxScreenKit and CmuxRemote, whose suites must run.
+        files = ["Packages/macOS/CmuxNext/Package.swift", "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCClient.swift"]
+        result = plan(files)
+        self.assertFalse(result["all"], result["reasons"])
+        selected = {}
+        for unit in result["units"]:
+            if unit["kind"] == "swift":
+                _, package, targets = unit["argv"][-3:]
+                selected.setdefault(package[len("--arg="):], set()).update(targets[len("--arg="):].split(","))
+        for package in affected_tests.swift_packages(ROOT):
+            self.assertEqual(selected.get(package, set()), set(affected_tests.swift_test_targets(ROOT, package)), package)
+
+    def test_a_capped_environment_does_not_truncate_the_swift_selection(self):
+        out = subprocess.run([sys.executable, "-c", "import sys, os; sys.path.insert(0, 'scripts/ci'); import affected_tests, focused_tests; "
+                              "print(focused_tests.SWIFT_CAP, focused_tests.WEB_CAP)"],
+                             cwd=ROOT, env={**os.environ, "FOCUSED_SWIFT_CAP": "8", "FOCUSED_WEB_CAP": "8"},
+                             check=True, capture_output=True, text=True).stdout.split()
+        self.assertEqual(out, ["100000", "100000"])
+
     def test_swift_shards_split_targets_without_loss(self):
         targets = affected_tests.swift_test_targets(ROOT, "Packages/macOS/CmuxNext")
         parts = affected_tests.split(targets, 4)
@@ -241,6 +263,33 @@ class RustCheckAffectedScope(unittest.TestCase):
     def test_refuses_another_mode(self):
         result = self.run_script("clippy", f"@affected={BASE}")
         self.assertEqual(result.returncode, 2, result.stderr)
+
+
+class RustCheckPruneScope(unittest.TestCase):
+    """prune_target lists the artifacts to keep with `cargo test --no-run`: in an affected run that
+    listing takes the run's own crates, never --workspace (which would compile every skipped crate)."""
+
+    def run_prune(self, scope):
+        text = (ROOT / "scripts/ci/cmux-tui-rust-check.sh").read_text(encoding="utf-8")
+        start = text.index("prune_target() {")
+        body = text[start:text.index("\n}\n", text.index("\nPY\n", start)) + len("\n}\n")]
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "debug/deps").mkdir(parents=True)
+            log = Path(tmp) / "cargo-args"
+            script = (f'cargo() {{ printf "%s\\n" "$*" >>"{log}"; }}\n{body}\n'
+                      f'mode=test; CARGO_TARGET_DIR="{tmp}"; test_scope=({" ".join(scope)}); prune_target\n')
+            subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True, timeout=60)
+            return log.read_text().splitlines()
+
+    def test_an_affected_run_lists_only_its_crates(self):
+        calls = self.run_prune(["-p", "cmux-encode", "-p", "cmux-tui"])
+        self.assertEqual(len(calls), 1, calls)
+        self.assertTrue(calls[0].startswith("test -p cmux-encode -p cmux-tui --locked --no-run"), calls)
+        self.assertNotIn("--workspace", calls[0])
+
+    def test_a_whole_workspace_run_lists_the_workspace(self):
+        calls = self.run_prune(["--workspace"])
+        self.assertTrue(calls[0].startswith("test --workspace --locked --no-run"), calls)
 
 
 class PythonLanePaths(unittest.TestCase):
