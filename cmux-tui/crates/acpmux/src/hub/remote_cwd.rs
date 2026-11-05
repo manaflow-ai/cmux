@@ -44,8 +44,10 @@ pub(super) fn admit_new(
     home: Option<&Path>,
     tmp: &Path,
 ) -> Result<(), RpcError> {
-    let _ = (new, cwd, home, tmp, check);
-    Ok(())
+    if !new.remote || new.trigger || new.kind != crate::config::HarnessKind::ClaudeStdio {
+        return Ok(());
+    }
+    check(cwd, home, tmp)
 }
 
 /// Ok when `cwd` is inside a git work tree or a scratch folder (module
