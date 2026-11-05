@@ -143,6 +143,21 @@ def focus_signature():
     return sig
 
 
+def signature_diff(before, after):
+    """Only what changed between two focus signatures, as {path: [before, after]}."""
+    out = {}
+    for key in ("app_active", "key_window"):
+        if before.get(key) != after.get(key):
+            out[key] = [before.get(key), after.get(key)]
+    bw, aw = before.get("windows") or {}, after.get("windows") or {}
+    for wid in sorted(set(bw) | set(aw), key=str):
+        b, a = bw.get(wid) or {}, aw.get(wid) or {}
+        for field in sorted(set(b) | set(a)):
+            if b.get(field) != a.get(field):
+                out[f"{str(wid)[:8]}.{field}"] = [b.get(field), a.get(field)]
+    return out
+
+
 def shown_tabs(key_only=False):
     """Every tab some window's shown workspace selects in a pane (only the key window's: what the
     person looks at)."""
@@ -262,7 +277,10 @@ def build(engines, states):
                     # The Dock animation ends later: a verb run before it ends meets a window that
                     # still draws, and one during it meets the change mid-call.
                     if not wait(minimized_window, 20):
-                        print("note: the window did not report minimized in 20 s", flush=True)
+                        listed = (rpc("debug.window_list") or {}).get("windows") or []
+                        print("note: the window did not report minimized in 20 s; windows: " + json.dumps(
+                            [{k: w.get(k) for k in ("id", "class", "key", "visible", "miniaturized", "occluded")} for w in listed
+                             if isinstance(w, dict)])[:1200] + f"; key before: {key_window_id()}", flush=True)
     # The person's place: the control workspace in the first window, key and in front.
     rpc("debug.window.focus", {"window": home})
     action("workspace.select", target=f"workspace:{home_ws}", focus=True)
@@ -294,7 +312,7 @@ def run_tab(engine, state, tab, visible_now):
 
     def mark(verb, ok, detail=""):
         cells[verb].result = "pass" if ok else "fail"
-        cells[verb].detail = detail if isinstance(detail, str) else json.dumps(detail)[:300]
+        cells[verb].detail = detail if isinstance(detail, str) else json.dumps(detail)[:1200]
         print(f"  {'ok  ' if ok else 'FAIL'} {engine:8} {state:16} {verb:12} {cells[verb].detail[:160]}", flush=True)
 
     if not tab:
@@ -357,8 +375,7 @@ def run_tab(engine, state, tab, visible_now):
     mark("timers", ticks is not None and ticks >= 10, {"ticks_per_s": ticks, "visibility": vis})
     after = focus_signature()
     still_hidden = visible_now or tab not in shown_tabs(key_only=True)
-    mark("focus_kept", before == after and still_hidden, {"changed": before != after, "shown_now": not still_hidden,
-                                                          "before": before if before != after else None, "after": after if before != after else None})
+    mark("focus_kept", before == after and still_hidden, {"shown_now": not still_hidden, "changed": signature_diff(before, after)})
     return cells
 
 
