@@ -7322,5 +7322,22 @@
         ]
       }
     }
+  },
+  "home.firstRun.switchKeys.tabs": {
+    "source": "Tab 1–9",
+    "identityLocales": {
+      "de": {
+        "reason": "Tab is the standard German noun for a window tab. The translated German entry is still required.",
+        "values": [
+          "Tab 1–9"
+        ]
+      },
+      "vi": {
+        "reason": "Tab is the standard Vietnamese UI word for a window tab. The translated Vietnamese entry is still required.",
+        "values": [
+          "Tab 1–9"
+        ]
+      }
+    }
   }
 }
