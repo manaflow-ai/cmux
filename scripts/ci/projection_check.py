@@ -117,14 +117,15 @@ def wait(probe, seconds: float, every: float = 0.05):
         time.sleep(every)
 
 
-def start_dev_server(port: int, out: Path) -> subprocess.Popen:
+def start_dev_server(port: int, proxy_port: int, out: Path) -> subprocess.Popen:
     web = ROOT / "webviews"
     if not (web / "node_modules").is_dir():
         subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=web, check=True, stdout=subprocess.DEVNULL)
     subprocess.run(["bun", "scripts/pages/gen-strings.mjs", "--best-effort"], cwd=web,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     handle = open(out / "dev-server.log", "w")
-    env = dict(os.environ, CMUX_WEBVIEWS_DEV_PORT=str(port))
+    # The page's HMR socket goes through the proxy: its CSP allows only the server the app fetches from.
+    env = dict(os.environ, CMUX_WEBVIEWS_DEV_PORT=str(port), CMUX_WEBVIEWS_HMR_CLIENT_PORT=str(proxy_port))
     return subprocess.Popen(["bun", "run", "dev"], cwd=web, env=env, stdin=subprocess.DEVNULL, stdout=handle,
                             stderr=subprocess.STDOUT, start_new_session=True)
 
@@ -173,7 +174,7 @@ def check(args) -> int:
     def journey(process, socket_path, env, app, run_out, report):
         inst = Instance(str(socket_path), str(app), env["HOME"])
         vite_port, proxy_port = free_port(), free_port()
-        server = start_dev_server(vite_port, out)
+        server = start_dev_server(vite_port, proxy_port, out)
         original = EDIT.read_text()
         marker = ROOT / ".build" / "l10-test-marker"
         marker.unlink(missing_ok=True)
@@ -204,17 +205,21 @@ def check(args) -> int:
             # 4. the main windows: one more window, nothing through the proxy before the open
             topo = inst.topology() or {}
             windows_after = len(topo.get("windows") or [])
-            early = [r for r in proxy.requests if r[0] < t_open]
+            early = [r for r in proxy.since(0.0) if r[0] < t_open]
             if not step("main-windows", windows_after == windows_before + 1 and not early,
                         windows_before=windows_before, windows_after=windows_after, early_requests=len(early)):
                 failures.append("main windows: touched")
 
             # 3. save a file in the worktree; time to the page's fetch of the change
-            time.sleep(1.0)  # let the page's HMR socket connect after its first load
+            # Quiet first: a first load's dependency optimizer may reload the page once on its own.
+            def quiet():
+                last = proxy.since(0.0)
+                return bool(last) and time.monotonic() - last[-1][0] > 3.0
+            wait(quiet, 60, 0.25)
             t_save = time.monotonic()
             EDIT.write_text(original + f"\n// l10 {time.time_ns()}\n")
-            changed = wait(lambda: [r for r in proxy.since(t_save)
-                                    if "main.tsx" in r[1] and f"/{PAGE}/" in r[1] or r[1].rstrip("/").endswith(f"/{PAGE}")], 15)
+            # The edited module fetched again (HMR `?t=`, or a full reload's import of it).
+            changed = wait(lambda: [r for r in proxy.since(t_save) if f"pages/{PAGE}/main.tsx" in r[1]], 15)
             ms = int((changed[0][0] - t_save) * 1000) if changed else None
             if not step("save-to-page", ms is not None and ms < args.budget_ms, save_to_page_ms=ms, path=changed[0][1] if changed else None):
                 failures.append(f"save: the change reached the page in {ms} ms (budget {args.budget_ms})")
@@ -236,7 +241,7 @@ def check(args) -> int:
             write_config(config_file(env), lambda d: (d.setdefault("appearance", {}).__setitem__("theme", theme),
                                                       d.setdefault("shortcuts", {}).setdefault("bindings", {}).__setitem__(SHORTCUT_ACTION, SHORTCUT)))
             themed = wait(lambda: theme in json.dumps(inst.cmux("settings", "get", "appearance.theme")), 10, 0.2)
-            keyed = wait(lambda: SHORTCUT.split("+")[-1] in json.dumps(inst.cmux("keybinding", "list", "--command", SHORTCUT_ACTION)), 10, 0.2)
+            keyed = wait(lambda: SHORTCUT in json.dumps(inst.cmux("keybinding", "list", "--command", SHORTCUT_ACTION, "--source", "user")).lower(), 10, 0.2)
             if not step("config-live", bool(themed and keyed) and process.poll() is None and process.pid == pid,
                         theme=bool(themed), shortcut=bool(keyed), config_ms=int((time.monotonic() - t_cfg) * 1000)):
                 failures.append(f"config: theme live {bool(themed)}, shortcut live {bool(keyed)}")
