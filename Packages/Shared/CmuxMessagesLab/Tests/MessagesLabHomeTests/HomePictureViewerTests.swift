@@ -105,7 +105,7 @@ import UniformTypeIdentifiers
         let pictures = HomeTablePictures()
         #expect(await pictures.prepare(missing) == nil)
         #expect(pictures.loadingMark(missing) == nil)
-        let text = "| Shot |\n|---|\n| ![gone](\(missing)) |"
+        let text = "| Shot | Note |\n|---|---|\n| ![gone](\(missing)) | moved |"
         let grid = HomeTableGrid(try Self.table(text, media: { pictures.asset($0) ?? pictures.loadingMark($0) }), available: 500)
         #expect(grid.slots[1][0].isEmpty)
         #expect(grid.cells[1][0].string == "[gone]")
