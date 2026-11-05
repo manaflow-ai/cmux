@@ -348,8 +348,12 @@ async fn a_steer_the_turn_ended_before_reading_answers_no_turn() {
     // The turn's prompt goes in; the turn ends before Claude Code echoes anything of it.
     let Outbound::Lines(_) = t.outbound(&steer(1, "long-step", json!({}))).await else { panic!() };
     let mut q = Queue::default();
-    write(&t, &mut q, &steer(2, "we have them if you append Z", json!({"steer": true, "promptId": "p2"})))
-        .await;
+    write(
+        &t,
+        &mut q,
+        &steer(2, "we have them if you append Z", json!({"steer": true, "promptId": "p2"})),
+    )
+    .await;
     assert_eq!(q.waiting.len(), 1, "the person's steer is written at once: {:?}", q.waiting);
     let done = json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 1, "result": "ok"});
     let ended = t.inbound(&done).await;
