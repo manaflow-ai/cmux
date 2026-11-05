@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Icon } from "./Icon";
 import { IconsProvider } from "./IconsContext";
 import { Copy, Retry, Pin, Spinner, PlayTriangle, StopSquare } from "../conversation/icons";
-import { iconLayers } from "./iconLayersModel";
+import { iconLayers } from "./iconLayers";
 import { rowIconSize } from "./iconSize";
 import type { IconPack } from "./types";
 

@@ -47,6 +47,7 @@ import {
 import { ScrollArea } from "../../ui/ScrollArea";
 import { quantizePickerRail } from "./pickerRailGeometry";
 import { type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
+import { pickerHeightBounds } from "./modelPickerLayout";
 type ModelChoice = {
   id: string;
   name: string;

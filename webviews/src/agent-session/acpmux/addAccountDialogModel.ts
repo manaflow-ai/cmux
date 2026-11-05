@@ -1,5 +1,9 @@
 
 
+/** The daemon's built-in routes (routes.rs `builtin_routes`, accounts.rs): `route/list` leaves them
+ * out, and a route file of their id replaces them, so a new account never takes one. */
+const BUILT_IN_IDS = ["cmux", "codex-login", "claude-login"];
+
 /** A route id from a name: lowercase letters, digits and `-` (routes.rs), unique among `taken` and
  * the built-in routes. */
 export function accountIdFor(name: string, fallback: string, existing: readonly string[]): string {

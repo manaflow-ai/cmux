@@ -483,7 +483,7 @@ export function NewTabScreen(props: Props) {
   // A paste on the field (an image, a copied file, a screenshot) and a file drop anywhere on the
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
   const inlinePlace = useRef<
-    ((chips: readonly import("../composer/attachmentIntake").PendingAttachment[]) => void) | undefined
+    ((chips: readonly import("../composer/attachmentIntakeModel").PendingAttachment[]) => void) | undefined
   >(undefined);
   const {
     attachments,

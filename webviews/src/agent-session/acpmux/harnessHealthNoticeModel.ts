@@ -1,5 +1,14 @@
 import { createContext, useContext } from "react";
 
+export function skipped(): Record<string, string> {
+  try {
+    const value: unknown = JSON.parse(globalThis.localStorage?.getItem(SKIPPED) ?? "{}");
+    return value && typeof value === "object" ? (value as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
 /// One row of acpmux's `_acpmux/harness/health` (cx-ny85), as the host hands it to the pane
 /// (`harness.health`).
 export type HarnessHealth = {

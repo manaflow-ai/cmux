@@ -34,7 +34,8 @@ import { useNativeSessionInfoHost } from "./native/host";
 import { useSameValue } from "./sameValue";
 import { NativeSessionInfo } from "./native/NativeSessionInfo";
 import { FLOAT_MARGIN, pushes, pushedWidth, sessionInfoFits, sessionInfoPopover, sessionInfoStage, SESSION_INFO_CLEAR, sessionInfoClear, findBarCramped, pushedRoom, chatContentOverflow, sessionInfoShown, SIDE_PANEL, sessionInfoTopOffset, type PaneRoom, paneRoom, DISMISS_KEEPERS, SESSION_INFO_TOGGLE, toolCallIds } from "./sessionInfoModel";
-import { SessionInfoPanel, SessionInfoSections } from "./SessionInfo";
+import { MemoSessionInfoSections, SessionInfoPanel } from "./SessionInfo";
+import { subagentsIn } from "../subagents/subagentRows";
 
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
@@ -686,7 +687,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rows.length]);
   const scopedAgent = scope?.agent;
   // What the sections list keeps its identity while it holds the same things (sameValue.ts): a snapshot
-  // is new objects on every streamed token, and the sections (SessionInfoSections, memoized) then skip it.
+  // is new objects on every streamed token, and the sections (MemoSessionInfoSections) then skip it.
   const summary = useSameValue(
     useMemo(
       () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
@@ -923,7 +924,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
       presence={presence}
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
-      <SessionInfoSections
+      <MemoSessionInfoSections
         key={scope ? `${snapshot.sessionId}:subagent:${scope.agent.id}` : snapshot.sessionId}
         banner={banner}
         agent={scope?.agent}

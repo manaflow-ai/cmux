@@ -49,6 +49,7 @@ import {
   type QuickActionMode,
 } from "./quickActions";
 import { HEADER_GLYPH, type ChatMenuItem, menuGroups, type ChatMenuChild, menuKeycap, menuItemForShortcut } from "./chatHeaderToolsModel";
+import { tooltipProps } from "../shortcuts";
 export function ChatHeaderTools({
   onTerminal,
   onSplitDown,

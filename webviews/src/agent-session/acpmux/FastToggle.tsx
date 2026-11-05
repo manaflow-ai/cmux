@@ -3,6 +3,7 @@ import { useT } from "./i18n";
 
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { type SpeedTiers } from "./fastToggleModel";
+import { tooltipProps } from "./shortcuts";
 /// The bolt: a plain outline glyph in muted ink while off, in the theme accent while a tier runs. No
 /// disc, no fill at rest; hover draws the row's soft pill (composerLocation.css `.acpmux-fast`). A
 /// click steps to the next offered tier, and from the last one back to off; with one tier it is

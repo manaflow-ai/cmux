@@ -37,6 +37,7 @@ import { AgentMark } from "../../shared/AgentMark";
 import { TonedIcon } from "../subagents/TonedIcon";
 import { SESSION_INFO_WAVE_STYLE } from "./native/wave";
 import { SUBAGENTS_SHOWN, NO_SESSIONS, subagentCounts } from "./subagentsSectionModel";
+import { rowIconSize } from "../icons/iconSize";
 /// The section head's counts on the clock the lines read, so an idle one leaves "running" in both
 /// at once; only this span re-renders on the tick.
 export function SubagentCountsMeta({

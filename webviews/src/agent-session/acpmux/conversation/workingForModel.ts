@@ -22,7 +22,7 @@ export type WorkingCounts = {
   split?: TurnTokenSplit;
 };
 
-export { workingTokens } from "./TurnTokens";
+export { workingTokens } from "./turnTokensModel";
 
 /// The running line's counts, each opening what it counts: the subagents and the chats the agent
 /// started are one count, "3 subagents" (the tray's word, subagents/SubagentTray.tsx), then the

@@ -15,6 +15,7 @@ import { TonedIcon } from "../subagents/TonedIcon";
 
 import { readableParent, subagentBackLabel, type SubagentScope } from "./subagentScope";
 import { type SubagentHeaderVariant } from "./subagentScopeHeaderModel";
+import { tooltipProps } from "../shortcuts";
 type Props = { scope: Pick<SubagentScope, "agent" | "parent" | "onBack"> };
 
 function Back({ scope }: Props) {

@@ -84,6 +84,7 @@ import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
 import "./sessionInfo.css";
 import { type SessionInfoPlacement, type RailLayout, DISMISS_KEEPERS, RAIL_LAYOUT, SESSION_INFO_TOGGLE, toolCallIds } from "./sessionInfoModel";
+import { tooltipProps } from "../shortcuts";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 /// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
@@ -275,7 +276,7 @@ export function SessionInfoPanel({
 /// The sections for one chat, drawn again only when a prop changes: SessionInfoPresence hands it the
 /// same lists while they hold the same things, so a streamed token, a tool call that makes nothing or a
 /// usage tick draws nothing here.
-export const SessionInfoSections = memo(function SessionInfoSections(props: Parameters<typeof SessionInfo>[0]) {
+export const MemoSessionInfoSections = memo(function MemoSessionInfoSections(props: Parameters<typeof SessionInfo>[0]) {
   return <SessionInfo {...props} />;
 });
 

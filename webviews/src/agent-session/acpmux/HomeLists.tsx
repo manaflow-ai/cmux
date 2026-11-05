@@ -7,6 +7,7 @@ import { type WatchedAsk } from "./needsYou/model";
 import type { AttentionTab } from "./needsYou/attentionTabs";
 import { activityTime, type AcpmuxSessionEntry, projectLabel } from "./sessionList";
 import { HOME_LABELS, homeLists, age } from "./homeListsModel";
+import { pressToOpen } from "../../ui/pressToOpen";
 /// The lists under a new chat's composer. Each row opens its session. Renders
 /// nothing when neither list has a row, so the home is the hero and composer alone.
 export function HomeLists({

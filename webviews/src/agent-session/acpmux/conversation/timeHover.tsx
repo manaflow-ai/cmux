@@ -5,29 +5,6 @@ import { Tooltip } from "../../../ui/Tooltip";
 
 import type { ReactNode } from "react";
 import { type TimeToken, timestampHoverLabel, nextTimestampHover } from "./timeHoverModel";
-/// Markdown's destination syntax also carries local paths, which `textLinks` intentionally does
-/// not return when their extension or timestamp looks unlike a bare path. Preserve all balanced
-/// destinations before inserting the parser's private time markers.
-function markdownDestinations(text: string): { start: number; end: number }[] {
-  const ranges: { start: number; end: number }[] = [];
-  for (let marker = text.indexOf("]("); marker >= 0; marker = text.indexOf("](", marker + 2)) {
-    const open = text.lastIndexOf("[", marker);
-    if (open < 0 || text.slice(open + 1, marker).includes("]")) continue;
-    let depth = 0;
-    for (let at = marker + 2; at < text.length; at++) {
-      const char = text[at];
-      if (char === "(") depth++;
-      else if (char === ")") {
-        if (depth === 0) {
-          ranges.push({ start: marker + 2, end: at });
-          break;
-        }
-        depth--;
-      }
-    }
-  }
-  return ranges;
-}
 
 export function TimeHover({ token }: { token: TimeToken }): ReactNode {
   const now = useLabelClock(token.at, nextTimestampHover);

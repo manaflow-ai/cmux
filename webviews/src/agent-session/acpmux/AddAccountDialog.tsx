@@ -17,10 +17,6 @@ const BRANDS: Record<string, { brand: StringKey; cli: StringKey; folder: string 
   codex: { brand: "picker.addBrand.codex", cli: "picker.addCli.codex", folder: "~/.codex" },
 };
 
-/** The daemon's built-in routes (routes.rs `builtin_routes`, accounts.rs): `route/list` leaves them
- * out, and a route file of their id replaces them, so a new account never takes one. */
-const BUILT_IN_IDS = ["cmux", "codex-login", "claude-login"];
-
 /** The picker adds a local route. Rust validates it; existing accounts and bindings stay intact.
  * Nobody types an id or a folder: the id comes from the name, and a new login gets its own folder
  * under ~/.cmux/accounts (the native host expands `~/`). */

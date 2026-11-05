@@ -18,6 +18,7 @@ import type { AcpmuxUsageLimits } from "../model";
 import { planLimitRows } from "../usageLimits";
 import "./UsageSection.css";
 import { USAGE_SHOWN } from "./usageSectionModel";
+import { cacheUsageRows } from "../usageStats";
 
 const ROW_ICON = rowIconSize(12);
 /// Gallery arms for the own-metrics leading column. The shared slot is the shipped treatment:

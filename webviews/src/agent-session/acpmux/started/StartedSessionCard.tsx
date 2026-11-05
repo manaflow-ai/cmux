@@ -14,6 +14,7 @@ import { type SessionMention, type StartedSession, hasStatusLine, sessionStatus 
 import { SessionStatusLine } from "./SessionStatusLine";
 import { useSessionHover } from "./useSessionHover";
 import "./startedSessions.css";
+import { openSessionAttributes } from "../conversation/menuParts";
 
 /// The chats started in one turn, oldest first, as one card.
 export function StartedSessionCards({

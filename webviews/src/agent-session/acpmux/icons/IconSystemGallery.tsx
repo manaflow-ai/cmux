@@ -2,7 +2,7 @@
 import { useId, type CSSProperties } from "react";
 import { Copy, Magnifier, TerminalSquare } from "../conversation/icons";
 import { Icon } from "./Icon";
-import { iconLayers } from "./iconLayersModel";
+import { iconLayers } from "./iconLayers";
 import { bundledIconPack } from "./iconPack";
 
 export interface IconSystemGalleryProps {

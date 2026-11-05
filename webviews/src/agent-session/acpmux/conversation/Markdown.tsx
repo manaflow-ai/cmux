@@ -21,185 +21,29 @@ import { RemoteMedia } from "../chips/ReplyMedia";
 import { isRemoteMedia } from "../chips/replyMediaModel";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
 import type { Reveal } from "./revealedMarkdownModel";
-import { GitHubMark } from "./icons";
 
 import { MathDisplay } from "./Math";
 import { installSelectionCopy } from "./selectionCopy";
 
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
-import { UrlChip } from "../chips/LinkChips";
-import { linkedText } from "../chips/linkedText";
 import { ReplyFoldersContext, replyFolders } from "../chips/replyFolders";
-import { softBreakNodes } from "./softBreaksModel";
-import { BareReferenceChip } from "../chips/BareReferenceChip";
-import { textLinks } from "../chips/paths";
 
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
-import {
-  commitReferences,
-  githubReferences,
-  type CommitReference,
-  type GithubReference,
-} from "../../../githubReferences";
 import { imageOnlyItems, proseImages, type ThumbItem } from "./inlineMedia";
 import { acpmuxPerf } from "../perf";
-import { StartedSessionChip } from "../started/StartedSessionCard";
 import { useStartedMentions } from "../started/startedSessionCardModel";
-import { splitMentions } from "../started/startedSessions";
-import { splitSkillText } from "./skillWords";
-import { SkillWord } from "./SkillWord";
 import { entranceAllowed } from "../../shared/pageReveal";
 
-import { TimeHover } from "./timeHover";
-import { splitTimeTokens } from "./timeHoverModel";
 import { type MdBlock, parseMarkdown, footnoteOrder, MAX_REPLY_DATA_URLS, dataUrlsOverBudget, linkIcon } from "./markdownModel";
 import { type InlineOptions, renderInline, InlineImage } from "./inlineMarkdown";
+
 /// A long list number (`1000.`) widens its items' indent so it never draws over their text; a
 /// number of one or two digits keeps the list's usual indent.
 function listNumberStyle(block: { ordered: boolean; start: number; items: unknown[] }): CSSProperties | undefined {
   if (!block.ordered) return undefined;
   const digits = String(block.start + block.items.length - 1).length;
   return digits > 2 ? ({ "--cv-ol-digits": digits } as CSSProperties) : undefined;
-}
-
-const NO_REPOSITORY = "-/-";
-
-function linkedGithubText(
-  text: string,
-  key: string,
-  repository?: string,
-  enabled = true,
-  quietCommits = false,
-  bare = true,
-): ReactNode[] {
-  if (!enabled) return linkedText(text, key);
-  // A pull request address, so the chip opens the pull request card (an issue redirects there);
-  // a commit (`abc1234`, `owner/repo@abc1234`) opens its GitHub page. In reading order; a commit
-  // inside a reference, a URL or a path (`https://x.test/app.js?v=3a7bd3e2`) is part of it.
-  // With no repository, a bare `#N` still goes to BareReferenceChip, which links it only when the
-  // transcript names its repository.
-  const issues = githubReferences(text, repository ?? NO_REPOSITORY, "pull", true);
-  const commits = quietCommits ? quietCommitReferences(text, issues, repository) : commitReferences(text, repository);
-  // A commit or a bare `#N` inside a URL or a path (`https://x.test/?q=#12`) is part of it.
-  const spans = commits.length || issues.some((issue) => issue.bare) ? textLinks(text) : [];
-  const outside = (ref: { start: number; end: number }) =>
-    !spans.some((span) => ref.start < span.end && span.start < ref.end);
-  const refs = [...issues.filter((issue) => !issue.bare || (bare && outside(issue))), ...commits.filter(outside)]
-    .sort((a, b) => a.start - b.start)
-    .filter((ref, index, all) => index === 0 || ref.start >= all[index - 1]!.end);
-  if (!refs.length) return linkedText(text, key);
-  const out: ReactNode[] = [];
-  let at = 0;
-  refs.forEach((reference, index) => {
-    if (reference.start > at) out.push(...linkedText(text.slice(at, reference.start), `${key}-${index}-before`));
-    const sha = quietCommits && "sha" in reference;
-    out.push(
-      sha ? (
-        reference.href ? (
-          <a key={`${key}-${index}`} className="cv-sha" href={reference.href} rel="noreferrer">
-            {reference.text}
-          </a>
-        ) : (
-          <span key={`${key}-${index}`} className="cv-sha">
-            {reference.text}
-          </span>
-        )
-      ) : (
-        <UrlChip
-          key={`${key}-${index}`}
-          href={reference.href}
-          icon={<GitHubMark size={14} className="cv-link__icon cv-link__icon--gh" />}
-        >
-          {reference.text}
-        </UrlChip>
-      ),
-    );
-    // A bare `#N` names the repository the transcript's evidence says, not only `repository`.
-    if ("bare" in reference && reference.bare)
-      out[out.length - 1] = (
-        <BareReferenceChip
-          key={`${key}-${index}`}
-          number={reference.bare}
-          href={repository ? reference.href : undefined}
-          text={reference.text}
-        />
-      );
-    at = reference.end;
-  });
-  if (at < text.length) out.push(...linkedText(text.slice(at), `${key}-after`));
-  return out;
-}
-
-/// Every commit SHA in `text` (an agent's message): each links to its commit in the repository it
-/// names (`owner/repo@sha`), else that of the nearest reference before it in the same text
-/// (`hq#2563 (db0677c6)` is a cmuxterm-hq commit), else `repository`; with none it is text.
-function quietCommitReferences(text: string, issues: GithubReference[], repository?: string): CommitReference[] {
-  return commitReferences(text, undefined, true).map((commit) => {
-    if (commit.href) return commit;
-    const before = issues.filter((issue) => issue.end <= commit.start).at(-1);
-    const repo = before ? /^https:\/\/github\.com\/([^/]+\/[^/]+)\//.exec(before.href)?.[1] : repository;
-    const text = commit.sha.length > 10 ? commit.sha.slice(0, 8) : commit.text;
-    return repo ? { ...commit, text, href: `https://github.com/${repo}/commit/${commit.sha}` } : { ...commit, text };
-  });
-}
-
-/// Plain prose: a started chat's name is its chip; the rest links GitHub references and URLs.
-function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] {
-  const out: ReactNode[] = [];
-  let index = 0;
-  for (const part of splitTimeTokens(text)) {
-    if (typeof part !== "string") {
-      out.push(<TimeHover key={`${key}-${index++}`} token={part} />);
-      continue;
-    }
-    const pieces = opts.started?.mentions.length ? splitMentions(part, opts.started.mentions) : [part];
-    out.push(
-      ...pieces.flatMap((piece): ReactNode[] => {
-        const current = `${key}-${index++}`;
-        if (typeof piece === "string" && opts.skills?.size) {
-          const words = splitSkillText(piece, opts.skills);
-          if (words.length > 1 || typeof words[0] !== "string")
-            return words.flatMap((word, at): ReactNode[] =>
-              typeof word === "string"
-                ? softBreakNodes(
-                    linkedGithubText(
-                      word,
-                      `${current}-${at}`,
-                      opts.githubRepository,
-                      opts.linkGithubReferences !== false,
-                      opts.commits === "quiet",
-                      opts.linkBareReferences !== false,
-                    ),
-                    `${current}-${at}`,
-                  )
-                : [<SkillWord key={`${current}-${at}`} {...word} />],
-            );
-        }
-        return typeof piece === "string"
-          ? softBreakNodes(
-              linkedGithubText(
-                piece,
-                current,
-                opts.githubRepository,
-                opts.linkGithubReferences !== false,
-                opts.commits === "quiet",
-                opts.linkBareReferences !== false,
-              ),
-              current,
-            )
-          : [
-              <StartedSessionChip
-                key={current}
-                mention={piece.mention}
-                text={piece.text}
-                onOpen={opts.started!.open}
-              />,
-            ];
-      }),
-    );
-  }
-  return out;
 }
 
 /// Thumbnails of `items` (inlineMedia.ts): one alone, or a row where each has the same share of

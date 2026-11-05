@@ -18,6 +18,7 @@ import type { ChatImage } from "./chatImages";
 import { copyImage } from "./clipboard";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, Folder, Globe } from "./icons";
 import { MIN_SCALE, type View, FIT, activeElementToRestore, zoomAbout, dataUrl } from "./imageViewerModel";
+import { keyedIconProps } from "../../../ui/DialogButton";
 /// What a double click or the + key zooms to from the fitted image.
 const STEP = 2;
 

@@ -22,6 +22,7 @@ import { PermissionActionButton } from "./PermissionCard";
 import { type AcpmuxSessionEntry, projectLabel } from "./sessionList";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { type HomeInboxOutcome, inlineAnswers } from "./homeInboxModel";
+import { pressToOpen } from "../../ui/pressToOpen";
 
 /// How the inbox lays its rows out: each ask with its chat under it and its answers (`list`, the
 /// home's), one line per ask with its answers at its end (`compact`), or under its chat's folder

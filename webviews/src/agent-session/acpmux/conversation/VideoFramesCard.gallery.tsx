@@ -113,12 +113,12 @@ export default componentEntry<Props>({
   height: 420,
   covers: [
     "agent-session/acpmux/conversation/VideoFramesCard.tsx#VideoFramesCard",
-    "agent-session/acpmux/conversation/VideoFramesCard.tsx#VideoFramesLayoutContext",
+    "agent-session/acpmux/conversation/videoFramesCardModel.ts#VideoFramesLayoutContext",
   ],
   load: async () => {
     const [{ McpCallRows }, { VideoFramesLayoutContext }] = await Promise.all([
       import("./McpCallRows"),
-      import("./VideoFramesCard"),
+      import("./videoFramesCardModel"),
     ]);
     return galleryVideoFrames(McpCallRows, VideoFramesLayoutContext);
   },

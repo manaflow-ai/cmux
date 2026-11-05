@@ -26,6 +26,7 @@ import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { mediaKind } from "./mediaKind";
 import { webURL, mediaOpenRequest, formatDuration, loadPlayableMedia, webGranted } from "./replyMediaModel";
+import { keyedIconProps } from "../../../ui/DialogButton";
 /// Asks the host for the URL `source` plays by: at once when `auto`, else on `load()`.
 function useMediaLoad(source: string, auto: boolean) {
   const [src, setSrc] = useState(() => (webURL(source) ? webGranted.get(source) : undefined));

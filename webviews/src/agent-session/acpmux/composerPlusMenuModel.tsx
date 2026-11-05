@@ -1,7 +1,7 @@
 import type React from "react";
 import { AtIcon, BuildIcon, PaperclipIcon, PlanIcon, SearchIcon, SlashIcon } from "./ComposerPickers";
 import type { Choice } from "./composerPickerModel";
-import { type ComposerPlusEntry, type ComposerPlusSection } from "./composerPlusRegistry";
+import { composerPlusSections, type ComposerPlusEntry, type ComposerPlusSection } from "./composerPlusRegistry";
 import { Icon } from "./icons/Icon";
 import { composerPlusCommands } from "./composerPlusCommands.experiment";
 
