@@ -65,7 +65,7 @@ fn a_key_to_an_idle_port_is_on_the_host_socket_when_its_request_returns() {
 fn a_connections_keys_share_one_kernel_queue_for_their_room_check() {
     use crate::terminal_host_runtime::room_check_queues;
     const KEYS: usize = 100;
-    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-queue", true);
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-queue");
     let pty = surface.as_pty().expect("a terminal");
     // The writer is held: a key that went to the port instead of inline never reaches the host.
     let _resume = pty.input_port.pause_writes_for_test();
