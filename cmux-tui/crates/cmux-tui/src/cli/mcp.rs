@@ -750,8 +750,8 @@ impl<B: Backend> Server<B> {
                 let code_mode = self.code_mode && self.allowed.is_none();
                 let wrap_up = code_mode
                     && self.upstreams.iter().any(|up| up.name == code_mode::WRAP_UP_SERVER);
-                let offers = code_mode
-                    && self.upstreams.iter().any(|up| up.name == code_mode::OFFER_SERVER);
+                let offers =
+                    code_mode && self.upstreams.iter().any(|up| up.name == code_mode::OFFER_SERVER);
                 Ok(initialize(&params, self.list_changed, code_mode, wrap_up, offers))
             }
             "ping" => Ok(json!({})),
@@ -1499,7 +1499,13 @@ impl<B: Backend> Server<B> {
 /// `wrap_up`: the chat's acpmux server is folded in, so its next-step box is steered to here too
 /// (code_mode.rs [`code_mode::WRAP_UP_INSTRUCTION`]). `offers`: the chat's cmux-sessions server is
 /// folded in, so suggesting a new chat is steered to here too ([`code_mode::OFFER_INSTRUCTION`]).
-fn initialize(params: &Value, list_changed: bool, code_mode: bool, wrap_up: bool, offers: bool) -> Value {
+fn initialize(
+    params: &Value,
+    list_changed: bool,
+    code_mode: bool,
+    wrap_up: bool,
+    offers: bool,
+) -> Value {
     json!({
         "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
