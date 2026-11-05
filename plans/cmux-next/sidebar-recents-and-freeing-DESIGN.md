@@ -131,6 +131,12 @@ default-off setting first). Flip it on once a week of dogfood shows no lost stat
    match the other `terminal.persistence.*Bytes` keys. Rust tests with a fixed clock and a given free-disk state.
 4. Last-command record, the restored marker line, Run Last Command Again, `runningCommands: relaunch`. The record
    exists: the daemon's command history (`terminal-command-history-v1`, `mux/command_history.rs`) stores each
-   finished OSC 133 command per terminal with its start, end and exit. Slice 4 reads the newest row for the marker
-   line and the action, and keeps that newest row of a parked terminal past the history's retention.
+   finished OSC 133 command per terminal with its start, end and exit, but only while the history is on (off by
+   default, and its module promises no screen text is read until a client turns it on). So slice 4 (4a, done) adds
+   `shell_history::Recording::LastCommand`: while `workspaces.freeing.enabled` is on, each terminal's tracker keeps
+   its newest finished command in memory only (never the history store). `park-tabs` writes it into the kept tab's
+   row (`kept_tabs.last_command_json`, one row, about 100 bytes plus the 1 KiB-capped line; none for an incognito
+   terminal), and the respawn marker reads it: "session restored · last: `npm test` · exit 1" (en, ja in the
+   daemon catalog). Still to do (4b): Run Last Command Again (palette and tab menu, typed without Return),
+   `runningCommands: relaunch`, and freeing idle agent TUIs with their resume.
 5. Hover card "Freed 2d ago · restores on open", `debug.surfaces` counts, docs.

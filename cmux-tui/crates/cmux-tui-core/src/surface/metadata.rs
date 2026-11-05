@@ -27,6 +27,12 @@ impl Surface {
         }
     }
 
+    /// The newest finished shell command this terminal's tracker kept
+    /// (`shell_history::Recording`), if any.
+    pub(crate) fn last_finished_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        self.as_pty().and_then(|pty| pty.last_finished_command())
+    }
+
     pub fn pwd(&self) -> Option<String> {
         self.as_pty().and_then(|pty| pty.pwd.lock().unwrap().clone())
     }

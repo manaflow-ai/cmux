@@ -33,7 +33,7 @@ use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
 
 use super::*;
-use crate::state::kept_tab_store::{KeptTab, kept_title};
+use crate::state::kept_tab_store::{KeptTab, LastCommand, kept_title};
 
 /// Default reap grace period for a terminal with no placement.
 pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
@@ -619,11 +619,24 @@ impl Mux {
             // The title the tab shows now; the next owner has no surface to
             // ask once the terminal ended.
             let title = runtime.as_ref().and_then(|surface| kept_title(&surface.title()));
+            // The command it last finished, for the restored marker line; an
+            // incognito terminal keeps none.
+            let last_command = runtime
+                .as_ref()
+                .filter(|surface| {
+                    surface
+                        .terminal_public_id()
+                        .is_some_and(|id| !self.output_store.is_private(self, id))
+                })
+                .and_then(|surface| surface.last_finished_command())
+                .as_ref()
+                .and_then(LastCommand::from_finished);
             rows.extend(tab_ids.into_iter().map(|tab_id| KeptTab {
                 tab_id,
                 cwd: cwd.clone(),
                 title: title.clone(),
                 on_show,
+                last_command: last_command.clone(),
             }));
             kept.insert(terminal_id);
         }

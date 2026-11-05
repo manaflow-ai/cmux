@@ -50,6 +50,24 @@ impl Mux {
         self.terminal_command_history.load(Ordering::Acquire)
     }
 
+    /// What the terminals' command trackers do: the history store when it
+    /// records, else the last command alone while freeing is on, else nothing.
+    pub(crate) fn shell_recording(&self) -> crate::shell_history::Recording {
+        use crate::shell_history::Recording;
+        if self.terminal_command_history_enabled() {
+            Recording::History
+        } else if self.terminal_last_command.load(Ordering::Acquire) {
+            Recording::LastCommand
+        } else {
+            Recording::Off
+        }
+    }
+
+    /// Follows `workspaces.freeing.enabled` (`mux/settings.rs`).
+    pub(super) fn set_terminal_last_command(&self, enabled: bool) {
+        self.terminal_last_command.store(enabled, Ordering::Release);
+    }
+
     /// `set-terminal-command-history`: the switch, and the retention when
     /// given (stored at once; lists hide what it expires, and the worker
     /// deletes those rows).

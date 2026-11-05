@@ -274,6 +274,11 @@ fn flag_values<'a>(flags: &'a [String], names: &[&str]) -> Vec<&'a str> {
 pub(in crate::mux) enum RanText {
     Command(String),
     Agent(String),
+    /// A freed shell's last command (`kept_tabs.last_command_json`).
+    Last {
+        command: String,
+        exit_code: Option<i32>,
+    },
 }
 
 impl RanText {
@@ -281,6 +286,7 @@ impl RanText {
         match self {
             Self::Command(command) => Ran::Command(command),
             Self::Agent(command) => Ran::Agent(command),
+            Self::Last { command, exit_code } => Ran::Last { command, exit_code: *exit_code },
         }
     }
 }
