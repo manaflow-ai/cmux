@@ -33,6 +33,18 @@
       "reduceTransparency": "the opaque elevated fill (Palette.elevatedBackground) with a hairline"
     },
     {
+      "name": "group",
+      "for": "the sidebar's group headers and a group's pane behind its members, over the sidebar's own glass: the group's color tints the veil",
+      "tone": "neutral",
+      "style": "group",
+      "cornerDepth": 0,
+      "webRadius": 6,
+      "veil": { "dark": 0.06, "light": 0.2 },
+      "rim": { "dark": [0.24, 0.04], "light": [0.75, 0.08] },
+      "castsShadow": false,
+      "reduceTransparency": "the veil and tint composited over the sidebar's opaque background, with a hairline"
+    },
+    {
       "name": "toast",
       "for": "toasts: a rounded rect, never a capsule, even on one line",
       "tone": "neutral",

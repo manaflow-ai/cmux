@@ -19,7 +19,7 @@ public nonisolated enum ActionFeature: String, CaseIterable, Sendable, Hashable 
         let id = descriptor.id.rawValue
         let lowered = id.lowercased()
         if lowered.hasPrefix("computeruse") || id.hasPrefix("palette.computerUse.") { return .computerUse }
-        if descriptor.category == .remote || id == "disconnectRemoteTab" || ["server.makeThisMacAServer", "server.addServer"].contains(id) { return .remoteHosts }
+        if descriptor.category == .remote || id == "disconnectRemoteTab" || ["server.makeThisMacAServer", "server.addServer", "server.pairAnotherMachine"].contains(id) { return .remoteHosts }
         // Apps: the App Store catalog's own actions, by membership, not by an
         // "app." prefix (Share cmux is `app.shareCmux` and is not an Apps action).
         if appsActionIDs.contains(descriptor.id) { return .apps }
