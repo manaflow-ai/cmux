@@ -5,7 +5,7 @@ Ghostty, daemons, Cloud or Chief. Leo, 2026-11-04: "a dragabble window that is l
 through and through without the heavy bits".
 
 Each window is an `NSWindow` with the system titlebar, traffic lights and vibrancy. Its content is
-the webviews mock app (`webviews/src/gallery/app.html`, see `webviews/src/gallery/ENTRIES.md`, "The
+the webviews mock app (`webviews/src/gallery/mock-app.html`, see `webviews/src/gallery/ENTRIES.md`, "The
 mock app") with `chrome=native`: the sidebar, tab strips and every pane's real web surface (agent
 pane, transcript, composer, menus, Session Info, New Tab, Home) on the in-page mock host. The
 shell is one Swift file and links nothing of the app, so it builds in seconds and only when this
@@ -33,7 +33,7 @@ cmux preview open --fixture app.window/new-tab --density compact     # the same,
   only: where the window shows the system glass, the PNG is transparent.
 - **Any axis.** `--KEY VALUE` passes a mock app key: `--fixture`, `--fixture2`, `--layout`,
   `--density`, `--scale`, `--theme`, `--colorScheme`, `--script`, `--cpu`, `--slot`, and the rest
-  in `webviews/src/gallery/app/axes.ts`.
+  in `webviews/src/gallery/mock-app/axes.ts`.
 
 How it differs from the gallery: the gallery shows one entry's states, each alone in a frame; the
 shell shows the whole app, one window per state, at real sizes, in real windows.

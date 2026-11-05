@@ -212,7 +212,7 @@ def claim_gated(name: str, job: dict) -> bool:
     first = steps[0] if steps and isinstance(steps[0], dict) else {}
     return (tuple(name.split(" ", 1)) in owned_mac.SIGNING_JOBS
             and first.get("id") == owned_mac.CLAIM_GATE_ID
-            and str(first.get("run", "")).strip() == owned_mac.CLAIM_GATE.strip())
+            and str(first.get("run", "")).strip() == owned_mac.claim_gate_for(name.split(" ", 1)[0]).strip())
 
 
 def secret_gate_failures(name: str, job: dict) -> list[str] | None:

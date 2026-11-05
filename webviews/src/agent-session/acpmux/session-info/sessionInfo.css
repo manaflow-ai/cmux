@@ -303,9 +303,9 @@
   background: none;
 }
 /* The six-dot handle that moves a section (SessionInfoGroup.tsx): left of the section's title, in the
-   head's leading padding before its icon column and one base step into the body's left inset, so it
-   sits by the title and far from the scrollbar's thumb (Leo, 2026-11-03: "the grabber is too close to
-   the thumb scroll thing in fact why dont we have the drag grabber to the left of the title"). It
+   head's leading padding before its icon column, so it sits by the title and far from the scrollbar's
+   thumb (Leo, 2026-11-03: "the grabber is too close to the thumb scroll thing in fact why dont we have
+   the drag grabber to the left of the title"). It
    overlaps no icon or title, and the title keeps the text column it has with no handle. It shows only
    while its head (a bare section's first row) or the handle itself is hovered, on keyboard focus, or
    while it drags, as the native panel's grip does (#32674): no glyph at rest, and not for a pointer
@@ -317,13 +317,17 @@
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
-  /* Centred on the head's left edge, where its hover pill starts, and on the head's middle line, so the
-     grip sits on one line with the row instead of half on, half off its pill (Leo, 2026-11-03: "this is
-     an uglily placed thing. just align the draggable"). Two base steps wide: the panel's resize edge
-     (3px in) stays clear on the left, the icon or title (one grid gap in) on the right. The gallery
-     compares other centres through --acpmux-session-info-grip-center. */
-  left: calc(var(--acpmux-session-info-grip-center, 0px) - var(--grid-base));
-  width: calc(2 * var(--grid-base));
+  /* Wholly inside the head's hover pill, in its leading padding before the icon column, and on the
+     head's middle line (Leo, 2026-11-04: "this is off", of the grip centred on the pill's edge, half in
+     and half out). The dots centre on the room left of a row icon's ink (the padding and the 14px icon's
+     margin in its 16px box), so they have about the same gap to the pill's edge as to the icon. The
+     handle is the padding's width and ends where the icon box starts, so it takes no click from the
+     icon. The gallery compares other centres through --acpmux-session-info-grip-center. */
+  --acpmux-session-info-grip-room: calc(var(--grid-gap) + var(--grid-base) / 4);
+  left: calc(
+    var(--acpmux-session-info-grip-center, calc(var(--acpmux-session-info-grip-room) / 2)) - var(--grid-gap) / 2
+  );
+  width: var(--grid-gap);
   height: var(--grid-row);
   display: flex;
   align-items: center;
@@ -369,7 +373,7 @@
    (glance), a hairline between blocks and none around them; the top block's rows run together. The
    body's sides are the head's, so a row's text lines up under the panel's title. */
 .acpmux-session-info__body[data-layout] {
-  /* The grid's side inset each side; a section's drag handle takes one base step of the left one. */
+  /* The grid's side inset each side. */
   padding-right: var(--grid-sidebar-highlight-inset);
   padding-left: var(--grid-sidebar-highlight-inset);
 }
@@ -417,15 +421,17 @@
 }
 /* The panel's sections in the person's one order (SessionInfoGroup.tsx SessionInfoSectionList): each slot keeps
    its block (data-group), and a hairline sits wherever two adjacent slots come from different blocks
-   (data-run-start). The list owns the spacing (design/grid.md section 3): the inner gap between a
-   block's sections, the block gap between blocks, with the hairline centred in it. */
+   (data-run-start). The list owns the spacing (design/grid.md section 3), tighter than the transcript's
+   so the sections read as one list of rows (Leo, 2026-11-04: "there's a bit too big of a gap between
+   sections"): one base step between a block's sections, one inner gap between blocks, with the hairline
+   centred in it. Row height and each section's own spacing stay as they are. */
 .acpmux-session-info-sections {
   position: relative;
   flex: none;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--grid-gap-inner);
+  gap: var(--grid-base);
 }
 .acpmux-session-info-slot {
   position: relative;
@@ -433,12 +439,12 @@
   min-width: 0;
 }
 .acpmux-session-info__body[data-layout="glance"] .acpmux-session-info-slot[data-run-start] {
-  margin-top: calc(var(--grid-gap-block) - var(--grid-gap-inner));
+  margin-top: calc(var(--grid-gap-inner) - var(--grid-base));
 }
 .acpmux-session-info__body[data-layout="glance"] .acpmux-session-info-slot[data-run-start]::before {
   content: "";
   position: absolute;
-  top: calc(-1 * var(--grid-gap-block) / 2);
+  top: calc(-1 * var(--grid-gap-inner) / 2);
   right: 0;
   left: 0;
   border-top: var(--cmux-hairline, 0.5px) solid var(--agent-border);

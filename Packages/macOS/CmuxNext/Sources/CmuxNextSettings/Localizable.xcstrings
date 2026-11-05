@@ -29094,6 +29094,84 @@
         }
       }
     },
+    "settings.layout.cornerPadding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Corner Padding"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "角のパディング"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "حشوة الزاوية"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Razmak uglova"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Hjørneafstand"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Eckabstand"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Margen de esquina"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Marge des coins"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Spaziatura degli angoli"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គម្លាតជ្រុង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "모서리 여백"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Hjørneavstand"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Odstęp narożnika"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Espaçamento do canto"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Отступ углов"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ระยะห่างมุม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Köşe boşluğu"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відступ кутів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khoảng đệm góc"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "圆角内边距"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "圓角內距"}}
+      }
+    },
+    "settings.layout.paneCornerRadius.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ペインとタブに共通の半径です。ペイン内の図形はこの半径から角のパディングを引いた値を使います。"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "نصف قطر واحد للأجزاء وعلامات التبويب. تستخدم الأشكال داخل الجزء هذا النصف مطروحًا منه حشوة الزاوية."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Jedan radijus za panele i kartice. Oblici unutar panela koriste ovaj radijus umanjen za razmak uglova."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Én radius for ruder og faner. Former i en rude bruger denne radius minus hjørneafstanden."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ein Radius für Bereiche und Tabs. Formen in einem Bereich nutzen diesen Radius minus den Eckabstand."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Un radio para paneles y pestañas. Las formas dentro de un panel usan este radio menos el margen de esquina."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Un seul rayon pour les volets et les onglets. Les formes d'un volet utilisent ce rayon moins la marge des coins."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Un raggio per pannelli e schede. Le forme in un pannello usano questo raggio meno la spaziatura degli angoli."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កាំតែមួយសម្រាប់ផ្ទាំង និងផ្ទាំងរង។ រូបរាងក្នុងផ្ទាំងប្រើកាំនេះដកគម្លាតជ្រុង។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "창과 탭에 쓰는 하나의 반경입니다. 창 안의 도형은 이 반경에서 모서리 여백을 뺀 값을 씁니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Én radius for ruter og faner. Former i en rute bruker denne radiusen minus hjørneavstanden."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Jeden promień dla paneli i kart. Kształty w panelu używają tego promienia minus odstęp narożnika."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Um raio para painéis e abas. As formas dentro de um painel usam este raio menos o espaçamento do canto."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Один радиус для панелей и вкладок. Фигуры внутри панели используют этот радиус минус отступ углов."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "รัศมีเดียวสำหรับบานหน้าต่างและแท็บ รูปทรงในบานหน้าต่างใช้รัศมีนี้ลบระยะห่างมุม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bölmeler ve sekmeler için tek yarıçap. Bölme içindeki şekiller bu yarıçaptan köşe boşluğunu çıkarır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Один радіус для панелей і вкладок. Фігури всередині панелі використовують цей радіус мінус відступ кутів."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Một bán kính cho ô và thẻ. Hình bên trong ô dùng bán kính này trừ khoảng đệm góc."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "窗格和标签页共用一个半径。窗格内的形状使用此半径减去圆角内边距。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "窗格與分頁共用一個半徑。窗格內的形狀使用此半徑減去圓角內距。"}}
+      }
+    },
+    "settings.layout.cornerPadding.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Space between a pane's edge and its tabs. Inner corners use the corner radius minus this."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "ペインの端とタブの間隔です。内側の角は角丸の半径からこの値を引いたものです。"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المسافة بين حافة الجزء وعلامات التبويب. تستخدم الزوايا الداخلية نصف قطر الزاوية مطروحًا منه هذه القيمة."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Razmak između ruba panela i kartica. Unutrašnji uglovi koriste radijus uglova umanjen za ovo."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Afstand mellem en rudes kant og dens faner. Indre hjørner bruger hjørneradius minus denne."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Abstand zwischen dem Rand eines Bereichs und seinen Tabs. Innere Ecken nutzen den Eckradius minus diesen Wert."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Espacio entre el borde de un panel y sus pestañas. Las esquinas internas usan el radio de esquina menos este valor."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Espace entre le bord d'un volet et ses onglets. Les coins intérieurs utilisent le rayon des coins moins cette valeur."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Spazio tra il bordo di un pannello e le sue schede. Gli angoli interni usano il raggio meno questo valore."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "គម្លាតរវាងគែមផ្ទាំង និងផ្ទាំងរងរបស់វា។ ជ្រុងខាងក្នុងប្រើកាំជ្រុងដកតម្លៃនេះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "창 가장자리와 탭 사이의 간격입니다. 안쪽 모서리는 모서리 반경에서 이 값을 뺍니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Avstand mellom kanten av en rute og fanene. Indre hjørner bruker hjørneradius minus denne."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Odstęp między krawędzią panelu a jego kartami. Wewnętrzne narożniki używają promienia minus ta wartość."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Espaço entre a borda de um painel e suas abas. Os cantos internos usam o raio do canto menos este valor."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Расстояние между краем панели и её вкладками. Внутренние углы используют радиус углов минус это значение."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ระยะห่างระหว่างขอบบานหน้าต่างกับแท็บ มุมด้านในใช้รัศมีมุมลบค่านี้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bölme kenarı ile sekmeleri arasındaki boşluk. İç köşeler köşe yarıçapından bunu çıkarır."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відстань між краєм панелі та її вкладками. Внутрішні кути використовують радіус кутів мінус це значення."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khoảng cách giữa cạnh ô và các thẻ của nó. Góc bên trong dùng bán kính góc trừ giá trị này."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "窗格边缘与其标签页之间的间距。内侧圆角使用圆角半径减去此值。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "窗格邊緣與其分頁之間的間距。內側圓角使用圓角半徑減去此值。"}}
+      }
+    },
     "settings.layout.paneCornerRadius": {
       "extractionState": "manual",
       "localizations": {
@@ -83876,6 +83954,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新後，側邊欄底部會顯示一張通往「新功能」的卡片，直到你打開或關閉它。"
+          }
+        }
+      }
+    },
+    "settings.updates.oneClickInstall": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update in One Click"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit einem Klick aktualisieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour en un clic"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحديث بنقرة واحدة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar con un clic"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一鍵更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一键更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 번의 클릭으로 업데이트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワンクリックでアップデート"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriraj jednim klikom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdater med ét klik"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna con un clic"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើបច្ចុប្បន្នភាពដោយចុចតែម្តង"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdater med ett klikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizuj jednym kliknięciem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar com um clique"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление в один клик"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดตในคลิกเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek Tıkla Güncelle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлення в один клік"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cập nhật bằng một lần nhấp"
+          }
+        }
+      }
+    },
+    "settings.updates.oneClickInstall.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: Update downloads the update, then cmux asks before it restarts into it. On: one click on Update downloads it, shows its progress, then installs it and restarts cmux. Terminals and agents keep running across the restart."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus: „Aktualisieren“ lädt das Update, dann fragt cmux, bevor es neu startet. Ein: Ein Klick auf „Aktualisieren“ lädt es, zeigt den Fortschritt, installiert es und startet cmux neu. Terminals und Agenten laufen über den Neustart hinweg weiter."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé : Mettre à jour télécharge la mise à jour, puis cmux demande avant de redémarrer. Activé : un clic sur Mettre à jour la télécharge, affiche sa progression, puis l’installe et redémarre cmux. Les terminaux et les agents continuent de tourner pendant le redémarrage."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف: يؤدي «تحديث» إلى تنزيل التحديث، ثم يسأل cmux قبل إعادة التشغيل. تشغيل: نقرة واحدة على «تحديث» تنزّله وتعرض تقدّمه، ثم تثبّته وتعيد تشغيل cmux. تستمر الطرفيات والوكلاء في العمل خلال إعادة التشغيل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado: Actualizar descarga la actualización y cmux pregunta antes de reiniciarse. Activado: un clic en Actualizar la descarga, muestra su progreso, la instala y reinicia cmux. Los terminales y los agentes siguen ejecutándose durante el reinicio."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉：「更新」會下載更新，cmux 會在重新啟動前先詢問。開啟：按一下「更新」即會下載並顯示進度，接著安裝並重新啟動 cmux。終端機和代理程式在重新啟動期間會繼續執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭：“更新”会下载更新，cmux 会在重新启动前先询问。开启：点按一次“更新”即会下载并显示进度，然后安装并重新启动 cmux。终端和代理在重新启动期间会继续运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔: 업데이트를 누르면 업데이트를 다운로드하고, cmux가 재시작하기 전에 묻습니다. 켬: 업데이트를 한 번 클릭하면 다운로드하며 진행 상황을 표시하고, 설치한 뒤 cmux를 재시작합니다. 터미널과 에이전트는 재시작 중에도 계속 실행됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ：「アップデート」でアップデートをダウンロードし、再起動の前に cmux が確認します。オン：「アップデート」を1回クリックするとダウンロードして進行状況を表示し、インストールして cmux を再起動します。ターミナルとエージェントは再起動中も動作し続けます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno: Ažuriraj preuzima ažuriranje, a zatim cmux pita prije ponovnog pokretanja. Uključeno: jedan klik na Ažuriraj preuzima ga, prikazuje napredak, zatim ga instalira i ponovo pokreće cmux. Terminali i agenti nastavljaju raditi tokom ponovnog pokretanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra: Opdater henter opdateringen, og cmux spørger, før det genstarter. Til: ét klik på Opdater henter den, viser fremskridtet, installerer den og genstarter cmux. Terminaler og agenter kører videre under genstarten."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato: Aggiorna scarica l'aggiornamento, poi cmux chiede prima di riavviarsi. Attivato: un clic su Aggiorna lo scarica, ne mostra l'avanzamento, lo installa e riavvia cmux. Terminali e agenti continuano a funzionare durante il riavvio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ៖ ធ្វើបច្ចុប្បន្នភាព ទាញយកការធ្វើបច្ចុប្បន្នភាព បន្ទាប់មក cmux សួរមុនពេលចាប់ផ្តើមឡើងវិញ។ បើក៖ ចុចម្តងលើ ធ្វើបច្ចុប្បន្នភាព ដើម្បីទាញយក បង្ហាញដំណើរការ បន្ទាប់មកដំឡើង ហើយចាប់ផ្តើម cmux ឡើងវិញ។ ស្ថានីយ និងភ្នាក់ងារនៅតែដំណើរការក្នុងពេលចាប់ផ្តើមឡើងវិញ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av: Oppdater laster ned oppdateringen, og cmux spør før det starter på nytt. På: ett klikk på Oppdater laster den ned, viser fremdriften, installerer den og starter cmux på nytt. Terminaler og agenter fortsetter å kjøre under omstarten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone: Aktualizuj pobiera aktualizację, a cmux pyta przed ponownym uruchomieniem. Włączone: jedno kliknięcie Aktualizuj pobiera ją, pokazuje postęp, instaluje ją i uruchamia cmux ponownie. Terminale i agenci działają dalej podczas ponownego uruchomienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado: Atualizar baixa a atualização e o cmux pergunta antes de reiniciar. Ativado: um clique em Atualizar a baixa, mostra o progresso, instala e reinicia o cmux. Terminais e agentes continuam rodando durante a reinicialização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл.: «Обновить» загружает обновление, затем cmux спрашивает перед перезапуском. Вкл.: один клик по «Обновить» загружает его, показывает ход загрузки, устанавливает и перезапускает cmux. Терминалы и агенты продолжают работать во время перезапуска."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด: อัปเดตจะดาวน์โหลดการอัปเดต แล้ว cmux จะถามก่อนรีสตาร์ท เปิด: คลิกอัปเดตครั้งเดียวจะดาวน์โหลด แสดงความคืบหน้า แล้วติดตั้งและรีสตาร์ท cmux เทอร์มินัลและเอเจนต์ยังคงทำงานระหว่างรีสตาร์ท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı: Güncelle, güncellemeyi indirir, ardından cmux yeniden başlatmadan önce sorar. Açık: Güncelle'ye tek tık güncellemeyi indirir, ilerlemesini gösterir, ardından yükler ve cmux'u yeniden başlatır. Terminaller ve ajanlar yeniden başlatma boyunca çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимк.: «Оновити» завантажує оновлення, потім cmux питає перед перезапуском. Увімк.: один клік на «Оновити» завантажує його, показує перебіг, встановлює та перезапускає cmux. Термінали й агенти працюють далі під час перезапуску."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt: Cập nhật sẽ tải bản cập nhật, sau đó cmux hỏi trước khi khởi động lại. Bật: một lần nhấp vào Cập nhật sẽ tải xuống, hiển thị tiến trình, rồi cài đặt và khởi động lại cmux. Terminal và tác tử vẫn tiếp tục chạy trong khi khởi động lại."
           }
         }
       }

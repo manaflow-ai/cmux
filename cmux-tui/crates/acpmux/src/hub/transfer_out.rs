@@ -328,14 +328,19 @@ impl Hub {
         }
         let transfer_id = uuid::Uuid::now_v7().to_string();
         self.sweep();
-        {
+        // This begin holds the move's watch until it starts it, below: a watch that ran now
+        // would read no `alive` stamp and end the move under it (`transfer_watch.rs`). Claimed
+        // under the `moving` lock, so whoever sees the chat in this move sees the claim too.
+        let watch = {
             let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(other) = moving.as_ref() {
                 let e = transfer_error("moving", "this chat is already being moved");
                 return Err(e.with_data(json!({"transferId": other})));
             }
+            let watch = self.claim_move_watch(&transfer_id);
             *moving = Some(transfer_id.clone());
-        }
+            watch
+        };
         // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
         // before transfer_out so a daemon restart restores the same epoch while this move is in flight.
         let dir = transfers_dir().join(&transfer_id);
@@ -478,7 +483,9 @@ impl Hub {
         }
         let _ = std::fs::write(dir.join("epoch"), epoch.to_string());
         super::transfer_watch::note_activity(&dir, None);
-        self.watch_transfer(session, &transfer_id);
+        if let Some(watch) = watch {
+            self.watch_claimed(session, watch);
+        }
         let files: Vec<Value> =
             files.into_iter().map(|(path, size)| json!({"path": path, "size": size})).collect();
         let schema = if session.meta().harness == "cmux-harness" {

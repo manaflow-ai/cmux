@@ -349,7 +349,7 @@ public struct ACPPermissionRequest: Hashable, Sendable, Identifiable {
 
     /// What a phone may answer: allow once or deny once. acpmux refuses a lasting grant
     /// (`allow_always`, `reject_always`) from a paired device (`remote.lasting_grant_refused`),
-    /// so offering one cost a Face ID and then failed. A request with no single-use option
+    /// so offering one only failed. A request with no single-use option
     /// keeps its options, so acpmux's refusal says why.
     public var phoneOptions: [ACPPermissionOption] {
         // Without a single-use Allow the options stay as the agent sent them (acpmux's

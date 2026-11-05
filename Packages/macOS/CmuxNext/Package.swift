@@ -96,7 +96,7 @@ import PackageDescription
 //     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
 //     operation sink; plans/cmux-next/app-platform.md)
 //   CmuxNextFocus -> CCmuxAppFFI (the window focus machine: focus state view, events, effects,
-//     topology, and FocusMachine over cmux-focus-core's cmux_focus_* C ABI; no AppKit; cx-8w027.2)
+//     topology, and FocusMachine in the input router's cmux_input_* C ABI (FocusInput); no AppKit; cx-8w027.2)
 //   CmuxNextTasks -> Design, Icons, CCmuxAppFFI (Tasks pane: list, board and inbox prototypes over a
 //     mirror + intent log of the Tasks owner, whose reducer previews pending intents over the FFI;
 //     no daemon; the App supplies the source; plans/cmux-next/tasks.md)
@@ -175,8 +175,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-b24aac2c507d072ac3b5cf35fb3c3b93bd039acf/CCmuxAppFFI.xcframework.zip",
-    checksum: "5aa92a5b76b173dce2a254ab9e437c0b086d3b4d07fd9754ab3d72b0f14b9481"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-728ed6cc8d33189189e9e129f5356958ddce5a16/CCmuxAppFFI.xcframework.zip",
+    checksum: "7e9a47f9ddaed5c291eceac157a6718b37f1133dcd9990c6be1d35e97c652081"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1257,7 +1257,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextCloudTests",
-            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -1584,7 +1584,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextLayout",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons"],
+            // CCmuxAppFFI: the keyboard resize rules (cmux-layout-reducer shown_resize).
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CCmuxAppFFI"],
             resources: [
                 .process("Resources"),
             ],
@@ -1801,6 +1802,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextVSCodeServer",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
+                "CmuxNextWebUpdates",
                 "CmuxNextWorkspaceNaming",
                 "CmuxNextWorkspaceRepair",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),

@@ -267,9 +267,10 @@ class NightlyTrustedRouting(unittest.TestCase):
         # The owned-only Mac signing and verify jobs end on the owned nightly slot, then the side lane, then
         # the std pool (test_nightly_sign_runner.py OWNED_ONLY_JOBS); the early native jobs
         # (build-nightly-inputs, the Ghostty helper) fall back to the nightly slot.
-        # The secret-bearing jobs and their pickers end on the signer's label instead (SIGNING_SLOT).
+        # The secret-bearing jobs and their pickers end on the signer's label instead (SIGNING_SLOT);
+        # promote-nightly-next keeps its earlier route (a main dispatch, which the signer refuses).
         self.assertEqual(uses, ['build-nightly-ghostty-cli-helper', 'build-nightly-inputs',
-                                'verify-final-dmg-nightly', 'verify-nightly-identity-legacy',
+                                'promote-nightly-next', 'verify-final-dmg-nightly', 'verify-nightly-identity-legacy',
                                 'verify-recovered-nightly-next', 'verify-signed-nightly'])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
         # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's; its

@@ -122,6 +122,13 @@ if [ -n "$owned" ]; then
   echo "claim=owned" >> "$GITHUB_OUTPUT"
 fi
 """
+# A nightly signing job has no Blacksmith twin (NIGHTLY_WORKFLOW, test_ci_nightly_off_blacksmith): its gate says a
+# refusal fails the job instead. Only the two refusal messages differ from CLAIM_GATE.
+NIGHTLY_CLAIM_GATE = (CLAIM_GATE
+                      .replace("whole mini; this run's Blacksmith job signs instead.",
+                               "whole mini, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith.")
+                      .replace("lists; this run's Blacksmith job signs instead.",
+                               "lists, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."))
 TWIN_SUFFIX = "-blacksmith"
 # A picker output that is its own attempt number, which a signing job compares with github.run_attempt.
 ATTEMPT_OUTPUT = "${{ github.run_attempt }}"
@@ -135,6 +142,11 @@ ATTEMPT_OUTPUT = "${{ github.run_attempt }}"
 FALLBACK_ON_FAILURE: dict[tuple[str, str], str] = {}
 # Nightly workflows have no Blacksmith twin at all (twin_failures).
 NIGHTLY_WORKFLOW = re.compile(r"nightly|notarization")
+
+
+def claim_gate_for(workflow: str) -> str:
+    """The claim gate a signing job of `workflow` starts with, word for word."""
+    return NIGHTLY_CLAIM_GATE if NIGHTLY_WORKFLOW.search(workflow) else CLAIM_GATE
 # The hook from before the leftover-process check (glaeda before #1738): the gate refuses it.
 OLD_HOOK = "fb0442d31e23f01326118b7d6be2effd0ba91bff9a0b59c62016c39bc23116da"
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
@@ -378,7 +390,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
             gate_index = next((index for index, step in enumerate(steps)
                                if str(step.get("id", "")) == CLAIM_GATE_ID), None)
             gate = steps[gate_index] if gate_index is not None else {}
-            gate_ok = (str(gate.get("run", "")).strip() == CLAIM_GATE.strip()
+            gate_ok = (str(gate.get("run", "")).strip() == claim_gate_for(workflow).strip()
                        and not (set(gate) - {"name", "run", "shell", "id"})
                        and str(gate.get("shell", "bash")) == "bash"
                        and gate.get("id") == CLAIM_GATE_ID)
@@ -633,7 +645,7 @@ class SigningOwnedMacTests(unittest.TestCase):
         failures, _ = check({"other-nightly.yml": {"jobs": {"deltas": in_job_env}}})
         self.assertTrue(any("job-level env names a secret" in failure for failure in failures), failures)
         # Held whole: the claim gate first, the claim before the key, and no keychain to delete (rule 4 is the keychain's).
-        held = {"runs-on": owned, "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "run": CLAIM_GATE},
+        held = {"runs-on": owned, "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "run": NIGHTLY_CLAIM_GATE},
                                             {"uses": "actions/checkout@v6"}, {"run": CLAIM}, key]}
         self.assertEqual(check({"nightly.yml": {"jobs": {"sign-nightly-identity-legacy": held}}}), ([], 1))
         # A Sparkle job with an ephemeral route is rule 7's (test_ci_signing_keychain_is_deleted_before_bundle_code).
@@ -817,15 +829,27 @@ class SigningOwnedMacTests(unittest.TestCase):
                    runner("cmux15-glaeda-1", [signing, "glaeda-runner-cmux15-glaeda-1"], busy=True),
                    runner("cmux15-glaeda-2", [signing, "glaeda-runner-cmux15-glaeda-2"])]
         labels, why = signing_runner.drained_runner(runners, [signing], running=None, model=MODEL, now=NOW,
-                                                    drain_anyway=True)
+                                                    drain_anyway=True, signer_only=True)
         self.assertEqual(json.loads(labels), [signing, "glaeda-runner-cmux15-glaeda-2"], why)
         self.assertEqual(signing_runner.owned_pool_label(labels), signing)
         # With the signer missing, nothing is offered: the job queues on the signer's label, never a shared slot.
         labels, why = signing_runner.drained_runner(runners[:4], [signing], running=None, model=MODEL, now=NOW,
-                                                    drain_anyway=True)
+                                                    drain_anyway=True, signer_only=True)
+        self.assertEqual(labels, "", why)
+        # A drifted OWNED_LABELS (a shared nightly slot, a side lane) yields no pick at all in nightly.yml's pick.
+        shared = ["glaeda-nightly-std-xcode-26.6", SIDE]
+        labels, why = signing_runner.drained_runner(runners, shared, running=None, model=MODEL, now=NOW,
+                                                    drain_anyway=True, signer_only=True)
+        self.assertEqual(labels, "", why)
+        env = {"ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "t",
+               "GITHUB_REPOSITORY": "o/r", "OWNED_LABELS": " ".join(shared), "DRAIN_ANYWAY": "1"}
+        labels, why = signing_runner.owned_pick(env, lambda token, repo: runners, lambda url: {"jobs": []},
+                                                lambda token, repo: {}, now=NOW, sleep=lambda seconds: None,
+                                                signer_only=True)
         self.assertEqual(labels, "", why)
         self.assertTrue(signing_runner.signing_route_label(signing))
-        self.assertFalse(signing_runner.signing_route_label("glaeda-trusted-next-signing-2"))
+        for label in ("glaeda-trusted-next-signing-2", "glaeda-nightly-std-xcode-26.6", SIDE, "glaeda-std-xcode-26.6"):
+            self.assertFalse(signing_runner.signing_route_label(label), label)
         jobs = workflows()["nightly.yml"]["jobs"]
         route = "${{ vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-trusted-next-signing' }}"
         for job, step_id in (("pick-nightly-sign-runner", "sign-owned"), ("find-nightly-next-recovery", "sign-owned")):
@@ -1003,7 +1027,8 @@ class SigningOwnedMacTests(unittest.TestCase):
             output = Path(tmp) / "out"
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output)}, ["owned"], read,
                                                  jobs), 0)
-            self.assertEqual(output.read_text(), f'owned=["{SIDE}","glaeda-runner-cmux12-glaeda"]\nowned_pool=\n')
+            # nightly's `owned` pick offers only the signer's label, and none of these runners carries it
+            self.assertEqual(output.read_text(), 'owned=\nowned_pool=\n')
             output.unlink()
             self.assertEqual(signing_runner.main({**env, "GITHUB_OUTPUT": os.fspath(output), "ENABLED": "0"}, [],
                                                  read, jobs, lambda t, r: None), 0)

@@ -296,7 +296,11 @@ class NightlyNextBuildVariable(unittest.TestCase):
 
 class NightlySigningPoolVariable(unittest.TestCase):
     def test_only_the_signers_label_is_allowed(self) -> None:
-        name = "CI_NIGHTLY_SIGNING_POOL"
+        for name in ("CI_NIGHTLY_SIGNING_POOL", "CI_NIGHTLY_SIGN_RUNNER"):
+            with self.subTest(name=name):
+                self.only_the_signer(name)
+
+    def only_the_signer(self, name: str) -> None:
         for label in ("glaeda-trusted-next-signing", ""):
             with self.subTest(label=label):
                 self.assertEqual(drifted_runner_variables({name: label}), [])

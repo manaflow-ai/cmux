@@ -23,6 +23,7 @@ import { startGalleryLoad } from "./load";
 import { setLastingGrace } from "../../ui/lasting";
 import "./frame.css";
 import revision from "virtual:cmux-gallery/revision";
+import entryIndex from "virtual:cmux-gallery/entry-index";
 import { isSubpixelLayoutShift, resolveTarget, type LoadReport, type Shift } from "../play";
 import { startBoxTracker } from "../shift";
 import { collectInvariants, type Violation } from "../invariants";
@@ -40,7 +41,10 @@ const sourceHint = params.get("source") || undefined;
 // A frame can be opened directly while the shell is still loading unrelated gallery modules.
 // Keep that wait explicit so a slow sibling never looks like a broken white page.
 const requestedId = params.get("entry");
-const entryStore = createFrameEntryStore(sourceHint);
+// Without the shell's source hint (a direct link, the mock app, the native preview), the build's
+// entry index names the one file to load, so a stage never compiles the whole registry for one entry.
+const indexedSource = requestedId ? entryIndex[requestedId] : undefined;
+const entryStore = createFrameEntryStore(sourceHint ?? indexedSource);
 if (requestedId && stageRoot) {
   stageRoot.textContent = `Loading ${requestedId}…`;
   stageRoot.className = "gallery-frame-loading";
@@ -64,8 +68,12 @@ if (sourceHint && entryStore.getSnapshot().length === 0)
 // A frame renders one requested entry. Resolve it as soon as that entry loads; a broken or slow
 // sibling must never leave a valid stage blank while the shell is still auditing the full registry.
 // A missing entry still falls back to the full settled list so the error can name the bad sources.
-const match = requestedId ? await entryStore.find(requestedId) : undefined;
-const settled = match?.entry ? undefined : await entryStore.settled();
+const indexedMatch = requestedId ? await entryStore.find(requestedId) : undefined;
+// An index guess that does not hold the entry (its first literal id was another one) falls back to
+// the whole registry.
+const fullStore = !sourceHint && indexedSource && !indexedMatch?.entry ? createFrameEntryStore() : undefined;
+const match = fullStore && requestedId ? await fullStore.find(requestedId) : indexedMatch;
+const settled = match?.entry ? undefined : await (fullStore ?? entryStore).settled();
 const entryState = match?.state ?? settled?.find((state) => state.entry?.id === requestedId);
 // The live dev server: a save of this stage's entry file (or of any file, while it does not load)
 // reloads this stage alone; compile errors in stage code show inside the stage (liveErrors.ts).
@@ -363,6 +371,10 @@ async function mount(): Promise<void> {
       return;
   }
 }
+
+// `cpu=N`: simulated main-thread contention for the whole stage (scripts.ts).
+const cpuFactor = Number(params.get("cpu"));
+if (cpuFactor > 1) void import("./scripts").then(({ simulateCpuContention }) => simulateCpuContention(cpuFactor));
 
 // The stage is the surface alone, at the size its frame gives it (window mode sizes the frame to
 // the pane the surface has in the app; nothing of the native window is drawn).

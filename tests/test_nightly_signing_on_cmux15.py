@@ -15,11 +15,14 @@ there (teamleaderleo/glaeda scripts/glaeda-cmux-runner-hook TRUSTED_NEXT_SIGNING
 2. Any other event or ref (a dispatch, main's schedule) skips the CI_NIGHTLY_SIGN_RUNNER branch and takes the
    job's own route, which also ends on the signer's label: glaeda admits only the exact nightly-next push there,
    so such a job is refused and fails closed rather than reaching a shared mini.
-3. No signing job, the GitHub-release uploads (publish-nightly-next-github and its -names twin) included, ever
+3. One-mini mode (vars.CI_NIGHTLY_MINI set, tests/test_nightly_one_mini.py) overrides 2: Lawrence,
+   2026-11-04, the whole nightly builds on one Mac mini, so every event signs on CI_NIGHTLY_SIGN_RUNNER.
+4. No signing job, the GitHub-release uploads (publish-nightly-next-github and its -names twin) included, ever
    resolves to a shared label (a nightly slot, side, root or std pool, the nightly-only pool) on any event or
    attempt: those run on minis whose other runners take pull request jobs as the same user. The uploads hold the
    release App key, so they stay on the signer (run 41900945757's upload held cmux15 whole while the next signs
-   waited; that contention remains).
+   waited; that contention remains). promote-nightly-next keeps its earlier route: it runs only on a dispatch of
+   main, which the signer's hook refuses, and main's own nightly.yml routes it there.
 """
 
 from __future__ import annotations
@@ -82,11 +85,16 @@ class SigningOnCmux15Test(unittest.TestCase):
                     context = never_blacksmith.sample(source, rng)
                     context.update({"github.event_name": event, "github.ref": ref,
                                     "github.ref_name": ref.removeprefix("refs/heads/"),
-                                    "vars.CI_NIGHTLY_SIGN_RUNNER": rng.choice(("", LABEL))})
+                                    "vars.CI_NIGHTLY_SIGN_RUNNER": rng.choice(("", LABEL)),
+                                    "vars.CI_NIGHTLY_MINI": ""})
                     expected = evaluate(parse_expression(
                         earlier.strip().removeprefix("${{").removesuffix("}}").strip()), context)
                     with self.subTest(job=name, event=event, ref=ref):
                         self.assertEqual(route(name, context), expected)
+                    # One-mini mode: every event signs on the one nightly mini.
+                    context.update({"vars.CI_NIGHTLY_SIGN_RUNNER": LABEL, "vars.CI_NIGHTLY_MINI": "glaeda-nightly-mini"})
+                    with self.subTest(job=name, event=event, ref=ref, mode="one-mini"):
+                        self.assertEqual(route(name, context), LABEL)
 
     def test_the_release_uploads_stay_on_the_signer(self) -> None:
         for name in UPLOADS:
@@ -103,7 +111,10 @@ class SigningOnCmux15Test(unittest.TestCase):
         shared = re.compile(r"glaeda-(?:aws-)?(?:nightly|side|root|gui|session|fast|dev)-|glaeda-(?:xl|std|light)-xcode-")
         pin = '["glaeda-trusted-next-signing","glaeda-runner-cmux15-glaeda-2"]'
         rng = random.Random(20261104)
-        for name in ("promote-nightly-next", *SIGNING_JOBS["nightly.yml"]):
+        # promote-nightly-next is left out: it runs only on a workflow_dispatch of main, which the signer's hook
+        # refuses (trusted_refusal admits push and schedule), and main's own nightly.yml routes it; this file keeps
+        # its earlier route (test_promote_keeps_its_earlier_route).
+        for name in SIGNING_JOBS["nightly.yml"]:
             source = manaflow_route(name)
             for _ in range(400):
                 context = never_blacksmith.sample(source, rng)
@@ -113,6 +124,7 @@ class SigningOnCmux15Test(unittest.TestCase):
                     elif ref.endswith(".outputs.sign_owned_pool"):
                         context[ref] = rng.choice((LABEL, ""))
                 context.update({"vars.CI_NIGHTLY_SIGN_RUNNER": rng.choice((LABEL, "")),
+                                "vars.CI_NIGHTLY_MINI": rng.choice(("glaeda-nightly-mini", "")),
                                 "vars.CI_NIGHTLY_SIGNING_POOL": rng.choice((LABEL, "")),
                                 "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "glaeda-nightly-std-xcode-26.6",
                                 "vars.CI_SIDE_LANE_RUNNER": "glaeda-side-std-xcode-26.6",
@@ -124,6 +136,13 @@ class SigningOnCmux15Test(unittest.TestCase):
                     for label in labels:
                         self.assertFalse(shared.match(str(label)), label)
                         self.assertTrue(label == LABEL or str(label).startswith("glaeda-runner-cmux15-"), label)
+
+    def test_promote_keeps_its_earlier_route(self) -> None:
+        self.assertEqual(manaflow_route("promote-nightly-next").strip(),
+                         "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
+                         "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
+                         "vars.CI_NIGHTLY_SIGN_RUNNER || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || "
+                         "'glaeda-nightly-std-xcode-26.6' }}")
 
 
 if __name__ == "__main__":

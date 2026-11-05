@@ -61,9 +61,11 @@ class SubagentClickTests(unittest.TestCase):
             self.shown, self.clicked = shown, []
 
         def rpc(self, method, params=None, timeout=40):
-            assert method == "debug.agent_pane" and params["action"] == "click" and params.get("text")
-            self.clicked.append(params["text"])
-            if params["text"] not in self.shown:
+            assert method == "debug.agent_pane" and params["action"] == "click"
+            target = params.get("text") or params.get("selector")
+            assert target
+            self.clicked.append(target)
+            if target not in self.shown:
                 return {"pane": "p", "error": "no visible element matches"}
             return {"pane": "p", "clicked": True, "x": 1.0, "y": 2.0}
 
@@ -84,7 +86,18 @@ class SubagentClickTests(unittest.TestCase):
 
     def test_no_shown_line_keeps_the_error(self):
         bench = load_bench("--runs=3")
-        self.assertEqual(bench.click_subagent(self.Run(set()))["error"], "no visible element matches")
+        run = self.Run(set())
+        self.assertEqual(bench.click_subagent(run)["error"], "no visible element matches")
+        self.assertEqual(run.clicked[-1], bench.SUBAGENT_LINE, "the finished line's selector is tried last")
+
+    def test_a_line_that_reads_its_task_first_is_clicked_by_its_selector(self):
+        # Since #34529 a finished line reads "Subagent finished: Audit area 3: ...": no element is the name alone.
+        bench = load_bench("--runs=3")
+        run = self.Run({bench.SUBAGENT_LINE})
+        reply = bench.click_subagent(run)
+        self.assertEqual(run.clicked, ["Auditor 3", "Auditor 2", "Auditor 1", "Auditor 0", bench.SUBAGENT_LINE])
+        self.assertEqual(reply["subagent"], bench.SUBAGENT_LINE)
+        self.assertIs(reply["clicked"], True)
 
 
 class SummaryTests(unittest.TestCase):
