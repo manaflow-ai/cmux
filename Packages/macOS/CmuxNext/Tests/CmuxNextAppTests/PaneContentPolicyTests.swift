@@ -562,6 +562,15 @@ struct PaneContentPolicyTests {
         #expect(off.isEmpty, "\(off.count) frames: \(off.prefix(4))")
     }
 
+    /// The grids `pane`'s terminal asked its PTY for since the last call (a focus report after them is the marker).
+    static func grids(_ pane: PaneID, _ rig: Rig) async throws -> [TerminalGridSize] {
+        let session = try #require(rig.provider.sessions[pane])
+        // cmux-ad m18: a grid in the coalescer's 25 ms window counts as asked for (it goes when the window ends).
+        session.session.surfaceView.flushGridReport()
+        session.session.surfaceView.bridge.takeUnretainedValue().input.focusGained()
+        return await session.io.gridsUntilMarker()
+    }
+
     /// A tab switch to another terminal during a key hold: the terminal that joins follows the pane from its first frame,
     /// and its surface takes the size the press rests at (one grid), measured from the size the hold began at, never
     /// from the pane's size in the frame it joined.
