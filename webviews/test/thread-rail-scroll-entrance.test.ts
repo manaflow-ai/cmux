@@ -26,7 +26,9 @@ await requireBrowserLane("thread-rail-scroll-entrance.test.ts", async () => {
           (node, index) =>
             new Promise<{ opacity: number; width: number }>((resolve, reject) => {
               const start = performance.now();
-              node.scrollTop = index * 10 - node.clientHeight / 2;
+              const pitch =
+                Number.parseFloat(getComputedStyle(node).getPropertyValue("--acpmux-minimap-pitch")) || 10;
+              node.scrollTop = index * pitch - node.clientHeight / 2;
               window.cmuxAfterPaint(() => {
                 const bar = node.querySelector<HTMLElement>(`[data-tick="${index}"] .acpmux-minimap__bar`);
                 if (performance.now() - start > 10_000) {
