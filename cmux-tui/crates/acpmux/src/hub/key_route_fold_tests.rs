@@ -40,7 +40,8 @@ async fn a_name_in_another_case_finds_the_one_session_here() {
 #[tokio::test]
 async fn a_prefix_four_sessions_share_is_refused_with_all_four() {
     let hub = test_hub();
-    for (id, name) in [("0199a", "td2-A"), ("0199b", "td2-B"), ("0199c", "td2-C"), ("0199d", "td2-D")]
+    for (id, name) in
+        [("0199a", "td2-A"), ("0199b", "td2-B"), ("0199c", "td2-C"), ("0199d", "td2-D")]
     {
         list(&hub, "lanevm-7", id, name, "idle");
     }
@@ -79,4 +80,30 @@ async fn a_host_prefix_two_machines_share_is_refused_with_both() {
     let mut got = uses(&hub.key_route("lanevm/td2-A").unwrap_err());
     got.sort();
     assert_eq!(got, ["lanevm-7/td2-A", "lanevm-8/td2-A"]);
+}
+
+#[tokio::test]
+async fn a_host_in_another_case_or_by_a_prefix_names_its_one_peer() {
+    let hub = test_hub();
+    list(&hub, "lanevm-7", "0199aaaa-1111", "td2-A", "idle");
+    list(&hub, "lanevm-8", "0199bbbb-2222", "td2-B", "idle");
+    assert_eq!(hub.host_route("LANEVM-7").unwrap().as_deref(), Some("lanevm-7"));
+    assert_eq!(hub.host_route("lanevm_8").unwrap().as_deref(), Some("lanevm-8"));
+    assert_eq!(hub.host_route("auto").unwrap(), None);
+    assert_eq!(hub.host_route("nowhere").unwrap(), None);
+    let e = hub.host_route("lanevm").unwrap_err();
+    assert_eq!(e.data.clone().unwrap()["reason"], HOST_AMBIGUOUS, "{e:?}");
+    assert!(e.message.contains("lanevm-7, lanevm-8"), "{}", e.message);
+}
+
+#[tokio::test]
+async fn resolve_finds_a_name_in_another_case_or_on_a_host_named_by_a_prefix() {
+    let hub = test_hub();
+    list(&hub, "lanevm-7", "0199aaaa-1111", "td2-A", "idle");
+    list(&hub, "lanevm-7", "0199bbbb-2222", "td2-B", "idle");
+    let found = hub.locate("td2-a", false, true).unwrap();
+    assert_eq!(found["matches"].as_array().unwrap().len(), 1, "{found}");
+    assert_eq!(found["session"]["sessionId"], "0199aaaa-1111", "{found}");
+    let found = hub.locate("lanevm/td2-b", false, true).unwrap();
+    assert_eq!(found["session"]["sessionId"], "0199bbbb-2222", "{found}");
 }
