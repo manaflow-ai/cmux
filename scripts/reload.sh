@@ -1800,42 +1800,14 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
 fi
 if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
-  # Live code (Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode/LiveCode.swift): a patch replaces
-  # CmuxNextApp's functions, so that module is compiled unoptimized and testable (every function
-  # stays a real call with an exported symbol), and the app is linked with classic binds, its
-  # symbols exported and none stripped as unused. Every other module keeps the configuration's
-  # optimization. The log keeps each module's frontend command, which a patch is compiled with
-  # (scripts/live-code/patch.py).
-  # Interposable are only the symbols CMUX_LIVE_CODE_INTERPOSABLE_LIST names (the app's exported
-  # CmuxNextApp symbols, listed from a first link: scripts/measure/live-code-app.sh). A blanket
-  # `-interposable` also routes a whole-module build's hidden symbols (a file's private types,
-  # global across the module's object files but never exported) through dyld, which cannot find
-  # them, and the app does not launch. CmuxNextApp itself is compiled a file at a time for the same
-  # reason: whole-module, a private type's deinit or a value witness is a hidden global, and the
-  # app's binds to it stop the launch even with the list; a file at a time it stays file-local.
-  live_mode=wholemodule
-  [[ "$BUILD_CONFIGURATION" == "Debug" ]] && live_mode=singlefile
-  live_ldflags='$(inherited) -Xlinker -no_fixup_chains'
-  # CMUX_LIVE_CODE compiles the watcher in outside Debug and bench (a NIGHTLY live code build),
-  # where it loads only patches signed by the app's own team (PatchSignature.swift).
-  SWIFT_OTHER_FLAGS+=" -DCMUX_LIVE_CODE"
-  if [[ -n "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}" ]]; then
-    live_ldflags+=" -Xlinker -interposable_list -Xlinker $CMUX_LIVE_CODE_INTERPOSABLE_LIST"
-  fi
-  # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
-  XCODEBUILD_ARGS+=(
-    EMIT_FRONTEND_COMMAND_LINES=YES
-    'SWIFT_OPTIMIZATION_LEVEL=$(CMUX_LIVE_CODE_OPT_$(TARGET_NAME):default=-O)'
-    CMUX_LIVE_CODE_OPT_CmuxNextApp=-Onone
-    'ENABLE_TESTABILITY=$(CMUX_LIVE_CODE_TESTABLE_$(TARGET_NAME):default=NO)'
-    CMUX_LIVE_CODE_TESTABLE_CmuxNextApp=YES
-    "SWIFT_COMPILATION_MODE=\$(CMUX_LIVE_CODE_MODE_\$(TARGET_NAME):default=$live_mode)"
-    CMUX_LIVE_CODE_MODE_CmuxNextApp=singlefile
-    LD_EXPORT_SYMBOLS=YES
-    DEAD_CODE_STRIPPING=NO
-    "OTHER_LDFLAGS=$live_ldflags"
-  )
-  echo "==> live code build: CmuxNextApp at -Onone, testable and a file at a time${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
+  # Live code: every CmuxNext target unoptimized, testable and a file at a time, linked so a patch
+  # can repoint it (scripts/live-code/lib/xcodebuild-args.sh, shared with the NIGHTLY variant).
+  # shellcheck source=scripts/live-code/lib/xcodebuild-args.sh
+  source "$SCRIPT_DIR/live-code/lib/xcodebuild-args.sh"
+  while IFS= read -r arg; do XCODEBUILD_ARGS+=("$arg"); done < <(
+    live_code_xcodebuild_args "$BUILD_CONFIGURATION" "${CMUX_LIVE_CODE_INTERPOSABLE_LIST:-}")
+  SWIFT_OTHER_FLAGS+=" $(live_code_swift_flags)"
+  echo "==> live code build: $(live_code_targets | wc -l | tr -d ' ') CmuxNext targets at -Onone, testable and a file at a time${CMUX_LIVE_CODE_INTERPOSABLE_LIST:+, interposable as listed in $CMUX_LIVE_CODE_INTERPOSABLE_LIST}"
 fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
@@ -1912,6 +1884,11 @@ if ! is_positive_integer "$XCODEBUILD_LOCK_WAIT_SECONDS"; then
   echo "error: xcodebuild lock wait timeout must be a positive integer" >&2
   exit 1
 fi
+# The commit and dirty state the build is made from, read before it starts: a checkout that moves
+# during the build must not stamp the app with a commit it was not built from (Info.plist below).
+build_commit="$(git rev-parse --verify -q HEAD 2>/dev/null || true)"
+build_dirty=false
+[[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]] && build_dirty=true
 # Xcode 26's SWBBuildService is a per-user singleton. Too many concurrent
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
@@ -2142,6 +2119,15 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $APP_NAME" "$INFO_PLIST"
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
       || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
+    # The commit the build was made from, as the nightly stamps it, plus whether tracked files had
+    # local changes then. try-pr sorts a PR against it (scripts/cmux-next/try-pr.sh), and crash
+    # reports name it (CrashReportIdentity).
+    /usr/libexec/PlistBuddy -c 'Delete :CMUXCommit' "$INFO_PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c 'Delete :CMUXCommitDirty' "$INFO_PLIST" 2>/dev/null || true
+    if [[ -n "$build_commit" ]]; then
+      /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $build_commit" "$INFO_PLIST"
+      /usr/libexec/PlistBuddy -c "Add :CMUXCommitDirty bool $build_dirty" "$INFO_PLIST"
+    fi
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"

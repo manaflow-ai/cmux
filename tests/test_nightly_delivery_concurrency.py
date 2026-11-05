@@ -47,8 +47,6 @@ SHARED_NIGHTLY_GROUPS = {
     "await-release-surface-ack": "nightly-next-promote-ack",
     "publish-nightly": "release-publish-",
     "republish-nightly-deltas": "release-",
-    # The release's mutable names only; the uploads (publish-nightly-next-github) have no group.
-    "publish-nightly-next-github-names": "nightly-next-github-names",
 }
 
 
@@ -149,7 +147,6 @@ def test_a_publish_never_shares_a_group_with_a_non_publish_job() -> None:
 NEXT_FEED_WRITERS = {
     "publish-nightly": ("nightly-next/locks/publish-nightly-next.json", "Recheck the recovered build against both feeds"),
     "publish-release-notes": ("nightly-next/locks/publish-nightly-next.json", "Recheck the NEXT publication head"),
-    "publish-nightly-identity-legacy": ("nightly-next/locks/legacy-identity-publish.json", "Skip a build the old feed already has"),
 }
 # Steps that read a feed to decide, or write the release, R2 or a feed: each runs inside the lease.
 FEED_STEP_WORDS = ("feed", "Publish", "Upload", "Recheck", "Prune", "Move channel", "Record")
