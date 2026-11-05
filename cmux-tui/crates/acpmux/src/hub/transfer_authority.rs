@@ -221,7 +221,9 @@ mod tests {
             }
         });
         // The begin is in its export: the chat frozen under the move, its bundle directory made.
-        entered.recv().unwrap();
+        entered
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the begin never reached its export");
         let transfer = session.moving().expect("the begin froze the chat");
         let dir = super::super::transfer_out::transfers_dir().join(&transfer);
         assert!(dir.join(&session.id).is_dir(), "the begin had not made its bundle yet");
