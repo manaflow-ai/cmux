@@ -377,14 +377,28 @@ const liveShellRows = (id: string, output: string) => [
   activity([tool("Read retryPolicy.ts", "read", "in_progress")], 0.5, { id: `${id}-read` }),
 ];
 
-/// Opens the one call's row (inside the turn's fold once it is done; a running turn shows it) and
-/// turns its Wrap lines off.
+/// Leaves `body`'s lines whole, each on its own row: output opens that way (blockWrap.ts), and a
+/// viewer who turned Wrap lines on is flipped back, so the variant draws the same state either way.
+const unwrap = (body: string, actions: string) => async (ctx: PlayContext) => {
+  if (ctx.document.querySelector(body)?.getAttribute("data-wrap") === "true")
+    await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
+  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "false");
+};
+
+/// Folds `body`'s long lines back under their start: what Wrap lines gives from the opening state.
+const wrapOn = (body: string, actions: string) => async (ctx: PlayContext) => {
+  if (ctx.document.querySelector(body)?.getAttribute("data-wrap") !== "true")
+    await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
+  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "true");
+};
+
+/// Opens the one call's row (inside the turn's fold once it is done; a running turn shows it) with
+/// its output's lines whole.
 const unwrapCall = (body: string, actions: string) => async (ctx: PlayContext) => {
   if (!ctx.document.querySelector(".cv-tool.is-toggle")) await openWorked(ctx);
   await ctx.click({ selector: ".cv-tool.is-toggle" });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(body)));
-  await ctx.click({ selector: `${actions} button[aria-label="Wrap lines"]` });
-  await ctx.waitFor(() => ctx.document.querySelector(body)?.getAttribute("data-wrap") === "false");
+  await unwrap(body, actions)(ctx);
 };
 
 const shellDisclosureChecks = {
@@ -3557,8 +3571,21 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
+        await unwrap(".cv-shell__body", ".cv-shell__actions")(ctx);
+      },
+    },
+    "shell-wrapped-long-line": {
+      note: "The same output after Wrap lines: each long row folds back under its start, so a table's columns no longer line up. Output opens aligned instead (blockWrap.ts); this is what the toggle gives.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-wrapped", "Print the retry log", "cat logs/retry.log", {
+          output: SHELL_LONG_LOG,
+          exitCode: 0,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await wrapOn(".cv-shell__body", ".cv-shell__actions")(ctx);
       },
     },
     "edit-long-line-code-cut": {
@@ -3578,8 +3605,7 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.click({ selector: '.cv-shell__actions button[aria-label="Wrap lines"]' });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__body")?.getAttribute("data-wrap") === "false");
+        await unwrap(".cv-shell__body", ".cv-shell__actions")(ctx);
       },
     },
     "shell-live-unwrapped-long-line": {
