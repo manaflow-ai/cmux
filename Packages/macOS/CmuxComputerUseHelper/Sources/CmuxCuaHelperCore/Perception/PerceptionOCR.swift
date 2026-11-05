@@ -30,6 +30,9 @@ struct PerceptionOCR: Sendable {
         // UI labels, paths and code are not prose: language correction
         // rewrites them ("cmux" -> "crux").
         request.usesLanguageCorrection = false
+        // Vision's default skips text under about 1/32 of the image's height:
+        // every 12 px label of a full window. Read down to 7 px.
+        request.minimumTextHeight = Float(min(1, 7 / Double(max(1, image.height))))
         try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
         let width = Double(image.width), height = Double(image.height)
         return (request.results ?? []).compactMap { observation in
