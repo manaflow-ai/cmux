@@ -48,7 +48,10 @@ live_code_check() { # BIN OUT
     grep -F -f <(sed -n 1,5p "$out/missing-2.txt") "$out/fixups-2.txt" | head -n 10 >&2 || true
     # Why: whether the first link listed it, and how the relinked symbol table has it.
     while read -r symbol; do
+      address="$(nm -m "$bin" | grep -F -- " ${symbol}" | awk 'NR == 1 { print $1 }')"
       echo "live-code build: $symbol: in the first link's list: $(grep -cxF -- "$symbol" "$out/interposable.txt" || true); nm -m: $(nm -m "$bin" | grep -F -- " ${symbol}" | head -n 2 | tr -s ' ' | tr '\n' ';')" >&2
+      # Other symbols at the same address: a fold (ld's deduplication) shows here.
+      [[ -n "$address" ]] && echo "live-code build:   also at $address: $(nm -m "$bin" | awk -v a="$address" '$1 == a' | grep -vF -- " ${symbol}" | head -n 3 | tr -s ' ' | tr '\n' ';')" >&2
     done < <(sed -n 1,5p "$out/missing-2.txt")
     failed=1
   fi
