@@ -81,6 +81,7 @@ import {
 import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines, RD_SOCKET, RD_SOCKET_UNIT, rdHostPath, rdSetupCommand } from "./agent-tools";
+import { BROWSER_ROLE } from "./browser-probe";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
@@ -599,15 +600,25 @@ async function configureSshd(ctx: Ctx): Promise<void> {
   await L.step(vm, "team-ssh-sync", `systemctl daemon-reload && systemctl enable --now --quiet ${SSH_SYNC_UNIT} && systemctl is-active ${SSH_SYNC_UNIT}`);
 }
 
+/**
+ * The first-use packages roles-off refuses: every first-use closure, less the browser role's closure when
+ * --agent-tools bakes that role (browserRoleBakePhases). A layered bake reruns roles-off in the agents layer, on a
+ * system layer whose agent tools already installed the browser closure (fontconfig, which display-wm shares).
+ */
+export function refusedFirstUsePackages(lock: InputsLock, agentTools: boolean): string[] {
+  const baked = new Set(agentTools ? Object.keys(lock.apt.ubuntu.firstUse[BROWSER_ROLE] ?? {}) : []);
+  return [...new Set(Object.values(lock.apt.ubuntu.firstUse).flatMap((closure) => Object.keys(closure)))].filter((p) => !baked.has(p)).sort();
+}
+
 /** The roles file for `cmux host`; baked role packages stay off (no unit, no process), first-use closures stay uninstalled. */
 async function configureRoles(ctx: Ctx): Promise<void> {
   const { vm, L, lock } = ctx;
   await writeGuestFile(vm, ROLES_MANIFEST_PATH, `${JSON.stringify(rolesManifest(lock), null, 2)}\n`, 0o644);
-  const firstUse = Object.values(lock.apt.ubuntu.firstUse).flatMap((closure) => Object.keys(closure));
+  const firstUse = refusedFirstUsePackages(lock, Boolean(ctx.options.agentTools));
   ctx.result.roles = await L.step(vm, "roles-off", [
     `python3 -c 'import json,sys; json.load(open(sys.argv[1]))' ${ROLES_MANIFEST_PATH}`,
     "! pgrep -x Xvfb >/dev/null",
-    `for p in ${[...new Set(firstUse)].sort().join(" ")}; do if dpkg-query -W -f='\${Status}' "$p" 2>/dev/null | grep -q 'ok installed'; then echo "first-use package $p is installed"; exit 1; fi; done`,
+    `for p in ${firstUse.join(" ")}; do if dpkg-query -W -f='\${Status}' "$p" 2>/dev/null | grep -q 'ok installed'; then echo "first-use package $p is installed"; exit 1; fi; done`,
     "dpkg-query -W -f='${Status}' fonts-noto-cjk | grep -q 'ok installed' && ls /usr/share/fonts/opentype/noto/ | grep -q '^NotoSansCJK'",
     "echo roles-ok",
   ].join(" && "));
