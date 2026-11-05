@@ -68,7 +68,7 @@ struct FeedGitHubActions: View {
             }
         }
         .padding(11)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(colors.elevated))
+        .background(RoundedRectangle(cornerRadius: Metrics.surfaceCornerRadius, style: .continuous).fill(colors.elevated))
     }
 
     /// Posts the comment (the Comment button, or Return in its field): not while an action is

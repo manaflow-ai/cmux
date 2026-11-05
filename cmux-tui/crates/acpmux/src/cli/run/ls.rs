@@ -196,7 +196,9 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         let client = client.clone();
         async move { client.request(method::MUX_SESSIONS, page).await }
     };
-    let read = ls_pages::read(params, cursor.filter(|c| !c.is_empty()), plan, step, fetch).await?;
+    let cursor = cursor.filter(|c| !c.is_empty());
+    let one_page = cursor.is_some();
+    let read = ls_pages::read(params, cursor, plan, step, fetch).await?;
     let mut sessions = read.rows;
     // A peer's row comes without its tools (`ls_tools.rs`): each is read from the peer, for
     // the views that print them.
@@ -215,10 +217,27 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
             );
         }
     }
+    // A host with no peer that reaches the other machines (an agent VM) lists theirs through its
+    // send relay's `lsArgv` (`send_relay.rs`), so `HOST/NAME` is found before it is sent to. Not
+    // for one page (`--cursor`) or this machine alone.
+    let mut merged = 0;
+    if !one_page && !rows.local_only() {
+        let far: Vec<Value> = crate::cli::send_relay::relay_rows(false)
+            .await
+            .into_iter()
+            .filter(|s| {
+                keeps(s)
+                    && cutoff.is_none_or(|at| {
+                        s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0) >= at
+                    })
+            })
+            .collect();
+        merged = crate::cli::send_relay::merge_rows(&mut sessions, far);
+    }
     if leads {
         sessions = super::ls_leads::leaders(&sessions);
     }
-    if selected && !leads {
+    if (selected || merged > 0) && !leads {
         sessions.sort_by(|a, b| {
             b.get("updatedAt")
                 .and_then(Value::as_u64)
@@ -231,6 +250,11 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
                         .cmp(b.get("sessionId").and_then(Value::as_str).unwrap_or(""))
                 })
         });
+    }
+    if merged > 0
+        && let Some(limit) = limit
+    {
+        sessions.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
     }
     if let Some(fields) = fields.as_deref() {
         sessions = sessions.into_iter().map(|s| project_fields(&s, fields)).collect();
@@ -274,7 +298,11 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
     let peers = status.as_ref().and_then(|s| s.get("peers")).and_then(Value::as_array).cloned();
     let view = View { all, wide };
     let now = crate::store::now_ms();
-    print!("{}", ls_table::render(&sessions, peers.as_deref(), view, filtered, now));
+    let pauses = ls_table::registry_pauses();
+    print!(
+        "{}",
+        ls_table::render_paused(&sessions, peers.as_deref(), view, filtered, now, &pauses)
+    );
     if let Some(line) = status.as_ref().and_then(outbox_line) {
         println!("{line}");
     }

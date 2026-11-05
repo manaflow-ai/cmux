@@ -478,8 +478,9 @@ final class NotificationCenterService {
     }
 
     /// An agent chat's turn ended: with `notifications.attention.agentChats` on (off by default),
-    /// ring the panes that show its tab until the person goes in. Off, nothing rings: acpmux reads
-    /// a turn that ends in a shown chat at once, as before #22678. A chat the person is looking at
+    /// ring the panes that show its tab until the person goes in. Off, this records nothing:
+    /// acpmux reads a turn that ends in a shown chat at once, as before #22678, and a turn that
+    /// ends unseen rings through its unread notification like any tab (cmux#34447). A chat the person is looking at
     /// (the focused content of the key window) never rings, and a burst pulses once: a finish
     /// within `burstWindow` of the last pulse rings at rest (cmuxterm-hq#2959).
     func agentTurnEnded(session: String) {

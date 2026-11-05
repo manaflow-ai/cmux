@@ -70,7 +70,7 @@ export function formatDuration(seconds: number): string | undefined {
 }
 
 /// The URL the pane plays `source` (a path, a `file://` URL or a web link) by, as the host grants it
-/// (`media.load`): a `cmux-agent://pane/__media/` URL the pane's scheme handler serves in byte
+/// (`media.load`): a `__media/` URL on the page's own origin that the host serves in byte
 /// ranges, so a file of any size streams and is never read whole. Nil when the host refuses it.
 /// A local path is asked on every mount, never cached across them: it names a different file in
 /// another chat (a remote one names its own machine's), and only the host knows which chat the pane
@@ -82,11 +82,15 @@ export async function loadPlayableMedia(source: string): Promise<string | undefi
   if (known) return known;
   const reply = await callChipHost("media.load", { src: source });
   const url = (reply as { src?: unknown } | undefined)?.src;
-  // The gallery's fixture answers a data URL; the pane's CSP plays only its own media URLs.
-  if (typeof url !== "string" || !/^(cmux-agent:\/\/pane\/__media\/|data:(video|audio)\/)/.test(url)) return undefined;
+  // The gallery's fixture answers a data URL; the page's CSP plays only its own media URLs, on the
+  // pane's own host or the shared page host (`cmux-page://cmux.agent/__media/`).
+  if (typeof url !== "string" || !GRANTED_MEDIA.test(url)) return undefined;
   if (web) webGranted.set(source, url);
   return url;
 }
+
+/// A URL the host grants: a `__media/` path on one of the agent page's two origins, or the gallery's data URL.
+const GRANTED_MEDIA = /^(cmux-agent:\/\/pane\/__media\/|cmux-page:\/\/cmux\.agent\/__media\/|data:(video|audio)\/)/;
 
 /// The host's copy of each web link already fetched, so a remount plays it without Load again.
 const webGranted = new Map<string, string>();
@@ -529,7 +533,7 @@ export function VideoThumbnail({
           }}
         >
           <span className="ui-glass cv-media__play" aria-hidden="true">
-            <PlayTriangle size={18} style={{ color: "inherit" }} />
+            <PlayTriangle size={20} style={{ color: "inherit" }} />
           </span>
           {duration && (
             <span className="cv-media__duration" aria-hidden="true">

@@ -29,6 +29,8 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     let view: NSView
     private(set) var contentHeight: CGFloat = 0
     private(set) var contentWidth: CGFloat = 0
+    /// The page has reported a size: its first report reaches the host even when it is 0 (a page with nothing to show).
+    private var reported = false
     var onHeightChange: (() -> Void)?
     var onAction: (() -> Void)?
     var onDismiss: (() -> Void)?
@@ -50,12 +52,10 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     /// `height` and `width` are in CSS px; the page is zoomed (the interface scale), so
     /// one CSS px is `pageZoom * magnification` points. A width of 0: the page fills its host.
     private func setSize(height: CGFloat, width: CGFloat) {
-        let web = (view as? PageWebView)?.webKitView
-        let zoom = (web?.pageZoom ?? 1) * (web?.magnification ?? 1)
+        let zoom = ((view as? PageWebView)?.webKitView).map { $0.pageZoom * $0.magnification } ?? 1
         let height = max(0, ceil(height * zoom)), width = max(0, ceil(width * zoom))
-        guard height != contentHeight || width != contentWidth else { return }
-        contentHeight = height
-        contentWidth = width
+        guard height != contentHeight || width != contentWidth || !reported else { return }
+        (contentHeight, contentWidth, reported) = (height, width, true)
         onHeightChange?()
     }
 }
@@ -82,20 +82,11 @@ final class UpdateSurfaceProvider: PageProvider {
         self.services = services
     }
 
-    private var highlights: UpdateHighlights? {
-        guard let updater = services?.updater else { return nil }
-        guard kind == .updated else { return updater.stagedHighlights }
-        return updater.lastUpdateHighlights ?? updater.updatedWithoutRecordHighlights
-    }
+    private var highlights: UpdateHighlights? { services?.updater.surfaceHighlights(updated: kind == .updated) }
 
+    /// The Updated card after an automatic install that relaunched cmux behind another app says so.
     private func json(_ highlights: UpdateHighlights?) throws -> JSONValue {
-        guard let highlights else { return .null }
-        let value = try JSONValue.parse(JSONEncoder().encode(highlights))
-        // The Updated card after an automatic install that relaunched cmux behind another app
-        // (nobody clicked Restart to Update): the card says it updated in the background.
-        guard kind == .updated, services?.environment.relaunchBehind != nil, case .object(var members) = value else { return value }
-        members["delivery"] = .string("background")
-        return .object(members)
+        try highlights?.surfaceJSON(background: kind == .updated && services?.environment.relaunchBehind != nil) ?? .null
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {

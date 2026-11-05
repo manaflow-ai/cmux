@@ -107,6 +107,11 @@ pub struct NetConfig {
     /// TURN servers (from the hub ticket's relay list), for the relay
     /// candidate and the relayed paths. At most [`MAX_TURN_SERVERS`] are used.
     pub turn: Vec<TurnServer>,
+    /// Reach the peer only through this side's TURN allocations: no host or
+    /// reflexive candidate is gathered or sent, no direct path is opened, and a
+    /// packet from anywhere but a TURN server is dropped, so the peer never
+    /// learns this side's addresses. Without a TURN server nothing connects.
+    pub relay_only: bool,
 }
 
 /// A TURN server with long-term credentials (RFC 8656 over UDP).
@@ -264,8 +269,7 @@ impl Net {
             command_fd: command_wake.read,
             events: event_tx,
             event_fd: event_wake.write,
-            stun: config
-                .stun
+            stun: (if config.relay_only { &[][..] } else { &config.stun[..] })
                 .iter()
                 .enumerate()
                 .map(|(i, server)| StunQuery {
@@ -287,11 +291,12 @@ impl Net {
                 })
                 .collect(),
             remote: Vec::new(),
+            relay_only: config.relay_only,
             candidates_done: false,
             start: Instant::now(),
         };
         // Host candidates are known at once.
-        for ip in interface_addresses() {
+        for ip in interface_addresses().into_iter().filter(|_| !config.relay_only) {
             driver.emit(NetEvent::Candidate(Candidate {
                 kind: CandidateKind::Host,
                 addr: SocketAddr::new(ip, local_addr.port()),
@@ -413,6 +418,8 @@ struct Driver {
     relays: Vec<Relay>,
     /// The peer's candidates, for the relayed paths of allocations that finish later.
     remote: Vec<Candidate>,
+    /// `NetConfig::relay_only`.
+    relay_only: bool,
     candidates_done: bool,
     start: Instant,
 }
@@ -520,7 +527,9 @@ impl Driver {
     }
 
     fn on_remote_candidate(&mut self, c: Candidate, now: u64) {
-        self.endpoint.add_path(Route::Udp(c.addr), c.path_kind(), now);
+        if !self.relay_only {
+            self.endpoint.add_path(Route::Udp(c.addr), c.path_kind(), now);
+        }
         if self.remote.contains(&c) || self.remote.len() >= MAX_PATHS {
             return;
         }
@@ -642,6 +651,10 @@ impl Driver {
                                 // A STUN binding answer from the same server, say.
                                 TurnReceive::Ignored => {}
                             }
+                        }
+                        // Relay only: nothing but the TURN servers may reach this side.
+                        if self.relay_only {
+                            continue;
                         }
                         if packet.first().is_some_and(|b| *b < 4) {
                             self.on_stun(packet);

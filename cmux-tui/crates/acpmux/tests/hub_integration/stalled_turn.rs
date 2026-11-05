@@ -346,3 +346,27 @@ async fn a_turn_in_flight_across_a_pause_is_not_stalled_and_the_chat_says_so() {
     let ended = until_results(&hub, &id, 1).await;
     assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
 }
+
+/// A sleep while no turn ran (an idle daemon parks its resume tick, `hub/resume.rs`) is no gap of
+/// the next turn: the chat that starts one after the wake gets no "this machine was paused" notice
+/// (review of #35416: every morning's first prompt on a Mac would show one). The gap is still seen.
+#[tokio::test]
+async fn a_sleep_while_idle_is_no_notice_in_the_next_turn() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(None);
+    hub.config.write().await.stalled_turn_end_ms = Some(60_000);
+    let id = new_session(&mut c, "slept-idle").await;
+    // The Mac slept 9 h while the daemon was idle.
+    hub.park_resume_watch_after_sleep(Duration::from_secs(9 * 3600));
+    start(&mut c, &id, "hang", "working").await;
+    // The stalled timer checks the clocks before it judges the turn (as every turn timer does).
+    clock.advance(Duration::from_secs(61));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let notices: Vec<_> =
+        find(&events, "host_notice").into_iter().filter(|e| e.msg["source"] == "resume").collect();
+    assert!(notices.is_empty(), "the sleep before the turn was told in the turn: {notices:?}");
+    assert_eq!(hub.resume_count(), 1, "the sleep was not seen at all");
+}

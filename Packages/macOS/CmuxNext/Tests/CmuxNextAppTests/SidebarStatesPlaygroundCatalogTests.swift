@@ -16,7 +16,7 @@ import Testing
         ("group header expanded", .groupExpanded), ("group header collapsed with roll-ups", .groupCollapsed),
         ("Home row", .home), ("empty group +", .emptyGroup),
         ("left selection/accent bar", .accentBar), ("group rail", .groupRail), // Lawrence msg 19775
-        ("GitHub mono favicon", .faviconMono), ("colourful favicon", .faviconColorful), ("missing-favicon fallback", .faviconMissing),
+        ("GitHub mono favicon", .faviconMono), ("colourful favicon", .faviconColorful), ("no-favicon globe placeholder", .faviconMissing),
         ("pinned summary at each density", .pinnedHoverCard), // Lawrence 2026-11-03, the pinned row's hover card
     ]
 
@@ -96,13 +96,19 @@ import Testing
         #expect(leading[0] != leading[1] && leading[1] != leading[2] && leading[0] != leading[2], "two favicon rows draw the same icon")
     }
 
-    /// The favicon styles sheet (Lawrence msg 19869): one column per `sidebar.faviconStyle`, each drawn with its style.
+    /// The favicon styles sheets (Lawrence msg 19869): one sheet per `sidebar.faviconStyle`, each at every density and
+    /// text size and drawn with its style.
     /// On the dark sheet the dark mono favicon reads differently as fetched and with the default adaptive tint, and the
     /// renderer puts the person's own style back after each column.
     @Test func everyFaviconStyleIsAColumnDrawnWithItsStyle() throws {
-        #expect(SidebarStatesPlaygroundColumn.faviconStyles.compactMap(\.faviconStyle) == SidebarFaviconStyle.allCases)
-        #expect(Set(SidebarStatesPlaygroundColumn.faviconStyles.map(\.title)).count == SidebarFaviconStyle.allCases.count,
-                "two favicon style columns share a caption")
+        for style in SidebarFaviconStyle.allCases {
+            let columns = SidebarStatesPlaygroundColumn.favicons(style)
+            #expect(columns.allSatisfy { $0.faviconStyle == style }, "\(style): a column draws another style")
+            #expect(Set(columns.map { [$0.density.rawValue, $0.textSize.rawValue] }).count
+                        == SidebarDensity.allCases.count * SidebarTextSize.allCases.count, "\(style): a density and text size is missing")
+        }
+        #expect(Set(SidebarFaviconStyle.allCases.map(SidebarStatesPlaygroundColumn.title)).count == SidebarFaviconStyle.allCases.count,
+                "two favicon style sheets share a title")
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         let key = SidebarFaviconStyle.tunable.key
@@ -111,7 +117,7 @@ import Testing
         defer { TunableStore.shared.set(key, nil) }
         let renderer = SidebarStatesPlaygroundRenderer(design: .shared, themes: SidebarStatesPlaygroundThemes(colors: [:]))
         var leading: [SidebarFaviconStyle: [UInt8]] = [:]
-        for column in SidebarStatesPlaygroundColumn.faviconStyles where [.current, .adaptive].contains(column.faviconStyle) {
+        for column in [SidebarFaviconStyle.current, .adaptive].compactMap({ SidebarStatesPlaygroundColumn.favicons($0).first }) {
             let cells = renderer.cells(column, .dark)
             #expect(TunableStore.shared.override(key) == mine, "the renderer did not put the person's favicon style back")
             let cell = try #require(cells[.faviconMono], "\(column.title): no favicon row")

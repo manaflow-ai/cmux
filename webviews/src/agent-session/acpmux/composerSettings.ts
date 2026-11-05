@@ -29,6 +29,11 @@
 // AgentPaneTunables.escapeStopDoublePress, on by default; no cmux.json key): on, Esc on an empty
 // composer stops a running turn only on the second press inside the window (escapeStop.ts).
 // `showMachineLoadWarnings` is the user setting for the Computer menu's cached host-health detail.
+// `composerRing` is `agentPane.composerRing` ("context" by default): what the ring at the end of the
+// quiet row shows, the chat's context window or the account's plan usage limits (5-hour, weekly;
+// PlanUsageCard.tsx), picked from the ring's right-click (Leo 2026-11-04: "i guess we can turn that
+// into a 5h/weekly usage type thing instead as well for some people"). The page sets it at once and
+// asks the host to write it (`pane.setComposerRing {ring}`). Anything else reads as "context".
 // `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
 // new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
 import { useSyncExternalStore } from "react";
@@ -41,6 +46,7 @@ import type { HarnessPlacement } from "../../ui/harnessPlacement";
 export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip" | "both";
 export type NewChatPlace = "local" | "cloud";
+export type ComposerRing = "context" | "planUsage";
 export type ComposerSettings = {
   showContextUsage: boolean;
   showDictation: boolean;
@@ -55,6 +61,7 @@ export type ComposerSettings = {
   escapeDoublePress: boolean;
   showMachineLoadWarnings: boolean;
   newChatsIn: NewChatPlace;
+  composerRing: ComposerRing;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -71,6 +78,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   escapeDoublePress: true,
   showMachineLoadWarnings: true,
   newChatsIn: "local",
+  composerRing: "context",
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -108,6 +116,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     escapeDoublePress: flag("escapeDoublePress"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
     newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
+    composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
   };
 }
 
@@ -248,4 +257,24 @@ export function setScrollToBottomOnSend(show: boolean) {
       if (write === scrollWrite) publishComposerSettings({ scrollToBottomOnSend: confirmedScrollToBottomOnSend });
     },
   );
+}
+
+/// The host's write of `agentPane.composerRing` (`pane.setComposerRing {ring}`).
+let composerRingHost: ((ring: ComposerRing) => unknown) | undefined;
+
+/// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
+export function registerComposerRingHost(write: ((ring: ComposerRing) => unknown) | undefined) {
+  composerRingHost = write;
+}
+
+/// Shows the context window or the plan usage limits in every composer's ring, and asks the host
+/// to persist it. The page changes at once and keeps the choice even when the write fails (an older
+/// host without the setting): it is only a look, and the host's next value is authoritative.
+export function setComposerRing(ring: ComposerRing) {
+  setComposerSettings({ composerRing: ring });
+  try {
+    void Promise.resolve(composerRingHost?.(ring)).catch(() => undefined);
+  } catch {
+    // The page keeps its choice (above).
+  }
 }

@@ -71,6 +71,8 @@ export function AgentLine({
   trayColumns = false,
   quiet = false,
   progressAt = "below",
+  latest,
+  latestAt = "below",
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
@@ -126,6 +128,11 @@ export function AgentLine({
   /// Where `progress` sits on a tray line: in the trailing meta before the time (`meta`), or on a
   /// line under the title (`below`, every other consumer's place).
   progressAt?: "meta" | "below";
+  /// What it did last (trayDetail.ts `latestLine`): a quiet second line under the title, cut to one
+  /// line so a change never moves the line (`below`), or dim after the title (`inline`). Leo,
+  /// 2026-11-03: "Tray only, richer" (trayLatest.experiment.ts).
+  latest?: string;
+  latestAt?: "below" | "inline";
 }) {
   const liveProgress = useAgentProgress(progressAgent);
   progress = liveProgress ?? progress;
@@ -181,6 +188,12 @@ export function AgentLine({
         )}
         <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
+        {latest && latest !== name && latestAt === "inline" && (
+          <span className="acpmux-agent-line__latest-inline">{latest}</span>
+        )}
+        {latest && latest !== name && latestAt === "below" && (
+          <span className="acpmux-agent-line__latest">{latest}</span>
+        )}
         {progress && trayColumns && progressAt === "meta" && (
           <span className="acpmux-agent-line__stats">{progress}</span>
         )}

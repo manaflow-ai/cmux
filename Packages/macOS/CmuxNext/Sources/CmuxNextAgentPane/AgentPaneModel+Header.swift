@@ -59,9 +59,9 @@ public struct AgentPaneHeaderHooks {
     /// Shows subagent `agent` of session `session` in an agent pane right of the chat
     /// (``AgentSubagentPanes``), focused with `focus`; false when no pane opened.
     public var openSubagent: @MainActor (_ session: String, _ agent: String, _ focus: Bool) -> Bool
-    /// This chat's tab, a pane opened on a subagent, now shows a subagent named `title`, or (nil) its
-    /// chat again: the tab's name follows (``SubagentTabTitles/show(_:inTab:)``).
-    public var showsSubagent: @MainActor (_ title: String?) -> Void
+    /// This chat's tab follows its shown subagent. An identity update without a loaded title keeps
+    /// the name bound at open; returning to the chat clears both name and tone.
+    public var showsSubagent: @MainActor (_ title: String?, _ tone: Int?, _ keepingTitle: Bool) -> Void
     /// Opens `viewer` (a background process's read-only terminal) in a tab beside the chat; false
     /// when no tab opened.
     public var openProcess: @MainActor (_ viewer: AgentPaneProcessViewer) -> Bool
@@ -87,6 +87,10 @@ public struct AgentPaneHeaderHooks {
     /// Shows and focuses a tab that shows acpmux session `id` in any workspace or window, switching
     /// to it (Needs you's Jump to workspace, ``AgentPaneAskOpen``); false when no tab shows it.
     public var jumpToSession: @MainActor (String) -> Bool
+    /// Whether a tab in any workspace or window shows acpmux session `id` already, the one
+    /// ``jumpToSession`` would switch to: the right-click's Go to Chat shows only then
+    /// (``AgentPaneOfferOpen/goTo(_:sender:in:)``). None by default.
+    public var hasTab: @MainActor (String) -> Bool
     /// Whether acpmux session `session` is of chat `chat`'s family: a sub-session it started at any
     /// depth, or the session that started it (acpmux `startedBy`, mirrored by the app's turn-state
     /// watch). ``AgentPaneOfferOpen`` opens only those, or the pane's own sessions; none by default.
@@ -114,7 +118,7 @@ public struct AgentPaneHeaderHooks {
                 openRight: @escaping @MainActor (String) -> Bool = { _ in false },
                 openTab: @escaping @MainActor (String, AgentForkDestination) -> Bool = { _, _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
-                showsSubagent: @escaping @MainActor (String?) -> Void = { _ in },
+                showsSubagent: @escaping @MainActor (String?, Int?, Bool) -> Void = { _, _, _ in },
                 openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
                 newChat: @escaping @MainActor (String) -> Bool = { _ in false },
                 sideTabs: @escaping @MainActor () -> Bool? = { nil },
@@ -124,6 +128,7 @@ public struct AgentPaneHeaderHooks {
                 refreshPullRequest: (@MainActor () -> Void)? = nil,
                 showSession: @escaping @MainActor (String) -> Bool = { _ in false },
                 jumpToSession: @escaping @MainActor (String) -> Bool = { _ in false },
+                hasTab: @escaping @MainActor (String) -> Bool = { _ in false },
                 isFamily: @escaping @MainActor (_ session: String, _ chat: String) -> Bool = { _, _ in false },
                 moveTargets: @escaping @MainActor () -> [AgentPaneMoveTarget] = { [] },
                 moveToMachine: @escaping @MainActor (_ machine: String, _ session: String) -> Bool = { _, _ in false },
@@ -145,6 +150,7 @@ public struct AgentPaneHeaderHooks {
         self.refreshPullRequest = refreshPullRequest
         self.showSession = showSession
         self.jumpToSession = jumpToSession
+        self.hasTab = hasTab
         self.isFamily = isFamily
         self.moveTargets = moveTargets
         self.moveToMachine = moveToMachine
@@ -278,21 +284,21 @@ extension AgentPaneModel {
             return AgentPaneReply.success(state)
         case .sideChat(let fork):
             return await AgentPaneSideChat.open(fork, in: self)
-        case .subagentPane(let agent, let focus, let title):
+        case .subagentPane(let agent, let focus, let title, let tone):
             // The chat's own subagent, in a pane of its own; not from a New Tab page. A refusal
             // answers `opened: false`, and the page shows the subagent in this pane instead.
             guard let sessionId, newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentPane")
             }
             // Its tab is named after the subagent, not the chat (SubagentTabTitles).
-            SubagentTabTitles.shared.name(agent, of: sessionId, title: title)
+            SubagentTabTitles.shared.name(agent, of: sessionId, title: title, tone: tone)
             return AgentPaneReply.success(["opened": header.openSubagent(sessionId, agent, focus)])
-        case .subagentShown(let agent, let title):
+        case .subagentShown(let agent, let title, let tone):
             // A subagent pane's own page: its tab's name follows what it shows. Not from a New Tab page.
             guard newTab == nil, let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.subagentShown")
             }
-            header.showsSubagent(agent == nil ? nil : title)
+            header.showsSubagent(agent == nil ? nil : title, agent == nil ? nil : tone, agent != nil && title == nil)
             return AgentPaneReply.success()
         case .processTerminal(let call):
             return AgentPaneProcessViewer.open(call, in: self)

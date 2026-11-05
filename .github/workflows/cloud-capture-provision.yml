@@ -9,6 +9,12 @@ name: Cloud capture account provision
 # The password exists only inside the Provision step: masked as soon as it is made, sent to Stack, sealed
 # and dropped. Every run is a rotation, so rerunning is how the credential is replaced.
 #
+# With `target: production`, the same steps make the production test account (cmux-cloud-capture-prod@manaflow.dev)
+# in the PRODUCTION Stack project with environment cloud-vm-production's server key (that environment admits
+# feat-cmux-next), sealed to cmuxterm-hq cloud-capture as CLOUD_PROBE_PRODUCTION_STACK_EMAIL and _PASSWORD for the
+# hourly production Cloud chat probe (cmuxterm-hq synthetic-probes.yml app-chat-production). The log names the
+# account's Stack user id (not a secret). grant_email never runs against production.
+#
 # With `grant_email` set, the run only gives that existing capture test account (cmux-cloud-capture…@manaflow.dev,
 # e.g. the no-team owner account) the `pro` operator plan: no password change, nothing sealed or uploaded.
 
@@ -19,6 +25,11 @@ on:
         description: Only grant the pro operator plan to this existing capture test account (no rotation, no bundle)
         required: false
         default: ""
+      target:
+        description: "capture: the staging capture account. production: the production probe account (cloud-vm-production)"
+        type: choice
+        options: [capture, production]
+        default: capture
 
 permissions:
   contents: read
@@ -32,7 +43,8 @@ jobs:
     # The staging server key is handed only to feat-cmux-next's own code.
     if: github.ref == 'refs/heads/feat-cmux-next'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    environment: cloud-vm-staging
+    # Each target's own server key: the script refuses a key whose project is not the target's.
+    environment: ${{ inputs.target == 'production' && 'cloud-vm-production' || 'cloud-vm-staging' }}
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -54,7 +66,7 @@ jobs:
           fi
 
       - name: Grant the operator plan only
-        if: inputs.grant_email != ''
+        if: inputs.grant_email != '' && inputs.target != 'production'
         env:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
@@ -68,7 +80,8 @@ jobs:
           NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
           NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
           STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
-        run: python3 scripts/ci/cloud_capture_provision.py --out "$RUNNER_TEMP/sealed-secrets.json"
+          TARGET: ${{ inputs.target || 'capture' }}
+        run: python3 scripts/ci/cloud_capture_provision.py --target "$TARGET" --out "$RUNNER_TEMP/sealed-secrets.json"
 
       - name: Upload the sealed bundle (ciphertext only)
         if: inputs.grant_email == ''

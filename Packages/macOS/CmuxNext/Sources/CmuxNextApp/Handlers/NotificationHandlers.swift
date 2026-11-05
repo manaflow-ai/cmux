@@ -87,7 +87,7 @@ enum NotificationHandlers {
             // An empty ledger is refused: the CLI awaits the reason, a palette or key run shows it.
             let awaited = registry.isCapturingWork, none = MiscHandlerStrings.noNotificationToCopy
             context.daemon.send("copy-notification", onFailure: { [weak registry] failure in
-                if !awaited { registry?.refuse(failure.message) }
+                if !awaited { registry?.refuse(failure: failure) }
             }) { connection in
                 guard let entry = try await connection.notificationLedger(limit: 1).first else {
                     throw ActionFailure.invalidTarget(none)

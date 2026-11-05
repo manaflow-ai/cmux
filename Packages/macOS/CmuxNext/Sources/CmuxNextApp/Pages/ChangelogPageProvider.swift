@@ -8,13 +8,19 @@ import Foundation
 /// Where the changelog page reads verified notes (``ReleaseNotesStore`` in the app).
 protocol ChangelogSource: Sendable {
     func index() async -> [ReleaseNotesIndexEntry]
+    /// The index kept on disk, with no network call (empty: none kept).
+    func cachedIndex() async -> [ReleaseNotesIndexEntry]
     func notes(for build: String) async -> ReleaseNotes?
 }
 
 extension ReleaseNotesStore: ChangelogSource {}
 
+extension ChangelogSource {
+    func cachedIndex() async -> [ReleaseNotesIndexEntry] { [] }
+}
+
 /// The owner side of the changelog page (`cmux.changelog.*`, R114): `list` (recent builds,
-/// newest first, and the running build), `get {build}` (one build's verified notes) and
+/// newest first, and the running build; `cached: true` reads the index kept on disk only), `get {build}` (one build's verified notes) and
 /// `reel {build}` (`url`: its nightly reel, else null). A highlight's action survives only when it
 /// is in ``PageDescriptor/changelogTryItActions``. Media arrive inlined (``ReleaseMediaStore``).
 ///
@@ -63,7 +69,8 @@ final class ChangelogPageProvider: PageProvider {
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.changelog.list":
-            let builds = await source?.index() ?? []
+            // `cached: true` (the Updated card after a relaunch): the verified index on disk, no network.
+            let builds = params["cached"]?.boolValue == true ? await source?.cachedIndex() ?? [] : await source?.index() ?? []
             return ["current": .string(currentBuild), "builds": try Self.json(builds)]
         case "cmux.changelog.get", "cmux.changelog.reel":
             guard let build = params["build"]?.stringValue, !build.isEmpty else { throw PageError.invalidParams("build is required") }

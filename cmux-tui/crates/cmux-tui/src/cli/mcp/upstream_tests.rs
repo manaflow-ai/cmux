@@ -204,16 +204,18 @@ fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
     for phrase in [
         "Full access",
         "never ask them to allow",
-        "decide, say why",
+        "Decide, say why",
         "never widens",
         "product taste",
     ] {
         assert!(rule.contains(phrase), "{phrase}: {rule}");
     }
-    for code_mode in [false, true] {
-        let init = initialize(&json!({}), false, code_mode);
+    for (code_mode, wrap_up) in [(false, false), (true, false), (true, true)] {
+        let init = initialize(&json!({}), false, code_mode, wrap_up);
         let text = init["instructions"].as_str().unwrap();
-        assert!(text.ends_with(rule), "code mode {code_mode}: {text}");
+        assert!(text.contains(rule), "code mode {code_mode}: {text}");
+        // The next-step box's line comes after the rule, only where acpmux is folded in.
+        assert_eq!(text.ends_with(code_mode::WRAP_UP_INSTRUCTION), wrap_up, "{text}");
         // Claude Code may cut server instructions past 2048 characters, which would drop the rule.
         assert!(
             text.chars().count() <= 2048,

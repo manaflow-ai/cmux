@@ -161,18 +161,13 @@ mod tests {
     };
     use std::ptr::{null, null_mut};
 
-    #[link(name = "CoreVideo", kind = "framework")]
-    unsafe extern "C" {
-        fn CVPixelBufferCreate(
-            a: *const c_void,
-            w: usize,
-            h: usize,
-            fmt: u32,
-            attrs: *const c_void,
-            out: *mut CVPixelBufferRef,
-        ) -> i32;
-        fn CVPixelBufferGetIOSurface(pb: CVPixelBufferRef) -> *mut c_void;
+    crate::framework! {
+        mod cv_sys = "/System/Library/Frameworks/CoreVideo.framework/CoreVideo" {
+            fn CVPixelBufferCreate(a: *const c_void, w: usize, h: usize, fmt: u32, attrs: *const c_void, out: *mut CVPixelBufferRef) -> i32;
+            fn CVPixelBufferGetIOSurface(pb: CVPixelBufferRef) -> *mut c_void;
+        }
     }
+    use cv_sys::*;
 
     /// An IOSurface-backed pixel buffer; the surface lives as long as the buffer.
     struct TestSurface(CVPixelBufferRef);
@@ -183,7 +178,7 @@ mod tests {
             // SAFETY: creating an IOSurface-backed buffer; attrs released after use.
             let status = unsafe {
                 let empty = dict(&[]);
-                let attrs = dict(&[(kCVPixelBufferIOSurfacePropertiesKey, empty)]);
+                let attrs = dict(&[(kCVPixelBufferIOSurfacePropertiesKey(), empty)]);
                 let s = CVPixelBufferCreate(
                     null(),
                     width as usize,

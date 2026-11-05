@@ -12,8 +12,8 @@ design and behavior stay as they are unless a change is needed for speed; never 
 - Cost is O(visible rows) per frame and O(changed rows) per update, never O(all rows).
 - Memory stays bounded by what is on screen (log lines `list-stress memory ... footprint=`).
 
-The reference implementation is the Feed (`CmuxMobileFeed/FeedCollection.swift`, `FeedListLayout.swift`,
-`FeedRowLayout.swift`, `verify/feed-perf-20261023.md`) and the Chief transcript in
+The reference implementation is the Feed (`CmuxMobileFeed/FeedCollection.swift`, `FeedRowLayout.swift`,
+`verify/feed-perf-20261023.md`; since 2026-11-03 a UITableView with exact heights, for UIKit's own swipe actions) and the Chief transcript in
 `Packages/iOS/CmuxConversation` (`ConversationViewController`, `ConversationTranscriptLayout`): UICollectionView,
 diffable data source keyed by stable string ids, `reconfigureItems` for changed rows, layouts or heights computed
 once per content key (off main where it is heavy), cells reused, no SwiftUI tree per whole list.

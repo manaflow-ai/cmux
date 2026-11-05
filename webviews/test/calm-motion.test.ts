@@ -58,20 +58,38 @@ await requireBrowserLane("calm-motion.test.ts", async () => {
       rows.map((row) => `${getComputedStyle(row).animationName} ${getComputedStyle(row).animationDuration}`),
     );
     await p.close();
-    expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.12s"]);
+    expect(fades).toEqual(["cv-enter-fade 0.12s", "cv-enter-fade 0.12s", "cv-enter-fade 0.36s", "cv-enter-fade 0.12s"]);
   });
 
-  test("a new message uses the subtle entrance and appears instantly under Reduce Motion", async () => {
+  test("a new message fades at final size and appears instantly under Reduce Motion", async () => {
     const style = `:root{--agent-motion-in:180ms}${desktop}${conversation}`;
-    const normal = await page(style, `<div class="acpmux-row__message-presentation">message</div>`, "no-preference");
-    const normalMotion = await normal.$eval(".acpmux-row__message-presentation", (row) => ({
-      name: getComputedStyle(row).animationName,
-      duration: getComputedStyle(row).animationDuration,
-    }));
+    const message = `<div class="acpmux-row__message-presentation" style="width:440px;height:72px">message</div>`;
+    const normal = await page(style, message, "no-preference");
+    const normalMotion = await normal.$eval(".acpmux-row__message-presentation", (row) => {
+      const animation = row.getAnimations()[0];
+      const duration = animation?.effect?.getTiming().duration;
+      if (!animation || typeof duration !== "number") throw new Error("message entrance did not start");
+      animation.pause();
+      const bounds = [0, duration / 2, duration].map((time) => {
+        animation.currentTime = time;
+        const { x, y, width, height } = row.getBoundingClientRect();
+        return { x, y, width, height };
+      });
+      return {
+        name: getComputedStyle(row).animationName,
+        duration: getComputedStyle(row).animationDuration,
+        bounds,
+      };
+    });
     await normal.close();
-    expect(normalMotion).toEqual({ name: "cv-message-enter", duration: "0.18s" });
+    expect(normalMotion.name).toBe("cv-message-enter");
+    expect(normalMotion.duration).toBe("0.18s");
+    const finalBounds = normalMotion.bounds[2]!;
+    expect(finalBounds.width).toBe(440);
+    expect(finalBounds.height).toBe(72);
+    expect(normalMotion.bounds).toEqual([finalBounds, finalBounds, finalBounds]);
 
-    const reduced = await page(style, `<div class="acpmux-row__message-presentation">message</div>`, "reduce");
+    const reduced = await page(style, message, "reduce");
     const reducedMotion = await reduced.$eval(".acpmux-row__message-presentation", (row) => ({
       name: getComputedStyle(row).animationName,
       duration: getComputedStyle(row).animationDuration,

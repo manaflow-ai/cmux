@@ -36,7 +36,16 @@ public final class PersonalStore {
     public internal(set) var workspaces: [PersonalWorkspace] = [] {
         didSet {
             workspaceIndex = personalWorkspaceIndex(workspaces)
-            workspaceOrder = workspaces.sorted { $0.index < $1.index }
+            // Keep the daemon's input order for equal positions. Swift's sort is not stable, and
+            // `PersonalSidebar.order` uses this projection to avoid sorting every workspace on
+            // every sidebar pass.
+            let offsets = Dictionary(workspaces.enumerated().map { (Self.orderKey($0.element), $0.offset) },
+                                     uniquingKeysWith: { first, _ in first })
+            workspaceOrder = workspaces.sorted {
+                $0.index == $1.index
+                    ? (offsets[Self.orderKey($0)] ?? .max) < (offsets[Self.orderKey($1)] ?? .max)
+                    : $0.index < $1.index
+            }
         }
     }
     /// Per-terminal themes, keyed `session_id` then terminal key.
@@ -47,6 +56,9 @@ public final class PersonalStore {
     /// (cx-rcby). Client state, never from the daemon: the sidebar hides an
     /// ending group that shows no member until the delete lands.
     public var endingGroups: Set<WorkspaceGroupID> = []
+    /// The newest pending organization write per workspace or group field (client state): a newer write supersedes
+    /// one still being sent again after a missed deadline (`PersonalWriteLedger`).
+    @ObservationIgnored public let writes = PersonalWriteLedger()
 
     /// `workspaces` by session then key, rebuilt when the list is set: a lookup per row or per tab
     /// (sidebar rows, tab badges, themes) is O(1), not a scan of every workspace (space-switch-fast).
@@ -63,6 +75,10 @@ public final class PersonalStore {
     @ObservationIgnored private var pinIndex: [String: [String: ProfileID]] = [:]
 
     public init() {}
+
+    private static func orderKey(_ workspace: PersonalWorkspace) -> String {
+        workspace.sessionID + "\u{0}" + workspace.workspaceKey.rawValue
+    }
 
     /// The own theme of a session-qualified terminal.
     public func terminalTheme(session: String, terminal: String) -> String? { terminalThemes[session]?[terminal] }

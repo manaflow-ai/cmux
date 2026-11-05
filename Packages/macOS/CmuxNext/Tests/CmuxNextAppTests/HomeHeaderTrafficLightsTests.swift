@@ -165,7 +165,7 @@ import Testing
     @Test(arguments: [64, 76, 100, 140, 179] as [CGFloat])
     func theAvatarListKeepsTheFilterAndShrinksSearchToACircle(_ width: CGFloat) {
         let h = HomeSidebarHeaderLayout(width: width, searchOpen: false)
-        let side = HomeSidebarHeaderLayout.side
+        let side = HomeSidebarHeaderMetrics.standard.side
         #expect(h.compact && h.search.width == 0)
         #expect(h.filter.width == side && h.filter.minX >= 0 && h.filter.maxX <= width)
         if width >= 2 * side + HomeSidebarHeaderLayout.gap + 2 * HomeSidebarHeaderLayout.edge {
@@ -187,7 +187,7 @@ import Testing
         let h = HomeSidebarHeaderLayout(width: width, searchOpen: true, windowControls: controls)
         #expect(h.search.minY >= controls.maxY)
         #expect(h.compact)
-        #expect(h.search.width >= min(HomeSidebarHeaderLayout.side, width - 2 * HomeSidebarHeaderLayout.inset))
+        #expect(h.search.width >= min(HomeSidebarHeaderMetrics.standard.side, width - 2 * HomeSidebarHeaderLayout.inset))
         #expect(h.search.maxX <= width - HomeSidebarHeaderLayout.inset)
     }
 

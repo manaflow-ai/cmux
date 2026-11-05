@@ -96,9 +96,7 @@ export function RepoRecoveryCard({ recovery }: { recovery: RepoRecovery }) {
     window.open(recovery.installUrl, "_blank", "noopener,noreferrer");
     if (!recovery.retry) return;
     setState("waiting");
-    void postNative<{ connected?: boolean }>(recovery.retry.wait_action ?? "cloud.repo.wait_github", {
-      timeout_ms: 60_000,
-    })
+    void postNative<{ connected?: boolean }>(recovery.retry.wait_action ?? "cloud.repo.wait_github")
       .then((reply) => {
         if (!mounted.current) return;
         if (!reply?.connected) {

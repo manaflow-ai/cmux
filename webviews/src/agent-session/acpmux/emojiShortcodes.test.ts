@@ -73,7 +73,11 @@ describe("emojiMatches", () => {
     const before = rows(":smi", undefined, now).map((row) => row.emoji);
     const last = before.at(-1)!;
     const prefs = recordUse({ tone: 0, recents: [] }, last, now);
-    expect(rows(":smi", prefs, now).map((row) => row.emoji).indexOf(last)).toBeLessThan(before.indexOf(last));
+    expect(
+      rows(":smi", prefs, now)
+        .map((row) => row.emoji)
+        .indexOf(last),
+    ).toBeLessThan(before.indexOf(last));
     const smile = recordUse({ tone: 0, recents: [] }, "🙂", now);
     expect(rows(":heart", smile, now)[0]?.code).toBe("heart");
   });

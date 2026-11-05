@@ -339,7 +339,7 @@ final class TabCell {
             let indicatorColors = StatusIndicatorLayer.Colors.current(loading: StatusIndicatorAppearance.shared.config.settings.color)
             spinnerLayer?.colors = indicatorColors
             statusGlyphLayer?.colors = indicatorColors
-            iconLayer.contents = iconImage(tint: item.tint?.markColor ?? text)
+            iconLayer.contents = iconImage(tint: item.tint?.markColor ?? AgentIdentityTone.rgb(item.agentTone, tokens: themeScope.tokens)?.nsColor ?? text)
             applySeparatorColor()
         }
         applyCloseColors()
@@ -466,7 +466,7 @@ final class TabCell {
             let appearing = !hasCloseLayers
             let (closeBackgroundLayer, closeGlyphLayer) = makeCloseLayers()
             closeBackgroundLayer.frame = closeRect
-            closeBackgroundLayer.cornerRadius = m.closeCornerRadius
+            closeBackgroundLayer.cornerRadius = m.nestedCornerRadius(closeRect, in: bounds)
             let inset = (closeRect.width - m.closeGlyphSize) / 2
             let glyph = closeRect.insetBy(dx: inset, dy: inset)
             // The glyph's layer is its own rect, so a strip move animates where it is, not its path.

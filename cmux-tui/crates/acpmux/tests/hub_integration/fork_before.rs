@@ -169,7 +169,7 @@ async fn fork_before_retry_after_lost_reply_and_restart_reuses_configured_child(
         // Keep the spawn request coherent with the model the source actually recorded.
         meta.model_request = meta
             .config_options
-            .as_ref()
+            .as_deref()
             .and_then(Value::as_array)
             .and_then(|options| options.iter().find(|option| option["id"] == "model"))
             .and_then(|model| model["currentValue"].as_str())
@@ -204,9 +204,8 @@ async fn fork_before_retry_after_lost_reply_and_restart_reuses_configured_child(
     assert_eq!(child.permission_policy, parent.permission_policy);
     assert_eq!(child.policy_source, parent.policy_source);
     assert_eq!(child.modes, parent.modes);
-    let selections = |options: &Option<Value>| -> BTreeMap<String, Value> {
+    let selections = |options: Option<&Value>| -> BTreeMap<String, Value> {
         options
-            .as_ref()
             .and_then(Value::as_array)
             .unwrap()
             .iter()
@@ -216,7 +215,10 @@ async fn fork_before_retry_after_lost_reply_and_restart_reuses_configured_child(
             .collect()
     };
     // Catalog labels/options can be refreshed by the new native process; every selection stays.
-    assert_eq!(selections(&child.config_options), selections(&parent.config_options));
+    assert_eq!(
+        selections(child.config_options.as_deref()),
+        selections(parent.config_options.as_deref())
+    );
     assert!(!child.session_env.contains_key("FORK_PARENT_ONLY"));
     assert!(child.title.is_none());
     assert!(child.previous_agent_session_ids.is_empty());

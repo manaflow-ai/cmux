@@ -476,6 +476,75 @@
    },
    "additional_properties": false
   },
+  "LayoutSizeSplitRatio": {
+   "kind": "object",
+   "fields": {
+    "split": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "ratio": {
+     "type": {
+      "kind": "scalar",
+      "name": "float32"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      {
+       "clamped_minimum": 0.05,
+       "clamped_maximum": 0.95
+      }
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutSizePaneWidth": {
+   "kind": "object",
+   "fields": {
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "width": {
+     "type": {
+      "kind": "scalar",
+      "name": "float32"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      {
+       "minimum": 0.1,
+       "maximum": 1.0
+      }
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutSizeValue": {
+   "kind": "untagged_union",
+   "variants": [
+    {
+     "kind": "ref",
+     "name": "LayoutSizeSplitRatio"
+    },
+    {
+     "kind": "ref",
+     "name": "LayoutSizePaneWidth"
+    }
+   ]
+  },
   "Size": {
    "kind": "object",
    "fields": {
@@ -6359,12 +6428,37 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "wal_commits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "wal_synced_commits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "registry_wal_frame_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
    "constraints": [
     "Counters accumulate since daemon start.",
-    "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+    "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect.",
+    "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each). Each is absent from daemons older than its field."
    ]
   },
   "ServerStatsLockSiteDetail": {
@@ -8760,6 +8854,36 @@
      "nullable": false
     },
     "listener_pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "RemoteHostAppResult": {
+   "kind": "object",
+   "fields": {
+    "socket": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "secret": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host_pid": {
      "type": {
       "kind": "scalar",
       "name": "uint32"
@@ -13788,6 +13912,46 @@
    "stream": null,
    "constraints": [
     "width must be finite."
+   ]
+  },
+  "set-layout-sizes": {
+   "authority": "control",
+   "since": 12,
+   "capability": "layout-sizes-batch-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "values": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "LayoutSizeValue"
+       },
+       "min_items": 1,
+       "max_items": 64
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "All values are on one screen; a refused value refuses them all, and nothing changes."
    ]
   },
   "set-column-dock": {
@@ -24231,6 +24395,124 @@
    "constraints": [
     "Only the verified local app connection (client-hello role main plus a proof) gets a result; every other caller gets error_code origin.forbidden.",
     "The secret is never journaled, logged or put in an event."
+   ]
+  },
+  "remote-host-status": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "Never starts the host. The device list under host.screen.devices is the verified app's only."
+   ]
+  },
+  "remote-host-call": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "method": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "params": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "Any local Unix connection may read, refresh, request a grant, restart a worker and lower access; turning sharing on or raising a device's access is the verified app's only (origin.forbidden otherwise)."
+   ]
+  },
+  "remote-host-config": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "computer_use": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "screen_sharing": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "headless": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "The verified app connection only; the daemon saves the switches and starts or stops the host."
+   ]
+  },
+  "remote-host-app": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "RemoteHostAppResult"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "The verified app connection only; the secret admits only that app process and is never logged or journaled."
    ]
   },
   "subscribe-activity": {

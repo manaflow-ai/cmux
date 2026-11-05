@@ -25,8 +25,9 @@ use serde_json::{Value, json};
 
 use super::host_steps::StepState;
 
-/// The platform the join line comes from until joining is on elsewhere.
-pub const DEV_ORIGIN: &str = "https://cmux-platform-development.debussy.workers.dev";
+/// The platform the join line comes from when the status names none: the
+/// join's own default hub.
+pub const JOIN_ORIGIN: &str = super::cloud_join::DEFAULT_HUB;
 /// A heartbeat older than this means the machine has dropped off the mesh
 /// (the hub's own limit, cmux#27079).
 pub const HEARTBEAT_WITHIN_MS: u64 = 90_000;
@@ -130,10 +131,10 @@ fn origin(facts: &Facts) -> String {
         Status::Json(v) => v["hubOrigin"]
             .as_str()
             .filter(bare)
-            .unwrap_or(DEV_ORIGIN)
+            .unwrap_or(JOIN_ORIGIN)
             .trim_end_matches('/')
             .to_owned(),
-        _ => DEV_ORIGIN.to_owned(),
+        _ => JOIN_ORIGIN.to_owned(),
     }
 }
 

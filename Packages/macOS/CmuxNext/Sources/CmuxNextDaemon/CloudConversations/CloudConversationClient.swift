@@ -47,9 +47,10 @@ public protocol CloudConversationCommands: Sendable {
 /// each call throws `missingCapabilities` on a daemon without the transport.
 public struct CloudConversationClient: CloudConversationCommands {
     public let connection: DaemonConnection
-    /// Commands that call the cloud answer from a daemon worker thread; the
-    /// 2 s control-plane deadline is too short for a Worker round trip. A
-    /// timed-out mutation has an unknown outcome and is resent with its key.
+    /// Commands that call the cloud answer from a daemon worker thread, so they
+    /// keep their own deadline for a Worker round trip (set when the control-plane
+    /// deadline was 2 s; it is 30 s too since #35075). A timed-out mutation has an
+    /// unknown outcome and is resent with its key.
     public static let networkTimeout: Duration = .seconds(30)
 
     /// Returns the strict timestamp cursor for the next summary page. Cloud

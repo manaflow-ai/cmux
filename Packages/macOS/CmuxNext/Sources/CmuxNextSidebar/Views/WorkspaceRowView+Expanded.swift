@@ -48,19 +48,18 @@ extension WorkspaceRowView {
     /// its minX while it shows. An unpinned row draws no pin, at rest or on
     /// hover; Pin Workspace stays in its ⋮ menu (Leo 2026-10-21: "no empty pin
     /// symbol by default").
-    func layoutPin(rowWidth: CGFloat, showMore: Bool, control: CGFloat, fades: Bool) -> CGFloat? {
+    func layoutPin(rowWidth: CGFloat, showMore: Bool, moreFrame: NSRect, control: CGFloat, fades: Bool) -> CGFloat? {
         let pinned = isExpanded && isPinned?() == true
-        setHoverShown(pinButton, showMore && pinned, fades: fades)
+        setHoverShown(pinSlot, showMore && pinned, fades: fades)
         guard pinned else { return nil }
-        (pinButton.icon, pinButton.label) = (.statePinned, Strings.unpinWorkspace)
         if SidebarTunables.rowCloseSpot.value.atEnd {
             let center = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
-            let nextSlot = Int(round((center - moreButton.frame.midX) / SidebarStyle.trailingSlotPitch)) + 1
-            pinButton.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreButton.frame.midY, control: control, minimumSlot: nextSlot)
+            let nextSlot = Int(round((center - moreFrame.midX) / SidebarStyle.trailingSlotPitch)) + 1
+            pinSlot.frame = trailingActionFrame(rowWidth: rowWidth, cy: moreFrame.midY, control: control, minimumSlot: nextSlot)
         } else {
-            pinButton.frame = moreButton.frame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
+            pinSlot.frame = moreFrame.offsetBy(dx: -SidebarStyle.trailingSlotPitch, dy: 0)
         }
-        return showMore ? pinButton.frame.minX : nil
+        return showMore ? pinSlot.frame.minX : nil
     }
 
     /// The title, the second line and the meta line, top to bottom from `top`.

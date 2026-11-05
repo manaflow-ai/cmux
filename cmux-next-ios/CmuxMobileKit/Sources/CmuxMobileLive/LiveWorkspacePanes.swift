@@ -7,7 +7,8 @@ import Foundation
 /// `split {pane, dir}`, `new-pane {pane}`, `new-pane-right {pane}`, `zoom-pane {pane, mode}`,
 /// `swap-pane {pane, dir|target}`, `rename-pane {pane, name}`, `close-pane {pane}`,
 /// `set-split-ratio {split, ratio, transaction}`, `undo-layout {pane, revision, confirm_close}`,
-/// `move-tab-to-split {surface, pane, edge}`, `move-tab-to-column {surface, pane}` and
+/// `move-tab-to-split {surface, pane, edge}`, `move-tab-to-column {surface, pane}` (with `width` and
+/// `dock` for a new dock column), `move-tab-to-new-workspace`, `move-tab-to-workspace` and
 /// `move-tab {surface, pane, index}`. A new pane's terminal is the Mac's own new terminal (the
 /// login shell; the phone names no program, folder or environment).
 extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
@@ -224,6 +225,53 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
         try await perform(client, "move-tab", ["surface": surface, "pane": pane, "index": destination.tabCount])
     }
 
+    /// Resize Pane: `set-split-ratio {split, ratio, transaction}` for a divider of the workspace's
+    /// screens, inside the range the stepper offers.
+    public func setSplitRatio(_ split: Int, to ratio: Double, in workspace: Workspace) async throws {
+        guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
+        guard layout(of: workspace)?.screens.contains(where: { $0.resizableSplits.contains { $0.split == split } }) == true else {
+            throw WorkspaceCreationError("That divider is no longer on the Mac.", isForPerson: true)
+        }
+        let ratio = min(max(ratio, WorkspaceLayout.ResizableSplit.range.lowerBound), WorkspaceLayout.ResizableSplit.range.upperBound)
+        try await perform(client, "set-split-ratio", ["split": split, "ratio": ratio, "transaction": Int.random(in: 1...Int(Int32.max))])
+    }
+
+    /// Move Tab to New Dock Column, as the Mac's `TabMoves.toNewDockColumn`: `move-tab-to-column
+    /// {surface, pane, width, dock: {edge, mode: docked}}`, a column pinned to that edge.
+    public func moveTab(_ tab: WorkspaceTab, toNewDock edge: DockEdge, in workspace: Workspace) async throws {
+        let (client, surface) = try target(tab, in: workspace)
+        guard let place = sync.tree?.tabPlaces[tab.id] else { throw WorkspaceCreationError("The Mac doesn't list this tab") }
+        try await perform(client, "move-tab-to-column", Self.dockParams(surface: surface, pane: place.pane, edge: edge))
+    }
+
+    nonisolated static func dockParams(surface: Int, pane: Int, edge: DockEdge) -> sending [String: Any] {
+        ["surface": surface, "pane": pane, "width": edge.width, "dock": ["edge": edge.rawValue, "mode": "docked"]]
+    }
+
+    /// Move Pane to New Workspace, as the Mac's `movePane`: the pane's first tab makes the new
+    /// workspace (`move-tab-to-new-workspace`, named as the Mac names one), the others follow in
+    /// order (`move-tab-to-workspace`), and it goes right below this one. The only pane is
+    /// refused, as on the Mac (a new workspace would leave nothing).
+    public func movePaneToNewWorkspace(_ pane: Int, in workspace: Workspace) async throws -> Workspace {
+        guard let layout = layout(of: workspace), let found = layout.pane(pane) else {
+            throw WorkspaceCreationError("That pane is no longer on the Mac.", isForPerson: true)
+        }
+        guard layout.panes.count > 1 else {
+            throw WorkspaceCreationError("This is the workspace's only pane.", isForPerson: true)
+        }
+        let tabs = found.tabIDs.compactMap { id in workspace.tabs.first { $0.id == id } }
+        guard let first = tabs.first else { throw WorkspaceCreationError("This pane has no tabs the iPhone can move.", isForPerson: true) }
+        guard let created = try await moveTab(first, from: workspace, toWorkspace: nil) else {
+            throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+        }
+        for tab in tabs.dropFirst() {
+            _ = try await moveTab(tab, from: workspace, toWorkspace: created)
+        }
+        // Below the pane's workspace, as the Mac places it; a Mac that refuses keeps its own place.
+        try? await place(created, next: workspace, after: true)
+        return sync.tree?.workspaces.first { $0.id == created.id } ?? created
+    }
+
     /// Fork Conversation to a destination, as the Mac's `openFork`: the copy opens as a tab
     /// beside the chat, then moves to a new split on that side (`move-tab-to-split`) or to a
     /// new workspace (`move-tab-to-new-workspace`, named as the Mac names one).
@@ -233,6 +281,9 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
             ?? sync.tree?.homeWorkspaces.first(where: { ws in ws.tabs.contains { $0.id == copy.id } }) else { return copy }
         if let edge = destination.splitEdge {
             try await moveTab(copy, toNewSplit: edge, in: home)
+        } else if destination == .column {
+            // The Mac's Fork Conversation to New Column Right: a new column right of the chat's (`move-tab-to-column`).
+            try await moveTabToNewColumn(copy, in: home)
         } else if destination == .workspace {
             _ = try await moveTab(copy, from: home, toWorkspace: nil)
         }

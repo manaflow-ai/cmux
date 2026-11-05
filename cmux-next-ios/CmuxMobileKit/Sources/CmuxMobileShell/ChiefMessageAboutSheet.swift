@@ -4,30 +4,40 @@ import CmuxMobileModel
 import SwiftUI
 
 /// Send Message… on a workspace or a tab (the Mac's `home.messageAbout`): a message to the
-/// Chief that starts with a link to what it is about, then what the person writes.
+/// Chief that starts with a link to what it is about, then what the person writes. With no
+/// subject: Message Chief (an App Intent, the Mac's Message the Chief from Any App).
 struct ChiefMessageAboutSheet: View {
-    let subject: ChiefMessageAbout
+    let subject: ChiefMessageAbout?
     /// The message is on its way: Send waits (no second send), and the sheet can't be closed.
     let sending: Bool
     let send: (String) -> Void
-    @State private var text = ""
+    @State private var text: String
+
+    init(subject: ChiefMessageAbout?, initialText: String = "", sending: Bool, send: @escaping (String) -> Void) {
+        self.subject = subject
+        self.sending = sending
+        self.send = send
+        _text = State(initialValue: initialText)
+    }
     @FocusState private var focused: Bool
     @Environment(\.dismiss) private var dismiss
 
     private var message: String {
-        (subject.mention + text.trimmingCharacters(in: .whitespacesAndNewlines)).trimmingCharacters(in: .whitespaces)
+        ((subject?.mention ?? "") + text.trimmingCharacters(in: .whitespacesAndNewlines)).trimmingCharacters(in: .whitespaces)
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Label(subject.title, systemImage: "link")
-                        .lineLimit(2)
-                        .accessibilityLabel(Text("About \(subject.title)"))
-                        .accessibilityIdentifier("chief.messageAbout.subject")
-                } footer: {
-                    Text("Chief gets a link to it with your message.")
+                if let subject {
+                    Section {
+                        Label(subject.title, systemImage: "link")
+                            .lineLimit(2)
+                            .accessibilityLabel(Text("About \(subject.title)"))
+                            .accessibilityIdentifier("chief.messageAbout.subject")
+                    } footer: {
+                        Text("Chief gets a link to it with your message.")
+                    }
                 }
                 Section {
                     TextField("Message", text: $text, axis: .vertical)

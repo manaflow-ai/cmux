@@ -238,15 +238,12 @@ test("the recipient is the Agent call's description for its agentId, or a short 
   expect(host.querySelector(".cv-agentmsg__name")?.hasAttribute("title")).toBe(false);
 });
 
-test("Copy is in the line's hover row at the sentence's end; the status word, then the chevron, close the line", async () => {
+test("a sent message's line has no Copy; the status word, then the chevron, close the line", async () => {
   await render(send("completed", "", 'tell-coordinator "first line\\nsecond line"'));
   const line = host.querySelector(".cv-agentmsg__line")!;
-  const sentence = line.querySelector(":scope > .cv-agentmsg__sentence")!;
-  const actions = sentence.querySelector(":scope > .cv-sent-actions")!;
-  expect(actions).not.toBeNull();
-  expect(actions.querySelector("button")?.getAttribute("aria-label")).toBe("Copy");
-  // The sentence's last child: the words, chip and preview come before it.
-  expect(sentence.lastElementChild).toBe(actions);
+  // Leo, 2026-11-04: "why is there even a copy button on the right here? ... let's remove copy button".
+  expect(line.querySelector(".cv-sent-actions")).toBeNull();
+  expect(line.querySelector('button[aria-label="Copy"]')).toBeNull();
   // The row grammar's trailing column (status), then the chevron, end the line.
   const trail = line.querySelector(":scope > .cv-tool__trail")!;
   expect(trail.querySelector(".cv-message__status")).not.toBeNull();

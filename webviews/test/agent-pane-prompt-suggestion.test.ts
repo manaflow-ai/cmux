@@ -36,6 +36,7 @@ type Rec = ReturnType<typeof record>[number];
 
 let liveSocket: any;
 let attachParams: any;
+const prompts: any[] = [];
 function fakeDaemon(history: Rec[], status: string) {
   let socket: any;
   const session = {
@@ -69,6 +70,7 @@ function fakeDaemon(history: Rec[], status: string) {
         const message = JSON.parse(raw);
         if (message.id === undefined) return;
         if (message.method === "_acpmux/attach") attachParams = message.params;
+        if (message.method === "session/prompt") prompts.push(message.params);
         queueMicrotask(() =>
           socket.onmessage?.({
             data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }),
@@ -87,9 +89,10 @@ const settle = async () => {
   for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 };
 let latest: AcpmuxSnapshot | undefined;
+let client: AcpmuxDirectClient | undefined;
 async function snapshotOf(steps: Step[], status = "idle"): Promise<AcpmuxSnapshot> {
   latest = undefined;
-  await AcpmuxDirectClient.connect(
+  client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t", sessionId: CHAT },
     (snapshot: AcpmuxSnapshot) => (latest = snapshot),
     undefined,
@@ -207,10 +210,35 @@ test("the attach asks for no extra kind: the transcript stream carries it live",
   expect(attachParams.kinds).not.toContain("prompt_suggestion");
 });
 
-test("the mock chat with a suggestion (?mock) offers the Prompt suggestions option and pages none", async () => {
+test("the mock chat with a suggestion (?mock) carries acpmux's Prompt suggestions option and pages none", async () => {
   const scene = mockSessions.find((session) => session.sessionId === PROMPT_SUGGESTION_SESSION)!;
   expect(scene.suggestion).toBe(PROMPT_SUGGESTION);
   expect(scene.extraOptions?.map((option) => option.id)).toEqual(["prompt-suggestions"]);
   // acpmux sends it live only, so the chat's paged history holds none.
   expect(JSON.stringify(sessionHistory(scene))).not.toContain("prompt_suggestion");
+});
+
+// acpmux shows a harness's suggestions only while they tend to be taken (suggestion_gate.rs): it
+// counts the next prompt as taken when it is the suggestion, or when the composer says the person
+// took it into the field (Tab, Right-arrow) and then edited it.
+test("a send after taking the suggestion tells acpmux it was taken; the next one does not", async () => {
+  await snapshotOf([...turn("Rename the helper", "Renamed."), ["in", "prompt_suggestion", suggest("commit it")]]);
+  prompts.length = 0;
+  client!.takeSuggestion();
+  void client!.send("commit it, then push").catch(() => undefined);
+  await settle();
+  void client!.send("and tag it").catch(() => undefined);
+  await settle();
+  expect(prompts.map((params) => params._meta?.acpmux?.promptSuggestion)).toEqual(["taken", undefined]);
+  client!.close?.();
+});
+
+test("taking with no suggestion shown marks nothing", async () => {
+  await snapshotOf(turn("Rename the helper", "Renamed."));
+  prompts.length = 0;
+  client!.takeSuggestion();
+  void client!.send("anything").catch(() => undefined);
+  await settle();
+  expect(prompts.map((params) => params._meta?.acpmux?.promptSuggestion)).toEqual([undefined]);
+  client!.close?.();
 });

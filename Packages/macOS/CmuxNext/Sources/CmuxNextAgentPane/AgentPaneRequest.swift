@@ -167,6 +167,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sandboxRun(task: String, agent: String?, key: String)
     /// `cloud.startChat {task, cwd, harness?, model?, key}`: a new chat's first send in Cloud (``AgentPaneCloudStart``).
     case cloudStartChat(AgentPaneCloudStart)
+    case cloudReservation(AgentPaneCloudReservationRequest)
     /// `cloud.repickChat {machine?, name?}`: another machine picked for a Cloud chat whose first send
     /// has not run (``AgentPaneCloudRepick``, ``AgentPaneModel/onCloudRepickChat``).
     case cloudRepickChat(AgentPaneCloudRepick)
@@ -250,10 +251,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case asksAnswer(AgentPaneAskAnswer)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
-    case subagentPane(String, focus: Bool, title: String? = nil)
+    case subagentPane(String, focus: Bool, title: String? = nil, tone: Int? = nil)
     /// `chat.subagentShown {subagent?, title?}`: a pane opened on a subagent now shows that subagent
     /// (named `title`), or its chat again (no subagent): its tab's name follows (``SubagentTabTitles``).
-    case subagentShown(String?, title: String?)
+    case subagentShown(String?, title: String?, tone: Int? = nil)
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)
@@ -364,7 +365,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case composerSetting(path: [String], show: Bool)
     /// `pane.setDisplay {key, value}`: the ··· menu's Text & Width popover writes one `agentPane.display.*`
     /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
-    /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline`, `strip` or `both`).
+    /// `pane.setAttachmentView {view}` writes `agentPane.attachmentView` the same way (`inline`, `strip` or `both`),
+    /// and `pane.setComposerRing {ring}` writes `agentPane.composerRing` (`context` or `planUsage`).
     case displaySetting(path: [String], value: JSONValue?)
     /// `tips.state`: read the feature tip records, keep one, or ask to show a tip
     /// (``AgentPaneFeatureTipRecords``).

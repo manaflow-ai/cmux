@@ -333,6 +333,17 @@ fn project_value(row: &Row, value: &Value) -> Value {
             None => value.clone(),
         };
     }
+    if row.validation == Validation::Domain(DomainKind::CommandLabels) {
+        return match value.as_array() {
+            Some(values) => json!(
+                values
+                    .iter()
+                    .map(|value| fields(value, &["program", "match", "label", "link", "icon"]))
+                    .collect::<Vec<_>>()
+            ),
+            None => value.clone(),
+        };
+    }
     if matches!(row.kind, Kind::TimeRange) {
         return fields(value, &["start", "end"]);
     }

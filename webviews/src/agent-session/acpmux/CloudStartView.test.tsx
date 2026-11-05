@@ -3,9 +3,53 @@
 // pulsing dot), the facts known so far, and a failure in the host's words; each arm of the
 // `cloud-start-look` experiment draws the same facts.
 import { afterEach, expect, test } from "bun:test";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
+import { JSDOM } from "jsdom";
 import { CloudStartView, startupChecklist } from "./CloudStartView";
 import type { CloudStartProgress } from "./cloudStartProgress";
+
+let dom: JSDOM | undefined;
+let root: Root | undefined;
+const scope = globalThis as Record<string, unknown>;
+const saved = new Map<string, unknown>();
+
+function installDom(): HTMLElement {
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+  });
+  const requestAnimationFrame = (callback: FrameRequestCallback) =>
+    setTimeout(() => callback(Date.now()), 0) as unknown as number;
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "MouseEvent",
+    "getComputedStyle",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
+    saved.set(key, scope[key]);
+  Object.assign(scope, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    Node: dom.window.Node,
+    HTMLElement: dom.window.HTMLElement,
+    Element: dom.window.Element,
+    MouseEvent: dom.window.MouseEvent,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    requestAnimationFrame,
+    cancelAnimationFrame: (handle: number) => clearTimeout(handle),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  return dom.window.document.getElementById("root")!;
+}
 
 const start: CloudStartProgress = {
   key: "k",
@@ -22,27 +66,70 @@ const start: CloudStartProgress = {
 const arm = (name: string) => {
   (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "cloud-start-look": name };
 };
-afterEach(() => {
+afterEach(async () => {
+  if (root) await act(async () => root!.unmount());
+  root = undefined;
+  dom?.window.close();
+  dom = undefined;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
+  saved.clear();
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
 });
 
-test("every arm shows the message, a spinner and the same facts", () => {
-  for (const name of ["chips", "rows", "steps"]) {
-    arm(name);
-    const html = renderToStaticMarkup(<CloudStartView start={start} />);
-    expect(html).toContain(`data-look="${name}"`);
+test("a start on its way reads as a local first turn: the message and the Thinking line, no Cloud rows", () => {
+  for (const s of [start, { ...start, initialized: true }]) {
+    const html = renderToStaticMarkup(<CloudStartView start={s} />);
     expect(html).toContain("fix the build");
-    expect(html).toContain("cv-spinner");
-    for (const fact of ["paint", "paint-dev · 4 CPU", ">2<", "Limited"]) expect(html).toContain(fact);
+    expect(html).toContain("cv-thinking");
+    expect(html).not.toContain("acpmux-cloud-start__status");
+    expect(html).not.toContain("acpmux-cloud-start__card");
+    expect(html).not.toContain('data-step-id="machine"');
   }
 });
 
-test("the steps arm marks the steps done, current and next", () => {
+test("every arm shows the message and compact preparing status", () => {
+  for (const name of ["chips", "rows", "steps"]) {
+    arm(name);
+    const html = renderToStaticMarkup(<CloudStartView start={start} showSteps />);
+    expect(html).toContain(`data-look="${name}"`);
+    expect(html).toContain("fix the build");
+    expect(html).toContain('class="acpmux-cloud-start__status"');
+    expect(html).toContain("cv-spinner");
+    expect(html).not.toContain('data-step-id="machine"');
+  }
+});
+
+test("a failed start opens the details disclosure with the host facts", () => {
+  const html = renderToStaticMarkup(
+    <CloudStartView start={{ ...start, state: "failed", message: "No machine free" }} />,
+  );
+  expect(html).toContain('aria-expanded="true"');
+  expect(html).toContain('data-step-id="machine"');
+  for (const fact of ["paint", "paint-dev · 4 CPU", ">2<", "Limited"]) expect(html).toContain(fact);
+});
+
+test("a healthy start opens its details when the disclosure is requested", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CloudStartView start={start} showSteps />);
+  });
+  const summary = container.querySelector<HTMLButtonElement>(".acpmux-cloud-start__summary");
+  expect(summary?.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => summary?.click());
+  expect(summary?.getAttribute("aria-expanded")).toBe("true");
+  expect(container.querySelector('[data-step-id="machine"]')).toBeTruthy();
+});
+
+test("the steps arm keeps its legacy step list behind the disclosure", () => {
   arm("steps");
-  const html = renderToStaticMarkup(<CloudStartView start={start} />);
-  expect(html.match(/data-step="done"/g)).toHaveLength(1);
-  expect(html.match(/data-step="current"/g)).toHaveLength(1);
-  expect(html.match(/data-step="next"/g)).toHaveLength(1);
+  const html = renderToStaticMarkup(<CloudStartView start={start} showSteps />);
+  expect(html).not.toContain('data-step="done"');
+  expect(html).not.toContain('data-step="current"');
+  expect(html).not.toContain('data-step="next"');
 });
 
 test("a failure says the host's words with no spinner, and the New Tab page draws no bubble", () => {
@@ -154,7 +241,14 @@ test("a machine failure stops a clone spinner", () => {
 test("a missing setup script is plain text without an environment callback", () => {
   const html = renderToStaticMarkup(
     <CloudStartView
-      start={{ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } }}
+      start={{
+        key: "k",
+        task: "hi",
+        state: "failed",
+        step: "opening",
+        home: true,
+        setup: { state: "skipped", hasScript: false },
+      }}
     />,
   );
   expect(html).toContain("Add a setup script to install dependencies and configure your environment.");
@@ -163,9 +257,10 @@ test("a missing setup script is plain text without an environment callback", () 
 
 test("initialized sessions collapse to one quiet line", () => {
   const html = renderToStaticMarkup(
-    <CloudStartView start={{ key: "k", task: "hi", state: "starting", initialized: true }} />,
+    <CloudStartView start={{ key: "k", task: "hi", state: "starting", initialized: true }} showSteps />,
   );
   expect(html).toContain("Initialized session");
+  expect(html).toContain('class="acpmux-cloud-start__status acpmux-cloud-start__status--ready"');
   expect(html).not.toContain('data-step-id="machine"');
 });
 
@@ -177,7 +272,14 @@ test("startup durations use the supplied clock", () => {
 test("setup hint becomes a link when an environment callback is provided", () => {
   const html = renderToStaticMarkup(
     <CloudStartView
-      start={{ key: "k", task: "hi", state: "starting", home: true, setup: { state: "skipped", hasScript: false } }}
+      start={{
+        key: "k",
+        task: "hi",
+        state: "failed",
+        step: "opening",
+        home: true,
+        setup: { state: "skipped", hasScript: false },
+      }}
       onOpenEnvironment={() => undefined}
     />,
   );
@@ -198,7 +300,7 @@ test("row state words are screen-reader only, hidden by the card's own sheet", a
   const css = await Bun.file(new URL("./cloudStart.css", import.meta.url)).text();
   expect(css).toMatch(/\.acpmux-cloud-start \.visually-hidden\s*\{[^}]*clip: rect\(0 0 0 0\)/);
   const html = renderToStaticMarkup(
-    <CloudStartView start={{ key: "k", task: "hi", state: "starting", machineStartedAt: 1_000 }} />,
+    <CloudStartView start={{ key: "k", task: "hi", state: "failed", step: "opening", machineStartedAt: 1_000 }} />,
   );
   expect(html).toContain('<span class="visually-hidden">');
 });

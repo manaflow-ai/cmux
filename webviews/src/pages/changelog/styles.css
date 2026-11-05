@@ -91,19 +91,19 @@ html[data-cmux-page="changelog"] body {
   border-radius: 10px;
   box-shadow: 0 0 0 1px var(--page-separator);
 }
-.cl-actions { display: flex; align-items: center; gap: 14px; margin: 4px 0 8px; }
+.cl-actions { display: flex; align-items: center; gap: var(--ds-space-3); margin: var(--ds-space-1) 0 var(--ds-space-2); }
 .cl-button {
-  height: 26px;
-  padding: 0 12px;
-  border-radius: 7px;
+  height: var(--ds-control-compact);
+  padding-inline: var(--ds-space-3);
+  border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
   font-size: var(--text-control);
-  font-weight: 500;
-  cursor: default;
+  font-weight: var(--weight-regular);
   letter-spacing: var(--text-control--letter-spacing);
 }
 .cl-button:hover { background: var(--page-selection); }
+.cl-action-button { flex: none; }
 .cl-link { color: var(--page-text-2); text-decoration: none; font-size: var(--text-body); letter-spacing: var(--text-body--letter-spacing); }
 .cl-link:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
 :is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-change-link, .cl-more):focus-visible {
@@ -146,7 +146,6 @@ html[data-cmux-page="changelog"] body {
   padding: 0 2px;
   color: var(--page-text-3);
   font-size: var(--text-detail);
-  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .cl-row-action:hover { color: var(--page-text); }
@@ -219,14 +218,8 @@ html[data-cmux-page="changelog"] {
   --agent-diff-del: var(--agent-status-failure);
 }
 .cl-more {
-  margin-top: 6px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--page-text-2);
+  margin-top: var(--ds-space-1);
   font-size: var(--text-detail);
-  cursor: default;
-  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cl-more:hover { color: var(--page-text); }
 .cl-builds {

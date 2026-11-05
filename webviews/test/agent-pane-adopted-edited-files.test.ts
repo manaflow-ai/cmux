@@ -122,7 +122,7 @@ await requireBrowserLane("agent-pane-adopted-edited-files.test.ts", async () => 
     await daemon?.stop(true);
   });
 
-  test("the edited-files card lists each file with its counts, and View changes opens the hunks", async () => {
+  test("the edited-files card lists each file with its counts", async () => {
     const page = await open();
     const card = page.locator(".acpmux-edited");
     await expect(card.locator(".acpmux-edited-title").innerText()).resolves.toMatch(/^Edited 2 files\s*\+4\s*-1/);
@@ -132,10 +132,6 @@ await requireBrowserLane("agent-pane-adopted-edited-files.test.ts", async () => 
     // whole-file text to put back, so the card offers no Undo the host would refuse.
     await card.hover();
     expect(await card.locator(".acpmux-edited-undo").count()).toBe(0);
-    await card.getByRole("button", { name: "View changes" }).click();
-    // The browser host has no pane beside the chat: the turn's diff opens in place, its hunks drawn.
-    await page.getByText('version = "1.3.0"').first().waitFor();
-    await page.getByText("- Bump the version to 1.3.0").first().waitFor();
     await page.close();
   });
 

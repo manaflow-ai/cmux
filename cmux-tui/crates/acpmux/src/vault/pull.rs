@@ -110,12 +110,12 @@ pub fn verify_kept(steps: Vec<Step>, store: &dyn SecretStore) -> Vec<Step> {
     steps
         .into_iter()
         .map(|step| match step {
-            Step::Keep { name, revision, value } => match store.get(&name) {
+            Step::Keep { name, revision, value, proxy } => match store.get(&name) {
                 Ok(Some(have)) if have.as_str() == value.as_str() => {
-                    Step::Keep { name, revision, value }
+                    Step::Keep { name, revision, value, proxy }
                 }
-                Err(_) => Step::Keep { name, revision, value },
-                Ok(_) => Step::Store { name, revision, value },
+                Err(_) => Step::Keep { name, revision, value, proxy },
+                Ok(_) => Step::Store { name, revision, value, proxy },
             },
             other => other,
         })
@@ -200,7 +200,7 @@ pub async fn fetch(hub: &str, credential: &str) -> Answer {
         return Answer::Retry("vault.client".to_owned());
     };
     let response = match client
-        .get(format!("{hub}{}", wire::MACHINE_PATH))
+        .get(format!("{hub}{}?{}", wire::MACHINE_PATH, wire::DELIVERY_QUERY))
         .bearer_auth(credential)
         .send()
         .await
@@ -236,15 +236,21 @@ pub fn apply(
     let (mut stored, mut deleted, mut failed) = (Vec::new(), Vec::new(), Vec::new());
     for step in steps {
         match step {
-            Step::Keep { .. } => {}
-            Step::Store { name, revision, value } => match store.put(&name, &value) {
+            // A policy change (proxy hosts, or env and proxy swapped) comes
+            // without a new revision: the record takes it.
+            Step::Keep { name, proxy, .. } => {
+                if let Some(record) = state.env.get_mut(&name) {
+                    record.proxy = proxy;
+                }
+            }
+            Step::Store { name, revision, value, proxy } => match store.put(&name, &value) {
                 Ok(()) => {
                     state.pending_delete.remove(&name);
                     let fingerprint = state.fingerprint(&name, &value);
                     let credential = binding.to_owned();
                     state.env.insert(
                         name.clone(),
-                        plan::EnvRecord { revision, fingerprint, credential },
+                        plan::EnvRecord { revision, fingerprint, credential, proxy },
                     );
                     stored.push(name);
                 }

@@ -69,7 +69,10 @@ on:
   #
   # Every other branch of this repository publishes its pushed head too
   # (cx-r2is), so a same-repository branch can repair its own tree without a
-  # hand-pushed cmux-tui-pin-* ref. Those lane-branch pushes publish without
+  # hand-pushed cmux-tui-pin-* ref, but only a head an open pull request has
+  # (or a cmux-next dispatch, or the Cmux-Daemon-Tests: run trailer, asks
+  # for): tree-preflight's superseded step skips the rest before any build
+  # (scripts/ci/cmux_tui_superseded_push.py). Those lane-branch pushes publish without
   # the daemon tests (tree-preflight's daemon-policy step). Forks never push
   # here. Pull requests do not publish synthetic merge trees: path routing
   # skips a cold own tree with a named reason until a trusted feat-cmux-next
@@ -132,6 +135,8 @@ env:
   # value overrides any runner-level CMUX_GHOSTTY_SRC (build.rs treats it
   # as unset).
   CMUX_GHOSTTY_SRC: ""
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 # Every Linux job here, the ~10-second ones included, takes the shared Linux set:
 # Blacksmith 32 vCPU, Blacksmith 16 vCPU while the overflow switch has failed over
@@ -520,11 +525,15 @@ jobs:
               while IFS=$'\t' read -r candidate_id candidate_branch; do
                 [[ "$candidate_id" =~ ^[0-9]+$ && "$candidate_id" != "$RUN_ID" ]] || continue
                 [[ "$candidate_branch" == main ]] && continue
-                # A cp/, lane/ or perf/ run may be superseded (no open pull
-                # request has its head) and then builds nothing and hands off
-                # nothing, so it is never elected owner here; at worst both
-                # runs build, and publish keeps the first publication.
-                [[ "$candidate_branch" == cp/* || "$candidate_branch" == lane/* || "$candidate_branch" == perf/* ]] && continue
+                # A run of any non-trunk branch may be superseded (no open
+                # pull request has its head; scripts/ci/cmux_tui_superseded_push.py
+                # TRUNK_REFS) and then builds nothing and hands off nothing, so
+                # it is never elected owner here; at worst both runs build, and
+                # publish keeps the first publication.
+                case "$candidate_branch" in
+                  feat-cmux-next|feat-cmux-next-*|next-batch/*|nightly-next|release-next|cmux-tui-pin-*) ;;
+                  *) continue ;;
+                esac
                 if (( candidate_id < owner_run_id )); then
                   owner_run_id="$candidate_id"
                 fi
@@ -732,7 +741,7 @@ jobs:
   tree-owner-wait:
     name: wait for same-key tree publisher
     # A superseded push (tree-preflight's stale step: a moved lane branch, a
-    # moved pin, or a cp/, lane/ or perf/ head no open pull request has) builds
+    # moved pin, or a non-trunk head no open pull request has) builds
     # nothing, so it has no publisher to wait for and spends no API calls here.
     # A run that already owns its key (tree-preflight owns_key) skips this
     # job; every consumer reads takeover as owner-wait's or owns_key.
@@ -3273,7 +3282,10 @@ jobs:
               echo "::warning title=tree without $asset::the manifest of $source_commit attests no $asset; tree $KEY is published without it"
             fi
           done
-          fetch_each "https://files.cmux.com/cmux-tui/$source_commit" "${acpmux[@]}"
+          # Bash 3.2 (the macOS system shell) treats an empty array expansion
+          # under set -u as an unset variable. Keep the call argument-free when
+          # this commit's manifest attests no acpmux companions.
+          fetch_each "https://files.cmux.com/cmux-tui/$source_commit" ${acpmux[@]+"${acpmux[@]}"}
           completion_args=()
           if fetch_optional "$base/completion.json" tree/existing-completion.json; then
             completion_args=(--existing-completion-file tree/existing-completion.json)

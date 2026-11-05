@@ -1,6 +1,7 @@
 //! `cmux link seed plan --local FOLDER --bundle OUT [--base SHA]`: plans a
 //! `git-seed-v1` seed of a git working copy with a GitHub remote and
-//! writes its bundle ([`plan`]). Not wired into `start-chat` yet.
+//! writes its bundle ([`plan`]). `start-chat`'s copy seeds through it
+//! (`seed_cli::push`, called from `start_chat_cli.rs`).
 //!
 //! Output: one JSON line on stdout. A plan is `{"ok":true,"params":{...},
 //! "skipped":[{"path","why"}],"submodules":[{"path","commit"}],

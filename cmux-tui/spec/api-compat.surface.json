@@ -10985,6 +10985,32 @@
       }
     },
     "request:reload-config": {},
+    "request:remote-host-app": {},
+    "request:remote-host-call": {
+      "/method": {
+        "ty": "string",
+        "required": true
+      },
+      "/params": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:remote-host-config": {
+      "/computer_use": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/headless": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/screen_sharing": {
+        "ty": "boolean",
+        "nullable": true
+      }
+    },
+    "request:remote-host-status": {},
     "request:remote-terminal-snapshot": {
       "/surface": {
         "ty": "uint64",
@@ -11604,6 +11630,35 @@
       },
       "/policy/order/*": {
         "ty": "string"
+      }
+    },
+    "request:set-layout-sizes": {
+      "/transaction": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/values": {
+        "ty": "array",
+        "required": true
+      },
+      "/values/*": {
+        "ty": "untagged_union|object"
+      },
+      "/values/*/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/values/*/ratio": {
+        "ty": "float32",
+        "required": true
+      },
+      "/values/*/split": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/values/*/width": {
+        "ty": "float32",
+        "required": true
       }
     },
     "request:set-personal-terminal": {
@@ -19136,6 +19191,38 @@
         ]
       }
     },
+    "response:remote-host-app": {
+      "/data/host_pid": {
+        "ty": "uint32",
+        "required": true
+      },
+      "/data/secret": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/socket": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:remote-host-call": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:remote-host-config": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:remote-host-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:remote-terminal-snapshot": {
       "/data": {
         "ty": "json",
@@ -20568,9 +20655,18 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/write_path/registry_wal_frame_bytes": {
+        "ty": "uint64"
+      },
       "/data/write_path/request_effect_commits": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/write_path/wal_commits": {
+        "ty": "uint64"
+      },
+      "/data/write_path/wal_synced_commits": {
+        "ty": "uint64"
       },
       "/data/write_path/writer_registry_locks": {
         "ty": "uint64",
@@ -20661,6 +20757,7 @@
         "ty": "string"
       }
     },
+    "response:set-layout-sizes": {},
     "response:set-personal-terminal": {
       "/data": {
         "ty": "json",

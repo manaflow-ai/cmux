@@ -20,7 +20,7 @@ struct HomeSidebarHeaderTests {
         let items = [h.search, h.filter]
         #expect(h.compose == .zero)
         #expect(Set(items.map(\.midY)).count == 1, "the row wraps at \(width)")
-        #expect(items.allSatisfy { $0.height == HomeSidebarHeaderLayout.side })
+        #expect(items.allSatisfy { $0.height == HomeSidebarHeaderMetrics.standard.side })
         #expect(items.allSatisfy { $0.minX >= 0 && $0.maxX <= width }, "the row overflows \(width)")
         for (a, b) in zip(items, items.dropFirst()) {
             #expect(a.maxX <= b.minX, "items overlap at \(width)")
@@ -94,9 +94,9 @@ struct HomeSidebarHeaderTests {
         let off = HomeSidebarHeaderLayout(width: 320, searchOpen: false, filterOn: false)
         #expect(off.filterChip == .zero)
         let on = HomeSidebarHeaderLayout(width: 320, searchOpen: false, filterOn: true)
-        #expect(on.filterChip.height == HomeSidebarHeaderLayout.chipHeight)
+        #expect(on.filterChip.height == HomeSidebarHeaderMetrics.standard.chipHeight)
         #expect(on.filterChip.minY >= on.search.maxY)
-        #expect(on.listTop == on.filterChip.maxY + HomeSidebarHeaderLayout.chipGap)
+        #expect(on.listTop == on.filterChip.maxY + HomeSidebarHeaderMetrics.standard.chipGap)
 
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         func laidOut() {
@@ -175,8 +175,8 @@ struct HomeSidebarHeaderTests {
         }
         // The glyph keeps its size across the switch: half the Unread toggle's height. The list's compose button is
         // hidden and zero-sized since 1cc2f1b57d133 (compose is the chat's at every width), so its glyph is the 10 pt floor.
-        #expect(home.unreadToggle.frame.height == HomeSidebarHeaderLayout.side
-            && home.unreadToggle.glyphSize == HomeSidebarHeaderLayout.side / 2)
+        #expect(home.unreadToggle.frame.height == HomeSidebarHeaderMetrics.standard.side
+            && home.unreadToggle.glyphSize == HomeSidebarHeaderMetrics.standard.side / 2)
         #expect(home.compose.frame.size == .zero && home.compose.glyphSize == 10)
     }
 }

@@ -1,12 +1,14 @@
 // l10n-allow-file: browser fixture labels and diagnostics, not shipped UI.
 // cmux-web-test-timeout: 300
 //
-// Another agent's message reads at one steady brightness (Leo, 2026-11-03, on a received message's
-// card drawn dim at rest and bright under the pointer: "i dont think this should light up/dim based
-// off if ur hovered onit or otherwise"). Pointing at or focusing a received line, its opened card,
-// its sender chip or the "Received N messages" row may reveal controls (the hover actions, the
-// chevron, Copy) and draw a hover plate, but never changes any text's or card's colour, opacity or
-// filter. Measured in the page from the real transcript: gallery entries
+// Another agent's message: its line and the "Received N messages" row rest in the activity tone the
+// finished tool rows rest at, and light to the transcript's text tone only under the pointer or
+// keyboard focus (Leo, 2026-11-03, after #34464 drew them in the text tone at rest: "these are now
+// too lit up by default? they should only be this bright when u hover over it"; this replaces his
+// earlier "i dont think this should light up/dim based off if ur hovered onit or otherwise" for the
+// lines). The opened card never changes, and nothing else changes opacity or filter: pointing may
+// reveal controls (the hover actions, the chevron, Copy), draw a hover plate, and lift a line's
+// words from the activity tone to the text tone, nothing more. Measured in the page from the real transcript: gallery entries
 // agent-pane.incoming-message-disclosure (a-shipped-open) and agent-pane.received-messages
 // (collapsed, level-1, level-2). design/chat-transcript.md "Messages from other agents".
 //
@@ -70,6 +72,25 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
     return page;
   };
 
+  /** The two tones a line may take, resolved in the page: [rest (activity), lit (text)]. */
+  const lineTones = (page: Page) =>
+    page.evaluate(() => {
+      const host = document.querySelector(".acpmux-row") ?? document.body;
+      const probe = (token: string) => {
+        const el = document.createElement("span");
+        el.style.color = `var(${token})`;
+        host.appendChild(el);
+        const color = getComputedStyle(el).color;
+        el.remove();
+        return color;
+      };
+      return [probe("--cv-activity-text"), probe("--cv-text")] as const;
+    });
+  /** The lines and row heads that rest dim and light under the pointer. */
+  const LINES = ".acpmux-row .cv-received > .cv-disclosure__line, .acpmux-row .cv-lane-batch__toggle";
+  /** At rest: a closed row head (an open one stays lit, MessageGroupHead.css) and every line. */
+  const RESTING = `.acpmux-row .cv-received > .cv-disclosure__line, .acpmux-row .cv-lane-batch__toggle:not([aria-expanded="true"])`;
+
   /** Every measured element's colour, opacity and filter, by its place in the page. */
   const tones = (page: Page) =>
     page.evaluate(
@@ -100,9 +121,16 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
     return tones(page);
   };
 
+  /** A change is allowed only when a line's words go from the activity tone to the text tone. */
+  let lift: [string, string] = ["", ""];
+  const lifted = (before: string, after: string) =>
+    before.replace(`color ${lift[0]}`, `color ${lift[1]}`) === after && before.startsWith(`color ${lift[0]} `);
   const differences = (before: Record<string, string>, after: Record<string, string>, what: string) =>
     Object.keys(before)
-      .filter((key) => after[key] !== before[key])
+      .filter(
+        (key) =>
+          after[key] !== before[key] && !(!key.includes("cv-disclosure__panel") && lifted(before[key], after[key])),
+      )
       .map((key) => `${what}: ${key}\n    rest  ${before[key]}\n    now   ${after[key]}`);
 
   const SCENES: [string, string][] = [
@@ -113,11 +141,25 @@ await requireBrowserLane("received-message-steady-tone-browser.test.ts", async (
   ];
 
   for (const [entry, variant] of SCENES)
-    test(`${entry} ${variant}: hover and focus leave every received text and card at its rest tone`, async () => {
+    test(`${entry} ${variant}: received lines rest dim, light only on hover or focus; cards never change`, async () => {
       const page = await open(entry, variant);
       try {
         const base = await rest(page);
         expect(Object.keys(base).length).toBeGreaterThan(0);
+        const [activity, text] = await lineTones(page);
+        expect(activity).not.toBe(text);
+        lift = [activity, text];
+        // At rest every line and row head draws in the activity tone, never the text tone.
+        const restColors = await page.evaluate(
+          (sel) => [...document.querySelectorAll<HTMLElement>(sel)].map((el) => getComputedStyle(el).color),
+          RESTING,
+        );
+        expect(restColors.length).toBeGreaterThan(0);
+        expect(restColors.filter((c) => c !== activity)).toEqual([]);
+        // Under the pointer a line lights to the text tone.
+        const firstLine = page.locator(LINES).first();
+        await firstLine.hover();
+        expect(await firstLine.evaluate((el) => getComputedStyle(el).color)).toBe(text);
         const changed: string[] = [];
         let visited = 0;
         for (const selector of TARGETS) {

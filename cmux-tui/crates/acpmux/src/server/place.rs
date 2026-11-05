@@ -70,7 +70,7 @@ fn dispatch_place(candidates: Vec<Candidate>, registry: Option<&Value>, work: Wo
     if v.get("pick").is_some_and(Value::is_null) && !left_out.is_empty() {
         let why = v.get("why").and_then(Value::as_str).unwrap_or_default();
         let why = format!(
-            "{why}. `dispatch --host auto` never starts a new lane on {}: a machine a person \
+            "{why}. `dispatch --machine auto` never starts a new lane on {}: a machine a person \
 works at or that runs a person's own apps (fleet-registry.json interactive, leo-mac, attended \
 or leo-apps), and for an agent lane a last-resort host (lanes.last_resort), which takes \
 captures and builds only (design/agent-dispatch.md)",
@@ -135,7 +135,7 @@ pub(super) async fn subsession_host(
             return Ok(None);
         }
         return Err(RpcError::invalid_params(format!(
-            "start_session refused: a sub-session starts only on this machine ({here}), not on {host:?}. Pass host \"auto\" to check this machine has room first, or leave host out. To run work on another machine, tell the user: `acpmux new --host auto` places a session on the machine with the most room."
+            "start_session refused: a sub-session starts only on this machine ({here}), not on {host:?}. Pass host \"auto\" to check this machine has room first, or leave host out. To run work on another machine, tell the user: `acpmux new --machine auto` places a session on the machine with the most room."
         ))
         .with_data(json!({"reason": "subsessions.host_unsupported", "host": here})));
     };

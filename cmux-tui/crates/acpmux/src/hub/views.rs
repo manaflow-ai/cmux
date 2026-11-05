@@ -651,12 +651,12 @@ impl Hub {
         let m = session.meta();
         let mut v = self.session_summary(session);
         v.set("modes", m.modes.clone().unwrap_or(Value::Null));
-        v.set("configOptions", m.config_options.clone().unwrap_or(Value::Null));
+        v.set("configOptions", m.config_options.as_deref().cloned().unwrap_or(Value::Null));
         v.set("models", m.models.clone().unwrap_or(Value::Null));
         v.set("agentInfo", m.agent_info.clone().unwrap_or(Value::Null));
         v.set("agentCapabilities", m.agent_capabilities.clone().unwrap_or(Value::Null));
         v.set("usage", m.usage.clone().unwrap_or(Value::Null));
-        v.set("goal", m.goal.clone().unwrap_or(Value::Null));
+        v.set("goal", m.goal.as_ref().map(crate::goal::GoalState::to_value).unwrap_or(Value::Null));
         // What the context holds by category, as Claude Code's /context says after each turn.
         v.set("contextBreakdown", m.context_breakdown.clone().unwrap_or(Value::Null));
         // The account's plan usage limits, as Claude Code's rate_limit_event last said them.

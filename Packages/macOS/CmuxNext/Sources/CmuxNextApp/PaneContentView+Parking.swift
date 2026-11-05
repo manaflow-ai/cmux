@@ -92,9 +92,7 @@ extension PaneContentView {
         // The keyboard never stays in a view that does not show: the window
         // takes it, and the focus model re-applies its target (the content
         // shown now), as when a view leaves the window.
-        if let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view) {
-            window.makeFirstResponder(nil)
-        }
+        view.handKeyboardToWindow()
         (view as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         view.isHidden = true
         // A hidden agent or internal page stays sized with the pane, so showing it again needs no redraw at a new

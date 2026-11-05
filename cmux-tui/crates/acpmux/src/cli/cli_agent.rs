@@ -61,7 +61,11 @@ pub struct Options {
 /// blank line, so the typed question never reaches the agent without it nor
 /// the paste without the question.
 pub fn prompt_text(blocks: &[Value], last_block: bool) -> String {
-    let texts = blocks
+    // Cmux context is part of this request, not an older view block. Keep it
+    // alongside the last typed block even for stateful CLI adapters (UniiChat).
+    let (context, ordinary): (Vec<_>, Vec<_>) =
+        blocks.iter().partition(|b| crate::prompt_context::is_context(b));
+    let texts = ordinary
         .iter()
         .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
         .filter_map(|b| Some((b.get("text").and_then(Value::as_str)?, is_pasted(b))));
@@ -71,6 +75,14 @@ pub fn prompt_text(blocks: &[Value], last_block: bool) -> String {
     } else {
         typed.iter().map(|(t, _)| *t).collect()
     };
+    for block in context {
+        if let Some(context) = block.get("text").and_then(Value::as_str) {
+            if !text.is_empty() {
+                text.push_str("\n\n");
+            }
+            text.push_str(context);
+        }
+    }
     for (paste, _) in pasted {
         if !text.is_empty() {
             text.push_str("\n\n");
@@ -584,6 +596,21 @@ mod tests {
         assert_eq!(prompt_text(&blocks, true), "hello unii");
         assert_eq!(prompt_text(&blocks, false), "view line 1\nhello unii");
         assert_eq!(prompt_text(&[], true), "");
+    }
+
+    #[test]
+    fn last_block_keeps_hidden_context_beside_the_user_request() {
+        let blocks = vec![
+            json!({"type": "text", "text": "older view"}),
+            json!({"type": "text", "text": "fix the grid"}),
+            crate::context_inventory::override_block("read early", "user"),
+        ];
+        for last in [true, false] {
+            let text = prompt_text(&blocks, last);
+            assert!(text.contains("fix the grid"), "{text}");
+            assert!(text.contains("read early"), "{text}");
+            assert_eq!(text.contains("older view"), !last, "{text}");
+        }
     }
 
     /// A huge paste in cmux's composer goes as its own text block after the

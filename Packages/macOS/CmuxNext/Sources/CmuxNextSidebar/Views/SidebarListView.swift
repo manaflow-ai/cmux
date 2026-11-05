@@ -127,6 +127,8 @@ final class SidebarListView: NSView {
     let groupEditor = SidebarGroupEditor()
     var groupEditorItems: ((GroupID) -> [[SidebarGroupEditorItem]])?
     var onGroupEditorItem: ((GroupID, String) -> Void)?
+    /// The group editor's Sort menu for a group: the App's `workspaceGroup.setSort` choices, the group's sort checked.
+    var groupSortMenu: ((GroupID) -> NSMenu?)?
     var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
     /// Drag autoscroll frames from the window's FrameScheduler.
     lazy var autoscroll = SidebarDragAutoscroll(list: self)
@@ -357,7 +359,7 @@ final class SidebarListView: NSView {
     /// and bottom, corners rounded `Metrics.space1` more (Leo 2026-10-19).
     func hoverHit(at point: CGPoint) -> SidebarRow? {
         displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
-                           cornerRadius: SidebarStyle.rowCornerRadius + Metrics.space1, inset: Metrics.space1)
+                           cornerRadius: Metrics.cornerRadius(nestedIn: SidebarStyle.rowCornerRadius, inset: -Metrics.space1), inset: Metrics.space1)
     }
     /// The row a click at `point` acts on: the hovered row when the pointer
     /// hovers one, so a click never lands on a row other than the lit one;

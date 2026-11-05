@@ -4417,6 +4417,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "workspace-group set-sort",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.setSort",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Workspace Group Sort Order…",
+      "title_key" : "action.workspaceGroup.setSort",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "workspace-group move-to-window",
       "context_menu" : "offered",
       "context_menus" : [
@@ -9886,6 +9914,314 @@
       "title" : "Auto-Expand Tabs on Hover",
       "title_key" : "action.tabs.verticalTabs.expandOnHover",
       "title_table" : "SettingsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-display-show-minimap",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.display.showMinimap",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Chat Minimap",
+      "title_key" : "action.agentPane.display.showMinimap",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-display-rail-on-right",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.display.railOnRight",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Prompt Rail on Right Edge",
+      "title_key" : "action.agentPane.display.railOnRight",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "remote show-status",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.showStatus",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "cmux Remote: Show Status",
+      "title_key" : "action.remote.showStatus",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "remote refresh-permissions",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.refreshPermissions",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "cmux Remote: Refresh Permissions",
+      "title_key" : "action.remote.refreshPermissions",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "remote allow-accessibility",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.allowAccessibility",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "cmux Remote: Allow Accessibility",
+      "title_key" : "action.remote.allowAccessibility",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "remote allow-screen-recording",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.allowScreenRecording",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "cmux Remote: Allow Screen Recording",
+      "title_key" : "action.remote.allowScreenRecording",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "remote restart-computer-use",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.restartComputerUse",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "cmux Remote: Restart Computer Use",
+      "title_key" : "action.remote.restartComputerUse",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "remote restart-screen-sharing",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.restartScreenSharing",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "cmux Remote: Restart Screen Sharing",
+      "title_key" : "action.remote.restartScreenSharing",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "remote share-this-mac",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "macScreen.shareThisMac",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Share This Mac",
+      "title_key" : "action.macScreen.shareThisMac",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "remote stop-sharing-this-mac",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "macScreen.stopSharingThisMac",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Turn Off Sharing This Mac",
+      "title_key" : "action.macScreen.stopSharingThisMac",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "ownerVerb",
+      "cli_name" : "remote device-access",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "macScreen.deviceAccess",
+      "main_menu" : null,
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Device Access to This Mac…",
+      "title_key" : "action.macScreen.deviceAccess",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24884,6 +25220,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action gallery-open-stage",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "gallery.openStage",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Gallery Stage",
+      "title_key" : "action.gallery.openStage",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "agent activity",
       "context_menu" : "noObject",
@@ -27991,6 +28355,62 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud preview-share",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPreviewShare",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Share Machine Preview…",
+      "title_key" : "action.cloudPreviewShare",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud preview-revoke",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPreviewRevoke",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Revoke Machine Preview Link…",
+      "title_key" : "action.cloudPreviewRevoke",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud machine-link",
       "context_menu" : "duplicateOfDefault",
       "context_menus" : [
@@ -28715,6 +29135,34 @@
       "palette_suggested" : null,
       "title" : "Start Agent Session on Cloud Machine…",
       "title_key" : "action.cloudStartSession",
+      "title_table" : "CloudSessionActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud relay-chat",
+      "context_menu" : "pointerMenuTrim",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudRelayChat",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chat on Cloud Machine via the Relay…",
+      "title_key" : "action.cloudRelayChat",
       "title_table" : "CloudSessionActions"
     },
     {
@@ -30918,6 +31366,62 @@
       "palette_suggested" : null,
       "title" : "Sidebar States Playground",
       "title_key" : "action.debug.sidebarStatesPlayground",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action debug-projection",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.projection",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Projection Window",
+      "title_key" : "action.debug.projection",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action debug-projection-run-test",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.projection.runTest",
+      "main_menu" : "debug",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Run Projection Test",
+      "title_key" : "action.debug.projection.runTest",
       "title_table" : "ActionCatalog"
     },
     {
@@ -41972,7 +42476,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudStartSession",
+              "id" : "cloudPreviewShare",
               "kind" : "action",
               "order" : 18,
               "visible_when" : {
@@ -41984,14 +42488,40 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "cloudPreviewRevoke",
+              "kind" : "action",
+              "order" : 19,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudStartSession",
+              "kind" : "action",
+              "order" : 20,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 19
+              "order" : 21
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.deleteSnapshot",
               "kind" : "action",
-              "order" : 20,
+              "order" : 22,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -48874,11 +49404,49 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "sort",
+                "more_opens_palette" : false,
+                "values" : [
+                  {
+                    "title" : "Manual",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "manual"
+                  },
+                  {
+                    "title" : "Name",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "name"
+                  },
+                  {
+                    "title" : "Recent",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "recent"
+                  }
+                ]
+              },
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.setSort",
+              "kind" : "choices",
+              "label" : "Sort Order",
+              "order" : 7,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.sortByName",
               "kind" : "action",
               "label" : "Sort by Name",
-              "order" : 7,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -48892,7 +49460,7 @@
               "id" : "workspaceGroup.sortByLastUsed",
               "kind" : "action",
               "label" : "Sort by Last Used",
-              "order" : 8,
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -48906,7 +49474,7 @@
               "id" : "workspaceGroup.sortByDirectory",
               "kind" : "action",
               "label" : "Sort by Directory",
-              "order" : 9,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

@@ -200,8 +200,7 @@ enum StashHandlers {
     /// task-owner: a CLI or MCP run awaits `work` (`track`); a palette, menu or toast run nobody
     /// waits on shows its failure as a refusal.
     private static func report(_ registry: ActionRegistry, _ work: ActionWork) {
-        if registry.isCapturingWork { return registry.track(work) }
-        Task { @MainActor [weak registry] in if let failure = await work.value, !failure.shown { registry?.refuse(failure.message) } }
+        registry.trackOrRefuse(work)
     }
 }
 
