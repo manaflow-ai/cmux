@@ -93,7 +93,6 @@
     "nightly.yml:build-nightly-app": {"class": "nightly-release-compile", "warm": ["actions-cache"]},
     "nightly.yml:build-nightly-ghostty-cli-helper": {"class": "nightly-release-compile", "warm": ["actions-cache"]},
     "nightly.yml:build-sign-notarize-nightly": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the app or DMG an earlier job built, compiles nothing"},
-    "nightly.yml:generate-nightly-deltas": {"class": "mac-sign", "warm": [], "exempt": "Sparkle deltas from DMGs earlier jobs built and published; compiles nothing"},
     "nightly.yml:prepare-nightly-variant": {"class": "nightly-release-compile", "warm": [], "exempt": "thins and verifies the universal app an earlier job built; compiles nothing"},
     "nightly.yml:refresh-compilation-cache": {"class": "warm-seed", "warm": ["actions-cache"]},
     "nightly.yml:refresh-test-compilation-cache": {"class": "warm-seed", "warm": ["deriveddata-reuse", "ssd-cas", "actions-cache"]},
