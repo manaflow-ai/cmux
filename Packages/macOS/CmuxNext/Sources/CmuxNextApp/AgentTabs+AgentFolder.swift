@@ -95,7 +95,7 @@ extension AgentTabStore {
     /// send). An older background service is told before the sheet opens.
     func chooseAgentFolder(for key: String, machine: String? = nil) async -> AgentPaneFolderChoice {
         let scoped = tabKey(key, machine: machine)
-        guard let daemon = daemonForTab(scoped.key), daemon.supports(DaemonCapability.workspaceAgentFolder.rawValue) else {
+        guard let daemon = daemonForTabScoped(resolvedKey(scoped)), daemon.supports(DaemonCapability.workspaceAgentFolder.rawValue) else {
             return .unavailable(AgentPaneFolderChoice.restartServiceMessage)
         }
         guard let view = views[scoped], let url = await view.pickFolder() else { return .cancelled }

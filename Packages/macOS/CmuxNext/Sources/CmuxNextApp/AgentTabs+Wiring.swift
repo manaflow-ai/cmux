@@ -175,8 +175,8 @@ extension AgentTabStore {
         // The composer strip's machine dot: the sidebar header's same link state; using a machine
         // that is down runs its header's Reconnect, as `.page`: never a takeover (HQ #4877 G5).
         tabs.machineLink.state = { [weak tabs, weak services] view in
-            guard let tabs, let services, let key = tabs.views.first(where: { $0.value === view })?.key,
-                  let machine = tabs.remoteMachineID(of: key) else { return nil }
+            guard let tabs, let services, let scoped = tabs.views.entries.first(where: { $0.value === view })?.key,
+                  let machine = tabs.remoteMachineID(of: scoped.key, machine: scoped.machine) else { return nil }
             return SidebarBridge.paneLink(machine, in: services.machines)
         }
         tabs.machineLink.use = { [weak services] machine in

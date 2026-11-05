@@ -157,7 +157,13 @@ extension ResourceControl {
             var owner = CEFRendererOwner(kind: kind, tab: key)
             let located = if let scoped = source.scoped { services.locateTab(scoped.key, onMachine: scoped.machine) } else { services.locateTab(key) }
             if let (tab, pane) = located {
-                let found = services.machines.daemons.lazy.compactMap { daemon in daemon.store.workspace(holdingTab: tab.id).map { (daemon.machineID, $0) } }.first
+                let found: (String, WorkspaceModel)?
+                if let scoped = source.scoped,
+                   let daemon = services.machines.daemons.first(where: { $0.machineID == scoped.machine }) {
+                    found = daemon.store.workspace(holdingTab: tab.id).map { (daemon.machineID, $0) }
+                } else {
+                    found = services.machines.daemons.lazy.compactMap { daemon in daemon.store.workspace(holdingTab: tab.id).map { (daemon.machineID, $0) } }.first
+                }
                 (owner.tab, owner.tabTitle, owner.pane, owner.session) = (tab.id, tab.displayTitle, pane.id, tab.agentSession?.session)
                 (owner.workspace, owner.workspaceTitle, owner.machine) = (found?.1.id, found?.1.displayName, found?.0)
             }
