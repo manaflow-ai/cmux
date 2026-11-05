@@ -1,6 +1,6 @@
 // A tool call's input as the opened call draws it (ToolDetail.tsx): one labeled field per argument,
 // each value as the text it draws, so Find (chatFind.ts) reads what the fields show.
-import { prettyValue } from "./mcpCalls";
+import { cleanText, prettyValue } from "./mcpCalls";
 
 /// One argument of a call: its key, and its value as text (a string as it came, any other value
 /// as the indented JSON prettyValue prints) with how to draw it.
@@ -41,7 +41,9 @@ export function inputFields(args: unknown): InputField[] | undefined {
     if (value === null || value === "" || (typeof value === "object" && Object.keys(value).length === 0)) {
       fields.push({ key, text: JSON.stringify(value), look: "value" });
     } else if (typeof value === "string") {
-      const text = value.replace(/\n$/, "");
+      // Without the context a host injects into it (`<system-reminder>`), as the request reads.
+      const text = cleanText(value).replace(/\n$/, "");
+      if (!text.trim()) continue;
       fields.push({
         key,
         text,
@@ -49,7 +51,11 @@ export function inputFields(args: unknown): InputField[] | undefined {
       });
     } else if (Array.isArray(value) && value.length > 0 && value.every(isScalar) && value.join(", ").length <= 120) {
       // A short list of words or numbers reads as one line ("bug, frontend"), not a bracketed tree.
-      fields.push({ key, text: value.join(", "), look: "prose" });
+      fields.push({
+        key,
+        text: value.map((entry) => (typeof entry === "string" ? cleanText(entry) : entry)).join(", "),
+        look: "prose",
+      });
     } else if (typeof value === "object") {
       const text = prettyValue(value);
       if (text) fields.push({ key, text, look: "tree" });

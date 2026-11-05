@@ -102,9 +102,10 @@ function drawnText(item: AcpmuxActivity): string {
       : result.lang === "markdown"
         ? plainText(result.text)
         : result.text;
-  // A call with output that is not a shell or an edit opens to its input's fields over it (ToolRow.tsx).
+  // A call that is not a shell or an edit opens to its input's fields, over its output when it has
+  // any (ToolRow.tsx).
   const fields =
-    result?.text.trim() && opensToFields(tool, rowFailed(tool) ? toolFailure(tool) : undefined)
+    !shell && opensToFields(tool, rowFailed(tool) ? toolFailure(tool) : undefined)
       ? inputFields(tool.inputSummary)
       : undefined;
   // The command as its rows draw it, without a leading `cd <folder> &&` (commandFolder).

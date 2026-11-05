@@ -243,3 +243,24 @@ test("an opened call has one copy button for its output, with every hover action
     delete (globalThis as Record<string, unknown>).cmuxExperiments;
   }
 });
+
+test("a field leaves out the context a host injected into it", () => {
+  const injected = "<system-reminder>\nambient UI state\n</system-reminder>\nFix the hydration warning";
+  expect(inputFields({ prompt: injected, tags: [injected] })).toEqual([
+    { key: "prompt", text: "Fix the hydration warning", look: "prose" },
+    // A list of several-line entries is a tree, cleaned as the request is (mcpCalls.ts prettyValue).
+    { key: "tags", text: '[\n  "Fix the hydration warning"\n]', look: "tree" },
+  ]);
+});
+
+test("a call with input and no output yet still opens to its fields", async () => {
+  const item: AcpmuxActivity = {
+    kind: "tool",
+    text: "Start session",
+    tool: { id: "t6", title: "Start session", kind: "other", status: "completed", inputSummary: JSON.stringify(START) },
+  };
+  const container = await render(<ToolRow item={item} />);
+  await open(container);
+  expect(heads(container)).toEqual(["Input"]);
+  expect(keys(container)).toEqual(["title", "prompt", "options", "priority"]);
+});

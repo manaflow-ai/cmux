@@ -124,7 +124,12 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     });
   }, [shell, tool.description, tool.kind, source, tool.title, strip]);
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
-  const hasDetails = shell || hasDiff || Boolean(result?.text.trim());
+  // A call whose input opens as fields has details even before (or without) any output (ToolDetail.tsx).
+  const hasInput = useMemo(
+    () => !shell && opensToFields(tool, failure) && Boolean(inputFields(tool.inputSummary)),
+    [shell, tool, failure],
+  );
+  const hasDetails = shell || hasDiff || Boolean(result?.text.trim()) || hasInput;
   const labelRef = useRef<HTMLSpanElement>(null);
   const [clipped, setClipped] = useState(false);
   const expandable = hasDetails || clipped;
@@ -196,7 +201,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
             className={`cv-tool is-toggle${shell ? "" : " is-whole-open"}${running ? " is-live" : " is-strong"}`}
             data-tool-id={tool.id}
             aria-expanded={open}
-            aria-controls={open && (shell || files.length > 0 || body) ? detailsId : undefined}
+            aria-controls={open && (shell || files.length > 0 || body || fields) ? detailsId : undefined}
             ref={fold.headerRef}
             onClick={fold.toggle}
           >
@@ -213,7 +218,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
-      {fold.present && (shell || files.length > 0 || body) && (
+      {fold.present && (shell || files.length > 0 || body || fields) && (
         <div {...fold.bodyProps}>
           {shell ? (
             <ShellBlock
@@ -230,7 +235,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
                 <EditDiff key={file.path} file={file} reveal={reveal} />
               ))}
             </div>
-          ) : result && fields ? (
+          ) : fields ? (
             <ToolDetail id={detailsId} fields={fields} result={result} reveal={reveal} />
           ) : result ? (
             <ToolOutput id={detailsId} result={result} reveal={reveal} />
