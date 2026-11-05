@@ -179,8 +179,26 @@ pub(crate) fn settle_clone_at_start() -> Result<CloneCheck> {
     if load_at(&home)?.is_none() {
         return Ok(CloneCheck::NotJoined);
     }
-    let _lock = join_lock()?;
+    // A `host join` or `machine leave` may hold the lock for a moment: wait a bounded while
+    // rather than skip the check (the caller keeps a still-unsettled copy off WireGuard).
+    let mut tries = 0;
+    let _lock = loop {
+        match join_lock() {
+            Ok(lock) => break lock,
+            Err(_) if tries < 50 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            Err(e) => return Err(e),
+        }
+    };
     settle_clone_at(&home, host_fingerprint::current().as_deref())
+}
+
+/// Whether this home's record was joined on another box (marked or not yet marked).
+pub(crate) fn copied_from_another_box() -> bool {
+    let current = host_fingerprint::current();
+    load().ok().flatten().is_some_and(|record| copied_here(&record, current.as_deref()))
 }
 
 /// [`settle_clone_at_start`] in `home`, as the box whose fingerprint is `current`. The caller
@@ -473,11 +491,8 @@ pub(crate) fn record_auth_result(token: &str, revoked: bool, heartbeat: bool) ->
 pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     let pending_origin = recovery::pending_origin()?;
     let fallback_hub = pending_origin.clone().unwrap_or(origin(hub)?);
-    if load()?.is_some() {
-        // The daemon checks at its start; a status on a box whose daemon has not started since
-        // the copy finds it too.
-        let _ = settle_clone_at_start();
-    }
+    // Report-only: a copy is found from the fingerprint (`copied_here`); marking it and the
+    // fresh node key are the daemon start's and `host join`'s.
     let record = load()?.unwrap_or(MachineCredential {
         name: local_name(None),
         hub_origin: fallback_hub,
@@ -489,10 +504,13 @@ pub async fn status(hub: Option<String>, json_out: bool) -> Result<()> {
     )
     .await;
     let running = matches!(daemon, Ok(Ok(_)));
-    let mut out = json!({"credentialPresent": !record.credential.is_empty(), "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": record.wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":if record.credential.is_empty() { None } else { Some("0600") }, "daemonRunning":running, "meshRelayConfigured":mesh_relay_configured(), "userId": record.user_id, "build": crate::hub::build(), "channel":null});
+    let cloned = copied_here(&record, host_fingerprint::current().as_deref());
+    // A copy holds no credential of this box: not present, and the copied public key is not
+    // this box's (its own appears with its new join).
+    let wg_public_key = (!cloned).then_some(record.wg_public_key.clone());
+    let mut out = json!({"credentialPresent": !record.credential.is_empty() && !cloned, "machineId": record.machine_id, "teamId": record.team_id, "hubOrigin": record.hub_origin, "hubReachable": false, "lastHeartbeat": record.last_heartbeat, "revoked": record.revoked, "wgPublicKey": wg_public_key, "consent": load_consent(), "credentialStore":"file", "credentialPath":credential_path(), "credentialMode":if record.credential.is_empty() || cloned { None } else { Some("0600") }, "daemonRunning":running, "meshRelayConfigured":mesh_relay_configured(), "userId": record.user_id, "build": crate::hub::build(), "channel":null});
     out["joinIncomplete"] = json!(pending_origin.is_some());
     // The copy's own answer: its credential is the original box's and is never sent from here.
-    let cloned = copied_here(&record, host_fingerprint::current().as_deref());
     out["cloned"] = json!(cloned);
     if cloned {
         out["hint"] = json!(CLONED_HINT);

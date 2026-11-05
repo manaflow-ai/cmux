@@ -668,6 +668,10 @@ async fn leave_with_the_hub_down_changes_nothing_unless_local_only() {
 
 /// A record copied from another box, as a daemon start on this one left it.
 fn cloned_record(home: &Path, origin: &str) -> Vec<u8> {
+    // The copied node key: the original box's.
+    let key = home.join("node.wg.key");
+    std::fs::write(&key, [7u8; 32]).unwrap();
+    std::fs::set_permissions(&key, std::fs::Permissions::from_mode(0o600)).unwrap();
     let path = home.join(FINAL);
     std::fs::write(&path, json!({"credential":CREDENTIAL,"machine_id":"machine_original","team_id":"team_test","name":"test","hub_origin":origin,"last_heartbeat":null,"revoked":false,"wgPublicKey":"original-key","credential_generation":1,"host_fingerprint":"another-box","cloned":true}).to_string()).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
@@ -695,6 +699,13 @@ async fn status_on_a_copied_home_says_cloned_and_never_sends_the_originals_crede
     assert!(body["hint"].as_str().is_some_and(|hint| hint.contains("new join line")), "{body}");
     assert_eq!(body["revoked"], false);
     assert_eq!(body["hubReachable"], false);
+    // The copy holds no credential of this box, and the copied key is not reported as its own.
+    assert_eq!(body["credentialPresent"], false);
+    assert_eq!(body["wgPublicKey"], Value::Null);
+    assert!(
+        std::fs::read(home.path().join("node.wg.key")).unwrap() == [7u8; 32],
+        "status only reports"
+    );
     listener.set_nonblocking(true).unwrap();
     assert!(
         matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
@@ -709,22 +720,62 @@ async fn status_on_a_copied_home_says_cloned_and_never_sends_the_originals_crede
 #[ignore = "mutates OS-account consent; run with --include-ignored in a disposable Unix account"]
 async fn a_new_join_on_a_copy_gets_its_own_credential_without_touching_the_original() {
     let consent = machine_consent_home::ConsentHome::isolated();
+    // With and without --replace: the script's first request is the redeem, so a replacement
+    // proof (a GET with the original's credential) or a `replaceCredential` fails it.
+    for replace in [false, true] {
+        let home = tempfile::tempdir().unwrap();
+        let (origin, server) =
+            hub(vec![Step::Redeem(200), Step::Live(None)], home.path(), &consent.root);
+        cloned_record(home.path(), &origin);
+        let output = join(home.path(), Some(&origin), true, replace).await;
+        assert_exit(&output, 0);
+        let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(answer["joined"], true, "a copy is not already joined");
+        let record = read_json(&home.path().join(FINAL));
+        assert!(record["credential"] != CREDENTIAL);
+        assert_eq!(record["machine_id"], "machine_test");
+        assert!(record.get("cloned").is_none());
+        assert!(std::fs::read(home.path().join("node.wg.key")).unwrap() != [7u8; 32]);
+        assert!(record["wgPublicKey"] != "original-key");
+        assert_complete(home.path(), &origin);
+        server.join().unwrap();
+    }
+}
+
+/// Whether this box has an OS machine identity, as `host_fingerprint` reads it.
+fn box_has_identity() -> bool {
+    cfg!(target_os = "macos")
+        || ["/etc/cmux/daemon-instance-id", "/etc/machine-id", "/var/lib/dbus/machine-id"]
+            .iter()
+            .any(|path| {
+                std::fs::read_to_string(path).is_ok_and(|v| v.trim().bytes().any(|b| b != b'0'))
+            })
+}
+
+#[tokio::test]
+async fn a_pending_join_copied_from_another_box_is_set_aside_unsent() {
+    if !box_has_identity() {
+        eprintln!("no OS machine identity on this box: nothing to compare");
+        return;
+    }
     let home = tempfile::tempdir().unwrap();
-    // The hub's script refuses a `replaceCredential`: the copy never retires the original.
-    let (origin, server) =
-        hub(vec![Step::Redeem(200), Step::Live(None)], home.path(), &consent.root);
-    cloned_record(home.path(), &origin);
-    let output = join(home.path(), Some(&origin), true, false).await;
-    assert_exit(&output, 0);
-    let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(answer["joined"], true, "a copy is not already joined");
-    let record = read_json(&home.path().join(FINAL));
-    assert!(record["credential"] != CREDENTIAL);
-    assert_eq!(record["machine_id"], "machine_test");
-    assert!(record.get("cloned").is_none());
-    assert!(record["wgPublicKey"] != "original-key");
-    assert_complete(home.path(), &origin);
-    server.join().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    // A proposal made on another box (its credential is that box's, maybe live).
+    let proposal = format!("cmm_{}", "A".repeat(43));
+    let pending = home.path().join(PENDING);
+    std::fs::write(&pending, json!({"version":1,"credential":proposal,"hub":origin,"name":"test","hostname":"other","platform":"linux","wg_public_key":"key","prior":null,"host_fingerprint":"another-box"}).to_string()).unwrap();
+    std::fs::set_permissions(&pending, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let output = join(home.path(), None, false, false).await;
+    // No token here: the copied proposal is gone, so this is a fresh join that needs one.
+    assert_exit(&output, 2);
+    assert!(!pending.exists());
+    assert!(home.path().join("machine-join.pending.copied.json").exists());
+    listener.set_nonblocking(true).unwrap();
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "the copy sent the other box's proposed credential"
+    );
 }
 
 #[tokio::test]

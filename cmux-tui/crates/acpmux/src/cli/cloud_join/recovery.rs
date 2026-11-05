@@ -18,6 +18,27 @@ struct Pending {
     platform: String,
     wg_public_key: String,
     prior: Option<MachineCredential>,
+    /// The box this proposal was made on (`host_fingerprint`). A pending join copied to
+    /// another box is set aside unsent: its proposed credential is the original box's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    host_fingerprint: Option<String>,
+}
+
+/// The pending file of a join made on another box, kept beside unread.
+const COPIED: &str = "machine-join.pending.copied.json";
+
+/// Sets aside a pending join proposed on another box, before anything could send its
+/// credential. A pending file with no fingerprint (an older build's) is kept. The caller
+/// holds the join lock.
+fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
+    let Some(p) = read()? else { return Ok(false) };
+    let copied = matches!((p.host_fingerprint.as_deref(), current), (Some(made), Some(here)) if made != here);
+    if copied {
+        std::fs::rename(state_dir().join(FILE), state_dir().join(COPIED))
+            .map_err(|_| store_error())?;
+        sync_ancestors(&state_dir()).map_err(|_| store_error())?;
+    }
+    Ok(copied)
 }
 
 pub(super) fn pending_origin() -> Result<Option<String>> {
@@ -291,6 +312,7 @@ fn new_pending(
             .map_err(|_| store_error())?
             .public_key_b64(),
         prior,
+        host_fingerprint: host_fingerprint::current(),
     };
     let bytes = Zeroizing::new(serde_json::to_vec(&p).map_err(|_| store_error())?);
     write_durable(&state_dir().join(FILE), &bytes, overwrite).map_err(|_| store_error())?;
@@ -304,6 +326,11 @@ pub(super) async fn join(
     json_out: bool,
     token: Option<String>,
 ) -> Result<()> {
+    if set_aside_copied_pending(host_fingerprint::current().as_deref())? {
+        eprintln!(
+            "a join begun on another machine was set aside; this join makes this machine's own"
+        );
+    }
     let existing = read()?;
     let pending = if let Some(p) = existing {
         // Retry a failed directory fsync before any request can redeem this
