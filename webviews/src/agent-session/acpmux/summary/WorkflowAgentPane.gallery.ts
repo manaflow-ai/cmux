@@ -1,5 +1,6 @@
 // l10n-allow-file: synthetic workflow fixture, not shipped UI.
 import { agentPaneEntry } from "../../../gallery/format";
+import type { PlayContext } from "../../../gallery/play";
 import { GALLERY_NOW } from "../../../gallery/clock";
 import { chat, row, user } from "../../../gallery/fixtures/acpmux";
 type PaneCall = { method: string; params?: { subagent?: string; focus?: boolean } };
@@ -11,6 +12,14 @@ const snapshot = chat(
   [user("Run the naming workflow", 1), row(SUBAGENTS, 0.5, { subagents: workflowFixture("running", GALLERY_NOW) })],
   { isWorking: true, title: "Workflow agent transcript" },
 );
+
+/// Phases start as one row each: open Critique, the phase whose agent runs, before clicking that agent.
+const openCritique = async (ctx: PlayContext) => {
+  const head = ".acpmux-workflow-phase:nth-child(2) .acpmux-workflow-phase__head:not(:disabled)";
+  await ctx.waitFor(() => ctx.document.querySelector(head));
+  ctx.document.querySelector(head)?.scrollIntoView({ block: "center" });
+  await ctx.click({ selector: head });
+};
 
 export default agentPaneEntry({
   id: "agent-pane.workflow-agent-pane",
@@ -25,6 +34,7 @@ export default agentPaneEntry({
       workflowLabs: true,
       native: { "pane.tabState": { inspector: true }, "chat.subagentPane": { opened: true } },
       play: async (ctx) => {
+        await openCritique(ctx);
         const selector = ".acpmux-workflow-phase__agents .acpmux-workflow-agent__button:not(:disabled)";
         await ctx.waitFor(() => ctx.document.querySelector(selector));
         await ctx.click({ selector });
@@ -45,6 +55,7 @@ export default agentPaneEntry({
       workflowLabs: true,
       native: { "pane.tabState": { inspector: true } },
       play: async (ctx) => {
+        await openCritique(ctx);
         const selector = ".acpmux-workflow-phase__agents .acpmux-workflow-agent__button:not(:disabled)";
         await ctx.waitFor(() => ctx.document.querySelector(selector));
         await ctx.click({ selector });

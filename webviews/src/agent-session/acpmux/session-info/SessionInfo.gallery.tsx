@@ -848,7 +848,9 @@ const workflowProps = (
       ? {
           ...workflow,
           agents: workflow.agents.map((agent) =>
-            agent.index === 4 ? { ...agent, model: modelOverride, startedAt: Date.now() - 204_000 } : agent,
+            // A finished agent: listed under "N finished" without a click, so the check measures the
+            // row as it first renders.
+            agent.index === 1 ? { ...agent, model: modelOverride } : agent,
           ),
         }
       : workflow,
@@ -891,25 +893,47 @@ const workflowFailureProps = (): Props => {
   return { ...workflowProps("finished", "detail", 260), workflows: createWorkflowAdapter()(nodes, "gallery-chat") };
 };
 
-const assertNarrowWorkflowLayout: Play = async (ctx) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-agent__button") !== null);
-  const panel = ctx.find({ selector: ".acpmux-session-info" }).getBoundingClientRect();
-  if (Math.abs(panel.width - 260) > 1) throw new Error(`expected a 260px panel, got ${panel.width}px`);
-  const name = ctx.find({ selector: ".acpmux-workflow-agent__name" }).getBoundingClientRect();
-  const model = ctx.find({ selector: ".acpmux-workflow-agent__model" }).getBoundingClientRect();
-  const state = ctx.find({ selector: ".acpmux-workflow-agent__state" }).getBoundingClientRect();
-  const time = ctx.find({ selector: ".acpmux-workflow-agent .acpmux-session-info-task__time" }).getBoundingClientRect();
-  if (name.width < 24) throw new Error(`workflow agent name collapsed at ${name.width}px`);
-  if (model.right > state.left + 0.5) throw new Error("workflow model overlaps the state column");
-  if (state.right > time.left + 0.5) throw new Error("workflow state overlaps the elapsed-time column");
-};
-/// Opens the workflow's `n`th phase (from 1).
+/// At 260px the row's name keeps its width and its model, state and elapsed time keep their columns.
+/// Measured on the row that names a model (an agent whose model differs from the workflow's), when
+/// `withModel`; otherwise on the first agent row.
+const narrowWorkflowLayout =
+  (withModel: boolean): Play =>
+  async (ctx) => {
+    const rowSelector = withModel ? ".acpmux-workflow-agent:has(.acpmux-workflow-agent__model)" : ".acpmux-workflow-agent";
+    await ctx.waitFor(() => ctx.document.querySelector(`${rowSelector} .acpmux-workflow-agent__button`) !== null);
+    const panel = ctx.find({ selector: ".acpmux-session-info" }).getBoundingClientRect();
+    if (Math.abs(panel.width - 260) > 1) throw new Error(`expected a 260px panel, got ${panel.width}px`);
+    const row = ctx.find({ selector: rowSelector });
+    const box = (selector: string) => {
+      const element = row.querySelector(selector);
+      if (!element) throw new Error(`no element for ${selector}`);
+      return element.getBoundingClientRect();
+    };
+    const name = box(".acpmux-workflow-agent__name");
+    const state = box(".acpmux-workflow-agent__state");
+    const time = box(".acpmux-session-info-task__time");
+    if (name.width < 24) throw new Error(`workflow agent name collapsed at ${name.width}px`);
+    if (withModel && box(".acpmux-workflow-agent__model").right > state.left + 0.5)
+      throw new Error("workflow model overlaps the state column");
+    if (state.right > time.left + 0.5) throw new Error("workflow state overlaps the elapsed-time column");
+  };
+/// Opens the workflow's `n`th phase (from 1), brought into view first for the trusted click.
 const openPhase =
   (n: number): Play =>
   async (ctx) => {
-    await ctx.click({ selector: `.acpmux-workflow-phase:nth-child(${n}) .acpmux-workflow-phase__head` });
+    const selector = `.acpmux-workflow-phase:nth-child(${n}) .acpmux-workflow-phase__head:not(:disabled)`;
+    await ctx.waitFor(() => ctx.document.querySelector(selector) !== null);
+    ctx.document.querySelector(selector)?.scrollIntoView({ block: "center" });
+    await ctx.click({ selector });
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-phase__agents") !== null);
   };
+
+/// A finished workflow's agents: every one under its open "N finished", its phases one row each.
+const finishedAgents: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-workflow-finished__agents > li").length >= 7);
+  if (ctx.document.querySelector(".acpmux-workflow-phase__head:not(:disabled)"))
+    throw new Error("a finished workflow's phase opens though no agent of it is left running");
+};
 
 /// A chat in a lane checkout of cmux that worked across several folders: Environment lists only its
 /// project (chatFolders.ts).
@@ -1182,21 +1206,21 @@ export default componentEntry<Props>({
       },
     },
     "workflow-finished": {
-      note: "Labs: the same workflow finished. 1 finished; Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop. Critique opened: its agents with a check and how long each took.",
+      note: "Labs: the same workflow finished. 1 finished; Finished · 7 agents · 432k tokens; each phase one row, N/N with its dots, nothing to open, no Stop; its seven agents under 7 finished, the latest first, each with a check and how long it took.",
       props: workflowProps("finished"),
-      play: openPhase(2),
+      play: finishedAgents,
     },
     "workflow-agent-failed": {
       note: "A failed workflow agent shows the provider's failure reason in the existing message line instead of stale progress. At 260px the reason truncates and its full text remains in the tooltip and accessible name.",
       props: workflowFailureProps(),
       play: async (ctx) => {
-        await openPhase(2)(ctx);
+        await finishedAgents(ctx);
         const message = ctx.find({
           selector: '.acpmux-workflow-agent[data-state="failed"] .acpmux-workflow-agent__doing',
         });
         if (message.textContent !== "503: No provider capacity available")
           throw new Error("missing workflow failure reason");
-        await assertNarrowWorkflowLayout(ctx);
+        await narrowWorkflowLayout(false)(ctx);
       },
     },
     "workflow-agent-row-compact": {
@@ -1221,9 +1245,9 @@ export default componentEntry<Props>({
       },
     },
     "workflow-agent-row-narrow": {
-      note: "Narrow-width check: at 260px the longest supported model label truncates while the running agent name stays visible and state plus elapsed time keep separate columns.",
+      note: "Narrow-width check: at 260px the longest supported model label (a finished agent's, which differs from the workflow's) truncates while the agent name stays visible and state plus elapsed time keep separate columns.",
       props: workflowProps("running", "detail", 260, "anthropic/claude-sonnet-5-5"),
-      play: assertNarrowWorkflowLayout,
+      play: narrowWorkflowLayout(true),
     },
     usage: {
       note: "Chosen: Usage's own metric rows reserve the shared leading slot, so their labels start on the same text column as Context and peer-session rows without repeating a generic icon. The section keeps this chat's last 24 hours (cost, tokens, the context each call carries with Compact beside it, its autocompact cap, compactions, subagents with Show, the launcher), then every session acpmux lists on this Mac and its peers, highest 24h cost first; five show, then View all. Folded, it is one row after Context: this chat's 24h cost.",
