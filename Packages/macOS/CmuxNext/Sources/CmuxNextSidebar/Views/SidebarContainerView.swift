@@ -24,6 +24,8 @@ public final class SidebarContainerView: NSView {
     public let model: SidebarModel
     /// The width constraint this view drives. Do not add another.
     /// Built in init (lazy because it anchors self; no IUO).
+    /// The window's corner treatment (Debug Settings `chrome.cornerChaos`), mounted beside this view.
+    var cornerChaos: SidebarCornerChaos?
     public private(set) lazy var widthConstraint: NSLayoutConstraint = widthAnchor.constraint(equalToConstant: model.displayWidth)
 
     /// Clips the sliding panel to the container's (animating) width.
@@ -221,6 +223,7 @@ public final class SidebarContainerView: NSView {
     override public func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         mountHandle()
+        mountCornerChaos()
     }
 
     // The handle sits in the superview, not under this view: it hides and fades with it here.

@@ -169,6 +169,8 @@ public final class SidebarView: NSView {
     }
     /// The sidebar's chrome reveal changed (the window's title bar buttons follow).
     public var onChromeRevealChange: ((Bool) -> Void)?
+    /// The list scrolled (the window's corner treatment follows its selected row, `SidebarCornerChaos`).
+    var onListScroll: (() -> Void)?
     /// An optional view above the bottom card slot and the spaces dots (R114 slot; empty since the
     /// messages to the user moved to the shared notice card).
     public var footerCards: NSView?
@@ -320,6 +322,7 @@ public final class SidebarView: NSView {
 
     private func clipBoundsChanged() {
         list.realizeVisibleRows()
+        onListScroll?()
         // The list updates row hover as rows move. A window-wide refresh here
         // rescans every chrome target on every scroll tick and adds no state
         // change for the sidebar's fixed chrome.
