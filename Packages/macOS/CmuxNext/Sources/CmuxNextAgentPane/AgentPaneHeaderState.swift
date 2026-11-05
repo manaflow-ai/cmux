@@ -23,12 +23,16 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     /// The header's Browser opens the chat's page and Preview is no button of its own (Debug Settings
     /// `agentChat.browserOpensPreview`, on by default), read like `sideSessions`.
     public var browserOpensPreview: Bool
+    /// How the top-right icons are laid out (Debug Settings `agentChat.topRight.consolidate`), read like
+    /// `sideSessions`; the page's header/TopRightLayouts.tsx applies it.
+    public var topRightLayout: AgentPaneTopRightLayout
     /// Rises with every change the App sees: a `pane.tabState` reply that reaches the page after a
     /// newer push (two channels) is older, and the page keeps the newer state.
     public var version = 0
 
     public init(pinned: Bool = false, sideTabs: Bool = false, lit: [String] = [], floatingChat: Bool = false,
-                sideSessions: Bool? = nil, sessionInfo: Bool? = nil, browserOpensPreview: Bool? = nil) {
+                sideSessions: Bool? = nil, sessionInfo: Bool? = nil, browserOpensPreview: Bool? = nil,
+                topRightLayout: AgentPaneTopRightLayout? = nil) {
         self.pinned = pinned
         self.sideTabs = sideTabs
         self.lit = lit
@@ -36,13 +40,14 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
         self.sideSessions = sideSessions ?? AgentPaneTunables.sideSessions.value
         self.sessionInfo = sessionInfo ?? AgentPaneTunables.sessionInfo.value
         self.browserOpensPreview = browserOpensPreview ?? AgentPaneTunables.browserOpensPreview.value
+        self.topRightLayout = topRightLayout ?? AgentPaneTunables.topRightLayout.value
     }
 
     /// Whether the header shows the same thing, whatever the versions.
     public func shows(_ other: AgentPaneHeaderState) -> Bool {
         pinned == other.pinned && sideTabs == other.sideTabs && lit == other.lit && floatingChat == other.floatingChat
             && pullRequest == other.pullRequest && sideSessions == other.sideSessions && sessionInfo == other.sessionInfo
-            && browserOpensPreview == other.browserOpensPreview
+            && browserOpensPreview == other.browserOpensPreview && topRightLayout == other.topRightLayout
     }
 
     var reply: [String: Any] { json.foundationObject as? [String: Any] ?? [:] }
@@ -50,7 +55,8 @@ public struct AgentPaneHeaderState: Equatable, Sendable {
     /// `pullRequest` is always there, `null` when there is none, so the page drops a chip it kept.
     var json: JSONValue {
         ["pinned": .bool(pinned), "sideTabs": .bool(sideTabs), "lit": .array(lit.map(JSONValue.string)), "floatingChat": .bool(floatingChat),
-         "sideSessions": .bool(sideSessions), "inspector": .bool(sessionInfo), "browserOpensPreview": .bool(browserOpensPreview), "version": JSONValue(version),
+         "sideSessions": .bool(sideSessions), "inspector": .bool(sessionInfo), "browserOpensPreview": .bool(browserOpensPreview),
+         "topRightLayout": .string(topRightLayout.rawValue), "version": JSONValue(version),
          "pullRequest": pullRequest?.json ?? .null]
     }
 }
