@@ -4,6 +4,7 @@
 // The doc that ranked this (leo-workspace research/2026-11-05-where-we-stand.md, "Rendering"):
 // web search and fetch drew as a generic row in every harness.
 import type { AcpmuxActivity } from "../model";
+import { safeHref } from "../replyHref";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -14,15 +15,11 @@ const MAX_SOURCES = 20;
 const LINKS = /^Links:\s*(\[.*\])\s*$/m;
 const FETCH = /^Fetch\s+(https?:\/\/\S+)\s*$/;
 
-const hostOf = (url: string): string | undefined => {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:"
-      ? parsed.hostname.replace(/^www\./, "")
-      : undefined;
-  } catch {
-    return undefined;
-  }
+/// A source's link in the form it opens, by the page's one link policy (`replyHref.ts` `safeHref`:
+/// http(s) only, no user name or password), and its site; none for any other link.
+const checked = (url: string): { url: string; host: string } | undefined => {
+  const safe = safeHref(url);
+  return safe ? { url: safe, host: new URL(safe).hostname.replace(/^www\./, "") } : undefined;
 };
 
 const read = new WeakMap<Tool, WebSource[]>();
@@ -35,9 +32,9 @@ export function webSources(tool: Tool | undefined): WebSource[] {
   if (kept) return kept;
   const found: WebSource[] = [];
   const add = (title: unknown, url: unknown) => {
-    if (typeof url !== "string" || found.length >= MAX_SOURCES || found.some((source) => source.url === url)) return;
-    const host = hostOf(url);
-    if (host) found.push({ title: typeof title === "string" && title.trim() ? title.trim() : host, url, host });
+    const link = typeof url === "string" ? checked(url) : undefined;
+    if (!link || found.length >= MAX_SOURCES || found.some((source) => source.url === link.url)) return;
+    found.push({ title: typeof title === "string" && title.trim() ? title.trim() : link.host, ...link });
   };
   // A fetch's own page may hold a `Links: [...]` line of its own: only a search's output is read for it.
   const fetched = FETCH.exec(tool.title.trim())?.[1];

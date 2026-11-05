@@ -27,6 +27,14 @@ describe("webSources", () => {
     ]);
   });
 
+  // Codex review of #36386 at c943edb1, F1: a link with a user name or password is a phishing
+  // shape, never a source (replyHref.ts safeHref).
+  test("a link with credentials in it is no source", () => {
+    const links = 'Links: [{"title":"Bank","url":"https://bank.example@evil.example/login"},{"title":"x","url":"https://u:p@example.com/"},{"title":"Ok","url":"https://example.com/a"}]';
+    expect(webSources(tool({ output: links })).map((source) => source.url)).toEqual(["https://example.com/a"]);
+    expect(webSources(tool({ title: "Fetch https://u:p@example.com/", output: "page" }))).toEqual([]);
+  });
+
   test("a fetch is the page its title names", () => {
     expect(webSources(tool({ title: "Fetch https://example.com/docs", output: "# Docs" }))).toEqual([
       { title: "example.com", url: "https://example.com/docs", host: "example.com" },
