@@ -72,6 +72,33 @@ public struct TranscriptWindow: Hashable, Sendable {
         return joins
     }
 
+    /// Drops loaded history above the newest `keep` messages, for a reader
+    /// resting at the newest message: those rows are far off screen and load
+    /// again as older pages if the reader scrolls back up. The cut moves up
+    /// to keep every message a kept message answers or threads under, and
+    /// every id in `preserving`. Returns whether anything was dropped.
+    @discardableResult
+    mutating func trimOlder(keepingNewest keep: Int, preserving: Set<MessageID> = [], atMost limit: Int = .max) -> Bool {
+        guard keep > 0, messages.count > keep else { return false }
+        var cut = messages.count - keep
+        var needed = preserving
+        for message in messages[cut...] {
+            if let reply = message.replyTo?.message { needed.insert(reply) }
+            if let root = message.threadRoot { needed.insert(root) }
+        }
+        if !needed.isEmpty, let first = messages[..<cut].firstIndex(where: { needed.contains($0.id) }) {
+            cut = first
+        }
+        // What it keeps never holds the window above `limit`: one reply to an old message or a
+        // long thread must not stop the bound for good (a quote whose message is dropped
+        // falls back to the owner's transcript).
+        cut = max(cut, messages.count - limit)
+        guard cut > 0 else { return false }
+        messages.removeFirst(cut)
+        reachedStart = false
+        return true
+    }
+
     func message(clientID key: IdempotencyKey) -> Message? {
         messages.last { $0.clientMessageID == key }
     }

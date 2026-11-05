@@ -118,6 +118,16 @@ public struct HomeMirror: Hashable, Sendable {
         return joined
     }
 
+    /// Trims `conversation`'s loaded window (``TranscriptWindow/trimOlder(keepingNewest:preserving:)``).
+    @discardableResult
+    public mutating func trimOlder(in conversation: ConversationID, keepingNewest keep: Int, preserving: Set<MessageID> = [],
+                                   atMost limit: Int = .max) -> Bool {
+        guard var window = windows[conversation],
+              window.trimOlder(keepingNewest: keep, preserving: preserving, atMost: limit) else { return false }
+        windows[conversation] = window
+        return true
+    }
+
     /// The transcript left the screen: its window goes, so nothing is
     /// fetched for it until it opens again, and that open loads its tail.
     /// What it held is kept (``kept``), so that open draws it at once.

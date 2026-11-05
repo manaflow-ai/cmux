@@ -301,7 +301,26 @@ final class HomeProjection: @preconcurrency ChatIntents {
         passStep("rowsChange", &mark)
         askForOlderIfNeeded()
         reportReadIfNeeded()
+        trimIfResting()
         passStep("older+read", &mark)
+    }
+
+    /// A reader resting on the newest message bounds the loaded window as messages keep
+    /// arriving: a Chief chat left open never scrolls, so the window would otherwise only
+    /// grow and every change would rebuild the whole timeline. The trim runs on the next
+    /// display frame (it rebuilds the rows), keeps what an open thread or reply answers,
+    /// and older history loads again as pages when the reader scrolls up.
+    private func trimIfResting() {
+        guard homeStore.loadedMessageCount(in: conversation) > HomeStore.windowTrimThreshold, let store = controller.store,
+              store.state.ui.scroll.pinnedToBottom, store.state.atNewest else { return }
+        controller.nextFrame { [weak self] in
+            guard let self, !self.stopped, let state = self.controller.store?.state,
+                  state.ui.scroll.pinnedToBottom, state.atNewest else { return }
+            // What an open thread or a reply being written points at stays loaded.
+            let open = ([state.ui.draft.replyTo, state.ui.openThread] + state.ui.threadPath.map { Optional($0) })
+                .compactMap { $0.flatMap { self.ownerID($0.messageId) } }
+            self.homeStore.trimIfResting(self.conversation, preserving: Set(open))
+        }
     }
 
     private func install(items: [TranscriptItem], summary: ConversationSummary?, typing: Set<ParticipantID>, hasOlder: Bool) {
