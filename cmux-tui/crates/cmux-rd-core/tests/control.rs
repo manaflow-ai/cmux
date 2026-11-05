@@ -35,6 +35,37 @@ fn gate_respects_the_frame_rate_cap_with_a_deadline() {
 }
 
 #[test]
+fn an_input_lifts_the_frame_rate_cap_for_its_window_only() {
+    let mut g = FrameGate::new(1, 10);
+    assert!(matches!(g.damage(R, 0), FlowAction::Encode { .. }));
+    assert_eq!(g.ack(1, 1_000), FlowAction::Wait);
+    // Without an input the next frame waits for the 100 ms interval; after one it goes at once.
+    g.input(2_000);
+    assert!(matches!(g.damage(R, 5_000), FlowAction::Encode { frame: 2, .. }));
+    // The in-flight bound still holds inside the window.
+    assert_eq!(g.damage(R, 6_000), FlowAction::Wait);
+    assert_eq!(g.next_deadline_us(), None);
+    assert!(matches!(g.ack(2, 7_000), FlowAction::Encode { frame: 3, .. }));
+    // Past the window the cap is back.
+    assert_eq!(g.ack(3, 8_000), FlowAction::Wait);
+    let after = 2_000 + cmux_rd_core::flow::INPUT_FRAME_WINDOW_US;
+    assert_eq!(g.damage(R, after), FlowAction::Wait);
+    assert_eq!(g.next_deadline_us(), Some(7_000 + 100_000));
+}
+
+#[test]
+fn a_pending_frame_after_an_input_is_due_at_once() {
+    let mut g = FrameGate::new(1, 10);
+    assert!(matches!(g.damage(R, 0), FlowAction::Encode { .. }));
+    assert_eq!(g.ack(1, 1_000), FlowAction::Wait);
+    assert_eq!(g.damage(R, 2_000), FlowAction::Wait);
+    assert_eq!(g.next_deadline_us(), Some(100_000));
+    g.input(3_000);
+    assert_eq!(g.next_deadline_us(), Some(0));
+    assert!(matches!(g.poll(3_000), FlowAction::Encode { frame: 2, .. }));
+}
+
+#[test]
 fn no_damage_means_no_frame() {
     let mut g = FrameGate::new(1, 60);
     assert_eq!(g.poll(1_000_000), FlowAction::Wait);
