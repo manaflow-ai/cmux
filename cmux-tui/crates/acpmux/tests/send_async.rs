@@ -719,15 +719,15 @@ async fn a_queued_message_that_meets_no_session_fails_once_and_stops() {
         .await
         .unwrap();
     let mut ca = C::new(a.clone()).await;
-    let queued =
-        ca.call(SEND_QUEUE, json!({"request": prompt("late/proc-title", "hi", "p-late")})).await.unwrap();
+    let queued = ca
+        .call(SEND_QUEUE, json!({"request": prompt("late/proc-title", "hi", "p-late")}))
+        .await
+        .unwrap();
     assert_eq!(queued["hostUnreachable"], true, "{queued}");
     let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
     // The machine comes up, with a session of another name.
     let b = hub();
-    let l = bind_ws(&format!("127.0.0.1:{port}")).await.unwrap();
-    tokio::spawn(serve_ws_with(b.clone(), l, "tok".into(), WsAuth { local_app: None, peer: None }));
-    let mut cb = C::new(b).await;
+    let mut cb = C::new(b.clone()).await;
     cb.call(
         method::SESSION_NEW,
         json!({"cwd": std::env::temp_dir(), "mcpServers": [],
@@ -735,6 +735,8 @@ async fn a_queued_message_that_meets_no_session_fails_once_and_stops() {
     )
     .await
     .unwrap();
+    let l = bind_ws(&format!("127.0.0.1:{port}")).await.unwrap();
+    tokio::spawn(serve_ws_with(b, l, "tok".into(), WsAuth { local_app: None, peer: None }));
     let deadline = Instant::now() + Duration::from_secs(90);
     let failed = loop {
         let status =
@@ -1175,15 +1177,10 @@ async fn a_send_under_cpu_starvation_to_an_unreachable_peer_returns_at_once_and_
     // Still waiting, and listed as such.
     let listed = ca.call(SEND_STATUS, json!({"list": true})).await.unwrap();
     assert_eq!(listed["pending"], 5, "{listed}");
-    // The machine comes back, with the session.
+    // The machine comes back, with the session: it has the session before it answers, as a
+    // restarted daemon has its sessions (a machine that answers without it has no such session,
+    // and the delivery fails: `a_queued_message_that_meets_no_session_fails_once_and_stops`).
     let b = hub();
-    let l = bind_ws(&format!("127.0.0.1:{port}")).await.unwrap();
-    tokio::spawn(serve_ws_with(
-        b.clone(),
-        l,
-        "tok".into(),
-        WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
-    ));
     let mut cb = C::new(b.clone()).await;
     let id = cb
         .call(
@@ -1195,6 +1192,13 @@ async fn a_send_under_cpu_starvation_to_an_unreachable_peer_returns_at_once_and_
         .as_str()
         .unwrap()
         .to_owned();
+    let l = bind_ws(&format!("127.0.0.1:{port}")).await.unwrap();
+    tokio::spawn(serve_ws_with(
+        b.clone(),
+        l,
+        "tok".into(),
+        WsAuth { local_app: None, peer: Some(Arc::new(auth)) },
+    ));
     let came_back = Instant::now();
     for delivery in &deliveries {
         let deadline = Instant::now() + Duration::from_secs(120);
