@@ -46,6 +46,9 @@ public actor CloudCodexBroker {
     private let renewalRetryBase: Duration
     static let renewalRetryCap: Duration = .seconds(300)
     private var refreshInFlight: Task<CloudCodexAccessGrant, any Error>?
+    /// The access the Mac's own Codex sign-in holds (``CloudCodexLocalAccess``), when the person allowed it;
+    /// asked before the private holder, so a Mac signed in to Codex needs no device login. Read only.
+    private var localSignIn: (@Sendable () async -> CloudCodexAccessGrant?)?
     private var quitWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var quitTimers: [UUID: Task<Void, Never>] = [:]
     private var quitWork: [UUID: Task<Void, Never>] = [:]
@@ -149,7 +152,19 @@ public actor CloudCodexBroker {
         return grant
     }
 
+    /// Sets where the Mac's own Codex access is read (``CloudCodexBrokerAdapter/localSignIn``).
+    func setLocalSignIn(_ source: (@Sendable () async -> CloudCodexAccessGrant?)?) { localSignIn = source }
+
     private func performRefresh() async throws -> CloudCodexAccessGrant {
+        // The Mac's own Codex keeps its token fresh; cmux only reads it, so no second refresher ever
+        // rotates the Mac's refresh token. Nothing usable there: the private holder, as before.
+        if let localSignIn, let grant = await localSignIn() {
+            try await ensureScope()
+            if let previous = cached?.chatgptAccountID, previous != grant.chatgptAccountID { throw CloudCodexBrokerError.accountChanged }
+            guard grant.expiresAt > Date().addingTimeInterval(60) else { throw CloudCodexBrokerError.expiredAccess }
+            cached = grant
+            return grant
+        }
         let response = try await request(method: "access", force: true, previousAccountID: cached?.chatgptAccountID)
         try await ensureScope()
         guard let token = response.accessToken, !token.isEmpty,
