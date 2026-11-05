@@ -71,6 +71,11 @@ struct CloudMove {
         guard let session = tabs.sessions[tabs.resolve(tab.id)] ?? record.session else { throw ActionFailure(message: CloudMoveStrings.noSession) }
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         var invocation = invocation
+        // A person's Retry pinned to a machine since deleted drops the pin, as a kept pin does above.
+        if invocation.origin == .user, services.cloud.hasLoadedCurrentMachines, let pinned = invocation["machine"]?.stringValue,
+           services.machines.session(pinned) == nil {
+            invocation.arguments["machine"] = nil
+        }
         // An unresolved move finishes on the machine it started on.
         if let machineID = left?.machineID, invocation["machine"] == nil { invocation.arguments["machine"] = .string(machineID) }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
@@ -295,12 +300,7 @@ struct CloudMove {
         let named = invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue
         if let named {
             let id = named.hasPrefix("machine:") ? String(named.dropFirst("machine:".count)) : named
-            guard let session = machines.session(id) else {
-                // A Retry's pin (this app's own button) to a machine gone from the loaded list: deleted, and no
-                // Retry can reach it. A CLI's or agent's `--machine` keeps naming the id it asked for.
-                if invocation.origin == .user, services.cloud.hasLoadedCurrentMachines { throw Failure(message: CloudMoveStrings.machineDeleted) }
-                throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: .move(machineID: id))
-            }
+            guard let session = machines.session(id) else { throw Failure(message: CloudMoveStrings.noSuchMachine(id), retry: .move(machineID: id)) }
             return try await Self.connected(session, invocation)
         }
         if let live = machines.cloud.first(where: { $0.daemon.connection != nil }) ?? machines.cloud.first {
