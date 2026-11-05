@@ -247,12 +247,35 @@ const _: () = assert!(
 /// (#35872 review). XNU's poll also makes and frees a kqueue on each call, a few us per key.
 #[cfg(unix)]
 fn has_room_now(fd: std::os::fd::RawFd) -> bool {
+    // On XNU a poll() opens a kernel event queue for the call and frees it after (sys_generic.c poll_nocancel).
+    #[cfg(all(test, target_vendor = "apple"))]
+    room_check_queues::opened();
     let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
     // SAFETY: one valid pollfd for a count of 1; the zero timeout keeps poll from waiting for room.
     let count = unsafe { libc::poll(&mut ready, 1, 0) };
     count == 1
         && ready.revents & libc::POLLOUT != 0
         && ready.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) == 0
+}
+
+/// Tests: the kernel event queues that this thread's room checks ([`HostInputRoute::try_send_now`]) opened. An inline
+/// key runs its room check on its request's own thread, so a test that sends keys counts its own keys' queues.
+#[cfg(all(test, target_vendor = "apple"))]
+pub(crate) mod room_check_queues {
+    use std::cell::Cell;
+
+    thread_local! {
+        static OPENED: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(crate) fn opened() {
+        OPENED.with(|opened| opened.set(opened.get().saturating_add(1)));
+    }
+
+    /// The queues this thread's room checks opened so far.
+    pub(crate) fn count() -> usize {
+        OPENED.with(Cell::get)
+    }
 }
 
 /// No SIGPIPE from a send to a host that closed its end: the error is returned instead. Elsewhere (Apple targets) std

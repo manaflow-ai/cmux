@@ -55,6 +55,45 @@ fn a_key_to_an_idle_port_is_on_the_host_socket_when_its_request_returns() {
     );
 }
 
+/// #35413 s17ga A/B (STATUS 13254): with the lane on, a key's write call (daemon.send.write -> daemon.send.written)
+/// took 0.019-0.020 ms at p50 on cmux21, against 0.005 ms for the old path's write, and the daemon part's p50 was
+/// worse with ON beyond the OFF rounds' spread. The inline write's room check was a poll(), which on XNU opens a
+/// kernel event queue, registers a knote on the socket and frees both on every call (sys_generic.c poll_nocancel),
+/// under the socket's lock each time. A connection's keys share one queue for their room checks.
+#[cfg(target_vendor = "apple")]
+#[test]
+fn a_connections_keys_share_one_kernel_queue_for_their_room_check() {
+    use crate::terminal_host_runtime::room_check_queues;
+    const KEYS: usize = 100;
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-inline-queue", true);
+    let pty = surface.as_pty().expect("a terminal");
+    // The writer is held: a key that went to the port instead of inline never reaches the host.
+    let _resume = pty.input_port.pause_writes_for_test();
+    host.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+    let before = room_check_queues::count();
+    for key in 0..KEYS {
+        surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+        // Each key is read before the next one, so the socket has room and the port stays idle.
+        let frame = crate::terminal_host_protocol::read_frame(
+            &mut host,
+            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+        )
+        .ok()
+        .flatten();
+        assert!(
+            frame
+                .as_ref()
+                .is_some_and(|frame| frame.kind == MessageKind::Input && frame.payload == b"k"),
+            "key {key} was not written inline ({frame:?})"
+        );
+    }
+    let opened = room_check_queues::count() - before;
+    assert!(
+        opened <= 1,
+        "{KEYS} keys to one connection opened {opened} kernel event queues for their room checks: one per key"
+    );
+}
+
 /// Another writer holds the connection (a large write of another client): the key does not wait for it. It goes to
 /// the port, returns at once, and reaches the host once the other writer is done.
 #[test]
