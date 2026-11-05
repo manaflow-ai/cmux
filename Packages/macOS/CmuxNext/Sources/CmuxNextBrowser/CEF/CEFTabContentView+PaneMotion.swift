@@ -7,14 +7,14 @@ import CmuxNextDesign
 protocol BrowserPagePaneMotionHolding: NSView {
     /// Whether the page holds through a key hold now, or could start one (a plain page in a window).
     var holdsPageInPaneMotion: Bool { get }
-    /// The pane's hold began or changed its edges (the page keeps its size on them), or ended (nil: it lays out once).
+    /// The pane's hold began or changed (the page keeps its size), or ended (nil: it lays out once).
     func holdPage(for hold: PaneMotionHold?)
 }
 
 /// A Chromium page draws in another process, some frames after its window takes a size: through a key resize the page
-/// keeps the size it had when the hold began, never scaled, with its top-left corner on the page area's (cmux-ad m6 1b,
-/// `BrowserResizeTunables.keyResizeTopLeft`; off: fixed at the pane edges that do not move), the pane clips it, and this
-/// view paints the page's own backdrop beside it, never the shell (the drag hold's path, `startPageHold`). It lays out
+/// keeps the size it had when the hold began, never scaled, with its top-left corner on the page area's (cmux-ad m6 1b),
+/// the pane clips it, and this view paints the page's own backdrop beside it, never the shell (the drag hold's path,
+/// `startPageHold`). It lays out
 /// once when the hold ends, before the pane hears that the motion landed. A page that cannot hold any longer (DevTools
 /// docked, a side panel or a fit came up, the tab was hidden mid-hold) lays out live at the chrome's page area, as a page
 /// does in a split or close spring: never the shell, the chrome's own page area is beside it. A page hidden and shown again
@@ -36,10 +36,7 @@ extension CEFTabContentView: BrowserPagePaneMotionHolding {
             return
         }
         // A drag's own hold, or a page that cannot hold (DevTools docked, a side panel, a fit), lays out as before.
-        if pageMotionHold == nil {
-            guard startPageHold() else { return }
-            pageHoldTopLeft = BrowserResizeTunables.keyResizeTopLeft.value // latched for this hold
-        }
+        if pageMotionHold == nil, !startPageHold() { return }
         pageMotionHold = hold
         needsLayout = true
     }

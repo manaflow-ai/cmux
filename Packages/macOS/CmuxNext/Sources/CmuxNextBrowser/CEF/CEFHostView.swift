@@ -373,11 +373,9 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// The page's size through a person's resize drag (`paneResizeGestureDidChange`) or a key resize's hold
     /// (``holdPage(for:)``); nil otherwise.
     private(set) var heldPageSize: CGSize?
-    /// The edges a key resize's hold keeps the page on (FRAME OWNER S3); nil: a drag's top-leading corner.
+    /// The key resize's hold this page keeps its size through (FRAME OWNER S3); nil: none (a drag's hold, or no hold).
+    /// The page sits at the page area's top-left corner in either hold (cmux-ad m6 1b).
     var pageMotionHold: PaneMotionHold?
-    /// The key resize's hold keeps the page on the page area's top-left corner, as a drag does
-    /// (`BrowserResizeTunables.keyResizeTopLeft`, latched when the hold begins: a flip applies from the next hold).
-    var pageHoldTopLeft = false
     /// The page windows told of a resize-sync drag (`BrowserDragResize.resizeSync`), to tell its end wherever the
     /// page is by then; empty otherwise.
     private(set) var syncedDragHostings: [CEFLayerHosting] = []
@@ -486,13 +484,11 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             } else if subview is CEFDevToolsDivider {
                 frame = frames.grab
             } else if fitPage == nil, let held = heldPageSize, subview === tab?.host.hostView {
-                // A resize drag, or a key hold (the interim browser contract, `pageHoldTopLeft`): the page keeps its size
-                // at the page frame's top-left corner, so it moves with the pane's leading and top edges (S3's key hold
-                // without it: on the pane edges that do not move). The pane clips it (`CEFClipShape` and the fork's
-                // visible rect read the held host), and the fork re-places its window with the host each motion frame
-                // (`CEFHostView.pagesNeedUpdate`).
-                let topLeft = PaneMotionHold(trailing: false, bottom: false)
-                frame = (pageHoldTopLeft ? topLeft : pageMotionHold ?? topLeft).producerFrame(held, in: frames.page)
+                // A resize drag or a key hold (the interim browser contract, cmux-ad m6 1b): the page keeps its size at the
+                // page frame's top-left corner, so it moves with the pane's leading and top edges. The pane clips it
+                // (`CEFClipShape` and the fork's visible rect read the held host), and the fork re-places its window with
+                // the host each motion frame (`CEFHostView.pagesNeedUpdate`).
+                frame = PaneMotionHold(trailing: false, bottom: false).producerFrame(held, in: frames.page)
             } else {
                 frame = fitPage ?? frames.page
             }
