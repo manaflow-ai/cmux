@@ -7,10 +7,11 @@ What an agent does with `scripts/cmux-next/live-apply.py`, with no full build an
 
   1. The published app launches from a fresh home (scripts/ci/fresh_home_launch_smoke.py: its own
      HOME, socket and defaults set aside), with its web overlay, settings file and Debug Settings
-     (`webDev.override` on) in this run's folder. A base overlay (TREE's bundles, unchanged) goes
-     in first, as on a person's app that already follows the overlay: a page picks its engine when
-     it opens, WebKit while an override is in force, and only those pages reload from the overlay
-     (PageEnginePolicy, WebDevOverrideWatcher). Then Settings opens (`settings.open`).
+     (`webDev.override` on) in this run's folder. A base overlay (TREE's bundles, unchanged) is
+     installed before the launch, as on a person's app that already follows the overlay: a page
+     picks its engine once, WebKit while an override is in force, and the overlay watcher reads
+     web-dev.json asynchronously, so an overlay installed after launch can lose the race to the
+     first page (PageEnginePolicy, WebDevOverrideWatcher). Then Settings opens (`settings.open`).
   2. Base: the marker is not in the app (the probe must discriminate).
   3. Edit: the "agent" appends a few lines to the Settings page's entry (webviews/src/pages/
      settings/main.tsx in TREE, a checkout at the app's CMUXCommit): a banner with a nonce, and a
@@ -126,6 +127,7 @@ class Loop:
         self.opts = opts
         self.tree = Path(opts.tree).resolve()
         self.result = {"schema": "cmux.agent-loop/1", "pass": False, "failures": [], "steps": []}
+        self.base_overlay = {"exit": None, "seconds": None}
         self.work = None
 
     # The fresh home: this run's overlay, settings file and Debug Settings with the overlay toggle on.
@@ -140,6 +142,14 @@ class Loop:
         env.update(CMUX_NEXT_CONFIG_FILE=str(config), CMUX_WEB_OVERLAY_DIR=str(overlay),
                    CMUX_NEXT_DEBUG_TUNABLES_FILE=str(tunables))
         self.overlay_env = {k: env[k] for k in ("CMUX_NEXT_CONFIG_FILE", "CMUX_WEB_OVERLAY_DIR")}
+        # Setup, not the loop's time: the base overlay, in force before the first page opens.
+        out = Path(self.opts.out)
+        t = time.monotonic()
+        with (out / "base-overlay.log").open("w") as log:
+            built = subprocess.run([str(self.tree / "scripts/cmux-next/web-overlay.sh"), "build"],
+                                   env=dict(os.environ, **self.overlay_env), stdout=log, stderr=log, timeout=900)
+        self.base_overlay = {"exit": built.returncode, "seconds": round(time.monotonic() - t, 2)}
+        smoke.log(f"agent-loop base overlay: exit {built.returncode} in {self.base_overlay['seconds']}s")
 
     def step(self, name: str, ok: bool, **detail) -> bool:
         self.result["steps"].append(dict(step=name, ok=ok, **detail))
@@ -201,15 +211,9 @@ class Loop:
             return self.result["failures"]
         self.commit = tree_head
         before = self.identity()
-        # Setup, not the loop's time: the base overlay, so the page opens on WebKit from the overlay.
-        t = time.monotonic()
-        with (self.out / "base-overlay.log").open("w") as stderr:
-            base = subprocess.run([str(self.tree / "scripts/cmux-next/web-overlay.sh"), "build"],
-                                  env=dict(os.environ, **self.overlay_env), stdout=stderr, stderr=stderr, timeout=900)
-        self.result["base_overlay_s"] = round(time.monotonic() - t, 2)
-        if not self.step("base-overlay", base.returncode == 0, exit=base.returncode, seconds=self.result["base_overlay_s"]):
+        self.result["base_overlay_s"] = self.base_overlay["seconds"]
+        if not self.step("base-overlay", self.base_overlay["exit"] == 0, **self.base_overlay):
             return self.result["failures"]
-        time.sleep(2)  # harness: the watcher reads web-dev.json and the manifest
         opened = rpc(self.sock, "settings.open", {}, timeout=30)
         time.sleep(3)  # harness: the Settings page loads
         self.step("settings", isinstance(opened, dict) and "error" not in opened, reply=opened)
