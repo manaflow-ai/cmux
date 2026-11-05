@@ -1,52 +1,78 @@
 public import AppKit
 import CmuxNextDesign
 
-/// The Chief's profile page (Lawrence's reference, 2026-11-04), a tab in Home's right column: a close
-/// button, the avatar and name centered, then Details and Computer. The Chief's settings stay in the
-/// header's popover; Details links to them. Computer always shows, so the feature can be found:
-/// without a plan that pays for cmux Cloud it is the upsell, for a Chief that does not run in the
-/// Cloud it offers the move, and until the Chief sets one up it says how to ask.
+/// The Chief's profile (Lawrence's reference, 2026-11-04, after Grok's bot panel): a close button at
+/// the top right, the avatar and name centered, the tabs Details · Settings · Computer, then the tab.
+///
+/// Two places show it. The panel beside Home's chat, which the header's avatar and name pill open,
+/// carries the Chief's whole settings card (``settings``): Details and Settings are its sections and
+/// Computer adds the Computer Use picker of a Chief of this Mac, so every setting is in exactly one
+/// tab. The expanded computer page (a tab beside Home, ``isExpanded``) has no card: Details says where
+/// the Chief runs and links to Settings, and Computer shows the screen large.
+///
+/// Computer always shows, so the feature can be found: without a plan that pays for cmux Cloud it is
+/// the upsell, for a Chief of this Mac it offers the move or a Cloud machine, and until the Chief sets
+/// one up it says how to ask. Under a live screen the control bar says who drives and changes it.
 @MainActor
 public final class HomeChiefProfileView: NSView {
     /// Why the Computer tab has no screen; nil when it does.
     public enum Gate: Equatable, Sendable {
         case paywall, needsCloudChief, notSetUp
+        /// A Chief of this Mac that uses one of the person's Cloud machines (its desktop opens on its own).
+        case machine
     }
 
     /// The gate for a read: the plan first, since the upsell is the same wherever the Chief runs.
-    public nonisolated static func gate(paid: Bool, cloudChief: Bool, hasComputer: Bool) -> Gate? {
+    public nonisolated static func gate(paid: Bool, cloudChief: Bool, hasComputer: Bool, machine: Bool = false) -> Gate? {
         guard paid else { return .paywall }
-        guard cloudChief else { return .needsCloudChief }
+        guard cloudChief else { return machine ? .machine : .needsCloudChief }
         return hasComputer ? nil : .notSetUp
     }
 
+    /// The panel's width beside the chat (the settings card's, which sets its rows).
+    public static let panelWidth: CGFloat = HomeChiefSettingsView.width + 32
     static let columnWidth: CGFloat = 288
+    /// The expanded page's widest column: the screen as large as the pane allows, up to this.
+    static let expandedWidth: CGFloat = 960
     static let avatarSize: CGFloat = 60
-    static let avatarTop: CGFloat = 74
+    static let avatarTop: CGFloat = 64
     static let nameGap: CGFloat = 12
     static let tabsGap: CGFloat = 20
 
     public let computer = HomeChiefComputerSection()
+    /// The Chief's settings card (the panel); nil on the expanded page.
+    public let settings: HomeChiefSettingsView?
+    /// The page shows the computer large (a tab beside Home, no card), not the panel.
+    public var isExpanded: Bool { settings == nil }
     /// The Chief's name, read when the page opens and at each status read.
     public var name: () -> String = { "" } { didSet { refresh() } }
     /// Whether the plan pays for cmux Cloud.
     public var paid: () -> Bool = { false } { didSet { refresh() } }
     /// Whether the Chief runs in the Cloud.
     public var cloudChief: () -> Bool = { false } { didSet { refresh() } }
-    /// Where the Chief runs, for Details.
+    /// Where the Chief runs, for Details on the expanded page.
     public var place: () -> String = { "" } { didSet { refresh() } }
-    /// The ✕ (the app closes the tab).
+    /// The ✕.
     public var onClose: () -> Void = {}
     /// Upgrade, on the paywall.
     public var onUpgrade: () -> Void = {}
     /// Move to Cloud, for a Chief of this Mac.
     public var onMoveToCloud: () -> Void = {}
-    /// All Chief Settings…, in Details.
+    /// All Chief Settings…, in the expanded page's Details.
     public var onSettings: () -> Void = {}
+    /// Expand, on the screen: opens the expanded page (the panel only).
+    public var onExpand: (() -> Void)? {
+        didSet { computer.onExpand = onExpand }
+    }
+    /// Who drives the Chief's computer, and the person's input to it (``HomeChiefComputerControlBar``).
+    public var control: HomeChiefComputerControlSource? {
+        didSet { controlBar.source = control }
+    }
 
     let tabs = HomeChiefSettingsTabs()
-    let avatar = HomeChiefAvatarButton(size: avatarSize)
+    let avatar: HomeChiefAvatarButton
     let nameLabel = ThemedLabel(labelWithString: "")
+    /// The expanded page's Details (the panel's are the card's).
     let details = NSStackView()
     let placeLabel = ThemedLabel(labelWithString: "")
     let computerPane = NSStackView()
@@ -54,67 +80,33 @@ public final class HomeChiefProfileView: NSView {
     let gateBox = NSView()
     let gateLabel = ThemedLabel(wrappingLabelWithString: "")
     let gateButton = NSButton(title: "", target: nil, action: nil)
+    let controlBar = HomeChiefComputerControlBar()
+    let scroll = NSScrollView()
+    let column = NSStackView()
     private(set) lazy var closeButton = HomeChiefCardCloseButton(label: HomeEngineStrings.closeCard, target: self, action: #selector(closeTab))
     /// What the tab shows now.
     private(set) var shownGate: Gate?
+    /// The person's inputs, sent one after another.
+    var sending: Task<Void, Never>?
+    /// The panel or page is on screen: the computer and the card's sections read.
+    private(set) var isOpen = false
 
-    public override init(frame: NSRect) {
-        super.init(frame: frame)
+    public init(settings: HomeChiefSettingsView? = nil) {
+        self.settings = settings
+        avatar = settings?.avatarButton ?? HomeChiefAvatarButton(size: Self.avatarSize)
+        super.init(frame: .zero)
         setAccessibilityRole(.group)
-        setAccessibilityIdentifier("cmux.home.chief.profile")
-        avatar.isEnabled = false
-        nameLabel.font = Typography.system(size: TypeScale.title, weight: TypeScale.regular)
-        nameLabel.alignment = .center
-        nameLabel.lineBreakMode = .byTruncatingTail
-        placeLabel.font = Typography.body
-        placeLabel.ink = .secondary
-        placeLabel.alignment = .center
-        let settings = HomeChiefLinkButton(title: HomeEngineStrings.allChiefSettings, target: self, action: #selector(openSettings))
-        details.orientation = .vertical
-        details.alignment = .centerX
-        details.spacing = Metrics.space2
-        details.addArrangedSubview(placeLabel)
-        details.addArrangedSubview(settings)
-        buildGateBox()
-        computerPane.orientation = .vertical
-        computerPane.alignment = .centerX
-        computerPane.addArrangedSubview(computer)
-        computerPane.addArrangedSubview(gateBox)
-        let column = NSStackView(views: [avatar, nameLabel, tabs, details, computerPane])
-        column.orientation = .vertical
-        column.alignment = .centerX
-        column.spacing = 0
-        column.setCustomSpacing(Self.nameGap, after: avatar)
-        column.setCustomSpacing(Self.tabsGap, after: nameLabel)
-        column.setCustomSpacing(Self.tabsGap, after: tabs)
-        column.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(column)
-        addSubview(closeButton)
-        for view in [nameLabel, details, computerPane] as [NSView] {
-            view.translatesAutoresizingMaskIntoConstraints = false
-            view.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
-        }
-        computer.translatesAutoresizingMaskIntoConstraints = false
-        gateBox.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            column.topAnchor.constraint(equalTo: topAnchor, constant: Self.avatarTop),
-            column.centerXAnchor.constraint(equalTo: centerXAnchor),
-            column.widthAnchor.constraint(lessThanOrEqualToConstant: Self.columnWidth),
-            column.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -32),
-            column.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -16),
-            closeButton.topAnchor.constraint(equalTo: topAnchor, constant: 16),
-            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            computer.widthAnchor.constraint(equalTo: computerPane.widthAnchor),
-            gateBox.widthAnchor.constraint(equalTo: computerPane.widthAnchor),
-            gateBox.heightAnchor.constraint(equalTo: gateBox.widthAnchor, multiplier: 10.0 / 16.0),
-        ])
-        let wide = column.widthAnchor.constraint(equalToConstant: Self.columnWidth)
-        wide.priority = .defaultHigh
-        wide.isActive = true
-        tabs.select(.computer)
+        setAccessibilityIdentifier(settings == nil ? "cmux.home.chief.profile" : "cmux.home.chief.profile.panel")
+        buildColumn()
+        tabs.shown = settings == nil ? [.details, .computer] : HomeChiefProfileTab.allCases
+        tabs.select(settings == nil ? .computer : .details)
         tabs.onPick = { [weak self] _ in self?.refresh() }
         computer.onResize = { [weak self] in self?.refresh() }
         computer.onStatus = { [weak self] in self?.refresh() }
+        controlBar.chief = { [weak self] in self?.name() ?? "" }
+        controlBar.onChange = { [weak self] in self?.followControl() }
+        settings?.onResize = { [weak self] in self?.needsLayout = true }
+        settings?.onComputerShown = { [weak self] in self?.refresh() }
         refresh()
     }
 
@@ -123,6 +115,16 @@ public final class HomeChiefProfileView: NSView {
 
     nonisolated public override var isFlipped: Bool { true }
 
+    /// The tab on show.
+    public var selectedTab: HomeChiefProfileTab { tabs.selected }
+
+    /// Shows `tab` (a gesture elsewhere asked for it: the pet's Chief Pet Settings… asks for Settings).
+    public func select(_ tab: HomeChiefProfileTab) {
+        guard tabs.shown.contains(tab) else { return }
+        tabs.select(tab)
+        refresh()
+    }
+
     /// The avatar the Home header shows.
     public func setAvatar(picture: NSImage?, text: String?) {
         avatar.show(picture: picture, text: text)
@@ -130,19 +132,20 @@ public final class HomeChiefProfileView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil, !isHiddenOrHasHiddenAncestor { computer.open() }
+        followVisibility()
         applyGateFill()
     }
 
-    /// A parked pane tab stays in the window, hidden: it reads nothing until it shows again.
+    /// A parked pane tab or a closed panel stays in the window, hidden: it reads nothing until it
+    /// shows again.
     public override func viewDidHide() {
         super.viewDidHide()
-        computer.close()
+        followVisibility()
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        if window != nil { computer.open() }
+        followVisibility()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -150,66 +153,45 @@ public final class HomeChiefProfileView: NSView {
         applyGateFill()
     }
 
+    /// Opens on screen (the computer and the card's sections read) and closes off it, keeping a name
+    /// being edited.
+    func followVisibility() {
+        let open = window != nil && !isHiddenOrHasHiddenAncestor
+        guard open != isOpen else { return }
+        isOpen = open
+        if open {
+            computer.open()
+            settings?.vault.open()
+            settings?.connections.open()
+            settings?.refresh()
+        } else {
+            computer.close()
+            settings?.commitEditing()
+            settings?.cardClosed()
+            sending?.cancel()
+            sending = nil
+        }
+        refresh()
+    }
+
     /// Shows the selected tab and, on Computer, the screen or why there is none.
-    func refresh() {
+    public func refresh() {
         nameLabel.stringValue = name()
         placeLabel.stringValue = place()
-        let onComputer = tabs.selected == .computer
-        details.isHidden = onComputer
-        computerPane.isHidden = !onComputer
-        computer.watchesScreen = onComputer
-        let gate = Self.gate(paid: paid(), cloudChief: cloudChief(), hasComputer: computer.shown != nil)
+        let tab = tabs.selected
+        details.isHidden = settings != nil || tab != .details
+        computerPane.isHidden = tab != .computer
+        settings?.showSection(tab)
+        computer.watchesScreen = tab == .computer
+        let gate = Self.gate(paid: paid(), cloudChief: cloudChief(), hasComputer: computer.shown != nil,
+                             machine: settings?.attachedMachine != nil)
         shownGate = gate
         gateBox.isHidden = gate == nil
-        switch gate {
-        case .paywall:
-            gateLabel.stringValue = HomeEngineStrings.computerPaywall(name())
-            gateButton.title = HomeEngineStrings.computerUpgrade
-            gateButton.isHidden = false
-        case .needsCloudChief:
-            gateLabel.stringValue = HomeEngineStrings.computerNeedsCloudChief(name())
-            gateButton.title = HomeEngineStrings.computerMove
-            gateButton.isHidden = false
-        case .notSetUp:
-            gateLabel.stringValue = HomeEngineStrings.computerNotSetUp(name())
-            gateButton.isHidden = true
-        case nil:
-            break
-        }
+        showGate(gate)
+        controlBar.redraw()
+        followControl()
     }
 
-    private func buildGateBox() {
-        gateBox.wantsLayer = true
-        gateBox.layer?.cornerRadius = HomeChiefComputerSection.screenCorner
-        gateBox.layer?.cornerCurve = .continuous
-        gateLabel.font = Typography.system(size: TypeScale.field, weight: TypeScale.regular)
-        gateLabel.alignment = .center
-        gateButton.bezelStyle = .rounded
-        gateButton.target = self
-        gateButton.action = #selector(gateAction)
-        gateButton.setAccessibilityIdentifier("cmux.home.chief.computer.gate")
-        let note = NSStackView(views: [gateLabel, gateButton])
-        note.orientation = .vertical
-        note.alignment = .centerX
-        note.spacing = Metrics.space3
-        note.translatesAutoresizingMaskIntoConstraints = false
-        gateBox.addSubview(note)
-        NSLayoutConstraint.activate([
-            note.centerXAnchor.constraint(equalTo: gateBox.centerXAnchor),
-            note.centerYAnchor.constraint(equalTo: gateBox.centerYAnchor),
-            note.widthAnchor.constraint(equalTo: gateBox.widthAnchor, constant: -32),
-        ])
-        gateLabel.preferredMaxLayoutWidth = Self.columnWidth - 32
-    }
-
-    private func applyGateFill() {
-        performWithTheme { gateBox.layer?.backgroundColor = Palette.hoverFill.cgColor }
-    }
-
-    @objc private func gateAction() {
-        if shownGate == .paywall { onUpgrade() } else { onMoveToCloud() }
-    }
-
-    @objc private func closeTab() { onClose() }
-    @objc private func openSettings() { onSettings() }
+    @objc func closeTab() { onClose() }
+    @objc func openSettings() { onSettings() }
 }

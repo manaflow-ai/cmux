@@ -11,7 +11,7 @@ extension HomeChiefSettingsView {
         teleportRow.isHidden = true
         teleportRow.setAccessibilityIdentifier("cmux.home.chief.teleportRow")
         addFullWidth(teleportRow)
-        stack.setCustomSpacing(Metrics.space4, after: teleportRow)
+        gap(after: teleportRow)
     }
 
     /// Shows the Runs On row with `chip`; nil hides it.

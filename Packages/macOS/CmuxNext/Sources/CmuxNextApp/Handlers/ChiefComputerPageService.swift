@@ -123,18 +123,30 @@ final class ChiefComputerPageService: InternalPageProvider {
         let view = HomeChiefProfileView()
         views[key] = view
         guard let services else { return view }
-        let service = services.home
-        let id = ConversationID(conversation)
-        view.computer.source = Self.source(services: services, conversation: conversation)
-        view.paid = { [weak services] in services?.machines.cloudLimits?.paysForCloud == true }
-        view.cloudChief = { [weak services] in services?.home.cloudChiefs.chief(for: conversation) != nil }
-        view.name = { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName }
+        Self.wire(view, services: services, conversation: conversation)
+        // The expanded computer's control bar (Take Over / Give Back): a Cloud Chief's own sandbox.
+        view.control = services.home.cloudChiefs.chief(for: conversation).flatMap { services.chiefComputerControlSource(agent: $0.id, machine: nil) }
         view.place = { [weak services] in
             services?.home.cloudChiefs.chief(for: conversation) != nil ? HomeEngineStrings.runsInCloud : HomeEngineStrings.runsHere
         }
         view.onClose = { [weak self, weak services] in
             if let window = services?.windows.active { _ = self?.closeShown(in: window) }
         }
+        view.onSettings = { [weak services] in
+            try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
+        }
+        if let avatar = avatars[conversation] { view.setAvatar(picture: avatar.picture, text: avatar.text) }
+        return view
+    }
+
+    /// What this page and the Home chat's profile panel share: the computer, the plan, the Chief, Upgrade and Move to Cloud.
+    static func wire(_ view: HomeChiefProfileView, services: AppServices, conversation: String) {
+        let service = services.home
+        let id = ConversationID(conversation)
+        view.computer.source = Self.source(services: services, conversation: conversation)
+        view.paid = { [weak services] in services?.machines.cloudLimits?.paysForCloud == true }
+        view.cloudChief = { [weak services] in services?.home.cloudChiefs.chief(for: conversation) != nil }
+        view.name = { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName }
         view.onUpgrade = { [weak services] in
             // task-owner: one Checkout start; ends when it opens
             Task { await services?.paidPlanUpgrade().start(plan: "pro", source: .cloudRefusal, fallback: nil) }
@@ -147,11 +159,6 @@ final class ChiefComputerPageService: InternalPageProvider {
             }
             _ = services?.registry.perform(ChiefMoveHandlers.actionID, invocation: ActionInvocation(arguments: ["target": .string(ChiefMoveTargets.cloudID)], origin: .user))
         }
-        view.onSettings = { [weak services] in
-            try? services?.settingsWindow.show(section: nil, focus: true, route: "#/settings/chief")
-        }
-        if let avatar = avatars[conversation] { view.setAvatar(picture: avatar.picture, text: avatar.text) }
-        return view
     }
 
     func tabClosed(_ key: String) {

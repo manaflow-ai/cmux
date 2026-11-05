@@ -57,6 +57,13 @@ public final class HomeChiefComputerSection: NSStackView {
         didSet { if watchesScreen != oldValue, isOpen { open() } }
     }
 
+    /// Expand, on the screen's corner: opens the computer large; nil hides it.
+    public var onExpand: (() -> Void)? {
+        didSet { expandButton.isHidden = onExpand == nil }
+    }
+    private(set) lazy var expandButton = HomeChiefCardCloseButton(label: HomeEngineStrings.computerExpand, target: self, action: #selector(expand),
+                                                                  size: 26, symbolSize: 11, symbol: "arrow.up.left.and.arrow.down.right")
+
     /// Runs when the section shows or hides.
     public var onResize: () -> Void = {}
     /// Runs after each read is shown (the popup follows ``HomeChiefComputer/acting`` and its page opening).
@@ -73,9 +80,10 @@ public final class HomeChiefComputerSection: NSStackView {
     private var next: DemandTimer?
 
     static let screenCorner: CGFloat = 14
-    let screen = NSView()
-    private let message = ThemedLabel(labelWithString: "")
-    private let sleepFace = HomeChiefComputerSleepFace()
+    let screen = HomeChiefComputerScreenView()
+    /// Light on the dark card in both themes.
+    let message = NSTextField(labelWithString: "")
+    let sleepFace = HomeChiefComputerSleepFace()
     let caption = ThemedLabel(labelWithString: "")
 
     public init() {
@@ -99,12 +107,16 @@ public final class HomeChiefComputerSection: NSStackView {
         screen.translatesAutoresizingMaskIntoConstraints = false
         message.font = Typography.system(size: TypeScale.field, weight: TypeScale.regular)
         message.alignment = .center
+        message.textColor = NSColor(white: 0.86, alpha: 1)
         let note = NSStackView(views: [sleepFace, message])
         note.orientation = .vertical
         note.alignment = .centerX
         note.spacing = 6
         note.translatesAutoresizingMaskIntoConstraints = false
         screen.addSubview(note)
+        expandButton.isHidden = true
+        expandButton.setAccessibilityIdentifier("cmux.home.chief.computer.expand")
+        screen.addSubview(expandButton)
         for view in [screen, caption] as [NSView] {
             addArrangedSubview(view)
             view.widthAnchor.constraint(equalTo: widthAnchor).isActive = true
@@ -114,6 +126,8 @@ public final class HomeChiefComputerSection: NSStackView {
             note.centerXAnchor.constraint(equalTo: screen.centerXAnchor),
             note.centerYAnchor.constraint(equalTo: screen.centerYAnchor),
             note.widthAnchor.constraint(lessThanOrEqualTo: screen.widthAnchor, constant: -2 * Metrics.space4),
+            expandButton.topAnchor.constraint(equalTo: screen.topAnchor, constant: Metrics.space2),
+            expandButton.trailingAnchor.constraint(equalTo: screen.trailingAnchor, constant: -Metrics.space2),
         ])
         isHidden = true
     }
@@ -136,7 +150,7 @@ public final class HomeChiefComputerSection: NSStackView {
         isOpen = false
         stop()
         frames = 0
-        screen.layer?.contents = nil
+        screen.image = nil
         redraw()
     }
 
@@ -152,12 +166,13 @@ public final class HomeChiefComputerSection: NSStackView {
         applyScreenFill()
     }
 
-    /// A running screen is black glass; with no frame, the card's own fill behind the note.
+    /// A running screen is black glass; with no frame, a dark card behind the note in both themes
+    /// (Lawrence's reference, 2026-11-04: the Chief's screen is a dark card, waking or asleep).
     private func applyScreenFill() {
-        performWithTheme {
-            screen.layer?.backgroundColor = screen.layer?.contents == nil ? Palette.hoverFill.cgColor : NSColor.black.cgColor
-        }
+        screen.layer?.backgroundColor = (screen.image == nil ? Self.cardFill : NSColor.black).cgColor
     }
+
+    static let cardFill = NSColor(white: 0.12, alpha: 1)
 
     private func stop() {
         watch?.cancel()
@@ -210,7 +225,7 @@ public final class HomeChiefComputerSection: NSStackView {
     /// Shows `computer` (nil hides the section).
     func show(_ computer: HomeChiefComputer?) {
         let resized = (computer == nil) != isHidden
-        if computer?.state != .live || computer?.machineID != shown?.machineID { screen.layer?.contents = nil }
+        if computer?.state != .live || computer?.machineID != shown?.machineID { screen.image = nil }
         shown = computer
         isHidden = computer == nil
         redraw()
@@ -220,8 +235,8 @@ public final class HomeChiefComputerSection: NSStackView {
     /// One frame of the running computer (nil: none came; the last one stays).
     private func frame(_ image: CGImage?) {
         guard let image else { return }
-        let first = screen.layer?.contents == nil
-        screen.layer?.contents = image
+        let first = screen.image == nil
+        screen.image = image
         frames += 1
         // Only the first frame changes the labels (it takes "Connecting…" away).
         if first { redraw() }
@@ -232,14 +247,17 @@ public final class HomeChiefComputerSection: NSStackView {
         guard let shown else { return }
         caption.stringValue = shown.title
         let note: String? = switch shown.state {
-        case .live: screen.layer?.contents == nil ? HomeEngineStrings.computerConnecting : nil
+        case .live: screen.image == nil ? HomeEngineStrings.computerConnecting : nil
         case .unavailable: HomeEngineStrings.computerUnavailable
         case .asleep: HomeEngineStrings.computerAsleep
         case .waking: HomeEngineStrings.computerWaking
         }
         message.stringValue = note ?? ""
         message.isHidden = note == nil
-        sleepFace.isHidden = shown.state != .asleep
+        sleepFace.isHidden = shown.state != .asleep && shown.state != .waking
+        sleepFace.awake = shown.state == .waking
         screen.setAccessibilityLabel(note ?? shown.title)
     }
+
+    @objc private func expand() { onExpand?() }
 }

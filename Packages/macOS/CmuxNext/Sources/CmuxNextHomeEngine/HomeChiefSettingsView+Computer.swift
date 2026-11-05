@@ -45,7 +45,7 @@ extension HomeChiefSettingsView {
         computerRow.addArrangedSubview(computerDesktop)
         addFullWidth(computerRow)
         row.widthAnchor.constraint(equalTo: computerRow.widthAnchor).isActive = true
-        stack.setCustomSpacing(Metrics.space4, after: computerRow)
+        gap(after: computerRow)
         computerRow.isHidden = !source.isLocal
         showComputer(nil)
     }
@@ -78,6 +78,12 @@ extension HomeChiefSettingsView {
         let attached = computer != nil
         computerNote.stringValue = attached ? HomeEngineStrings.computerCloudNote : HomeEngineStrings.computerMacNote
         if computerDesktop.isHidden == attached { computerDesktop.isHidden = !attached }
+        onComputerShown()
+    }
+
+    /// The Cloud machine id the Chief uses as its computer (engine.json's `machine:<id>`); nil: this Mac.
+    public var attachedMachine: String? {
+        shownComputer.map { String($0.dropFirst("machine:".count)) }
     }
 
     @objc func pickedComputer(_ sender: NSPopUpButton) {

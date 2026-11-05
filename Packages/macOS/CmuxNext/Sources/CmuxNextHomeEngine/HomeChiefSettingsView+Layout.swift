@@ -7,10 +7,12 @@ import Foundation
 extension HomeChiefSettingsView {
     // MARK: Layout
 
+    /// Adds `view` across the card, to the tab section being built (``filling``), else to the card.
     func addFullWidth(_ view: NSView) {
+        let target = filling.map { sections[$0] } ?? stack
         view.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(view)
-        view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        target.addArrangedSubview(view)
+        view.widthAnchor.constraint(equalTo: target.widthAnchor).isActive = true
     }
 
     /// The avatar (a menu changes it) with the name and where the brain runs beside it.
