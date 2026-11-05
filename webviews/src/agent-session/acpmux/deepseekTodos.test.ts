@@ -32,6 +32,7 @@ type Row = {
   version?: number;
   toolCount?: number;
   plan?: { content: string; status: string }[];
+  planCleared?: boolean;
   items?: { kind: string; tool?: { title: string } }[];
 };
 
@@ -87,23 +88,25 @@ const DONE: Todo[] = [
 ];
 const PROMPT = "Plan and build the parser";
 
-async function turnRows(): Promise<Row[]> {
+const PARSER_TURN = turn(
+  PROMPT,
+  say("I'll plan it first. "),
+  todoCall("todo-1", START),
+  todoDone("todo-1"),
+  plan(START),
+  ...read("read-1"),
+  todoCall("todo-2", DONE),
+  todoDone("todo-2"),
+  plan(DONE),
+  say("The parser is written and tested."),
+);
+
+/// The rows after PROMPT once `turns` turns have their summaries.
+async function turnRows(steps: unknown[] = PARSER_TURN, turns = 1): Promise<Row[]> {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
   const daemon = socket as unknown as Daemon;
-  const steps = turn(
-    PROMPT,
-    say("I'll plan it first. "),
-    todoCall("todo-1", START),
-    todoDone("todo-1"),
-    plan(START),
-    ...read("read-1"),
-    todoCall("todo-2", DONE),
-    todoDone("todo-2"),
-    plan(DONE),
-    say("The parser is written and tested."),
-  );
   for (const step of steps) daemon.record(mockHost.sessionId!, step);
   let rows: Row[] = [];
   const snapshots: Array<() => void> = [];
@@ -120,7 +123,7 @@ async function turnRows(): Promise<Row[]> {
     () => socket as unknown as WebSocket,
   );
   try {
-    await until(() => rows.some((row) => row.kind === "turnSummary"));
+    await until(() => rows.filter((row) => row.kind === "turnSummary").length >= turns);
     const start = rows.findIndex((row) => row.kind === "user" && row.text === PROMPT);
     return rows.slice(start + 1);
   } finally {
@@ -145,4 +148,33 @@ test("DeepSeek Harness's todo_write calls draw no tool row and count toward no s
   const rows = await turnRows();
   expect(titles(rows)).toEqual(["read"]);
   expect(rows.find((row) => row.kind === "turnSummary")?.toolCount).toBe(1);
+});
+
+test("a failed todo_write shows its row again, named for its tool", async () => {
+  // acpmux puts the hidden call's title, kind and input back on its failed result (acp_todo_plan.rs).
+  const failed = {
+    update: {
+      ...todoDone("todo-1", "failed").update,
+      title: "todo_write",
+      kind: "other",
+      rawInput: { todos: START },
+    },
+  };
+  const rows = await turnRows(turn(PROMPT, todoCall("todo-1", START), failed, say("The list did not save.")));
+  expect(rows.filter((row) => row.kind === "plan")).toHaveLength(0);
+  expect(titles(rows)).toEqual(["todo_write"]);
+});
+
+test("a list cleared in the next turn ends the earlier list's carry-over", async () => {
+  const { earlierTurnPlan } = await import("./conversation/turns");
+  const rows = await turnRows(
+    [
+      ...turn(PROMPT, todoCall("todo-1", START), todoDone("todo-1"), plan(START), say("Stopped.")),
+      ...turn("Drop the plan", todoCall("todo-2", []), todoDone("todo-2"), plan([]), say("Dropped.")),
+    ],
+    2,
+  );
+  const earlier = rows.find((row) => row.kind === "plan");
+  expect(earlier?.planCleared).toBe(true);
+  expect(earlierTurnPlan(rows.map((row) => ({ ...row, turnEnded: row.kind === "plan" })) as never)).toBeUndefined();
 });

@@ -1515,7 +1515,7 @@ export function earlierTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefin
     const row = rows[at]!;
     if (row.kind === "user" && !row.incoming) prompted = true;
     if (row.kind !== "plan") continue;
-    if (!row.turnEnded || !prompted || !row.plan?.length) return undefined;
+    if (!row.turnEnded || !prompted || !row.plan?.length || row.planCleared) return undefined;
     return row.plan.some((entry) => entry.status !== "completed") ? row : undefined;
   }
   return undefined;

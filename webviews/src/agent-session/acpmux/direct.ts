@@ -6908,6 +6908,13 @@ export class AcpmuxDirectClient {
       // A cleared list (TodoWrite with no todos, Codex's empty plan) takes the checklist away.
       if (Array.isArray(update.entries) && plan.length === 0) {
         if (existing) this.rows.delete(existing.id);
+        // Cleared before this turn wrote a list: the earlier turn's list stays in its turn, but no
+        // longer carries over under this one (turns.ts earlierTurnPlan).
+        else if (this.progressRow) {
+          const earlier = this.rows.get(this.progressRow);
+          if (earlier?.plan && !earlier.planCleared)
+            this.rows.set(earlier.id, { ...earlier, version: earlier.version + 1, planCleared: true });
+        }
         // Session Info's Progress goes with it, even when a later prompt already closed that row.
         this.progressRow = null;
         this.progressSuperseded = false;

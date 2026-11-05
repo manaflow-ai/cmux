@@ -402,6 +402,9 @@ export type AcpmuxRow = {
   /// A plan row that stands for an earlier turn's list under the running turn (turns.ts
   /// `earlierTurnPlan`): it reads as from before the person's last message, and nothing spins.
   planEarlier?: boolean;
+  /// A plan row whose list a later turn cleared before writing one of its own (an empty `plan`,
+  /// direct.ts): it stays folded in its own turn but no longer carries over (turns.ts `earlierTurnPlan`).
+  planCleared?: boolean;
   /// A background task row's shell, which ended where the row sits (cx-ncc.84).
   backgroundTask?: AcpmuxBackgroundTask;
   /// A compaction row's compaction, noted where it happened.

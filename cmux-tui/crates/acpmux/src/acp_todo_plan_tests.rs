@@ -52,9 +52,23 @@ fn a_failed_call_changes_nothing() {
     watch.observe(&mut call("c1", json!([{"content": "A", "status": "pending"}])));
     let mut failed = result("c1", "failed");
     assert_eq!(watch.observe(&mut failed), None);
-    // Marked, so the pane shows its row again (hiddenTools.ts `isPlanToolCall`).
+    // Marked, so the pane shows its row again (hiddenTools.ts `isPlanToolCall`), with the call's
+    // own title, kind and input, since the pane never drew the call.
     assert!(marked(&failed));
+    assert_eq!(failed["title"], json!("todo_write"));
+    assert_eq!(failed["kind"], json!("other"));
+    assert_eq!(failed["rawInput"], json!({"todos": [{"content": "A", "status": "pending"}]}));
     assert!(watch.calls.is_empty());
+}
+
+#[test]
+fn a_failed_result_keeps_its_own_fields() {
+    let mut watch = Watch::default();
+    watch.observe(&mut call("c1", json!([{"content": "A", "status": "pending"}])));
+    let mut failed = result("c1", "failed");
+    failed["title"] = json!("todo_write: bad input");
+    watch.observe(&mut failed);
+    assert_eq!(failed["title"], json!("todo_write: bad input"));
 }
 
 #[test]
@@ -91,10 +105,26 @@ fn a_reused_id_is_a_new_call() {
 #[test]
 fn the_shared_watch_holds_a_chat_only_while_its_call_runs() {
     let session = "acp-todo-plan-test-session";
-    assert_eq!(observe(session, &mut call("c1", json!([{"content": "A", "status": "pending"}]))), None);
+    assert_eq!(
+        observe(session, &mut call("c1", json!([{"content": "A", "status": "pending"}]))),
+        None
+    );
     assert!(WATCHES.lock().unwrap().contains_key(session));
     assert!(observe(session, &mut result("c1", "completed")).is_some());
     assert!(!WATCHES.lock().unwrap().contains_key(session));
     // Another chat's result is not this chat's call.
     assert_eq!(observe("acp-todo-plan-other", &mut result("c1", "completed")), None);
+}
+
+#[test]
+fn a_turns_end_drops_its_held_calls() {
+    let session = "acp-todo-plan-forget-session";
+    observe(session, &mut call("c1", json!([{"content": "A", "status": "pending"}])));
+    assert!(WATCHES.lock().unwrap().contains_key(session));
+    forget(session);
+    assert!(!WATCHES.lock().unwrap().contains_key(session));
+    // A result after the turn ended makes no plan.
+    let mut late = result("c1", "completed");
+    assert_eq!(observe(session, &mut late), None);
+    assert!(!marked(&late));
 }
