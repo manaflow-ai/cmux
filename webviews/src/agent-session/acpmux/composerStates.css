@@ -257,6 +257,14 @@
   .acpmux-composer > .acpmux-composer-box.ui-glass-material {
   --glass-backdrop: var(--glass-material-backdrop);
 }
+/* In the dock no transcript row is ever under the card (conversation.css masks rows out under the
+   bottom stack), so Chromium's underlay (glass.css, "CHROMIUM OVER THE WINDOW GLASS"), which is
+   there to hide crisp text under floating glass, hid only the wallpaper: at 70% under the card's own
+   tint the card covered about 85% of the art and read as a dark slab. The docked card draws its tint
+   alone, so the wallpaper shows through it. Everywhere else the underlay stays. */
+.acpmux-dock > .acpmux-composer > .acpmux-composer-box.ui-glass-material {
+  --glass-underlay: 0%;
+}
 
 /* Composer chips: Plan, the mode, model and effort pickers, +, the mic and Steer. A press keeps the
    hover's pill, with no brighter or tinted tone, and no shrink or dip (Leo 2026-10-19: no mousedown

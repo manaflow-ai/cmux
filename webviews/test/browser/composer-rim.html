@@ -60,6 +60,15 @@
           <div class="acpmux-md" contenteditable="true" id="queue-composer-field"></div>
         </div>
       </div>
+      <!-- The chat's composer in its dock (App.tsx .acpmux-dock), where no transcript row is ever
+           under the card (glass-material.test.ts). -->
+      <div class="acpmux-dock">
+        <div class="acpmux-composer">
+          <div class="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box" id="docked-composer">
+            <div class="acpmux-md" contenteditable="true" id="docked-composer-field"></div>
+          </div>
+        </div>
+      </div>
       <div class="acpmux-composer" data-shell="">
         <div class="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box" id="shell">
           <textarea class="acpmux-shell-field" id="shell-field"></textarea>

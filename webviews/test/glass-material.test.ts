@@ -3,11 +3,13 @@
 // art under Plain glass, in a light and a dark theme, the card draws a specular rim lit from above
 // and a little left (the crisp top line and a soft band round the top corners), a fainter return
 // along the bottom and right, a sheen under its top edge, and a soft two-step shadow, dark themes
-// too. Over art its frost keeps the art's colors vivid (saturate 1.8). Reduce Transparency keeps the
+// too. Over art its frost keeps the art's colors vivid (saturate 1.8), and in the dock (where no
+// transcript row is ever under it) it draws no Chromium underlay, so the art shows through. Reduce Transparency keeps the
 // solid card with no specular band and no frost; appearance.borders none clears the rim's light.
 //
 // Before: the card's rim was two hairlines (white at 22% on dark) and a dark theme drew no shadow,
-// so over a wallpaper it read as a flat translucent box.
+// so over a wallpaper it read as a flat translucent box; in Chromium the 70% underlay under its
+// tint covered about 85% of the art.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/glass-material.test.ts
@@ -112,7 +114,22 @@ await requireBrowserLane("glass-material.test.ts", async () => {
       const { fill, backdrop } = await look(page);
       expect(backdrop).toContain("blur(24px)");
       expect(backdrop).toContain("saturate(1.8)");
-      expect(fill, "the tint stays the card's own 50%").toBeCloseTo(0.5, 2);
+      // Chromium's underlay (glass.css) is the fill's color layer: under floating glass it hides
+      // crisp text at 70%. A card outside the dock keeps it.
+      expect(fill, "a card outside the dock keeps Chromium's 70% underlay").toBeCloseTo(0.7, 2);
+      await page.close();
+    });
+
+  for (const colorScheme of ["light", "dark"] as const)
+    test(`${colorScheme}, art under Plain glass: the docked card draws no underlay, so the art shows through`, async () => {
+      const page = await open(colorScheme, { "data-cmux-see-through": "", "data-glass": "plain" });
+      const { fill, backdrop } = await look(page, "docked-composer");
+      expect(fill, "no underlay under the docked card").toBe(0);
+      expect(backdrop).toContain("saturate(1.8)");
+      const tint = await page.evaluate(
+        () => getComputedStyle(document.getElementById("docked-composer")!).backgroundImage,
+      );
+      expect(tint, "its tint is still drawn").toContain("gradient");
       await page.close();
     });
 
