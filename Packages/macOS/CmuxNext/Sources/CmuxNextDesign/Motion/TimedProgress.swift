@@ -20,6 +20,8 @@ public final class TimedProgress: MotionAnimating {
     private var elapsed: Double = 0
     private var duration: Double = 0
     private var completion: (@MainActor () -> Void)?
+    /// The end is applied and waits a frame for its completion: the frame that applied it is committed first.
+    private var landed = false
     private weak var clock: MotionClock?
     /// Whether a transition is under way (started and not at its end).
     public private(set) var isRunning = false
@@ -28,8 +30,10 @@ public final class TimedProgress: MotionAnimating {
         self.apply = apply
     }
 
-    /// Runs a transition of `duration` seconds on `view`'s window clock. `completion` runs after the last frame's
-    /// `apply`; a transition replaced by a newer `run` or ended by `stop` never runs its completion.
+    /// Runs a transition of `duration` seconds on `view`'s window clock. `completion` runs on the frame after the one
+    /// that applied the end, once that frame is committed (as an AppKit animation's completion runs once its last
+    /// frame shows), so whoever reads the transition as settled reads the end on screen; a transition replaced by a
+    /// newer `run` or ended by `stop` never runs its completion.
     public func run(duration: TimeInterval, in view: NSView, trace: String, completion: (@MainActor () -> Void)? = nil) {
         stop()
         guard duration > 0 else {
@@ -37,7 +41,7 @@ public final class TimedProgress: MotionAnimating {
             completion?()
             return
         }
-        (elapsed, self.duration, self.completion, isRunning) = (0, duration, completion, true)
+        (elapsed, self.duration, self.completion, isRunning, landed) = (0, duration, completion, true, false)
         let clock = MotionClock.forView(view)
         self.clock = clock
         clock.run(self, trace: trace)
@@ -46,7 +50,7 @@ public final class TimedProgress: MotionAnimating {
     /// Ends the transition where it shows, with no further `apply` and no completion.
     public func stop() {
         guard isRunning else { return }
-        (isRunning, completion) = (false, nil)
+        (isRunning, completion, landed) = (false, nil, false)
         clock?.stop(self)
     }
 
@@ -58,19 +62,25 @@ public final class TimedProgress: MotionAnimating {
 
     public func motionStep(_ dt: Double) -> Bool { // perf-hot: 4ms motion-frame
         guard isRunning else { return false }
+        guard !landed else { return finish() }
         elapsed += dt
         let fraction = elapsed / duration
         apply(Self.progress(at: fraction))
-        guard fraction >= 1 else { return true }
-        let done = completion
-        (isRunning, completion) = (false, nil)
-        done?()
-        return false
+        // The end shows in this frame's commit; the completion waits for the next frame.
+        if fraction >= 1 { landed = true }
+        return true
     }
 
     public func motionSettle() {
         guard isRunning else { return }
-        elapsed = duration
-        _ = motionStep(0)
+        if !landed { apply(1) }
+        _ = finish()
+    }
+
+    private func finish() -> Bool {
+        let done = completion
+        (isRunning, completion, landed) = (false, nil, false)
+        done?()
+        return false
     }
 }
