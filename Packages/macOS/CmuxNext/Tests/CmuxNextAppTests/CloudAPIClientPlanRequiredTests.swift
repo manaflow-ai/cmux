@@ -34,7 +34,7 @@ struct CloudAPIClientPlanRequiredTests {
         let api = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" },
                                  session: URLSession(configuration: sessionConfiguration))
         do {
-            try await api.setIdlePause("vm-1", minutes: 0)
+            _ = try await api.attachEndpoint("vm-1")
             return nil
         } catch {
             return error

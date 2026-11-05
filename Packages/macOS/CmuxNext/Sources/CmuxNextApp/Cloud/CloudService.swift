@@ -748,7 +748,7 @@ final class CloudService {
         // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.
         if let idlePause, machine.idlePauseMinutes != idlePause {
             do {
-                try await api.pinningTeam(creation?.request.team ?? request.team).setIdlePause(machine.id, minutes: idlePause)
+                try await setIdlePause(machine.id, minutes: idlePause)
                 machine.idlePauseMinutes = idlePause
                 // A refresh may have listed the machine meanwhile: its session holds the record, and a
                 // list read before the PUT must not put the old value back.
@@ -798,7 +798,7 @@ final class CloudService {
         changes.began { [weak self] in _ = await self?.refresh() }; await refresh(); logger.info("\(origin == .script ? "passively resumed" : "resumed", privacy: .public) machine \(machineID, privacy: .public)")
     }
 
-    /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes
+    /// The machine's idle auto-pause (`cloud.machine.idle_policy.set`): minutes
     /// of idle before cmux Cloud pauses it; 0 is Off.
     func setIdlePause(_ machineID: String, minutes: Int) async throws {
         _ = try await appOps("cloud.machine.idle_policy.set", .object([

@@ -38,7 +38,7 @@
     {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/vm",
-      "count": 30,
+      "count": 29,
       "reason": "debt: the NEXT Cloud REST client's machine calls still use classic /api/vm until cmux-platform's machine API replaces them"
     },
     {
