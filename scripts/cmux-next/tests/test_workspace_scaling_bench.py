@@ -18,16 +18,27 @@ class WorkspaceScalingTests(unittest.TestCase):
         self.assertEqual(result["p99"], 4.96)
 
     def test_warning_is_advisory_above_ten_percent(self):
-        rows = [{"interaction": "sidebar_scroll", "workspaces": 1, "p95": 10},
+        rows = [{"interaction": "sidebar_scroll", "workspaces": 100, "p95": 10},
                 {"interaction": "sidebar_scroll", "workspaces": 1000, "p95": 11.1}]
         warning = bench.scaling_warnings(rows)
         self.assertEqual(len(warning), 1)
+        self.assertEqual(warning[0]["baseline_workspaces"], 100)
         self.assertEqual(warning[0]["ratio"], 1.11)
 
     def test_flat_ratio_has_no_warning(self):
         rows = [{"interaction": "type", "workspaces": 1, "p95": 10},
                 {"interaction": "type", "workspaces": 1000, "p95": 11}]
         self.assertEqual(bench.scaling_warnings(rows), [])
+
+    def test_incomplete_probe_does_not_publish_rows(self):
+        rows = bench.collect({1: {"invalid_probes": ["typing"], "typing": {"phases": []}}})
+        self.assertFalse(any(row["interaction"] == "type" for row in rows))
+
+    def test_switch_uses_real_two_row_baseline(self):
+        rows = [{"interaction": "switch", "workspaces": 100, "p95": 10},
+                {"interaction": "switch", "workspaces": 1000, "p95": 11.1}]
+        warning = bench.scaling_warnings(rows)
+        self.assertEqual(warning[0]["baseline_workspaces"], 100)
 
     def test_single_workspace_switch_is_explicitly_undefined(self):
         rows = bench.collect({1: {"instant": {}, "sidebar": {}, "typing": {}}})
