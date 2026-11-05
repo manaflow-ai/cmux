@@ -106,8 +106,9 @@ if ! granted "$grants" && [[ -z "${CMUX_SCREEN_EVAL_IN_LAUNCHER:-}" ]]; then
       done
       # The app ends the run when this process is gone (a killed step), and the step log follows its output.
       : >"$launch/out.log"
-      tail -n +1 -f "$launch/out.log" &
+      tail -n +1 -F "$launch/out.log" &
       follow=$!
+      pids+=("$follow")
       open -W -n -g -a "$app" --stdout "$launch/out.log" --stderr "$launch/err.log" ${env_args[@]+"${env_args[@]}"} \
         --env "CMUX_SCREEN_EVAL_PARENT=$$" --args "$root/scripts/measure/screen-stream-eval.sh" "$launch/status" "$@" || true
       sleep 1 # the last lines reach the follower
